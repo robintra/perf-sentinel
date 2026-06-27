@@ -95,6 +95,12 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
     let get_tag = |key: &str| -> Option<&str> { tags.and_then(|t| t.get(key).map(String::as_str)) };
 
     // Determine event type from tags
+    let db_system = get_tag("db.system");
+    // Drop non-SQL datastore spans (Redis, MongoDB, ...) unconditionally:
+    // their statement is not relational SQL and we do not model these stores.
+    if db_system.is_some_and(super::is_non_sql_db_system) {
+        return None;
+    }
     let (event_type, target) =
         if let Some(stmt) = get_tag("db.statement").or_else(|| get_tag("db.query.text")) {
             (EventType::Sql, stmt.to_string())
@@ -105,7 +111,7 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         };
 
     let operation = match event_type {
-        EventType::Sql => get_tag("db.system").unwrap_or("unknown").to_string(),
+        EventType::Sql => db_system.unwrap_or("unknown").to_string(),
         EventType::HttpOut => get_tag("http.method")
             .or_else(|| get_tag("http.request.method"))
             .unwrap_or("GET")
@@ -261,6 +267,29 @@ mod tests {
         assert_eq!(http.duration_us, 15000);
         assert_eq!(http.status_code, Some(200));
         assert_eq!(http.parent_span_id.as_deref(), Some("span-1"));
+    }
+
+    #[test]
+    fn non_sql_datastore_span_is_dropped() {
+        // A Redis span carries a db.statement that is not relational SQL;
+        // it must be dropped, never tokenized as SQL.
+        let json = r#"[
+            {
+                "traceId": "t1", "id": "s1",
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "db.system": "redis", "db.statement": "GET user:123" }
+            },
+            {
+                "traceId": "t1", "id": "s2",
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "db.system": "postgresql", "db.statement": "SELECT 1" }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].operation, "postgresql");
     }
 
     #[test]

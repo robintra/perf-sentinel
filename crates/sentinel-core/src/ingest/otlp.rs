@@ -45,6 +45,7 @@ pub struct SpanConversionStats {
     pub filtered_not_io: u64,
     pub filtered_missing_db_statement: u64,
     pub filtered_missing_http_url: u64,
+    pub filtered_non_sql_datastore: u64,
 }
 
 impl SpanConversionStats {
@@ -53,6 +54,7 @@ impl SpanConversionStats {
             OtlpSpanFilterReason::NotIo => self.filtered_not_io += 1,
             OtlpSpanFilterReason::MissingDbStatement => self.filtered_missing_db_statement += 1,
             OtlpSpanFilterReason::MissingHttpUrl => self.filtered_missing_http_url += 1,
+            OtlpSpanFilterReason::NonSqlDatastore => self.filtered_non_sql_datastore += 1,
         }
     }
 
@@ -61,7 +63,7 @@ impl SpanConversionStats {
     /// metrics sink). Kept next to [`Self::count_filtered`] so the two
     /// directions of the mapping cannot drift apart.
     #[must_use]
-    pub fn filtered_counts(&self) -> [(OtlpSpanFilterReason, u64); 3] {
+    pub fn filtered_counts(&self) -> [(OtlpSpanFilterReason, u64); 4] {
         [
             (OtlpSpanFilterReason::NotIo, self.filtered_not_io),
             (
@@ -71,6 +73,10 @@ impl SpanConversionStats {
             (
                 OtlpSpanFilterReason::MissingHttpUrl,
                 self.filtered_missing_http_url,
+            ),
+            (
+                OtlpSpanFilterReason::NonSqlDatastore,
+                self.filtered_non_sql_datastore,
             ),
         ]
     }
@@ -489,6 +495,28 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
     }
 }
 
+/// Classify an analyzable span as SQL or outbound HTTP, returning
+/// `(event_type, target, operation)`. `None` when it carries neither a
+/// statement nor a URL. Supports both legacy (pre-1.21) and stable (1.21+)
+/// `OTel` semantic conventions.
+fn classify_io_event(c: &ClassifiedAttrs<'_>) -> Option<(EventType, String, String)> {
+    if let Some(statement) = c.db_statement.or(c.db_query_text) {
+        // db.system (e.g. "postgresql"), not the SQL verb. The verb is
+        // extracted from target by energy_coefficient() in the scoring stage.
+        let op = c.db_system.unwrap_or("sql").to_string();
+        Some((EventType::Sql, statement.to_string(), op))
+    } else if let Some(url) = c.http_url.or(c.url_full) {
+        let method = c
+            .http_method
+            .or(c.http_request_method)
+            .unwrap_or("GET")
+            .to_string();
+        Some((EventType::HttpOut, url.to_string(), method))
+    } else {
+        None
+    }
+}
+
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
 ///
 /// Non-I/O spans return the filter reason so the caller can tally them.
@@ -501,24 +529,19 @@ fn convert_span(
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let classified = classify_span_attrs(&span.attributes);
 
-    // Determine event type: SQL if db.statement/db.query.text present, HTTP if http.url/url.full present.
-    // Supports both legacy (pre-1.21) and stable (1.21+) OTel semantic conventions.
-    let (event_type, target, operation) =
-        if let Some(statement) = classified.db_statement.or(classified.db_query_text) {
-            // db.system (e.g. "postgresql"), not the SQL verb. The verb is
-            // extracted from target by energy_coefficient() in the scoring stage.
-            let op = classified.db_system.unwrap_or("sql").to_string();
-            (EventType::Sql, statement.to_string(), op)
-        } else if let Some(url) = classified.http_url.or(classified.url_full) {
-            let method = classified
-                .http_method
-                .or(classified.http_request_method)
-                .unwrap_or("GET")
-                .to_string();
-            (EventType::HttpOut, url.to_string(), method)
-        } else {
-            return Err(span_filter_reason(&classified, span.kind));
-        };
+    // Non-SQL datastore (Redis, MongoDB, ...): dropped, not modeled. Gated on
+    // db.system so a statement-less or url-bearing span is also dropped, and
+    // never mistaken for an instrumentation gap.
+    if classified
+        .db_system
+        .is_some_and(crate::ingest::is_non_sql_db_system)
+    {
+        return Err(OtlpSpanFilterReason::NonSqlDatastore);
+    }
+
+    let Some((event_type, target, operation)) = classify_io_event(&classified) else {
+        return Err(span_filter_reason(&classified, span.kind));
+    };
 
     // Timestamps and duration
     let start_nanos = span.start_time_unix_nano;
@@ -1042,8 +1065,67 @@ mod tests {
                 filtered_not_io: 1,
                 filtered_missing_db_statement: 1,
                 filtered_missing_http_url: 1,
+                filtered_non_sql_datastore: 0,
             }
         );
+    }
+
+    #[test]
+    fn non_sql_datastore_span_is_dropped() {
+        // A Redis span carries a db.statement that is not relational SQL;
+        // it must be dropped under the dedicated reason, never tokenized.
+        let redis = make_bare_span(
+            &[8; 8],
+            vec![
+                make_kv("db.system", "redis"),
+                make_kv("db.statement", "GET user:123"),
+            ],
+        );
+        let sql = make_sql_span(&[1; 16], &[7; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request("order-svc", vec![redis, sql]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(stats.received, 2);
+        assert_eq!(stats.filtered_non_sql_datastore, 1);
+        assert_eq!(stats.filtered_not_io, 0);
+    }
+
+    #[test]
+    fn non_sql_datastore_span_with_url_is_dropped_not_http() {
+        // An ES/OpenSearch span over an HTTP transport may carry both a
+        // statement and url.full; the db.system gate must still drop it
+        // rather than reclassify it as an HTTP outbound call.
+        let es = make_bare_span(
+            &[8; 8],
+            vec![
+                make_kv("db.system", "elasticsearch"),
+                make_kv("db.statement", "GET /index/_search"),
+                make_kv("url.full", "http://es:9200/index/_search"),
+            ],
+        );
+        let req = make_request("search-svc", vec![es]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_non_sql_datastore, 1);
+    }
+
+    #[test]
+    fn non_sql_datastore_span_without_statement_is_not_an_instrumentation_gap() {
+        // A Redis span with db.system but no db.statement must count as a
+        // deliberate non-SQL drop, not a MissingDbStatement instrumentation gap.
+        let redis = make_bare_span(&[8; 8], vec![make_kv("db.system", "redis")]);
+        let req = make_request("cache-svc", vec![redis]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_non_sql_datastore, 1);
+        assert_eq!(stats.filtered_missing_db_statement, 0);
     }
 
     #[test]
@@ -1069,6 +1151,7 @@ mod tests {
                 filtered_not_io: 1,
                 filtered_missing_db_statement: 0,
                 filtered_missing_http_url: 1,
+                filtered_non_sql_datastore: 0,
             }
         );
     }
@@ -1096,6 +1179,7 @@ mod tests {
             filtered_not_io: 2,
             filtered_missing_db_statement: 1,
             filtered_missing_http_url: 0,
+            filtered_non_sql_datastore: 3,
         });
 
         assert_eq!(state.otlp_spans_received_total.get(), 5);
@@ -1108,6 +1192,7 @@ mod tests {
         assert_eq!(filtered("not_io"), 2);
         assert_eq!(filtered("missing_db_statement"), 1);
         assert_eq!(filtered("missing_http_url"), 0);
+        assert_eq!(filtered("non_sql_datastore"), 3);
     }
 
     #[test]

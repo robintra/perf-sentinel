@@ -4,6 +4,7 @@
 
 - [OTLP capture reliability](#otlp-capture-reliability): why perf-sentinel may miss spans as a passive listener.
 - [Instrumentation quality bounds findings](#instrumentation-quality-bounds-findings): why a thin report can mean missing instrumentation, not a clean service.
+- [Non-SQL datastores are not analyzed](#non-sql-datastores-are-not-analyzed): why Redis, MongoDB and similar spans are dropped at ingestion.
 - [SQL tokenizer](#sql-tokenizer): regex-based normalizer trade-offs.
 - [ORM bind parameters and N+1 vs redundant classification](#orm-bind-parameters-and-n1-vs-redundant-classification): how named bind placeholders affect classification.
 - [HTTP query-string redaction and N+1 visibility](#http-query-string-redaction-and-n1-visibility): why query-parameter N+1 loops are invisible under instrumentations that redact the query string.
@@ -49,6 +50,12 @@ Every finding is derived from a normalized span. perf-sentinel reads a closed li
 The skip emits no per-span warning or error, so a missing attribute does not surface as a problem, it surfaces as the *absence* of a finding. Since 0.8.7 the daemon counts the filtering in aggregate: `perf_sentinel_otlp_spans_received_total` and `perf_sentinel_otlp_spans_filtered_total{reason}` expose the retention ratio on `/metrics` (see [METRICS.md](./METRICS.md#otlp-ingestion-metrics)), so a fleet whose spans all filter out is visible without per-span noise. The common real-world cause is an instrumentation that omits the statement by default: .NET needs `SetDbStatementForText = true`, and several libraries redact statements for security unless statement capture is explicitly enabled. See [Required span attributes](./INSTRUMENTATION.md#required-span-attributes) for the per-language settings.
 
 The operational consequence: a thin or empty report is not evidence that a service is clean. It can equally mean the spans never carried what perf-sentinel needs. Audit your own tracing before trusting a low score. Run `perf-sentinel inspect --input <events.json>` (or `query --daemon <URL> inspect` against a live daemon) and confirm that SQL and HTTP spans appear with their query text and URLs. A sparse or empty span tree is the signal that the entry cost is instrumentation work, not a green light.
+
+## Non-SQL datastores are not analyzed
+
+perf-sentinel models two I/O kinds, relational SQL and outbound HTTP. A span whose `db.system` names a non-SQL datastore (`redis`, `memcached`, `mongodb`, `cassandra`, `dynamodb`, `couchbase`, `couchdb`, `elasticsearch`, `opensearch`, `neo4j`, `hbase`, `geode`, `influxdb`) is dropped at ingestion, because its `db.statement` is not relational SQL and the SQL tokenizer would mangle it (a Redis `GET user:123` is not a query template). The drop is gated on `db.system` alone, so a non-SQL span is dropped whether or not it carries a statement or a URL, consistently across the OTLP, Jaeger and Zipkin paths. Dropping is the harm-reduction choice: it avoids false N+1 and redundant findings on cache or document traffic. A `db.system` that is absent or names a SQL engine (`postgresql`, `mysql`, `mssql`, `oracle`, `clickhouse`, `cockroachdb`, ...) is always treated as SQL, so no relational traffic is dropped by mistake.
+
+Because the span never enters the pipeline, a dropped non-SQL call is also invisible to the structural detectors (excessive fanout, serialized calls): a request that fans out to many cache or document-store calls will not raise those findings. On the OTLP path the drop is counted under the dedicated `non_sql_datastore` reason in `perf_sentinel_otlp_spans_filtered_total`, kept separate from `not_io` so a cache-only fleet does not trip the daemon zero-retention warning, which counts only genuine instrumentation-gap reasons.
 
 ## SQL tokenizer
 

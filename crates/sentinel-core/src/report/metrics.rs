@@ -78,13 +78,22 @@ pub enum OtlpSpanFilterReason {
     MissingDbStatement,
     /// Span has an HTTP method but no `http.url`/`url.full` to analyze.
     MissingHttpUrl,
+    /// Span names a non-SQL datastore in `db.system` (Redis, `MongoDB`, ...).
+    /// Dropped on purpose, not an instrumentation gap, so it is excluded
+    /// from the daemon zero-retention warning.
+    NonSqlDatastore,
 }
 
 impl OtlpSpanFilterReason {
     /// Every variant in declaration order. Fixed-size array so adding a
     /// variant without bumping the count is a compile-time error,
     /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
-    pub const ALL: [Self; 3] = [Self::NotIo, Self::MissingDbStatement, Self::MissingHttpUrl];
+    pub const ALL: [Self; 4] = [
+        Self::NotIo,
+        Self::MissingDbStatement,
+        Self::MissingHttpUrl,
+        Self::NonSqlDatastore,
+    ];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -92,6 +101,7 @@ impl OtlpSpanFilterReason {
             Self::NotIo => "not_io",
             Self::MissingDbStatement => "missing_db_statement",
             Self::MissingHttpUrl => "missing_http_url",
+            Self::NonSqlDatastore => "non_sql_datastore",
         }
     }
 }
@@ -2452,6 +2462,7 @@ mod tests {
                 "missing_db_statement",
             ),
             (OtlpSpanFilterReason::MissingHttpUrl, "missing_http_url"),
+            (OtlpSpanFilterReason::NonSqlDatastore, "non_sql_datastore"),
         ] {
             assert_eq!(variant.as_str(), label);
         }
