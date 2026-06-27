@@ -296,7 +296,6 @@ struct EmbeddedSpan<'a> {
     endpoint: &'a str,
     event_type: &'static str,
     operation: &'a str,
-    target: &'a str,
     template: &'a str,
     duration_us: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -754,7 +753,10 @@ fn embed_span(e: &NormalizedEvent) -> EmbeddedSpan<'_> {
             EventType::HttpOut => "http_out",
         },
         operation: e.event.operation.as_str(),
-        target: e.event.target.as_str(),
+        // Only the masked template is embedded. The raw event.target (the
+        // original db.statement / URL) carries literals and must never reach
+        // the HTML payload. The JS falls back template-first, so dropping it
+        // loses nothing observable.
         template: e.template.as_ref(),
         duration_us: e.event.duration_us,
         status_code: e.event.status_code,
@@ -982,6 +984,32 @@ mod tests {
             .as_str()
             .expect("template present");
         assert_eq!(finding_tpl, hostile);
+    }
+
+    #[test]
+    fn embedded_span_does_not_leak_raw_sql_literals() {
+        // The raw db.statement carries secrets; only the masked template may
+        // reach the HTML payload. Regression for the embedded-traces leak
+        // where EmbeddedSpan.target serialized event.target verbatim.
+        let masked = "SELECT * FROM t WHERE tags = ARRAY[?, ?]";
+        let mut ev = span("t1", "s1", None, "svc", "/ep", masked);
+        ev.event.target =
+            "SELECT * FROM t WHERE tags = ARRAY['LEAK_CANARY_SECRET', 'LEAK_CANARY_PII']".into();
+        let report = minimal_report(vec![finding("t1", "svc", "/ep", masked)]);
+        let trace = Trace {
+            trace_id: "t1".into(),
+            spans: vec![ev],
+        };
+        let (html, _) = render(&report, &[trace], &opts("-", None));
+
+        assert!(
+            !html.contains("LEAK_CANARY_SECRET") && !html.contains("LEAK_CANARY_PII"),
+            "raw SQL literal leaked into the HTML payload"
+        );
+        assert!(
+            html.contains("ARRAY[?, ?]"),
+            "masked template should still be present"
+        );
     }
 
     #[test]
