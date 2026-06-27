@@ -5,7 +5,8 @@
 //! recognized as driver placeholders and emitted as `$?` with empty
 //! `params` (not extracted as literals). This keeps `params` empty for
 //! parameterized queries so the sanitizer-aware detection path can
-//! fire. Collapses `IN (?, ?, ?)` into `IN (?)`.
+//! fire. Collapses `IN (?, ?, ?)` into `IN (?)`. Quoted identifiers are
+//! preserved verbatim: ANSI `"id"` and `MySQL` `` `id` ``.
 
 use regex::Regex;
 use std::borrow::Cow;
@@ -28,6 +29,8 @@ enum State {
     InNumber,
     /// Inside a double-quoted identifier (e.g., `"MyTable"`). Preserved as-is.
     InDoubleQuote,
+    /// Inside a `MySQL` backtick-quoted identifier (e.g. `` `col` ``). Preserved as-is.
+    InBacktick,
     /// Inside a `PostgreSQL` dollar-quoted string (e.g., `$$body$$` or `$tag$body$tag$`).
     InDollarQuote,
 }
@@ -84,6 +87,7 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
             State::InString => step_in_string(&mut t),
             State::InNumber => step_in_number(&mut t),
             State::InDoubleQuote => step_in_double_quote(&mut t),
+            State::InBacktick => step_in_backtick(&mut t),
             State::InDollarQuote => step_in_dollar_quote(&mut t),
         }
     }
@@ -120,6 +124,11 @@ fn step_normal(t: &mut Tokenizer<'_>) {
     } else if b == b'"' {
         // Double-quoted identifier: preserve as-is (don't replace literals inside)
         t.state = State::InDoubleQuote;
+        t.i += 1;
+        return;
+    } else if b == b'`' {
+        // MySQL backtick-quoted identifier: preserve as-is.
+        t.state = State::InBacktick;
         t.i += 1;
         return;
     } else if b == b'$' && is_dollar_param(t.i, t.bytes) {
@@ -205,6 +214,15 @@ fn step_in_number(t: &mut Tokenizer<'_>) {
 
 fn step_in_double_quote(t: &mut Tokenizer<'_>) {
     if t.bytes[t.i] == b'"' {
+        t.state = State::Normal;
+    }
+    t.i += 1;
+}
+
+fn step_in_backtick(t: &mut Tokenizer<'_>) {
+    // Closes on the first backtick; doubled-backtick escapes (`` `a``b` ``)
+    // are not handled, matching the existing double-quote behavior.
+    if t.bytes[t.i] == b'`' {
         t.state = State::Normal;
     }
     t.i += 1;
@@ -297,7 +315,7 @@ fn flush_pending(t: &mut Tokenizer<'_>) {
             t.params.push(std::mem::take(&mut t.current_value));
             t.template.push('?');
         }
-        State::Normal | State::InDoubleQuote => {
+        State::Normal | State::InDoubleQuote | State::InBacktick => {
             let len = t.bytes.len();
             if len > t.normal_start {
                 t.template
@@ -552,6 +570,46 @@ mod tests {
         let r = normalize_sql(r#"SELECT * FROM "table_2" WHERE "col_3" = 'value'"#);
         assert_eq!(r.template, r#"SELECT * FROM "table_2" WHERE "col_3" = ?"#);
         assert_eq!(r.params, vec!["value"]);
+    }
+
+    // -- MySQL backtick identifiers --
+
+    #[test]
+    fn backtick_identifier_preserved() {
+        let r = normalize_sql("SELECT `name` FROM `users` WHERE `id` = 42");
+        assert_eq!(r.template, "SELECT `name` FROM `users` WHERE `id` = ?");
+        assert_eq!(r.params, vec!["42"]);
+    }
+
+    #[test]
+    fn backtick_identifier_with_digits_preserved() {
+        // Digits inside backticks must NOT be extracted as literals.
+        let r = normalize_sql("SELECT `col2` FROM `table_3` WHERE `id` = 'x'");
+        assert_eq!(r.template, "SELECT `col2` FROM `table_3` WHERE `id` = ?");
+        assert_eq!(r.params, vec!["x"]);
+    }
+
+    #[test]
+    fn sqlserver_bracket_identifier_survives_without_special_handling() {
+        // `[` is not a special state, but common SQL Server identifiers still
+        // normalize cleanly: a digit after an identifier byte is kept (`Col1`),
+        // the literal outside the brackets becomes `?`.
+        let r = normalize_sql("SELECT [Col1] FROM [dbo].[Users] WHERE [Id] = 5");
+        assert_eq!(
+            r.template,
+            "SELECT [Col1] FROM [dbo].[Users] WHERE [Id] = ?"
+        );
+        assert_eq!(r.params, vec!["5"]);
+    }
+
+    #[test]
+    fn bracket_string_literals_are_redacted() {
+        // PostgreSQL array/subscript string values must be redacted, not
+        // leaked verbatim: `[` is a normal char, so `'...'` runs through the
+        // string path. Guards against PII/secret leakage into templates.
+        let r = normalize_sql("SELECT * FROM t WHERE tags = ARRAY['secret', 'pii']");
+        assert_eq!(r.template, "SELECT * FROM t WHERE tags = ARRAY[?, ?]");
+        assert_eq!(r.params, vec!["secret", "pii"]);
     }
 
     // -- PostgreSQL positional parameters ($1, $2) --

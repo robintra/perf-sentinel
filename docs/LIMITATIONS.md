@@ -64,10 +64,10 @@ The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL 
 - No semantic parsing: literals and UUIDs are replaced positionally, no AST.
 - Query length: 64 KB cap, truncated at a character boundary before normalization to bound adversarial input memory.
 - CTEs (`WITH ... AS (...)`) supported including nested.
-- Double-quoted identifiers (`"MyTable"`) preserved, digits inside quotes are not mistaken for literals.
+- Quoted identifiers are preserved verbatim and digits inside them are not mistaken for literals: ANSI `"MyTable"` and MySQL `` `table` ``. The scan closes on the first delimiter, so a doubled-delimiter escape (`""`, `` ` `` `` ` ``) is not decoded.
 - Dollar-quoted strings (`$$body$$`, `$tag$body$tag$`) collapse to `?`, including in function bodies.
 - `CALL` statements normalize literal params, SQL expressions like `NOW()` and `INTERVAL '...'` are handled.
-- Backtick identifiers (MySQL `` `table` ``) pass through unchanged.
+- SQL Server `[...]` identifiers are not special-cased (`[` is a normal character). Common ones like `[Order Details]` or `[Col1]` survive intact, while an all-numeric bracketed identifier such as `[123]` has its digits replaced with `?`. Treating `[` as a normal character keeps PostgreSQL array literals and subscripts (`ARRAY['a', 'b']`, `arr[1]`) correctly redacted.
 
 If a query normalizes incorrectly, open an issue with the raw SQL anonymized.
 
