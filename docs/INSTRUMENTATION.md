@@ -19,6 +19,7 @@ This guide covers the parts of the data pipeline that turn an application's runt
     - [FastAPI + SQLAlchemy + asyncpg](#python-fastapi--sqlalchemy-2x--asyncpg-otel-sdk-142)
   - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
   - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
+  - [Ruby (Rails + ActiveRecord)](#ruby-rails--activerecord-opentelemetry-ruby)
 - [SQL placeholder styles and detection](#sql-placeholder-styles-and-detection): how perf-sentinel maps each instrumentation's SQL placeholder to the sanitizer-aware N+1 detection path.
 
 ## Background: OpenTelemetry primer
@@ -755,6 +756,47 @@ let _span = tracing::info_span!("db.query",
     db.statement = "SELECT * FROM player WHERE game_id = 42",
     db.system = "postgresql"
 );
+```
+
+---
+
+### Ruby (Rails + ActiveRecord, opentelemetry-ruby)
+
+Rails applications use the opentelemetry-ruby instrumentation gems. The `ActiveRecord` instrumentation provides the ORM scope, the underlying driver instrumentation (`pg`, `mysql2`) emits the SQL `db.statement`.
+
+**Dependencies (Gemfile):**
+
+```ruby
+gem 'opentelemetry-sdk'
+gem 'opentelemetry-exporter-otlp'
+gem 'opentelemetry-instrumentation-rails'
+gem 'opentelemetry-instrumentation-active_record'
+gem 'opentelemetry-instrumentation-pg'
+```
+
+**Initialization (config/initializers/opentelemetry.rb):**
+
+```ruby
+require 'opentelemetry/sdk'
+require 'opentelemetry/exporter/otlp'
+require 'opentelemetry/instrumentation/all'
+
+OpenTelemetry::SDK.configure do |c|
+  c.service_name = 'rails-svc'
+  c.use 'OpenTelemetry::Instrumentation::Rails'
+  c.use 'OpenTelemetry::Instrumentation::ActiveRecord'
+  c.use 'OpenTelemetry::Instrumentation::PG', { db_statement: :include }
+end
+```
+
+The `pg` instrumentation needs `db_statement: :include` (or the default `:obfuscate`, which emits the sanitized template) so the SQL reaches perf-sentinel. The `OpenTelemetry::Instrumentation::ActiveRecord` scope rides the span chain and is recognized as an ORM, so the sanitizer-aware N+1 path fires and findings carry ActiveRecord-specific suggested fixes (`includes` / `preload` / `eager_load`).
+
+**Environment variables:**
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: rails-svc
 ```
 
 ---
