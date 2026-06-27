@@ -2,6 +2,21 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.2]
+
+### Added
+
+- Framework-aware `suggested_fix` now covers Ruby. Findings on Active Record stacks, detected via the `OpenTelemetry::Instrumentation::ActiveRecord` instrumentation scope or a `.rb` source path, carry `includes` / `preload` / `eager_load` remediation, with a Ruby generic fallback across all ten anti-patterns.
+- The SQL normalizer tokenizes MySQL backtick-quoted identifiers (`` `col` ``), preserving them verbatim so digits inside an identifier are no longer extracted as literals.
+
+### Changed
+
+- Spans whose `db.system` names a non-SQL datastore (Redis, Memcached, MongoDB, Cassandra, DynamoDB, Couchbase, CouchDB, Elasticsearch, OpenSearch, Neo4j, HBase, Geode, InfluxDB) are dropped at ingestion across the OTLP, Jaeger and Zipkin paths instead of being fed to the SQL tokenizer, which avoids false `n_plus_one_sql` and `redundant_sql` findings on cache and document traffic. The drop is gated on `db.system` alone and counted under a dedicated `non_sql_datastore` reason on `perf_sentinel_otlp_spans_filtered_total`, kept out of the daemon zero-retention warning so a cache-only fleet no longer raises a phantom instrumentation-gap alert. These spans are not modeled, so they also do not feed the fanout and serialized-calls detectors.
+
+### Fixed
+
+- The self-contained HTML report no longer embeds the raw `db.statement` in its traces payload. The embedded-traces block carried `event.target` verbatim, leaking SQL literals (for example `ARRAY['secret', 'pii']`) into the file even though the displayed template was masked. Only the masked template is embedded now. JSON, SARIF, CLI and Prometheus exemplars were already unaffected.
+
 ## [0.9.1]
 
 ### Security

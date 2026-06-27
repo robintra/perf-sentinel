@@ -6,6 +6,13 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.2]
+
+### Changed
+
+- `appVersion` bumped to `0.9.2`. The daemon binary adds Ruby/Active Record framework-aware suggestions, drops non-SQL datastore spans (Redis, MongoDB and similar) at ingestion under a dedicated `non_sql_datastore` OTLP filter reason, tokenizes MySQL backtick identifiers, and stops embedding the raw `db.statement` in the self-contained HTML report. No chart template change, this bump tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.9.2` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.9.1]
 
 ### Changed
