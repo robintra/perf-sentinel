@@ -613,6 +613,8 @@ end
 
 L'instrumentation `pg` a besoin de `db_statement: :include` (ou de `:obfuscate` par défaut, qui émet le template sanitisé) pour que le SQL parvienne à perf-sentinel. Le scope `OpenTelemetry::Instrumentation::ActiveRecord` circule dans la chaîne de spans et est reconnu comme un ORM, donc le chemin N+1 sanitizer-aware se déclenche et les findings portent des fixes suggérés spécifiques à ActiveRecord (`includes` / `preload` / `eager_load`).
 
+L'instrumentation `active_record` n'émet ce scope que pour les requêtes qui chargent des records (`find_by_sql`, `where(...).to_a`). Les requêtes d'agrégat (`count`, `sum`) ne portent que le span du driver `pg` / `mysql2`, donc leurs findings retombent sur le fix `ruby_generic`.
+
 **Variables d'environnement :**
 
 ```yaml
