@@ -18,6 +18,41 @@ pub mod zipkin;
 
 use crate::event::SpanEvent;
 
+/// `db.system` values for datastores whose `db.statement` is not
+/// relational SQL and would be mangled by the SQL tokenizer (cache,
+/// document, wide-column, graph, search, time-series stores).
+///
+/// Denylist by design: only values we are confident are non-SQL are
+/// listed, so an unknown or absent `db.system` always stays SQL and no
+/// SQL engine (postgresql, mysql, mssql, oracle, clickhouse, ...) is
+/// ever dropped by mistake.
+const NON_SQL_DB_SYSTEMS: &[&str] = &[
+    "redis",
+    "memcached",
+    "mongodb",
+    "cassandra",
+    "dynamodb",
+    "couchbase",
+    "couchdb",
+    "elasticsearch",
+    "opensearch",
+    "neo4j",
+    "hbase",
+    "geode",
+    "influxdb",
+];
+
+/// True when `db.system` names a known non-SQL datastore. Such spans
+/// carry a `db.statement` that is not SQL, so they are dropped at
+/// ingestion rather than fed to the SQL tokenizer (perf-sentinel does
+/// not model non-SQL datastores). Case-insensitive, no allocation.
+#[must_use]
+pub(crate) fn is_non_sql_db_system(system: &str) -> bool {
+    NON_SQL_DB_SYSTEMS
+        .iter()
+        .any(|s| system.eq_ignore_ascii_case(s))
+}
+
 /// Trait for event ingestion sources.
 pub trait IngestSource {
     /// Error type for this source.

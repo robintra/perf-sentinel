@@ -978,6 +978,24 @@ const TUNING_ZERO_RETENTION_MIN_RECEIVED: u64 = 1_000;
 /// Note: the cold-start branch in `handle_export_report` returns before
 /// reaching this helper, so `cold_start` never appears together with
 /// these kinds in a single response by design.
+/// Sum of filtered OTLP spans that signal an instrumentation gap.
+/// Excludes `NonSqlDatastore`: those drops are deliberate (Redis/Mongo and
+/// other non-SQL stores are not modeled), so a cache-only fleet must not
+/// trip the zero-retention warning.
+fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
+    use crate::report::metrics::OtlpSpanFilterReason;
+    OtlpSpanFilterReason::ALL
+        .iter()
+        .filter(|r| !matches!(r, OtlpSpanFilterReason::NonSqlDatastore))
+        .map(|r| {
+            metrics
+                .otlp_spans_filtered_total
+                .with_label_values(&[r.as_str()])
+                .get()
+        })
+        .sum()
+}
+
 fn collect_warning_details(
     metrics: &MetricsState,
     daemon: &crate::config::DaemonConfig,
@@ -1070,15 +1088,7 @@ fn collect_warning_details(
     // spans keep arriving and not one is analyzable.
     let received = metrics.otlp_spans_received_total.get();
     if received >= TUNING_ZERO_RETENTION_MIN_RECEIVED {
-        let filtered: u64 = crate::report::metrics::OtlpSpanFilterReason::ALL
-            .iter()
-            .map(|r| {
-                metrics
-                    .otlp_spans_filtered_total
-                    .with_label_values(&[r.as_str()])
-                    .get()
-            })
-            .sum();
+        let filtered = instrumentation_gap_filtered(metrics);
         if filtered >= received {
             details.push(crate::report::Warning::new(
                 TUNING,
