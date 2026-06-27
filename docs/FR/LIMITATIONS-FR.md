@@ -68,10 +68,10 @@ Le normaliseur SQL utilise un tokenizer maison basé sur les regex plutôt qu'un
 - **Pas d'analyse sémantique :** le tokenizer remplace les littéraux et UUIDs de manière positionnelle. Il ne construit pas d'AST et ne peut pas raisonner sur la structure de la requête.
 - **Limite de longueur de requête :** les requêtes SQL dépassant 64 Ko sont tronquées à une frontière de caractère avant la normalisation. Cela empêche les allocations mémoire illimitées depuis des entrées adverses ou pathologiques.
 - **CTEs :** les Common Table Expressions (`WITH ... AS (...)`) sont supportées, le tokenizer normalise correctement les littéraux dans les CTEs, y compris les CTEs imbriquées.
-- **Identifiants double-quoted :** les identifiants SQL standard entre guillemets doubles (`"MyTable"`, `"Column"`) sont préservés tels quels. Les chiffres dans les guillemets doubles ne sont pas confondus avec des littéraux numériques.
+- **Identifiants entre quotes :** les identifiants entre quotes sont préservés tels quels et les chiffres à l'intérieur ne sont pas confondus avec des littéraux : ANSI `"MaTable"` et MySQL `` `table` ``. Le scan ferme sur le premier délimiteur, donc un délimiteur doublé d'échappement (`""`, `` ` `` `` ` ``) n'est pas décodé.
 - **Chaînes dollar-quoted :** les chaînes dollar-quoted PostgreSQL (`$$body$$`, `$tag$body$tag$`) sont remplacées par des placeholders `?`, y compris dans les corps de fonctions.
 - **Instructions `CALL` :** les paramètres littéraux dans `CALL` sont normalisés (`CALL process(42, 'rush')` devient `CALL process(?, ?)`). Les expressions SQL comme `NOW()`, `INTERVAL '...'` sont gérées (la chaîne dans `INTERVAL` est remplacée, l'appel de fonction est préservé).
-- **Identifiants backtick :** les identifiants MySQL entre backticks (`` `table` ``) ne sont pas gérés spécifiquement. Ils passent tels quels sans provoquer d'erreur, mais les backticks restent dans le template.
+- **Identifiants SQL Server `[...]` :** ils ne sont pas traités spécialement (`[` est un caractère normal). Les courants comme `[Order Details]` ou `[Col1]` restent intacts, tandis qu'un identifiant entre crochets purement numérique comme `[123]` voit ses chiffres remplacés par `?`. Traiter `[` comme un caractère normal garde les littéraux et sous-scripts de tableau PostgreSQL (`ARRAY['a', 'b']`, `arr[1]`) correctement masqués.
 
 Si vous rencontrez une requête mal normalisée, veuillez ouvrir une issue avec le SQL brut (anonymisé).
 
