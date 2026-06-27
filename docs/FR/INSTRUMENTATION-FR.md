@@ -19,6 +19,7 @@ Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'u
     - [FastAPI + SQLAlchemy + asyncpg](#python-fastapi--sqlalchemy-2x--asyncpg-otel-sdk-142)
   - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
   - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
+  - [Ruby (Rails + ActiveRecord)](#ruby-rails--activerecord-opentelemetry-ruby)
 - [Styles de placeholders SQL et detection](#styles-de-placeholders-sql-et-détection) : comment perf-sentinel mappe les placeholders SQL de chaque instrumentation vers le chemin de detection N+1 sanitizer-aware.
 
 ## Introduction à OpenTelemetry
@@ -577,6 +578,47 @@ tracing-opentelemetry = "0.33"
 opentelemetry = "0.32"
 opentelemetry_sdk = "0.32"
 opentelemetry-otlp = { version = "0.32", features = ["http-proto", "reqwest-blocking-client"] }
+```
+
+---
+
+### Ruby (Rails + ActiveRecord, opentelemetry-ruby)
+
+Les applications Rails utilisent les gems d'instrumentation opentelemetry-ruby. L'instrumentation `ActiveRecord` fournit le scope ORM, l'instrumentation du driver sous-jacent (`pg`, `mysql2`) émet le `db.statement` SQL.
+
+**Dépendances (Gemfile) :**
+
+```ruby
+gem 'opentelemetry-sdk'
+gem 'opentelemetry-exporter-otlp'
+gem 'opentelemetry-instrumentation-rails'
+gem 'opentelemetry-instrumentation-active_record'
+gem 'opentelemetry-instrumentation-pg'
+```
+
+**Initialisation (config/initializers/opentelemetry.rb) :**
+
+```ruby
+require 'opentelemetry/sdk'
+require 'opentelemetry/exporter/otlp'
+require 'opentelemetry/instrumentation/all'
+
+OpenTelemetry::SDK.configure do |c|
+  c.service_name = 'rails-svc'
+  c.use 'OpenTelemetry::Instrumentation::Rails'
+  c.use 'OpenTelemetry::Instrumentation::ActiveRecord'
+  c.use 'OpenTelemetry::Instrumentation::PG', { db_statement: :include }
+end
+```
+
+L'instrumentation `pg` a besoin de `db_statement: :include` (ou de `:obfuscate` par défaut, qui émet le template sanitisé) pour que le SQL parvienne à perf-sentinel. Le scope `OpenTelemetry::Instrumentation::ActiveRecord` circule dans la chaîne de spans et est reconnu comme un ORM, donc le chemin N+1 sanitizer-aware se déclenche et les findings portent des fixes suggérés spécifiques à ActiveRecord (`includes` / `preload` / `eager_load`).
+
+**Variables d'environnement :**
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: rails-svc
 ```
 
 ---

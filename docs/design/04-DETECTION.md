@@ -477,7 +477,15 @@ The correlator is **not** used in batch mode (`perf-sentinel analyze`). Cross-tr
 
 Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`.
 
-Coverage grew in four steps: v1 shipped Java/JPA only; v2 added Quarkus reactive and non-reactive, WebFlux, Helidon SE/MP, EF Core, Diesel and SeaORM; v3 broadened to the seven anti-patterns that previously returned `suggested_fix = None` (`redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`) and added Python (Django ORM, SQLAlchemy) with scope detection via the `opentelemetry.instrumentation.*` prefix; v4 added Go (GORM) and Node.js/TypeScript (Prisma) with scope detection via the `@opentelemetry/instrumentation-*` prefix and language detection via `.go`, `.js`, `.ts` file extensions. New entries lean on the per-language `*Generic` tag when the recommendation is framework-agnostic, and reuse a framework-specific tag when the ecosystem ships a canonical primitive worth pointing at. The current state covers Java, C# (.NET 8 to 10), Python, Rust, Go and Node.js across all 10 anti-patterns, each with a generic per-language fallback.
+Coverage grew in five steps:
+
+- v1: Java/JPA only.
+- v2: Quarkus reactive and non-reactive, WebFlux, Helidon SE/MP, EF Core, Diesel and SeaORM.
+- v3: the seven anti-patterns that previously returned `suggested_fix = None` (`redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`), plus Python (Django ORM, SQLAlchemy) with scope detection via the `opentelemetry.instrumentation.*` prefix.
+- v4: Go (GORM) and Node.js/TypeScript (Prisma) with scope detection via the `@opentelemetry/instrumentation-*` prefix and language detection via `.go`, `.js`, `.ts` file extensions.
+- v5: Ruby (ActiveRecord) with scope detection via the `OpenTelemetry::Instrumentation::` vendor prefix and language detection via the `.rb` extension.
+
+New entries lean on the per-language `*Generic` tag when the recommendation is framework-agnostic, and reuse a framework-specific tag when the ecosystem ships a canonical primitive worth pointing at. The current state covers Java, C# (.NET 8 to 10), Python, Rust, Go, Node.js and Ruby across all 10 anti-patterns, each with a generic per-language fallback.
 
 ### The `SuggestedFix` struct
 
@@ -496,9 +504,9 @@ Serialized in JSON as a nested object under `finding.suggested_fix`, skipped whe
 
 The detector is a pure function over fields already present on `Finding` (`instrumentation_scopes`, `code_location`, `service`), all populated at detection time from the span's OTel attributes. No span-level access, no extra allocations. It inspects five signals in order, most reliable first:
 
-1. **Instrumentation scope chain**, captured at OTLP ingest from the originating span and its ancestors (e.g. `io.opentelemetry.spring-data-3.0`). Most reliable: the scope name is emitted by the agent regardless of how the user names their classes, so it survives user-code naming quirks. Vendor-specific scopes (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`) are checked before the standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*` convention scopes. Go and Node are deliberately absent from the convention scope rules: their instrumentations use ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), and the `-` segment boundary used for Java version suffixes would false-positive on npm package names (`pg` vs `instrumentation-pg-pool`).
-2. **Language from ecosystem-native scope prefix.** When the scope-chain check misses, the prefix still reveals the language (`github.com/` = Go module path, `@opentelemetry/instrumentation-` or `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet). The language-generic fallback then fires, so even a span without `code.filepath` or `code.namespace` gets a language-appropriate suggestion.
-3. **`code_location` namespace with filepath-derived language** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node). Walks that language's rules in declared order; falls back to the language generic when no rule matches.
+1. **Instrumentation scope chain**, captured at OTLP ingest from the originating span and its ancestors (e.g. `io.opentelemetry.spring-data-3.0`). Most reliable: the scope name is emitted by the agent regardless of how the user names their classes, so it survives user-code naming quirks. Vendor-specific scopes (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, the Ruby gem `OpenTelemetry::Instrumentation::ActiveRecord`) are checked before the standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*` convention scopes. Go and Node are deliberately absent from the convention scope rules: their instrumentations use ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), and the `-` segment boundary used for Java version suffixes would false-positive on npm package names (`pg` vs `instrumentation-pg-pool`).
+2. **Language from ecosystem-native scope prefix.** When the scope-chain check misses, the prefix still reveals the language (`github.com/` = Go module path, `@opentelemetry/instrumentation-` or `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = Ruby gem). The language-generic fallback then fires, so even a span without `code.filepath` or `code.namespace` gets a language-appropriate suggestion.
+3. **`code_location` namespace with filepath-derived language** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby). Walks that language's rules in declared order; falls back to the language generic when no rule matches.
 4. **`code_location` namespace alone** when filepath is absent: tries every language's rules in order and returns the first hit. No generic fallback in this path because the language cannot be known.
 5. **Service name** as a last resort, only for framework names distinctive enough to avoid false positives in arbitrary service names (e.g. `helidon` in `helidon-se-svc`). Lowest confidence, only reached when all OTel signals are absent.
 
@@ -567,11 +575,20 @@ Each hint is one of two kinds. **`Substring`** matches a boundary-delimited pack
 | `NodePrisma`             | `prisma`                                                                           |
 | `NodeGeneric` (fallback) | (any `.js`/`.ts`/`.jsx`/`.tsx`/`.mjs`/`.mts`/`.cjs`/`.cts` file without the above) |
 
+**Ruby (`RUBY_RULES`):**
+
+| Framework                | Namespace hints                                |
+|--------------------------|------------------------------------------------|
+| `RubyActiveRecord`       | (none, reached via vendor scope)               |
+| `RubyGeneric` (fallback) | (any `.rb` file, or any other Ruby OTel scope) |
+
+`RUBY_RULES` is empty: Ruby has no reliable namespace convention in `code.namespace`, so `RubyActiveRecord` is reached through the `OpenTelemetry::Instrumentation::ActiveRecord` vendor scope, and any other Ruby OTel scope (the pg/mysql2 drivers, Rack) or a `.rb` filepath routes to `RubyGeneric`.
+
 Go and Node frameworks are reached through the namespace hints above and the language-from-scope-prefix fallback, never through `SCOPE_RULES`: their instrumentations emit ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`) that the convention prefixes do not match. See the framework detector section above.
 
 ### Mapping table
 
-A `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>` static. Lookups missing from the table leave `suggested_fix` as `None`. The full set lives in the `FIXES` static in `suggestions.rs`: a generic per-language fallback plus framework-specific entries. Coverage is deliberately not a full language x pattern matrix. In particular, `n_plus_one_sql` and `redundant_sql` route mostly through framework-specific entries (a generic SQL N+1 fallback ships only for Go and Node), so a generic lookup for those patterns returns `None` for several languages. Representative anchors:
+A `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>` static. Lookups missing from the table leave `suggested_fix` as `None`. The full set lives in the `FIXES` static in `suggestions.rs`: a generic per-language fallback plus framework-specific entries. Coverage is deliberately not a full language x pattern matrix. In particular, `n_plus_one_sql` and `redundant_sql` route mostly through framework-specific entries (a generic SQL N+1 fallback ships only for Go, Node and Ruby), so a generic lookup for those patterns returns `None` for several languages. Representative anchors:
 
 | Finding type   | Framework             | Recommendation anchor                                                                                           |
 |----------------|-----------------------|-----------------------------------------------------------------------------------------------------------------|

@@ -3,7 +3,7 @@
 //! Enriches detected findings with a [`SuggestedFix`] when the
 //! instrumentation scopes, `code_location` or service name reveal the
 //! framework that produced the anti-pattern. Covers Java, C#, Rust,
-//! Python, Go and Node.js/TypeScript across all ten anti-patterns,
+//! Python, Go, Node.js/TypeScript and Ruby across all ten anti-patterns,
 //! with a per-language `*Generic` fallback when no framework-specific
 //! recommendation applies. Coverage history is in
 //! `docs/design/04-DETECTION.md`.
@@ -64,6 +64,8 @@ enum Framework {
     GoGeneric,
     NodePrisma,
     NodeGeneric,
+    RubyActiveRecord,
+    RubyGeneric,
 }
 
 impl Framework {
@@ -88,6 +90,8 @@ impl Framework {
             Self::GoGeneric => "go_generic",
             Self::NodePrisma => "node_prisma",
             Self::NodeGeneric => "node_generic",
+            Self::RubyActiveRecord => "ruby_active_record",
+            Self::RubyGeneric => "ruby_generic",
         }
     }
 }
@@ -196,6 +200,11 @@ const GO_RULES: &[(Framework, &[Hint])] = &[(Framework::GoGorm, &[Hint::Substrin
 
 const JS_RULES: &[(Framework, &[Hint])] = &[(Framework::NodePrisma, &[Hint::Substring("prisma")])];
 
+// Ruby has no reliable namespace convention (no `*Repository` suffix, no
+// package path in `code.namespace`); detection relies on the ActiveRecord
+// scope and the `.rb` filepath, so there are no namespace rules.
+const RUBY_RULES: &[(Framework, &[Hint])] = &[];
+
 /// Last-resort service-name rules. Scanned only when all `OTel`-based
 /// signals (scopes, `code_location`, filepath) are absent. Only
 /// framework names distinctive enough to avoid false positives in
@@ -256,6 +265,14 @@ const VENDOR_SCOPE_RULES: &[(Framework, &[&str])] = &[
         ],
     ),
     (Framework::JavaQuarkus, &["io.quarkus"]),
+    // Ruby: the active_record gem emits the tracer name
+    // `OpenTelemetry::Instrumentation::ActiveRecord` (`::` separators, not
+    // the lowercase OTel convention), so it needs a vendor rule. Exact
+    // match via `vendor_prefix_matches` (`len == prefix.len()` branch).
+    (
+        Framework::RubyActiveRecord,
+        &["OpenTelemetry::Instrumentation::ActiveRecord"],
+    ),
 ];
 
 /// Segment-boundary prefix match for vendor scopes. The prefix must
@@ -334,6 +351,7 @@ enum Language {
     Rust,
     Go,
     JavaScript,
+    Ruby,
 }
 
 impl Language {
@@ -345,6 +363,7 @@ impl Language {
             Self::Rust => RUST_RULES,
             Self::Go => GO_RULES,
             Self::JavaScript => JS_RULES,
+            Self::Ruby => RUBY_RULES,
         }
     }
 
@@ -356,6 +375,7 @@ impl Language {
             Self::Rust => Framework::RustGeneric,
             Self::Go => Framework::GoGeneric,
             Self::JavaScript => Framework::NodeGeneric,
+            Self::Ruby => Framework::RubyGeneric,
         }
     }
 }
@@ -372,6 +392,8 @@ fn language_from_filepath(fp: &str) -> Option<Language> {
         Some(Language::Rust)
     } else if ext.eq_ignore_ascii_case("go") {
         Some(Language::Go)
+    } else if ext.eq_ignore_ascii_case("rb") {
+        Some(Language::Ruby)
     } else if ext.eq_ignore_ascii_case("js")
         || ext.eq_ignore_ascii_case("ts")
         || ext.eq_ignore_ascii_case("jsx")
@@ -400,7 +422,8 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
     use Framework::{
         CsharpEfCore, CsharpGeneric, GoGeneric, GoGorm, JavaGeneric, JavaHelidonMp, JavaHelidonSe,
         JavaJpa, JavaQuarkus, JavaQuarkusReactive, JavaWebFlux, NodeGeneric, NodePrisma,
-        PythonDjango, PythonGeneric, PythonSqlAlchemy, RustDiesel, RustGeneric, RustSeaOrm,
+        PythonDjango, PythonGeneric, PythonSqlAlchemy, RubyActiveRecord, RubyGeneric, RustDiesel,
+        RustGeneric, RustSeaOrm,
     };
     let entries: &[((FindingType, Framework), &str, Option<&str>)] = &[
         // ── Java ───────────────────────────────────────────────────
@@ -1131,6 +1154,96 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
                 "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all",
             ),
         ),
+        // ── Ruby ───────────────────────────────────────────────────
+        (
+            (NPlusOneSql, RubyActiveRecord),
+            "Eager-load the association with `includes(:assoc)` (or `preload` / \
+             `eager_load`) so Active Record loads it in one query instead of \
+             one per record.",
+            Some(
+                "https://guides.rubyonrails.org/active_record_querying.html#eager-loading-associations",
+            ),
+        ),
+        (
+            (RedundantSql, RubyActiveRecord),
+            "Rails wraps each request in an Active Record query cache that dedups \
+             identical SELECTs. If it is bypassed, memoize the result within the \
+             request with `@value ||= ...`.",
+            Some("https://guides.rubyonrails.org/caching_with_rails.html#sql-caching"),
+        ),
+        (
+            (SlowSql, RubyActiveRecord),
+            "Inspect the plan with `.explain` on the relation, then add an index \
+             through a migration (`add_index`). Narrow the row with `.select(...)` \
+             to fetch only needed columns.",
+            Some("https://guides.rubyonrails.org/active_record_querying.html#running-explain"),
+        ),
+        (
+            (NPlusOneSql, RubyGeneric),
+            "Batch the per-record lookups into a single `where(id: ids)` query, or \
+             eager-load the association if an ORM is in use.",
+            Some("https://guides.rubyonrails.org/active_record_querying.html"),
+        ),
+        (
+            (NPlusOneHttp, RubyGeneric),
+            "Coalesce the per-item HTTP calls into one batch request, or run them \
+             concurrently with a bounded thread pool from `concurrent-ruby`. Cache \
+             repeated reads within the request.",
+            Some("https://github.com/ruby-concurrency/concurrent-ruby"),
+        ),
+        (
+            (RedundantSql, RubyGeneric),
+            "Memoize the read within the request with `@value ||= ...`, or rely on \
+             the Active Record query cache when running under Rails.",
+            Some("https://guides.rubyonrails.org/caching_with_rails.html#sql-caching"),
+        ),
+        (
+            (RedundantHttp, RubyGeneric),
+            "Memoize the response per request with `@value ||= ...`, or cache it \
+             with `Rails.cache.fetch`. Share the in-flight call when several run \
+             concurrently.",
+            Some("https://guides.rubyonrails.org/caching_with_rails.html"),
+        ),
+        (
+            (SlowSql, RubyGeneric),
+            "Run the query through `.explain`, then add a composite index matching \
+             the `WHERE` and `ORDER BY` columns via a migration.",
+            Some("https://guides.rubyonrails.org/active_record_querying.html#running-explain"),
+        ),
+        (
+            (SlowHttp, RubyGeneric),
+            "Set an explicit timeout on the HTTP client (`Net::HTTP#read_timeout`, \
+             Faraday `options.timeout`). Add a circuit breaker and cache the \
+             response with `Rails.cache` when staleness is acceptable.",
+            Some("https://lostisland.github.io/faraday/#/customization/request-options"),
+        ),
+        (
+            (ExcessiveFanout, RubyGeneric),
+            "Cap concurrency with a bounded `Concurrent::FixedThreadPool` instead \
+             of unbounded fan-out, or call a batch endpoint when the downstream \
+             supports it.",
+            Some("https://github.com/ruby-concurrency/concurrent-ruby"),
+        ),
+        (
+            (ChattyService, RubyGeneric),
+            "Coalesce the chatty calls into a single bulk endpoint, or batch and \
+             deduplicate reads per request with a memoization `Hash`.",
+            Some("https://guides.rubyonrails.org/caching_with_rails.html"),
+        ),
+        (
+            (PoolSaturation, RubyGeneric),
+            "Inspect `slow_sql` findings first: the Active Record connection pool \
+             usually saturates because connections are held during slow work. Tune \
+             `pool:` in `database.yml` only after the slow queries are addressed.",
+            Some("https://guides.rubyonrails.org/configuring.html#database-pooling"),
+        ),
+        (
+            (SerializedCalls, RubyGeneric),
+            "Run independent calls concurrently with `Concurrent::Promises.zip(...)` \
+             or the async gem. Keep them sequential only when one call's output \
+             feeds the next.",
+            Some("https://github.com/ruby-concurrency/concurrent-ruby"),
+        ),
     ];
     let mut m = HashMap::with_capacity(entries.len());
     for ((ft, fw), recommendation, url) in entries {
@@ -1251,6 +1364,12 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
             || scope.starts_with("OpenTelemetry.Instrumentation.")
         {
             return Some(Language::Csharp);
+        }
+        // Ruby gems emit `OpenTelemetry::Instrumentation::<Lib>` (`::`).
+        // ActiveRecord is caught earlier by VENDOR_SCOPE_RULES; this routes
+        // the other Ruby scopes (pg/mysql2 drivers, Rack) to RubyGeneric.
+        if scope.starts_with("OpenTelemetry::Instrumentation::") {
+            return Some(Language::Ruby);
         }
     }
     None
@@ -2047,9 +2166,11 @@ mod tests {
 
     #[test]
     fn returns_none_for_unsupported_extension() {
+        // PHP is not in the Language taxonomy and `App\Models\User` matches
+        // no namespace rule, so detection yields nothing.
         let f = finding_with_location(
             FindingType::NPlusOneSql,
-            Some(loc("query.rb", Some("ActiveRecord::Base"))),
+            Some(loc("query.php", Some("App\\Models\\User"))),
         );
         assert_eq!(detect_framework(&f), None);
     }
@@ -2567,7 +2688,7 @@ mod tests {
         // this number is fine when an entry is intentionally added or
         // removed; reading the diff makes the change explicit instead
         // of silently growing the public `suggested_fix` surface.
-        assert_eq!(FIXES.len(), 96);
+        assert_eq!(FIXES.len(), 109);
         // Anchor a handful of load-bearing combinations so a swap that
         // preserves the count (drop one entry, add another) still trips
         // the test instead of sliding through silently.
@@ -2580,6 +2701,7 @@ mod tests {
             (FindingType::PoolSaturation, Framework::JavaQuarkus),
             (FindingType::NPlusOneSql, Framework::GoGorm),
             (FindingType::NPlusOneSql, Framework::NodePrisma),
+            (FindingType::NPlusOneSql, Framework::RubyActiveRecord),
         ] {
             assert!(
                 FIXES.contains_key(&anchor),
@@ -2665,12 +2787,57 @@ mod tests {
 
     #[test]
     fn enrich_leaves_suggested_fix_none_for_unsupported_language() {
+        // PHP is not in the Language taxonomy: no `.php` filepath mapping and
+        // no namespace rules, so the finding stays unenriched.
         let mut findings = vec![finding_with_location(
             FindingType::NPlusOneSql,
-            Some(loc("query.rb", Some("ActiveRecord::Base"))),
+            Some(loc("app/Models/User.php", Some("App\\Models\\User"))),
         )];
         enrich(&mut findings);
         assert!(findings[0].suggested_fix.is_none());
+    }
+
+    #[test]
+    fn detects_ruby_active_record_via_scope() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["OpenTelemetry::Instrumentation::ActiveRecord"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::RubyActiveRecord));
+    }
+
+    #[test]
+    fn detects_ruby_generic_via_scope_prefix() {
+        // A non-ActiveRecord Ruby OTel scope routes to the Ruby generic.
+        let f = finding_with_scopes(
+            FindingType::SlowSql,
+            &["OpenTelemetry::Instrumentation::PG"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::RubyGeneric));
+    }
+
+    #[test]
+    fn detects_ruby_generic_via_rb_filepath() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("app/models/order.rb", None)),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::RubyGeneric));
+    }
+
+    #[test]
+    fn enrich_populates_suggested_fix_for_ruby_active_record() {
+        let mut findings = vec![finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["OpenTelemetry::Instrumentation::ActiveRecord"],
+        )];
+        enrich(&mut findings);
+        let fix = findings[0]
+            .suggested_fix
+            .as_ref()
+            .expect("Ruby ActiveRecord should be enriched with suggested_fix");
+        assert_eq!(fix.framework, "ruby_active_record");
+        assert!(fix.recommendation.contains("includes"));
     }
 
     #[test]
@@ -2724,6 +2891,9 @@ mod tests {
             "node-postgres.com",
             "www.prisma.io",
             "developer.mozilla.org",
+            // Ruby
+            "guides.rubyonrails.org",
+            "lostisland.github.io",
             // Cross-language references (vendor-neutral)
             "www.postgresql.org",
             "martinfowler.com",
@@ -2736,6 +2906,7 @@ mod tests {
             "github.com/jackc/pgx",
             "github.com/patrickmn/go-cache",
             "github.com/sony/gobreaker",
+            "github.com/ruby-concurrency/concurrent-ruby",
         ];
         for ((ft, fw), fix) in FIXES.iter() {
             let Some(url) = fix.reference_url.as_deref() else {
