@@ -181,102 +181,98 @@
       <section data-dc-tpl="87" style="padding-top: 54px;">
         <h2 data-dc-tpl="88" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Référence CLI</span></h2>
         <p data-dc-tpl="89" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Un binaire, une poignée de sous-commandes. Lancez perf-sentinel &lt;cmd&gt; --help pour la liste complète des flags.</span></p>
-        <details data-dc-tpl="90" style="margin-top: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 18px;">
-          <summary data-dc-tpl="91" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text);"><span class="sc-interp">Toute la surface CLI en un schéma (17 sous-commandes, un pipeline, 11 sorties)</span></summary>
-          <img data-dc-tpl="92" src="https://raw.githubusercontent.com/robintra/perf-sentinel/5be42bf86a7aaf5ed499c6f3cb93ebfe171d408d/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 17 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width: 100%; background: rgb(10, 15, 26); border: 1px solid var(--border); border-radius: 10px; display: block; margin-top: 14px; padding: 10px;">
-        </details>
-        <div data-dc-tpl="93" style="display: flex; flex-direction: column; gap: 14px; margin-top: 22px;">
+        <div data-dc-tpl="90" style="display: flex; flex-direction: column; gap: 14px; margin-top: 22px;">
           
-            <div data-dc-tpl="95" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="96" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
-                <span data-dc-tpl="97" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">demo</span></span>
-                <span data-dc-tpl="98" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Jeu de données synthétique intégré, aucune capture requise.</span></span>
+            <div data-dc-tpl="92" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="93" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+                <span data-dc-tpl="94" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">demo</span></span>
+                <span data-dc-tpl="95" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Jeu de données synthétique intégré, aucune capture requise.</span></span>
               </div>
-              <div data-dc-tpl="99" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="100" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">demo</span> <span style="color:var(--code-flag)">--html</span> demo.html</code></div>
+              <div data-dc-tpl="96" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="97" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">demo</span> <span style="color:var(--code-flag)">--html</span> demo.html</code></div>
             </div>
           
-            <div data-dc-tpl="95" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="96" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
-                <span data-dc-tpl="97" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">analyze</span></span>
-                <span data-dc-tpl="98" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Analyse des traces capturées. --ci pour le gate, --tui pour le drill-down, --format json|sarif.</span></span>
+            <div data-dc-tpl="92" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="93" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+                <span data-dc-tpl="94" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">analyze</span></span>
+                <span data-dc-tpl="95" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Analyse des traces capturées. --ci pour le gate, --tui pour le drill-down, --format json|sarif.</span></span>
               </div>
-              <div data-dc-tpl="99" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="100" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--ci</span></code></div>
+              <div data-dc-tpl="96" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="97" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--ci</span></code></div>
             </div>
           
-            <div data-dc-tpl="95" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="96" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
-                <span data-dc-tpl="97" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">watch</span></span>
-                <span data-dc-tpl="98" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Daemon OTLP : ingestion gRPC :4317 / HTTP :4318, /metrics Prometheus, /health, API de query.</span></span>
+            <div data-dc-tpl="92" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="93" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+                <span data-dc-tpl="94" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">watch</span></span>
+                <span data-dc-tpl="95" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Daemon OTLP : ingestion gRPC :4317 / HTTP :4318, /metrics Prometheus, /health, API de query.</span></span>
               </div>
-              <div data-dc-tpl="99" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="100" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span> <span style="color:var(--code-flag)">--listen-address</span> <span style="color:var(--code-num)">0.0.0.0</span></code></div>
+              <div data-dc-tpl="96" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="97" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span> <span style="color:var(--code-flag)">--listen-address</span> <span style="color:var(--code-num)">0.0.0.0</span></code></div>
             </div>
           
-            <div data-dc-tpl="95" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="96" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
-                <span data-dc-tpl="97" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">report</span></span>
-                <span data-dc-tpl="98" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Dashboard HTML offline en un seul fichier, clair/sombre, export CSV.</span></span>
+            <div data-dc-tpl="92" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="93" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+                <span data-dc-tpl="94" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">report</span></span>
+                <span data-dc-tpl="95" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Dashboard HTML offline en un seul fichier, clair/sombre, export CSV.</span></span>
               </div>
-              <div data-dc-tpl="99" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="100" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">report</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--output</span> report.html</code></div>
+              <div data-dc-tpl="96" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="97" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">report</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--output</span> report.html</code></div>
             </div>
           
         </div>
-        <div data-dc-tpl="101" style="margin-top: 14px; font-size: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; letter-spacing: 0.03em; color: var(--text-2); padding: 0px 2px;"><span class="sc-interp">// autres sous-commandes</span></div>
-        <div data-dc-tpl="102" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
+        <div data-dc-tpl="98" style="margin-top: 14px; font-size: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; letter-spacing: 0.03em; color: var(--text-2); padding: 0px 2px;"><span class="sc-interp">// autres sous-commandes</span></div>
+        <div data-dc-tpl="99" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">diff</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Compare deux analyses pour détecter les régressions en CI.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">diff</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Compare deux analyses pour détecter les régressions en CI.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">explain</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Drill-down sur une trace (--trace-id), arbre de spans annoté.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">explain</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Drill-down sur une trace (--trace-id), arbre de spans annoté.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">inspect</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">TUI autonome à quatre panneaux.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">inspect</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">TUI autonome à quatre panneaux.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">pg-stat</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Hotspots <code class="dc-cmd">pg_stat_statements</code>, classés par temps total.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">pg-stat</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Hotspots <code class="dc-cmd">pg_stat_statements</code>, classés par temps total.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">calibrate</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Facteurs énergie per-service depuis l’énergie mesurée.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">calibrate</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Facteurs énergie per-service depuis l’énergie mesurée.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">disclose</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Divulgation périodique vérifiable, signable via Sigstore.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">disclose</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Divulgation périodique vérifiable, signable via Sigstore.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">tempo</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Récupère les traces depuis un backend Grafana Tempo.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">tempo</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Récupère les traces depuis un backend Grafana Tempo.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">jaeger-query</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Récupère depuis Jaeger ou Victoria Traces.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">jaeger-query</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Récupère depuis Jaeger ou Victoria Traces.</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">query</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Interroge le daemon live (API HTTP et TUI).</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">query</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Interroge le daemon live (API HTTP et TUI).</span></span>
             </div>
           
-            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
-              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">ack</span></span>
-              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Gère les findings acquittés et connus.</span></span>
+            <div data-dc-tpl="101" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="102" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">ack</span></span>
+              <span data-dc-tpl="103" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Gère les findings acquittés et connus.</span></span>
             </div>
           
         </div>
-        <details data-dc-tpl="107" style="margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden;">
-          <summary data-dc-tpl="108" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text); padding: 14px 18px;"><span class="sc-interp">Aide-mémoire en une ligne pour le reste de la surface</span></summary>
-          <div data-dc-tpl="109" style="padding: 0px 18px 16px;"><div data-dc-tpl="110" style="background: var(--term-bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;"><pre data-dc-tpl="111" style="margin: 0px; padding: 16px 18px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; line-height: 1.8; color: var(--term-text); white-space: pre; overflow-x: auto;"><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">explain</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--trace-id</span> abc123       <span style="color:var(--term-comment)"> # vue arbre d’une trace</span>
+        <details data-dc-tpl="104" style="margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden;">
+          <summary data-dc-tpl="105" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text); padding: 14px 18px;"><span class="sc-interp">Aide-mémoire en une ligne pour le reste de la surface</span></summary>
+          <div data-dc-tpl="106" style="padding: 0px 18px 16px;"><div data-dc-tpl="107" style="background: var(--term-bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;"><pre data-dc-tpl="108" style="margin: 0px; padding: 16px 18px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; line-height: 1.8; color: var(--term-text); white-space: pre; overflow-x: auto;"><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">explain</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--trace-id</span> abc123       <span style="color:var(--term-comment)"> # vue arbre d’une trace</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">inspect</span> <span style="color:var(--code-flag)">--input</span> traces.json                         <span style="color:var(--term-comment)"> # TUI interactif</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">diff</span> <span style="color:var(--code-flag)">--before</span> base.json <span style="color:var(--code-flag)">--after</span> head.json           <span style="color:var(--term-comment)"> # diff de régression PR</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">pg-stat</span> <span style="color:var(--code-flag)">--input</span> pg_stat.csv <span style="color:var(--code-flag)">--traces</span> traces.json    <span style="color:var(--term-comment)"> # hotspots PostgreSQL</span>
@@ -286,6 +282,10 @@
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> completions zsh &gt; ~/.zfunc/_perf-sentinel           <span style="color:var(--term-comment)"> # complétions shell</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> man &gt; perf-sentinel.1                               <span style="color:var(--term-comment)"> # page man</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">query</span> findings <span style="color:var(--code-flag)">--service</span> order-svc                  <span style="color:var(--term-comment)"> # interroge un daemon live</span></code></pre></div></div>
+        </details>
+        <details data-dc-tpl="109" style="margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 18px;">
+          <summary data-dc-tpl="110" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text);"><span class="sc-interp">Toute la surface CLI en un schéma (17 sous-commandes, un pipeline, 11 sorties)</span></summary>
+          <img data-dc-tpl="111" src="https://raw.githubusercontent.com/robintra/perf-sentinel/5be42bf86a7aaf5ed499c6f3cb93ebfe171d408d/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 17 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width: 100%; background: rgb(10, 15, 26); border: 1px solid var(--border); border-radius: 10px; display: block; margin-top: 14px; padding: 10px;">
         </details>
       </section>
 
@@ -1075,10 +1075,6 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
       <section id="cli" style="padding-top:54px">
         <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ cliTitle }}</h2>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:660px">{{ cliIntro }}</p>
-        <details style="margin-top:18px;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
-          <summary style="cursor:pointer;font-weight:600;font-size:14px;color:var(--text)">{{ cliMap }}</summary>
-          <img src="https://raw.githubusercontent.com/robintra/perf-sentinel/5be42bf86a7aaf5ed499c6f3cb93ebfe171d408d/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 17 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width:100%;background:#0A0F1A;border:1px solid var(--border);border-radius:10px;display:block;margin-top:14px;padding:10px">
-        </details>
         <div style="display:flex;flex-direction:column;gap:14px;margin-top:22px">
           <sc-for list="{{ cliPrimary }}" as="c" hint-placeholder-count="4">
             <div class="ps-card" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px">
@@ -1102,6 +1098,10 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
         <details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden">
           <summary style="cursor:pointer;font-weight:600;font-size:14px;color:var(--text);padding:14px 18px">{{ cliCheat }}</summary>
           <div style="padding:0 18px 16px"><div style="background:var(--term-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden"><pre style="margin:0;padding:16px 18px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.8;color:var(--term-text);white-space:pre;overflow-x:auto">{{ csCodeEl }}</pre></div></div>
+        </details>
+        <details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
+          <summary style="cursor:pointer;font-weight:600;font-size:14px;color:var(--text)">{{ cliMap }}</summary>
+          <img src="https://raw.githubusercontent.com/robintra/perf-sentinel/5be42bf86a7aaf5ed499c6f3cb93ebfe171d408d/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 17 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width:100%;background:#0A0F1A;border:1px solid var(--border);border-radius:10px;display:block;margin-top:14px;padding:10px">
         </details>
       </section>
 
