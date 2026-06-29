@@ -9,6 +9,7 @@ perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318)
 - [Choose your topology](#choose-your-topology): comparison table for the four supported deployment modes.
 - [Quick start: CI batch analysis](#quick-start-ci-batch-analysis): run perf-sentinel from a CI pipeline against a trace fixture.
 - [Quick start: central collector](#quick-start-central-collector): production deployment via OpenTelemetry Collector.
+- [Coming from Datadog](#coming-from-datadog-dd-trace-no-opentelemetry): bridge dd-trace traffic with an OpenTelemetry Collector when you have no OTel instrumentation.
 - [Quick start: sidecar](#quick-start-sidecar): single-service debug in dev or staging.
 - [Quick start: direct daemon](#quick-start-direct-daemon): local development.
 - [Going further](#going-further): pointers to INSTRUMENTATION.md and CI.md for application-side and CI-side concerns.
@@ -175,6 +176,47 @@ scrape_configs:
 ```
 
 Key metrics: `perf_sentinel_findings_total{type, severity}`, `perf_sentinel_io_waste_ratio`, `perf_sentinel_events_processed_total`, `perf_sentinel_traces_analyzed_total`, `perf_sentinel_slow_duration_seconds{type}`. See [`METRICS.md`](./METRICS.md) for the full schema and [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the collector config.
+
+---
+
+## Coming from Datadog (dd-trace, no OpenTelemetry)
+
+perf-sentinel ingests OTLP, not Datadog's native APM format, and it ships no Datadog adapter by design. If your services are instrumented with **dd-trace** (Datadog's proprietary tracer) and you have no OpenTelemetry instrumentation, bridge them with an OpenTelemetry Collector running the [`datadogreceiver`](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md). The receiver implements the Datadog Agent trace intake API on port 8126, converts dd-trace spans to OTLP, and an `otlp` exporter forwards a copy to perf-sentinel. No application code changes are required: you repoint dd-trace at the Collector, and you can keep sending to Datadog in parallel.
+
+perf-sentinel reads the Datadog resource (`dd.span.Resource`, where dd-trace leaves the obfuscated SQL) natively, so SQL N+1 detection works out of the box as long as each span keeps a database signal (`db.system`, or the dd-trace `db.type` tag). No attribute remapping in the Collector is required. If a Collector version strips both `db.system` and `db.type`, add a `transform` processor that restores one of them so the gate can fire.
+
+A common misread: Datadog's "OpenTelemetry compliant" wording usually refers to the Datadog Agent **ingesting** OTLP (inbound, from OTel SDKs), which is the opposite direction. Getting dd-trace data **out** to an OTLP backend is the Collector path below.
+
+> **Stability.** The `datadogreceiver` traces support is **alpha** in opentelemetry-collector-contrib (as of 2026). It is suitable for evaluation and proof-of-concept runs. Monitor it if you keep it in front of production permanently.
+
+Collector config (dd-trace in, OTLP out to perf-sentinel):
+
+```yaml
+receivers:
+  datadog:
+    endpoint: 0.0.0.0:8126          # dd-trace APM intake
+exporters:
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+  # datadog:                        # optional: keep your existing Datadog backend
+  #   api:
+  #     key: ${DD_API_KEY}
+service:
+  pipelines:
+    traces:
+      receivers: [datadog]
+      exporters: [otlp/perf-sentinel]   # add `datadog` here to tee to both
+```
+
+Point dd-trace at the Collector instead of the Datadog Agent:
+
+```bash
+DD_TRACE_AGENT_URL=http://otel-collector:8126
+```
+
+perf-sentinel then receives a copy of every trace and findings stream as NDJSON, exactly as in the central collector topology above.
 
 ---
 

@@ -9,6 +9,7 @@ perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur 4317, HTTP sur
 - [Choisissez votre topologie](#choisissez-votre-topologie) : tableau comparatif des quatre modes de déploiement supportés.
 - [Démarrage rapide : CI batch](#démarrage-rapide--ci-batch) : exécuter perf-sentinel depuis un pipeline CI contre un fixture de traces.
 - [Démarrage rapide : collector central](#démarrage-rapide--collector-central) : déploiement production via OpenTelemetry Collector.
+- [Vous venez de Datadog](#vous-venez-de-datadog-dd-trace-sans-opentelemetry) : faire le pont avec le trafic dd-trace via un OpenTelemetry Collector quand vous n'avez pas d'instrumentation OTel.
 - [Démarrage rapide : sidecar](#démarrage-rapide--sidecar) : debug d'un seul service en dev ou staging.
 - [Démarrage rapide : daemon direct](#démarrage-rapide--daemon-direct) : développement local.
 - [Pour aller plus loin](#pour-aller-plus-loin) : pointeurs vers INSTRUMENTATION-FR.md et CI-FR.md pour les sujets côté application et côté CI.
@@ -255,6 +256,47 @@ Métriques clés :
 - `perf_sentinel_slow_duration_seconds{type}` : histogram des durées de spans lents (utiliser `histogram_quantile()` pour des percentiles globaux sur des instances shardées)
 
 Voir [`examples/otel-collector-config.yaml`](../../examples/otel-collector-config.yaml) pour la config complète avec les options de sampling et filtrage.
+
+---
+
+## Vous venez de Datadog (dd-trace, sans OpenTelemetry)
+
+perf-sentinel ingère de l'OTLP, pas le format APM natif de Datadog, et n'embarque aucun adaptateur Datadog par choix. Si vos services sont instrumentés avec **dd-trace** (le tracer propriétaire de Datadog) et que vous n'avez pas d'instrumentation OpenTelemetry, faites le pont avec un OpenTelemetry Collector équipé du [`datadogreceiver`](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md). Ce receiver implémente l'API d'intake de traces de l'agent Datadog sur le port 8126, convertit les spans dd-trace en OTLP, et un exporter `otlp` transmet une copie à perf-sentinel. Aucun changement de code applicatif n'est requis : vous repointez dd-trace vers le Collector, et vous pouvez continuer à envoyer vers Datadog en parallèle.
+
+perf-sentinel lit nativement la ressource Datadog (`dd.span.Resource`, où dd-trace laisse le SQL obfusqué), donc la détection N+1 SQL fonctionne directement tant que chaque span conserve un signal base de données (`db.system`, ou le tag dd-trace `db.type`). Aucun remappage d'attributs dans le Collector n'est nécessaire. Si une version du Collector retire à la fois `db.system` et `db.type`, ajoutez un processor `transform` qui en restaure un pour que le garde-fou se déclenche.
+
+Un piège courant : la mention "OpenTelemetry compliant" de Datadog désigne le plus souvent l'agent Datadog qui **ingère** de l'OTLP (entrant, depuis des SDK OTel), ce qui est le sens inverse. Faire **sortir** les données dd-trace vers un backend OTLP passe par le chemin Collector ci-dessous.
+
+> **Stabilité.** Le support des traces du `datadogreceiver` est en **alpha** dans opentelemetry-collector-contrib (en 2026). Il convient à l'évaluation et aux preuves de concept. Surveillez-le si vous le maintenez en permanence devant la production.
+
+Config du Collector (dd-trace en entrée, OTLP en sortie vers perf-sentinel) :
+
+```yaml
+receivers:
+  datadog:
+    endpoint: 0.0.0.0:8126          # intake APM dd-trace
+exporters:
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+  # datadog:                        # optionnel : garder votre backend Datadog existant
+  #   api:
+  #     key: ${DD_API_KEY}
+service:
+  pipelines:
+    traces:
+      receivers: [datadog]
+      exporters: [otlp/perf-sentinel]   # ajouter `datadog` ici pour dupliquer vers les deux
+```
+
+Pointez dd-trace vers le Collector au lieu de l'agent Datadog :
+
+```bash
+DD_TRACE_AGENT_URL=http://otel-collector:8126
+```
+
+perf-sentinel reçoit alors une copie de chaque trace et les findings sont émis en NDJSON, exactement comme dans la topologie collector central ci-dessus.
 
 ---
 
