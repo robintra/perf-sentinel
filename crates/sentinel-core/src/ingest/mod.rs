@@ -32,7 +32,6 @@ const NON_SQL_DB_SYSTEMS: &[&str] = &[
     "mongodb",
     "cassandra",
     "dynamodb",
-    "cosmosdb",
     "couchbase",
     "couchdb",
     "elasticsearch",
@@ -73,6 +72,13 @@ const SQL_DB_SYSTEMS: &[&str] = &[
     "clickhouse",
     "spanner",
     "redshift",
+    "snowflake",
+    "bigquery",
+    "trino",
+    "presto",
+    "vertica",
+    "teradata",
+    "hive",
     "sql",
 ];
 
@@ -101,7 +107,6 @@ pub(crate) fn canonical_db_system(system: &str) -> &str {
         ("gcp.spanner", "spanner"),
         ("aws.redshift", "redshift"),
         ("aws.dynamodb", "dynamodb"),
-        ("azure.cosmosdb", "cosmosdb"),
     ];
     for &(alias, canonical) in ALIASES {
         if system.eq_ignore_ascii_case(alias) {
@@ -122,4 +127,51 @@ pub trait IngestSource {
     ///
     /// Returns an error if the raw input cannot be parsed or exceeds size limits.
     fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, is_non_sql_db_system,
+        is_sql_db_system,
+    };
+
+    #[test]
+    fn sql_and_non_sql_lists_are_disjoint() {
+        // A db system cannot be both relational and non-relational. Overlap
+        // would make classification order-dependent.
+        for s in SQL_DB_SYSTEMS {
+            assert!(!is_non_sql_db_system(s), "{s} is in both lists");
+        }
+        for s in NON_SQL_DB_SYSTEMS {
+            assert!(!is_sql_db_system(s), "{s} is in both lists");
+        }
+    }
+
+    #[test]
+    fn canonical_aliases_resolve_to_a_classified_system() {
+        // Every alias target must land in exactly one membership list, or the
+        // alias silently breaks classification (zero findings, or a non-SQL
+        // command tokenized as SQL with its key embedded in a finding).
+        let alias_inputs = [
+            "postgres",
+            "sqlserver",
+            "sql server",
+            "microsoft.sql_server",
+            "oracle.db",
+            "ibm.db2",
+            "gcp.spanner",
+            "aws.redshift",
+            "aws.dynamodb",
+        ];
+        for input in alias_inputs {
+            let canonical = canonical_db_system(input);
+            let sql = is_sql_db_system(canonical);
+            let non_sql = is_non_sql_db_system(canonical);
+            assert!(
+                sql ^ non_sql,
+                "{input} -> {canonical} classified as neither or both (sql={sql}, non_sql={non_sql})"
+            );
+        }
+    }
 }

@@ -94,10 +94,14 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
 
     let get_tag = |key: &str| -> Option<&str> { tags.and_then(|t| t.get(key).map(String::as_str)) };
 
-    // Determine event type from tags. Canonicalize the db system so the same
-    // engine labels identically across ingest formats (e.g. "postgres" ->
-    // "postgresql"), matching the OTLP path.
-    let db_system = get_tag("db.system").map(super::canonical_db_system);
+    // Determine event type from tags. Read the stable db.system.name before the
+    // older db.system (matching the OTLP path) and canonicalize, so the same
+    // engine labels and gates identically across ingest formats.
+    let db_system = get_tag("db.system.name")
+        .or_else(|| get_tag("db.system"))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(super::canonical_db_system);
     // Drop non-SQL datastore spans (Redis, MongoDB, ...) unconditionally:
     // their statement is not relational SQL and we do not model these stores.
     if db_system.is_some_and(super::is_non_sql_db_system) {
@@ -113,7 +117,7 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         };
 
     let operation = match event_type {
-        EventType::Sql => db_system.unwrap_or("unknown").to_string(),
+        EventType::Sql => db_system.unwrap_or("sql").to_string(),
         EventType::HttpOut => get_tag("http.method")
             .or_else(|| get_tag("http.request.method"))
             .unwrap_or("GET")
@@ -310,6 +314,22 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Sql);
         assert_eq!(events[0].operation, "postgresql");
+    }
+
+    #[test]
+    fn stable_db_system_name_non_sql_is_dropped() {
+        // A non-SQL store reported only under the stable db.system.name key
+        // ("aws.dynamodb") must be dropped, not tokenized as SQL.
+        let json = r#"[
+            {
+                "traceId": "t1", "id": "s1",
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "db.system.name": "aws.dynamodb", "db.statement": "GET key" }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
     }
 
     #[test]

@@ -142,11 +142,15 @@ fn convert_jaeger_span(
 ) -> Option<SpanEvent> {
     let tags = &span.tags;
 
-    // Determine event type from tags. Canonicalize the db system so the same
-    // engine labels identically across ingest formats (e.g. "postgres" ->
-    // "postgresql"), matching the OTLP path.
-    let db_system_raw = find_tag(tags, "db.system");
-    let db_system = db_system_raw.as_deref().map(super::canonical_db_system);
+    // Determine event type from tags. Read the stable db.system.name before the
+    // older db.system (matching the OTLP path) and canonicalize, so the same
+    // engine labels and gates identically across ingest formats.
+    let db_system_raw = find_tag(tags, "db.system.name").or_else(|| find_tag(tags, "db.system"));
+    let db_system = db_system_raw
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(super::canonical_db_system);
     // Drop non-SQL datastore spans (Redis, MongoDB, ...) unconditionally:
     // their statement is not relational SQL and we do not model these stores.
     if db_system.is_some_and(super::is_non_sql_db_system) {
@@ -164,7 +168,7 @@ fn convert_jaeger_span(
 
     // Operation
     let operation = match event_type {
-        EventType::Sql => db_system.unwrap_or("unknown").to_string(),
+        EventType::Sql => db_system.unwrap_or("sql").to_string(),
         EventType::HttpOut => find_tag(tags, "http.method")
             .or_else(|| find_tag(tags, "http.request.method"))
             .unwrap_or_else(|| "GET".to_string()),
@@ -357,6 +361,30 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Sql);
         assert_eq!(events[0].operation, "postgresql");
+    }
+
+    #[test]
+    fn stable_db_system_name_non_sql_is_dropped() {
+        // A non-SQL store reported only under the stable db.system.name key
+        // ("aws.dynamodb") must be dropped, not tokenized as SQL: its statement
+        // can carry a key/document value.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1", "operationName": "q",
+                    "startTime": 0, "duration": 100, "processID": "p1",
+                    "tags": [
+                        { "key": "db.system.name", "value": "aws.dynamodb" },
+                        { "key": "db.statement", "value": "SELECT * FROM Orders WHERE Id = 'secret'" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
     }
 
     #[test]
