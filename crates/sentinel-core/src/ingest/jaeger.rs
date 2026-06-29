@@ -142,14 +142,14 @@ fn convert_jaeger_span(
 ) -> Option<SpanEvent> {
     let tags = &span.tags;
 
-    // Determine event type from tags
-    let db_system = find_tag(tags, "db.system");
+    // Determine event type from tags. Canonicalize the db system so the same
+    // engine labels identically across ingest formats (e.g. "postgres" ->
+    // "postgresql"), matching the OTLP path.
+    let db_system_raw = find_tag(tags, "db.system");
+    let db_system = db_system_raw.as_deref().map(super::canonical_db_system);
     // Drop non-SQL datastore spans (Redis, MongoDB, ...) unconditionally:
     // their statement is not relational SQL and we do not model these stores.
-    if db_system
-        .as_deref()
-        .is_some_and(super::is_non_sql_db_system)
-    {
+    if db_system.is_some_and(super::is_non_sql_db_system) {
         return None;
     }
     let (event_type, target) = if let Some(stmt) =
@@ -164,7 +164,7 @@ fn convert_jaeger_span(
 
     // Operation
     let operation = match event_type {
-        EventType::Sql => db_system.unwrap_or_else(|| "unknown".to_string()),
+        EventType::Sql => db_system.unwrap_or("unknown").to_string(),
         EventType::HttpOut => find_tag(tags, "http.method")
             .or_else(|| find_tag(tags, "http.request.method"))
             .unwrap_or_else(|| "GET".to_string()),
@@ -324,6 +324,31 @@ mod tests {
                         ]
                     }
                 ],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].operation, "postgresql");
+    }
+
+    #[test]
+    fn db_system_alias_is_canonicalized() {
+        // A Jaeger trace tagging db.system="postgres" must label the operation
+        // "postgresql", same as the OTLP and Zipkin paths.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1", "operationName": "q",
+                    "startTime": 0, "duration": 100, "processID": "p1",
+                    "tags": [
+                        { "key": "db.system", "value": "postgres" },
+                        { "key": "db.statement", "value": "SELECT 1" }
+                    ]
+                }],
                 "processes": { "p1": { "serviceName": "svc" } }
             }]
         }"#;
