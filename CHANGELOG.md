@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- OTLP ingestion now extracts SQL from dd-trace traces bridged through the OpenTelemetry Collector `datadogreceiver`. When `db.statement` is absent, the query is read from the Datadog resource (`dd.span.Resource`), gated on a database signal (`db.system` or the dd-trace `db.type` meta key) so HTTP spans are never misread and non-SQL datastores (Redis, MongoDB, ...) are still dropped. This lets teams on Datadog with no OpenTelemetry instrumentation feed perf-sentinel without changing application code.
+
 ## [0.9.2]
 
 ### Added
