@@ -110,108 +110,108 @@
       <div data-dc-tpl="102" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px; max-width: 760px;">
         <div data-dc-tpl="103" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em; margin-bottom: 16px;"><span class="sc-interp">Read this first</span></div>
         <div data-dc-tpl="104" style="display: flex; flex-direction: column; gap: 12px;">
-          <p data-dc-tpl="105" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="106" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prerequisite:</span></strong> <span class="sc-interp">your services emit OpenTelemetry traces (SQL and HTTP spans), or dd-trace as an alternative, carrying the query text (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>) and the target URL (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>).</span> <span class="sc-interp">Setup</span> <a data-dc-tpl="108" href="docs/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">by language (Java, C#, Rust, Go, Node.js, Python, Ruby)</span></a>.</p>
-          <p data-dc-tpl="109" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="110" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Audit your tracing first:</span></strong> <span class="sc-interp">spans that lack those attributes are dropped silently, with no warning, so a thin or empty report can mean no problems found or no usable instrumentation. <code class="dc-cmd">perf-sentinel inspect</code> shows what was actually extracted, an empty span tree means the carrying attributes are missing upstream. See</span> <a data-dc-tpl="111" href="docs/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">what bounds the findings</span></a>.</p>
-          <p data-dc-tpl="112" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="113" style="color: var(--text); font-weight: 600;"><span class="sc-interp">What it is not:</span></strong> <span class="sc-interp">a full APM, a continuous profiler, nor (for now) a standalone regulatory carbon accounting platform. See</span> <a data-dc-tpl="114" href="#comparatif" data-clink="1" style="color: var(--accent);"><span class="sc-interp">the comparison</span></a>.</p>
-          <p data-dc-tpl="115" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="116" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Maturity:</span></strong> <span class="sc-interp">beta, pre-1.0. The CLI, config keys and on-disk formats may still change before 1.0. The JSON output enums are the one part under an explicit stability contract, with breaking changes flagged in the</span> <a data-dc-tpl="117" href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" data-clink="1" style="color: var(--accent);"><span class="sc-interp">release notes</span></a>.</p>
+          <p data-dc-tpl="105" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="106" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prerequisite:</span></strong> <span class="sc-interp">your services emit OpenTelemetry traces (SQL and HTTP spans), or dd-trace as an alternative, carrying the query text (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>) and the target URL (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>).</span> <span class="sc-interp">Setup</span> <a data-dc-tpl="107" href="docs/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">by language (Java, C#, Rust, Go, Node.js, Python, Ruby)</span></a>.</p>
+          <p data-dc-tpl="108" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="109" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Audit your tracing first:</span></strong> <span class="sc-interp">spans that lack those attributes are dropped silently, with no warning, so a thin or empty report can mean no problems found or no usable instrumentation. <code class="dc-cmd">perf-sentinel inspect</code> shows what was actually extracted, an empty span tree means the carrying attributes are missing upstream. See</span> <a data-dc-tpl="110" href="docs/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">what bounds the findings</span></a>.</p>
+          <p data-dc-tpl="111" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="112" style="color: var(--text); font-weight: 600;"><span class="sc-interp">What it is not:</span></strong> <span class="sc-interp">a full APM, a continuous profiler, nor (for now) a standalone regulatory carbon accounting platform. See</span> <a data-dc-tpl="113" href="#comparatif" data-clink="1" style="color: var(--accent);"><span class="sc-interp">the comparison</span></a>.</p>
+          <p data-dc-tpl="114" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="115" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Maturity:</span></strong> <span class="sc-interp">beta, pre-1.0. The CLI, config keys and on-disk formats may still change before 1.0. The JSON output enums are the one part under an explicit stability contract, with breaking changes flagged in the</span> <a data-dc-tpl="116" href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" data-clink="1" style="color: var(--accent);"><span class="sc-interp">release notes</span></a>.</p>
         </div>
       </div>
     </section>
 
     
-    <section data-dc-tpl="118" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="119" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// the problem</span></div>
-      <h2 data-dc-tpl="120" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 760px;"><span class="sc-interp">Why </span><span data-dc-tpl="121" data-why-accent="" style="color: var(--accent);"><span class="sc-interp">perf-sentinel</span></span><span class="sc-interp">?</span></h2>
-      <div data-dc-tpl="122" style="margin-top: 26px; display: flex; flex-direction: column; gap: 18px; max-width: 720px;">
-        <p data-dc-tpl="123" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.</span></p>
-        <p data-dc-tpl="124" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.</span></p>
-        <p data-dc-tpl="125" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.</span></p>
-        <p data-dc-tpl="126" style="margin: 0px; font-size: 15.5px; color: var(--text); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 18px;"><span class="sc-interp">Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.</span></p>
+    <section data-dc-tpl="117" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="118" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// the problem</span></div>
+      <h2 data-dc-tpl="119" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 760px;"><span class="sc-interp">Why </span><span data-dc-tpl="120" data-why-accent="" style="color: var(--accent);"><span class="sc-interp">perf-sentinel</span></span><span class="sc-interp">?</span></h2>
+      <div data-dc-tpl="121" style="margin-top: 26px; display: flex; flex-direction: column; gap: 18px; max-width: 720px;">
+        <p data-dc-tpl="122" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.</span></p>
+        <p data-dc-tpl="123" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.</span></p>
+        <p data-dc-tpl="124" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.</span></p>
+        <p data-dc-tpl="125" style="margin: 0px; font-size: 15.5px; color: var(--text); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 18px;"><span class="sc-interp">Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.</span></p>
       </div>
     </section>
 
     
-    <section data-dc-tpl="127" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="128" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// the blind spot</span></div>
-      <h2 data-dc-tpl="129" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 820px;"><span class="sc-interp">The carbon weight of </span><span data-dc-tpl="130" style="color: var(--accent);"><span class="sc-interp">digital</span></span><span class="sc-interp">,</span><br data-dc-tpl="131"><span class="sc-interp"> and the</span><span data-dc-tpl="132" style="color: var(--coral);"><span class="sc-interp"> blind spot</span></span><span class="sc-interp"> no one measures</span></h2>
-      <p data-dc-tpl="133" style="margin: 18px 0px 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65; max-width: 720px;"><span class="sc-interp">Digital already accounts for 1.8% to 3.9% of global greenhouse-gas emissions, on par with civil aviation and growing fast. But the share driven by bloated, poorly optimized code and web apps stays unquantified at scale.</span></p>
-      <div data-dc-tpl="134" data-grid="cards2" style="display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 28px; margin-top: 36px; align-items: start;">
-        <div data-dc-tpl="135" style="background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px;">
-          <div data-dc-tpl="136" style="font-size: 15px; font-weight: 600; color: var(--text);"><span class="sc-interp">Digital is 1.8% to 3.9% of global GHG</span></div>
-          <div data-dc-tpl="137" style="display: flex; gap: 10px; margin: 22px 0px 0px;">
-            <div data-dc-tpl="138" style="display: flex; flex-direction: column; justify-content: space-between; height: 180px; font-size: 12px; color: var(--text-2); text-align: right;">
-              <span data-dc-tpl="139">5 %</span><span data-dc-tpl="140">4 %</span><span data-dc-tpl="141">3 %</span><span data-dc-tpl="142">2 %</span><span data-dc-tpl="143">1 %</span><span data-dc-tpl="144">0 %</span>
+    <section data-dc-tpl="126" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="127" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// the blind spot</span></div>
+      <h2 data-dc-tpl="128" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 820px;"><span class="sc-interp">The carbon weight of </span><span data-dc-tpl="129" style="color: var(--accent);"><span class="sc-interp">digital</span></span><span class="sc-interp">,</span><br data-dc-tpl="130"><span class="sc-interp"> and the</span><span data-dc-tpl="131" style="color: var(--coral);"><span class="sc-interp"> blind spot</span></span><span class="sc-interp"> no one measures</span></h2>
+      <p data-dc-tpl="132" style="margin: 18px 0px 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65; max-width: 720px;"><span class="sc-interp">Digital already accounts for 1.8% to 3.9% of global greenhouse-gas emissions, on par with civil aviation and growing fast. But the share driven by bloated, poorly optimized code and web apps stays unquantified at scale.</span></p>
+      <div data-dc-tpl="133" data-grid="cards2" style="display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 28px; margin-top: 36px; align-items: start;">
+        <div data-dc-tpl="134" style="background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px;">
+          <div data-dc-tpl="135" style="font-size: 15px; font-weight: 600; color: var(--text);"><span class="sc-interp">Digital is 1.8% to 3.9% of global GHG</span></div>
+          <div data-dc-tpl="136" style="display: flex; gap: 10px; margin: 22px 0px 0px;">
+            <div data-dc-tpl="137" style="display: flex; flex-direction: column; justify-content: space-between; height: 180px; font-size: 12px; color: var(--text-2); text-align: right;">
+              <span data-dc-tpl="138">5 %</span><span data-dc-tpl="139">4 %</span><span data-dc-tpl="140">3 %</span><span data-dc-tpl="141">2 %</span><span data-dc-tpl="142">1 %</span><span data-dc-tpl="143">0 %</span>
             </div>
-            <div data-dc-tpl="145" style="flex: 1 1 0%;">
-              <div data-dc-tpl="146" style="display: flex; gap: 46px; justify-content: center; align-items: flex-end; height: 180px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border);">
-                <div data-dc-tpl="147" style="position: relative; width: 68px; height: 36%; background: rgb(91, 155, 213); border-radius: 5px 5px 0px 0px;">
-                  <span data-dc-tpl="148" style="position: absolute; top: -28px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: rgb(91, 155, 213); white-space: nowrap;"><span class="sc-interp">1.8%</span></span>
+            <div data-dc-tpl="144" style="flex: 1 1 0%;">
+              <div data-dc-tpl="145" style="display: flex; gap: 46px; justify-content: center; align-items: flex-end; height: 180px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+                <div data-dc-tpl="146" style="position: relative; width: 68px; height: 36%; background: rgb(91, 155, 213); border-radius: 5px 5px 0px 0px;">
+                  <span data-dc-tpl="147" style="position: absolute; top: -28px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: rgb(91, 155, 213); white-space: nowrap;"><span class="sc-interp">1.8%</span></span>
                 </div>
-                <div data-dc-tpl="149" style="position: relative; width: 68px; height: 78%; background: rgb(91, 155, 213); border-radius: 5px 5px 0px 0px; box-sizing: border-box; padding: 5px 5px 0px; display: flex; flex-direction: column;">
-                  <span data-dc-tpl="150" style="position: absolute; top: -28px; left: 50%; transform: translateX(-50%); font-weight: 700; white-space: nowrap;"><span data-dc-tpl="151" style="font-size: 16px; color: rgb(91, 155, 213);"><span class="sc-interp">3.9%</span></span> <span data-dc-tpl="152" style="font-size: 16px; font-weight: 700; color: var(--text);"><span class="sc-interp">(incl. </span><span data-dc-tpl="153" style="color: var(--coral);"><span class="sc-interp">? %</span></span>)</span></span>
-                  <div data-dc-tpl="154" class="carbon-qmark" style="height: 54%; background: var(--coral); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800;">?</div>
+                <div data-dc-tpl="148" style="position: relative; width: 68px; height: 78%; background: rgb(91, 155, 213); border-radius: 5px 5px 0px 0px; box-sizing: border-box; padding: 5px 5px 0px; display: flex; flex-direction: column;">
+                  <span data-dc-tpl="149" style="position: absolute; top: -28px; left: 50%; transform: translateX(-50%); font-weight: 700; white-space: nowrap;"><span data-dc-tpl="150" style="font-size: 16px; color: rgb(91, 155, 213);"><span class="sc-interp">3.9%</span></span> <span data-dc-tpl="151" style="font-size: 16px; font-weight: 700; color: var(--text);"><span class="sc-interp">(incl. </span><span data-dc-tpl="152" style="color: var(--coral);"><span class="sc-interp">? %</span></span>)</span></span>
+                  <div data-dc-tpl="153" class="carbon-qmark" style="height: 54%; background: var(--coral); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800;">?</div>
                 </div>
               </div>
-              <div data-dc-tpl="155" style="display: flex; gap: 46px; justify-content: center; margin-top: 9px;">
-                <div data-dc-tpl="156" style="width: 68px; text-align: center; font-size: 12px; color: var(--text-2);"><span class="sc-interp">Low estimate</span></div>
-                <div data-dc-tpl="157" style="width: 68px; text-align: center; font-size: 12px; color: var(--text-2);"><span class="sc-interp">High estimate</span></div>
+              <div data-dc-tpl="154" style="display: flex; gap: 46px; justify-content: center; margin-top: 9px;">
+                <div data-dc-tpl="155" style="width: 68px; text-align: center; font-size: 12px; color: var(--text-2);"><span class="sc-interp">Low estimate</span></div>
+                <div data-dc-tpl="156" style="width: 68px; text-align: center; font-size: 12px; color: var(--text-2);"><span class="sc-interp">High estimate</span></div>
               </div>
             </div>
           </div>
-          <div data-dc-tpl="158" style="display: flex; flex-direction: column; gap: 7px; margin-top: 18px; font-size: 14px; color: var(--text);">
-            <div data-dc-tpl="159" style="display: flex; align-items: center; gap: 8px;"><span data-dc-tpl="160" style="width: 11px; height: 11px; border-radius: 3px; background: rgb(91, 155, 213); flex: 0 0 auto;"></span><span class="sc-interp">Measured: data centers, networks, devices</span></div>
-            <div data-dc-tpl="161" style="display: flex; align-items: center; gap: 8px;"><span data-dc-tpl="162" style="width: 11px; height: 11px; border-radius: 3px; background: var(--coral); flex: 0 0 auto;"></span><span class="sc-interp">Unmeasured zone: heavy, poorly optimized web apps</span></div>
+          <div data-dc-tpl="157" style="display: flex; flex-direction: column; gap: 7px; margin-top: 18px; font-size: 14px; color: var(--text);">
+            <div data-dc-tpl="158" style="display: flex; align-items: center; gap: 8px;"><span data-dc-tpl="159" style="width: 11px; height: 11px; border-radius: 3px; background: rgb(91, 155, 213); flex: 0 0 auto;"></span><span class="sc-interp">Measured: data centers, networks, devices</span></div>
+            <div data-dc-tpl="160" style="display: flex; align-items: center; gap: 8px;"><span data-dc-tpl="161" style="width: 11px; height: 11px; border-radius: 3px; background: var(--coral); flex: 0 0 auto;"></span><span class="sc-interp">Unmeasured zone: heavy, poorly optimized web apps</span></div>
           </div>
-          <div data-dc-tpl="163" style="margin-top: 12px; font-size: 12px; color: var(--text-2); opacity: 0.75;"><span class="sc-interp">Sources: </span><a data-dc-tpl="164" href="https://www.itu.int/en/ITU-D/Environment/Pages/Publications/GDC-25.aspx" target="_blank" rel="noopener">ITU 2025</a>, <a data-dc-tpl="165" href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener">IEA 2025</a>, <a data-dc-tpl="166" href="https://doi.org/10.1016/j.patter.2021.100340" target="_blank" rel="noopener">Freitag et al. 2021</a></div>
+          <div data-dc-tpl="162" style="margin-top: 12px; font-size: 12px; color: var(--text-2); opacity: 0.75;"><span class="sc-interp">Sources: </span><a data-dc-tpl="163" href="https://www.itu.int/en/ITU-D/Environment/Pages/Publications/GDC-25.aspx" target="_blank" rel="noopener">ITU 2025</a>, <a data-dc-tpl="164" href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener">IEA 2025</a>, <a data-dc-tpl="165" href="https://doi.org/10.1016/j.patter.2021.100340" target="_blank" rel="noopener">Freitag et al. 2021</a></div>
         </div>
-        <div data-dc-tpl="167" style="display: flex; flex-direction: column; gap: 18px;">
-          <div data-dc-tpl="168">
-            <div data-dc-tpl="169" style="font-size: 18px; font-weight: 600; color: var(--text);"><span class="sc-interp">A hole in the data that no one fills</span></div>
-            <p data-dc-tpl="170" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); line-height: 1.62;"><span class="sc-interp">ITU and IEA confirm digital’s fast rise. But the part driven by code and bloated web apps stays unquantified worldwide.</span></p>
+        <div data-dc-tpl="166" style="display: flex; flex-direction: column; gap: 18px;">
+          <div data-dc-tpl="167">
+            <div data-dc-tpl="168" style="font-size: 18px; font-weight: 600; color: var(--text);"><span class="sc-interp">A hole in the data that no one fills</span></div>
+            <p data-dc-tpl="169" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); line-height: 1.62;"><span class="sc-interp">ITU and IEA confirm digital’s fast rise. But the part driven by code and bloated web apps stays unquantified worldwide.</span></p>
           </div>
-          <div data-dc-tpl="171" style="background: color-mix(in srgb,var(--coral) 9%,var(--surface)); border: 1px solid color-mix(in srgb,var(--coral) 38%,var(--border)); border-radius: 14px; padding: 22px 24px;">
-            <div data-dc-tpl="172" style="font-size: 40px; font-weight: 800; color: var(--coral); line-height: 1;"><span class="sc-interp">30 to 80%</span></div>
-            <div data-dc-tpl="173" style="margin-top: 8px; font-size: 15px; color: var(--text);"><span class="sc-interp">emissions cut reachable on a poorly optimized website</span></div>
-            <div data-dc-tpl="174" style="margin-top: 12px; font-size: 12px; color: var(--text-2);"><span class="sc-interp">Source: </span><a data-dc-tpl="175" href="https://sustainablewebdesign.org/estimating-digital-emissions/" target="_blank" rel="noopener">Sustainable Web Design Model v4</a></div>
+          <div data-dc-tpl="170" style="background: color-mix(in srgb,var(--coral) 9%,var(--surface)); border: 1px solid color-mix(in srgb,var(--coral) 38%,var(--border)); border-radius: 14px; padding: 22px 24px;">
+            <div data-dc-tpl="171" style="font-size: 40px; font-weight: 800; color: var(--coral); line-height: 1;"><span class="sc-interp">30 to 80%</span></div>
+            <div data-dc-tpl="172" style="margin-top: 8px; font-size: 15px; color: var(--text);"><span class="sc-interp">emissions cut reachable on a poorly optimized website</span></div>
+            <div data-dc-tpl="173" style="margin-top: 12px; font-size: 12px; color: var(--text-2);"><span class="sc-interp">Source: </span><a data-dc-tpl="174" href="https://sustainablewebdesign.org/estimating-digital-emissions/" target="_blank" rel="noopener">Sustainable Web Design Model v4</a></div>
           </div>
         </div>
       </div>
-      <div data-dc-tpl="176" style="margin-top: 48px;">
-        <div data-dc-tpl="177" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// measure bottom-up, not estimate top-down</span></div>
-        <p data-dc-tpl="178" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 680px;"><span class="sc-interp">perf-sentinel’s bottom-up approach against the top-down of current tools</span></p>
-        <div data-dc-tpl="179" data-grid="cards2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px;">
-          <div data-dc-tpl="180" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px;">
-            <div data-dc-tpl="181" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: rgb(91, 155, 213);"><span class="sc-interp">Top-down approach</span></div>
-            <div data-dc-tpl="182" style="margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--text);"><span class="sc-interp">Current IT and carbon tools</span></div>
-            <div data-dc-tpl="183" style="display: flex; flex-direction: column; gap: 11px; margin-top: 18px;">
+      <div data-dc-tpl="175" style="margin-top: 48px;">
+        <div data-dc-tpl="176" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// measure bottom-up, not estimate top-down</span></div>
+        <p data-dc-tpl="177" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 680px;"><span class="sc-interp">perf-sentinel’s bottom-up approach against the top-down of current tools</span></p>
+        <div data-dc-tpl="178" data-grid="cards2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px;">
+          <div data-dc-tpl="179" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px;">
+            <div data-dc-tpl="180" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: rgb(91, 155, 213);"><span class="sc-interp">Top-down approach</span></div>
+            <div data-dc-tpl="181" style="margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--text);"><span class="sc-interp">Current IT and carbon tools</span></div>
+            <div data-dc-tpl="182" style="display: flex; flex-direction: column; gap: 11px; margin-top: 18px;">
               
-                <div data-dc-tpl="185" style="display: flex; gap: 10px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span data-dc-tpl="186" style="color: var(--text-2); flex: 0 0 auto;">•</span><span class="sc-interp">A share of averages: data-center draw, sector ratios.</span></div>
+                <div data-dc-tpl="184" style="display: flex; gap: 10px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span data-dc-tpl="185" style="color: var(--text-2); flex: 0 0 auto;">•</span><span class="sc-interp">A share of averages: data-center draw, sector ratios.</span></div>
               
-                <div data-dc-tpl="185" style="display: flex; gap: 10px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span data-dc-tpl="186" style="color: var(--text-2); flex: 0 0 auto;">•</span><span class="sc-interp">Estimates a global footprint from the cloud bill or headcount.</span></div>
+                <div data-dc-tpl="184" style="display: flex; gap: 10px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span data-dc-tpl="185" style="color: var(--text-2); flex: 0 0 auto;">•</span><span class="sc-interp">Estimates a global footprint from the cloud bill or headcount.</span></div>
               
-                <div data-dc-tpl="185" style="display: flex; gap: 10px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span data-dc-tpl="186" style="color: var(--text-2); flex: 0 0 auto;">•</span><span class="sc-interp">Gives a yearly number, but not the detail of what weighs.</span></div>
+                <div data-dc-tpl="184" style="display: flex; gap: 10px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span data-dc-tpl="185" style="color: var(--text-2); flex: 0 0 auto;">•</span><span class="sc-interp">Gives a yearly number, but not the detail of what weighs.</span></div>
               
             </div>
-            <div data-dc-tpl="187" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
-              <div data-dc-tpl="188" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--text-2);"><span class="sc-interp">Result</span></div>
-              <div data-dc-tpl="189" style="margin-top: 5px; font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">A global figure, </span><span data-dc-tpl="190" style="color: var(--coral);"><span class="sc-interp">not attributable</span></span><span class="sc-interp"> and </span><span data-dc-tpl="191" style="color: var(--coral);"><span class="sc-interp">not actionable</span></span>.</div>
+            <div data-dc-tpl="186" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
+              <div data-dc-tpl="187" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--text-2);"><span class="sc-interp">Result</span></div>
+              <div data-dc-tpl="188" style="margin-top: 5px; font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">A global figure, </span><span data-dc-tpl="189" style="color: var(--coral);"><span class="sc-interp">not attributable</span></span><span class="sc-interp"> and </span><span data-dc-tpl="190" style="color: var(--coral);"><span class="sc-interp">not actionable</span></span>.</div>
             </div>
           </div>
-          <div data-dc-tpl="192" style="background: var(--surface); border: 1px solid color-mix(in srgb,var(--accent) 32%,var(--border)); border-radius: 14px; padding: 24px 26px;">
-            <div data-dc-tpl="193" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--accent);"><span class="sc-interp">Bottom-up approach</span></div>
-            <div data-dc-tpl="194" style="margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--text);"><span class="sc-interp">perf-sentinel on heavy web apps</span></div>
-            <div data-dc-tpl="195" style="display: flex; flex-direction: column; gap: 11px; margin-top: 18px;">
+          <div data-dc-tpl="191" style="background: var(--surface); border: 1px solid color-mix(in srgb,var(--accent) 32%,var(--border)); border-radius: 14px; padding: 24px 26px;">
+            <div data-dc-tpl="192" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--accent);"><span class="sc-interp">Bottom-up approach</span></div>
+            <div data-dc-tpl="193" style="margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--text);"><span class="sc-interp">perf-sentinel on heavy web apps</span></div>
+            <div data-dc-tpl="194" style="display: flex; flex-direction: column; gap: 11px; margin-top: 18px;">
               
-                <div data-dc-tpl="197" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="198" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Observes the real application, query by query.</span></div>
+                <div data-dc-tpl="196" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="197" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Observes the real application, query by query.</span></div>
               
-                <div data-dc-tpl="197" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="198" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Translates each operation into energy then carbon (recognized method).</span></div>
+                <div data-dc-tpl="196" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="197" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Translates each operation into energy then carbon (recognized method).</span></div>
               
-                <div data-dc-tpl="197" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="198" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Pinpoints avoidable waste and its cost.</span></div>
+                <div data-dc-tpl="196" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="197" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Pinpoints avoidable waste and its cost.</span></div>
               
             </div>
-            <div data-dc-tpl="199" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
-              <div data-dc-tpl="200" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--text-2);"><span class="sc-interp">Result</span></div>
-              <div data-dc-tpl="201" style="margin-top: 5px; font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">A quantified hotspot, </span><span data-dc-tpl="202" style="color: var(--accent);"><span class="sc-interp">attributable to the code</span></span><span class="sc-interp"> and </span><span data-dc-tpl="203" style="color: var(--accent);"><span class="sc-interp">directly actionable</span></span>.</div>
+            <div data-dc-tpl="198" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
+              <div data-dc-tpl="199" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--text-2);"><span class="sc-interp">Result</span></div>
+              <div data-dc-tpl="200" style="margin-top: 5px; font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">A quantified hotspot, </span><span data-dc-tpl="201" style="color: var(--accent);"><span class="sc-interp">attributable to the code</span></span><span class="sc-interp"> and </span><span data-dc-tpl="202" style="color: var(--accent);"><span class="sc-interp">directly actionable</span></span>.</div>
             </div>
           </div>
         </div>
@@ -219,335 +219,335 @@
     </section>
 
     
-    <section data-dc-tpl="204" data-tech-only="" data-screen-label="Détection" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="205" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
-        <div data-dc-tpl="206">
-          <div data-dc-tpl="207" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// what gets detected</span></div>
-          <h2 data-dc-tpl="208" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Ten I/O </span><span data-dc-tpl="209" style="color: var(--coral);"><span class="sc-interp">anti-patterns</span></span><span class="sc-interp">, at the protocol level</span></h2>
+    <section data-dc-tpl="203" data-tech-only="" data-screen-label="Détection" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="204" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+        <div data-dc-tpl="205">
+          <div data-dc-tpl="206" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// what gets detected</span></div>
+          <h2 data-dc-tpl="207" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Ten I/O </span><span data-dc-tpl="208" style="color: var(--coral);"><span class="sc-interp">anti-patterns</span></span><span class="sc-interp">, at the protocol level</span></h2>
         </div>
-        <p data-dc-tpl="210" style="margin: 0px; max-width: 360px; font-size: 15px; color: var(--text-2);"><span class="sc-interp">On the SQL and HTTP requests your services already emit, whatever the language or ORM.</span></p>
+        <p data-dc-tpl="209" style="margin: 0px; max-width: 360px; font-size: 15px; color: var(--text-2);"><span class="sc-interp">On the SQL and HTTP requests your services already emit, whatever the language or ORM.</span></p>
       </div>
-      <div data-dc-tpl="211" data-grid="cards2" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 34px;">
+      <div data-dc-tpl="210" data-grid="cards2" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 34px;">
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">01</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">N+1 SQL</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">The same query template fired ≥ N times within one trace.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">01</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">N+1 SQL</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">The same query template fired ≥ N times within one trace.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">02</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">N+1 HTTP</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">The same URL template called ≥ N times within one trace.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">02</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">N+1 HTTP</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">The same URL template called ≥ N times within one trace.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">03</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Redundant SQL</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Identical query, identical parameters, same trace.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">03</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Redundant SQL</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Identical query, identical parameters, same trace.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">04</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Redundant HTTP</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Identical call, identical parameters, same trace.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">04</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Redundant HTTP</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Identical call, identical parameters, same trace.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">05</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow SQL</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Query duration above the configured threshold.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">05</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow SQL</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Query duration above the configured threshold.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">06</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow HTTP</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Request duration above the configured threshold.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">06</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow HTTP</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Request duration above the configured threshold.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">07</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Excessive fanout</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A span starts ≥ N children in parallel.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">07</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Excessive fanout</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A span starts ≥ N children in parallel.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">08</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Chatty service</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A → B repeatedly within a single user request.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">08</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Chatty service</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A → B repeatedly within a single user request.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">09</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Pool saturation</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Concurrent in-flight requests above the pool size.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">09</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Pool saturation</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Concurrent in-flight requests above the pool size.</span></div>
             </div>
           </div>
         
-          <div data-dc-tpl="213" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="214" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">10</span></div>
-            <div data-dc-tpl="215">
-              <div data-dc-tpl="216" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Serialized calls</span></div>
-              <div data-dc-tpl="217" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Sequential I/O that could be parallelized.</span></div>
+          <div data-dc-tpl="212" class="scp3" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="213" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">10</span></div>
+            <div data-dc-tpl="214">
+              <div data-dc-tpl="215" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Serialized calls</span></div>
+              <div data-dc-tpl="216" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Sequential I/O that could be parallelized.</span></div>
             </div>
           </div>
         
       </div>
-      <p data-dc-tpl="218" style="margin: 22px 0px 0px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.</span></p>
+      <p data-dc-tpl="217" style="margin: 22px 0px 0px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.</span></p>
     </section>
 
     
-    <section data-dc-tpl="219" data-tech-only="" data-screen-label="Exécution" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="220" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// four ways to run it</span></div>
-      <h2 data-dc-tpl="221" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">1 binary, 2 modes, 4 postures</span></h2>
-      <div data-dc-tpl="222" data-grid="cards4" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 34px;">
+    <section data-dc-tpl="218" data-tech-only="" data-screen-label="Exécution" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="219" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// four ways to run it</span></div>
+      <h2 data-dc-tpl="220" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">1 binary, 2 modes, 4 postures</span></h2>
+      <div data-dc-tpl="221" data-grid="cards4" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 34px;">
         
-          <div data-dc-tpl="224" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="225" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode batch · local</span></div>
-            <div data-dc-tpl="226" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Exploration</span></div>
-            <p data-dc-tpl="227" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Locally: keyboard drill-down across Analyze · Inspect · Explain in a TUI, or a single-file offline HTML dashboard to open and share. Built-in demo, nothing to set up.</span></p>
+          <div data-dc-tpl="223" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
+            <div data-dc-tpl="224" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode batch · local</span></div>
+            <div data-dc-tpl="225" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Exploration</span></div>
+            <p data-dc-tpl="226" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Locally: keyboard drill-down across Analyze · Inspect · Explain in a TUI, or a single-file offline HTML dashboard to open and share. Built-in demo, nothing to set up.</span></p>
           </div>
         
-          <div data-dc-tpl="224" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="225" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode batch · CI</span></div>
-            <div data-dc-tpl="226" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">CI batch</span></div>
-            <p data-dc-tpl="227" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">On captured traces: exit 1 past a threshold, SARIF output for code scanning, deterministic JSON. A gate that never flickers.</span></p>
+          <div data-dc-tpl="223" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
+            <div data-dc-tpl="224" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode batch · CI</span></div>
+            <div data-dc-tpl="225" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">CI batch</span></div>
+            <p data-dc-tpl="226" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">On captured traces: exit 1 past a threshold, SARIF output for code scanning, deterministic JSON. A gate that never flickers.</span></p>
           </div>
         
-          <div data-dc-tpl="224" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="225" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode daemon · sidecar</span></div>
-            <div data-dc-tpl="226" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Sidecar</span></div>
-            <p data-dc-tpl="227" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">One daemon per service for isolated debugging, ingesting its OTLP traces right beside it.</span></p>
+          <div data-dc-tpl="223" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
+            <div data-dc-tpl="224" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode daemon · sidecar</span></div>
+            <div data-dc-tpl="225" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Sidecar</span></div>
+            <p data-dc-tpl="226" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">One daemon per service for isolated debugging, ingesting its OTLP traces right beside it.</span></p>
           </div>
         
-          <div data-dc-tpl="224" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="225" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode daemon · central</span></div>
-            <div data-dc-tpl="226" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Centralized</span></div>
-            <p data-dc-tpl="227" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">A single long-running daemon an OTel Collector routes to: gRPC :4317 + HTTP :4318, Prometheus /metrics, live dashboard, query API and cross-trace correlation.</span></p>
+          <div data-dc-tpl="223" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
+            <div data-dc-tpl="224" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode daemon · central</span></div>
+            <div data-dc-tpl="225" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Centralized</span></div>
+            <p data-dc-tpl="226" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">A single long-running daemon an OTel Collector routes to: gRPC :4317 + HTTP :4318, Prometheus /metrics, live dashboard, query API and cross-trace correlation.</span></p>
           </div>
         
-      </div> <a data-dc-tpl="228" data-plain="" href="guide#deploy" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 24px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="229" data-ltext=""><span class="sc-interp">Deployment in depth in the guide</span></span><span data-dc-tpl="230" data-arrow=""> →</span></a> 
+      </div> <a data-dc-tpl="227" data-plain="" href="guide#deploy" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 24px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="228" data-ltext=""><span class="sc-interp">Deployment in depth in the guide</span></span><span data-dc-tpl="229" data-arrow=""> →</span></a> 
     </section>
 
     
-    <section data-dc-tpl="231" data-tech-only="" data-screen-label="Performance" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="232" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
-        <div data-dc-tpl="233">
-          <div data-dc-tpl="234" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--rust); letter-spacing: 0.04em;"><span class="sc-interp">// built in rust</span></div>
-          <h2 data-dc-tpl="235" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">A single </span><span data-dc-tpl="236" style="color: var(--rust);"><span class="sc-interp">Rust</span></span><span class="sc-interp"> binary, measured</span></h2>
+    <section data-dc-tpl="230" data-tech-only="" data-screen-label="Performance" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="231" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+        <div data-dc-tpl="232">
+          <div data-dc-tpl="233" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--rust); letter-spacing: 0.04em;"><span class="sc-interp">// built in rust</span></div>
+          <h2 data-dc-tpl="234" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">A single </span><span data-dc-tpl="235" style="color: var(--rust);"><span class="sc-interp">Rust</span></span><span class="sc-interp"> binary, measured</span></h2>
         </div>
-        <div data-dc-tpl="237" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--rust); background: color-mix(in srgb,var(--rust) 12%,transparent); border: 1px solid color-mix(in srgb,var(--rust) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
-          <img data-dc-tpl="238" src="assets/rust.svg" alt="Rust" width="15" height="15" style="display: block; flex: 0 0 auto;"><span class="sc-interp">Version 1.96.0</span>
+        <div data-dc-tpl="236" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--rust); background: color-mix(in srgb,var(--rust) 12%,transparent); border: 1px solid color-mix(in srgb,var(--rust) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
+          <img data-dc-tpl="237" src="assets/rust.svg" alt="Rust" width="15" height="15" style="display: block; flex: 0 0 auto;"><span class="sc-interp">Version 1.96.0</span>
         </div>
       </div>
-      <p data-dc-tpl="239" style="margin: 18px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.</span></p>
-      <div data-dc-tpl="240" data-grid="stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 30px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+      <p data-dc-tpl="238" style="margin: 18px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.</span></p>
+      <div data-dc-tpl="239" data-grid="stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 30px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
         
-          <div data-dc-tpl="242" style="background: var(--surface); padding: 20px 22px;">
-            <div data-dc-tpl="243" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">576k–1.2M</span></div>
-            <div data-dc-tpl="244" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)</span></div>
+          <div data-dc-tpl="241" style="background: var(--surface); padding: 20px 22px;">
+            <div data-dc-tpl="242" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">576k–1.2M</span></div>
+            <div data-dc-tpl="243" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)</span></div>
           </div>
         
-          <div data-dc-tpl="242" style="background: var(--surface); padding: 20px 22px;">
-            <div data-dc-tpl="243" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">0.8–1.9 µs</span></div>
-            <div data-dc-tpl="244" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">per event, p50 to p99</span></div>
+          <div data-dc-tpl="241" style="background: var(--surface); padding: 20px 22px;">
+            <div data-dc-tpl="242" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">0.8–1.9 µs</span></div>
+            <div data-dc-tpl="243" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">per event, p50 to p99</span></div>
           </div>
         
-          <div data-dc-tpl="242" style="background: var(--surface); padding: 20px 22px;">
-            <div data-dc-tpl="243" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">~17 MB</span></div>
-            <div data-dc-tpl="244" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">daemon RSS at rest (≈190 MB under ~1M evts/s)</span></div>
+          <div data-dc-tpl="241" style="background: var(--surface); padding: 20px 22px;">
+            <div data-dc-tpl="242" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">~17 MB</span></div>
+            <div data-dc-tpl="243" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">daemon RSS at rest (≈190 MB under ~1M evts/s)</span></div>
           </div>
         
-          <div data-dc-tpl="242" style="background: var(--surface); padding: 20px 22px;">
-            <div data-dc-tpl="243" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">Rust 2024</span></div>
-            <div data-dc-tpl="244" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">with a static musl binary and a FROM scratch image</span></div>
+          <div data-dc-tpl="241" style="background: var(--surface); padding: 20px 22px;">
+            <div data-dc-tpl="242" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">Rust 2024</span></div>
+            <div data-dc-tpl="243" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">with a static musl binary and a FROM scratch image</span></div>
           </div>
         
       </div>
-      <a data-dc-tpl="245" data-plain="" href="guide#perf" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--rust);"><span data-dc-tpl="246" data-ltext=""><span class="sc-interp">Full benchmarks in the docs</span></span><span data-dc-tpl="247" data-arrow=""> →</span></a>
+      <a data-dc-tpl="244" data-plain="" href="guide#perf" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--rust);"><span data-dc-tpl="245" data-ltext=""><span class="sc-interp">Full benchmarks in the docs</span></span><span data-dc-tpl="246" data-arrow=""> →</span></a>
     </section>
 
     
-    <section data-dc-tpl="248" data-screen-label="GreenOps" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="249" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; padding: clamp(28px, 4vw, 48px);">
-        <div data-dc-tpl="250" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
-          <div data-dc-tpl="251">
-            <div data-dc-tpl="252" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// greenops</span></div>
-            <h2 data-dc-tpl="253" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 820px;"><span class="sc-interp">Every avoidable I/O has a </span><span data-dc-tpl="254" style="color: var(--coral);"><span class="sc-interp">cost</span></span>,<br data-dc-tpl="255"><span class="sc-interp">in time, </span><span data-dc-tpl="256" style="color: var(--accent);"><span class="sc-interp">energy</span></span><span class="sc-interp"> and </span><span data-dc-tpl="257" style="color: var(--accent);"><span class="sc-interp">carbon</span></span></h2>
+    <section data-dc-tpl="247" data-screen-label="GreenOps" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="248" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; padding: clamp(28px, 4vw, 48px);">
+        <div data-dc-tpl="249" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+          <div data-dc-tpl="250">
+            <div data-dc-tpl="251" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// greenops</span></div>
+            <h2 data-dc-tpl="252" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 820px;"><span class="sc-interp">Every avoidable I/O has a </span><span data-dc-tpl="253" style="color: var(--coral);"><span class="sc-interp">cost</span></span>,<br data-dc-tpl="254"><span class="sc-interp">in time, </span><span data-dc-tpl="255" style="color: var(--accent);"><span class="sc-interp">energy</span></span><span class="sc-interp"> and </span><span data-dc-tpl="256" style="color: var(--accent);"><span class="sc-interp">carbon</span></span></h2>
           </div>
-          <div data-dc-tpl="258" data-tech-only="" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; color: var(--accent-strong); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px;">co2.total = (E × I) + M</div>
+          <div data-dc-tpl="257" data-tech-only="" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; color: var(--accent-strong); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px;">co2.total = (E × I) + M</div>
         </div>
-        <p data-dc-tpl="259" style="margin: 18px 0px 0px; font-size: 16px; color: var(--text-2); max-width: 680px; line-height: 1.6;"><span class="sc-interp">Cutting N+1s and redundant calls improves response times and energy use alike: the two goals don't compete. </span><code data-dc-tpl="260" data-tech-only="" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; background: var(--accent-soft); color: var(--accent-strong); padding: 2px 6px; border-radius: 5px;">co2.total</code><span class="sc-interp"> follows the </span><a data-dc-tpl="261" href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener">Software Carbon Intensity v1.0</a><span class="sc-interp"> numerator (</span><a data-dc-tpl="262" href="https://www.iso.org/standard/86612.html" target="_blank" rel="noopener">ISO/IEC 21031:2024</a><span class="sc-interp">): energy used (E) times the electricity grid carbon intensity (I), plus embodied hardware emissions (M), summed over the analyzed traces.</span></p>
-        <div data-dc-tpl="263" data-grid="cards3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 30px;">
+        <p data-dc-tpl="258" style="margin: 18px 0px 0px; font-size: 16px; color: var(--text-2); max-width: 680px; line-height: 1.6;"><span class="sc-interp">Cutting N+1s and redundant calls improves response times and energy use alike: the two goals don't compete. </span><code data-dc-tpl="259" data-tech-only="" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; background: var(--accent-soft); color: var(--accent-strong); padding: 2px 6px; border-radius: 5px;">co2.total</code><span class="sc-interp"> follows the </span><a data-dc-tpl="260" href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener">Software Carbon Intensity v1.0</a><span class="sc-interp"> numerator (</span><a data-dc-tpl="261" href="https://www.iso.org/standard/86612.html" target="_blank" rel="noopener">ISO/IEC 21031:2024</a><span class="sc-interp">): energy used (E) times the electricity grid carbon intensity (I), plus embodied hardware emissions (M), summed over the analyzed traces.</span></p>
+        <div data-dc-tpl="262" data-grid="cards3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 30px;">
           
-            <div data-dc-tpl="265" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="266" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">I/O intensity score (IIS)</span></div>
-              <div data-dc-tpl="267" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">An endpoint's total I/O operations divided by its number of invocations.</span></div>
-            </div>
-          
-            <div data-dc-tpl="265" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="266" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">I/O waste ratio</span></div>
-              <div data-dc-tpl="267" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Avoidable operations over total operations, the directly recoverable share.</span></div>
+            <div data-dc-tpl="264" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="265" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">I/O intensity score (IIS)</span></div>
+              <div data-dc-tpl="266" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">An endpoint's total I/O operations divided by its number of invocations.</span></div>
             </div>
           
-            <div data-dc-tpl="265" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-              <div data-dc-tpl="266" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Multi-region <code class="dc-cmd">co2.total</code></span></div>
-              <div data-dc-tpl="267" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.</span></div>
+            <div data-dc-tpl="264" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="265" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">I/O waste ratio</span></div>
+              <div data-dc-tpl="266" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Avoidable operations over total operations, the directly recoverable share.</span></div>
+            </div>
+          
+            <div data-dc-tpl="264" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+              <div data-dc-tpl="265" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Multi-region <code class="dc-cmd">co2.total</code></span></div>
+              <div data-dc-tpl="266" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.</span></div>
             </div>
           
         </div>
-        <p data-dc-tpl="268" style="margin: 24px 0px 0px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; max-width: 760px;"><span class="sc-interp">Directional estimate (~2× bracket in proxy mode, tighter with a measured source: Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower + calibration). Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to demonstrate RGESN compliance. It can also emit periodic public energy and carbon disclosure reports (quarterly or yearly JSON, optional Sigstore signature, hash-verifiable).</span></p>
-        <a data-dc-tpl="269" data-plain="" href="guide#metrics" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="270" data-ltext=""><span class="sc-interp">GreenOps metrics in the guide</span></span><span data-dc-tpl="271" data-arrow=""> →</span></a>
+        <p data-dc-tpl="267" style="margin: 24px 0px 0px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; max-width: 760px;"><span class="sc-interp">Directional estimate (~2× bracket in proxy mode, tighter with a measured source: Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower + calibration). Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to demonstrate RGESN compliance. It can also emit periodic public energy and carbon disclosure reports (quarterly or yearly JSON, optional Sigstore signature, hash-verifiable).</span></p>
+        <a data-dc-tpl="268" data-plain="" href="guide#metrics" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="269" data-ltext=""><span class="sc-interp">GreenOps metrics in the guide</span></span><span data-dc-tpl="270" data-arrow=""> →</span></a>
       </div>
     </section>
 
     
-    <section data-dc-tpl="272" data-screen-label="Comparatif" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="273" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// how it compares</span></div>
-      <h2 data-dc-tpl="274" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Lightweight, agnostic, CI-native, </span><span data-dc-tpl="275" style="color: var(--accent);"><span class="sc-interp">carbon-aware</span></span></h2>
-      <div data-dc-tpl="276" style="margin-top: 30px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--surface);">
-        <div data-dc-tpl="277" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-2);">
-          <div data-dc-tpl="278" style="padding: 15px 22px;"><span class="sc-interp">Capability</span></div>
-          <div data-dc-tpl="279" style="padding: 15px 18px;"><span class="sc-interp">Typical commercial APM</span></div>
-          <div data-dc-tpl="280" style="padding: 15px 18px; color: var(--accent-strong);">perf-sentinel</div>
+    <section data-dc-tpl="271" data-screen-label="Comparatif" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="272" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// how it compares</span></div>
+      <h2 data-dc-tpl="273" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Lightweight, agnostic, CI-native, </span><span data-dc-tpl="274" style="color: var(--accent);"><span class="sc-interp">carbon-aware</span></span></h2>
+      <div data-dc-tpl="275" style="margin-top: 30px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--surface);">
+        <div data-dc-tpl="276" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-2);">
+          <div data-dc-tpl="277" style="padding: 15px 22px;"><span class="sc-interp">Capability</span></div>
+          <div data-dc-tpl="278" style="padding: 15px 18px;"><span class="sc-interp">Typical commercial APM</span></div>
+          <div data-dc-tpl="279" style="padding: 15px 18px; color: var(--accent-strong);">perf-sentinel</div>
         </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Runtime footprint</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Agent ~100–150 MB RSS</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Standalone binary &lt;20 MB RSS</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Runtime footprint</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Agent ~100–150 MB RSS</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Standalone binary &lt;20 MB RSS</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Language coverage</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Per-language agents or SDK</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Any OTel-instrumented runtime</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Language coverage</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Per-language agents or SDK</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Any OTel-instrumented runtime</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">N+1 SQL &amp; HTTP detection</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Yes, agent-bound</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes, protocol-level</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">N+1 SQL &amp; HTTP detection</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Yes, agent-bound</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes, protocol-level</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Cross-service correlation</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Yes</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes, via trace ID</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Cross-service correlation</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Yes</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes, via trace ID</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Native CI quality gate</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Alerts, no gate</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes, exit 1 on threshold</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Native CI quality gate</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Alerts, no gate</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes, exit 1 on threshold</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Per-span carbon attribution</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">No</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes (SCI-aligned, directional)</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Per-span carbon attribution</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">No</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Yes (SCI-aligned, directional)</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">GreenOps score (IIS, waste ratio)</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">No</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Built-in</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">GreenOps score (IIS, waste ratio)</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">No</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Built-in</span></div>
           </div>
         
-          <div data-dc-tpl="282" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
-            <div data-dc-tpl="283" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">License &amp; hosting</span></div>
-            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Proprietary SaaS, usage-based</span></div>
-            <div data-dc-tpl="285" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">AGPL-3.0, fully self-hostable</span></div>
+          <div data-dc-tpl="281" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
+            <div data-dc-tpl="282" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">License &amp; hosting</span></div>
+            <div data-dc-tpl="283" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Proprietary SaaS, usage-based</span></div>
+            <div data-dc-tpl="284" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">AGPL-3.0, fully self-hostable</span></div>
           </div>
         
       </div>
-      <p data-dc-tpl="286" style="margin: 16px 0px 0px; font-size: 13px; color: var(--text-2);"><span class="sc-interp">'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic; exact behavior varies by product, and footprints are order-of-magnitude estimates from public deployments. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.</span></p>
-      <a data-dc-tpl="287" data-plain="" href="guide#compare" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="288" data-ltext=""><span class="sc-interp">Full comparison in the guide</span></span><span data-dc-tpl="289" data-arrow=""> →</span></a>
+      <p data-dc-tpl="285" style="margin: 16px 0px 0px; font-size: 13px; color: var(--text-2);"><span class="sc-interp">'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic; exact behavior varies by product, and footprints are order-of-magnitude estimates from public deployments. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.</span></p>
+      <a data-dc-tpl="286" data-plain="" href="guide#compare" class="scp5" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="287" data-ltext=""><span class="sc-interp">Full comparison in the guide</span></span><span data-dc-tpl="288" data-arrow=""> →</span></a>
       
-        <div data-dc-tpl="294" style="margin-top: 30px; background: color-mix(in srgb,var(--coral) 9%,transparent); border: 1px solid color-mix(in srgb,var(--coral) 38%,transparent); border-radius: 14px; padding: 22px 26px;">
-          <h3 data-dc-tpl="295" style="margin: 0px; font-size: 18.5px; font-weight: 600; color: var(--coral);"><span class="sc-interp">What perf-sentinel is not</span></h3>
-          <div data-dc-tpl="296" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;">
+        <div data-dc-tpl="293" style="margin-top: 30px; background: color-mix(in srgb,var(--coral) 9%,transparent); border: 1px solid color-mix(in srgb,var(--coral) 38%,transparent); border-radius: 14px; padding: 22px 26px;">
+          <h3 data-dc-tpl="294" style="margin: 0px; font-size: 18.5px; font-weight: 600; color: var(--coral);"><span class="sc-interp">What perf-sentinel is not</span></h3>
+          <div data-dc-tpl="295" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;">
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a full APM replacement.</span></strong> <span class="sc-interp">No dashboards, no alerting UI, no RUM, no log aggregation, no distributed profiling. If you need those, Datadog, New Relic and Sentry remain the right tools.</span></span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a full APM replacement.</span></strong> <span class="sc-interp">No dashboards, no alerting UI, no RUM, no log aggregation, no distributed profiling. If you need those, Datadog, New Relic and Sentry remain the right tools.</span></span></div>
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a continuous profiler.</span></strong> <span class="sc-interp">It observes I/O patterns at the protocol level; it does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.</span></span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a continuous profiler.</span></strong> <span class="sc-interp">It observes I/O patterns at the protocol level; it does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.</span></span></div>
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a real-time monitoring solution.</span></strong> <span class="sc-interp">Daemon mode streams findings, but the project’s center of gravity is CI quality gates and post-hoc trace analysis, not live prod observability.</span></span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a real-time monitoring solution.</span></strong> <span class="sc-interp">Daemon mode streams findings, but the project’s center of gravity is CI quality gates and post-hoc trace analysis, not live prod observability.</span></span></div>
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not (yet) a standalone regulatory carbon accounting platform.</span></strong> <span class="sc-interp">Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case:</span> <a data-dc-tpl="303" href="/#greenops"><span class="sc-interp">see the GreenOps section</span></a>.</span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not (yet) a standalone regulatory carbon accounting platform.</span></strong> <span class="sc-interp">Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case:</span> <a data-dc-tpl="302" href="/#greenops"><span class="sc-interp">see the GreenOps section</span></a>.</span></div>
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a replacement for measured energy.</span></strong> <span class="sc-interp">The I/O-to-energy model is a measurement, but an approximate one. For more accurate measured power, plug in Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all three supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server,</span> <a data-dc-tpl="303" href="/docs/LIMITATIONS#what-software-only-attribution-covers"><span class="sc-interp">see the limitations docs</span></a>.</span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a replacement for measured energy.</span></strong> <span class="sc-interp">The I/O-to-energy model is a measurement, but an approximate one. For more accurate measured power, plug in Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all three supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server,</span> <a data-dc-tpl="302" href="/docs/LIMITATIONS#what-software-only-attribution-covers"><span class="sc-interp">see the limitations docs</span></a>.</span></div>
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not zero-config.</span></strong> <span class="sc-interp">Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.</span></span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not zero-config.</span></strong> <span class="sc-interp">Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.</span></span></div>
             
-              <div data-dc-tpl="298" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="299" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="300"><strong data-dc-tpl="301" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not an IDE plugin.</span></strong> <span class="sc-interp">For in-IDE feedback on JVM/.NET code as you type, Digma offers a well-integrated JetBrains experience.</span></span></div>
+              <div data-dc-tpl="297" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="298" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="299"><strong data-dc-tpl="300" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not an IDE plugin.</span></strong> <span class="sc-interp">For in-IDE feedback on JVM/.NET code as you type, Digma offers a well-integrated JetBrains experience.</span></span></div>
             
           </div>
         </div>
     </section>
 
     
-    <section data-dc-tpl="304" data-hide-rse="" data-screen-label="License" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="305" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
-        <div data-dc-tpl="306">
-          <div data-dc-tpl="307" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// license</span></div>
-          <h2 data-dc-tpl="308" style="margin: 12px 0px 0px; font-size: clamp(24px, 2.7vw, 31px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); text-wrap: balance;"><span data-dc-tpl="309" style="color: var(--accent-strong);"><span class="sc-interp">AGPL-3.0</span></span><span class="sc-interp">, and what it means for your code</span></h2>
+    <section data-dc-tpl="303" data-hide-rse="" data-screen-label="License" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="304" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+        <div data-dc-tpl="305">
+          <div data-dc-tpl="306" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// license</span></div>
+          <h2 data-dc-tpl="307" style="margin: 12px 0px 0px; font-size: clamp(24px, 2.7vw, 31px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); text-wrap: balance;"><span data-dc-tpl="308" style="color: var(--accent-strong);"><span class="sc-interp">AGPL-3.0</span></span><span class="sc-interp">, and what it means for your code</span></h2>
         </div>
-        <a data-dc-tpl="310" data-plain="" href="https://www.gnu.org/licenses/agpl-3.0.html" class="scp3" style="flex: 0 0 auto; display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid var(--border); border-radius: 10px; padding: 11px 16px;">
-          <span data-dc-tpl="311" style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent);"></span>open source
+        <a data-dc-tpl="309" data-plain="" href="https://www.gnu.org/licenses/agpl-3.0.html" class="scp3" style="flex: 0 0 auto; display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid var(--border); border-radius: 10px; padding: 11px 16px;">
+          <span data-dc-tpl="310" style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent);"></span>open source
         </a>
       </div>
-      <p data-dc-tpl="312" style="margin: 18px 0px 0px; font-size: 16px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">A practical, legal-team-friendly summary so nobody has to dig through the repository. perf-sentinel is licensed under the GNU Affero General Public License v3.0.</span></p>
-      <div data-dc-tpl="313" data-grid="cards2" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 30px;">
-        <div data-dc-tpl="314" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px;">
-          <div data-dc-tpl="315" style="display: flex; align-items: center; gap: 11px;">
-            <span data-dc-tpl="316" style="flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">✓</span>
-            <div data-dc-tpl="317" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Your services stay yours</span></div>
+      <p data-dc-tpl="311" style="margin: 18px 0px 0px; font-size: 16px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">A practical, legal-team-friendly summary so nobody has to dig through the repository. perf-sentinel is licensed under the GNU Affero General Public License v3.0.</span></p>
+      <div data-dc-tpl="312" data-grid="cards2" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 30px;">
+        <div data-dc-tpl="313" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px;">
+          <div data-dc-tpl="314" style="display: flex; align-items: center; gap: 11px;">
+            <span data-dc-tpl="315" style="flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">✓</span>
+            <div data-dc-tpl="316" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Your services stay yours</span></div>
           </div>
-          <p data-dc-tpl="318" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Running perf-sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.</span></p>
+          <p data-dc-tpl="317" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Running perf-sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.</span></p>
         </div>
-        <div data-dc-tpl="319" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px;">
-          <div data-dc-tpl="320" style="display: flex; align-items: center; gap: 11px;">
-            <span data-dc-tpl="321" style="flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">✓</span>
-            <div data-dc-tpl="322" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Unmodified binaries, no obligation</span></div>
+        <div data-dc-tpl="318" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px;">
+          <div data-dc-tpl="319" style="display: flex; align-items: center; gap: 11px;">
+            <span data-dc-tpl="320" style="flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">✓</span>
+            <div data-dc-tpl="321" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Unmodified binaries, no obligation</span></div>
           </div>
-          <p data-dc-tpl="323" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">The AGPL covers perf-sentinel’s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.</span></p>
+          <p data-dc-tpl="322" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">The AGPL covers perf-sentinel’s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.</span></p>
         </div>
       </div>
-      <p data-dc-tpl="324" style="margin: 18px 0px 0px; font-size: 13px; color: var(--text-2); font-style: italic; line-height: 1.6; max-width: 820px;"><span class="sc-interp">The one condition: if you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.</span></p>
+      <p data-dc-tpl="323" style="margin: 18px 0px 0px; font-size: 13px; color: var(--text-2); font-style: italic; line-height: 1.6; max-width: 820px;"><span class="sc-interp">The one condition: if you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.</span></p>
     </section>
 
     
-    <section data-dc-tpl="325" data-screen-label="CTA" style="padding: 64px 0px 72px;">
-      <div data-dc-tpl="326" style="position: relative; overflow: hidden; border-radius: 20px; border: 1px solid var(--border); background: rgb(11, 82, 58); padding: clamp(34px, 5vw, 56px);">
-        <div data-dc-tpl="327" style="position: relative; max-width: 560px;">
-          <h2 data-dc-tpl="328" style="margin: 0px; font-size: clamp(26px, 3.2vw, 34px); font-weight: 700; letter-spacing: -0.018em; color: rgb(224, 244, 237);"><span class="sc-interp">Put the sentinel in your pipeline</span></h2>
-          <p data-dc-tpl="329" style="margin: 14px 0px 26px; font-size: 16px; color: rgb(169, 216, 198); line-height: 1.6;"><span class="sc-interp">Built-in demo with nothing to install on the app side, then a quality gate on captured traces or an OTLP daemon beside your tracing.</span></p>
-          <div data-dc-tpl="330" data-tech-only="" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: rgb(224, 244, 237); background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(224, 244, 237, 0.14); border-radius: 10px; padding: 15px 18px; line-height: 2; max-width: 100%; overflow-x: auto;">
-            <div data-dc-tpl="331"><span data-dc-tpl="332" style="color: rgb(38, 205, 148);">$</span> perf-sentinel demo <span data-dc-tpl="333" style="color: rgb(127, 182, 162);"># <span class="sc-interp">terminal report</span></span></div>
-            <div data-dc-tpl="334"><span data-dc-tpl="335" style="color: rgb(38, 205, 148);">$</span> perf-sentinel demo --tui <span data-dc-tpl="336" style="color: rgb(127, 182, 162);"># <span class="sc-interp">interactive TUI</span></span></div>
-            <div data-dc-tpl="337"><span data-dc-tpl="338" style="color: rgb(38, 205, 148);">$</span> perf-sentinel demo --html demo.html <span data-dc-tpl="339" style="color: rgb(127, 182, 162);"># <span class="sc-interp">HTML dashboard</span></span></div>
+    <section data-dc-tpl="324" data-screen-label="CTA" style="padding: 64px 0px 72px;">
+      <div data-dc-tpl="325" style="position: relative; overflow: hidden; border-radius: 20px; border: 1px solid var(--border); background: rgb(11, 82, 58); padding: clamp(34px, 5vw, 56px);">
+        <div data-dc-tpl="326" style="position: relative; max-width: 560px;">
+          <h2 data-dc-tpl="327" style="margin: 0px; font-size: clamp(26px, 3.2vw, 34px); font-weight: 700; letter-spacing: -0.018em; color: rgb(224, 244, 237);"><span class="sc-interp">Put the sentinel in your pipeline</span></h2>
+          <p data-dc-tpl="328" style="margin: 14px 0px 26px; font-size: 16px; color: rgb(169, 216, 198); line-height: 1.6;"><span class="sc-interp">Built-in demo with nothing to install on the app side, then a quality gate on captured traces or an OTLP daemon beside your tracing.</span></p>
+          <div data-dc-tpl="329" data-tech-only="" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: rgb(224, 244, 237); background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(224, 244, 237, 0.14); border-radius: 10px; padding: 15px 18px; line-height: 2; max-width: 100%; overflow-x: auto;">
+            <div data-dc-tpl="330"><span data-dc-tpl="331" style="color: rgb(38, 205, 148);">$</span> perf-sentinel demo <span data-dc-tpl="332" style="color: rgb(127, 182, 162);"># <span class="sc-interp">terminal report</span></span></div>
+            <div data-dc-tpl="333"><span data-dc-tpl="334" style="color: rgb(38, 205, 148);">$</span> perf-sentinel demo --tui <span data-dc-tpl="335" style="color: rgb(127, 182, 162);"># <span class="sc-interp">interactive TUI</span></span></div>
+            <div data-dc-tpl="336"><span data-dc-tpl="337" style="color: rgb(38, 205, 148);">$</span> perf-sentinel demo --html demo.html <span data-dc-tpl="338" style="color: rgb(127, 182, 162);"># <span class="sc-interp">HTML dashboard</span></span></div>
           </div>
-          <div data-dc-tpl="340" data-nontech-only="" style="display: flex; gap: 12px; flex-wrap: wrap;">
-            <a data-dc-tpl="341" data-plain="" href="#modes" class="scp6" style="font-size: 15px; font-weight: 600; color: rgb(11, 82, 58); background: rgb(224, 244, 237); border-radius: 9px; padding: 13px 22px;"><span class="sc-interp">How it works</span></a>
-            <a data-dc-tpl="342" data-plain="" href="#greenops" class="scp7" style="font-size: 15px; font-weight: 600; color: rgb(224, 244, 237); background: transparent; border: 1px solid rgba(224, 244, 237, 0.3); border-radius: 9px; padding: 13px 22px;"><span class="sc-interp">The carbon side</span></a>
+          <div data-dc-tpl="339" data-nontech-only="" style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <a data-dc-tpl="340" data-plain="" href="#modes" class="scp6" style="font-size: 15px; font-weight: 600; color: rgb(11, 82, 58); background: rgb(224, 244, 237); border-radius: 9px; padding: 13px 22px;"><span class="sc-interp">How it works</span></a>
+            <a data-dc-tpl="341" data-plain="" href="#greenops" class="scp7" style="font-size: 15px; font-weight: 600; color: rgb(224, 244, 237); background: transparent; border: 1px solid rgba(224, 244, 237, 0.3); border-radius: 9px; padding: 13px 22px;"><span class="sc-interp">The carbon side</span></a>
           </div>
         </div>
       </div>
@@ -556,46 +556,46 @@
   </main>
 
   
-  <footer data-dc-tpl="343" style="border-top: 1px solid var(--border); background: var(--surface-2);">
-    <div data-dc-tpl="344" style="max-width: 1120px; margin: 0px auto; padding: 48px 28px 36px;">
-      <div data-dc-tpl="345" data-grid="ftcols" style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 32px;">
-        <div data-dc-tpl="346">
-          <img data-dc-tpl="347" data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height: 40px; width: auto;"><img data-dc-tpl="348" data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height: 40px; width: auto;">
-          <p data-dc-tpl="349" style="margin: 16px 0px 0px; font-size: 13.5px; color: var(--text-2); max-width: 240px; line-height: 1.55;"><span class="sc-interp">Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.</span></p>
+  <footer data-dc-tpl="342" style="border-top: 1px solid var(--border); background: var(--surface-2);">
+    <div data-dc-tpl="343" style="max-width: 1120px; margin: 0px auto; padding: 48px 28px 36px;">
+      <div data-dc-tpl="344" data-grid="ftcols" style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 32px;">
+        <div data-dc-tpl="345">
+          <img data-dc-tpl="346" data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height: 40px; width: auto;"><img data-dc-tpl="347" data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height: 40px; width: auto;">
+          <p data-dc-tpl="348" style="margin: 16px 0px 0px; font-size: 13.5px; color: var(--text-2); max-width: 240px; line-height: 1.55;"><span class="sc-interp">Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.</span></p>
         </div>
-        <div data-dc-tpl="350">
-          <div data-dc-tpl="351" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Product</span></div>
-          <div data-dc-tpl="352" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);">
-            <a data-dc-tpl="353" href="/#detection" data-tech-only="" class="scp8"><span class="sc-interp">Detection</span></a>
-            <a data-dc-tpl="354" href="/#modes" data-tech-only="" class="scp8"><span class="sc-interp">Execution</span></a>
-            <a data-dc-tpl="355" href="/#perf" data-tech-only="" class="scp8"><span class="sc-interp">Performance</span></a>
-            <a data-dc-tpl="356" href="/#greenops" class="scp8"><span class="sc-interp">GreenOps</span></a>
-            <a data-dc-tpl="357" href="/#comparatif" class="scp8"><span class="sc-interp">Comparison</span></a>
+        <div data-dc-tpl="349">
+          <div data-dc-tpl="350" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Product</span></div>
+          <div data-dc-tpl="351" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);">
+            <a data-dc-tpl="352" href="/#detection" data-tech-only="" class="scp8"><span class="sc-interp">Detection</span></a>
+            <a data-dc-tpl="353" href="/#modes" data-tech-only="" class="scp8"><span class="sc-interp">Execution</span></a>
+            <a data-dc-tpl="354" href="/#perf" data-tech-only="" class="scp8"><span class="sc-interp">Performance</span></a>
+            <a data-dc-tpl="355" href="/#greenops" class="scp8"><span class="sc-interp">GreenOps</span></a>
+            <a data-dc-tpl="356" href="/#comparatif" class="scp8"><span class="sc-interp">Comparison</span></a>
           </div>
         </div>
-        <div data-dc-tpl="358">
-          <div data-dc-tpl="359" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Documentation</span></div>
-          <div data-dc-tpl="360" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);">
-            <a data-dc-tpl="361" href="/guide#quickstart" class="scp8"><span class="sc-interp">Quickstart</span></a>
-            <a data-dc-tpl="362" href="/guide#cli" class="scp8"><span class="sc-interp">CLI reference</span></a>
-            <a data-dc-tpl="363" href="/guide#config" class="scp8"><span class="sc-interp">Configuration</span></a>
-            <a data-dc-tpl="364" href="/guide#metrics" class="scp8"><span class="sc-interp">GreenOps methodology</span></a>
+        <div data-dc-tpl="357">
+          <div data-dc-tpl="358" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Documentation</span></div>
+          <div data-dc-tpl="359" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);">
+            <a data-dc-tpl="360" href="/guide#quickstart" class="scp8"><span class="sc-interp">Quickstart</span></a>
+            <a data-dc-tpl="361" href="/guide#cli" class="scp8"><span class="sc-interp">CLI reference</span></a>
+            <a data-dc-tpl="362" href="/guide#config" class="scp8"><span class="sc-interp">Configuration</span></a>
+            <a data-dc-tpl="363" href="/guide#metrics" class="scp8"><span class="sc-interp">GreenOps methodology</span></a>
           </div>
         </div>
-        <div data-dc-tpl="365">
-          <div data-dc-tpl="366" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Project</span></div>
-          <div data-dc-tpl="367" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);">
-            <a data-dc-tpl="368" href="https://github.com/robintra/perf-sentinel" class="scp8">GitHub</a>
-            <a data-dc-tpl="369" href="https://crates.io/crates/perf-sentinel" class="scp8">crates.io</a>
-            <a data-dc-tpl="370" href="https://docs.rs/perf-sentinel-core" class="scp8">docs.rs</a>
-            <a data-dc-tpl="371" href="/#license" data-hide-rse="" class="scp8"><span class="sc-interp">AGPL-3.0 license</span></a>
+        <div data-dc-tpl="364">
+          <div data-dc-tpl="365" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Project</span></div>
+          <div data-dc-tpl="366" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);">
+            <a data-dc-tpl="367" href="https://github.com/robintra/perf-sentinel" class="scp8">GitHub</a>
+            <a data-dc-tpl="368" href="https://crates.io/crates/perf-sentinel" class="scp8">crates.io</a>
+            <a data-dc-tpl="369" href="https://docs.rs/perf-sentinel-core" class="scp8">docs.rs</a>
+            <a data-dc-tpl="370" href="/#license" data-hide-rse="" class="scp8"><span class="sc-interp">AGPL-3.0 license</span></a>
           </div>
         </div>
       </div>
 
-      <div data-dc-tpl="372" style="display: flex; justify-content: space-between; gap: 18px; margin-top: 26px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2);">
-        <div data-dc-tpl="373" style="display: flex; flex-direction: column; gap: 6px;"><span data-dc-tpl="374"><span class="sc-interp">© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script</span></span><span data-dc-tpl="375" style="display: flex; gap: 14px;"><a data-dc-tpl="376" href="/legal-notice"><span class="sc-interp">Legal notice</span></a><a data-dc-tpl="377" href="/privacy-policy"><span class="sc-interp">Privacy</span></a></span></div>
-        <span data-dc-tpl="378"><span class="sc-interp">Logo &amp; banner, </span><a data-dc-tpl="379" href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener">Gwendoline Meignen</a></span>
+      <div data-dc-tpl="371" style="display: flex; justify-content: space-between; gap: 18px; margin-top: 26px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2);">
+        <div data-dc-tpl="372" style="display: flex; flex-direction: column; gap: 6px;"><span data-dc-tpl="373"><span class="sc-interp">© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script</span></span><span data-dc-tpl="374" style="display: flex; gap: 14px;"><a data-dc-tpl="375" href="/legal-notice"><span class="sc-interp">Legal notice</span></a><a data-dc-tpl="376" href="/privacy-policy"><span class="sc-interp">Privacy</span></a></span></div>
+        <span data-dc-tpl="377"><span class="sc-interp">Logo &amp; banner, </span><a data-dc-tpl="378" href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener">Gwendoline Meignen</a></span>
       </div>
     </div>
   </footer></div></div></div></div><!--seo-prerender-end--><x-dc>
