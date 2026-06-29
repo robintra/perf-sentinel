@@ -183,9 +183,7 @@ struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
     db_system: Option<&'a str>,
-    // Datadog dd-trace fallbacks: the OTel datadogreceiver leaves the
-    // (obfuscated) SQL in dd.span.Resource and never sets db.statement, and
-    // passes through the dd-trace db.type meta key instead of db.system.
+    // Datadog dd-trace fallbacks (see classify_io_event for the rationale).
     dd_resource: Option<&'a str>,
     db_type: Option<&'a str>,
     http_url: Option<&'a str>,
@@ -495,7 +493,15 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
     // outbound call, so it must count as `not_io`, not as an
     // instrumentation gap.
     let server = kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32;
-    if classified.effective_db_system().is_some() {
+    // A SQL DB span (OTel db.system, or a dd-trace db.type naming a SQL engine)
+    // that resolved no statement is an instrumentation gap. A dd-trace db.type
+    // for an unknown store is not, so it must not inflate the gap counter.
+    if classified.db_system.is_some()
+        || classified
+            .db_type
+            .map(crate::ingest::canonical_db_system)
+            .is_some_and(crate::ingest::is_sql_db_system)
+    {
         OtlpSpanFilterReason::MissingDbStatement
     } else if !server
         && classified
@@ -514,19 +520,27 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
 /// statement nor a URL. Supports both legacy (pre-1.21) and stable (1.21+)
 /// `OTel` semantic conventions.
 fn classify_io_event(c: &ClassifiedAttrs<'_>) -> Option<(EventType, String, String)> {
+    // Canonical SQL system: OTel db.system, else the dd-trace db.type the
+    // datadogreceiver passes through, normalized so both paths label the same
+    // engine identically (dd-trace "postgres" -> "postgresql").
+    let db_system = c
+        .effective_db_system()
+        .map(crate::ingest::canonical_db_system);
     // OTel db.statement/db.query.text first, then the dd-trace fallback: the
     // datadogreceiver never sets db.statement and leaves the (obfuscated) SQL
     // in dd.span.Resource. That attribute is present on every dd-trace span
-    // (HTTP included), so only trust it as SQL when a DB system signal is
-    // present. Non-SQL datastores are already dropped before this point.
-    let statement = c
-        .db_statement
-        .or(c.db_query_text)
-        .or_else(|| c.dd_resource.filter(|_| c.effective_db_system().is_some()));
+    // (HTTP included), so trust it as SQL only when the engine is a recognized
+    // SQL system and the resource is non-empty. Fail closed: a non-SQL or
+    // unknown db.type never has its command string fed to the tokenizer.
+    let statement = c.db_statement.or(c.db_query_text).or_else(|| {
+        c.dd_resource
+            .filter(|s| !s.trim().is_empty())
+            .filter(|_| db_system.is_some_and(crate::ingest::is_sql_db_system))
+    });
     if let Some(statement) = statement {
-        // db.system (e.g. "postgresql"), not the SQL verb. The verb is
-        // extracted from target by energy_coefficient() in the scoring stage.
-        let op = c.effective_db_system().unwrap_or("sql").to_string();
+        // db_system (e.g. "postgresql") is the engine, not the SQL verb. The
+        // verb is extracted from target by energy_coefficient() when scoring.
+        let op = db_system.unwrap_or("sql").to_string();
         Some((EventType::Sql, statement.to_string(), op))
     } else if let Some(url) = c.http_url.or(c.url_full) {
         let method = c
@@ -553,8 +567,9 @@ fn convert_span(
     let classified = classify_span_attrs(&span.attributes);
 
     // Non-SQL datastore (Redis, MongoDB, ...): dropped, not modeled. Gated on
-    // db.system so a statement-less or url-bearing span is also dropped, and
-    // never mistaken for an instrumentation gap.
+    // the effective db system (OTel db.system, or the dd-trace db.type meta
+    // key) so a statement-less or url-bearing span is also dropped, and never
+    // mistaken for an instrumentation gap.
     if classified
         .effective_db_system()
         .is_some_and(crate::ingest::is_non_sql_db_system)
@@ -1171,8 +1186,52 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Sql);
         assert_eq!(events[0].target, "SELECT * FROM orders WHERE id = ?");
-        assert_eq!(events[0].operation, "postgres");
+        // dd-trace "postgres" is normalized to the OTel "postgresql" spelling
+        // so both ingestion paths label the same engine identically.
+        assert_eq!(events[0].operation, "postgresql");
         assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_resource_with_unknown_db_type_is_not_tokenized_as_sql() {
+        // A non-SQL store whose dd-trace db.type escapes the non-SQL denylist
+        // (here a fictional "aerospike") must NOT have its command tokenized as
+        // SQL. The resource fallback is fail closed: only recognized SQL
+        // engines reach the tokenizer, so the span is dropped as not_io.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "GET namespace:set:key"),
+                make_kv("db.type", "aerospike"),
+            ],
+        );
+        let req = make_request("cache-svc", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_not_io, 1);
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_empty_resource_is_not_an_empty_sql_event() {
+        // A dd-trace DB span whose resource the collector left empty must not
+        // produce an empty-target SQL event. It is a SQL engine missing its
+        // statement, so it counts as a missing-db-statement gap, not SQL.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "   "),
+                make_kv("db.type", "postgres"),
+            ],
+        );
+        let req = make_request("order-svc", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_missing_db_statement, 1);
     }
 
     #[test]

@@ -53,6 +53,49 @@ pub(crate) fn is_non_sql_db_system(system: &str) -> bool {
         .any(|s| system.eq_ignore_ascii_case(s))
 }
 
+/// Relational SQL systems perf-sentinel tokenizes. The dd-trace resource
+/// fallback fires only for these, so an unrecognized `db.type` never has its
+/// command string fed to the SQL tokenizer (fail closed against phantom SQL
+/// findings and PII leakage from cache or document keys).
+const SQL_DB_SYSTEMS: &[&str] = &[
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "mssql",
+    "oracle",
+    "db2",
+    "sqlite",
+    "h2",
+    "hsqldb",
+    "derby",
+    "cockroachdb",
+    "clickhouse",
+    "sql",
+];
+
+/// True when `system` names a relational SQL datastore. Case-insensitive.
+#[must_use]
+pub(crate) fn is_sql_db_system(system: &str) -> bool {
+    SQL_DB_SYSTEMS
+        .iter()
+        .any(|s| system.eq_ignore_ascii_case(s))
+}
+
+/// Canonical `OTel` `db.system` spelling for a dd-trace `db.type` value, so the
+/// dd-trace and `OTel` ingestion paths label the same engine identically (e.g.
+/// dd-trace `postgres` -> `postgresql`). Unknown values pass through unchanged.
+#[must_use]
+pub(crate) fn canonical_db_system(system: &str) -> &str {
+    if system.eq_ignore_ascii_case("postgres") {
+        "postgresql"
+    } else if system.eq_ignore_ascii_case("sqlserver") || system.eq_ignore_ascii_case("sql server")
+    {
+        "mssql"
+    } else {
+        system
+    }
+}
+
 /// Trait for event ingestion sources.
 pub trait IngestSource {
     /// Error type for this source.
