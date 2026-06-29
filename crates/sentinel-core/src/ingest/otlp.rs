@@ -183,6 +183,11 @@ struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
     db_system: Option<&'a str>,
+    // Datadog dd-trace fallbacks: the OTel datadogreceiver leaves the
+    // (obfuscated) SQL in dd.span.Resource and never sets db.statement, and
+    // passes through the dd-trace db.type meta key instead of db.system.
+    dd_resource: Option<&'a str>,
+    db_type: Option<&'a str>,
     http_url: Option<&'a str>,
     url_full: Option<&'a str>,
     http_method: Option<&'a str>,
@@ -202,6 +207,13 @@ struct ClassifiedAttrs<'a> {
 }
 
 impl<'a> ClassifiedAttrs<'a> {
+    /// Effective DB system: `OTel` `db.system`, falling back to the dd-trace
+    /// `db.type` meta key passed through by the datadogreceiver. Drives both
+    /// the non-SQL datastore filter and the SQL operation label.
+    fn effective_db_system(&self) -> Option<&'a str> {
+        self.db_system.or(self.db_type)
+    }
+
     fn code_attrs(&self) -> CodeAttrs<'a> {
         let function_name = self.code_function_name.or(self.code_function);
         let filepath = self.code_file_path.or(self.code_filepath);
@@ -232,6 +244,8 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
             "db.statement" => out.db_statement = any_value_as_str(value),
             "db.query.text" => out.db_query_text = any_value_as_str(value),
             "db.system" => out.db_system = any_value_as_str(value),
+            "dd.span.Resource" => out.dd_resource = any_value_as_str(value),
+            "db.type" => out.db_type = any_value_as_str(value),
             "http.url" => out.http_url = any_value_as_str(value),
             "url.full" => out.url_full = any_value_as_str(value),
             "http.method" => out.http_method = any_value_as_str(value),
@@ -481,7 +495,7 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
     // outbound call, so it must count as `not_io`, not as an
     // instrumentation gap.
     let server = kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32;
-    if classified.db_system.is_some() {
+    if classified.effective_db_system().is_some() {
         OtlpSpanFilterReason::MissingDbStatement
     } else if !server
         && classified
@@ -500,10 +514,19 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
 /// statement nor a URL. Supports both legacy (pre-1.21) and stable (1.21+)
 /// `OTel` semantic conventions.
 fn classify_io_event(c: &ClassifiedAttrs<'_>) -> Option<(EventType, String, String)> {
-    if let Some(statement) = c.db_statement.or(c.db_query_text) {
+    // OTel db.statement/db.query.text first, then the dd-trace fallback: the
+    // datadogreceiver never sets db.statement and leaves the (obfuscated) SQL
+    // in dd.span.Resource. That attribute is present on every dd-trace span
+    // (HTTP included), so only trust it as SQL when a DB system signal is
+    // present. Non-SQL datastores are already dropped before this point.
+    let statement = c
+        .db_statement
+        .or(c.db_query_text)
+        .or_else(|| c.dd_resource.filter(|_| c.effective_db_system().is_some()));
+    if let Some(statement) = statement {
         // db.system (e.g. "postgresql"), not the SQL verb. The verb is
         // extracted from target by energy_coefficient() in the scoring stage.
-        let op = c.db_system.unwrap_or("sql").to_string();
+        let op = c.effective_db_system().unwrap_or("sql").to_string();
         Some((EventType::Sql, statement.to_string(), op))
     } else if let Some(url) = c.http_url.or(c.url_full) {
         let method = c
@@ -533,7 +556,7 @@ fn convert_span(
     // db.system so a statement-less or url-bearing span is also dropped, and
     // never mistaken for an instrumentation gap.
     if classified
-        .db_system
+        .effective_db_system()
         .is_some_and(crate::ingest::is_non_sql_db_system)
     {
         return Err(OtlpSpanFilterReason::NonSqlDatastore);
@@ -1120,6 +1143,90 @@ mod tests {
         // deliberate non-SQL drop, not a MissingDbStatement instrumentation gap.
         let redis = make_bare_span(&[8; 8], vec![make_kv("db.system", "redis")]);
         let req = make_request("cache-svc", vec![redis]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_non_sql_datastore, 1);
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_resource_with_db_type_classifies_as_sql() {
+        // dd-trace leaves the obfuscated SQL in the Datadog resource, which
+        // the OTel datadogreceiver surfaces as dd.span.Resource, and sets the
+        // db.type meta key. No OTel db.statement is present. perf-sentinel must
+        // still extract the SQL via the Datadog fallback.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "SELECT * FROM orders WHERE id = ?"),
+                make_kv("db.type", "postgres"),
+            ],
+        );
+        let req = make_request("order-svc", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].target, "SELECT * FROM orders WHERE id = ?");
+        assert_eq!(events[0].operation, "postgres");
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_resource_with_otel_db_system_classifies_as_sql() {
+        // Newer datadogreceiver versions map the db system to the OTel
+        // db.system key but still keep the statement only in dd.span.Resource.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "SELECT 1"),
+                make_kv("db.system", "postgresql"),
+            ],
+        );
+        let req = make_request("order-svc", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].target, "SELECT 1");
+        assert_eq!(events[0].operation, "postgresql");
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_resource_without_db_signal_is_not_sql() {
+        // dd.span.Resource is set on every dd-trace span, including HTTP ones
+        // (resource = "GET /api/orders"). Without a DB signal it must never be
+        // read as a SQL statement.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![make_kv("dd.span.Resource", "GET /api/orders")],
+        );
+        let req = make_request("order-svc", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_not_io, 1);
+    }
+
+    #[test]
+    fn datadog_redis_resource_is_dropped_non_sql() {
+        // A dd-trace Redis span carries dd.span.Resource plus db.type=redis.
+        // The effective-db-system gate must drop it as a non-SQL datastore,
+        // never tokenize the resource as SQL.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "GET user:123"),
+                make_kv("db.type", "redis"),
+            ],
+        );
+        let req = make_request("cache-svc", vec![span]);
 
         let (events, stats) = convert_otlp_request_counted(&req);
 
