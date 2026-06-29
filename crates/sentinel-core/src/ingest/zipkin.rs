@@ -94,8 +94,10 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
 
     let get_tag = |key: &str| -> Option<&str> { tags.and_then(|t| t.get(key).map(String::as_str)) };
 
-    // Determine event type from tags
-    let db_system = get_tag("db.system");
+    // Determine event type from tags. Canonicalize the db system so the same
+    // engine labels identically across ingest formats (e.g. "postgres" ->
+    // "postgresql"), matching the OTLP path.
+    let db_system = get_tag("db.system").map(super::canonical_db_system);
     // Drop non-SQL datastore spans (Redis, MongoDB, ...) unconditionally:
     // their statement is not relational SQL and we do not model these stores.
     if db_system.is_some_and(super::is_non_sql_db_system) {
@@ -283,6 +285,24 @@ mod tests {
                 "traceId": "t1", "id": "s2",
                 "localEndpoint": { "serviceName": "svc" },
                 "tags": { "db.system": "postgresql", "db.statement": "SELECT 1" }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].operation, "postgresql");
+    }
+
+    #[test]
+    fn db_system_alias_is_canonicalized() {
+        // A Zipkin span tagging db.system="postgres" must label the operation
+        // "postgresql", same as the OTLP and Jaeger paths.
+        let json = r#"[
+            {
+                "traceId": "t1", "id": "s1",
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "db.system": "postgres", "db.statement": "SELECT 1" }
             }
         ]"#;
         let ingest = ZipkinIngest::new(1_048_576);
