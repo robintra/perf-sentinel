@@ -18,7 +18,8 @@ sequenceDiagram
 
     Req->>P2: resource_spans[].scope_spans[].spans[]
     loop Each span
-        P2->>P2: Has db.statement / db.query.text?
+        P2->>P2: Drop recognized non-SQL datastore<br/>(Redis, MongoDB, ... by db system)
+        P2->>P2: SQL? db.statement / db.query.text,<br/>else dd.span.Resource (dd-trace, SQL db system only)
         alt SQL span
             P2->>Idx: lookup parent_span_id
             Idx-->>P2: parent endpoint: http.route > http.url > url.full<br/>parent method: code.function > span name
@@ -32,4 +33,4 @@ sequenceDiagram
         end
     end
 
-    Note over P2: Both legacy (db.statement, http.url, http.method)<br/>and stable (db.query.text, url.full, http.request.method)<br/>OTel semantic conventions are checked
+    Note over P2: Conventions checked: legacy (db.statement, http.url, http.method, db.system)<br/>and stable (db.query.text, url.full, http.request.method, db.system.name).<br/>dd-trace bridged via the datadogreceiver: SQL from dd.span.Resource,<br/>db system from db.type. Engine names canonicalized across all formats.
