@@ -6,6 +6,13 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.3]
+
+### Changed
+
+- `appVersion` bumped to `0.9.3`. The daemon binary adds a Datadog / dd-trace ingestion path: teams with no OpenTelemetry SDK can bridge dd-trace through an OTel Collector running the `datadogreceiver`, and perf-sentinel reads the SQL from `dd.span.Resource` natively. It also recognizes the stable OTel 1.27+ `db.system.name` attribute across the OTLP, Jaeger and Zipkin ingest paths, with consistent engine-label canonicalization. No chart template change, this bump tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.9.3` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.9.2]
 
 ### Changed
