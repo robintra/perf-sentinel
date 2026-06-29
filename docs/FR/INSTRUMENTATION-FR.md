@@ -2,6 +2,8 @@
 
 Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'une application en l'entrée OTLP / JSON consommée par perf-sentinel. Pour une vue d'ensemble de bout en bout, les quatre topologies supportées et les quatre démarrages rapides, voir [INTEGRATION-FR.md](./INTEGRATION-FR.md). Pour le côté CI de l'intégration (mode CI, recettes GitHub Actions / GitLab CI / Jenkins, déploiement du rapport HTML interactif, détection de régressions sur PR), voir [CI-FR.md](./CI-FR.md).
 
+> **Vous n'utilisez pas de SDK OpenTelemetry ?** Les équipes sur Datadog peuvent alimenter perf-sentinel en faisant le pont du trafic dd-trace via le `datadogreceiver` du Collector OTel, sans changement applicatif. Ce guide par langage ne s'applique pas à cette voie, voir [Vous venez de Datadog](./INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
+
 ## Sommaire
 
 - [Déploiement Kubernetes](#déploiement-kubernetes) : manifests pour le daemon et le sidecar OTel Collector.

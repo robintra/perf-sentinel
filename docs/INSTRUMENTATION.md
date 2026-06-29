@@ -2,6 +2,8 @@
 
 This guide covers the parts of the data pipeline that turn an application's runtime activity into the OTLP / JSON input perf-sentinel consumes. For an end-to-end overview, the four supported topologies and the four quick starts, see [INTEGRATION.md](./INTEGRATION.md). For the CI-side of the integration (CI mode, GitHub Actions / GitLab CI / Jenkins recipes, interactive HTML report deployment, PR regression detection), see [CI.md](./CI.md).
 
+> **Not using an OpenTelemetry SDK?** Teams on Datadog can feed perf-sentinel by bridging dd-trace through the OTel Collector `datadogreceiver`, with no application change. This per-language guide does not apply to that path, see [Coming from Datadog](./INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
+
 ## Contents
 
 - [Kubernetes deployment](#kubernetes-deployment): manifests for the daemon and the OTel Collector sidecar.
