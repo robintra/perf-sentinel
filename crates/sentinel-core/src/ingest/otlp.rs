@@ -183,6 +183,9 @@ struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
     db_system: Option<&'a str>,
+    // Stable OTel 1.27+ semconv key for the DB system; db.system is the older
+    // experimental spelling. The current datadogreceiver emits this one.
+    db_system_name: Option<&'a str>,
     // Datadog dd-trace fallbacks (see classify_io_event for the rationale).
     dd_resource: Option<&'a str>,
     db_type: Option<&'a str>,
@@ -205,11 +208,12 @@ struct ClassifiedAttrs<'a> {
 }
 
 impl<'a> ClassifiedAttrs<'a> {
-    /// Effective DB system: `OTel` `db.system`, falling back to the dd-trace
-    /// `db.type` meta key passed through by the datadogreceiver. Drives both
-    /// the non-SQL datastore filter and the SQL operation label.
+    /// Effective DB system, in precedence order: the stable `OTel`
+    /// `db.system.name`, the older `db.system`, then the dd-trace `db.type`
+    /// meta key passed through by the datadogreceiver. Drives both the non-SQL
+    /// datastore filter and the SQL operation label.
     fn effective_db_system(&self) -> Option<&'a str> {
-        self.db_system.or(self.db_type)
+        self.db_system_name.or(self.db_system).or(self.db_type)
     }
 
     fn code_attrs(&self) -> CodeAttrs<'a> {
@@ -242,6 +246,7 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
             "db.statement" => out.db_statement = any_value_as_str(value),
             "db.query.text" => out.db_query_text = any_value_as_str(value),
             "db.system" => out.db_system = any_value_as_str(value),
+            "db.system.name" => out.db_system_name = any_value_as_str(value),
             "dd.span.Resource" => out.dd_resource = any_value_as_str(value),
             "db.type" => out.db_type = any_value_as_str(value),
             "http.url" => out.http_url = any_value_as_str(value),
@@ -497,6 +502,7 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
     // that resolved no statement is an instrumentation gap. A dd-trace db.type
     // for an unknown store is not, so it must not inflate the gap counter.
     if classified.db_system.is_some()
+        || classified.db_system_name.is_some()
         || classified
             .db_type
             .map(crate::ingest::canonical_db_system)
@@ -1252,6 +1258,37 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Sql);
         assert_eq!(events[0].target, "SELECT 1");
+        assert_eq!(events[0].operation, "postgresql");
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_receiver_stable_semconv_db_system_name_classifies_as_sql() {
+        // The current OTel datadogreceiver (v0.155+) emits the DB system under
+        // the stable OTel 1.27+ key db.system.name (value "postgres"), not the
+        // older db.system or the dd-trace db.type, and leaves the obfuscated SQL
+        // in dd.span.Resource. perf-sentinel must recognize the stable key or
+        // the whole dd-trace bridge yields zero SQL findings.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv(
+                    "dd.span.Resource",
+                    "SELECT * FROM order_item WHERE order_id = ?",
+                ),
+                make_kv("db.system.name", "postgres"),
+            ],
+        );
+        let req = make_request("dd-shop", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(
+            events[0].target,
+            "SELECT * FROM order_item WHERE order_id = ?"
+        );
         assert_eq!(events[0].operation, "postgresql");
         assert_eq!(stats.filtered_missing_db_statement, 0);
     }
