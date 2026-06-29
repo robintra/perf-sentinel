@@ -183,7 +183,7 @@ struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
     db_system: Option<&'a str>,
-    // Stable OTel 1.27+ semconv key for the DB system; db.system is the older
+    // Stable OTel 1.27+ semconv key for the DB system. db.system is the older
     // experimental spelling. The current datadogreceiver emits this one.
     db_system_name: Option<&'a str>,
     // Datadog dd-trace fallbacks (see classify_io_event for the rationale).
@@ -211,9 +211,13 @@ impl<'a> ClassifiedAttrs<'a> {
     /// Effective DB system, in precedence order: the stable `OTel`
     /// `db.system.name`, the older `db.system`, then the dd-trace `db.type`
     /// meta key passed through by the datadogreceiver. Drives both the non-SQL
-    /// datastore filter and the SQL operation label.
+    /// datastore filter and the SQL operation label. Empty values are skipped
+    /// per field, so an empty `db.system.name` does not shadow a valid `db.type`.
     fn effective_db_system(&self) -> Option<&'a str> {
-        self.db_system_name.or(self.db_system).or(self.db_type)
+        self.db_system_name
+            .filter(|s| !s.is_empty())
+            .or(self.db_system.filter(|s| !s.is_empty()))
+            .or(self.db_type.filter(|s| !s.is_empty()))
     }
 
     fn code_attrs(&self) -> CodeAttrs<'a> {
@@ -491,23 +495,22 @@ pub fn convert_otlp_request_counted(
 
 /// Classify why a span was skipped: distinguishes "internal span" from
 /// "I/O span missing the attribute that carries its statement or url".
-fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFilterReason {
+fn span_filter_reason(
+    classified: &ClassifiedAttrs<'_>,
+    db_system: Option<&str>,
+    kind: i32,
+) -> OtlpSpanFilterReason {
     // Stable OTel semconv puts `url.full` on CLIENT spans only; SERVER
     // spans legitimately carry just `http.request.method` + `url.path`.
     // A server span without a full URL is inbound work, not a stripped
     // outbound call, so it must count as `not_io`, not as an
     // instrumentation gap.
     let server = kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32;
-    // A SQL DB span (OTel db.system, or a dd-trace db.type naming a SQL engine)
-    // that resolved no statement is an instrumentation gap. A dd-trace db.type
-    // for an unknown store is not, so it must not inflate the gap counter.
-    if classified.db_system.is_some()
-        || classified.db_system_name.is_some()
-        || classified
-            .db_type
-            .map(crate::ingest::canonical_db_system)
-            .is_some_and(crate::ingest::is_sql_db_system)
-    {
+    // A recognized SQL DB span that resolved no statement is an instrumentation
+    // gap. An unknown or non-SQL system is not, so it must not inflate the gap
+    // counter. db_system is the canonicalized effective system (non-SQL stores
+    // were already dropped before this point).
+    if db_system.is_some_and(crate::ingest::is_sql_db_system) {
         OtlpSpanFilterReason::MissingDbStatement
     } else if !server
         && classified
@@ -525,23 +528,22 @@ fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFi
 /// `(event_type, target, operation)`. `None` when it carries neither a
 /// statement nor a URL. Supports both legacy (pre-1.21) and stable (1.21+)
 /// `OTel` semantic conventions.
-fn classify_io_event(c: &ClassifiedAttrs<'_>) -> Option<(EventType, String, String)> {
-    // Canonical SQL system: OTel db.system, else the dd-trace db.type the
-    // datadogreceiver passes through, normalized so both paths label the same
-    // engine identically (dd-trace "postgres" -> "postgresql").
-    let db_system = c
-        .effective_db_system()
-        .map(crate::ingest::canonical_db_system);
+fn classify_io_event(
+    c: &ClassifiedAttrs<'_>,
+    db_system: Option<&str>,
+) -> Option<(EventType, String, String)> {
     // OTel db.statement/db.query.text first, then the dd-trace fallback: the
     // datadogreceiver never sets db.statement and leaves the (obfuscated) SQL
-    // in dd.span.Resource. That attribute is present on every dd-trace span
-    // (HTTP included), so trust it as SQL only when the engine is a recognized
-    // SQL system and the resource is non-empty. Fail closed: a non-SQL or
-    // unknown db.type never has its command string fed to the tokenizer.
+    // in dd.span.Resource. That attribute is present on every dd-trace span,
+    // HTTP routes included, so trust it as SQL only when the engine is a
+    // recognized SQL system, the resource is non-empty, and the span is not an
+    // HTTP span. Fail closed: an HTTP route or a non-SQL/unknown system is never
+    // fed to the SQL tokenizer. db_system is the canonicalized effective system.
+    let has_http = c.http_url.is_some() || c.url_full.is_some();
     let statement = c.db_statement.or(c.db_query_text).or_else(|| {
         c.dd_resource
             .filter(|s| !s.trim().is_empty())
-            .filter(|_| db_system.is_some_and(crate::ingest::is_sql_db_system))
+            .filter(|_| !has_http && db_system.is_some_and(crate::ingest::is_sql_db_system))
     });
     if let Some(statement) = statement {
         // db_system (e.g. "postgresql") is the engine, not the SQL verb. The
@@ -571,20 +573,21 @@ fn convert_span(
     scope_index: &HashMap<&[u8], &str>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let classified = classify_span_attrs(&span.attributes);
+    // Canonical effective DB system, computed once and threaded through the
+    // non-SQL drop, SQL classification, and gap-reason paths.
+    let db_system = classified
+        .effective_db_system()
+        .map(crate::ingest::canonical_db_system);
 
     // Non-SQL datastore (Redis, MongoDB, ...): dropped, not modeled. Gated on
-    // the effective db system (OTel db.system, or the dd-trace db.type meta
-    // key) so a statement-less or url-bearing span is also dropped, and never
-    // mistaken for an instrumentation gap.
-    if classified
-        .effective_db_system()
-        .is_some_and(crate::ingest::is_non_sql_db_system)
-    {
+    // the canonical effective system so a statement-less or url-bearing span is
+    // also dropped, and never mistaken for an instrumentation gap.
+    if db_system.is_some_and(crate::ingest::is_non_sql_db_system) {
         return Err(OtlpSpanFilterReason::NonSqlDatastore);
     }
 
-    let Some((event_type, target, operation)) = classify_io_event(&classified) else {
-        return Err(span_filter_reason(&classified, span.kind));
+    let Some((event_type, target, operation)) = classify_io_event(&classified, db_system) else {
+        return Err(span_filter_reason(&classified, db_system, span.kind));
     };
 
     // Timestamps and duration
@@ -1291,6 +1294,107 @@ mod tests {
         );
         assert_eq!(events[0].operation, "postgresql");
         assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_stable_namespaced_non_sql_is_dropped() {
+        // Stable OTel db.system.name uses namespaced spellings: DynamoDB is
+        // "aws.dynamodb". It must canonicalize to "dynamodb" and be dropped as a
+        // non-SQL datastore, never tokenized as SQL (the statement can carry PII).
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("db.system.name", "aws.dynamodb"),
+                make_kv(
+                    "db.statement",
+                    "SELECT * FROM Orders WHERE Id = 'secret-key'",
+                ),
+            ],
+        );
+        let req = make_request("shop", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_non_sql_datastore, 1);
+    }
+
+    #[test]
+    fn datadog_stable_unknown_db_system_name_without_statement_is_not_a_gap() {
+        // An unknown store reported under the stable key with no statement must
+        // count as not_io, not a missing-db-statement gap. The stable key and
+        // db.type must classify the same store identically.
+        let span = make_bare_span(&[9; 8], vec![make_kv("db.system.name", "aerospike")]);
+        let req = make_request("cache", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.filtered_not_io, 1);
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_http_resource_with_db_tag_is_not_tokenized_as_sql() {
+        // A mis-tagged dd-trace span carrying an HTTP route in dd.span.Resource
+        // plus a SQL db signal and an http.url must NOT have the route (which can
+        // carry query-string secrets) tokenized as SQL; it is an HTTP call.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "GET /api/users?token=SECRET"),
+                make_kv("db.type", "postgres"),
+                make_kv("http.url", "https://svc/api/users?token=SECRET"),
+            ],
+        );
+        let req = make_request("svc", vec![span]);
+
+        let (events, _stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::HttpOut);
+    }
+
+    #[test]
+    fn datadog_stable_namespaced_sql_server_classifies_as_sql() {
+        // SQL Server's stable db.system.name is "microsoft.sql_server"; it must
+        // canonicalize to "mssql" so the dd.span.Resource fallback fires.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("dd.span.Resource", "SELECT * FROM orders WHERE id = ?"),
+                make_kv("db.system.name", "microsoft.sql_server"),
+            ],
+        );
+        let req = make_request("shop", vec![span]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].operation, "mssql");
+        assert_eq!(stats.filtered_missing_db_statement, 0);
+    }
+
+    #[test]
+    fn datadog_empty_db_system_name_does_not_shadow_db_type() {
+        // An empty db.system.name must not short-circuit the effective-system
+        // precedence and suppress a valid db.type, which would lose the SQL.
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("db.system.name", ""),
+                make_kv("db.type", "postgres"),
+                make_kv("dd.span.Resource", "SELECT 1"),
+            ],
+        );
+        let req = make_request("shop", vec![span]);
+
+        let (events, _stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::Sql);
+        assert_eq!(events[0].operation, "postgresql");
     }
 
     #[test]

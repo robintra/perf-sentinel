@@ -32,6 +32,7 @@ const NON_SQL_DB_SYSTEMS: &[&str] = &[
     "mongodb",
     "cassandra",
     "dynamodb",
+    "cosmosdb",
     "couchbase",
     "couchdb",
     "elasticsearch",
@@ -70,6 +71,8 @@ const SQL_DB_SYSTEMS: &[&str] = &[
     "derby",
     "cockroachdb",
     "clickhouse",
+    "spanner",
+    "redshift",
     "sql",
 ];
 
@@ -81,19 +84,31 @@ pub(crate) fn is_sql_db_system(system: &str) -> bool {
         .any(|s| system.eq_ignore_ascii_case(s))
 }
 
-/// Canonical `OTel` `db.system` spelling for a dd-trace `db.type` value, so the
-/// dd-trace and `OTel` ingestion paths label the same engine identically (e.g.
-/// dd-trace `postgres` -> `postgresql`). Unknown values pass through unchanged.
+/// One canonical token per database engine, so every ingestion path labels and
+/// gates the same engine identically regardless of which vocabulary the upstream
+/// used: dd-trace `db.type`, the stable `OTel` 1.27+ `db.system.name` (often
+/// namespaced, e.g. `aws.dynamodb`), or the older experimental `db.system`.
+/// Unknown values pass through unchanged.
 #[must_use]
 pub(crate) fn canonical_db_system(system: &str) -> &str {
-    if system.eq_ignore_ascii_case("postgres") {
-        "postgresql"
-    } else if system.eq_ignore_ascii_case("sqlserver") || system.eq_ignore_ascii_case("sql server")
-    {
-        "mssql"
-    } else {
-        system
+    const ALIASES: &[(&str, &str)] = &[
+        ("postgres", "postgresql"),
+        ("sqlserver", "mssql"),
+        ("sql server", "mssql"),
+        ("microsoft.sql_server", "mssql"),
+        ("oracle.db", "oracle"),
+        ("ibm.db2", "db2"),
+        ("gcp.spanner", "spanner"),
+        ("aws.redshift", "redshift"),
+        ("aws.dynamodb", "dynamodb"),
+        ("azure.cosmosdb", "cosmosdb"),
+    ];
+    for &(alias, canonical) in ALIASES {
+        if system.eq_ignore_ascii_case(alias) {
+            return canonical;
+        }
     }
+    system
 }
 
 /// Trait for event ingestion sources.
