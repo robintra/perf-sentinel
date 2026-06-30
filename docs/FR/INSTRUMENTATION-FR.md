@@ -22,6 +22,7 @@ Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'u
   - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
   - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
   - [Ruby (Rails + ActiveRecord)](#ruby-rails--activerecord-opentelemetry-ruby)
+  - [PHP (Laravel / Eloquent, Symfony / Doctrine)](#php-laravel--eloquent-symfony--doctrine-opentelemetry-php)
 - [Styles de placeholders SQL et detection](#styles-de-placeholders-sql-et-détection) : comment perf-sentinel mappe les placeholders SQL de chaque instrumentation vers le chemin de detection N+1 sanitizer-aware.
 
 ## Introduction à OpenTelemetry
@@ -623,6 +624,40 @@ L'instrumentation `active_record` n'émet ce scope que pour les requêtes qui ch
 environment:
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   OTEL_SERVICE_NAME: rails-svc
+```
+
+---
+
+### PHP (Laravel / Eloquent, Symfony / Doctrine, opentelemetry-php)
+
+Les applications PHP utilisent l'extension d'auto-instrumentation OpenTelemetry PHP plus les paquets d'instrumentation de framework de `open-telemetry/opentelemetry-php-contrib`. Les instrumentations enregistrent des scopes natifs (`io.opentelemetry.contrib.php.pdo`, `io.opentelemetry.contrib.php.doctrine`, `io.opentelemetry.contrib.php.laravel`) et posent `code.function.name` sous la forme `Namespace\Class::method`, ce sur quoi perf-sentinel s'appuie pour les fixes conscients du framework.
+
+**Dépendances (composer) :**
+
+```bash
+pecl install opentelemetry
+composer require \
+  open-telemetry/sdk open-telemetry/exporter-otlp \
+  open-telemetry/opentelemetry-auto-pdo \
+  open-telemetry/opentelemetry-auto-laravel    # ou -auto-symfony + -auto-doctrine
+```
+
+**Correspondance des frameworks.**
+
+- Laravel/Eloquent : le span SQL feuille est scope PDO, mais le scope applicatif `io.opentelemetry.contrib.php.laravel` circule dans la chaîne de spans, donc les findings portent des fixes `php_laravel_eloquent` (eager loading `with()` / `load()`) sur tous les anti-patterns.
+- Symfony/Doctrine : le scope `io.opentelemetry.contrib.php.doctrine` est émis directement sur le span SQL (DBAL est instrumenté), donc les findings SQL portent des fixes `php_doctrine` (fetch-join DQL). Une application Symfony qui utilise du PDO brut au lieu de Doctrine retombe sur `php_generic`.
+
+L'instrumentation PDO émet le template SQL obfusqué par défaut, ce qui suffit pour la détection. Le scope `io.opentelemetry.contrib.php.pdo` seul (sans scope Laravel/Doctrine) route vers `php_generic`.
+
+**Vous venez de dd-trace-php ?** Le pont via le `datadogreceiver` du Collector fonctionne pour la détection mais perd le signal de framework (pas de `code.*`, scope `Datadog` fixe), donc ces findings n'ont pas de fix conscient du framework. Voir [Vous venez de Datadog](INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
+
+**Variables d'environnement :**
+
+```yaml
+environment:
+  OTEL_PHP_AUTOLOAD_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: php-svc
 ```
 
 ---

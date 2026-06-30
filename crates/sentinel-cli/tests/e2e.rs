@@ -1482,6 +1482,44 @@ fn cli_analyze_emits_suggested_fix_for_quarkus_non_reactive_n_plus_one() {
 }
 
 #[test]
+fn cli_analyze_emits_suggested_fix_for_php_laravel_n_plus_one() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_php_laravel.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let n1 = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .and_then(|fs| {
+            fs.iter()
+                .find(|f| f.get("type").and_then(Value::as_str) == Some("n_plus_one_sql"))
+        })
+        .expect("expected an n_plus_one_sql finding");
+
+    let fix = n1
+        .get("suggested_fix")
+        .expect("Laravel finding should carry a suggested_fix");
+    assert_eq!(
+        fix.get("framework").and_then(Value::as_str),
+        Some("php_laravel_eloquent"),
+        "framework should be php_laravel_eloquent, got: {fix}"
+    );
+    let recommendation = fix.get("recommendation").and_then(Value::as_str).unwrap();
+    assert!(
+        recommendation.contains("with(") || recommendation.contains("load("),
+        "Laravel recommendation should mention with() or load(), got: {recommendation}"
+    );
+}
+
+#[test]
 fn cli_diff_identical_inputs_produce_empty_diff_in_json() {
     let fixture_path = format!(
         "{}/../../tests/fixtures/n_plus_one_sql.json",

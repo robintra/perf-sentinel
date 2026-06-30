@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Framework-aware `suggested_fix` now covers PHP. Findings on Laravel/Eloquent and Symfony/Doctrine stacks, detected via the native OpenTelemetry PHP scopes (`io.opentelemetry.contrib.php.laravel`, `io.opentelemetry.contrib.php.doctrine`) or a `.php` source path, carry framework-specific remediation (Eloquent `with()` / `load()` eager loading, Doctrine DQL fetch-join), with a PHP generic fallback across all ten anti-patterns. The Laravel scope is app-wide so PhpLaravelEloquent answers every anti-pattern, while the DB-specific Doctrine scope carries only the SQL fixes. PHP `\`-separated namespaces are recognized by the framework matcher and the ingest-time namespace derivation. dd-trace-php bridged through the Collector `datadogreceiver` carries no framework signal, so those findings fall to the PHP generic tag or stay unenriched.
+
 ## [0.9.3]
 
 ### Added
