@@ -317,11 +317,11 @@ std::fs::set_permissions(path, std::fs::<span style="color:var(--code-sub)">Perm
 <h3 id="query-and-conversion" class="ps-h3">Query and conversion</h3>
 <p class="ps-p">The function builds a PromQL <code class="ps-ic">topk(N, pg_stat_statements_seconds_total)</code> instant query and sends it to the Prometheus <code class="ps-ic">/api/v1/query</code> endpoint via the shared <code class="ps-ic">http_client::fetch_get</code> helper. The response is a standard Prometheus JSON envelope:</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "data": {
-    "result": [
+  <span style="color:var(--code-sub)">&quot;data&quot;</span>: {
+    <span style="color:var(--code-sub)">&quot;result&quot;</span>: [
       {
-        "metric": { "query": "SELECT ...", "datname": "mydb" },
-        "value": [1234567890, "1.234"]
+        <span style="color:var(--code-sub)">&quot;metric&quot;</span>: { <span style="color:var(--code-sub)">&quot;query&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT ...&quot;</span>, <span style="color:var(--code-sub)">&quot;datname&quot;</span>: <span style="color:var(--code-num)">&quot;mydb&quot;</span> },
+        <span style="color:var(--code-sub)">&quot;value&quot;</span>: [1234567890, &quot;1.234&quot;]
       }
     ]
   }

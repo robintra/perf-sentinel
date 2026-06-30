@@ -219,9 +219,9 @@
 <p class="ps-p">Ces attributs sont extraits dans <code class="ps-ic">ingest/otlp.rs</code> depuis les attributs du span lui-même (pas du parent) : <code class="ps-ic">code.function</code>, <code class="ps-ic">code.filepath</code>, <code class="ps-ic">code.lineno</code>, <code class="ps-ic">code.namespace</code>. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)").</p>
 <p class="ps-p"><strong>Intégration SARIF.</strong> La sortie SARIF v2.1.0 traduit <code class="ps-ic">code_location</code> en <code class="ps-ic">physicalLocation</code> :</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "physicalLocation": {
-    "artifactLocation": { "uri": "src/OrderService.java" },
-    "region": { "startLine": <span style="color:var(--code-num)">42</span> }
+  <span style="color:var(--code-sub)">&quot;physicalLocation&quot;</span>: {
+    <span style="color:var(--code-sub)">&quot;artifactLocation&quot;</span>: { <span style="color:var(--code-sub)">&quot;uri&quot;</span>: <span style="color:var(--code-num)">&quot;src/OrderService.java&quot;</span> },
+    <span style="color:var(--code-sub)">&quot;region&quot;</span>: { <span style="color:var(--code-sub)">&quot;startLine&quot;</span>: <span style="color:var(--code-num)">42</span> }
   }
 }</code></pre></div>
 <p class="ps-p">Cela permet les annotations en ligne dans GitHub Code Scanning et GitLab SAST. Le champ <code class="ps-ic">region</code> n'est émis que si <code class="ps-ic">lineno</code> est présent.</p>

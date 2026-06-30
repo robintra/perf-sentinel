@@ -236,14 +236,14 @@ server {
 <p class="ps-p"><strong>Example:</strong></p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> http://127.0.0.1:4318/api/status</code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "version": "0.8.8",
-  "uptime_seconds": <span style="color:var(--code-num)">48</span>,
-  "active_traces": <span style="color:var(--code-num)">12</span>,
-  "max_active_traces": <span style="color:var(--code-num)">10000</span>,
-  "analysis_queue_depth": <span style="color:var(--code-num)">0</span>,
-  "analysis_queue_capacity": <span style="color:var(--code-num)">1024</span>,
-  "stored_findings": <span style="color:var(--code-num)">5</span>,
-  "max_retained_findings": <span style="color:var(--code-num)">10000</span>
+  <span style="color:var(--code-sub)">&quot;version&quot;</span>: <span style="color:var(--code-num)">&quot;0.8.8&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;uptime_seconds&quot;</span>: <span style="color:var(--code-num)">48</span>,
+  <span style="color:var(--code-sub)">&quot;active_traces&quot;</span>: <span style="color:var(--code-num)">12</span>,
+  <span style="color:var(--code-sub)">&quot;max_active_traces&quot;</span>: <span style="color:var(--code-num)">10000</span>,
+  <span style="color:var(--code-sub)">&quot;analysis_queue_depth&quot;</span>: <span style="color:var(--code-num)">0</span>,
+  <span style="color:var(--code-sub)">&quot;analysis_queue_capacity&quot;</span>: <span style="color:var(--code-num)">1024</span>,
+  <span style="color:var(--code-sub)">&quot;stored_findings&quot;</span>: <span style="color:var(--code-num)">5</span>,
+  <span style="color:var(--code-sub)">&quot;max_retained_findings&quot;</span>: <span style="color:var(--code-num)">10000</span>
 }</code></pre></div>
 <h3 id="get-apiconfig" class="ps-h3">GET /api/config</h3>
 <p class="ps-p">The daemon's effective <code class="ps-ic">[daemon]</code> configuration, read-only (since 0.8.8). Backs the Config tab of <code class="ps-ic">perf-sentinel query monitor</code>. Built as an explicit allowlist, never a blanket serialization of the internal config, so <strong>no secret is exposed</strong>: TLS cert/key paths and the ack API key are summarized to booleans (<code class="ps-ic">tls_configured</code>, <code class="ps-ic">ack_api_key_set</code>) and never echoed. The values are frozen at daemon startup.</p>
@@ -252,20 +252,20 @@ server {
 <p class="ps-p"><strong>Example:</strong></p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> http://127.0.0.1:4318/api/config</code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "listen_addr": "127.0.0.1",
-  "listen_port": <span style="color:var(--code-num)">4318</span>,
-  "max_active_traces": <span style="color:var(--code-num)">10000</span>,
-  "trace_ttl_ms": <span style="color:var(--code-num)">30000</span>,
-  "sampling_rate": <span style="color:var(--code-num)">1.0</span>,
-  "environment": "staging",
-  "api_enabled": <span style="color:var(--code-flag)">true</span>,
-  "tls_configured": <span style="color:var(--code-flag)">false</span>,
-  "ack_enabled": <span style="color:var(--code-flag)">true</span>,
-  "ack_api_key_set": <span style="color:var(--code-flag)">false</span>,
-  "cors_allowed_origins": [],
-  "archive_configured": <span style="color:var(--code-flag)">false</span>,
-  "correlation_enabled": <span style="color:var(--code-flag)">false</span>,
-  "correlation_max_tracked_pairs": <span style="color:var(--code-num)">10000</span>
+  <span style="color:var(--code-sub)">&quot;listen_addr&quot;</span>: <span style="color:var(--code-num)">&quot;127.0.0.1&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;listen_port&quot;</span>: <span style="color:var(--code-num)">4318</span>,
+  <span style="color:var(--code-sub)">&quot;max_active_traces&quot;</span>: <span style="color:var(--code-num)">10000</span>,
+  <span style="color:var(--code-sub)">&quot;trace_ttl_ms&quot;</span>: <span style="color:var(--code-num)">30000</span>,
+  <span style="color:var(--code-sub)">&quot;sampling_rate&quot;</span>: <span style="color:var(--code-num)">1.0</span>,
+  <span style="color:var(--code-sub)">&quot;environment&quot;</span>: <span style="color:var(--code-num)">&quot;staging&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;api_enabled&quot;</span>: <span style="color:var(--code-flag)">true</span>,
+  <span style="color:var(--code-sub)">&quot;tls_configured&quot;</span>: <span style="color:var(--code-flag)">false</span>,
+  <span style="color:var(--code-sub)">&quot;ack_enabled&quot;</span>: <span style="color:var(--code-flag)">true</span>,
+  <span style="color:var(--code-sub)">&quot;ack_api_key_set&quot;</span>: <span style="color:var(--code-flag)">false</span>,
+  <span style="color:var(--code-sub)">&quot;cors_allowed_origins&quot;</span>: [],
+  <span style="color:var(--code-sub)">&quot;archive_configured&quot;</span>: <span style="color:var(--code-flag)">false</span>,
+  <span style="color:var(--code-sub)">&quot;correlation_enabled&quot;</span>: <span style="color:var(--code-flag)">false</span>,
+  <span style="color:var(--code-sub)">&quot;correlation_max_tracked_pairs&quot;</span>: <span style="color:var(--code-num)">10000</span>
 }</code></pre></div>
 <p class="ps-p">(Fields elided above for brevity; the live response carries the full set listed under <strong>Response shape</strong>.)</p>
 <h3 id="get-apienergy" class="ps-h3">GET /api/energy</h3>
@@ -278,18 +278,18 @@ server {
 <p class="ps-p"><strong>Example:</strong></p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> http://127.0.0.1:4318/api/energy</code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "backends": [
+  <span style="color:var(--code-sub)">&quot;backends&quot;</span>: [
     {
-      "backend": "scaphandre",
-      "configured": <span style="color:var(--code-flag)">true</span>,
-      "last_scrape_age_seconds": <span style="color:var(--code-num)">3.0</span>,
-      "scrapes_ok": <span style="color:var(--code-num)">120</span>,
-      "scrapes_failed": <span style="color:var(--code-num)">2</span>
+      <span style="color:var(--code-sub)">&quot;backend&quot;</span>: <span style="color:var(--code-num)">&quot;scaphandre&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;configured&quot;</span>: <span style="color:var(--code-flag)">true</span>,
+      <span style="color:var(--code-sub)">&quot;last_scrape_age_seconds&quot;</span>: <span style="color:var(--code-num)">3.0</span>,
+      <span style="color:var(--code-sub)">&quot;scrapes_ok&quot;</span>: <span style="color:var(--code-num)">120</span>,
+      <span style="color:var(--code-sub)">&quot;scrapes_failed&quot;</span>: <span style="color:var(--code-num)">2</span>
     },
-    { "backend": "kepler", "configured": <span style="color:var(--code-flag)">false</span> },
-    { "backend": "redfish", "configured": <span style="color:var(--code-flag)">false</span> },
-    { "backend": "cloud_energy", "configured": <span style="color:var(--code-flag)">false</span> },
-    { "backend": "electricity_maps", "configured": <span style="color:var(--code-flag)">true</span> }
+    { <span style="color:var(--code-sub)">&quot;backend&quot;</span>: <span style="color:var(--code-num)">&quot;kepler&quot;</span>, <span style="color:var(--code-sub)">&quot;configured&quot;</span>: <span style="color:var(--code-flag)">false</span> },
+    { <span style="color:var(--code-sub)">&quot;backend&quot;</span>: <span style="color:var(--code-num)">&quot;redfish&quot;</span>, <span style="color:var(--code-sub)">&quot;configured&quot;</span>: <span style="color:var(--code-flag)">false</span> },
+    { <span style="color:var(--code-sub)">&quot;backend&quot;</span>: <span style="color:var(--code-num)">&quot;cloud_energy&quot;</span>, <span style="color:var(--code-sub)">&quot;configured&quot;</span>: <span style="color:var(--code-flag)">false</span> },
+    { <span style="color:var(--code-sub)">&quot;backend&quot;</span>: <span style="color:var(--code-num)">&quot;electricity_maps&quot;</span>, <span style="color:var(--code-sub)">&quot;configured&quot;</span>: <span style="color:var(--code-flag)">true</span> }
   ]
 }</code></pre></div>
 <h3 id="get-apifindings" class="ps-h3">GET /api/findings</h3>
@@ -306,54 +306,54 @@ server {
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/findings?severity=warning&amp;limit=2"</span></code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>[
   {
-    "finding": {
-      "type": "n_plus_one_sql",
-      "severity": "warning",
-      "trace_id": "trace-n1-sql",
-      "service": "order-svc",
-      "source_endpoint": "POST /api/orders/42/submit",
-      "pattern": {
-        "template": "SELECT * FROM order_item WHERE order_id = ?",
-        "occurrences": <span style="color:var(--code-num)">6</span>,
-        "window_ms": <span style="color:var(--code-num)">250</span>,
-        "distinct_params": <span style="color:var(--code-num)">6</span>
+    <span style="color:var(--code-sub)">&quot;finding&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;severity&quot;</span>: <span style="color:var(--code-num)">&quot;warning&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;trace_id&quot;</span>: <span style="color:var(--code-num)">&quot;trace-n1-sql&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;source_endpoint&quot;</span>: <span style="color:var(--code-num)">&quot;POST /api/orders/42/submit&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;pattern&quot;</span>: {
+        <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>,
+        <span style="color:var(--code-sub)">&quot;occurrences&quot;</span>: <span style="color:var(--code-num)">6</span>,
+        <span style="color:var(--code-sub)">&quot;window_ms&quot;</span>: <span style="color:var(--code-num)">250</span>,
+        <span style="color:var(--code-sub)">&quot;distinct_params&quot;</span>: <span style="color:var(--code-num)">6</span>
       },
-      "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
-      "first_timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z",
-      "last_timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.250</span>Z",
-      "green_impact": {
-        "estimated_extra_io_ops": <span style="color:var(--code-num)">5</span>,
-        "io_intensity_score": <span style="color:var(--code-num)">6.0</span>,
-        "io_intensity_band": "high"
+      <span style="color:var(--code-sub)">&quot;suggestion&quot;</span>: <span style="color:var(--code-num)">&quot;Use WHERE ... IN (?) to batch 6 queries into one&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;first_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;last_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.250</span>Z&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;green_impact&quot;</span>: {
+        <span style="color:var(--code-sub)">&quot;estimated_extra_io_ops&quot;</span>: <span style="color:var(--code-num)">5</span>,
+        <span style="color:var(--code-sub)">&quot;io_intensity_score&quot;</span>: <span style="color:var(--code-num)">6.0</span>,
+        <span style="color:var(--code-sub)">&quot;io_intensity_band&quot;</span>: <span style="color:var(--code-num)">&quot;high&quot;</span>
       },
-      "confidence": "daemon_staging"
+      <span style="color:var(--code-sub)">&quot;confidence&quot;</span>: <span style="color:var(--code-num)">&quot;daemon_staging&quot;</span>
     },
-    "stored_at_ms": <span style="color:var(--code-num)">1776350162450</span>
+    <span style="color:var(--code-sub)">&quot;stored_at_ms&quot;</span>: <span style="color:var(--code-num)">1776350162450</span>
   },
   {
-    "finding": {
-      "type": "n_plus_one_http",
-      "severity": "warning",
-      "trace_id": "trace-n1-http",
-      "service": "order-svc",
-      "source_endpoint": "POST /api/orders/42/submit",
-      "pattern": {
-        "template": "GET /api/users/{id}",
-        "occurrences": <span style="color:var(--code-num)">6</span>,
-        "window_ms": <span style="color:var(--code-num)">200</span>,
-        "distinct_params": <span style="color:var(--code-num)">6</span>
+    <span style="color:var(--code-sub)">&quot;finding&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_http&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;severity&quot;</span>: <span style="color:var(--code-num)">&quot;warning&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;trace_id&quot;</span>: <span style="color:var(--code-num)">&quot;trace-n1-http&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;source_endpoint&quot;</span>: <span style="color:var(--code-num)">&quot;POST /api/orders/42/submit&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;pattern&quot;</span>: {
+        <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;GET /api/users/{id}&quot;</span>,
+        <span style="color:var(--code-sub)">&quot;occurrences&quot;</span>: <span style="color:var(--code-num)">6</span>,
+        <span style="color:var(--code-sub)">&quot;window_ms&quot;</span>: <span style="color:var(--code-num)">200</span>,
+        <span style="color:var(--code-sub)">&quot;distinct_params&quot;</span>: <span style="color:var(--code-num)">6</span>
       },
-      "suggestion": "Use batch endpoint with ?ids=... to batch 6 calls into one",
-      "first_timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z",
-      "last_timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.200</span>Z",
-      "green_impact": {
-        "estimated_extra_io_ops": <span style="color:var(--code-num)">5</span>,
-        "io_intensity_score": <span style="color:var(--code-num)">6.0</span>,
-        "io_intensity_band": "high"
+      <span style="color:var(--code-sub)">&quot;suggestion&quot;</span>: <span style="color:var(--code-num)">&quot;Use batch endpoint with ?ids=... to batch 6 calls into one&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;first_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;last_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.200</span>Z&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;green_impact&quot;</span>: {
+        <span style="color:var(--code-sub)">&quot;estimated_extra_io_ops&quot;</span>: <span style="color:var(--code-num)">5</span>,
+        <span style="color:var(--code-sub)">&quot;io_intensity_score&quot;</span>: <span style="color:var(--code-num)">6.0</span>,
+        <span style="color:var(--code-sub)">&quot;io_intensity_band&quot;</span>: <span style="color:var(--code-num)">&quot;high&quot;</span>
       },
-      "confidence": "daemon_staging"
+      <span style="color:var(--code-sub)">&quot;confidence&quot;</span>: <span style="color:var(--code-num)">&quot;daemon_staging&quot;</span>
     },
-    "stored_at_ms": <span style="color:var(--code-num)">1776350162450</span>
+    <span style="color:var(--code-sub)">&quot;stored_at_ms&quot;</span>: <span style="color:var(--code-num)">1776350162450</span>
   }
 ]</code></pre></div>
 <h4 id="finding-schema" class="ps-h4">Finding schema</h4>
@@ -367,29 +367,29 @@ server {
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/findings/trace-n1-sql"</span></code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>[
   {
-    "finding": {
-      "type": "n_plus_one_sql",
-      "severity": "warning",
-      "trace_id": "trace-n1-sql",
-      "service": "order-svc",
-      "source_endpoint": "POST /api/orders/42/submit",
-      "pattern": {
-        "template": "SELECT * FROM order_item WHERE order_id = ?",
-        "occurrences": <span style="color:var(--code-num)">6</span>,
-        "window_ms": <span style="color:var(--code-num)">250</span>,
-        "distinct_params": <span style="color:var(--code-num)">6</span>
+    <span style="color:var(--code-sub)">&quot;finding&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;severity&quot;</span>: <span style="color:var(--code-num)">&quot;warning&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;trace_id&quot;</span>: <span style="color:var(--code-num)">&quot;trace-n1-sql&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;source_endpoint&quot;</span>: <span style="color:var(--code-num)">&quot;POST /api/orders/42/submit&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;pattern&quot;</span>: {
+        <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>,
+        <span style="color:var(--code-sub)">&quot;occurrences&quot;</span>: <span style="color:var(--code-num)">6</span>,
+        <span style="color:var(--code-sub)">&quot;window_ms&quot;</span>: <span style="color:var(--code-num)">250</span>,
+        <span style="color:var(--code-sub)">&quot;distinct_params&quot;</span>: <span style="color:var(--code-num)">6</span>
       },
-      "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
-      "first_timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z",
-      "last_timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.250</span>Z",
-      "green_impact": {
-        "estimated_extra_io_ops": <span style="color:var(--code-num)">5</span>,
-        "io_intensity_score": <span style="color:var(--code-num)">6.0</span>,
-        "io_intensity_band": "high"
+      <span style="color:var(--code-sub)">&quot;suggestion&quot;</span>: <span style="color:var(--code-num)">&quot;Use WHERE ... IN (?) to batch 6 queries into one&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;first_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;last_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.250</span>Z&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;green_impact&quot;</span>: {
+        <span style="color:var(--code-sub)">&quot;estimated_extra_io_ops&quot;</span>: <span style="color:var(--code-num)">5</span>,
+        <span style="color:var(--code-sub)">&quot;io_intensity_score&quot;</span>: <span style="color:var(--code-num)">6.0</span>,
+        <span style="color:var(--code-sub)">&quot;io_intensity_band&quot;</span>: <span style="color:var(--code-num)">&quot;high&quot;</span>
       },
-      "confidence": "daemon_staging"
+      <span style="color:var(--code-sub)">&quot;confidence&quot;</span>: <span style="color:var(--code-num)">&quot;daemon_staging&quot;</span>
     },
-    "stored_at_ms": <span style="color:var(--code-num)">1776350162450</span>
+    <span style="color:var(--code-sub)">&quot;stored_at_ms&quot;</span>: <span style="color:var(--code-num)">1776350162450</span>
   }
 ]</code></pre></div>
 <h3 id="get-apiexplaintraceid" class="ps-h3">GET /api/explain/{trace_id}</h3>
@@ -403,31 +403,31 @@ server {
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Trace still in memory</span>
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/explain/trace-n1-sql"</span></code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "roots": [
+  <span style="color:var(--code-sub)">&quot;roots&quot;</span>: [
     {
-      "children": [],
-      "duration_us": <span style="color:var(--code-num)">800</span>,
-      "findings": [
+      <span style="color:var(--code-sub)">&quot;children&quot;</span>: [],
+      <span style="color:var(--code-sub)">&quot;duration_us&quot;</span>: <span style="color:var(--code-num)">800</span>,
+      <span style="color:var(--code-sub)">&quot;findings&quot;</span>: [
         {
-          "occurrences": <span style="color:var(--code-num)">6</span>,
-          "severity": "warning",
-          "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
-          "type": "n_plus_one_sql"
+          <span style="color:var(--code-sub)">&quot;occurrences&quot;</span>: <span style="color:var(--code-num)">6</span>,
+          <span style="color:var(--code-sub)">&quot;severity&quot;</span>: <span style="color:var(--code-num)">&quot;warning&quot;</span>,
+          <span style="color:var(--code-sub)">&quot;suggestion&quot;</span>: <span style="color:var(--code-num)">&quot;Use WHERE ... IN (?) to batch 6 queries into one&quot;</span>,
+          <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>
         }
       ],
-      "operation": "SELECT",
-      "parent_span_id": <span style="color:var(--code-flag)">null</span>,
-      "service": "order-svc",
-      "span_id": "span-1",
-      "template": "SELECT * FROM order_item WHERE order_id = ?",
-      "timestamp": "2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z"
+      <span style="color:var(--code-sub)">&quot;operation&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;parent_span_id&quot;</span>: <span style="color:var(--code-flag)">null</span>,
+      <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;span_id&quot;</span>: <span style="color:var(--code-num)">&quot;span-1&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2025-07-10T14:<span style="color:var(--code-num)">32</span>:<span style="color:var(--code-num)">01.000</span>Z&quot;</span>
     }
   ]
 }</code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Trace not in memory (evicted or never seen)</span>
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/explain/trace-does-not-exist"</span></code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "error": "trace not found in daemon memory"
+  <span style="color:var(--code-sub)">&quot;error&quot;</span>: <span style="color:var(--code-num)">&quot;trace not found in daemon memory&quot;</span>
 }</code></pre></div>
 <h3 id="get-apicorrelations" class="ps-h3">GET /api/correlations</h3>
 <p class="ps-p">Returns active cross-trace temporal correlations, sorted by confidence descending. Empty array when <code class="ps-ic">[daemon.correlation] enabled = false</code> (default). Capped at 1000 entries.</p>
@@ -438,22 +438,22 @@ server {
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/correlations"</span></code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>[
   {
-    "source": {
-      "finding_type": "redundant_sql",
-      "service": "cache-svc",
-      "template": "SELECT * FROM settings WHERE key = ?"
+    <span style="color:var(--code-sub)">&quot;source&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;finding_type&quot;</span>: <span style="color:var(--code-num)">&quot;redundant_sql&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;cache-svc&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM settings WHERE key = ?&quot;</span>
     },
-    "target": {
-      "finding_type": "n_plus_one_sql",
-      "service": "order-svc",
-      "template": "SELECT * FROM order_item WHERE order_id = ?"
+    <span style="color:var(--code-sub)">&quot;target&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;finding_type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>
     },
-    "co_occurrence_count": <span style="color:var(--code-num)">2</span>,
-    "source_total_occurrences": <span style="color:var(--code-num)">1</span>,
-    "confidence": <span style="color:var(--code-num)">2.0</span>,
-    "median_lag_ms": <span style="color:var(--code-num)">0.0</span>,
-    "first_seen": "2026-04-16T14:<span style="color:var(--code-num)">36</span>:<span style="color:var(--code-num)">02.450</span>Z",
-    "last_seen": "2026-04-16T14:<span style="color:var(--code-num)">36</span>:<span style="color:var(--code-num)">02.450</span>Z"
+    <span style="color:var(--code-sub)">&quot;co_occurrence_count&quot;</span>: <span style="color:var(--code-num)">2</span>,
+    <span style="color:var(--code-sub)">&quot;source_total_occurrences&quot;</span>: <span style="color:var(--code-num)">1</span>,
+    <span style="color:var(--code-sub)">&quot;confidence&quot;</span>: <span style="color:var(--code-num)">2.0</span>,
+    <span style="color:var(--code-sub)">&quot;median_lag_ms&quot;</span>: <span style="color:var(--code-num)">0.0</span>,
+    <span style="color:var(--code-sub)">&quot;first_seen&quot;</span>: <span style="color:var(--code-num)">&quot;2026-04-16T14:<span style="color:var(--code-num)">36</span>:<span style="color:var(--code-num)">02.450</span>Z&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;last_seen&quot;</span>: <span style="color:var(--code-num)">&quot;2026-04-16T14:<span style="color:var(--code-num)">36</span>:<span style="color:var(--code-num)">02.450</span>Z&quot;</span>
   }
 ]</code></pre></div>
 <h3 id="get-apiexportreport" class="ps-h3">GET /api/export/report</h3>
@@ -477,9 +477,9 @@ server {
 </ul>
 <p class="ps-p"><strong>Body (all fields optional):</strong></p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "by": "alice@example.com",
-  "reason": "deferred to next quarter, see TICKET-1234",
-  "expires_at": "2026-08-01T00:<span style="color:var(--code-num)">00</span>:<span style="color:var(--code-num)">00</span>Z"
+  <span style="color:var(--code-sub)">&quot;by&quot;</span>: <span style="color:var(--code-num)">&quot;alice@example.com&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;reason&quot;</span>: <span style="color:var(--code-num)">&quot;deferred to next quarter, see TICKET-1234&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;expires_at&quot;</span>: <span style="color:var(--code-num)">&quot;2026-08-01T00:<span style="color:var(--code-num)">00</span>:<span style="color:var(--code-num)">00</span>Z&quot;</span>
 }</code></pre></div>
 <p class="ps-p"><strong>Responses:</strong></p>
 <div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Status</th><th style="text-align:left">Condition</th></tr></thead><tbody><tr><td style="text-align:left">201</td><td style="text-align:left">Ack created</td></tr><tr><td style="text-align:left">400</td><td style="text-align:left">Signature does not match the canonical format</td></tr><tr><td style="text-align:left">401</td><td style="text-align:left"><code class="ps-ic">[daemon.ack] api_key</code> is set, header is missing or wrong</td></tr><tr><td style="text-align:left">409</td><td style="text-align:left">The signature is already acked (use <code class="ps-ic">DELETE</code> first to revoke)</td></tr><tr><td style="text-align:left">503</td><td style="text-align:left"><code class="ps-ic">[daemon.ack] enabled = false</code>, the runtime ack store is offline</td></tr></tbody></table></div>
@@ -501,12 +501,12 @@ server {
 <p class="ps-p"><strong>Response:</strong> array of objects, one per active ack:</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>[
   {
-    "action": "ack",
-    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "by": "alice@example.com",
-    "reason": "deferred to next quarter",
-    "at": "2026-05-04T13:<span style="color:var(--code-num)">30</span>:<span style="color:var(--code-num)">00</span>Z",
-    "expires_at": "2026-08-01T00:<span style="color:var(--code-num)">00</span>:<span style="color:var(--code-num)">00</span>Z"
+    <span style="color:var(--code-sub)">&quot;action&quot;</span>: <span style="color:var(--code-num)">&quot;ack&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;signature&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;by&quot;</span>: <span style="color:var(--code-num)">&quot;alice@example.com&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;reason&quot;</span>: <span style="color:var(--code-num)">&quot;deferred to next quarter&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;at&quot;</span>: <span style="color:var(--code-num)">&quot;2026-05-04T13:<span style="color:var(--code-num)">30</span>:<span style="color:var(--code-num)">00</span>Z&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;expires_at&quot;</span>: <span style="color:var(--code-num)">&quot;2026-08-01T00:<span style="color:var(--code-num)">00</span>:<span style="color:var(--code-num)">00</span>Z&quot;</span>
   }
 ]</code></pre></div>
 <p class="ps-p">This endpoint surfaces only the daemon-side JSONL acks. CI TOML acks loaded at startup are not included, query the TOML file directly for that view, or call <code class="ps-ic">GET /api/findings?include_acked=true</code> and inspect the <code class="ps-ic">acknowledged_by.source</code> field to see both sources unified.</p>

@@ -167,7 +167,7 @@ crates/sentinel-cli/src/disclose.rs          // CLI dispatcher</code></pre></div
 <p class="ps-p"><code class="ps-ic">intent = "internal"</code> is a no-op: a draft is allowed to be incomplete. <code class="ps-ic">intent = "audited"</code> short-circuits with a single <code class="ps-ic">ValidationError::AuditedNotImplemented</code>, accepted by the JSON schema for forward-compatibility but unimplemented at runtime.</p>
 <h2 id="aggregator-and-per-service-attribution" class="ps-h2">Aggregator and per-service attribution</h2>
 <p class="ps-p">The aggregator reads NDJSON files (or directories of <code class="ps-ic">*.ndjson</code> files), where each line is an envelope:</p>
-<div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{"ts":"&lt;RFC 3339 UTC&gt;","report":{...full Report...}}</code></pre></div>
+<div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{<span style="color:var(--code-sub)">&quot;ts&quot;</span>:<span style="color:var(--code-num)">&quot;&lt;RFC 3339 UTC&gt;&quot;</span>,<span style="color:var(--code-sub)">&quot;report&quot;</span>:{...full Report...}}</code></pre></div>
 <p class="ps-p">For each in-period envelope:</p>
 <ol>
 <li><strong>Global counters</strong> sum <code class="ps-ic">total_io_ops</code>, <code class="ps-ic">avoidable_io_ops</code>, <code class="ps-ic">total.mid</code> (gCO2), <code class="ps-ic">avoidable.mid</code> (gCO2). gCO2 is divided by 1000 to obtain kgCO2eq.</li>

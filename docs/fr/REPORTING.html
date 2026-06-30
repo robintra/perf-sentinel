@@ -182,7 +182,7 @@
 <p class="ps-p">C'est une <strong>aide à la correspondance, pas une certification</strong>. Elle ne transforme pas un rapport en déclaration CSRD : les chiffres gardent leur intervalle d'incertitude directionnel 2x, le périmètre est l'IT compute uniquement, et un inventaire audité par un organisme qualifié reste requis. Les mêmes caveats sont publiés en bande sous <code class="ps-ic">standard_crosswalk.caveats</code> et dans <code class="ps-ic">notes.disclaimers</code>.</p>
 <h2 id="entrées" class="ps-h2">Entrées</h2>
 <p class="ps-p">L'aggregator lit des fichiers NDJSON que le daemon archive à raison d'une enveloppe par fenêtre de scoring :</p>
-<div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{"ts":"2026-01-15T14:<span style="color:var(--code-num)">30</span>:<span style="color:var(--code-num)">00</span>Z","report":{ ...Report complet... }}</code></pre></div>
+<div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{<span style="color:var(--code-sub)">&quot;ts&quot;</span>:<span style="color:var(--code-num)">&quot;2026-01-15T14:<span style="color:var(--code-num)">30</span>:<span style="color:var(--code-num)">00</span>Z&quot;</span>,<span style="color:var(--code-sub)">&quot;report&quot;</span>:{ ...Report complet... }}</code></pre></div>
 <p class="ps-p">Configurer l'archive daemon via :</p>
 <div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[daemon.archive]</span>
 <span style="color:var(--code-sub)">path </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> "/var/lib/perf-sentinel/reports.ndjson"</span>
@@ -339,30 +339,30 @@
 <div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Champ</th><th style="text-align:left">Où lire la valeur</th></tr></thead><tbody><tr><td style="text-align:left"><code class="ps-ic">format</code></td><td style="text-align:left">constante <code class="ps-ic">"sigstore-cosign-intoto-v1"</code> pour ce schéma</td></tr><tr><td style="text-align:left"><code class="ps-ic">bundle_url</code></td><td style="text-align:left">URL où vous publierez <code class="ps-ic">bundle.sig</code> à l'étape 4</td></tr><tr><td style="text-align:left"><code class="ps-ic">signer_identity</code></td><td style="text-align:left">sortie cosign à l'étape 2, ligne <code class="ps-ic">Successfully verified SCT...</code> ou <code class="ps-ic">tlog entry... signed by</code>. Aussi lisible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2&gt;&amp;1 \</td><td style="text-align:left">grep identity`</td></tr><tr><td style="text-align:left"><code class="ps-ic">signer_issuer</code></td><td style="text-align:left">même source que <code class="ps-ic">signer_identity</code>, l'URL OIDC issuer enregistrée à côté</td></tr><tr><td style="text-align:left"><code class="ps-ic">rekor_url</code></td><td style="text-align:left">l'instance Rekor utilisée (<code class="ps-ic">https://rekor.sigstore.dev</code> pour Sigstore public, ou la valeur de <code class="ps-ic">[reporting.sigstore] rekor_url</code> pour une instance privée)</td></tr><tr><td style="text-align:left"><code class="ps-ic">rekor_log_index</code></td><td style="text-align:left">sortie cosign à l'étape 2, ligne <code class="ps-ic">tlog entry created with index: X</code>. Ou via <code class="ps-ic">curl &lt;rekor_url&gt;/api/v1/log/entries?logIndex=X</code> pour confirmer</td></tr><tr><td style="text-align:left"><code class="ps-ic">signed_at</code></td><td style="text-align:left">timestamp de l'entrée Rekor, ISO 8601 UTC</td></tr></tbody></table></div>
 <p class="ps-p">Exemple before / after sur une divulgation fraîche :</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>// Avant l'étape 2 (état immédiatement après disclose --emit-attestation)
-"integrity": {
-  "content_hash": "sha256:abc123...",
-  "binary_hash": "sha256:def456...",
-  "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
-  "trace_integrity_chain": <span style="color:var(--code-flag)">null</span>,
-  "signature": <span style="color:var(--code-flag)">null</span>,
-  "binary_attestation": <span style="color:var(--code-flag)">null</span>
+<span style="color:var(--code-sub)">&quot;integrity&quot;</span>: {
+  <span style="color:var(--code-sub)">&quot;content_hash&quot;</span>: <span style="color:var(--code-num)">&quot;sha256:abc123...&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;binary_hash&quot;</span>: <span style="color:var(--code-num)">&quot;sha256:def456...&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;binary_verification_url&quot;</span>: <span style="color:var(--code-num)">&quot;https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;trace_integrity_chain&quot;</span>: <span style="color:var(--code-flag)">null</span>,
+  <span style="color:var(--code-sub)">&quot;signature&quot;</span>: <span style="color:var(--code-flag)">null</span>,
+  <span style="color:var(--code-sub)">&quot;binary_attestation&quot;</span>: <span style="color:var(--code-flag)">null</span>
 }</code></pre></div>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>// Après l'étape 3 (après cosign sign-blob réussi et locators collés)
-"integrity": {
-  "content_hash": "sha256:abc123...",
-  "binary_hash": "sha256:def456...",
-  "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
-  "trace_integrity_chain": <span style="color:var(--code-flag)">null</span>,
-  "signature": {
-    "format": "sigstore-cosign-intoto-v1",
-    "bundle_url": "https://transparency.example.fr/bundle.sig",
-    "signer_identity": "robin.trassard@example.fr",
-    "signer_issuer": "https://accounts.google.com",
-    "rekor_url": "https://rekor.sigstore.dev",
-    "rekor_log_index": <span style="color:var(--code-num)">123456789</span>,
-    "signed_at": "2026-05-15T09:<span style="color:var(--code-num)">00</span>:<span style="color:var(--code-num)">00</span>Z"
+<span style="color:var(--code-sub)">&quot;integrity&quot;</span>: {
+  <span style="color:var(--code-sub)">&quot;content_hash&quot;</span>: <span style="color:var(--code-num)">&quot;sha256:abc123...&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;binary_hash&quot;</span>: <span style="color:var(--code-num)">&quot;sha256:def456...&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;binary_verification_url&quot;</span>: <span style="color:var(--code-num)">&quot;https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;trace_integrity_chain&quot;</span>: <span style="color:var(--code-flag)">null</span>,
+  <span style="color:var(--code-sub)">&quot;signature&quot;</span>: {
+    <span style="color:var(--code-sub)">&quot;format&quot;</span>: <span style="color:var(--code-num)">&quot;sigstore-cosign-intoto-v1&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;bundle_url&quot;</span>: <span style="color:var(--code-num)">&quot;https://transparency.example.fr/bundle.sig&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;signer_identity&quot;</span>: <span style="color:var(--code-num)">&quot;robin.trassard@example.fr&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;signer_issuer&quot;</span>: <span style="color:var(--code-num)">&quot;https://accounts.google.com&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;rekor_url&quot;</span>: <span style="color:var(--code-num)">&quot;https://rekor.sigstore.dev&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;rekor_log_index&quot;</span>: <span style="color:var(--code-num)">123456789</span>,
+    <span style="color:var(--code-sub)">&quot;signed_at&quot;</span>: <span style="color:var(--code-num)">&quot;2026-05-15T09:<span style="color:var(--code-num)">00</span>:<span style="color:var(--code-num)">00</span>Z&quot;</span>
   },
-  "binary_attestation": <span style="color:var(--code-flag)">null</span>
+  <span style="color:var(--code-sub)">&quot;binary_attestation&quot;</span>: <span style="color:var(--code-flag)">null</span>
 }</code></pre></div>
 <p class="ps-p">Et dans <code class="ps-ic">report_metadata</code> :</p>
 <div class="ps-code"><div class="ps-code-lang">diff</div><pre><code><span style="color:var(--coral)">-  "integrity_level": "hash-only"</span>

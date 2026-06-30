@@ -393,21 +393,21 @@ energy_per_op  = (chassis_joules / 3_600_000) / total_ops    (en kWh par opérat
 <p class="ps-p"><strong>Déduplication par zone.</strong> Le scraper itère sur <code class="ps-ic">region_map</code> (<code class="ps-ic">cloud_region -&gt; zone</code>) mais une zone donnée n'est récupérée qu'une seule fois par tick, même si plusieurs <code class="ps-ic">cloud_region</code> pointent dessus (montages multi-AZ classiques, ou <code class="ps-ic">aws:eu-west-3</code> et <code class="ps-ic">local-k3d</code> tous deux pinnés sur <code class="ps-ic">FR</code>). La lecture est ensuite dispatchée à chaque <code class="ps-ic">cloud_region</code> qui correspond. Le nombre d'appels API reste proportionnel au nombre de zones distinctes, pas à la taille de <code class="ps-ic">region_map</code>. Critique sur les tiers à quota contraint, le tier gratuit en particulier limite à une seule zone aujourd'hui mais le calcul de quota bénéficie quand même d'un même mapping de zone partagé entre staging et prod.</p>
 <p class="ps-p"><strong>Métadonnées d'estimation.</strong> L'API Electricity Maps expose deux champs optionnels à côté de <code class="ps-ic">carbonIntensity</code> :</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "zone": "FR",
-  "carbonIntensity": <span style="color:var(--code-num)">56.0</span>,
-  "isEstimated": <span style="color:var(--code-flag)">true</span>,
-  "estimationMethod": "TIME_SLICER_AVERAGE"
+  <span style="color:var(--code-sub)">&quot;zone&quot;</span>: <span style="color:var(--code-num)">&quot;FR&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;carbonIntensity&quot;</span>: <span style="color:var(--code-num)">56.0</span>,
+  <span style="color:var(--code-sub)">&quot;isEstimated&quot;</span>: <span style="color:var(--code-flag)">true</span>,
+  <span style="color:var(--code-sub)">&quot;estimationMethod&quot;</span>: <span style="color:var(--code-num)">&quot;TIME_SLICER_AVERAGE&quot;</span>
 }</code></pre></div>
 <p class="ps-p"><code class="ps-ic">isEstimated</code> vaut <code class="ps-ic">true</code> quand l'API a comblé un trou (zone Tier B/C, ou trou temporel comblé par un algorithme comme <code class="ps-ic">TIME_SLICER_AVERAGE</code>), et <code class="ps-ic">false</code> pour les valeurs entièrement mesurées. perf-sentinel parse les deux champs avec <code class="ps-ic">#[serde(default)]</code> pour rester forward-compatible si une version future de l'API cesse de les émettre.</p>
 <p class="ps-p">Les flags se propagent à travers <code class="ps-ic">IntensityReading</code> (state) jusqu'au <code class="ps-ic">CarbonContext.real_time_intensity</code> du tick puis jusqu'à l'accumulateur par région. La ligne <code class="ps-ic">green_summary.regions[]</code> les expose comme deux champs optionnels :</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "status": "known",
-  "region": "eu-west-3",
-  "intensity_source": "real_time",
-  "grid_intensity_gco2_kwh": <span style="color:var(--code-num)">56.0</span>,
-  "intensity_estimated": <span style="color:var(--code-flag)">true</span>,
-  "intensity_estimation_method": "TIME_SLICER_AVERAGE",
-  "co2_gco2": <span style="color:var(--code-num)">1.234</span>
+  <span style="color:var(--code-sub)">&quot;status&quot;</span>: <span style="color:var(--code-num)">&quot;known&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;region&quot;</span>: <span style="color:var(--code-num)">&quot;eu-west-3&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;intensity_source&quot;</span>: <span style="color:var(--code-num)">&quot;real_time&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;grid_intensity_gco2_kwh&quot;</span>: <span style="color:var(--code-num)">56.0</span>,
+  <span style="color:var(--code-sub)">&quot;intensity_estimated&quot;</span>: <span style="color:var(--code-flag)">true</span>,
+  <span style="color:var(--code-sub)">&quot;intensity_estimation_method&quot;</span>: <span style="color:var(--code-num)">&quot;TIME_SLICER_AVERAGE&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;co2_gco2&quot;</span>: <span style="color:var(--code-num)">1.234</span>
 }</code></pre></div>
 <p class="ps-p">Les deux champs utilisent <code class="ps-ic">#[serde(skip_serializing_if = "Option::is_none")]</code> pour que les consommateurs qui les ignorent continuent à désérialiser la ligne sans changement. Les champs n'apparaissent que quand <code class="ps-ic">intensity_source == "real_time"</code>. Les spans qui retombent sur les profils annuels ou horaires ne portent jamais la metadata, même si l'accumulateur l'a capturée depuis un span voisin.</p>
 <p class="ps-p">C'est le signal qu'un reporting Scope 2 attend pour distinguer les émissions mesurées des émissions modélisées. Les auditeurs admettent typiquement les valeurs estimées quand la méthodologie est documentée, surfacer le tag d'algorithme (<code class="ps-ic">TIME_SLICER_AVERAGE</code>, <code class="ps-ic">GENERAL_PURPOSE_ZONE_DEVELOPMENT</code>, etc.) rend la piste d'audit auto-portée.</p>

@@ -383,24 +383,24 @@
 <div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Valeur</th><th style="text-align:left">Quand émise</th><th style="text-align:left">SARIF <code class="ps-ic">rank</code></th><th style="text-align:left">Interprétation</th></tr></thead><tbody><tr><td style="text-align:left"><code class="ps-ic">"ci_batch"</code></td><td style="text-align:left"><code class="ps-ic">perf-sentinel analyze</code> (mode batch, toujours)</td><td style="text-align:left"><code class="ps-ic">30</code></td><td style="text-align:left">Confiance faible : la trace vient d'un run CI contrôlé avec des patterns de trafic limités</td></tr><tr><td style="text-align:left"><code class="ps-ic">"daemon_staging"</code></td><td style="text-align:left"><code class="ps-ic">perf-sentinel watch</code> avec <code class="ps-ic">[daemon] environment = "staging"</code> (défaut)</td><td style="text-align:left"><code class="ps-ic">60</code></td><td style="text-align:left">Confiance moyenne : patterns de trafic réels observés sur un déploiement staging</td></tr><tr><td style="text-align:left"><code class="ps-ic">"daemon_production"</code></td><td style="text-align:left"><code class="ps-ic">perf-sentinel watch</code> avec <code class="ps-ic">[daemon] environment = "production"</code></td><td style="text-align:left"><code class="ps-ic">90</code></td><td style="text-align:left">Confiance la plus élevée : trafic réel, échelle réelle, vrais utilisateurs</td></tr></tbody></table></div>
 <p class="ps-p"><strong>Exemple de finding JSON :</strong></p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "type": "n_plus_one_sql",
-  "severity": "warning",
-  "trace_id": "abc123",
-  "service": "order-svc",
-  "source_endpoint": "POST /api/orders/{id}/submit",
-  "pattern": { "template": "SELECT * FROM order_item WHERE order_id = ?", "occurrences": <span style="color:var(--code-num)">6</span>, "window_ms": <span style="color:var(--code-num)">250</span>, "distinct_params": <span style="color:var(--code-num)">6</span> },
-  "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
-  "first_timestamp": "2026-04-08T03:<span style="color:var(--code-num)">14</span>:<span style="color:var(--code-num)">01.050</span>Z",
-  "last_timestamp": "2026-04-08T03:<span style="color:var(--code-num)">14</span>:<span style="color:var(--code-num)">01.300</span>Z",
-  "confidence": "daemon_production"
+  <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;severity&quot;</span>: <span style="color:var(--code-num)">&quot;warning&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;trace_id&quot;</span>: <span style="color:var(--code-num)">&quot;abc123&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;source_endpoint&quot;</span>: <span style="color:var(--code-num)">&quot;POST /api/orders/{id}/submit&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;pattern&quot;</span>: { <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>, <span style="color:var(--code-sub)">&quot;occurrences&quot;</span>: <span style="color:var(--code-num)">6</span>, <span style="color:var(--code-sub)">&quot;window_ms&quot;</span>: <span style="color:var(--code-num)">250</span>, <span style="color:var(--code-sub)">&quot;distinct_params&quot;</span>: <span style="color:var(--code-num)">6</span> },
+  <span style="color:var(--code-sub)">&quot;suggestion&quot;</span>: <span style="color:var(--code-num)">&quot;Use WHERE ... IN (?) to batch 6 queries into one&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;first_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2026-04-08T03:<span style="color:var(--code-num)">14</span>:<span style="color:var(--code-num)">01.050</span>Z&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;last_timestamp&quot;</span>: <span style="color:var(--code-num)">&quot;2026-04-08T03:<span style="color:var(--code-num)">14</span>:<span style="color:var(--code-num)">01.300</span>Z&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;confidence&quot;</span>: <span style="color:var(--code-num)">&quot;daemon_production&quot;</span>
 }</code></pre></div>
 <p class="ps-p"><strong>Fragment de résultat SARIF :</strong></p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "ruleId": "n_plus_one_sql",
-  "level": "warning",
-  "message": { "text": "n_plus_one_sql in order-svc on POST /api/orders/{id}/submit..." },
-  "properties": { "confidence": "daemon_production" },
-  "rank": <span style="color:var(--code-num)">90</span>
+  <span style="color:var(--code-sub)">&quot;ruleId&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;level&quot;</span>: <span style="color:var(--code-num)">&quot;warning&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;message&quot;</span>: { <span style="color:var(--code-sub)">&quot;text&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql in order-svc on POST /api/orders/{id}/submit...&quot;</span> },
+  <span style="color:var(--code-sub)">&quot;properties&quot;</span>: { <span style="color:var(--code-sub)">&quot;confidence&quot;</span>: <span style="color:var(--code-num)">&quot;daemon_production&quot;</span> },
+  <span style="color:var(--code-sub)">&quot;rank&quot;</span>: <span style="color:var(--code-num)">90</span>
 }</code></pre></div>
 <p class="ps-p"><strong>Configuration dans le daemon :</strong></p>
 <div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[daemon]</span>

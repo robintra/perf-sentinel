@@ -178,16 +178,16 @@
 <h4 id="user-supplied-hourly-profiles" class="ps-h4">User-supplied hourly profiles</h4>
 <p class="ps-p">Set <code class="ps-ic">[green] hourly_profiles_file</code> to a JSON file to provide your own hourly profiles. This is useful for datacenter operators with their own power purchase agreements (PPAs) or for overriding the embedded data with local measurements.</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "profiles": {
-    "my-datacenter": {
-      "type": "flat_year",
-      "hours": [45.0, 44.0, 43.0, "... 24 values total ..."]
+  <span style="color:var(--code-sub)">&quot;profiles&quot;</span>: {
+    <span style="color:var(--code-sub)">&quot;my-datacenter&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;flat_year&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;hours&quot;</span>: [45.0, 44.0, 43.0, &quot;... 24 values total ...&quot;]
     },
-    "eu-west-3": {
-      "type": "monthly",
-      "months": [
-        [50.0, 49.0, "... 24 values for January ..."],
-        ["... 11 more months ..."]
+    <span style="color:var(--code-sub)">&quot;eu-west-3&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;type&quot;</span>: <span style="color:var(--code-num)">&quot;monthly&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;months&quot;</span>: [
+        [50.0, 49.0, &quot;... 24 values for January ...&quot;],
+        [&quot;... 11 more months ...&quot;]
       ]
     }
   }

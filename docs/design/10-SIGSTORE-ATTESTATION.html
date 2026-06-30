@@ -142,34 +142,34 @@
 <h2 id="in-toto-v1-statement-format" class="ps-h2">In-toto v1 statement format</h2>
 <p class="ps-p">The attestation produced by <code class="ps-ic">disclose --emit-attestation</code> is a single-statement in-toto v1 document. Shape:</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "_type": "https://in-toto.io/Statement/v1",
-  "predicateType": "https://perf-sentinel.io/attestation/v1",
-  "subject": [
+  <span style="color:var(--code-sub)">&quot;_type&quot;</span>: <span style="color:var(--code-num)">&quot;https://in-toto.io/Statement/v1&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;predicateType&quot;</span>: <span style="color:var(--code-num)">&quot;https://perf-sentinel.io/attestation/v1&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;subject&quot;</span>: [
     {
-      "name": "report.json",
-      "digest": { "sha256": "&lt;64-hex&gt;" }
+      <span style="color:var(--code-sub)">&quot;name&quot;</span>: <span style="color:var(--code-num)">&quot;report.json&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;digest&quot;</span>: { <span style="color:var(--code-sub)">&quot;sha256&quot;</span>: <span style="color:var(--code-num)">&quot;&lt;64-hex&gt;&quot;</span> }
     }
   ],
-  "predicate": {
-    "perf_sentinel_version": "0.7.0",
-    "report_uuid": "...",
-    "period": { "from_date": "2026-01-01", "to_date": "2026-03-31" },
-    "intent": "official",
-    "confidentiality_level": "public",
-    "organisation": {
-      "name": "Example SAS",
-      "country": "FR",
-      "identifiers": { "siren": "...", "domain": "..." }
+  <span style="color:var(--code-sub)">&quot;predicate&quot;</span>: {
+    <span style="color:var(--code-sub)">&quot;perf_sentinel_version&quot;</span>: <span style="color:var(--code-num)">&quot;0.7.0&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;report_uuid&quot;</span>: <span style="color:var(--code-num)">&quot;...&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;period&quot;</span>: { <span style="color:var(--code-sub)">&quot;from_date&quot;</span>: <span style="color:var(--code-num)">&quot;2026-01-01&quot;</span>, <span style="color:var(--code-sub)">&quot;to_date&quot;</span>: <span style="color:var(--code-num)">&quot;2026-03-31&quot;</span> },
+    <span style="color:var(--code-sub)">&quot;intent&quot;</span>: <span style="color:var(--code-num)">&quot;official&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;confidentiality_level&quot;</span>: <span style="color:var(--code-num)">&quot;public&quot;</span>,
+    <span style="color:var(--code-sub)">&quot;organisation&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;name&quot;</span>: <span style="color:var(--code-num)">&quot;Example SAS&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;country&quot;</span>: <span style="color:var(--code-num)">&quot;FR&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;identifiers&quot;</span>: { <span style="color:var(--code-sub)">&quot;siren&quot;</span>: <span style="color:var(--code-num)">&quot;...&quot;</span>, <span style="color:var(--code-sub)">&quot;domain&quot;</span>: <span style="color:var(--code-num)">&quot;...&quot;</span> }
     },
-    "methodology_summary": {
-      "sci_specification": "ISO/IEC 21031:<span style="color:var(--code-num)">2024</span>",
-      "conformance": "core-required",
-      "calibration_applied": <span style="color:var(--code-flag)">true</span>,
-      "period_coverage": <span style="color:var(--code-num)">0.91</span>,
-      "core_patterns_count": <span style="color:var(--code-num)">4</span>,
-      "enabled_patterns_count": <span style="color:var(--code-num)">10</span>,
-      "disabled_patterns_count": <span style="color:var(--code-num)">0</span>,
-      "core_patterns_hash": "&lt;64-hex SHA-256&gt;"
+    <span style="color:var(--code-sub)">&quot;methodology_summary&quot;</span>: {
+      <span style="color:var(--code-sub)">&quot;sci_specification&quot;</span>: <span style="color:var(--code-num)">&quot;ISO/IEC 21031:<span style="color:var(--code-num)">2024</span>&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;conformance&quot;</span>: <span style="color:var(--code-num)">&quot;core-required&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;calibration_applied&quot;</span>: <span style="color:var(--code-flag)">true</span>,
+      <span style="color:var(--code-sub)">&quot;period_coverage&quot;</span>: <span style="color:var(--code-num)">0.91</span>,
+      <span style="color:var(--code-sub)">&quot;core_patterns_count&quot;</span>: <span style="color:var(--code-num)">4</span>,
+      <span style="color:var(--code-sub)">&quot;enabled_patterns_count&quot;</span>: <span style="color:var(--code-num)">10</span>,
+      <span style="color:var(--code-sub)">&quot;disabled_patterns_count&quot;</span>: <span style="color:var(--code-num)">0</span>,
+      <span style="color:var(--code-sub)">&quot;core_patterns_hash&quot;</span>: <span style="color:var(--code-num)">&quot;&lt;64-hex SHA-256&gt;&quot;</span>
     }
   }
 }</code></pre></div>

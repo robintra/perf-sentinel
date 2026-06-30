@@ -230,9 +230,9 @@
 <h3 id="sarif-physicallocation-enhancement" class="ps-h3">SARIF <code class="ps-ic">physicalLocation</code> enhancement</h3>
 <p class="ps-p">When a finding carries a <code class="ps-ic">CodeLocation</code> with at least a <code class="ps-ic">filepath</code>, the SARIF output includes a <code class="ps-ic">locations</code> array with a <code class="ps-ic">physicalLocation</code> entry:</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "physicalLocation": {
-    "artifactLocation": { "uri": "OrderService.java" },
-    "region": { "startLine": <span style="color:var(--code-num)">42</span> }
+  <span style="color:var(--code-sub)">&quot;physicalLocation&quot;</span>: {
+    <span style="color:var(--code-sub)">&quot;artifactLocation&quot;</span>: { <span style="color:var(--code-sub)">&quot;uri&quot;</span>: <span style="color:var(--code-num)">&quot;OrderService.java&quot;</span> },
+    <span style="color:var(--code-sub)">&quot;region&quot;</span>: { <span style="color:var(--code-sub)">&quot;startLine&quot;</span>: <span style="color:var(--code-num)">42</span> }
   }
 }</code></pre></div>
 <p class="ps-p">The <code class="ps-ic">region.startLine</code> field is included only when <code class="ps-ic">lineno</code> is available. This enables inline annotations in GitHub Code Scanning and GitLab SAST when the SARIF report is uploaded as a code scanning result.</p>

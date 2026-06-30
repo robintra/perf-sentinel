@@ -59,7 +59,7 @@
     }).join('\n');
   }
   function hlJson(code) {
-    var e = esc(code);
+    var e = esc(code).replace(/"/g, '&quot;');
     e = e.replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)/g, C('--code-sub', '$1') + '$2');
     e = e.replace(/:(\s*)(&quot;(?:[^&]|&(?!quot;))*?&quot;)/g, ':$1' + C('--code-num', '$2'));
     e = e.replace(/\b(true|false|null)\b/g, C('--code-flag', '$1'));
@@ -71,7 +71,7 @@
   function hlDiff(code) { return code.split('\n').map(function (l) { var c = l.charAt(0), e = esc(l); if (c === '+') return C('--code-cmd', e); if (c === '-') return C('--coral', e); if (c === '@') return C('--code-flag', e); if (c === '#') return C('--term-comment', e); return e; }).join('\n'); }
   function hlDockerfile(code) { var KW = /^(from|run|cmd|label|expose|env|add|copy|entrypoint|volume|user|workdir|arg|onbuild|stopsignal|healthcheck|shell|maintainer)$/i; return code.split('\n').map(function (l) { if (l.trim().charAt(0) === '#') return C('--term-comment', esc(l)); var m = l.match(/^(\s*)([A-Za-z]+)([\s\S]*)$/); if (m && KW.test(m[2])) return esc(m[1]) + '<span style="color:var(--code-cmd);font-weight:600">' + esc(m[2]) + '</span>' + esc(m[3]); return esc(l); }).join('\n'); }
   function hlProps(code) { return code.split('\n').map(function (l) { var t = l.trim(); if (t.charAt(0) === '#' || t.charAt(0) === ';') return C('--term-comment', esc(l)); var eq = l.search(/[=:]/); if (eq >= 0) return C('--code-sub', esc(l.slice(0, eq))) + C('--term-dim', esc(l.slice(eq, eq + 1))) + C('--code-num', esc(l.slice(eq + 1))); return esc(l); }).join('\n'); }
-  function hlXml(code) { var e = esc(code); e = e.replace(/&lt;!--[\s\S]*?--&gt;/g, function (m) { return C('--term-comment', m); }); e = e.replace(/(&lt;\/?)([\w:.-]+)/g, function (m, b, n) { return b + C('--code-cmd', n); }); e = e.replace(/([\w:.-]+)(=)(&quot;[^&]*?&quot;)/g, function (m, a, q, v) { return C('--code-sub', a) + q + C('--code-num', v); }); return e; }
+  function hlXml(code) { var e = esc(code).replace(/"/g, '&quot;'); e = e.replace(/&lt;!--[\s\S]*?--&gt;/g, function (m) { return C('--term-comment', m); }); e = e.replace(/(&lt;\/?)([\w:.-]+)/g, function (m, b, n) { return b + C('--code-cmd', n); }); e = e.replace(/([\w:.-]+)(=)(&quot;[^&]*?&quot;)/g, function (m, a, q, v) { return C('--code-sub', a) + q + C('--code-num', v); }); return e; }
   function hlCLike(code, KW) {
     var re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])')|(#!?\[[^\]]*\])|(\b\d[\d_]*(?:\.[\d_]+)?(?:[iuf]\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(!?)/g;
     var out = '', last = 0;

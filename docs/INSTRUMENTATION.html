@@ -469,10 +469,10 @@
 <hr class="ps-hr">
 <h3 id="net-aspnet-core--entity-framework-core--opentelemetry-sdk-115" class="ps-h3">.NET (ASP.NET Core + Entity Framework Core + OpenTelemetry SDK 1.15)</h3>
 <p class="ps-p">Works with NativeAOT (<code class="ps-ic">PublishAot=true</code>). Requires adding NuGet packages and ~15 lines in <code class="ps-ic">Program.cs</code>.</p>
-<div class="ps-code"><div class="ps-code-lang">xml</div><pre><code>&lt;<span style="color:var(--code-cmd)">PackageReference</span> Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" /&gt;
-&lt;<span style="color:var(--code-cmd)">PackageReference</span> Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" /&gt;
-&lt;<span style="color:var(--code-cmd)">PackageReference</span> Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0" /&gt;
-&lt;<span style="color:var(--code-cmd)">PackageReference</span> Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.12.0" /&gt;</code></pre></div>
+<div class="ps-code"><div class="ps-code-lang">xml</div><pre><code>&lt;<span style="color:var(--code-cmd)">PackageReference</span> <span style="color:var(--code-sub)">Include</span>=<span style="color:var(--code-num)">&quot;OpenTelemetry.Extensions.Hosting&quot;</span> <span style="color:var(--code-sub)">Version</span>=<span style="color:var(--code-num)">&quot;1.12.0&quot;</span> /&gt;
+&lt;<span style="color:var(--code-cmd)">PackageReference</span> <span style="color:var(--code-sub)">Include</span>=<span style="color:var(--code-num)">&quot;OpenTelemetry.Instrumentation.AspNetCore&quot;</span> <span style="color:var(--code-sub)">Version</span>=<span style="color:var(--code-num)">&quot;1.12.0&quot;</span> /&gt;
+&lt;<span style="color:var(--code-cmd)">PackageReference</span> <span style="color:var(--code-sub)">Include</span>=<span style="color:var(--code-num)">&quot;OpenTelemetry.Instrumentation.Http&quot;</span> <span style="color:var(--code-sub)">Version</span>=<span style="color:var(--code-num)">&quot;1.12.0&quot;</span> /&gt;
+&lt;<span style="color:var(--code-cmd)">PackageReference</span> <span style="color:var(--code-sub)">Include</span>=<span style="color:var(--code-num)">&quot;OpenTelemetry.Exporter.OpenTelemetryProtocol&quot;</span> <span style="color:var(--code-sub)">Version</span>=<span style="color:var(--code-num)">&quot;1.12.0&quot;</span> /&gt;</code></pre></div>
 <p class="ps-p">For .NET 8 projects, use version 1.9.0 instead of 1.12.0 to avoid dependency conflicts.</p>
 <div class="ps-code"><div class="ps-code-lang">csharp</div><pre><code><span style="color:var(--code-cmd);font-weight:600">var</span> otlpEndpoint = <span style="color:var(--code-sub)">Environment</span>.<span style="color:var(--code-sub)">GetEnvironmentVariable</span>(<span style="color:var(--code-num)">"OTLP_GRPC_ENDPOINT"</span>);
 <span style="color:var(--code-cmd);font-weight:600">if</span> (!<span style="color:var(--code-cmd);font-weight:600">string</span>.<span style="color:var(--code-sub)">IsNullOrEmpty</span>(otlpEndpoint))
@@ -581,10 +581,10 @@ SQLAlchemyInstrumentor().instrument(engine=engine)</code></pre></div>
 <p class="ps-p">Nest.js applications use the <code class="ps-ic">@opentelemetry/sdk-node</code> package with framework-specific instrumentations. Prisma generates SQL, the <code class="ps-ic">pg</code> client sends it.</p>
 <p class="ps-p"><strong>Dependencies (package.json):</strong></p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
-  "@opentelemetry/sdk-node": "^0.57",
-  "@opentelemetry/exporter-trace-otlp-grpc": "^0.57",
-  "@opentelemetry/instrumentation-http": "^0.57",
-  "@opentelemetry/instrumentation-pg": "^0.44"
+  <span style="color:var(--code-sub)">&quot;@opentelemetry/sdk-node&quot;</span>: <span style="color:var(--code-num)">&quot;^0.57&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;@opentelemetry/exporter-trace-otlp-grpc&quot;</span>: <span style="color:var(--code-num)">&quot;^0.57&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;@opentelemetry/instrumentation-http&quot;</span>: <span style="color:var(--code-num)">&quot;^0.57&quot;</span>,
+  <span style="color:var(--code-sub)">&quot;@opentelemetry/instrumentation-pg&quot;</span>: <span style="color:var(--code-num)">&quot;^0.44&quot;</span>
 }</code></pre></div>
 <p class="ps-p"><strong>Initialization (tracing.ts, loaded via --require):</strong></p>
 <div class="ps-code"><div class="ps-code-lang">typescript</div><pre><code>import { NodeSDK } from '@opentelemetry/sdk-node';
