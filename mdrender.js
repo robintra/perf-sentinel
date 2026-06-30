@@ -93,12 +93,34 @@
     out += esc(code.slice(last));
     return out;
   }
+  var RUBY_KW = { 'def':1,'end':1,'do':1,'class':1,'module':1,'require':1,'require_relative':1,'load':1,'gem':1,'if':1,'elsif':1,'else':1,'unless':1,'case':1,'when':1,'then':1,'while':1,'until':1,'for':1,'in':1,'begin':1,'rescue':1,'ensure':1,'retry':1,'raise':1,'return':1,'next':1,'break':1,'yield':1,'super':1,'self':1,'nil':1,'true':1,'false':1,'and':1,'or':1,'not':1,'lambda':1,'proc':1,'new':1,'attr_accessor':1,'attr_reader':1,'attr_writer':1 };
+  function hlRuby(code) {
+    var re = /(#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(:[A-Za-z_]\w*[?!]?)|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_]\w*[?!]?)/g;
+    var out = '', last = 0;
+    code.replace(re, function (m, comment, str, sym, num, ident, offset) {
+      out += esc(code.slice(last, offset));
+      last = offset + m.length;
+      if (comment) out += C('--term-comment', esc(comment));
+      else if (str) out += C('--code-num', esc(str));
+      else if (sym) out += C('--code-sub', esc(sym));
+      else if (num) out += C('--code-num', esc(num));
+      else if (ident) {
+        if (RUBY_KW[ident]) out += '<span style="color:var(--code-cmd);font-weight:600">' + esc(ident) + '</span>';
+        else if (/^[A-Z]/.test(ident)) out += C('--code-sub', esc(ident));
+        else out += esc(ident);
+      } else out += esc(m);
+      return m;
+    });
+    out += esc(code.slice(last));
+    return out;
+  }
   var GROOVY_KW = { 'abstract':1,'as':1,'assert':1,'boolean':1,'break':1,'byte':1,'case':1,'catch':1,'char':1,'class':1,'def':1,'default':1,'do':1,'double':1,'else':1,'enum':1,'extends':1,'false':1,'final':1,'finally':1,'float':1,'for':1,'if':1,'implements':1,'import':1,'in':1,'instanceof':1,'int':1,'interface':1,'long':1,'new':1,'null':1,'package':1,'private':1,'protected':1,'public':1,'return':1,'short':1,'static':1,'super':1,'switch':1,'synchronized':1,'this':1,'throw':1,'throws':1,'trait':1,'true':1,'try':1,'var':1,'void':1,'while':1 };
   function highlight(lang, code) {
     lang = (lang || '').toLowerCase();
     if (lang === 'rust' || lang === 'rs') return hlCLike(code, RUST_KW);
     if (lang === 'csharp' || lang === 'cs' || lang === 'c#') return hlCLike(code, CS_KW);
     if (lang === 'groovy' || lang === 'gradle') return hlCLike(code, GROOVY_KW);
+    if (lang === 'ruby' || lang === 'rb') return hlRuby(code);
     if (lang === 'diff') return hlDiff(code);
     if (lang === 'dockerfile' || lang === 'docker') return hlDockerfile(code);
     if (lang === 'properties' || lang === 'ini') return hlProps(code);

@@ -524,22 +524,22 @@ opentelemetry-instrumentation-asyncpg==0.63b1</code></pre></div>
 <h3 id="ruby-rails--activerecord-opentelemetry-ruby" class="ps-h3">Ruby (Rails + ActiveRecord, opentelemetry-ruby)</h3>
 <p class="ps-p">Les applications Rails utilisent les gems d'instrumentation opentelemetry-ruby. L'instrumentation <code class="ps-ic">ActiveRecord</code> fournit le scope ORM, l'instrumentation du driver sous-jacent (<code class="ps-ic">pg</code>, <code class="ps-ic">mysql2</code>) émet le <code class="ps-ic">db.statement</code> SQL.</p>
 <p class="ps-p"><strong>Dépendances (Gemfile) :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">ruby</div><pre><code>gem 'opentelemetry-sdk'
-gem 'opentelemetry-exporter-otlp'
-gem 'opentelemetry-instrumentation-rails'
-gem 'opentelemetry-instrumentation-active_record'
-gem 'opentelemetry-instrumentation-pg'</code></pre></div>
+<div class="ps-code"><div class="ps-code-lang">ruby</div><pre><code><span style="color:var(--code-cmd);font-weight:600">gem</span> <span style="color:var(--code-num)">'opentelemetry-sdk'</span>
+<span style="color:var(--code-cmd);font-weight:600">gem</span> <span style="color:var(--code-num)">'opentelemetry-exporter-otlp'</span>
+<span style="color:var(--code-cmd);font-weight:600">gem</span> <span style="color:var(--code-num)">'opentelemetry-instrumentation-rails'</span>
+<span style="color:var(--code-cmd);font-weight:600">gem</span> <span style="color:var(--code-num)">'opentelemetry-instrumentation-active_record'</span>
+<span style="color:var(--code-cmd);font-weight:600">gem</span> <span style="color:var(--code-num)">'opentelemetry-instrumentation-pg'</span></code></pre></div>
 <p class="ps-p"><strong>Initialisation (config/initializers/opentelemetry.rb) :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">ruby</div><pre><code>require 'opentelemetry/sdk'
-require 'opentelemetry/exporter/otlp'
-require 'opentelemetry/instrumentation/all'
+<div class="ps-code"><div class="ps-code-lang">ruby</div><pre><code><span style="color:var(--code-cmd);font-weight:600">require</span> <span style="color:var(--code-num)">'opentelemetry/sdk'</span>
+<span style="color:var(--code-cmd);font-weight:600">require</span> <span style="color:var(--code-num)">'opentelemetry/exporter/otlp'</span>
+<span style="color:var(--code-cmd);font-weight:600">require</span> <span style="color:var(--code-num)">'opentelemetry/instrumentation/all'</span>
 
-OpenTelemetry::SDK.configure do |c|
-  c.service_name = 'rails-svc'
-  c.use 'OpenTelemetry::Instrumentation::Rails'
-  c.use 'OpenTelemetry::Instrumentation::ActiveRecord'
-  c.use 'OpenTelemetry::Instrumentation::PG', { db_statement: :include }
-end</code></pre></div>
+<span style="color:var(--code-sub)">OpenTelemetry</span>:<span style="color:var(--code-sub)">:SDK</span>.configure <span style="color:var(--code-cmd);font-weight:600">do</span> |c|
+  c.service_name = <span style="color:var(--code-num)">'rails-svc'</span>
+  c.use <span style="color:var(--code-num)">'OpenTelemetry::Instrumentation::Rails'</span>
+  c.use <span style="color:var(--code-num)">'OpenTelemetry::Instrumentation::ActiveRecord'</span>
+  c.use <span style="color:var(--code-num)">'OpenTelemetry::Instrumentation::PG'</span>, { db_statement: <span style="color:var(--code-sub)">:include</span> }
+<span style="color:var(--code-cmd);font-weight:600">end</span></code></pre></div>
 <p class="ps-p">L'instrumentation <code class="ps-ic">pg</code> a besoin de <code class="ps-ic">db_statement: :include</code> (ou de <code class="ps-ic">:obfuscate</code> par défaut, qui émet le template sanitisé) pour que le SQL parvienne à perf-sentinel. Le scope <code class="ps-ic">OpenTelemetry::Instrumentation::ActiveRecord</code> circule dans la chaîne de spans et est reconnu comme un ORM, donc le chemin N+1 sanitizer-aware se déclenche et les findings portent des fixes suggérés spécifiques à ActiveRecord (<code class="ps-ic">includes</code> / <code class="ps-ic">preload</code> / <code class="ps-ic">eager_load</code>).</p>
 <p class="ps-p">L'instrumentation <code class="ps-ic">active_record</code> n'émet ce scope que pour les requêtes qui chargent des records (<code class="ps-ic">find_by_sql</code>, <code class="ps-ic">where(...).to_a</code>). Les requêtes d'agrégat (<code class="ps-ic">count</code>, <code class="ps-ic">sum</code>) ne portent que le span du driver <code class="ps-ic">pg</code> / <code class="ps-ic">mysql2</code>, donc leurs findings retombent sur le fix <code class="ps-ic">ruby_generic</code>.</p>
 <p class="ps-p"><strong>Variables d'environnement :</strong></p>
