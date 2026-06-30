@@ -477,15 +477,16 @@ The correlator is **not** used in batch mode (`perf-sentinel analyze`). Cross-tr
 
 Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`.
 
-Coverage grew in five steps:
+Coverage grew in six steps:
 
 - v1: Java/JPA only.
 - v2: Quarkus reactive and non-reactive, WebFlux, Helidon SE/MP, EF Core, Diesel and SeaORM.
 - v3: the seven anti-patterns that previously returned `suggested_fix = None` (`redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`), plus Python (Django ORM, SQLAlchemy) with scope detection via the `opentelemetry.instrumentation.*` prefix.
 - v4: Go (GORM) and Node.js/TypeScript (Prisma) with scope detection via the `@opentelemetry/instrumentation-*` prefix and language detection via `.go`, `.js`, `.ts` file extensions.
 - v5: Ruby (ActiveRecord) with scope detection via the `OpenTelemetry::Instrumentation::` vendor prefix and language detection via the `.rb` extension.
+- v6: PHP (Laravel/Eloquent, Symfony/Doctrine) with scope detection via the native `io.opentelemetry.contrib.php.*` scopes and language detection via the `.php` extension. The `io.opentelemetry.contrib.php.doctrine` scope is DB-specific, so it tags only DB findings, but `io.opentelemetry.contrib.php.laravel` is app-wide (it hooks the HTTP kernel, console, queue and Eloquent model), so it rides every Laravel finding. PhpLaravelEloquent therefore carries fixes for all 10 anti-patterns while PhpDoctrine carries only the SQL ones. Only this path is framework-aware: dd-trace-php bridged through the Collector `datadogreceiver` exposes no PHP code attributes (scope is a fixed `Datadog`), so those findings fall to `PhpGeneric` or stay unenriched.
 
-New entries lean on the per-language `*Generic` tag when the recommendation is framework-agnostic, and reuse a framework-specific tag when the ecosystem ships a canonical primitive worth pointing at. The current state covers Java, C# (.NET 8 to 10), Python, Rust, Go, Node.js and Ruby across all 10 anti-patterns, each with a generic per-language fallback.
+New entries lean on the per-language `*Generic` tag when the recommendation is framework-agnostic, and reuse a framework-specific tag when the ecosystem ships a canonical primitive worth pointing at. The current state covers Java, C# (.NET 8 to 10), Python, Rust, Go, Node.js, Ruby and PHP across all 10 anti-patterns, each with a generic per-language fallback.
 
 ### The `SuggestedFix` struct
 
@@ -504,9 +505,9 @@ Serialized in JSON as a nested object under `finding.suggested_fix`, skipped whe
 
 The detector is a pure function over fields already present on `Finding` (`instrumentation_scopes`, `code_location`, `service`), all populated at detection time from the span's OTel attributes. No span-level access, no extra allocations. It inspects five signals in order, most reliable first:
 
-1. **Instrumentation scope chain**, captured at OTLP ingest from the originating span and its ancestors (e.g. `io.opentelemetry.spring-data-3.0`). Most reliable: the scope name is emitted by the agent regardless of how the user names their classes, so it survives user-code naming quirks. Vendor-specific scopes (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, the Ruby gem `OpenTelemetry::Instrumentation::ActiveRecord`) are checked before the standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*` convention scopes. Go and Node are deliberately absent from the convention scope rules: their instrumentations use ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), and the `-` segment boundary used for Java version suffixes would false-positive on npm package names (`pg` vs `instrumentation-pg-pool`).
-2. **Language from ecosystem-native scope prefix.** When the scope-chain check misses, the prefix still reveals the language (`github.com/` = Go module path, `@opentelemetry/instrumentation-` or `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = Ruby gem). The language-generic fallback then fires, so even a span without `code.filepath` or `code.namespace` gets a language-appropriate suggestion.
-3. **`code_location` namespace with filepath-derived language** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby). Walks that language's rules in declared order; falls back to the language generic when no rule matches.
+1. **Instrumentation scope chain**, captured at OTLP ingest from the originating span and its ancestors (e.g. `io.opentelemetry.spring-data-3.0`). Most reliable: the scope name is emitted by the agent regardless of how the user names their classes, so it survives user-code naming quirks. Vendor-specific scopes (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, the Ruby gem `OpenTelemetry::Instrumentation::ActiveRecord`, the PHP scopes `io.opentelemetry.contrib.php.doctrine` and `io.opentelemetry.contrib.php.laravel`) are checked before the standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*` convention scopes. Go and Node are deliberately absent from the convention scope rules: their instrumentations use ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), and the `-` segment boundary used for Java version suffixes would false-positive on npm package names (`pg` vs `instrumentation-pg-pool`).
+2. **Language from ecosystem-native scope prefix.** When the scope-chain check misses, the prefix still reveals the language (`github.com/` = Go module path, `@opentelemetry/instrumentation-` or `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = Ruby gem, `io.opentelemetry.contrib.php.` = PHP). The language-generic fallback then fires, so even a span without `code.filepath` or `code.namespace` gets a language-appropriate suggestion.
+3. **`code_location` namespace with filepath-derived language** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby, `.php` → PHP). Walks that language's rules in declared order; falls back to the language generic when no rule matches. PHP namespaces use `\` separators, recognized by the same segment-boundary matcher as `.` and `::`, and the ingest-time namespace derivation splits `code.function.name` on `\` when it has no dot.
 4. **`code_location` namespace alone** when filepath is absent: tries every language's rules in order and returns the first hit. No generic fallback in this path because the language cannot be known.
 5. **Service name** as a last resort, only for framework names distinctive enough to avoid false positives in arbitrary service names (e.g. `helidon` in `helidon-se-svc`). Lowest confidence, only reached when all OTel signals are absent.
 
@@ -584,6 +585,16 @@ Each hint is one of two kinds. **`Substring`** matches a boundary-delimited pack
 
 `RUBY_RULES` is empty: Ruby has no reliable namespace convention in `code.namespace`, so `RubyActiveRecord` is reached through the `OpenTelemetry::Instrumentation::ActiveRecord` vendor scope, and any other Ruby OTel scope (the pg/mysql2 drivers, Rack) or a `.rb` filepath routes to `RubyGeneric`.
 
+**PHP (`PHP_RULES`):**
+
+| Framework               | Namespace hints (`\` separated)                |
+|-------------------------|------------------------------------------------|
+| `PhpLaravelEloquent`    | `Illuminate\Database\Eloquent`, `App\Models`   |
+| `PhpDoctrine`           | `Doctrine\ORM`, `Doctrine\DBAL`                |
+| `PhpGeneric` (fallback) | (any `.php` file, or any other PHP OTel scope) |
+
+PHP frameworks are reached primarily through the vendor scopes `io.opentelemetry.contrib.php.doctrine` and `io.opentelemetry.contrib.php.laravel`. The namespace hints are the secondary signal: the Laravel SQL leaf span is PDO-scoped (`code.function.name = "PDO::query"`) and exposes no app namespace, but Doctrine's own SQL span carries a `Doctrine\DBAL\...` namespace. Any other PHP OTel scope (`pdo`, `mongodb`, `curl`, `guzzle`) or a `.php` filepath routes to `PhpGeneric`.
+
 Go and Node frameworks are reached through the namespace hints above and the language-from-scope-prefix fallback, never through `SCOPE_RULES`: their instrumentations emit ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`) that the convention prefixes do not match. See the framework detector section above.
 
 ### Mapping table
@@ -624,6 +635,10 @@ A `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>` static. Lookups mi
 | `NPlusOneSql`  | `NodePrisma`          | `include:{}` eager loading or `findMany()` with a `WHERE id IN` filter                                          |
 | `NPlusOneSql`  | `NodeGeneric`         | single `JOIN` / `WHERE id IN (...)`, pg `ANY($1::int[])`                                                        |
 | `RedundantSql` | `NodeGeneric`         | `node-cache` or a request-scoped `Map`, `p-memoize` for concurrent duplicates                                   |
+| `NPlusOneSql`  | `PhpLaravelEloquent`  | `with('relation')` / `load(...)` eager loading or `whereIn('id', $ids)` batching                                |
+| `NPlusOneHttp` | `PhpLaravelEloquent`  | `Http::pool(...)` for concurrency or batch endpoint (app-wide laravel scope, so non-SQL patterns map too)       |
+| `NPlusOneSql`  | `PhpDoctrine`         | DQL fetch-join (`->leftJoin(...)->addSelect(...)`) or `fetch="EAGER"` mapping                                   |
+| `NPlusOneSql`  | `PhpGeneric`          | one prepared statement with an `IN (...)` placeholder list                                                      |
 
 ### Extension path for contributors
 

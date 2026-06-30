@@ -3,9 +3,9 @@
 //! Enriches detected findings with a [`SuggestedFix`] when the
 //! instrumentation scopes, `code_location` or service name reveal the
 //! framework that produced the anti-pattern. Covers Java, C#, Rust,
-//! Python, Go, Node.js/TypeScript and Ruby across all ten anti-patterns,
-//! with a per-language `*Generic` fallback when no framework-specific
-//! recommendation applies. Coverage history is in
+//! Python, Go, Node.js/TypeScript, Ruby and PHP across all ten
+//! anti-patterns, with a per-language `*Generic` fallback when no
+//! framework-specific recommendation applies. Coverage history is in
 //! `docs/design/04-DETECTION.md`.
 //!
 //! Detection is cheap and deterministic: only fields already present
@@ -66,6 +66,9 @@ enum Framework {
     NodeGeneric,
     RubyActiveRecord,
     RubyGeneric,
+    PhpLaravelEloquent,
+    PhpDoctrine,
+    PhpGeneric,
 }
 
 impl Framework {
@@ -92,6 +95,9 @@ impl Framework {
             Self::NodeGeneric => "node_generic",
             Self::RubyActiveRecord => "ruby_active_record",
             Self::RubyGeneric => "ruby_generic",
+            Self::PhpLaravelEloquent => "php_laravel_eloquent",
+            Self::PhpDoctrine => "php_doctrine",
+            Self::PhpGeneric => "php_generic",
         }
     }
 }
@@ -205,6 +211,28 @@ const JS_RULES: &[(Framework, &[Hint])] = &[(Framework::NodePrisma, &[Hint::Subs
 // scope and the `.rb` filepath, so there are no namespace rules.
 const RUBY_RULES: &[(Framework, &[Hint])] = &[];
 
+// PHP namespaces use `\` separators. These are the secondary signal: the
+// primary one is the native OTel scope (VENDOR_SCOPE_RULES below), since the
+// Eloquent SQL leaf span is PDO-scoped (`code.function.name = "PDO::query"`)
+// and shadows any app namespace. Doctrine's own SQL span does carry a
+// `Doctrine\DBAL\...` namespace, so the namespace hints stay useful for it.
+const PHP_RULES: &[(Framework, &[Hint])] = &[
+    (
+        Framework::PhpLaravelEloquent,
+        &[
+            Hint::Substring("Illuminate\\Database\\Eloquent"),
+            Hint::Substring("App\\Models"),
+        ],
+    ),
+    (
+        Framework::PhpDoctrine,
+        &[
+            Hint::Substring("Doctrine\\ORM"),
+            Hint::Substring("Doctrine\\DBAL"),
+        ],
+    ),
+];
+
 /// Last-resort service-name rules. Scanned only when all `OTel`-based
 /// signals (scopes, `code_location`, filepath) are absent. Only
 /// framework names distinctive enough to avoid false positives in
@@ -240,11 +268,14 @@ const SCOPE_RULES: &[(Framework, &[&str])] = &[
     // and the language-from-scope-prefix fallback.
 ];
 
-/// Vendor-specific `OTel` integration scopes that do not follow the
-/// standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*`
-/// prefix convention. Checked before `SCOPE_RULES` in
-/// `detect_framework_from_scopes`. Order matters within a vendor:
-/// more-specific entries first (reactive before generic Quarkus).
+/// `OTel` scopes matched as exact prefixes (via `vendor_prefix_matches`)
+/// for names `SCOPE_RULES` cannot express: either off-convention
+/// (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, Ruby's
+/// `OpenTelemetry::Instrumentation::ActiveRecord`), or convention-prefixed
+/// but with a dotted multi-segment suffix (`io.opentelemetry.contrib.php.*`)
+/// that `scope_matches`' single-segment needle cannot capture. Checked
+/// before `SCOPE_RULES` in `detect_framework_from_scopes`. Order matters
+/// within a vendor: more-specific entries first (reactive before Quarkus).
 const VENDOR_SCOPE_RULES: &[(Framework, &[&str])] = &[
     // .NET: EF Core via the OTel wrapper or the raw NuGet scope
     (
@@ -272,6 +303,20 @@ const VENDOR_SCOPE_RULES: &[(Framework, &[&str])] = &[
     (
         Framework::RubyActiveRecord,
         &["OpenTelemetry::Instrumentation::ActiveRecord"],
+    ),
+    // PHP native OTel instrumentations (opentelemetry-php-contrib). The
+    // Doctrine scope is DB-specific (only on DBAL ops), so it tags only DB
+    // findings. The Laravel scope is app-wide (it hooks HTTP Kernel, Console,
+    // Queue and Eloquent Model), so it rides every Laravel finding, which is
+    // why PhpLaravelEloquent carries fixes for all ten anti-patterns while
+    // PhpDoctrine only carries the SQL ones.
+    (
+        Framework::PhpDoctrine,
+        &["io.opentelemetry.contrib.php.doctrine"],
+    ),
+    (
+        Framework::PhpLaravelEloquent,
+        &["io.opentelemetry.contrib.php.laravel"],
     ),
 ];
 
@@ -352,6 +397,7 @@ enum Language {
     Go,
     JavaScript,
     Ruby,
+    Php,
 }
 
 impl Language {
@@ -364,6 +410,7 @@ impl Language {
             Self::Go => GO_RULES,
             Self::JavaScript => JS_RULES,
             Self::Ruby => RUBY_RULES,
+            Self::Php => PHP_RULES,
         }
     }
 
@@ -376,6 +423,7 @@ impl Language {
             Self::Go => Framework::GoGeneric,
             Self::JavaScript => Framework::NodeGeneric,
             Self::Ruby => Framework::RubyGeneric,
+            Self::Php => Framework::PhpGeneric,
         }
     }
 }
@@ -394,6 +442,8 @@ fn language_from_filepath(fp: &str) -> Option<Language> {
         Some(Language::Go)
     } else if ext.eq_ignore_ascii_case("rb") {
         Some(Language::Ruby)
+    } else if ext.eq_ignore_ascii_case("php") {
+        Some(Language::Php)
     } else if ext.eq_ignore_ascii_case("js")
         || ext.eq_ignore_ascii_case("ts")
         || ext.eq_ignore_ascii_case("jsx")
@@ -422,8 +472,8 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
     use Framework::{
         CsharpEfCore, CsharpGeneric, GoGeneric, GoGorm, JavaGeneric, JavaHelidonMp, JavaHelidonSe,
         JavaJpa, JavaQuarkus, JavaQuarkusReactive, JavaWebFlux, NodeGeneric, NodePrisma,
-        PythonDjango, PythonGeneric, PythonSqlAlchemy, RubyActiveRecord, RubyGeneric, RustDiesel,
-        RustGeneric, RustSeaOrm,
+        PhpDoctrine, PhpGeneric, PhpLaravelEloquent, PythonDjango, PythonGeneric, PythonSqlAlchemy,
+        RubyActiveRecord, RubyGeneric, RustDiesel, RustGeneric, RustSeaOrm,
     };
     let entries: &[((FindingType, Framework), &str, Option<&str>)] = &[
         // ── Java ───────────────────────────────────────────────────
@@ -1244,6 +1294,173 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
              feeds the next.",
             Some("https://github.com/ruby-concurrency/concurrent-ruby"),
         ),
+        // ── PHP ────────────────────────────────────────────────────
+        // Laravel/Eloquent carries all ten anti-patterns because the
+        // `io.opentelemetry.contrib.php.laravel` scope is app-wide. The 7
+        // non-SQL entries give Laravel-idiomatic advice (Http::pool,
+        // Cache::remember, ...), not the PhpGeneric text, so a Laravel finding
+        // of any type is never left without a framework-appropriate suggestion.
+        (
+            (NPlusOneSql, PhpLaravelEloquent),
+            "Eager-load the relation with `with('relation')` (or `load(...)` on an \
+             already-fetched collection) so Eloquent runs one query instead of one \
+             per model. In a query-builder loop, batch with `whereIn('id', $ids)`.",
+            Some("https://laravel.com/docs/eloquent-relationships#eager-loading"),
+        ),
+        (
+            (RedundantSql, PhpLaravelEloquent),
+            "Memoize the read within the request (`$this->cached ??= ...`), or cache \
+             it with `Cache::remember(...)` when the value is stable across requests.",
+            Some("https://laravel.com/docs/cache"),
+        ),
+        (
+            (SlowSql, PhpLaravelEloquent),
+            "Inspect the plan with `EXPLAIN`, add an index through a migration \
+             (`$table->index([...])`), and narrow the row with `->select([...])` to \
+             fetch only the needed columns.",
+            Some("https://laravel.com/docs/migrations#indexes"),
+        ),
+        (
+            (NPlusOneHttp, PhpLaravelEloquent),
+            "Coalesce the per-item calls into one batch request, or run them \
+             concurrently with `Http::pool(...)`. Cache repeated reads within the \
+             request.",
+            Some("https://laravel.com/docs/http-client"),
+        ),
+        (
+            (RedundantHttp, PhpLaravelEloquent),
+            "Memoize the response per request (`$this->cached ??= ...`), or cache it \
+             with `Cache::remember(...)`. Share the in-flight call when several run \
+             concurrently.",
+            Some("https://laravel.com/docs/cache"),
+        ),
+        (
+            (SlowHttp, PhpLaravelEloquent),
+            "Set an explicit timeout on the client (`Http::timeout(...)`), add retries \
+             with backoff (`->retry(...)`), and cache the response when staleness is \
+             acceptable.",
+            Some("https://laravel.com/docs/http-client"),
+        ),
+        (
+            (ExcessiveFanout, PhpLaravelEloquent),
+            "Cap concurrency with a bounded `Http::pool(...)` batch instead of \
+             unbounded fan-out, or call a batch endpoint when the downstream \
+             supports it.",
+            Some("https://laravel.com/docs/http-client"),
+        ),
+        (
+            (ChattyService, PhpLaravelEloquent),
+            "Coalesce the chatty calls into a single bulk endpoint, or batch and \
+             deduplicate reads per request with a memoization array.",
+            None,
+        ),
+        (
+            (PoolSaturation, PhpLaravelEloquent),
+            "Inspect `slow_sql` findings first. Under PHP-FPM each worker holds one \
+             database connection, so saturation usually means connections are held \
+             during slow work. Resolve the slow queries, then size `pm.max_children` \
+             and the database `max_connections` together.",
+            None,
+        ),
+        (
+            (SerializedCalls, PhpLaravelEloquent),
+            "Run independent calls concurrently with `Http::pool(...)` (or Guzzle \
+             promises `Promise\\all`). Keep them sequential only when one call's \
+             output feeds the next.",
+            Some("https://laravel.com/docs/http-client"),
+        ),
+        (
+            (NPlusOneSql, PhpDoctrine),
+            "Add a DQL fetch-join (`->leftJoin('e.assoc', 'a')->addSelect('a')`) to \
+             hydrate the association in one query, or map it `fetch=\"EAGER\"` when it \
+             is always needed.",
+            Some(
+                "https://www.doctrine-project.org/projects/doctrine-orm/en/current/\
+                 reference/dql-doctrine-query-language.html",
+            ),
+        ),
+        (
+            (RedundantSql, PhpDoctrine),
+            "Enable the Doctrine result cache on the query (`->enableResultCache(...)`), \
+             or reuse the already-managed entity from the identity map instead of \
+             re-querying it within the same request.",
+            Some(
+                "https://www.doctrine-project.org/projects/doctrine-orm/en/current/\
+                 reference/caching.html",
+            ),
+        ),
+        (
+            (SlowSql, PhpDoctrine),
+            "Inspect the plan with `EXPLAIN`, then add an index via the mapping \
+             (`@ORM\\Index`) or a migration. Fetch only needed fields with a partial \
+             DQL `SELECT`.",
+            Some("https://www.postgresql.org/docs/current/using-explain.html"),
+        ),
+        (
+            (NPlusOneSql, PhpGeneric),
+            "Batch the per-row lookups into one prepared statement with an `IN (...)` \
+             list bound through placeholders, instead of one query per row.",
+            Some("https://www.php.net/manual/en/pdo.prepared-statements.php"),
+        ),
+        (
+            (NPlusOneHttp, PhpGeneric),
+            "Coalesce the per-item HTTP calls into one batch request, or run them \
+             concurrently (Symfony HttpClient is async by default, or a Guzzle pool / \
+             `Promise\\all`). Cache repeated reads within the request.",
+            Some("https://symfony.com/doc/current/http_client.html"),
+        ),
+        (
+            (RedundantSql, PhpGeneric),
+            "Memoize the read within the request (`$cache[$key] ??= ...`), or reuse a \
+             shared prepared statement so the driver reuses the plan.",
+            Some("https://www.php.net/manual/en/pdo.prepared-statements.php"),
+        ),
+        (
+            (RedundantHttp, PhpGeneric),
+            "Memoize the response per request, or cache it in APCu or Redis. Share \
+             the in-flight call when several run concurrently.",
+            None,
+        ),
+        (
+            (SlowSql, PhpGeneric),
+            "Run the query through `EXPLAIN`, then add a composite index matching the \
+             `WHERE` and `ORDER BY` columns.",
+            Some("https://www.postgresql.org/docs/current/using-explain.html"),
+        ),
+        (
+            (SlowHttp, PhpGeneric),
+            "Set explicit connect and total timeouts on the client (Guzzle \
+             `connect_timeout` / `timeout`, or `CURLOPT_TIMEOUT`). Add a circuit \
+             breaker and cache the response when staleness is acceptable.",
+            Some("https://www.php.net/manual/en/function.curl-setopt.php"),
+        ),
+        (
+            (ExcessiveFanout, PhpGeneric),
+            "Cap concurrency with a bounded Guzzle pool (`GuzzleHttp\\Pool` with a \
+             concurrency limit) instead of unbounded fan-out, or call a batch \
+             endpoint when the downstream supports it.",
+            Some("https://symfony.com/doc/current/http_client.html"),
+        ),
+        (
+            (ChattyService, PhpGeneric),
+            "Coalesce the chatty calls into a single bulk endpoint, or batch and \
+             deduplicate reads per request with a memoization array.",
+            None,
+        ),
+        (
+            (PoolSaturation, PhpGeneric),
+            "Under PHP-FPM each worker holds one database connection, so saturation \
+             usually means connections held during slow work or too many workers per \
+             database. Resolve `slow_sql` findings first, then size `pm.max_children` \
+             and the database `max_connections` together.",
+            None,
+        ),
+        (
+            (SerializedCalls, PhpGeneric),
+            "Run independent calls concurrently with a Guzzle pool or `Promise\\all`. \
+             Keep them sequential only when one call's output feeds the next.",
+            Some("https://symfony.com/doc/current/http_client.html"),
+        ),
     ];
     let mut m = HashMap::with_capacity(entries.len());
     for ((ft, fw), recommendation, url) in entries {
@@ -1320,16 +1537,26 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
         }
         if let Some(fw) = (!ns.is_empty())
             .then(|| {
-                [
-                    Language::Java,
-                    Language::Csharp,
-                    Language::Python,
-                    Language::Rust,
-                    Language::Go,
-                    Language::JavaScript,
-                ]
-                .into_iter()
-                .find_map(|language| match_namespace_against_language(ns, language))
+                // `\` is exclusive to PHP namespaces. Gate on it so the
+                // dot/colon languages' separator-agnostic suffix rules
+                // (Java's `*Repository`) never claim a PHP namespace, and
+                // PHP's `\`-anchored hints never claim a Java/etc one.
+                let languages: &[Language] = if ns.contains('\\') {
+                    &[Language::Php]
+                } else {
+                    &[
+                        Language::Java,
+                        Language::Csharp,
+                        Language::Python,
+                        Language::Rust,
+                        Language::Go,
+                        Language::JavaScript,
+                    ]
+                };
+                languages
+                    .iter()
+                    .copied()
+                    .find_map(|language| match_namespace_against_language(ns, language))
             })
             .flatten()
         {
@@ -1371,6 +1598,12 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
         if scope.starts_with("OpenTelemetry::Instrumentation::") {
             return Some(Language::Ruby);
         }
+        // PHP native OTel scopes are `io.opentelemetry.contrib.php.<lib>`.
+        // Laravel/Doctrine are caught earlier by VENDOR_SCOPE_RULES, this
+        // routes the rest (pdo, mongodb, curl, guzzle, ...) to PhpGeneric.
+        if scope.starts_with("io.opentelemetry.contrib.php.") {
+            return Some(Language::Php);
+        }
     }
     None
 }
@@ -1408,10 +1641,12 @@ fn last_segment(ns: &str) -> &str {
 }
 
 /// Segment-boundary-aware substring match: `hint` must start at `ns`
-/// start or right after a `.`/`::` delimiter, and end at `ns` end or
+/// start or right after a `.`/`::`/`\` delimiter, and end at `ns` end or
 /// right before another delimiter. Rejects `orders::mydiesel::query`
 /// for `diesel::` (leading) and `io.helidongrpc.Foo` for `io.helidon`
-/// (trailing).
+/// (trailing). The `\` arm handles PHP namespaces (`Doctrine\ORM`). It
+/// is inert for every other language, since `\` never appears in their
+/// namespace strings.
 ///
 /// `start` advances by `hint.len()` after a miss: skips overlapping
 /// re-scans and always lands on a `char` boundary (`str::find` returns
@@ -1425,6 +1660,7 @@ fn namespace_contains_segment(ns: &str, hint: &str) -> bool {
 
         let leading_ok = abs == 0
             || bytes[abs - 1] == b'.'
+            || bytes[abs - 1] == b'\\'
             // Rust `::`: the byte preceding the hint is `:` and the one
             // before that is also `:`.
             || (bytes[abs - 1] == b':' && abs >= 2 && bytes[abs - 2] == b':');
@@ -1436,6 +1672,7 @@ fn namespace_contains_segment(ns: &str, hint: &str) -> bool {
         let trailing_ok = end == ns.len()
             || bytes[end - 1] == b':'
             || bytes[end] == b'.'
+            || bytes[end] == b'\\'
             || (bytes[end] == b':' && end + 1 < ns.len() && bytes[end + 1] == b':');
 
         if leading_ok && trailing_ok {
@@ -2165,14 +2402,14 @@ mod tests {
     }
 
     #[test]
-    fn returns_none_for_unsupported_extension() {
-        // PHP is not in the Language taxonomy and `App\Models\User` matches
-        // no namespace rule, so detection yields nothing.
+    fn detects_php_laravel_eloquent_from_php_filepath_and_namespace() {
+        // `.php` maps to Language::Php and `App\Models\User` matches the
+        // Eloquent `App\Models` namespace hint via the `\` boundary.
         let f = finding_with_location(
             FindingType::NPlusOneSql,
             Some(loc("query.php", Some("App\\Models\\User"))),
         );
-        assert_eq!(detect_framework(&f), None);
+        assert_eq!(detect_framework(&f), Some(Framework::PhpLaravelEloquent));
     }
 
     #[test]
@@ -2213,6 +2450,29 @@ mod tests {
             }),
         );
         assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn returns_none_for_unsupported_extension() {
+        // A language outside the taxonomy (Kotlin) with a namespace that
+        // matches no rule must not be enriched. Guards the invariant
+        // "unknown extension -> no false enrichment" now that `.php` is
+        // supported and no longer serves as the unsupported example.
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("Order.kt", Some("com.example.OrderService"))),
+        );
+        assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn enrich_leaves_suggested_fix_none_for_unsupported_language() {
+        let mut findings = vec![finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("Order.kt", Some("com.example.OrderService"))),
+        )];
+        enrich(&mut findings);
+        assert!(findings[0].suggested_fix.is_none());
     }
 
     #[test]
@@ -2688,7 +2948,7 @@ mod tests {
         // this number is fine when an entry is intentionally added or
         // removed; reading the diff makes the change explicit instead
         // of silently growing the public `suggested_fix` surface.
-        assert_eq!(FIXES.len(), 109);
+        assert_eq!(FIXES.len(), 132);
         // Anchor a handful of load-bearing combinations so a swap that
         // preserves the count (drop one entry, add another) still trips
         // the test instead of sliding through silently.
@@ -2702,6 +2962,10 @@ mod tests {
             (FindingType::NPlusOneSql, Framework::GoGorm),
             (FindingType::NPlusOneSql, Framework::NodePrisma),
             (FindingType::NPlusOneSql, Framework::RubyActiveRecord),
+            (FindingType::NPlusOneSql, Framework::PhpLaravelEloquent),
+            (FindingType::NPlusOneHttp, Framework::PhpLaravelEloquent),
+            (FindingType::NPlusOneSql, Framework::PhpDoctrine),
+            (FindingType::NPlusOneSql, Framework::PhpGeneric),
         ] {
             assert!(
                 FIXES.contains_key(&anchor),
@@ -2786,15 +3050,20 @@ mod tests {
     }
 
     #[test]
-    fn enrich_leaves_suggested_fix_none_for_unsupported_language() {
-        // PHP is not in the Language taxonomy: no `.php` filepath mapping and
-        // no namespace rules, so the finding stays unenriched.
+    fn enrich_populates_suggested_fix_for_php_laravel_eloquent() {
+        // `.php` maps to Language::Php and `App\Models\User` matches the
+        // Eloquent namespace hint, so the finding is enriched.
         let mut findings = vec![finding_with_location(
             FindingType::NPlusOneSql,
             Some(loc("app/Models/User.php", Some("App\\Models\\User"))),
         )];
         enrich(&mut findings);
-        assert!(findings[0].suggested_fix.is_none());
+        let fix = findings[0]
+            .suggested_fix
+            .as_ref()
+            .expect("PHP Laravel Eloquent should be enriched with suggested_fix");
+        assert_eq!(fix.framework, "php_laravel_eloquent");
+        assert!(fix.recommendation.contains("with("));
     }
 
     #[test]
@@ -2838,6 +3107,146 @@ mod tests {
             .expect("Ruby ActiveRecord should be enriched with suggested_fix");
         assert_eq!(fix.framework, "ruby_active_record");
         assert!(fix.recommendation.contains("includes"));
+    }
+
+    #[test]
+    fn detects_php_doctrine_via_scope() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.opentelemetry.contrib.php.doctrine"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::PhpDoctrine));
+    }
+
+    #[test]
+    fn detects_php_laravel_eloquent_via_scope() {
+        // The Laravel SQL leaf span is PDO-scoped, but the app-wide laravel
+        // scope rides the finding's parent chain.
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &[
+                "io.opentelemetry.contrib.php.pdo",
+                "io.opentelemetry.contrib.php.laravel",
+            ],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::PhpLaravelEloquent));
+    }
+
+    #[test]
+    fn detects_php_generic_via_pdo_scope_prefix() {
+        // A PHP OTel scope with no Laravel/Doctrine vendor match routes to
+        // the PHP generic.
+        let f = finding_with_scopes(FindingType::SlowSql, &["io.opentelemetry.contrib.php.pdo"]);
+        assert_eq!(detect_framework(&f), Some(Framework::PhpGeneric));
+    }
+
+    #[test]
+    fn detects_php_generic_via_php_filepath() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("src/Repository/OrderRepository.php", None)),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::PhpGeneric));
+    }
+
+    #[test]
+    fn disambiguates_php_doctrine_from_eloquent_via_namespace() {
+        let doctrine = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("src/Order.php", Some("Doctrine\\ORM\\EntityManager"))),
+        );
+        assert_eq!(detect_framework(&doctrine), Some(Framework::PhpDoctrine));
+        let eloquent = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("app/Models/User.php", Some("App\\Models\\User"))),
+        );
+        assert_eq!(
+            detect_framework(&eloquent),
+            Some(Framework::PhpLaravelEloquent)
+        );
+    }
+
+    #[test]
+    fn php_namespace_alone_cross_language_fallthrough() {
+        // No scope, no filepath: the cross-language namespace scan still
+        // recognises the Doctrine package via the `\` boundary.
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(CodeLocation {
+                function: Some("query".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("Doctrine\\DBAL\\Driver".to_string()),
+            }),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::PhpDoctrine));
+    }
+
+    #[test]
+    fn php_backslash_namespace_does_not_leak_to_other_languages() {
+        // Regression: a `\`-separated PHP namespace must never be claimed by a
+        // dot/colon language in the namespace-alone scan. Java's
+        // `LastSegmentEndsWith("Repository")` would otherwise tag the Symfony
+        // convention `App\Repository\OrderRepository` as java_jpa, and Node's
+        // bare `prisma` hint would tag `App\prisma\Foo` as node_prisma.
+        for ns in ["App\\Repository\\OrderRepository", "App\\prisma\\Foo"] {
+            let f = finding_with_location(
+                FindingType::NPlusOneSql,
+                Some(CodeLocation {
+                    function: None,
+                    filepath: None,
+                    lineno: None,
+                    namespace: Some(ns.to_string()),
+                }),
+            );
+            // No PHP hint matches these, and no non-PHP language may claim a
+            // `\` namespace, so detection yields nothing.
+            assert_eq!(detect_framework(&f), None, "ns = {ns}");
+        }
+    }
+
+    #[test]
+    fn namespace_matcher_backslash_boundaries() {
+        // PHP `\` segments match like `.`/`::` segments.
+        assert!(namespace_contains_segment(
+            "Doctrine\\ORM\\EntityManager",
+            "Doctrine\\ORM"
+        ));
+        assert!(namespace_contains_segment(
+            "App\\Models\\User",
+            "App\\Models"
+        ));
+        // Leading boundary: a longer leading segment must not match.
+        assert!(!namespace_contains_segment(
+            "MyDoctrine\\ORM",
+            "Doctrine\\ORM"
+        ));
+        // Trailing boundary: a longer trailing segment must not match.
+        assert!(!namespace_contains_segment(
+            "Doctrine\\ORMExtra",
+            "Doctrine\\ORM"
+        ));
+    }
+
+    #[test]
+    fn namespace_matcher_other_separators_unchanged() {
+        // Adding the `\` arm must not change `.`/`::` matching.
+        assert!(namespace_contains_segment(
+            "org.hibernate.SessionImpl",
+            "org.hibernate"
+        ));
+        assert!(!namespace_contains_segment(
+            "io.helidongrpc.Foo",
+            "io.helidon"
+        ));
+        assert!(namespace_contains_segment(
+            "orders::diesel::query",
+            "diesel::"
+        ));
+        assert!(!namespace_contains_segment(
+            "orders::mydiesel::query",
+            "diesel::"
+        ));
     }
 
     #[test]
@@ -2894,6 +3303,11 @@ mod tests {
             // Ruby
             "guides.rubyonrails.org",
             "lostisland.github.io",
+            // PHP
+            "laravel.com",
+            "symfony.com",
+            "www.doctrine-project.org",
+            "www.php.net",
             // Cross-language references (vendor-neutral)
             "www.postgresql.org",
             "martinfowler.com",

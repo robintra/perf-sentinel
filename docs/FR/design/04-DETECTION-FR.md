@@ -443,15 +443,16 @@ L'option `enabled` (défaut false) active la corrélation. Les résultats sont e
 
 À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace aient retourné, à l'intérieur de `detect()`.
 
-La couverture a grandi en cinq étapes :
+La couverture a grandi en six étapes :
 
 - v1 : Java/JPA uniquement.
 - v2 : Quarkus reactive et non-réactif, WebFlux, Helidon SE/MP, EF Core, Diesel et SeaORM.
 - v3 : les sept anti-patterns qui retournaient jusque-là `suggested_fix = None` (`redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`), plus Python (Django ORM, SQLAlchemy) avec détection de scope via le préfixe `opentelemetry.instrumentation.*`.
 - v4 : Go (GORM) et Node.js/TypeScript (Prisma) avec détection de scope via le préfixe `@opentelemetry/instrumentation-*` et détection de langage via les extensions `.go`, `.js`, `.ts`.
 - v5 : Ruby (ActiveRecord) avec détection de scope via le préfixe vendeur `OpenTelemetry::Instrumentation::` et détection de langage via l'extension `.rb`.
+- v6 : PHP (Laravel/Eloquent, Symfony/Doctrine) avec détection de scope via les scopes natifs `io.opentelemetry.contrib.php.*` et détection de langage via l'extension `.php`. Le scope `io.opentelemetry.contrib.php.doctrine` est spécifique à la base de données, il ne marque donc que les findings DB, mais `io.opentelemetry.contrib.php.laravel` est applicatif (il instrumente le noyau HTTP, la console, les files d'attente et le modèle Eloquent), il accompagne donc chaque finding Laravel. PhpLaravelEloquent porte donc des correctifs pour les 10 anti-patterns, tandis que PhpDoctrine ne porte que ceux SQL. Seul ce chemin est conscient du framework : dd-trace-php passé par le `datadogreceiver` du Collector n'expose aucun attribut de code PHP (le scope est un `Datadog` fixe), ces findings retombent donc sur `PhpGeneric` ou restent non enrichis.
 
-Les nouvelles entrées s'appuient sur le tag générique `*Generic` du langage quand la recommandation est indépendante du framework, et réutilisent un tag spécifique quand l'écosystème fournit une primitive canonique à recommander. L'état actuel couvre Java, C# (.NET 8 à 10), Python, Rust, Go, Node.js et Ruby sur les 10 anti-patterns, chacun avec un fallback générique par langage.
+Les nouvelles entrées s'appuient sur le tag générique `*Generic` du langage quand la recommandation est indépendante du framework, et réutilisent un tag spécifique quand l'écosystème fournit une primitive canonique à recommander. L'état actuel couvre Java, C# (.NET 8 à 10), Python, Rust, Go, Node.js, Ruby et PHP sur les 10 anti-patterns, chacun avec un fallback générique par langage.
 
 ### Structure `SuggestedFix`
 
@@ -470,9 +471,9 @@ Sérialisé en JSON comme objet imbriqué sous `finding.suggested_fix`, omis qua
 
 Le détecteur est une fonction pure sur des champs déjà présents sur `Finding` (`instrumentation_scopes`, `code_location`, `service`), tous peuplés au moment de la détection depuis les attributs OTel du span. Pas d'accès au niveau span, pas d'allocation supplémentaire. Il inspecte cinq signaux dans l'ordre, du plus fiable au moins fiable :
 
-1. **Chaîne de scopes d'instrumentation**, capturée à l'ingestion OTLP depuis le span d'origine et ses ancêtres (par exemple `io.opentelemetry.spring-data-3.0`). Le plus fiable : le nom de scope est émis par l'agent quelle que soit la façon dont l'utilisateur nomme ses classes, il survit donc aux particularités de nommage du code utilisateur. Les scopes spécifiques aux vendeurs (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, le gem Ruby `OpenTelemetry::Instrumentation::ActiveRecord`) sont vérifiés avant les scopes de la convention standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*`. Go et Node sont volontairement absents des règles de scope par convention : leurs instrumentations utilisent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), et la frontière de segment `-` utilisée pour les suffixes de version Java produirait des faux positifs sur les noms de paquets npm (`pg` contre `instrumentation-pg-pool`).
-2. **Langage déduit du préfixe de scope natif de l'écosystème.** Quand la vérification de la chaîne de scopes échoue, le préfixe révèle quand même le langage (`github.com/` = chemin de module Go, `@opentelemetry/instrumentation-` ou `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = gem Ruby). Le fallback générique du langage s'applique alors, donc même un span sans `code.filepath` ni `code.namespace` reçoit une suggestion adaptée au langage.
-3. **Namespace de `code_location` avec langage déduit du filepath** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby). Parcourt les règles de ce langage dans l'ordre déclaré ; fallback sur le générique du langage quand aucune règle ne matche.
+1. **Chaîne de scopes d'instrumentation**, capturée à l'ingestion OTLP depuis le span d'origine et ses ancêtres (par exemple `io.opentelemetry.spring-data-3.0`). Le plus fiable : le nom de scope est émis par l'agent quelle que soit la façon dont l'utilisateur nomme ses classes, il survit donc aux particularités de nommage du code utilisateur. Les scopes spécifiques aux vendeurs (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, le gem Ruby `OpenTelemetry::Instrumentation::ActiveRecord`, les scopes PHP `io.opentelemetry.contrib.php.doctrine` et `io.opentelemetry.contrib.php.laravel`) sont vérifiés avant les scopes de la convention standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*`. Go et Node sont volontairement absents des règles de scope par convention : leurs instrumentations utilisent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), et la frontière de segment `-` utilisée pour les suffixes de version Java produirait des faux positifs sur les noms de paquets npm (`pg` contre `instrumentation-pg-pool`).
+2. **Langage déduit du préfixe de scope natif de l'écosystème.** Quand la vérification de la chaîne de scopes échoue, le préfixe révèle quand même le langage (`github.com/` = chemin de module Go, `@opentelemetry/instrumentation-` ou `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = gem Ruby, `io.opentelemetry.contrib.php.` = PHP). Le fallback générique du langage s'applique alors, donc même un span sans `code.filepath` ni `code.namespace` reçoit une suggestion adaptée au langage.
+3. **Namespace de `code_location` avec langage déduit du filepath** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby, `.php` → PHP). Parcourt les règles de ce langage dans l'ordre déclaré ; fallback sur le générique du langage quand aucune règle ne matche. Les namespaces PHP utilisent des séparateurs `\`, reconnus par le même matcher de frontière de segment que `.` et `::`, et la dérivation de namespace à l'ingestion découpe `code.function.name` sur `\` quand il ne contient pas de point.
 4. **Namespace de `code_location` seul** quand le filepath est absent : essaie les règles de chaque langage dans l'ordre et retourne le premier hit. Pas de fallback générique sur ce chemin parce que le langage ne peut pas être connu.
 5. **Nom de service** en dernier recours, uniquement pour les noms de frameworks assez distinctifs pour éviter les faux positifs dans des noms de services arbitraires (par exemple `helidon` dans `helidon-se-svc`). Confiance la plus basse, atteint seulement quand tous les signaux OTel sont absents.
 
@@ -548,46 +549,60 @@ Chaque hint est de l'un de deux types. **`Substring`** matche un segment de pack
 
 `RUBY_RULES` est vide : Ruby n'a pas de convention de namespace fiable dans `code.namespace`, donc `RubyActiveRecord` est atteint via le scope vendeur `OpenTelemetry::Instrumentation::ActiveRecord`, et tout autre scope OTel Ruby (les drivers pg/mysql2, Rack) ou un filepath `.rb` route vers `RubyGeneric`.
 
+**PHP (`PHP_RULES`) :**
+
+| Framework               | Hints namespace (séparés par `\`)                   |
+|-------------------------|-----------------------------------------------------|
+| `PhpLaravelEloquent`    | `Illuminate\Database\Eloquent`, `App\Models`        |
+| `PhpDoctrine`           | `Doctrine\ORM`, `Doctrine\DBAL`                     |
+| `PhpGeneric` (fallback) | (tout fichier `.php`, ou tout autre scope OTel PHP) |
+
+Les frameworks PHP sont atteints en priorité via les scopes vendeurs `io.opentelemetry.contrib.php.doctrine` et `io.opentelemetry.contrib.php.laravel`. Les hints namespace sont le signal secondaire : le span SQL feuille de Laravel est scope PDO (`code.function.name = "PDO::query"`) et n'expose aucun namespace applicatif, mais le span SQL propre à Doctrine porte un namespace `Doctrine\DBAL\...`. Tout autre scope OTel PHP (`pdo`, `mongodb`, `curl`, `guzzle`) ou un filepath `.php` route vers `PhpGeneric`.
+
 Les frameworks Go et Node sont atteints via les hints namespace ci-dessus et le fallback langage-depuis-préfixe-de-scope, jamais via `SCOPE_RULES` : leurs instrumentations émettent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`) que les préfixes de la convention ne matchent pas. Voir la section détecteur de framework ci-dessus.
 
 ### Table de mapping
 
 Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les lookups absents de la table laissent `suggested_fix` à `None`. L'ensemble complet vit dans la static `FIXES` de `suggestions.rs` : un fallback générique par langage plus des entrées framework-specific. La couverture n'est volontairement pas une matrice complète langage x pattern. En particulier, `n_plus_one_sql` et `redundant_sql` passent surtout par des entrées framework-specific (un fallback générique N+1 SQL n'existe que pour Go, Node et Ruby), donc un lookup générique pour ces patterns retourne `None` pour plusieurs langages. Ancres représentatives :
 
-| Type de finding | Framework             | Ancre de la recommandation                                                                                     |
-|-----------------|-----------------------|----------------------------------------------------------------------------------------------------------------|
-| `NPlusOneSql`   | `JavaJpa`             | `JOIN FETCH` ou `@EntityGraph`, Hibernate User Guide                                                           |
-| `NPlusOneSql`   | `JavaQuarkusReactive` | Mutiny `Session.fetch()` + `@NamedEntityGraph`, guide Quarkus Hibernate Reactive                               |
-| `NPlusOneSql`   | `JavaQuarkus`         | JPQL/Panache `JOIN FETCH`, `@EntityGraph` ou `Session.fetchProfile`, guide Quarkus Hibernate ORM               |
-| `NPlusOneSql`   | `JavaHelidonSe`       | Requête nommée Helidon `DbClient` avec JOIN ou binding JDBC `:ids`                                             |
-| `NPlusOneSql`   | `JavaHelidonMp`       | JPA `@EntityGraph` ou JPQL `JOIN FETCH` (les entités MP sont gérées par JPA via Hibernate)                     |
-| `NPlusOneHttp`  | `JavaWebFlux`         | `Flux.merge()` / `Flux.zip()` pour le parallélisme ou endpoint batch                                           |
-| `NPlusOneHttp`  | `JavaQuarkusReactive` | `Uni.combine().all().unis(...)` pour le parallélisme, guide Mutiny combining                                   |
-| `NPlusOneHttp`  | `JavaQuarkus`         | `CompletableFuture.allOf` sur `ManagedExecutor`, batch via Quarkus REST Client                                 |
-| `NPlusOneHttp`  | `JavaHelidonSe`       | Helidon SE `WebClient` + `Single.zip` / `Multi.merge` pour le parallélisme ou endpoint batch                   |
-| `NPlusOneHttp`  | `JavaHelidonMp`       | MicroProfile Rest Client + `CompletableFuture.allOf` sur l'executor `@ManagedExecutorConfig` ou endpoint batch |
-| `NPlusOneHttp`  | `JavaGeneric`         | Endpoint batch ou `@Cacheable` request-scoped                                                                  |
-| `RedundantSql`  | `JavaQuarkusReactive` | `@CacheResult` ou `Uni.memoize().indefinitely()`                                                               |
-| `RedundantSql`  | `JavaQuarkus`         | `@CacheResult` (extension cache Quarkus) ou déduplication HashMap `@RequestScoped`                             |
-| `RedundantSql`  | `JavaGeneric`         | Cache service-level (Caffeine, Spring Cache)                                                                   |
-| `NPlusOneSql`   | `CsharpEfCore`        | `.Include()` / `.ThenInclude()`, `.AsSplitQuery()` pour l'explosion cartésienne                                |
-| `RedundantSql`  | `CsharpEfCore`        | `IMemoryCache`, DbContext scopé pour le short-circuit per-request                                              |
-| `NPlusOneHttp`  | `CsharpGeneric`       | `Task.WhenAll` pour les appels parallèles, endpoint batch, response caching `HttpClient`                       |
-| `NPlusOneSql`   | `RustDiesel`          | `belonging_to` + `grouped_by` ou `.inner_join` / `.left_join` pour une seule query                             |
-| `NPlusOneSql`   | `RustSeaOrm`          | `find_with_related` / `find_also_related` ou `QuerySelect::join`                                               |
-| `RedundantSql`  | `RustDiesel`          | Cache `moka` ou `OnceCell` request-local                                                                       |
-| `RedundantSql`  | `RustSeaOrm`          | Cache `moka` ou `OnceCell` request-local                                                                       |
-| `NPlusOneHttp`  | `RustGeneric`         | `tokio::join!` / `futures::future::join_all` pour le parallélisme ou endpoint batch                            |
-| `NPlusOneSql`   | `PythonDjango`        | Eager loading `select_related()` / `prefetch_related()`                                                        |
-| `NPlusOneSql`   | `PythonSqlAlchemy`    | `joinedload()` / `subqueryload()` ou un `join()` explicite                                                     |
-| `RedundantSql`  | `PythonDjango`        | Framework de cache Django (`@cache_page` / `cache.get/set`) ou déduplication request-local                     |
-| `NPlusOneHttp`  | `PythonGeneric`       | `asyncio.gather()` / `ThreadPoolExecutor` pour le parallélisme ou endpoint batch                               |
-| `NPlusOneSql`   | `GoGorm`              | Eager loading `Preload()` / `Joins()`                                                                          |
-| `NPlusOneSql`   | `GoGeneric`           | `JOIN` unique / `WHERE id IN (...)`, pgx `ANY($1::int[])`                                                      |
-| `NPlusOneHttp`  | `GoGeneric`           | `errgroup.Go` pour les appels parallèles ou endpoint batch                                                     |
-| `NPlusOneSql`   | `NodePrisma`          | Eager loading `include:{}` ou `findMany()` avec un filtre `WHERE id IN`                                        |
-| `NPlusOneSql`   | `NodeGeneric`         | `JOIN` unique / `WHERE id IN (...)`, pg `ANY($1::int[])`                                                       |
-| `RedundantSql`  | `NodeGeneric`         | `node-cache` ou une `Map` request-scoped, `p-memoize` pour les doublons concurrents                            |
+| Type de finding | Framework             | Ancre de la recommandation                                                                                                  |
+|-----------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `NPlusOneSql`   | `JavaJpa`             | `JOIN FETCH` ou `@EntityGraph`, Hibernate User Guide                                                                        |
+| `NPlusOneSql`   | `JavaQuarkusReactive` | Mutiny `Session.fetch()` + `@NamedEntityGraph`, guide Quarkus Hibernate Reactive                                            |
+| `NPlusOneSql`   | `JavaQuarkus`         | JPQL/Panache `JOIN FETCH`, `@EntityGraph` ou `Session.fetchProfile`, guide Quarkus Hibernate ORM                            |
+| `NPlusOneSql`   | `JavaHelidonSe`       | Requête nommée Helidon `DbClient` avec JOIN ou binding JDBC `:ids`                                                          |
+| `NPlusOneSql`   | `JavaHelidonMp`       | JPA `@EntityGraph` ou JPQL `JOIN FETCH` (les entités MP sont gérées par JPA via Hibernate)                                  |
+| `NPlusOneHttp`  | `JavaWebFlux`         | `Flux.merge()` / `Flux.zip()` pour le parallélisme ou endpoint batch                                                        |
+| `NPlusOneHttp`  | `JavaQuarkusReactive` | `Uni.combine().all().unis(...)` pour le parallélisme, guide Mutiny combining                                                |
+| `NPlusOneHttp`  | `JavaQuarkus`         | `CompletableFuture.allOf` sur `ManagedExecutor`, batch via Quarkus REST Client                                              |
+| `NPlusOneHttp`  | `JavaHelidonSe`       | Helidon SE `WebClient` + `Single.zip` / `Multi.merge` pour le parallélisme ou endpoint batch                                |
+| `NPlusOneHttp`  | `JavaHelidonMp`       | MicroProfile Rest Client + `CompletableFuture.allOf` sur l'executor `@ManagedExecutorConfig` ou endpoint batch              |
+| `NPlusOneHttp`  | `JavaGeneric`         | Endpoint batch ou `@Cacheable` request-scoped                                                                               |
+| `RedundantSql`  | `JavaQuarkusReactive` | `@CacheResult` ou `Uni.memoize().indefinitely()`                                                                            |
+| `RedundantSql`  | `JavaQuarkus`         | `@CacheResult` (extension cache Quarkus) ou déduplication HashMap `@RequestScoped`                                          |
+| `RedundantSql`  | `JavaGeneric`         | Cache service-level (Caffeine, Spring Cache)                                                                                |
+| `NPlusOneSql`   | `CsharpEfCore`        | `.Include()` / `.ThenInclude()`, `.AsSplitQuery()` pour l'explosion cartésienne                                             |
+| `RedundantSql`  | `CsharpEfCore`        | `IMemoryCache`, DbContext scopé pour le short-circuit per-request                                                           |
+| `NPlusOneHttp`  | `CsharpGeneric`       | `Task.WhenAll` pour les appels parallèles, endpoint batch, response caching `HttpClient`                                    |
+| `NPlusOneSql`   | `RustDiesel`          | `belonging_to` + `grouped_by` ou `.inner_join` / `.left_join` pour une seule query                                          |
+| `NPlusOneSql`   | `RustSeaOrm`          | `find_with_related` / `find_also_related` ou `QuerySelect::join`                                                            |
+| `RedundantSql`  | `RustDiesel`          | Cache `moka` ou `OnceCell` request-local                                                                                    |
+| `RedundantSql`  | `RustSeaOrm`          | Cache `moka` ou `OnceCell` request-local                                                                                    |
+| `NPlusOneHttp`  | `RustGeneric`         | `tokio::join!` / `futures::future::join_all` pour le parallélisme ou endpoint batch                                         |
+| `NPlusOneSql`   | `PythonDjango`        | Eager loading `select_related()` / `prefetch_related()`                                                                     |
+| `NPlusOneSql`   | `PythonSqlAlchemy`    | `joinedload()` / `subqueryload()` ou un `join()` explicite                                                                  |
+| `RedundantSql`  | `PythonDjango`        | Framework de cache Django (`@cache_page` / `cache.get/set`) ou déduplication request-local                                  |
+| `NPlusOneHttp`  | `PythonGeneric`       | `asyncio.gather()` / `ThreadPoolExecutor` pour le parallélisme ou endpoint batch                                            |
+| `NPlusOneSql`   | `GoGorm`              | Eager loading `Preload()` / `Joins()`                                                                                       |
+| `NPlusOneSql`   | `GoGeneric`           | `JOIN` unique / `WHERE id IN (...)`, pgx `ANY($1::int[])`                                                                   |
+| `NPlusOneHttp`  | `GoGeneric`           | `errgroup.Go` pour les appels parallèles ou endpoint batch                                                                  |
+| `NPlusOneSql`   | `NodePrisma`          | Eager loading `include:{}` ou `findMany()` avec un filtre `WHERE id IN`                                                     |
+| `NPlusOneSql`   | `NodeGeneric`         | `JOIN` unique / `WHERE id IN (...)`, pg `ANY($1::int[])`                                                                    |
+| `RedundantSql`  | `NodeGeneric`         | `node-cache` ou une `Map` request-scoped, `p-memoize` pour les doublons concurrents                                         |
+| `NPlusOneSql`   | `PhpLaravelEloquent`  | Eager loading `with('relation')` / `load(...)` ou batch `whereIn('id', $ids)`                                               |
+| `NPlusOneHttp`  | `PhpLaravelEloquent`  | `Http::pool(...)` pour la concurrence ou endpoint batch (scope laravel applicatif, donc les patterns non-SQL mappent aussi) |
+| `NPlusOneSql`   | `PhpDoctrine`         | Fetch-join DQL (`->leftJoin(...)->addSelect(...)`) ou mapping `fetch="EAGER"`                                               |
+| `NPlusOneSql`   | `PhpGeneric`          | un seul prepared statement avec une liste de placeholders `IN (...)`                                                        |
 
 ### Chemin d'extension pour les contributeurs
 
