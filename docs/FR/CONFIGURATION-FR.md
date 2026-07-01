@@ -78,7 +78,7 @@ restaure la classification correcte :
 - `"auto"` (défaut) : émet `n_plus_one_sql` quand **soit** un marqueur
   ORM est présent dans les `instrumentation_scopes` des spans (Spring
   Data, Hibernate, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma,
-  Diesel, ...) **soit** la variance des durées par span est suffisante
+  Diesel, Laravel/Eloquent, Doctrine, ...) **soit** la variance des durées par span est suffisante
   pour indiquer des accès à des lignes distinctes. Sinon, le groupe
   reste à la charge du détecteur de redondance. Meilleur rappel sur les
   stacks production Spring Data, EF Core et similaires.
