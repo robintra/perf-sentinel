@@ -948,8 +948,10 @@
   }
   function genericHlFragment(frag, src) {
     // `(\$[A-Za-z_]...)` captures a PHP variable ($ids, $this) as one token
-    // before the catch-all, so it renders cohesively. `$` is absent from the
-    // other highlighted languages, so this arm is inert for them.
+    // before the catch-all, so it renders cohesively. It matches `$` + a letter
+    // only, so SQL params ($1, $2) stay digit-led and are unaffected. A rare
+    // `$letter` token in another language (Prisma `$transaction`, jQuery `$el`)
+    // also renders as a variable, which is acceptable.
     var gre = /(\s+)|(\/\/[^\n]*|#[^\n]*)|(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(@[A-Za-z_][A-Za-z0-9_.]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*!?)|(::|->|=>|[(){}\[\].,:;=<>!&|+\-*\/%?@]+)|(\$[A-Za-z_][A-Za-z0-9_]*)|(\S)/g;
     var gtk = [], gm;
     while ((gm = gre.exec(src))) {
