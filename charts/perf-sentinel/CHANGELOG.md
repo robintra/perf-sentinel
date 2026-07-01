@@ -6,6 +6,13 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.4]
+
+### Changed
+
+- `appVersion` bumped to `0.9.4`. The daemon binary adds PHP framework-aware `suggested_fix`: findings on Laravel/Eloquent and Symfony/Doctrine stacks (detected via the native `io.opentelemetry.contrib.php.*` instrumentation scopes or a `.php` source path) carry framework-specific remediation, with a PHP generic fallback across all ten anti-patterns. The sanitizer-aware N+1 classifier now treats the Laravel and Doctrine scopes as ORM markers, so an obfuscated Eloquent/Doctrine N+1 classifies as `n_plus_one_sql` under the default `auto` mode. dd-trace-php bridged through the Collector `datadogreceiver` carries no framework signal. No chart template change, this bump tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.9.4` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.9.3]
 
 ### Changed
