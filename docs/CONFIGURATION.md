@@ -75,7 +75,8 @@ recovers the correct classification:
 
 - `"auto"` (default): emit `n_plus_one_sql` when **either** the ORM
   scope signal (Spring Data, Hibernate, EF Core, SQLAlchemy,
-  ActiveRecord, GORM, Prisma, Diesel, ...) **or** the per-span timing
+  ActiveRecord, GORM, Prisma, Diesel, Laravel/Eloquent, Doctrine, ...)
+  **or** the per-span timing
   variance is high enough to indicate distinct row lookups. Otherwise
   leave the group to the redundant detector. Best recall on production
   Spring Data, EF Core and similar ORM stacks.

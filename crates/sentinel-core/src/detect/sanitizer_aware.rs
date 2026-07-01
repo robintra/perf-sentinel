@@ -134,6 +134,12 @@ const ORM_SCOPE_MARKERS: &[&str] = &[
     // Rust
     "sea-orm",
     "diesel",
+    // PHP: native OTel scopes `io.opentelemetry.contrib.php.{laravel,doctrine}`.
+    // Laravel names the framework whose ORM is Eloquent, Doctrine is the ORM
+    // itself. Including them lets a sanitized Eloquent/Doctrine N+1 classify as
+    // `n_plus_one_sql` under `auto`, at parity with the JVM/Ruby stacks.
+    "laravel",
+    "doctrine",
 ];
 
 /// Returns `true` when every span in the group looks like the `OTel`
@@ -677,6 +683,17 @@ mod tests {
         ]));
         assert!(has_orm_scope(&["EntityFrameworkCore".to_string()]));
         assert!(has_orm_scope(&["opentelemetry.gorm.v1".to_string()]));
+        // PHP native scopes end with the marker (end-of-string boundary).
+        assert!(has_orm_scope(&[
+            "io.opentelemetry.contrib.php.laravel".to_string()
+        ]));
+        assert!(has_orm_scope(&[
+            "io.opentelemetry.contrib.php.doctrine".to_string()
+        ]));
+        // The bare PDO scope is a driver, not an ORM, and must not match.
+        assert!(!has_orm_scope(&[
+            "io.opentelemetry.contrib.php.pdo".to_string()
+        ]));
         assert!(!has_orm_scope(&["io.opentelemetry.jdbc-3.1".to_string()]));
         assert!(!has_orm_scope(&[]));
     }
