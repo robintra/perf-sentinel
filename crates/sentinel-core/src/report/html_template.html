@@ -947,7 +947,10 @@
     });
   }
   function genericHlFragment(frag, src) {
-    var gre = /(\s+)|(\/\/[^\n]*|#[^\n]*)|(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(@[A-Za-z_][A-Za-z0-9_.]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*!?)|(::|->|=>|[(){}\[\].,:;=<>!&|+\-*\/%?@]+)|(\S)/g;
+    // `(\$[A-Za-z_]...)` captures a PHP variable ($ids, $this) as one token
+    // before the catch-all, so it renders cohesively. `$` is absent from the
+    // other highlighted languages, so this arm is inert for them.
+    var gre = /(\s+)|(\/\/[^\n]*|#[^\n]*)|(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(@[A-Za-z_][A-Za-z0-9_.]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*!?)|(::|->|=>|[(){}\[\].,:;=<>!&|+\-*\/%?@]+)|(\$[A-Za-z_][A-Za-z0-9_]*)|(\S)/g;
     var gtk = [], gm;
     while ((gm = gre.exec(src))) {
       if (gm[1]) gtk.push({ t: "ws", v: gm[1] });
@@ -957,6 +960,7 @@
       else if (gm[6]) gtk.push({ t: "num", v: gm[6] });
       else if (gm[7]) gtk.push({ t: "id", v: gm[7] });
       else if (gm[8]) gtk.push({ t: "op", v: gm[8] });
+      else if (gm[9]) gtk.push({ t: "var", v: gm[9] });
       else gtk.push({ t: "o", v: gm[0] });
     }
     gtk.forEach(function (x, i) {
@@ -965,6 +969,7 @@
       else if (x.t === "ann") color = "var(--warn-fg)";
       else if (x.t === "str") color = "var(--ok-fg)";
       else if (x.t === "num") color = "var(--ok-fg)";
+      else if (x.t === "var") color = "var(--warn-fg)"; // PHP $variable
       else if (x.t === "id") {
         if (GENERIC_KW[x.v]) { color = "var(--info-fg)"; bold = true; } // keyword
         else {
