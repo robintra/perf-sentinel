@@ -101,7 +101,6 @@ pub fn build_tree(trace: &Trace, findings: &[Finding]) -> ExplainTree {
         }
     }
 
-    // Build span nodes
     let nodes: Vec<SpanNode> = trace
         .spans
         .iter()

@@ -240,7 +240,6 @@ fn evaluate_sequence(
     let total_ms = total_sequential_us / 1000;
     let parallel_ms = max_duration_us / 1000;
 
-    // Build descriptive call chain
     let calls_str: String = seq
         .iter()
         .map(|&i| {

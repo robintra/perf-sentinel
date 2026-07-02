@@ -100,12 +100,10 @@ mod tests {
         count: usize,
     ) -> Vec<crate::event::SpanEvent> {
         let mut events = Vec::new();
-        // Add a root span (the parent)
         let mut root = make_sql_event(trace_id, parent_id, "SELECT 1", "2025-07-10T14:32:01.000Z");
         root.parent_span_id = None;
         events.push(root);
 
-        // Add child spans
         for i in 0..count {
             let mut child = make_sql_event(
                 trace_id,

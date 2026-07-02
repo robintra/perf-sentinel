@@ -661,13 +661,10 @@ fn trim_to_size_target<'a>(
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
 
-    // Two-step approach. The previous implementation re-serialized the
-    // entire payload once per trace we shed, giving O(N^2) total work
-    // in the number of traces. This one serializes each embedded trace
-    // once and the non-trace envelope once, then uses a prefix-sum
-    // scan to find the longest trace prefix that fits under the size
-    // target. Total serialization volume is O(N * avg_trace_size),
-    // linear in the payload.
+    // Serialize each embedded trace once and the non-trace envelope
+    // once, then prefix-sum scan for the longest trace prefix that
+    // fits under the size target: O(N * avg_trace_size) total, unlike
+    // re-serializing the whole payload per shed trace, which is O(N^2).
 
     // Step 1: per-trace JSON sizes. We account for the surrounding
     // comma and the 2 literal bracket bytes of the JSON array via
@@ -1592,15 +1589,11 @@ mod tests {
                 "expected export button for listable tab: {tab}"
             );
         }
-        // Count-based guard against future drift: every export button
-        // carries `data-export-tab="..."`, so the total occurrence
-        // count must equal the four listable tabs, no more, no less.
-        // This catches both accidental drop (count < 4) and rogue
-        // addition to Explain / GreenOps (count > 4) without relying
-        // on negative substring matches that could over-match suffixed
-        // future IDs like `pre-explain-export`. If a future listable
-        // tab lands, update both the positive assertion above and
-        // this count in the same commit.
+        // Count-based drift guard: every export button carries
+        // `data-export-tab="`, so the total count must equal the four
+        // listable tabs. Catches accidental drops (< 4) and rogue
+        // additions to Explain / GreenOps (> 4) without negative
+        // substring matches that could over-match suffixed IDs.
         let export_count = TEMPLATE.matches("data-export-tab=\"").count();
         assert_eq!(
             export_count, 4,

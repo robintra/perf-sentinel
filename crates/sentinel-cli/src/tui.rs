@@ -178,20 +178,11 @@ impl App {
         mut traces: Vec<Trace>,
         detect_config: DetectConfig,
     ) -> Self {
-        // Sort traces by trace_id so the trace list panel has a stable,
-        // predictable display order across runs. The upstream `correlate`
-        // stage iterates a `HashMap<String, Vec<_>>` which yields traces
-        // in randomized hash order, which is fine for batch analysis but
-        // makes the interactive TUI non-reproducible (the same input file
-        // shows traces in a different order on every launch, breaking
-        // muscle memory for users who come back to investigate a trace
-        // they just saw).
-        //
-        // `sort_unstable_by` is preferred over `sort_by`: the correlate
-        // stage guarantees unique `trace_id` per `Trace` (all spans with
-        // the same trace_id are folded into one entry), so sort stability
-        // has no semantic value here and the unstable variant avoids the
-        // merge-sort allocation.
+        // Sort by trace_id: the upstream `correlate` stage yields traces in
+        // randomized HashMap order, so without this the same input file
+        // shows a different trace-list order on every launch. Unstable sort
+        // is fine (trace_ids are unique) and avoids the merge-sort
+        // allocation.
         traces.sort_unstable_by(|a, b| a.trace_id.cmp(&b.trace_id));
 
         let trace_ids: Vec<String> = traces.iter().map(|t| t.trace_id.clone()).collect();
@@ -201,7 +192,6 @@ impl App {
             .map(|(i, t)| (t.trace_id.clone(), i))
             .collect();
 
-        // Build per-trace index lists (indices into all_findings)
         let mut findings_by_trace: Vec<Vec<usize>> = vec![Vec::new(); traces.len()];
         for (idx, finding) in findings.iter().enumerate() {
             if let Some(&trace_vec_idx) = trace_index.get(&finding.trace_id) {
@@ -356,20 +346,14 @@ impl App {
     /// Count the logical lines the Detail panel will render for the
     /// currently selected finding.
     ///
-    /// Mirrors the line construction in [`draw_detail_panel`]: 7 always-
-    /// present metadata rows (type header, template, occurrences, service,
-    /// endpoint, suggestion, plus the blank between the header and the
-    /// body), +1 when the finding carries a `green_impact`, then either
-    /// the cached span tree (+2 for the header, +N for the tree lines)
-    /// or the unavailability hint (+5 for the blank, header, and 3 hint
-    /// lines pointing at `inspect --input <events>.json` and `query
-    /// inspect`).
+    /// Mirrors the line construction in [`draw_detail_panel`]: keep the
+    /// two in sync (the body comments track the per-row arithmetic).
     ///
     /// Used by [`App::move_down`] to clamp the Detail-panel scroll offset
     /// so `Down`/`j` cannot scroll past the content. Long wrapped lines
     /// count as one logical line, so the clamp is slightly conservative
-    /// on wrapped output, the tradeoff vs. reading the panel width at
-    /// event-handling time (which ratatui does not expose) is accepted.
+    /// on wrapped output, accepted since ratatui does not expose the
+    /// panel width at event-handling time.
     fn detail_panel_line_count(&self) -> u16 {
         let Some(finding) = self.current_finding() else {
             return 0;
@@ -2293,7 +2277,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
-    // Add span tree from cache (pre-computed before draw, cached per trace)
+    // Span tree is pre-computed before draw, cached per trace.
     if let Some((ct, ref tree_text)) = app.cached_detail
         && ct == app.selected_trace
     {

@@ -280,16 +280,16 @@ pub struct SpanEvent {
     /// absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_size_bytes: Option<u64>,
-    /// `OTel` `code.function` attribute: the function name in the instrumented code.
+    /// `OTel` `code.function` attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_function: Option<Arc<str>>,
-    /// `OTel` `code.filepath` attribute: the source file path.
+    /// `OTel` `code.filepath` attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_filepath: Option<Arc<str>>,
-    /// `OTel` `code.lineno` attribute: the line number in the source file.
+    /// `OTel` `code.lineno` attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_lineno: Option<u32>,
-    /// `OTel` `code.namespace` attribute: the namespace (e.g. Java package).
+    /// `OTel` `code.namespace` attribute (e.g. Java package).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_namespace: Option<Arc<str>>,
     /// OpenTelemetry instrumentation scope names captured at ingest time:

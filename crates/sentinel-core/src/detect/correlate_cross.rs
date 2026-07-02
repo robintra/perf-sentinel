@@ -145,8 +145,7 @@ struct PairState {
     /// Trace id of the most recent target-side finding that completed
     /// this pair (the trailing finding in the source -> target order).
     /// Overwritten on every co-occurrence so the value tracks the
-    /// latest observation. `Option<String>` is ~24 bytes stack plus a
-    /// heap alloc capped at [`MAX_SAMPLE_TRACE_ID_BYTES`], so the
+    /// latest observation. Capped at [`MAX_SAMPLE_TRACE_ID_BYTES`]:
     /// worst-case overhead at the 10,000 pair cap stays under 2 MB.
     last_trace_id: Option<String>,
 }

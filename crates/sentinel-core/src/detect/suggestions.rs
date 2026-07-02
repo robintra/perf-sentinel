@@ -1296,10 +1296,9 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         // ── PHP ────────────────────────────────────────────────────
         // Laravel/Eloquent carries all ten anti-patterns because the
-        // `io.opentelemetry.contrib.php.laravel` scope is app-wide. The 7
-        // non-SQL entries give Laravel-idiomatic advice (Http::pool,
-        // Cache::remember, ...), not the PhpGeneric text, so a Laravel finding
-        // of any type is never left without a framework-appropriate suggestion.
+        // `io.opentelemetry.contrib.php.laravel` scope is app-wide, so a
+        // Laravel finding of any type gets framework-idiomatic advice
+        // rather than the PhpGeneric text.
         (
             (NPlusOneSql, PhpLaravelEloquent),
             "Eager-load the relation with `with('relation')` (or `load(...)` on an \

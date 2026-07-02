@@ -153,7 +153,6 @@ pub struct DetectionConfig {
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools)] // Config aggregates the [green] toggles from .perf-sentinel.toml
 pub struct GreenConfig {
-    /// Whether `GreenOps` scoring is enabled.
     pub enabled: bool,
     /// Fallback region for CO₂ scoring (e.g. `"eu-west-3"`).
     pub default_region: Option<String>,
@@ -201,13 +200,11 @@ pub struct GreenConfig {
 /// `[daemon.ack]`, `[daemon.cors]` and `[daemon.correlation]` sub-tables.
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
-    /// Address for the daemon to listen on.
     pub listen_addr: String,
     /// Port for OTLP HTTP receiver.
     pub listen_port: u16,
     /// Port for OTLP gRPC receiver.
     pub listen_port_grpc: u16,
-    /// Unix socket path for JSON ingestion.
     pub json_socket: String,
     /// Maximum number of active traces in streaming mode.
     pub max_active_traces: usize,
@@ -219,12 +216,10 @@ pub struct DaemonConfig {
     pub max_events_per_trace: usize,
     /// Maximum payload size in bytes for JSON deserialization.
     pub max_payload_size: usize,
-    /// Deployment environment label used by the daemon to stamp findings
-    /// with a [`Confidence`] value. Defaults to
-    /// [`DaemonEnvironment::Staging`]; set to
-    /// [`DaemonEnvironment::Production`] when running on production traffic
-    /// so downstream consumers (perf-lint) can boost severity. Ignored in
-    /// `analyze` batch mode, which always emits [`Confidence::CiBatch`].
+    /// Deployment environment label used to stamp findings with a
+    /// [`Confidence`] value, so downstream consumers (perf-lint) can boost
+    /// severity on production traffic. Ignored in `analyze` batch mode,
+    /// which always emits [`Confidence::CiBatch`].
     pub environment: DaemonEnvironment,
     /// Maximum number of findings retained by the daemon query API.
     pub max_retained_findings: usize,
@@ -236,7 +231,6 @@ pub struct DaemonConfig {
     /// awaiting detect+score. When full, whole batches are shed (counted
     /// on `perf_sentinel_analysis_shed_*`).
     pub analysis_queue_capacity: usize,
-    /// Whether the daemon query API is enabled.
     pub api_enabled: bool,
     /// TLS material for the OTLP listeners. When `cert_path` and
     /// `key_path` are both `Some`, both gRPC and HTTP listen TLS; when
@@ -529,26 +523,16 @@ struct GreenSection {
     default_region: Option<String>,
     service_regions: HashMap<String, String>,
     embodied_carbon_per_request_gco2: Option<f64>,
-    /// toggle for the hourly carbon intensity profile path.
-    /// Default `true`. Maps to `Config::green.use_hourly_profiles`.
     use_hourly_profiles: Option<bool>,
-    /// Scaphandre scraper section. Absent when Scaphandre
-    /// is not configured.
     scaphandre: ScaphandreSection,
-    /// Kepler scraper section. Absent when Kepler is not configured.
     kepler: KeplerSection,
-    /// Redfish scraper section. Absent when Redfish is not configured.
     redfish: RedfishSection,
-    /// Cloud energy section. Absent when cloud energy is not configured.
     cloud: CloudSection,
     per_operation_coefficients: Option<bool>,
     include_network_transport: Option<bool>,
     network_energy_per_byte_kwh: Option<f64>,
-    /// Path to a JSON file with user-supplied hourly carbon profiles.
     hourly_profiles_file: Option<String>,
-    /// Path to a calibration TOML file from `perf-sentinel calibrate`.
     calibration_file: Option<String>,
-    /// Electricity Maps API section.
     electricity_maps: ElectricityMapsSection,
 }
 
@@ -657,25 +641,15 @@ struct DaemonSection {
     /// in `Config::validate`; invalid values fail at load time with a
     /// clear error. Case-insensitive.
     environment: Option<String>,
-    /// Path to PEM-encoded TLS certificate chain.
     tls_cert_path: Option<String>,
-    /// Path to PEM-encoded TLS private key.
     tls_key_path: Option<String>,
-    /// Maximum number of findings kept by the daemon query API.
     max_retained_findings: Option<usize>,
-    /// Ingestion channel capacity (span-event batches).
     ingest_queue_capacity: Option<usize>,
-    /// Analysis worker queue capacity (batches awaiting detect+score).
     analysis_queue_capacity: Option<usize>,
-    /// Whether the daemon query API is enabled.
     api_enabled: Option<bool>,
-    /// Cross-trace correlation section.
     correlation: CorrelationSection,
-    /// Daemon-side ack store section.
     ack: DaemonAckSection,
-    /// CORS section for the daemon HTTP API.
     cors: DaemonCorsSection,
-    /// Per-window report archive writer section.
     archive: ArchiveSection,
 }
 

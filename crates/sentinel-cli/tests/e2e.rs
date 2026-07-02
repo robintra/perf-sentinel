@@ -354,7 +354,6 @@ fn cli_watch_starts_and_responds_to_sigterm() {
     // `!status.success()` check below and pass for the wrong reason.
     let still_running = child.try_wait().expect("try_wait failed").is_none();
 
-    // Kill the process (SIGTERM equivalent on Windows)
     child.kill().expect("failed to kill watch process");
     let output = child.wait_with_output().expect("failed to wait");
 
@@ -893,9 +892,8 @@ fn cli_analyze_with_config_region_shows_co2() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
 
-    // structured `co2` object with 2× multiplicative uncertainty
-    // interval and SCI methodology tags (review fix: sci_version → methodology
-    // with distinct values for total vs avoidable).
+    // Structured `co2` object: 2x multiplicative uncertainty interval
+    // and SCI methodology tags, distinct for total vs avoidable.
     let co2 = &report["green_summary"]["co2"];
     assert!(co2.is_object(), "co2 should be a structured object");
     assert!(co2["total"]["mid"].is_number());
@@ -907,7 +905,6 @@ fn cli_analyze_with_config_region_shows_co2() {
     assert!(co2["operational_gco2"].is_number());
     assert!(co2["embodied_gco2"].is_number());
 
-    // Per-region breakdown.
     let regions = &report["green_summary"]["regions"];
     assert!(regions.is_array());
     assert!(!regions.as_array().unwrap().is_empty());
@@ -926,8 +923,8 @@ fn cli_demo_shows_carbon_disclaimer() {
         .expect("failed to execute perf-sentinel demo");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // review fix: disclaimer reframed as 2× multiplicative
-    // uncertainty (matches the constants: low = mid/2, high = mid×2).
+    // The disclaimer is framed as 2x multiplicative uncertainty,
+    // matching the constants: low = mid/2, high = mid*2.
     assert!(
         stdout.contains("multiplicative uncertainty"),
         "demo output should include CO2 disclaimer with new framing, got: {stdout}"
@@ -2315,13 +2312,10 @@ fn cli_report_pg_stat_top_requires_pg_stat_source() {
 
 #[test]
 fn cli_report_renders_correlations_from_daemon_shape() {
-    // Closes the loop for the Correlations tab. A daemon produces a
-    // `Report` that carries `correlations`; the `report` subcommand
-    // must deserialize it and make the Correlations tab visible in
-    // the HTML output. This test does not spawn a live daemon (OTLP
-    // ingestion is expensive to craft in a unit-test context); it
-    // constructs the daemon-shape JSON directly and pipes it through
-    // `perf-sentinel report --input -`.
+    // A daemon `Report` carrying `correlations` must surface the
+    // Correlations tab in the HTML output. Constructs the daemon-shape
+    // JSON directly: spawning a live daemon and crafting OTLP ingestion
+    // would be too expensive here.
     let daemon_report = serde_json::json!({
         "analysis": {
             "duration_ms": 42_000,

@@ -138,7 +138,6 @@ fn mixed_fixture_detects_all_patterns() {
     let events = load_fixture("mixed.json");
     let report = pipeline::analyze(events, &config);
 
-    // Should detect: N+1 SQL, N+1 HTTP, redundant SQL
     let n1_sql = report
         .findings
         .iter()
@@ -175,9 +174,7 @@ fn full_pipeline_runs_on_all_fixtures() {
     ] {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);
-        // Verify report structure is valid
         assert!(report.analysis.events_processed > 0, "fixture: {fixture}");
-        // Quality gate rules are always populated
         assert_eq!(report.quality_gate.rules.len(), 3, "fixture: {fixture}");
     }
 }
@@ -696,7 +693,6 @@ fn pg_stat_csv_fixture_parses_successfully() {
     let entries =
         sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, 1_048_576).expect("CSV parse failed");
     assert_eq!(entries.len(), 15, "CSV fixture should have 15 entries");
-    // Verify normalization was applied
     assert!(
         entries[0].normalized_template.contains('?'),
         "first entry should have normalized template"
@@ -730,7 +726,6 @@ fn pg_stat_csv_and_json_fixtures_produce_same_entries() {
     let csv_entries = sentinel_core::ingest::pg_stat::parse_pg_stat(&csv_raw, 1_048_576).unwrap();
     let json_entries = sentinel_core::ingest::pg_stat::parse_pg_stat(&json_raw, 1_048_576).unwrap();
     assert_eq!(csv_entries.len(), json_entries.len());
-    // Verify same normalized templates in same order
     for (csv, json) in csv_entries.iter().zip(json_entries.iter()) {
         assert_eq!(csv.normalized_template, json.normalized_template);
         assert_eq!(csv.calls, json.calls);

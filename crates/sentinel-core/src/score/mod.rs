@@ -1378,17 +1378,12 @@ mod tests {
 
     #[test]
     fn regions_sorted_by_co2_desc() {
-        // The regions breakdown is sorted by co2_gco2
-        // descending (with alphabetical tiebreak) for actionability ,
-        // users see the highest-impact regions first. BTreeMap accumulation
-        // keeps the per-region float sums deterministic; the final Vec sort
-        // is purely cosmetic ordering.
-        //
-        // 1 op per region, intensity values from CARBON_TABLE:
-        //   ap-south-1: 708 gCO₂/kWh × 1.15 PUE ≈ 814 → 8.14e-5 g
-        //   us-east-1:  379 gCO₂/kWh × 1.15 PUE ≈ 436 → 4.36e-5 g
-        //   eu-west-3:   56 gCO₂/kWh × 1.15 PUE ≈ 64.4 → 6.44e-6 g
-        // Expected DESC order: ap-south-1 → us-east-1 → eu-west-3.
+        // The regions breakdown is sorted by co2_gco2 descending
+        // (alphabetical tiebreak) so users see the highest-impact
+        // regions first. BTreeMap accumulation keeps the per-region
+        // float sums deterministic. With 1 op per region, the expected
+        // order follows the CARBON_TABLE intensities:
+        // ap-south-1 (708) > us-east-1 (379) > eu-west-3 (56).
         let trace_us = make_trace_with_region("t1", "us-east-1", 1);
         let trace_eu = make_trace_with_region("t2", "eu-west-3", 1);
         let trace_ap = make_trace_with_region("t3", "ap-south-1", 1);

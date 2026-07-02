@@ -1293,7 +1293,6 @@ mod tests {
     #[tokio::test]
     async fn findings_returns_populated_store() {
         let state = make_state();
-        // Push a finding into the store.
         let finding = crate::test_helpers::make_finding(
             detect::FindingType::NPlusOneSql,
             detect::Severity::Warning,

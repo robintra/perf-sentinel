@@ -91,19 +91,10 @@ enum Commands {
     /// `perf-sentinel watch` then `perf-sentinel query correlations`
     /// for cross-trace findings.
     ///
-    /// All tuning lives in the config file (`--config`), not as CLI flags.
-    /// Full reference with defaults and ranges: docs/CONFIGURATION.md.
-    /// Quality gate: `[thresholds]` (`n_plus_one_sql_critical_max`,
-    /// `n_plus_one_http_warning_max`, `io_waste_ratio_max`).
-    /// Detection: `[detection]` (`n_plus_one_min_occurrences`,
-    /// `window_duration_ms`, `slow_query_threshold_ms`,
-    /// `slow_query_min_occurrences`, `max_fanout`, `chatty_service_min_calls`,
-    /// `pool_saturation_concurrent_threshold`, `serialized_min_sequential`,
-    /// `sanitizer_aware_classification`).
-    /// Carbon and energy: `[green]` (`enabled`, `default_region`,
-    /// `[green.service_regions]`, the opt-in
-    /// `[green.scaphandre|kepler|redfish|cloud|electricity_maps]` sources,
-    /// `calibration_file`, `hourly_profiles_file`).
+    /// All tuning lives in the config file (`--config`), not as CLI flags:
+    /// `[thresholds]` for the quality gate, `[detection]` for detector
+    /// knobs, `[green]` for carbon and energy. Full reference with
+    /// defaults and ranges: docs/CONFIGURATION.md.
     #[command(after_help = help_examples::ANALYZE)]
     Analyze {
         /// Path to a JSON trace file to analyze. If omitted, reads from stdin.
@@ -1664,21 +1655,18 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
     report
 }
 
-/// Dispatch the `--input` payload based on its JSON shape. A top-level
-/// array is pipelined through normalize/correlate/detect/score (covers
-/// native event streams and Zipkin v2, auto-detected by `JsonIngest`).
-/// A top-level object is first tried as a pre-computed `Report` (daemon
-/// snapshot from `/api/export/report`, baseline file); on Report parse
-/// failure it falls back to `JsonIngest` which auto-detects Jaeger via
-/// `detect_format`. Trying Report first guarantees a daemon snapshot is
-/// never misrouted to the Jaeger ingest, even when its payload happens
-/// to contain a `"data"` field literal somewhere in the first 4 KB. The
-/// trade-off is one extra full Report parse on Jaeger inputs (rare
-/// through this CLI, the normal Jaeger path is `tempo` / `jaeger-query`
-/// / `analyze`). The depth cap is enforced explicitly before the Report
-/// parse so an over-deep Report does not silently fall through to the
-/// ingest fallback. Empty input and scalar roots exit 1 with distinct
-/// messages.
+/// Dispatch the `--input` payload by JSON shape: a top-level array goes
+/// through the normalize/correlate/detect/score pipeline (native event
+/// streams, Zipkin v2), a top-level object is first tried as a
+/// pre-computed `Report` (daemon snapshot, baseline file) and falls
+/// back to `JsonIngest`, which auto-detects Jaeger. Report-first
+/// guarantees a daemon snapshot is never misrouted to the Jaeger
+/// ingest even when its payload contains a `"data"` literal in the
+/// first 4 KB, at the cost of one extra Report parse on Jaeger inputs
+/// (rare through this CLI). The depth cap is enforced before the
+/// Report parse so an over-deep Report does not silently fall through
+/// to the ingest fallback. Empty input and scalar roots exit 1 with
+/// distinct messages.
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,
@@ -2152,12 +2140,10 @@ fn cmd_calibrate(
         }
     };
 
-    // Print warnings for extreme factors
     for warning in sentinel_core::calibrate::validate_results(&results) {
         eprintln!("Warning: {warning}");
     }
 
-    // Print human-readable summary
     let window_secs = {
         let min_ts = readings.iter().map(|r| r.timestamp_ms).min().unwrap_or(0);
         let max_ts = readings.iter().map(|r| r.timestamp_ms).max().unwrap_or(0);
@@ -2184,7 +2170,6 @@ fn cmd_calibrate(
         );
     }
 
-    // Write calibration TOML
     let toml_content = sentinel_core::calibrate::write_calibration_toml(
         &results,
         &traces_path.display().to_string(),
@@ -3006,8 +2991,7 @@ fn current_rss_bytes() -> Option<usize> {
     }
     #[cfg(target_os = "windows")]
     {
-        // Windows: use GetProcessMemoryInfo via kernel32
-        // Best-effort, returns None if unavailable
+        // Not implemented on Windows: always None, callers skip the RSS delta.
         None
     }
     #[cfg(target_os = "macos")]

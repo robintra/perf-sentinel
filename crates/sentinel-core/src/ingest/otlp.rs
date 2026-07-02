@@ -611,7 +611,6 @@ fn convert_span(
         return Err(span_filter_reason(&classified, db_system, span.kind));
     };
 
-    // Timestamps and duration
     let start_nanos = span.start_time_unix_nano;
     let end_nanos = span.end_time_unix_nano;
     let timestamp = nanos_to_iso8601(start_nanos);
@@ -620,7 +619,6 @@ fn convert_span(
     }
     let duration_us = end_nanos.saturating_sub(start_nanos) / 1000;
 
-    // IDs
     let trace_id = bytes_to_hex(&span.trace_id);
     let span_id = bytes_to_hex(&span.span_id);
 
@@ -865,15 +863,14 @@ pub fn otlp_http_router(
         StatusCode::OK
     }
 
-    // Hard cap on concurrently processed OTLP HTTP requests. Bounds the
-    // CPU monopolized by protobuf decode and the transient memory of
-    // buffered bodies under a saturation flood: without it the kubelet
-    // liveness probe on /health starves behind decode work and restarts
-    // the daemon before shedding gets a chance (observed at ~800
-    // traces/s on a 500m-CPU pod). Excess requests wait on this
-    // in-process semaphore, bounded by the router-level request
-    // timeout, which is the backpressure OTLP senders expect. Scoped to
-    // this route so /health and the query API stay responsive.
+    // Hard cap on concurrently processed OTLP HTTP requests, bounding
+    // decode CPU and buffered-body memory under a saturation flood:
+    // without it the kubelet liveness probe on /health starves behind
+    // decode work and restarts the daemon before shedding gets a chance
+    // (observed at ~800 traces/s on a 500m-CPU pod). Excess requests
+    // wait on this in-process semaphore, bounded by the router-level
+    // request timeout, which is the backpressure OTLP senders expect.
+    // Scoped to this route so /health and the query API stay responsive.
     const MAX_CONCURRENT_OTLP_HTTP: usize = 32;
 
     let state = OtlpHttpState { sender, metrics };
@@ -1803,7 +1800,6 @@ mod tests {
             1_000_000_000,
             1_001_000_000,
         );
-        // Add http.url attribute too
         span.attributes.push(KeyValue {
             key: "http.url".to_string(),
             value: Some(AnyValue {

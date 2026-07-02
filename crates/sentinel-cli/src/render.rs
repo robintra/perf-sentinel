@@ -546,7 +546,6 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         waste_level.short_label(),
     );
 
-    // Render the structured CO₂ report when present.
     if let Some(carbon) = summary.co2.as_ref() {
         println!(
             "  Est. CO\u{2082}:          {:.6} g (low {:.6}, high {:.6}, model {})",
