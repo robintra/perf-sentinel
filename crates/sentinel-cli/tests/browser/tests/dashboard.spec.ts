@@ -118,7 +118,7 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
   let foundQuotedComma = false;
   for (const line of lines.slice(1)) {
     const parsed = parseCsvRow(line);
-    expect(parsed.length).toBe(header.split(",").length);
+    expect(parsed).toHaveLength(header.split(",").length);
     for (const cell of parsed) {
       if (cell.includes(",")) {
         foundQuotedComma = true;
