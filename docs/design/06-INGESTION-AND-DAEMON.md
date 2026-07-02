@@ -81,7 +81,7 @@ let duration_us = end_nanos.saturating_sub(start_nanos) / 1000;
 
 `saturating_sub` returns 0 for negative durations instead of wrapping around. A trace-level log helps operators diagnose OTLP integration issues without flooding logs.
 
-### The `MetricsSink` trait (`ingest/otlp.rs`)
+### The `MetricsSink` trait (`ingest/otlp/mod.rs`)
 
 `ingest::otlp` produces runtime telemetry on every rejection path (unsupported media type, decode failure, channel full). Before 0.6.0 these calls reached straight into `report::metrics::MetricsState`, which leaked the downstream metrics implementation upstream and made `ingest` impossible to use without paying for the Prometheus registry. The `MetricsSink` trait is the abstraction: `MetricsState` implements it (in `report::metrics`) so daemon callers keep the same wiring, and alternative builds (an OpenTelemetry-metrics fork, tests with a counting fake) can plug their own sink without touching `ingest`. The `Send + Sync` bounds exist because the gRPC and HTTP paths share the sink across tokio tasks via `Arc<dyn MetricsSink>`. The `impl` on `MetricsState` keeps the same branchless hot-path dispatch the pre-trait inherent methods had: both entry points reach the cached `IntCounter` children with no label-hashmap lookup.
 

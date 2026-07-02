@@ -644,7 +644,7 @@ A `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>` static. Lookups mi
 
 To add a new framework:
 
-1. Extend the private `Framework` enum in `detect/suggestions.rs`.
+1. Extend the private `Framework` enum in `detect/suggestions/mod.rs`.
 2. Pick a language and append a `(Framework, &[hint])` entry to that language's rule slice. Place more-specific frameworks before less-specific ones.
 3. Add entries to the `FIXES` static for each `(FindingType, Framework)` pair you want to map.
 4. Add unit tests under the `tests` module in the same file.

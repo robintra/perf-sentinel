@@ -91,7 +91,7 @@ Cette sous-commande est intentionnellement séparée d'`analyze` car les donnée
 
 ### Sous-commande `report`
 
-`perf-sentinel report --input FICHIER --output report.html` produit un dashboard HTML single-file destiné aux devs qui explorent un artefact CI en navigateur. Le pipeline est identique à `analyze` de bout en bout, seul le sink final diffère. Implémenté dans `crates/sentinel-core/src/report/html.rs` avec le template UI complet embarqué via `include_str!` depuis `crates/sentinel-core/src/report/html_template.html`.
+`perf-sentinel report --input FICHIER --output report.html` produit un dashboard HTML single-file destiné aux devs qui explorent un artefact CI en navigateur. Le pipeline est identique à `analyze` de bout en bout, seul le sink final diffère. Implémenté dans `crates/sentinel-core/src/report/html/mod.rs` avec le template UI complet embarqué via `include_str!` depuis `crates/sentinel-core/src/report/html/html_template.html`.
 
 **Architecture : single-file, vanilla JS, pas de build step, aucune dépendance externe.** La sortie est un unique fichier HTML avec tous les CSS et JS inlinés. Pas de `<link rel="stylesheet">`, pas de `<script src="...">`, pas de web fonts, pas d'images. Le fichier s'ouvre hors ligne depuis une URL `file://` avec zéro requête réseau, ce qui le rend :
 
@@ -102,7 +102,7 @@ Cette sous-commande est intentionnellement séparée d'`analyze` car les donnée
 
 Le front-end utilise les APIs DOM directement (`document.createElement`, `Element.textContent`, `Element.setAttribute`). Pas de framework. Pas de Web Components (le plan initial en prévoyait, mais les modules plain JS collent mieux au scope 8.1 en pratique et gardent le fichier ~15 Ko plus petit).
 
-**Modèle de sécurité : `textContent` seulement, check grep-level en CI.** Toutes les données contrôlées par l'utilisateur (templates SQL, URLs, noms de service, trace IDs, localisations de code, texte `SuggestedFix`) sont injectées dans un bloc `<script id="report-data" type="application/json">` et lues une seule fois au boot via `textContent` + `JSON.parse`. Le JS rend ensuite via `textContent` et `createElement` exclusivement. Interdits : `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`. Un test unitaire (`no_forbidden_apis_in_template` dans `report/html.rs`) grep le template à chaque build et fait planter la CI si une de ces chaînes apparaît. Défense de second niveau : l'injecteur Rust échappe la sous-chaîne `</` en `<\/` dans le JSON sérialisé pour qu'une valeur hostile contrôlée par l'utilisateur ne puisse pas fermer le bloc script prématurément. `\/` est un échappement JSON autorisé, donc `JSON.parse` récupère la valeur originale sans altération.
+**Modèle de sécurité : `textContent` seulement, check grep-level en CI.** Toutes les données contrôlées par l'utilisateur (templates SQL, URLs, noms de service, trace IDs, localisations de code, texte `SuggestedFix`) sont injectées dans un bloc `<script id="report-data" type="application/json">` et lues une seule fois au boot via `textContent` + `JSON.parse`. Le JS rend ensuite via `textContent` et `createElement` exclusivement. Interdits : `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`. Un test unitaire (`no_forbidden_apis_in_template` dans `report/html/tests.rs`) grep le template à chaque build et fait planter la CI si une de ces chaînes apparaît. Défense de second niveau : l'injecteur Rust échappe la sous-chaîne `</` en `<\/` dans le JSON sérialisé pour qu'une valeur hostile contrôlée par l'utilisateur ne puisse pas fermer le bloc script prématurément. `\/` est un échappement JSON autorisé, donc `JSON.parse` récupère la valeur originale sans altération.
 
 Seul `reference_url` du `SuggestedFix` devient un lien, et uniquement quand la valeur commence par `https://` (validé côté client dans `safeHttpsHref`). Les URLs non-HTTPS s'affichent en texte brut sans lien.
 
@@ -175,7 +175,7 @@ pub struct CodeLocation {
 }
 ```
 
-Ces attributs sont extraits dans `ingest/otlp.rs` depuis les attributs du span lui-même (pas du parent) : `code.function`, `code.filepath`, `code.lineno`, `code.namespace`. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)").
+Ces attributs sont extraits dans `ingest/otlp/` depuis les attributs du span lui-même (pas du parent) : `code.function`, `code.filepath`, `code.lineno`, `code.namespace`. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)").
 
 **Intégration SARIF.** La sortie SARIF v2.1.0 traduit `code_location` en `physicalLocation` :
 

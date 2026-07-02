@@ -95,7 +95,7 @@ This subcommand is intentionally separate from `analyze` because `pg_stat_statem
 
 ### `report` subcommand
 
-`perf-sentinel report --input FILE --output report.html` produces a single-file HTML dashboard aimed at developers exploring a CI artifact in a browser. The pipeline is identical to `analyze` end-to-end, only the final sink differs. Implemented in `crates/sentinel-core/src/report/html.rs` with the full UI template embedded via `include_str!` from `crates/sentinel-core/src/report/html_template.html`.
+`perf-sentinel report --input FILE --output report.html` produces a single-file HTML dashboard aimed at developers exploring a CI artifact in a browser. The pipeline is identical to `analyze` end-to-end, only the final sink differs. Implemented in `crates/sentinel-core/src/report/html/mod.rs` with the full UI template embedded via `include_str!` from `crates/sentinel-core/src/report/html/html_template.html`.
 
 **Architecture: single-file, vanilla JS, no build step, no external dependencies.** The output is one HTML file with all CSS and JS inlined. No `<link rel="stylesheet">`, no `<script src="...">`, no web fonts, no images. The file opens offline from a `file://` URL with zero network requests, which makes it:
 
@@ -106,7 +106,7 @@ This subcommand is intentionally separate from `analyze` because `pg_stat_statem
 
 The front-end uses DOM APIs directly (`document.createElement`, `Element.textContent`, `Element.setAttribute`). No framework. No Web Components (the prior plan considered them, but plain modules fit the 8.1 scope better in practice and keep the file ~15 KB smaller).
 
-**Security model: `textContent` only, grep-level CI check.** All user-controlled data (SQL templates, URLs, service names, trace IDs, code locations, `SuggestedFix` text) is injected inside a `<script id="report-data" type="application/json">` block and read once at boot via `textContent` + `JSON.parse`. The JS then renders via `textContent` and `createElement` exclusively. Forbidden: `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`. A unit test (`no_forbidden_apis_in_template` in `report/html.rs`) greps the template on every build and fails CI if any of those strings appear. Second-layer defense: the Rust injector escapes the substring `</` to `<\/` in the serialized JSON so a hostile user-controlled value cannot close the script block early. `\/` is a permitted JSON escape, so `JSON.parse` recovers the original value unchanged.
+**Security model: `textContent` only, grep-level CI check.** All user-controlled data (SQL templates, URLs, service names, trace IDs, code locations, `SuggestedFix` text) is injected inside a `<script id="report-data" type="application/json">` block and read once at boot via `textContent` + `JSON.parse`. The JS then renders via `textContent` and `createElement` exclusively. Forbidden: `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`. A unit test (`no_forbidden_apis_in_template` in `report/html/tests.rs`) greps the template on every build and fails CI if any of those strings appear. Second-layer defense: the Rust injector escapes the substring `</` to `<\/` in the serialized JSON so a hostile user-controlled value cannot close the script block early. `\/` is a permitted JSON escape, so `JSON.parse` recovers the original value unchanged.
 
 Only `reference_url` from `SuggestedFix` becomes a hyperlink, and only when the value starts with `https://` (validated client-side in `safeHttpsHref`). Non-HTTPS URLs render as plain text without a link.
 

@@ -229,5 +229,5 @@ La v1.3 ajoute deux champs de correspondance interprétative, dont aucun n'est u
 | `daemon/archive.rs`                                    | writer NDJSON non bloquant avec rotation/prune |
 | `daemon/mod.rs` (`validate_official_reporting`)        | garde-fou de démarrage                         |
 | `daemon/event_loop.rs`                                 | hook archive dans `process_traces`             |
-| `config.rs` (`ReportingConfig`, `DaemonArchiveConfig`) | sections TOML + validators                     |
+| `config/` (`ReportingConfig`, `DaemonArchiveConfig`) | sections TOML + validators                     |
 | `sentinel-cli/src/disclose.rs`                         | dispatcher CLI, value enums, build_report      |

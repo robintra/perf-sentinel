@@ -81,7 +81,7 @@ let duration_us = end_nanos.saturating_sub(start_nanos) / 1000;
 
 `saturating_sub` retourne 0 pour les durées négatives au lieu de boucler. Un log de niveau trace aide les opérateurs à diagnostiquer les problèmes d'intégration OTLP sans inonder les logs.
 
-### Le trait `MetricsSink` (`ingest/otlp.rs`)
+### Le trait `MetricsSink` (`ingest/otlp/mod.rs`)
 
 `ingest::otlp` produit de la télémétrie sur chaque chemin de rejet (type de média non supporté, échec de décodage, canal plein). Avant la 0.6.0, ces appels atteignaient directement `report::metrics::MetricsState`, ce qui faisait fuir l'implémentation des métriques aval vers l'amont et rendait `ingest` inutilisable sans payer le registre Prometheus. Le trait `MetricsSink` est l'abstraction : `MetricsState` l'implémente (dans `report::metrics`) pour que les appelants du daemon gardent le même câblage, et les builds alternatifs (un fork à métriques OpenTelemetry, des tests avec un faux compteur) branchent leur propre sink sans toucher `ingest`. Les bornes `Send + Sync` existent parce que les chemins gRPC et HTTP partagent le sink entre tâches tokio via `Arc<dyn MetricsSink>`. L'`impl` sur `MetricsState` conserve le même dispatch sans branche du chemin chaud que les méthodes inhérentes pré-trait : les deux points d'entrée atteignent les compteurs `IntCounter` mis en cache, sans lookup de hashmap de labels.
 
@@ -400,7 +400,7 @@ Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans 
 
 ### Endpoints HTTP
 
-`daemon/query_api.rs` définit dix routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP, `/metrics` et `/health`.
+`daemon/query_api/` définit dix routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP, `/metrics` et `/health`.
 
 | Endpoint                        | Méthode     | Plafond                                                                     | Description                                                                        |
 |---------------------------------|-------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|

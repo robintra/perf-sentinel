@@ -231,5 +231,5 @@ v1.3 adds two interpretive mapping fields, neither of which is a gate. `methodol
 | `daemon/archive.rs`                                    | non-blocking NDJSON writer with rotation/prune |
 | `daemon/mod.rs` (`validate_official_reporting`)        | startup gate                                   |
 | `daemon/event_loop.rs`                                 | archive hook in `process_traces`               |
-| `config.rs` (`ReportingConfig`, `DaemonArchiveConfig`) | TOML sections + validators                     |
+| `config/` (`ReportingConfig`, `DaemonArchiveConfig`) | TOML sections + validators                     |
 | `sentinel-cli/src/disclose.rs`                         | CLI dispatcher, value enums, build_report      |

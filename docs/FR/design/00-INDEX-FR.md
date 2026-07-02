@@ -41,14 +41,14 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `detect/pool_saturation.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/serialized.rs`         | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/sanitizer_aware.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
-| `detect/suggestions.rs`        | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/suggestions/`        | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `score/mod.rs`                 | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `score/carbon.rs`              | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
 | `score/carbon_compute.rs`      | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `score/region_breakdown.rs`    | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
 | `ingest/mod.rs`                | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `ingest/json.rs`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
-| `ingest/otlp.rs`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/otlp/`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `ingest/pg_stat.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/mod.rs`                | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/event_loop.rs`         | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
@@ -57,13 +57,14 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `daemon/json_socket.rs`        | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/sampling.rs`           | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/findings_store.rs`     | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
-| `daemon/query_api.rs`          | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
-| `config.rs`                    | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md), [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
+| `daemon/query_api/`          | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `config/` (mod, raw, validate)                    | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md), [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
 | `report/mod.rs`, `json.rs`     | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
+| `report/html/`                 | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `report/metrics.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `report/periodic/*`            | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
 | `daemon/archive.rs`            | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
 | `sentinel-cli/src/main.rs`     | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `sentinel-cli/src/disclose.rs` | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
-| `sentinel-cli/src/tui.rs`      | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
+| `sentinel-cli/src/tui/`      | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `detect/correlate_cross.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |

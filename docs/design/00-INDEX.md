@@ -42,14 +42,14 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `detect/pool_saturation.rs`    | [04: Detection](04-DETECTION.md)                                                                 |
 | `detect/serialized.rs`         | [04: Detection](04-DETECTION.md)                                                                 |
 | `detect/sanitizer_aware.rs`    | [04: Detection](04-DETECTION.md)                                                                 |
-| `detect/suggestions.rs`        | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/suggestions/`          | [04: Detection](04-DETECTION.md)                                                                 |
 | `score/mod.rs`                 | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
 | `score/carbon.rs`              | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
 | `score/carbon_compute.rs`      | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
 | `score/region_breakdown.rs`    | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
 | `ingest/mod.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `ingest/json.rs`               | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
-| `ingest/otlp.rs`               | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/otlp/`                 | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `ingest/pg_stat.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/mod.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/event_loop.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
@@ -58,12 +58,13 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `daemon/json_socket.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/sampling.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/findings_store.rs`     | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
-| `daemon/query_api.rs`          | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
-| `config.rs`                    | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md), [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
+| `daemon/query_api/`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `config/` (mod, raw, validate) | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md), [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
 | `report/mod.rs`, `json.rs`     | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `report/html/`                 | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
 | `report/metrics.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `report/periodic/*`            | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
 | `daemon/archive.rs`            | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
 | `sentinel-cli/src/main.rs`     | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
 | `sentinel-cli/src/disclose.rs` | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
-| `sentinel-cli/src/tui.rs`      | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
+| `sentinel-cli/src/tui/`        | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |

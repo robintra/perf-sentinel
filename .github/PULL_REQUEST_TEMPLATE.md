@@ -17,7 +17,7 @@ Cargo:
 - [ ] `cargo test --workspace` passes
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [ ] `cargo fmt --all -- --check` passes
-- [ ] Default-features build AND `--no-default-features` build both pass when touching `daemon/`, `ingest/otlp.rs`, `ingest/tempo.rs`, `ingest/jaeger_query.rs` or any `#[cfg(feature = "...")]` code
+- [ ] Default-features build AND `--no-default-features` build both pass when touching `daemon/`, `ingest/otlp/`, `ingest/tempo.rs`, `ingest/jaeger_query.rs` or any `#[cfg(feature = "...")]` code
 
 Documentation and assets:
 
