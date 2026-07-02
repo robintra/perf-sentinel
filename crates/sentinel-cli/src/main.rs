@@ -12,23 +12,32 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "daemon")]
 mod ack;
+mod bench;
+mod demo;
 mod disclose;
 mod hash_bake;
+#[cfg(feature = "jaeger-query")]
+mod jaeger_cmd;
 mod limits;
 #[cfg(all(feature = "daemon", feature = "tui"))]
 mod monitor;
+mod pg_stat;
 #[cfg(feature = "daemon")]
 mod query;
 mod render;
+#[cfg(feature = "tempo")]
+mod tempo_cmd;
 #[cfg(feature = "tui")]
 mod tui;
+#[cfg(feature = "tui")]
+mod tui_launch;
 #[cfg(feature = "tui")]
 mod tui_resize;
 mod verify_hash;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use render::{emit_report_and_gate, print_colored_report};
+use render::emit_report_and_gate;
 use sentinel_core::config::Config;
 use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
@@ -961,7 +970,7 @@ async fn dispatch_command(command: Commands) {
         } => {
             #[cfg(feature = "tui")]
             if tui {
-                cmd_analyze_tui(
+                tui_launch::cmd_analyze_tui(
                     input.as_deref(),
                     config.as_deref(),
                     acknowledgments.as_deref(),
@@ -989,7 +998,7 @@ async fn dispatch_command(command: Commands) {
         } => {
             #[cfg(feature = "tui")]
             if tui {
-                cmd_explain_tui(&input, &trace_id, config.as_deref());
+                tui_launch::cmd_explain_tui(&input, &trace_id, config.as_deref());
                 return;
             }
             cmd_explain(&input, &trace_id, config.as_deref(), format);
@@ -1014,7 +1023,7 @@ async fn dispatch_command(command: Commands) {
             html,
             #[cfg(feature = "tui")]
             tui,
-        } => cmd_demo(
+        } => demo::cmd_demo(
             config.as_deref(),
             html.as_deref(),
             #[cfg(feature = "tui")]
@@ -1026,7 +1035,7 @@ async fn dispatch_command(command: Commands) {
             synthetic_events,
             services,
             seed,
-        } => cmd_bench(
+        } => bench::cmd_bench(
             input.as_deref(),
             iterations,
             synthetic_events,
@@ -1039,7 +1048,7 @@ async fn dispatch_command(command: Commands) {
             config,
             acknowledgments,
             no_acknowledgments,
-        } => cmd_inspect(
+        } => tui_launch::cmd_inspect(
             &input,
             config.as_deref(),
             acknowledgments.as_deref(),
@@ -1062,7 +1071,7 @@ async fn dispatch_command(command: Commands) {
             show_acknowledged,
         } => {
             let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
-            cmd_tempo(
+            tempo_cmd::cmd_tempo(
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
@@ -1095,7 +1104,7 @@ async fn dispatch_command(command: Commands) {
             show_acknowledged,
         } => {
             let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
-            cmd_jaeger_query(
+            jaeger_cmd::cmd_jaeger_query(
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
@@ -1128,7 +1137,7 @@ async fn dispatch_command(command: Commands) {
             config,
             format,
         } => {
-            dispatch_pg_stat(
+            pg_stat::dispatch_pg_stat(
                 input.as_deref(),
                 #[cfg(feature = "daemon")]
                 prometheus.as_deref(),
@@ -1240,7 +1249,7 @@ async fn dispatch_command(command: Commands) {
         } => {
             #[cfg(feature = "tui")]
             if tui {
-                cmd_disclose_tui(input, &org_config, strict_attribution);
+                tui_launch::cmd_disclose_tui(input, &org_config, strict_attribution);
                 std::process::exit(0);
             }
             // Canonical path: clap requires these whenever `--tui` is absent.
@@ -1323,48 +1332,6 @@ fn resolve_auth_header(
         };
     }
     Ok(None)
-}
-
-/// Run the `pg-stat` command with prometheus-or-input branching
-/// extracted out of the main dispatch so it does not inflate the
-/// match's cognitive complexity.
-#[allow(clippy::too_many_arguments)]
-// The only `.await` is the daemon-gated Prometheus fetch below, so the
-// no-default-features build sees an async fn with no await.
-#[cfg_attr(not(feature = "daemon"), allow(clippy::unused_async))]
-async fn dispatch_pg_stat(
-    input: Option<&std::path::Path>,
-    #[cfg(feature = "daemon")] prometheus: Option<&str>,
-    #[cfg(feature = "daemon")] auth_header: Option<String>,
-    top_n: usize,
-    traces: Option<&std::path::Path>,
-    config: Option<&std::path::Path>,
-    format: PgStatOutputFormat,
-) {
-    #[cfg(feature = "daemon")]
-    if let Some(prom_endpoint) = prometheus {
-        let resolved_auth = resolve_pg_stat_auth_header(auth_header);
-        let entries = sentinel_core::ingest::pg_stat::fetch_from_prometheus(
-            prom_endpoint,
-            top_n,
-            resolved_auth.as_deref(),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("Prometheus fetch failed: {e}");
-            std::process::exit(1);
-        });
-        cmd_pg_stat_from_entries(entries, top_n, traces, config, format);
-        return;
-    }
-    let Some(path) = input else {
-        #[cfg(feature = "daemon")]
-        eprintln!("Either --input or --prometheus is required");
-        #[cfg(not(feature = "daemon"))]
-        eprintln!("--input is required");
-        std::process::exit(1);
-    };
-    cmd_pg_stat(path, top_n, traces, config, format);
 }
 
 /// Resolve the auth header or exit on error. Used by Tempo and
@@ -1722,88 +1689,6 @@ fn load_report_from_input(
 /// when the user does not set `--pg-stat-top`.
 const DEFAULT_PG_STAT_TOP: usize = 10;
 
-/// Lower bound on the Prometheus scrape size when only a small
-/// `--pg-stat-top` is set. `rank_pg_stat` emits four rankings keyed on
-/// different columns; feeding it only the `top_n` by `seconds_total`
-/// (the upstream `topk` metric) biases the three non-time rankings.
-/// Always scrape at least this many rows so the secondary rankings see
-/// the full hot-spot distribution.
-#[cfg(feature = "daemon")]
-const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
-
-/// Ingest a `pg_stat_statements` CSV or JSON file and produce the
-/// ranking report the HTML dashboard embeds. Exits 1 on parse failure.
-fn load_pg_stat_from_file(
-    path: &std::path::Path,
-    top_n: usize,
-) -> sentinel_core::ingest::pg_stat::PgStatReport {
-    let raw_pg = read_file_capped(
-        path,
-        u64::try_from(limits::MAX_BATCH_INPUT_BYTES).unwrap_or(u64::MAX),
-    );
-    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, limits::MAX_BATCH_INPUT_BYTES) {
-        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
-        Err(e) => {
-            eprintln!("Error parsing --pg-stat {}: {e}", path.display());
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Scrape a `postgres_exporter` endpoint one-shot and produce the
-/// ranking report. Exits 1 on transport/parse failure.
-#[cfg(feature = "daemon")]
-async fn load_pg_stat_from_prometheus(
-    url: &str,
-    _config: &Config,
-    top_n: usize,
-    auth_header: Option<&str>,
-) -> sentinel_core::ingest::pg_stat::PgStatReport {
-    let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
-    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, scrape_budget, auth_header)
-        .await
-    {
-        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
-        Err(e) => {
-            eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Resolve the `pg_stat` auth header value from the `PERF_SENTINEL_PGSTAT_AUTH_HEADER`
-/// env var plus the CLI flag value. Env wins, flag is fallback, matching the
-/// precedence of `PERF_SENTINEL_EMAPS_TOKEN` for Electricity Maps.
-#[cfg(feature = "daemon")]
-fn resolve_pg_stat_auth_header(flag_value: Option<String>) -> Option<String> {
-    resolve_pg_stat_auth_header_with_env(flag_value, || {
-        std::env::var("PERF_SENTINEL_PGSTAT_AUTH_HEADER").ok()
-    })
-}
-
-/// Test-friendly inner form: takes the env-var lookup as a closure so
-/// tests can exercise the precedence branch without mutating the
-/// global process env.
-#[cfg(feature = "daemon")]
-fn resolve_pg_stat_auth_header_with_env(
-    flag_value: Option<String>,
-    env_lookup: impl FnOnce() -> Option<String>,
-) -> Option<String> {
-    match (env_lookup(), flag_value) {
-        (Some(from_env), _) => Some(from_env),
-        (None, Some(from_flag)) => {
-            tracing::warn!(
-                "pg-stat auth header supplied via a CLI flag. \
-                 Prefer the PERF_SENTINEL_PGSTAT_AUTH_HEADER environment variable \
-                 to avoid exposing the credential through the process argument list \
-                 or shell history."
-            );
-            Some(from_flag)
-        }
-        (None, None) => None,
-    }
-}
-
 /// Parse a saved baseline report and diff it against the current run.
 /// Applies the same BOM strip and depth cap as `--input` in Report
 /// mode. Exits 1 on failure. The same acknowledgments file is applied to
@@ -1901,16 +1786,21 @@ async fn cmd_report(
     // behind the daemon feature, mirroring the existing pg-stat
     // subcommand surface.
     let pg_stat = if let Some(path) = pg_stat_path {
-        Some(load_pg_stat_from_file(path, top_n))
+        Some(pg_stat::load_pg_stat_from_file(path, top_n))
     } else {
         #[cfg(feature = "daemon")]
         {
             match pg_stat_prometheus {
                 Some(url) => {
-                    let resolved_auth = resolve_pg_stat_auth_header(pg_stat_auth_header);
+                    let resolved_auth = pg_stat::resolve_pg_stat_auth_header(pg_stat_auth_header);
                     Some(
-                        load_pg_stat_from_prometheus(url, &config, top_n, resolved_auth.as_deref())
-                            .await,
+                        pg_stat::load_pg_stat_from_prometheus(
+                            url,
+                            &config,
+                            top_n,
+                            resolved_auth.as_deref(),
+                        )
+                        .await,
                     )
                 }
                 None => None,
@@ -1956,140 +1846,6 @@ async fn cmd_report(
             stats.kept, stats.total, trimmed
         );
     }
-}
-
-#[cfg(feature = "tempo")]
-#[allow(clippy::too_many_arguments)]
-async fn cmd_tempo(
-    endpoint: &str,
-    trace_id: Option<&str>,
-    service: Option<&str>,
-    lookback: &str,
-    max_traces: usize,
-    auth_header: Option<&str>,
-    config_path: Option<&std::path::Path>,
-    format: Option<OutputFormat>,
-    ci: bool,
-    acknowledgments_path: Option<&std::path::Path>,
-    no_acknowledgments: bool,
-    show_acknowledged: bool,
-) {
-    if trace_id.is_none() && service.is_none() {
-        eprintln!("Error: either --trace-id or --service is required");
-        std::process::exit(1);
-    }
-    if trace_id.is_some() && service.is_some() {
-        eprintln!("Error: --trace-id and --service are mutually exclusive");
-        std::process::exit(1);
-    }
-
-    let lookback_duration = match sentinel_core::ingest::tempo::parse_lookback(lookback) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("Error parsing lookback: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let config = load_config(config_path);
-
-    let events = match sentinel_core::ingest::tempo::ingest_from_tempo(
-        endpoint,
-        service,
-        trace_id,
-        lookback_duration,
-        max_traces,
-        auth_header,
-    )
-    .await
-    {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error fetching traces from Tempo: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    info!(
-        events = events.len(),
-        "Ingested events from Tempo, running analysis"
-    );
-
-    let mut report = pipeline::analyze(events, &config);
-    apply_acknowledgments_or_exit(
-        &mut report,
-        &config,
-        acknowledgments_path,
-        no_acknowledgments,
-    );
-    emit_report_and_gate(&mut report, format, ci, "tempo", show_acknowledged);
-}
-
-#[cfg(feature = "jaeger-query")]
-#[allow(clippy::too_many_arguments)]
-async fn cmd_jaeger_query(
-    endpoint: &str,
-    trace_id: Option<&str>,
-    service: Option<&str>,
-    lookback: &str,
-    max_traces: usize,
-    auth_header: Option<&str>,
-    config_path: Option<&std::path::Path>,
-    format: Option<OutputFormat>,
-    ci: bool,
-    acknowledgments_path: Option<&std::path::Path>,
-    no_acknowledgments: bool,
-    show_acknowledged: bool,
-) {
-    if trace_id.is_none() && service.is_none() {
-        eprintln!("Error: either --trace-id or --service is required");
-        std::process::exit(1);
-    }
-    if trace_id.is_some() && service.is_some() {
-        eprintln!("Error: --trace-id and --service are mutually exclusive");
-        std::process::exit(1);
-    }
-
-    let lookback_duration = match sentinel_core::ingest::jaeger_query::parse_lookback(lookback) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("Error parsing lookback: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let config = load_config(config_path);
-
-    let events = match sentinel_core::ingest::jaeger_query::ingest_from_jaeger_query(
-        endpoint,
-        service,
-        trace_id,
-        lookback_duration,
-        max_traces,
-        auth_header,
-    )
-    .await
-    {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error fetching traces from Jaeger query API: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    info!(
-        events = events.len(),
-        "Ingested events from Jaeger query API, running analysis"
-    );
-
-    let mut report = pipeline::analyze(events, &config);
-    apply_acknowledgments_or_exit(
-        &mut report,
-        &config,
-        acknowledgments_path,
-        no_acknowledgments,
-    );
-    emit_report_and_gate(&mut report, format, ci, "jaeger-query", show_acknowledged);
 }
 
 fn cmd_calibrate(
@@ -2283,738 +2039,6 @@ async fn cmd_watch(
     }
 }
 
-fn cmd_demo(
-    config_path: Option<&std::path::Path>,
-    html: Option<&std::path::Path>,
-    #[cfg(feature = "tui")] tui: bool,
-) {
-    const DEMO_DATA: &str = include_str!("demo_data.json");
-
-    let mut config = load_config(config_path);
-    // Default to eu-west-3 for demo CO2 display if no region configured
-    if config.green.default_region.is_none() {
-        config.green.default_region = Some("eu-west-3".to_string());
-    }
-
-    // The TUI and HTML paths both need the correlated traces, not just the
-    // report, so go through the same loader the analyze/report commands use.
-    let (mut report, traces) = load_report_from_input(DEMO_DATA.as_bytes(), &config);
-
-    // Cross-trace correlations are a daemon-only signal; the batch pipeline
-    // never produces them. Seed illustrative ones so the demo can show the
-    // Correlations tab (HTML) and panel (TUI) without a running daemon.
-    report.correlations = demo_correlations();
-
-    // The offline io_proxy model leaves per-region measured/estimated
-    // provenance unset. Tag the demo regions the way Electricity Maps would:
-    // the larger regions are measured live, the smallest only has an estimate.
-    seed_demo_region_provenance(&mut report.green_summary.regions);
-
-    if let Some(path) = html {
-        let options = sentinel_core::report::html::RenderOptions {
-            input_label: "demo dataset".to_string(),
-            max_traces_embedded: None,
-            // Showcase the pg_stat and Diff tabs from embedded demo fixtures
-            // so the dashboard is fully populated without external inputs.
-            pg_stat: Some(demo_pg_stat()),
-            diff: Some(demo_diff(&report, &config)),
-            daemon_url: None,
-        };
-        let (html_out, _stats) = sentinel_core::report::html::render(&report, &traces, &options);
-        if let Err(e) = write_file_no_follow(path, html_out.as_bytes()) {
-            eprintln!("Error writing HTML report to {}: {e}", path.display());
-            std::process::exit(1);
-        }
-        info!("HTML report written to {}", path.display());
-        return;
-    }
-
-    #[cfg(feature = "tui")]
-    if tui {
-        require_terminal_or_exit();
-        let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-        launch_unified_tui(report, traces, detect_config, tui::View::Analyze, None);
-        return;
-    }
-
-    print_colored_report(&report, "demo");
-}
-
-/// Surface a mix of provenance states on the demo regions (the offline
-/// `io_proxy` path leaves these fields unset). To showcase all three states,
-/// the largest region is measured live (`RealTime`), the smallest is estimated,
-/// and any region in between keeps the unset/unknown state (rendered as "-").
-fn seed_demo_region_provenance(regions: &mut [sentinel_core::score::carbon::RegionBreakdown]) {
-    use sentinel_core::score::carbon::IntensitySource;
-    let min_idx = regions
-        .iter()
-        .enumerate()
-        .min_by_key(|(_, r)| r.io_ops)
-        .map(|(i, _)| i);
-    let max_idx = regions
-        .iter()
-        .enumerate()
-        .max_by_key(|(_, r)| r.io_ops)
-        .map(|(i, _)| i);
-    for (i, r) in regions.iter_mut().enumerate() {
-        if Some(i) == min_idx {
-            // Estimated only ever comes from a live Electricity Maps query.
-            r.intensity_source = IntensitySource::RealTime;
-            r.intensity_estimated = Some(true);
-            r.intensity_estimation_method = Some("time_slicer_average".to_string());
-        } else if Some(i) == max_idx {
-            r.intensity_source = IntensitySource::RealTime;
-            r.intensity_estimated = Some(false);
-        }
-        // Regions in between keep intensity_estimated = None ("-").
-    }
-}
-
-/// Rank the embedded demo `pg_stat_statements` snapshot for the dashboard's
-/// `pg_stat` tab. The fixture deliberately overlaps the demo SQL templates so
-/// the Explain-to-`pg_stat` cross-navigation lights up.
-fn demo_pg_stat() -> sentinel_core::ingest::pg_stat::PgStatReport {
-    const DEMO_PG_STAT: &str = include_str!("demo_pg_stat.json");
-    let entries = sentinel_core::ingest::pg_stat::parse_pg_stat(
-        DEMO_PG_STAT.as_bytes(),
-        limits::MAX_BATCH_INPUT_BYTES,
-    )
-    .expect("embedded demo pg_stat fixture is valid");
-    sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, DEFAULT_PG_STAT_TOP)
-}
-
-/// Diff the demo run against an embedded "previous run" so the dashboard's
-/// Diff tab shows resolved/new findings and per-endpoint deltas.
-fn demo_diff(
-    current: &sentinel_core::report::Report,
-    config: &Config,
-) -> sentinel_core::diff::DiffReport {
-    const DEMO_BASELINE: &str = include_str!("demo_baseline_data.json");
-    let (baseline, _) = load_report_from_input(DEMO_BASELINE.as_bytes(), config);
-    sentinel_core::diff::diff_runs(&baseline, current)
-}
-
-/// Hand-built cross-trace correlations for the demo. Batch analysis never
-/// emits these (the correlator is daemon-only), so they are illustrative
-/// and coherent with the demo traces rather than computed.
-fn demo_correlations() -> Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> {
-    use sentinel_core::detect::FindingType;
-    use sentinel_core::detect::correlate_cross::{CorrelationEndpoint, CrossTraceCorrelation};
-
-    let pair = |source: CorrelationEndpoint,
-                target: CorrelationEndpoint,
-                co_occurrence_count: u32,
-                source_total_occurrences: u32,
-                median_lag_ms: f64,
-                sample_trace_id: &str| CrossTraceCorrelation {
-        confidence: f64::from(co_occurrence_count) / f64::from(source_total_occurrences),
-        source,
-        target,
-        co_occurrence_count,
-        source_total_occurrences,
-        median_lag_ms,
-        first_seen: "2025-07-10T14:00:00.000Z".to_string(),
-        last_seen: "2025-07-10T14:32:00.000Z".to_string(),
-        sample_trace_id: Some(sample_trace_id.to_string()),
-    };
-    let endpoint = |finding_type: FindingType, service: &str, template: &str| CorrelationEndpoint {
-        finding_type,
-        service: service.to_string(),
-        template: template.to_string(),
-    };
-
-    vec![
-        pair(
-            endpoint(
-                FindingType::NPlusOneSql,
-                "order-svc",
-                "SELECT * FROM order_item WHERE order_id = ?",
-            ),
-            endpoint(
-                FindingType::ChattyService,
-                "gateway",
-                "POST /api/orders/99/submit",
-            ),
-            42,
-            50,
-            18.0,
-            "trace-demo-chatty",
-        ),
-        pair(
-            endpoint(FindingType::PoolSaturation, "payment-svc", "payment-svc"),
-            endpoint(
-                FindingType::SerializedCalls,
-                "checkout-svc",
-                "POST /api/checkout/finalize",
-            ),
-            32,
-            40,
-            55.0,
-            "trace-demo-serial",
-        ),
-        pair(
-            endpoint(
-                FindingType::NPlusOneHttp,
-                "inventory-svc",
-                "GET /api/products/{id}",
-            ),
-            endpoint(
-                FindingType::ExcessiveFanout,
-                "catalog-svc",
-                "GET /api/catalog/page",
-            ),
-            27,
-            33,
-            9.0,
-            "trace-demo-fanout",
-        ),
-    ]
-}
-
-fn cmd_bench(
-    input: Option<&std::path::Path>,
-    iterations: u32,
-    synthetic_events: Option<usize>,
-    services: usize,
-    seed: u64,
-) {
-    if iterations == 0 {
-        eprintln!("Error: iterations must be >= 1");
-        std::process::exit(1);
-    }
-
-    let config = Config::default();
-    let events = if let Some(target) = synthetic_events {
-        if target == 0 {
-            eprintln!("Error: --synthetic-events must be >= 1");
-            std::process::exit(1);
-        }
-        sentinel_core::synth::generate_target_events(
-            target,
-            services.max(1),
-            &sentinel_core::synth::PatternMix::default(),
-            seed,
-        )
-    } else {
-        let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
-        ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES)
-        // `raw` drops here: holding the file bytes during the timed runs
-        // would inflate every RSS sample by the input size.
-    };
-
-    let event_count = events.len();
-    if event_count == 0 {
-        eprintln!("Error: no events to benchmark");
-        std::process::exit(1);
-    }
-
-    let rss_before = current_rss_bytes();
-    let mut durations_ns: Vec<u64> = Vec::with_capacity(iterations as usize);
-
-    for _ in 0..iterations {
-        // Clone inside the loop, before the timer starts: the clone cost
-        // stays excluded from timing while the working set stays at two
-        // copies instead of `iterations` copies (the previous pre-clone
-        // harness peaked at iterations x events of RSS).
-        let batch = events.clone();
-        let start = std::time::Instant::now();
-        let _ = pipeline::analyze(batch, &config);
-        let elapsed = start.elapsed();
-        durations_ns.push(elapsed.as_nanos() as u64);
-    }
-
-    // OS high-water mark, not a post-iteration sample: sampling current
-    // RSS after analyze returns misses the in-flight allocation peak
-    // (the analysis output is already dropped at the sampling point).
-    let rss_peak = peak_rss_bytes();
-
-    let (p50_us, p99_us) = compute_latency_percentiles(&durations_ns, event_count);
-    let (throughput, total_elapsed_ms) = compute_throughput(&durations_ns, event_count, iterations);
-
-    #[derive(serde::Serialize)]
-    struct BenchReport {
-        iterations: u32,
-        events_per_iteration: usize,
-        throughput_events_per_sec: f64,
-        latency_per_event_us: LatencyPercentiles,
-        rss_before_bytes: Option<usize>,
-        rss_peak_bytes: Option<usize>,
-        total_elapsed_ms: u64,
-        durations_ns: Vec<u64>,
-    }
-
-    #[derive(serde::Serialize)]
-    struct LatencyPercentiles {
-        p50: f64,
-        p99: f64,
-    }
-
-    let report = BenchReport {
-        iterations,
-        events_per_iteration: event_count,
-        throughput_events_per_sec: throughput,
-        latency_per_event_us: LatencyPercentiles {
-            p50: p50_us,
-            p99: p99_us,
-        },
-        rss_before_bytes: rss_before,
-        rss_peak_bytes: rss_peak,
-        total_elapsed_ms,
-        durations_ns,
-    };
-
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => println!("{json}"),
-        Err(e) => {
-            eprintln!("Error serializing bench report: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Exit early with a clear message when stdout is not an interactive
-/// terminal. Called at the top of each TUI entry point, before any input is
-/// read or parsed, so a piped `--tui` invocation is rejected without first
-/// ingesting (potentially large) input.
-#[cfg(feature = "tui")]
-fn require_terminal_or_exit() {
-    use std::io::IsTerminal;
-    if !std::io::stdout().is_terminal() {
-        eprintln!("Error: the interactive TUI requires a terminal (stdout is not a TTY)");
-        std::process::exit(1);
-    }
-}
-
-/// Shared launcher for the unified multi-view TUI. `analyze --tui`,
-/// `explain --tui` and `inspect` all funnel here, differing only by the
-/// initial view (and, for explain, the focused trace). Stubs per-trace
-/// placeholders from findings when the input carried no raw spans (a
-/// pre-computed Report), exactly like the Detail panel's fallback. Callers
-/// must invoke `require_terminal_or_exit` before reading input.
-#[cfg(feature = "tui")]
-fn launch_unified_tui(
-    report: sentinel_core::report::Report,
-    mut traces: Vec<sentinel_core::correlate::Trace>,
-    detect_config: sentinel_core::detect::DetectConfig,
-    initial_view: tui::View,
-    focus_trace_id: Option<&str>,
-) {
-    if traces.is_empty() {
-        let mut trace_ids: std::collections::BTreeSet<String> =
-            report.findings.iter().map(|f| f.trace_id.clone()).collect();
-        // Keep the explain --tui focus trace reachable even if its only
-        // finding was filtered out by acknowledgments: without a stub it
-        // would be absent from trace_index and `with_focus_trace` would
-        // silently land on trace 0.
-        if let Some(tid) = focus_trace_id {
-            trace_ids.insert(tid.to_string());
-        }
-        traces = trace_ids
-            .into_iter()
-            .map(|tid| sentinel_core::correlate::Trace {
-                trace_id: tid,
-                spans: vec![],
-            })
-            .collect();
-    }
-
-    // `report` is fully consumed below, so move the summary fields out
-    // rather than clone them (the findings and correlations are moved into
-    // the App separately, disjoint-field moves the borrow checker allows).
-    let summary = tui::AnalyzeSummary {
-        green_summary: report.green_summary,
-        quality_gate: report.quality_gate,
-        analysis: report.analysis,
-    };
-
-    let mut app = tui::App::new(report.findings, traces, detect_config)
-        .with_correlations(report.correlations)
-        .with_summary(summary)
-        .with_initial_view(initial_view);
-    if let Some(tid) = focus_trace_id {
-        app = app.with_focus_trace(tid);
-    }
-    if let Err(e) = tui::run(&mut app) {
-        eprintln!("TUI error: {e}");
-        std::process::exit(1);
-    }
-}
-
-#[cfg(feature = "tui")]
-fn cmd_inspect(
-    input: &std::path::Path,
-    config_path: Option<&std::path::Path>,
-    acknowledgments_path: Option<&std::path::Path>,
-    no_acknowledgments: bool,
-) {
-    require_terminal_or_exit();
-    let config = load_config(config_path);
-    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-
-    // Auto-detect events array vs pre-computed Report object, same shape
-    // contract as `report --input`. A Report payload (e.g. a daemon
-    // snapshot dumped via /api/export/report) lights up the Findings and
-    // Correlations panels. The Detail panel falls back to a per-trace
-    // stub with no spans because Reports don't carry raw spans.
-    let (mut report, traces) = load_report_from_input(&raw, &config);
-    apply_acknowledgments_or_exit(
-        &mut report,
-        &config,
-        acknowledgments_path,
-        no_acknowledgments,
-    );
-    launch_unified_tui(report, traces, detect_config, tui::View::Inspect, None);
-}
-
-/// `analyze --tui`: run the full pipeline (as `analyze` does) but open the
-/// unified TUI on the Analyze view instead of printing the report.
-#[cfg(feature = "tui")]
-fn cmd_analyze_tui(
-    input: Option<&std::path::Path>,
-    config_path: Option<&std::path::Path>,
-    acknowledgments_path: Option<&std::path::Path>,
-    no_acknowledgments: bool,
-) {
-    require_terminal_or_exit();
-    let config = load_config(config_path);
-    let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let (mut report, traces) = load_report_from_input(&raw, &config);
-    apply_acknowledgments_or_exit(
-        &mut report,
-        &config,
-        acknowledgments_path,
-        no_acknowledgments,
-    );
-    launch_unified_tui(report, traces, detect_config, tui::View::Analyze, None);
-}
-
-/// `explain --tui`: load the full report (all traces, unlike the
-/// single-trace non-interactive `explain`) and open the unified TUI on the
-/// Explain view focused on `trace_id`.
-#[cfg(feature = "tui")]
-fn cmd_explain_tui(input: &std::path::Path, trace_id: &str, config_path: Option<&std::path::Path>) {
-    require_terminal_or_exit();
-    let config = load_config(config_path);
-    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let (mut report, traces) = load_report_from_input(&raw, &config);
-    // Validate the trace exists before entering the TUI, mirroring the
-    // non-interactive `explain`'s clear error path including the
-    // available-IDs hint. Checked before ack filtering so a trace whose
-    // only finding is acknowledged still opens.
-    let known = traces.iter().any(|t| t.trace_id == trace_id)
-        || report.findings.iter().any(|f| f.trace_id == trace_id);
-    if !known {
-        // With raw events `traces` holds every id; with a pre-computed
-        // Report `traces` is empty and the ids live on the findings.
-        let available: Vec<&str> = if traces.is_empty() {
-            report
-                .findings
-                .iter()
-                .map(|f| f.trace_id.as_str())
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect()
-        } else {
-            traces.iter().map(|t| t.trace_id.as_str()).collect()
-        };
-        trace_not_found_exit(trace_id, available.into_iter());
-    }
-    // Apply acknowledgments (default file in cwd) so the shared Inspect and
-    // Analyze views show the same finding population as `inspect` and
-    // `analyze --tui`.
-    apply_acknowledgments_or_exit(&mut report, &config, None, false);
-    launch_unified_tui(
-        report,
-        traces,
-        detect_config,
-        tui::View::Explain,
-        Some(trace_id),
-    );
-}
-
-/// `disclose --tui`: read-only preview. Loads the org-config, scans the cold
-/// archive once for its time range (to anchor the default period), then opens
-/// the standalone Disclose tab. The preview re-reads the same cold NDJSON via
-/// `aggregate_from_paths` on each settings change. Never writes or hashes.
-#[cfg(feature = "tui")]
-fn cmd_disclose_tui(input: Vec<PathBuf>, org_config: &std::path::Path, strict_attribution: bool) {
-    use sentinel_core::report::periodic::aggregator::archive_time_range;
-    use sentinel_core::report::periodic::org_config as org_config_loader;
-
-    require_terminal_or_exit();
-
-    let org = match org_config_loader::load_from_path(org_config) {
-        Ok(c) => c,
-        Err(err) => {
-            eprintln!(
-                "Error: {}",
-                sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
-            );
-            std::process::exit(1);
-        }
-    };
-
-    let archive_range = match archive_time_range(&input) {
-        Ok(range) => range,
-        Err(err) => {
-            eprintln!(
-                "Error: {}",
-                sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
-            );
-            std::process::exit(1);
-        }
-    };
-
-    let state = disclose::DiscloseState::new(
-        input,
-        org,
-        org_config.to_path_buf(),
-        strict_attribution,
-        archive_range,
-        chrono::Utc::now().date_naive(),
-    );
-
-    // The Disclose tab reads only `app.disclose`; findings/traces/detect are
-    // unused, so a default detect config and empty inputs suffice.
-    let config = load_config(None);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let mut app = tui::App::new(Vec::new(), Vec::new(), detect_config)
-        .with_disclose(state)
-        .with_initial_view(tui::View::Disclose);
-    if let Err(e) = tui::run(&mut app) {
-        eprintln!("TUI error: {e}");
-        std::process::exit(1);
-    }
-}
-
-fn cmd_pg_stat(
-    input: &std::path::Path,
-    top_n: usize,
-    traces: Option<&std::path::Path>,
-    config_path: Option<&std::path::Path>,
-    format: PgStatOutputFormat,
-) {
-    let config = load_config(config_path);
-    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
-
-    let entries =
-        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, limits::MAX_BATCH_INPUT_BYTES) {
-            Ok(entries) => entries,
-            Err(e) => {
-                eprintln!("Error parsing pg_stat_statements: {e}");
-                std::process::exit(1);
-            }
-        };
-
-    run_pg_stat_pipeline(entries, top_n, traces, &config, format);
-}
-
-/// Variant of `cmd_pg_stat` that takes already-parsed entries (from Prometheus scrape).
-#[cfg(feature = "daemon")]
-fn cmd_pg_stat_from_entries(
-    entries: Vec<sentinel_core::ingest::pg_stat::PgStatEntry>,
-    top_n: usize,
-    traces: Option<&std::path::Path>,
-    config_path: Option<&std::path::Path>,
-    format: PgStatOutputFormat,
-) {
-    let config = load_config(config_path);
-    run_pg_stat_pipeline(entries, top_n, traces, &config, format);
-}
-
-/// Shared pipeline for the two `pg-stat` entry points (file input and
-/// Prometheus scrape): optional trace cross-reference, ranking, then
-/// text or JSON output. Extracted to avoid duplicating the 20+ lines
-/// between `cmd_pg_stat` and `cmd_pg_stat_from_entries`.
-fn run_pg_stat_pipeline(
-    mut entries: Vec<sentinel_core::ingest::pg_stat::PgStatEntry>,
-    top_n: usize,
-    traces: Option<&std::path::Path>,
-    config: &Config,
-    format: PgStatOutputFormat,
-) {
-    use sentinel_core::ingest::pg_stat;
-
-    // Cross-reference with trace findings if --traces is provided.
-    if let Some(traces_path) = traces {
-        let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
-        let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
-        match ingest.ingest(&traces_raw) {
-            Ok(events) => {
-                let report = pipeline::analyze(events, config);
-                pg_stat::cross_reference(&mut entries, &report.findings);
-            }
-            Err(e) => {
-                eprintln!("Warning: failed to ingest trace file for cross-reference: {e}");
-            }
-        }
-    }
-
-    let report = pg_stat::rank_pg_stat(&entries, top_n);
-
-    match format {
-        PgStatOutputFormat::Json => match serde_json::to_string_pretty(&report) {
-            Ok(json) => println!("{json}"),
-            Err(e) => {
-                eprintln!("Error serializing pg_stat report: {e}");
-                std::process::exit(1);
-            }
-        },
-        PgStatOutputFormat::Text => print_pg_stat_report(&report),
-    }
-}
-
-fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
-    use std::io::IsTerminal;
-
-    let is_tty = std::io::stdout().is_terminal();
-    let (bold, cyan, yellow, dim, reset) = if is_tty {
-        ("\x1b[1m", "\x1b[36m", "\x1b[33m", "\x1b[2m", "\x1b[0m")
-    } else {
-        ("", "", "", "", "")
-    };
-
-    println!();
-    println!("{bold}{cyan}=== pg_stat_statements analysis ==={reset}");
-    println!("{dim}Total entries: {}{reset}", report.total_entries);
-    println!();
-
-    for ranking in &report.rankings {
-        println!("{bold}{cyan}--- {} ---{reset}", ranking.label);
-        println!();
-        for (i, entry) in ranking.entries.iter().enumerate() {
-            let trace_marker = if entry.seen_in_traces {
-                format!(" {yellow}[seen in traces]{reset}")
-            } else {
-                String::new()
-            };
-            println!(
-                "  {bold}#{}{reset} {}{trace_marker}",
-                i + 1,
-                entry.normalized_template
-            );
-            println!(
-                "    {dim}calls:{reset} {}  {dim}total:{reset} {:.2}ms  {dim}mean:{reset} {:.2}ms  {dim}rows:{reset} {}",
-                entry.calls, entry.total_exec_time_ms, entry.mean_exec_time_ms, entry.rows
-            );
-            println!(
-                "    {dim}blks_hit:{reset} {}  {dim}blks_read:{reset} {}",
-                entry.shared_blks_hit, entry.shared_blks_read
-            );
-            println!();
-        }
-    }
-}
-
-/// Compute the per-event p50 and p99 latency in microseconds from a slice
-/// of per-iteration nanosecond durations.
-fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64, f64) {
-    if durations_ns.is_empty() {
-        return (0.0, 0.0);
-    }
-    let mut per_event_ns: Vec<f64> = durations_ns
-        .iter()
-        .map(|&d| d as f64 / event_count as f64)
-        .collect();
-    per_event_ns.sort_by(f64::total_cmp);
-
-    let len = per_event_ns.len();
-    let last = len - 1;
-    let p50_idx = ((len as f64 * 0.50).ceil() as usize)
-        .saturating_sub(1)
-        .min(last);
-    let p99_idx = ((len as f64 * 0.99).ceil() as usize)
-        .saturating_sub(1)
-        .min(last);
-    (
-        per_event_ns[p50_idx] / 1000.0,
-        per_event_ns[p99_idx] / 1000.0,
-    )
-}
-
-fn compute_throughput(durations_ns: &[u64], event_count: usize, iterations: u32) -> (f64, u64) {
-    let elapsed_nanos: u64 = durations_ns.iter().sum();
-    let total_elapsed_ms: u64 = elapsed_nanos / 1_000_000;
-    let total_events = event_count as f64 * f64::from(iterations);
-    let total_seconds = elapsed_nanos as f64 / 1_000_000_000.0;
-    let throughput = if total_seconds > 0.0 {
-        total_events / total_seconds
-    } else {
-        0.0
-    };
-    (throughput, total_elapsed_ms)
-}
-
-/// Parse a kB-valued field of `/proc/self/status` into bytes.
-#[cfg(target_os = "linux")]
-fn proc_status_bytes(field: &str) -> Option<usize> {
-    let s = std::fs::read_to_string("/proc/self/status").ok()?;
-    s.lines().find(|l| l.starts_with(field)).and_then(|l| {
-        l.split_whitespace()
-            .nth(1)?
-            .parse::<usize>()
-            .ok()
-            .map(|kb| kb * 1024)
-    })
-}
-
-/// Process-lifetime peak RSS in bytes (high-water mark). Linux reads
-/// `VmHWM`; on macOS `ru_maxrss` already is the lifetime peak, so this
-/// matches [`current_rss_bytes`] there. The lifetime scope means the
-/// value includes input generation/parsing before the measured loop.
-fn peak_rss_bytes() -> Option<usize> {
-    #[cfg(target_os = "linux")]
-    {
-        proc_status_bytes("VmHWM:")
-    }
-    #[cfg(target_os = "macos")]
-    {
-        current_rss_bytes()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        None
-    }
-}
-
-/// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
-/// On macOS `ru_maxrss` is the process-lifetime PEAK, not current usage,
-/// so the `rss_before` reading is only a true "current" value on Linux.
-#[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
-fn current_rss_bytes() -> Option<usize> {
-    #[cfg(target_os = "linux")]
-    {
-        proc_status_bytes("VmRSS:")
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Not implemented on Windows: always None, callers skip the RSS delta.
-        None
-    }
-    #[cfg(target_os = "macos")]
-    {
-        use std::mem;
-        // SAFETY: libc::rusage is a C struct of numeric fields, zeroing it is valid initialization.
-        let mut usage: libc::rusage = unsafe { mem::zeroed() };
-        // SAFETY: getrusage is a POSIX syscall that writes into the provided rusage pointer.
-        // The pointer is valid (stack-allocated) and the return value is checked below.
-        let ret = unsafe { libc::getrusage(libc::RUSAGE_SELF, &raw mut usage) };
-        if ret == 0 {
-            // On macOS, ru_maxrss is in bytes
-            Some(usage.ru_maxrss as usize)
-        } else {
-            None
-        }
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    {
-        None
-    }
-}
-
 /// Write `contents` to `path`, refusing to follow a symlink at the
 /// target on Unix. Mirrors the daemon ack store hardening so a hostile
 /// pre-planted symlink cannot redirect the write outside its tree.
@@ -3037,6 +2061,10 @@ fn write_file_no_follow(path: &std::path::Path, contents: &[u8]) -> std::io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::bench::compute_latency_percentiles;
+    #[cfg(feature = "daemon")]
+    use crate::pg_stat::resolve_pg_stat_auth_header_with_env;
     use sentinel_core::detect::{Confidence, Finding, FindingType, GreenImpact, Pattern, Severity};
     use sentinel_core::report::{
         Analysis, GreenSummary, QualityGate, QualityRule, Report, TopOffender,
