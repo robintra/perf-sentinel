@@ -521,7 +521,7 @@ for each parent_id in spans_by_parent:
 <h3 id="extension-path-for-contributors" class="ps-h3">Extension path for contributors</h3>
 <p class="ps-p">To add a new framework:</p>
 <ol>
-<li>Extend the private <code class="ps-ic">Framework</code> enum in <code class="ps-ic">detect/suggestions.rs</code>.</li>
+<li>Extend the private <code class="ps-ic">Framework</code> enum in <code class="ps-ic">detect/suggestions/mod.rs</code>.</li>
 <li>Pick a language and append a <code class="ps-ic">(Framework, &amp;[hint])</code> entry to that language's rule slice. Place more-specific frameworks before less-specific ones.</li>
 <li>Add entries to the <code class="ps-ic">FIXES</code> static for each <code class="ps-ic">(FindingType, Framework)</code> pair you want to map.</li>
 <li>Add unit tests under the <code class="ps-ic">tests</code> module in the same file.</li>

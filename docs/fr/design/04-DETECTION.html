@@ -488,7 +488,7 @@ pour chaque parent_id dans spans_par_parent :
 <h3 id="chemin-dextension-pour-les-contributeurs" class="ps-h3">Chemin d'extension pour les contributeurs</h3>
 <p class="ps-p">Pour ajouter un nouveau framework :</p>
 <ol>
-<li>Étendre l'enum privé <code class="ps-ic">Framework</code> dans <code class="ps-ic">detect/suggestions.rs</code>.</li>
+<li>Étendre l'enum privé <code class="ps-ic">Framework</code> dans <code class="ps-ic">detect/suggestions/mod.rs</code>.</li>
 <li>Choisir un langage et ajouter une entrée <code class="ps-ic">(Framework, &amp;[hint])</code> au slice de règles de ce langage. Placer les frameworks plus spécifiques avant les moins spécifiques.</li>
 <li>Ajouter des entrées à la static <code class="ps-ic">FIXES</code> pour chaque paire <code class="ps-ic">(FindingType, Framework)</code> à mapper.</li>
 <li>Ajouter des tests unitaires sous le module <code class="ps-ic">tests</code> du même fichier.</li>
