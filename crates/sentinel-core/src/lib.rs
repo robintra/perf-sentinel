@@ -24,7 +24,7 @@ pub mod detect;
 pub mod diff;
 pub mod event;
 pub mod explain;
-#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 pub mod http_client;
 pub mod ingest;
 pub mod normalize;
