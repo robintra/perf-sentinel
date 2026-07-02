@@ -1,0 +1,1711 @@
+use super::*;
+use crate::correlate::Trace;
+use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
+use crate::event::{EventSource, EventType, SpanEvent};
+use crate::ingest::IngestSource;
+use crate::normalize::NormalizedEvent;
+use crate::report::interpret::InterpretationLevel;
+use crate::report::{Analysis, GreenSummary, QualityGate, Report, TopOffender};
+
+fn span(
+    trace_id: &str,
+    span_id: &str,
+    parent: Option<&str>,
+    service: &str,
+    endpoint: &str,
+    template: &str,
+) -> NormalizedEvent {
+    NormalizedEvent {
+        event: SpanEvent {
+            timestamp: "2026-04-21T00:00:00Z".into(),
+            trace_id: trace_id.into(),
+            span_id: span_id.into(),
+            parent_span_id: parent.map(ToString::to_string),
+            service: service.into(),
+            cloud_region: None,
+            event_type: EventType::Sql,
+            operation: "SELECT".into(),
+            target: template.into(),
+            duration_us: 1200,
+            source: EventSource {
+                endpoint: endpoint.into(),
+                method: "get".into(),
+            },
+            status_code: None,
+            response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
+            instrumentation_scopes: Vec::new(),
+        },
+        template: template.into(),
+        params: vec![],
+    }
+}
+
+fn finding(trace_id: &str, service: &str, endpoint: &str, template: &str) -> Finding {
+    Finding {
+        finding_type: FindingType::NPlusOneSql,
+        severity: Severity::Critical,
+        trace_id: trace_id.into(),
+        service: service.into(),
+        source_endpoint: endpoint.into(),
+        pattern: Pattern {
+            template: template.into(),
+            occurrences: 12,
+            window_ms: 100,
+            distinct_params: 12,
+            ..Default::default()
+        },
+        suggestion: "use JOIN FETCH".into(),
+        first_timestamp: "2026-04-21T00:00:00Z".into(),
+        last_timestamp: "2026-04-21T00:00:01Z".into(),
+        green_impact: None,
+        confidence: Confidence::CiBatch,
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    }
+}
+
+fn minimal_report(findings: Vec<Finding>) -> Report {
+    Report {
+        analysis: Analysis {
+            duration_ms: 10,
+            events_processed: 1,
+            traces_analyzed: 1,
+        },
+        findings,
+        green_summary: GreenSummary {
+            total_io_ops: 10,
+            avoidable_io_ops: 4,
+            io_waste_ratio: 0.4,
+            io_waste_ratio_band: InterpretationLevel::Moderate,
+            top_offenders: vec![TopOffender {
+                endpoint: "/api/orders".into(),
+                service: "order-svc".into(),
+                io_intensity_score: 6.4,
+                io_intensity_band: InterpretationLevel::High,
+                co2_grams: Some(0.000_050),
+            }],
+            ..GreenSummary::disabled(0)
+        },
+        quality_gate: QualityGate {
+            passed: true,
+            rules: vec![],
+        },
+        per_endpoint_io_ops: vec![],
+        correlations: vec![],
+        warnings: vec![],
+        warning_details: vec![],
+        acknowledged_findings: vec![],
+        binary_version: String::new(),
+        disclosure_waste: None,
+    }
+}
+
+fn opts(label: &str, cap: Option<usize>) -> RenderOptions {
+    RenderOptions {
+        input_label: label.into(),
+        max_traces_embedded: cap,
+        pg_stat: None,
+        diff: None,
+        daemon_url: None,
+    }
+}
+
+#[test]
+fn renders_minimal_report_to_valid_html() {
+    // Load the shared raw-trace fixture, run the pipeline, render.
+    // Exercises end-to-end at the crate boundary without needing
+    // the CLI binary. The fixture is deterministic: two findings
+    // (one N+1 SQL, one redundant SQL) on a single trace.
+    let path = format!(
+        "{}/../../tests/fixtures/report_minimal.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read(&path).expect("fixture readable");
+    let cfg = crate::config::Config::default();
+    let events = crate::ingest::json::JsonIngest::new(cfg.daemon.max_payload_size)
+        .ingest(&raw)
+        .expect("fixture parses");
+    let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);
+
+    assert_eq!(report.findings.len(), 3, "fixture must yield 3 findings");
+    let types: std::collections::BTreeSet<FindingType> = report
+        .findings
+        .iter()
+        .map(|f| f.finding_type.clone())
+        .collect();
+    let expected: std::collections::BTreeSet<FindingType> = [
+        FindingType::NPlusOneSql,
+        FindingType::RedundantSql,
+        FindingType::SerializedCalls,
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        types, expected,
+        "minimal fixture must produce one of each type"
+    );
+
+    let (html, _) = render(&report, &traces, &opts("report_minimal.json", None));
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains(r#"<script id="report-data""#));
+    assert!(html.contains("trace-report-minimal"));
+    assert!(html.contains("order-svc"));
+}
+
+#[test]
+fn quality_gate_rules_scaffold_and_csv_confidence_present() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+
+    // The app-shell redesign renders the gate rules inside the Overview
+    // hero (renderOverviewHero) instead of a standalone table host.
+    assert!(
+        html.contains("function renderOverviewHero"),
+        "Overview hero renderer (carries the gate rules) missing"
+    );
+    assert!(html.contains("ps-hero-rule"), "hero gate-rule rows missing");
+    // Anchor on the preceding CSV column to distinguish the header
+    // array from any other `confidence` mention in the payload.
+    assert!(
+        html.contains(r#""suggested_fix_recommendation","#) && html.contains(r#""confidence""#),
+        "Findings CSV header must include confidence after suggested_fix_recommendation"
+    );
+}
+
+#[test]
+fn escapes_closing_script_tag_in_embedded_json() {
+    let hostile = "</script><img src=x onerror=alert(1)>";
+    let f = finding("t1", "svc", "/ep", hostile);
+    let report = minimal_report(vec![f]);
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: vec![span("t1", "s1", None, "svc", "/ep", hostile)],
+    };
+    let (html, _) = render(&report, &[trace], &opts("-", None));
+    // The raw closing tag must not appear anywhere in the payload.
+    // Count the occurrences in the entire document: the static shell
+    // has one (`</script>` closing the JSON block) and one (`</script>`
+    // closing the app JS), so the total must be exactly 2.
+    assert_eq!(
+        html.matches("</script>").count(),
+        2,
+        "user-controlled </script> leaked into the document"
+    );
+    // And the escaped form must appear (proof that the hostile
+    // string survived as data, not as markup).
+    assert!(html.contains("<\\/script>"));
+
+    // The JSON payload must still round-trip cleanly.
+    let start = html.find("<script id=\"report-data\"").expect("script tag");
+    let open = html[start..]
+        .find('>')
+        .expect("script open")
+        .saturating_add(1);
+    let rest = &html[start + open..];
+    let end = rest.find("</script>").expect("script close");
+    let json_blob = rest[..end].trim().replace("<\\/", "</");
+    let value: serde_json::Value =
+        serde_json::from_str(&json_blob).expect("JSON blob parses after <\\/ reversal");
+    let finding_tpl = value["report"]["findings"][0]["pattern"]["template"]
+        .as_str()
+        .expect("template present");
+    assert_eq!(finding_tpl, hostile);
+}
+
+#[test]
+fn embedded_span_does_not_leak_raw_sql_literals() {
+    // The raw db.statement carries secrets; only the masked template may
+    // reach the HTML payload. Regression for the embedded-traces leak
+    // where EmbeddedSpan.target serialized event.target verbatim.
+    let masked = "SELECT * FROM t WHERE tags = ARRAY[?, ?]";
+    let mut ev = span("t1", "s1", None, "svc", "/ep", masked);
+    ev.event.target =
+        "SELECT * FROM t WHERE tags = ARRAY['LEAK_CANARY_SECRET', 'LEAK_CANARY_PII']".into();
+    let report = minimal_report(vec![finding("t1", "svc", "/ep", masked)]);
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: vec![ev],
+    };
+    let (html, _) = render(&report, &[trace], &opts("-", None));
+
+    assert!(
+        !html.contains("LEAK_CANARY_SECRET") && !html.contains("LEAK_CANARY_PII"),
+        "raw SQL literal leaked into the HTML payload"
+    );
+    assert!(
+        html.contains("ARRAY[?, ?]"),
+        "masked template should still be present"
+    );
+}
+
+#[test]
+fn escapes_adversarial_control_chars() {
+    // Null byte, low control char, DEL, and a 4-byte emoji at a
+    // string boundary. serde_json must produce a JSON-safe encoding
+    // that parses back losslessly.
+    let weird = "a\0b\x01c\x7fd\u{1F600}";
+    let f = finding("t1", "svc", "/ep", weird);
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+
+    let start = html.find("<script id=\"report-data\"").expect("script tag");
+    let open = html[start..]
+        .find('>')
+        .expect("script open")
+        .saturating_add(1);
+    let rest = &html[start + open..];
+    let end = rest.find("</script>").expect("script close");
+    let json_blob = rest[..end].trim().replace("<\\/", "</");
+    let value: serde_json::Value = serde_json::from_str(&json_blob).expect("JSON round-trips");
+    assert_eq!(
+        value["report"]["findings"][0]["pattern"]["template"]
+            .as_str()
+            .unwrap(),
+        weird
+    );
+}
+
+#[test]
+fn applies_max_traces_embedded_cap_via_top_waste_fallback() {
+    // 100 synthetic traces, one finding per trace, cap = 10.
+    let mut findings = Vec::new();
+    let mut traces = Vec::new();
+    let mut offenders = Vec::new();
+    for i in 0..100 {
+        let tid = format!("t{i:03}");
+        let svc = format!("svc-{i}");
+        let ep = format!("/ep-{i}");
+        let tpl = format!("SELECT * FROM t{i} WHERE id = ?");
+        findings.push(finding(&tid, &svc, &ep, &tpl));
+        traces.push(Trace {
+            trace_id: tid.clone(),
+            spans: vec![span(&tid, "s", None, &svc, &ep, &tpl)],
+        });
+        // Feed top_offenders so every trace has a rank (no
+        // usize::MAX ties that would leave ordering unspecified).
+        offenders.push(TopOffender {
+            endpoint: ep.clone(),
+            service: svc.clone(),
+            io_intensity_score: 100.0 - f64::from(i),
+            io_intensity_band: InterpretationLevel::High,
+            co2_grams: None,
+        });
+    }
+    let mut report = minimal_report(findings);
+    report.green_summary.top_offenders = offenders;
+
+    let (html, stats) = render(&report, &traces, &opts("-", Some(10)));
+    let json_blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+    let embedded = value["embedded_traces"].as_array().expect("array");
+    assert_eq!(embedded.len(), 10, "exactly 10 traces kept");
+    let summary = &value["trimmed_traces"];
+    assert_eq!(summary["kept"].as_u64().unwrap(), 10);
+    assert_eq!(summary["total"].as_u64().unwrap(), 100);
+    assert_eq!(stats.kept, 10);
+    assert_eq!(stats.total, 100);
+}
+
+#[test]
+fn oversized_findings_are_trimmed_critical_first() {
+    // Enough large findings to blow the findings budget: ~3000
+    // findings with 4 KB templates is ~12 MB of findings JSON
+    // against a ~3.5 MB findings budget.
+    let big_template = format!("SELECT * FROM t WHERE x = '{}'", "p".repeat(4096));
+    let mut findings = Vec::new();
+    for i in 0..3000 {
+        let mut f = finding(&format!("t{i:04}"), "svc", "/ep", &big_template);
+        // Interleave severities: the trim must keep critical first.
+        f.severity = match i % 3 {
+            0 => Severity::Critical,
+            1 => Severity::Warning,
+            _ => Severity::Info,
+        };
+        findings.push(f);
+    }
+    let report = minimal_report(findings);
+
+    let (html, _) = render(&report, &[], &opts("-", None));
+    assert!(
+        html.len() <= DEFAULT_SIZE_TARGET_BYTES + 512 * 1024,
+        "html is {} bytes, expected near the {} target",
+        html.len(),
+        DEFAULT_SIZE_TARGET_BYTES
+    );
+    let json_blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+    let summary = &value["trimmed_findings"];
+    let kept = summary["kept"].as_u64().expect("kept") as usize;
+    assert_eq!(summary["total"].as_u64().unwrap(), 3000);
+    assert!(kept > 0 && kept < 3000, "kept {kept} of 3000");
+    // Critical-first: every kept finding must be critical, because
+    // the 1000 critical findings alone exceed the budget.
+    let embedded = value["report"]["findings"].as_array().expect("findings");
+    assert_eq!(embedded.len(), kept);
+    assert!(
+        embedded
+            .iter()
+            .all(|f| f["severity"].as_str() == Some("critical")),
+        "trim must keep critical findings first"
+    );
+}
+
+#[test]
+fn per_endpoint_io_ops_dropped_from_embed() {
+    // The dashboard never reads per_endpoint_io_ops, so it must not
+    // ship in the embedded payload regardless of cardinality. The
+    // JSON report (analyze --format json) keeps it; this only asserts
+    // the HTML embed.
+    use crate::report::PerEndpointIoOps;
+    let mut report = minimal_report(vec![finding("t0", "svc", "/ep", "SELECT 1")]);
+    report.per_endpoint_io_ops = (0..5000)
+        .map(|i| PerEndpointIoOps {
+            service: format!("svc-{i}"),
+            endpoint: format!("/ep-{i}"),
+            io_ops: i,
+        })
+        .collect();
+
+    let (html, _) = render(&report, &[], &opts("-", None));
+    let value: serde_json::Value = serde_json::from_str(&extract_payload_json(&html)).unwrap();
+    let embedded = &value["report"]["per_endpoint_io_ops"];
+    let len = embedded.as_array().map_or(0, Vec::len);
+    assert_eq!(
+        len, 0,
+        "per_endpoint_io_ops must not be embedded, got {len}"
+    );
+}
+
+#[test]
+fn top_offenders_capped_in_embed_but_full_ranking_preserved() {
+    // 40 offenders (ranks 0..40); the embed cap is 25. Two candidate
+    // traces: one whose endpoint is offender rank 30 (beyond the cap)
+    // and one whose endpoint is not an offender at all (rank MAX).
+    let mut offenders = Vec::new();
+    for i in 0..40 {
+        offenders.push(TopOffender {
+            endpoint: format!("/ep-{i}"),
+            service: "svc".into(),
+            io_intensity_score: 100.0 - f64::from(i),
+            io_intensity_band: InterpretationLevel::High,
+            co2_grams: None,
+        });
+    }
+    let findings = vec![
+        finding("t-beyond", "svc", "/ep-30", "SELECT 1"),
+        finding("t-none", "svc", "/ep-absent", "SELECT 2"),
+    ];
+    let mut report = minimal_report(findings);
+    report.green_summary.top_offenders = offenders;
+    // t-none first on purpose: if ranking wrongly used the capped
+    // list, both traces would rank usize::MAX and the stable sort
+    // would keep input order, embedding t-none and failing the
+    // assertion below. With t-beyond first, the regression would be
+    // invisible.
+    let traces = vec![
+        Trace {
+            trace_id: "t-none".into(),
+            spans: vec![span("t-none", "s", None, "svc", "/ep-absent", "SELECT 2")],
+        },
+        Trace {
+            trace_id: "t-beyond".into(),
+            spans: vec![span("t-beyond", "s", None, "svc", "/ep-30", "SELECT 1")],
+        },
+    ];
+
+    // Cap embedding at 1 trace: only the better-ranked one survives.
+    let (html, _) = render(&report, &traces, &opts("-", Some(1)));
+    let value: serde_json::Value = serde_json::from_str(&extract_payload_json(&html)).unwrap();
+
+    let embedded_offenders = value["report"]["green_summary"]["top_offenders"]
+        .as_array()
+        .expect("top_offenders array");
+    assert_eq!(
+        embedded_offenders.len(),
+        TOP_OFFENDERS_EMBED_CAP,
+        "top_offenders must be capped in the embed"
+    );
+
+    let embedded_traces = value["embedded_traces"].as_array().expect("traces");
+    assert_eq!(embedded_traces.len(), 1);
+    assert_eq!(
+        embedded_traces[0]["trace_id"].as_str(),
+        Some("t-beyond"),
+        "ranking must use the full offender list: rank-30 beats a non-offender, \
+         which only holds if ranking read past the embed cap"
+    );
+}
+
+#[test]
+fn explicit_trace_cap_keeps_findings_whole() {
+    let big_template = format!("SELECT * FROM t WHERE x = '{}'", "p".repeat(4096));
+    let findings: Vec<Finding> = (0..2000)
+        .map(|i| finding(&format!("t{i:04}"), "svc", "/ep", &big_template))
+        .collect();
+    let report = minimal_report(findings);
+    // --max-traces-embedded opts out of size targeting entirely.
+    let (html, _) = render(&report, &[], &opts("-", Some(5)));
+    let json_blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+    assert!(value.get("trimmed_findings").is_none());
+    assert_eq!(value["report"]["findings"].as_array().unwrap().len(), 2000);
+}
+
+#[test]
+fn render_stats_match_total_when_no_trim() {
+    let mut findings = Vec::new();
+    let mut traces = Vec::new();
+    for i in 0..3 {
+        let tid = format!("t{i}");
+        let svc = format!("svc-{i}");
+        let ep = format!("/ep-{i}");
+        let tpl = format!("SELECT * FROM t{i} WHERE id = ?");
+        findings.push(finding(&tid, &svc, &ep, &tpl));
+        traces.push(Trace {
+            trace_id: tid.clone(),
+            spans: vec![span(&tid, "s", None, &svc, &ep, &tpl)],
+        });
+    }
+    let report = minimal_report(findings);
+    let (_, stats) = render(&report, &traces, &opts("-", None));
+    assert_eq!(stats.kept, stats.total);
+    assert_eq!(stats.kept, 3);
+}
+
+#[test]
+fn omits_greenops_section_when_green_disabled() {
+    // A GreenSummary where `co2` is None (green scoring disabled)
+    // must hide the GreenOps tab on the client side. We verify by
+    // asserting the payload reflects the disabled state; the JS
+    // bootstrap checks `report.green_summary.co2` to decide tab
+    // visibility.
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let mut report = minimal_report(vec![f.clone()]);
+    report.green_summary = GreenSummary::disabled(1);
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: vec![span("t1", "s1", None, "svc", "/ep", "SELECT * FROM t")],
+    };
+    let (html, _) = render(&report, &[trace], &opts("-", None));
+    let json_blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+    assert!(
+        value["report"]["green_summary"]["co2"].is_null()
+            || value["report"]["green_summary"].get("co2").is_none(),
+        "co2 must be absent when green disabled"
+    );
+    // Sanity: the static panel-green scaffolding is in the template
+    // (starts hidden via inline style), and the JS only reveals it
+    // when co2 is present. We assert the template still has the
+    // scaffolding (regression guard) but not that the client
+    // *shows* it (that's a browser-level assertion).
+    assert!(html.contains(r#"id="panel-green""#));
+}
+
+#[test]
+fn no_forbidden_apis_in_template() {
+    let forbidden = [
+        ".innerHTML",
+        ".outerHTML",
+        "insertAdjacentHTML",
+        "document.write",
+        "eval(",
+        "new Function(",
+        // Attribute-sink parsers. `DOMParser().parseFromString(x,
+        // "text/html")` and `Range.createContextualFragment(x)`
+        // both interpret their argument as HTML, providing a path
+        // around the textContent-only invariant.
+        "DOMParser(",
+        "createContextualFragment(",
+        // We intentionally omit a bare `Function(` check: the string
+        // "function (" appears many times as IIFE / callback syntax.
+        // `new Function(` is the only constructor shape that
+        // executes a string as code, a literal `Function(` without
+        // `new` would need `window.Function(` to be callable, which
+        // is caught by the same `Function(` heuristic below.
+    ];
+    for needle in forbidden {
+        assert!(
+            !TEMPLATE.contains(needle),
+            "template contains forbidden API: {needle}"
+        );
+    }
+    // Guard against the two spellings of the string-exec
+    // constructor that don't start with `new `.
+    assert!(!TEMPLATE.contains("window.Function("));
+    assert!(!TEMPLATE.contains("globalThis.Function("));
+    // Attribute-name-based event handler injection. A call like
+    // `el.setAttribute("onclick", "alert(1)")` is equivalent to
+    // writing `innerHTML` with an inline handler: the browser
+    // compiles the attribute string as JS. Reject any
+    // `setAttribute(` whose first argument starts with `"on` or
+    // `'on`, regardless of whitespace around the paren. We strip
+    // whitespace entirely so a reformat cannot dodge the check.
+    let no_ws: String = TEMPLATE.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        !no_ws.contains("setAttribute(\"on"),
+        "template contains forbidden attribute-sink: setAttribute(\"on*\", ...)"
+    );
+    assert!(
+        !no_ws.contains("setAttribute('on"),
+        "template contains forbidden attribute-sink: setAttribute('on*', ...)"
+    );
+}
+
+/// Find an `on*=` event-handler attribute in raw SVG markup. An attribute
+/// name follows whitespace in well-formed markup, so scan forward from each
+/// whitespace boundary: a letter run starting with `on` followed by `=`
+/// (whitespace allowed before the `=`) is a handler. Scanning from the
+/// boundary avoids fusing a tag name into a following first attribute, the
+/// `<svg onload=...>` case a whitespace-stripping scan would miss.
+fn svg_event_handler(svg: &str) -> Option<String> {
+    let lower = svg.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    for k in 0..bytes.len() {
+        if !bytes[k].is_ascii_whitespace() {
+            continue;
+        }
+        let start = k + 1;
+        let mut p = start;
+        while p < bytes.len() && bytes[p].is_ascii_alphabetic() {
+            p += 1;
+        }
+        let attr = &lower[start..p];
+        if attr.len() <= 2 || !attr.starts_with("on") {
+            continue;
+        }
+        let mut q = p;
+        while q < bytes.len() && bytes[q].is_ascii_whitespace() {
+            q += 1;
+        }
+        if q < bytes.len() && bytes[q] == b'=' {
+            return Some(attr.to_string());
+        }
+    }
+    None
+}
+
+#[test]
+fn brand_svgs_have_no_active_content() {
+    // The brand SVGs are injected verbatim into the report body and ship
+    // in every render under a CSP that allows inline scripts, so a
+    // re-exported logo carrying active content would execute. Guard the
+    // embedded assets the way `no_forbidden_apis_in_template` guards the
+    // template (which only scans TEMPLATE, not these constants).
+    for (name, svg) in [
+        ("BRAND_LOGO_LIGHT_SVG", BRAND_LOGO_LIGHT_SVG),
+        ("BRAND_LOGO_DARK_SVG", BRAND_LOGO_DARK_SVG),
+    ] {
+        let lower = svg.to_ascii_lowercase();
+        for needle in ["<script", "javascript:", "<foreignobject", "<iframe"] {
+            assert!(
+                !lower.contains(needle),
+                "{name} contains disallowed active content: {needle}"
+            );
+        }
+        assert!(
+            svg_event_handler(svg).is_none(),
+            "{name} contains a forbidden event-handler attribute: {:?}",
+            svg_event_handler(svg)
+        );
+    }
+}
+
+#[test]
+fn svg_event_handler_scan_catches_first_attribute() {
+    // The common XSS form is a handler as the first attribute of an element;
+    // the previous whitespace-stripping scan fused the tag name and missed it.
+    assert_eq!(
+        svg_event_handler(r#"<svg onload="x">"#).as_deref(),
+        Some("onload")
+    );
+    assert_eq!(
+        svg_event_handler(r#"<rect onclick="x"/>"#).as_deref(),
+        Some("onclick")
+    );
+    assert_eq!(
+        svg_event_handler(r#"<svg width="1" onerror="x">"#).as_deref(),
+        Some("onerror")
+    );
+    assert_eq!(
+        svg_event_handler("<svg onload =\"x\">").as_deref(),
+        Some("onload")
+    );
+    // Benign attributes and `on...=` substrings inside values must not trip it.
+    assert!(svg_event_handler(r#"<svg width="10" viewBox="0 0 1 1">"#).is_none());
+    assert!(svg_event_handler(r#"<a href="https://x/?online=1">"#).is_none());
+}
+
+/// Visual validation artifact for the 0.5.10 estimation surface.
+/// Loads the 3-state Region fixture, renders the HTML to
+/// `/tmp/perf-sentinel-0.5.10-validation.html`, and exits. Marked
+/// `#[ignore]` so it does not run in CI: the goal is a manual
+/// visual check via the user's browser, not an automated assertion.
+/// Run with `cargo test --release validation_html_for_three_estimation_states -- --ignored --nocapture`.
+#[test]
+#[ignore = "manual visual validation artifact, not run in CI"]
+fn validation_html_for_three_estimation_states() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_three_estimation_states.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read_to_string(&fixture_path).expect("fixture readable");
+    let report: Report = serde_json::from_str(&raw).expect("fixture parses as Report");
+    let traces: Vec<Trace> = vec![];
+    let (html, _) = render(
+        &report,
+        &traces,
+        &opts("report_three_estimation_states.json", None),
+    );
+    let out = "/tmp/perf-sentinel-0.5.10-validation.html";
+    std::fs::write(out, &html).expect("/tmp writable");
+    eprintln!(
+        "Wrote {} bytes to {out} for visual validation. Open in a browser.",
+        html.len()
+    );
+}
+
+/// Visual validation artifact for the 0.5.12 scoring config surface.
+/// Loads the 3-state Region fixture (so the `GreenOps` tab renders
+/// with populated `co2` + `regions`), injects 3 different
+/// `scoring_config` shapes (V4 defaults, V3 legacy, all opt-ins),
+/// and writes each to a stand-alone HTML file under
+/// `/tmp/perf-sentinel-0.5.12-*.html`. Marked `#[ignore]` so it
+/// does not run in CI: the goal is a manual visual check via the
+/// user's browser. Run with
+/// `cargo test --release validation_html_for_scoring_config -- --ignored --nocapture`.
+#[test]
+#[ignore = "manual visual validation artifact, not run in CI"]
+fn validation_html_for_scoring_config() {
+    use crate::score::carbon::ScoringConfig;
+    use crate::score::electricity_maps::config::{
+        ApiVersion, EmissionFactorType, TemporalGranularity,
+    };
+    let cases = [
+        ("v4-defaults", ScoringConfig::default()),
+        (
+            "v3-legacy",
+            ScoringConfig {
+                api_version: ApiVersion::V3,
+                ..ScoringConfig::default()
+            },
+        ),
+        (
+            "all-optins",
+            ScoringConfig {
+                api_version: ApiVersion::V4,
+                emission_factor_type: EmissionFactorType::Direct,
+                temporal_granularity: TemporalGranularity::FifteenMinutes,
+            },
+        ),
+    ];
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_three_estimation_states.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read_to_string(&fixture_path).expect("fixture readable");
+    let traces: Vec<Trace> = vec![];
+    for (slug, scoring) in cases {
+        let mut report: Report = serde_json::from_str(&raw).expect("fixture parses as Report");
+        report.green_summary.scoring_config = Some(scoring);
+        let (html, _) = render(
+            &report,
+            &traces,
+            &opts(&format!("scoring-config-{slug}"), None),
+        );
+        let out = format!("/tmp/perf-sentinel-0.5.12-{slug}.html");
+        std::fs::write(&out, &html).expect("/tmp writable");
+        eprintln!("Wrote {} bytes to {out}", html.len());
+    }
+}
+
+#[test]
+fn template_carries_scoring_config_bandeau_and_helpers() {
+    // Locks in the 0.5.12 dashboard surface for the
+    // `green_summary.scoring_config` field. The chip rendering is
+    // exercised manually via the browser-validation helper above
+    // (no JSDOM in the test suite), this assertion guards against
+    // accidental removal of the bandeau plumbing.
+    for needle in [
+        "id=\"green-scoring-config\"",
+        "ps-scoring-bandeau",
+        "ps-scoring-chip-neutral",
+        "ps-scoring-chip-warning",
+        "ps-scoring-chip-accent",
+        "function renderScoringConfigBandeau",
+        "function buildApiVersionChip",
+        "function buildEmissionFactorChip",
+        "function buildTemporalGranularityChip",
+    ] {
+        assert!(
+            TEMPLATE.contains(needle),
+            "template missing scoring_config plumbing: `{needle}`"
+        );
+    }
+}
+
+#[test]
+fn template_carries_estimated_column_and_helper() {
+    // Locks in the 0.5.10 dashboard surface for the
+    // `intensity_estimated` / `intensity_estimation_method` fields.
+    // The actual JS-rendered cell is exercised manually via
+    // browser validation (no JSDOM in the test suite).
+    for needle in [
+        "<th>Estimated</th>",
+        "function buildEstimatedCell",
+        "ps-badge-estimated",
+        "ps-badge-measured",
+    ] {
+        assert!(
+            TEMPLATE.contains(needle),
+            "template missing required 0.5.10 artifact: {needle}"
+        );
+    }
+}
+
+/// Description fragments that must appear in the cheatsheet modal.
+/// Each entry is a substring (not an exact line) so minor wording
+/// tweaks around each fragment do not break the test. If you
+/// re-word the user-visible cheatsheet text in the template, update
+/// the corresponding fragment here in the same commit.
+const CHEATSHEET_DESCRIPTION_FRAGMENTS: &[&str] = &[
+    "Move finding selection down",
+    "Move finding selection up",
+    "Open the selected finding",
+    "close search",
+    "Open search for the active tab",
+    "Go to Overview",
+    "Go to Findings",
+    "Go to pg_stat",
+    "Go to Diff",
+    "Go to Correlations",
+    "Go to Carbon",
+    "Show this cheatsheet",
+];
+
+#[test]
+fn cheatsheet_shortcuts_listed_in_template() {
+    // The modal scaffolding must be present...
+    assert!(
+        TEMPLATE.contains("id=\"cheatsheet\""),
+        "cheatsheet modal scaffolding missing"
+    );
+    assert!(
+        TEMPLATE.contains("Keyboard shortcuts"),
+        "cheatsheet title missing"
+    );
+    // ...and every shortcut description must appear. We match the
+    // user-visible description rather than the key literal because
+    // keys may be rewritten (single vs double quotes, aliasing,
+    // reorder) during cosmetic refactors, but descriptions are the
+    // contract the user sees and the documentation guarantees.
+    for description in CHEATSHEET_DESCRIPTION_FRAGMENTS {
+        assert!(
+            TEMPLATE.contains(description),
+            "cheatsheet missing description fragment: {description:?}"
+        );
+    }
+}
+
+#[test]
+fn export_button_rendered_for_listable_tabs_only() {
+    // Each listable panel gets its own Export CSV button keyed by
+    // `<tab>-export`. Explain and GreenOps stay button-less.
+    for tab in ["findings", "pgstat", "diff", "correlations"] {
+        let needle = format!("id=\"{tab}-export\"");
+        assert!(
+            TEMPLATE.contains(&needle),
+            "expected export button for listable tab: {tab}"
+        );
+    }
+    // Count-based drift guard: every export button carries
+    // `data-export-tab="`, so the total count must equal the four
+    // listable tabs. Catches accidental drops (< 4) and rogue
+    // additions to Explain / GreenOps (> 4) without negative
+    // substring matches that could over-match suffixed IDs.
+    let export_count = TEMPLATE.matches("data-export-tab=\"").count();
+    assert_eq!(
+        export_count, 4,
+        "expected exactly 4 export buttons (findings, pgstat, diff, correlations), found {export_count}. \
+         If you added a new listable tab, update this assertion and the positive loop above."
+    );
+    // The CSS class backing every export button must also exist.
+    assert!(
+        TEMPLATE.contains(".ps-export-btn"),
+        ".ps-export-btn CSS class missing"
+    );
+}
+
+// CSV escape correctness is verified end-to-end in
+// crates/sentinel-cli/tests/browser/tests/dashboard.spec.ts,
+// where the JS csvEscape runs in a real browser. The hand-written
+// Rust twin was removed to avoid drift between the two
+// implementations.
+
+#[test]
+fn sessionstorage_access_is_guarded_by_try_catch() {
+    // Load-bearing invariant: the two wrapper functions exist,
+    // every caller inherits their guard. A refactor that removes
+    // or renames the wrappers trips this check immediately.
+    assert!(
+        TEMPLATE.contains("function sessionGet("),
+        "sessionGet helper missing"
+    );
+    assert!(
+        TEMPLATE.contains("function sessionSet("),
+        "sessionSet helper missing"
+    );
+    // Structural check: every raw `sessionStorage.{get,set}Item`
+    // access must appear inside a function body whose nearest
+    // enclosing block carries `try { ... } catch`. We locate each
+    // occurrence and scan backwards up to 5 lines for a `try {`
+    // opener. If the scan fails to find one, the access is
+    // considered unguarded.
+    let lines: Vec<&str> = TEMPLATE.lines().collect();
+    let mut hits = 0;
+    for (idx, line) in lines.iter().enumerate() {
+        let touches =
+            line.contains("sessionStorage.getItem") || line.contains("sessionStorage.setItem");
+        if !touches {
+            continue;
+        }
+        hits += 1;
+        let start = idx.saturating_sub(5);
+        let window_has_try = lines[start..=idx].iter().any(|l| l.contains("try {"));
+        assert!(
+            window_has_try,
+            "sessionStorage access on line {} has no `try {{` opener within 5 lines above: {}",
+            idx + 1,
+            line.trim()
+        );
+    }
+    assert!(
+        hits >= 2,
+        "expected at least one sessionGet and one sessionSet access, found {hits}"
+    );
+}
+
+/// Extract the raw JSON text from the `<script id="report-data">`
+/// block and un-escape `<\/` back to `</` so it parses as JSON.
+fn extract_payload_json(html: &str) -> String {
+    let start = html.find("<script id=\"report-data\"").expect("script tag");
+    let open = html[start..]
+        .find('>')
+        .expect("script open")
+        .saturating_add(1);
+    let rest = &html[start + open..];
+    let end = rest.find("</script>").expect("script close");
+    rest[..end].trim().replace("<\\/", "</")
+}
+
+fn synthetic_pg_stat() -> PgStatReport {
+    use crate::ingest::pg_stat::{PgStatEntry, PgStatRanking, PgStatReport};
+    let entries = vec![
+        PgStatEntry {
+            query: "SELECT * FROM order_item WHERE order_id = 42".into(),
+            normalized_template: "SELECT * FROM order_item WHERE order_id = ?".into(),
+            calls: 120,
+            total_exec_time_ms: 840.0,
+            mean_exec_time_ms: 7.0,
+            rows: 500,
+            shared_blks_hit: 1000,
+            shared_blks_read: 0,
+            seen_in_traces: true,
+        },
+        PgStatEntry {
+            query: "SELECT id FROM orders WHERE id = 7".into(),
+            normalized_template: "SELECT id FROM orders WHERE id = ?".into(),
+            calls: 30,
+            total_exec_time_ms: 60.0,
+            mean_exec_time_ms: 2.0,
+            rows: 30,
+            shared_blks_hit: 120,
+            shared_blks_read: 0,
+            seen_in_traces: false,
+        },
+    ];
+    PgStatReport {
+        total_entries: 2,
+        top_n: 2,
+        rankings: vec![PgStatRanking {
+            label: "top by total_exec_time".into(),
+            entries,
+        }],
+    }
+}
+
+#[test]
+fn embeds_pg_stat_when_provided() {
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let mut options = opts("-", None);
+    options.pg_stat = Some(synthetic_pg_stat());
+    let (html, _) = render(&report, &[], &options);
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    let entries = value["pg_stat"]["rankings"][0]["entries"]
+        .as_array()
+        .expect("entries array");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(
+        entries[0]["normalized_template"].as_str().unwrap(),
+        "SELECT * FROM order_item WHERE order_id = ?"
+    );
+}
+
+#[test]
+fn omits_pg_stat_when_absent() {
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("-", None));
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    assert!(
+        value.get("pg_stat").is_none(),
+        "pg_stat must be absent when not provided (skip_serializing_if)"
+    );
+    // The static panel-pgstat scaffolding stays in the template; the
+    // JS hides it at runtime based on payload presence. Assert the
+    // scaffolding is there so the cross-nav wiring has an anchor to
+    // reach even before the tab is registered.
+    assert!(html.contains(r#"id="panel-pgstat""#));
+}
+
+#[test]
+fn embeds_diff_report_when_before_provided() {
+    // before: 1 finding. after: 2 findings (same first one + one new).
+    let before_finding = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let before = minimal_report(vec![before_finding.clone()]);
+    let after_extra = finding("t2", "svc", "/ep2", "SELECT * FROM u");
+    let after = minimal_report(vec![before_finding, after_extra]);
+
+    let diff = crate::diff::diff_runs(&before, &after);
+    let mut options = opts("-", None);
+    options.diff = Some(diff);
+    let (html, _) = render(&after, &[], &options);
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    let new = value["diff"]["new_findings"].as_array().expect("new array");
+    assert_eq!(new.len(), 1, "one new finding introduced in 'after'");
+    let resolved = value["diff"]["resolved_findings"]
+        .as_array()
+        .expect("resolved array");
+    assert_eq!(resolved.len(), 0, "nothing was removed");
+}
+
+#[test]
+fn omits_diff_when_absent() {
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("-", None));
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    assert!(value.get("diff").is_none());
+    assert!(html.contains(r#"id="panel-diff""#));
+}
+
+#[test]
+fn cross_nav_pgstat_link_added_only_when_pg_stat_present() {
+    // Build a trace whose SQL span's normalized template matches a
+    // pg_stat row. The ps-span-pgstat-link class is added by the JS
+    // at render time, not by the Rust sink; what we verify here is
+    // that the Rust payload carries everything the JS needs for the
+    // link to fire, i.e. a `pg_stat` section with the same
+    // `normalized_template` the span carries.
+    let tpl = "SELECT * FROM order_item WHERE order_id = ?";
+    let f = finding("abc", "svc", "/ep", tpl);
+    let report = minimal_report(vec![f]);
+    let trace = Trace {
+        trace_id: "abc".into(),
+        spans: vec![span("abc", "s1", None, "svc", "/ep", tpl)],
+    };
+
+    // With pg_stat: the template appears in both the span list and
+    // the pg_stat rankings.
+    let mut with_pg = opts("-", None);
+    with_pg.pg_stat = Some(synthetic_pg_stat());
+    let (html_with, _) = render(&report, std::slice::from_ref(&trace), &with_pg);
+    let blob_with = extract_payload_json(&html_with);
+    let v_with: serde_json::Value = serde_json::from_str(&blob_with).unwrap();
+    let pg_templates: Vec<&str> = v_with["pg_stat"]["rankings"][0]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["normalized_template"].as_str().unwrap())
+        .collect();
+    assert!(
+        pg_templates.contains(&tpl),
+        "pg_stat carries the span template"
+    );
+    let span_templates: Vec<&str> = v_with["embedded_traces"][0]["spans"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["template"].as_str().unwrap())
+        .collect();
+    assert!(
+        span_templates.contains(&tpl),
+        "trace carries the same template"
+    );
+
+    // The template file also carries the ps-span-pgstat-link class
+    // (the JS adds it to rows with matching templates). The grep is
+    // on the static template, not on the per-render output, since
+    // class assignment happens at DOM construction time in the JS.
+    assert!(
+        TEMPLATE.contains("ps-span-pgstat-link"),
+        "template contains the cross-nav class"
+    );
+
+    // Without pg_stat: the embedded JSON has no pg_stat key, so
+    // `hasPgStat` in the JS is false and no cross-nav handler ever
+    // attaches.
+    let without_pg = opts("-", None);
+    let (html_without, _) = render(&report, &[trace], &without_pg);
+    let blob_without = extract_payload_json(&html_without);
+    let v_without: serde_json::Value = serde_json::from_str(&blob_without).unwrap();
+    assert!(v_without.get("pg_stat").is_none());
+}
+
+#[test]
+fn pg_stat_sub_switcher_exposes_all_ranking_labels() {
+    // The sub-switcher is built client-side from `payload.pg_stat.rankings`,
+    // so a server-side render on its own does not produce the chip
+    // <button> elements. What we assert here is the contract the JS
+    // depends on: the static template still carries the four human
+    // labels, the sub-switcher sets `data-ranking-index` via
+    // `setAttribute` (not as an inline HTML attribute), and the
+    // payload exposes all four rankings in the stable order.
+    let labels = [
+        "\"Total time\"",
+        "\"Calls\"",
+        "\"Mean time\"",
+        "\"I/O blocks\"",
+    ];
+    for needle in labels {
+        assert!(
+            TEMPLATE.contains(needle),
+            "template is missing sub-switcher label {needle}"
+        );
+    }
+    // `data-ranking-index` must only appear via `setAttr(..., "data-ranking-index", ...)`.
+    // A literal HTML attribute `data-ranking-index="..."` would bypass
+    // textContent-only guarantees for attributes carrying dynamic data,
+    // so guard against it.
+    assert!(
+        TEMPLATE.contains("\"data-ranking-index\""),
+        "setAttr path must use the attribute name as a string literal"
+    );
+    assert!(
+        !TEMPLATE.contains("data-ranking-index=\""),
+        "template must not hard-code a literal data-ranking-index attribute"
+    );
+
+    // Payload exposes all four rankings when a full PgStatReport is
+    // embedded. Verify against the real `rank_pg_stat` output rather
+    // than a hand-built synthetic, so test output matches production.
+    let entries = crate::ingest::pg_stat::parse_pg_stat(
+        b"query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read\n\
+          SELECT a FROM t1,10,100.0,10.0,10,20,5\n\
+          SELECT b FROM t2,20,50.0,2.5,20,100,0\n\
+          SELECT c FROM t3,5,200.0,40.0,5,200,50\n",
+        1_048_576,
+    )
+    .expect("fixture parses");
+    let pg_stat = crate::ingest::pg_stat::rank_pg_stat(&entries, 10);
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let mut options = opts("-", None);
+    options.pg_stat = Some(pg_stat);
+    let (html, _) = render(&report, &[], &options);
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    let rankings = value["pg_stat"]["rankings"].as_array().unwrap();
+    assert_eq!(rankings.len(), 4, "payload carries all four rankings");
+    assert_eq!(
+        rankings[0]["label"].as_str().unwrap(),
+        "top by total_exec_time"
+    );
+    assert_eq!(
+        rankings[3]["label"].as_str().unwrap(),
+        "top by shared_blks_total"
+    );
+}
+
+#[test]
+fn theme_mode_defaults_to_auto_with_tri_state_cycle() {
+    // New sessions must default to "auto" (follows OS preference).
+    // Assert via the source strings that make up the cycle: the
+    // modes array, the matchMedia wiring, and the cycle.
+    assert!(
+        TEMPLATE.contains("\"auto\", \"dark\", \"light\""),
+        "THEME_MODES tri-state ordering must be auto -> dark -> light"
+    );
+    assert!(
+        TEMPLATE.contains("prefers-color-scheme: dark"),
+        "matchMedia query for prefers-color-scheme missing"
+    );
+    assert!(
+        TEMPLATE.contains("function applyTheme("),
+        "applyTheme helper missing"
+    );
+    assert!(
+        TEMPLATE.contains("function currentThemeMode("),
+        "currentThemeMode helper missing"
+    );
+    // The `<html>` element must not hardcode `data-theme="dark"`
+    // anymore, or the OS preference is ignored until JS runs.
+    assert!(
+        TEMPLATE.contains("data-theme=\"\""),
+        "<html> data-theme must start empty so applyTheme runs before paint"
+    );
+    assert!(
+        !TEMPLATE.contains("data-theme=\"dark\">"),
+        "<html> must not force dark at boot time"
+    );
+}
+
+#[test]
+fn detail_pane_no_trace_states_present() {
+    // Two "no trace to show" states survive the master/detail redesign:
+    // the cap-reached message rendered inline in openExplain (the finding
+    // header stays, only the tree is hidden), and the resolved-diff
+    // message surfaced as a toast so clicking it does not navigate away
+    // from the Diff tab and wipe the user's active diff filter.
+    assert!(
+        TEMPLATE.contains("Trace not embedded (cap reached)"),
+        "cap-reached message missing"
+    );
+    assert!(
+        TEMPLATE.contains("This finding was resolved."),
+        "resolved-diff message missing"
+    );
+    assert!(
+        TEMPLATE.contains("function showToast("),
+        "showToast helper (carries the resolved-diff notice) missing"
+    );
+}
+
+#[test]
+fn tabs_and_panels_carry_aria_roles() {
+    // Static shell assertions: the tablist container and every
+    // tabpanel carry the WAI-ARIA roles expected by screen readers.
+    // Individual tab buttons are rendered client-side via
+    // `renderTabs`, so their roles are set via setAttr and only
+    // visible to a live DOM test (see Playwright spec). We verify
+    // the attribute names are present in the template source so a
+    // refactor can't drop them silently.
+    assert!(
+        TEMPLATE.contains("role=\"tablist\""),
+        "tablist role missing from template"
+    );
+    for panel in [
+        "panel-overview",
+        "panel-findings",
+        "panel-pgstat",
+        "panel-diff",
+        "panel-correlations",
+        "panel-green",
+        "panel-acknowledgments",
+    ] {
+        let needle = format!("id=\"{panel}\"");
+        assert!(TEMPLATE.contains(&needle), "{panel} id missing");
+    }
+    // Each tabpanel carries `role="tabpanel"` and
+    // `aria-labelledby="tab-<name>"` with its matching tab id. The
+    // app-shell redesign (0.9.0) folded the Explain tab into the
+    // Findings master/detail pane and added the Overview landing
+    // panel, keeping the count at 7.
+    let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
+    assert_eq!(
+        tabpanel_count, 7,
+        "expected 7 tabpanels, found {tabpanel_count}"
+    );
+    for tab in [
+        "overview",
+        "findings",
+        "pgstat",
+        "diff",
+        "correlations",
+        "green",
+        "acknowledgments",
+    ] {
+        let needle = format!("aria-labelledby=\"tab-{tab}\"");
+        assert!(
+            TEMPLATE.contains(&needle),
+            "aria-labelledby link missing for {tab}"
+        );
+    }
+    // The setAttr calls that wire `role="tab"` / `aria-selected` /
+    // `aria-controls` / `tabindex` on each button must be present
+    // in the JS source so the client-side render produces the
+    // right shape.
+    assert!(TEMPLATE.contains("\"role\", \"tab\""));
+    assert!(TEMPLATE.contains("\"aria-selected\""));
+    assert!(TEMPLATE.contains("\"aria-controls\""));
+}
+
+#[test]
+fn chips_carry_aria_radio_and_pressed_states() {
+    // pg_stat rankings form a radiogroup. Findings filters split
+    // into a severity radiogroup and a service toggle group where
+    // every service chip carries `aria-pressed`.
+    assert!(
+        TEMPLATE.contains("\"role\", \"radiogroup\""),
+        "radiogroup role setter missing"
+    );
+    assert!(
+        TEMPLATE.contains("\"aria-label\", \"pg_stat ranking\""),
+        "pg_stat ranking radiogroup label missing"
+    );
+    assert!(
+        TEMPLATE.contains("\"aria-label\", \"Finding severity\""),
+        "Finding severity radiogroup label missing"
+    );
+    assert!(
+        TEMPLATE.contains("\"aria-label\", \"Finding service\""),
+        "Finding service group label missing"
+    );
+    assert!(
+        TEMPLATE.contains("\"aria-checked\""),
+        "aria-checked setter missing"
+    );
+    assert!(
+        TEMPLATE.contains("\"aria-pressed\""),
+        "aria-pressed setter missing"
+    );
+}
+
+#[test]
+fn copy_link_button_present_on_listable_tabs_only() {
+    for tab in ["findings", "pgstat", "diff", "correlations"] {
+        let needle = format!("id=\"{tab}-copy-link\"");
+        assert!(
+            TEMPLATE.contains(&needle),
+            "expected copy-link button for listable tab: {tab}"
+        );
+    }
+    // Count-based guard mirroring the export-button test: exactly
+    // four `data-copy-link-tab="..."` attributes across the
+    // template. Adding a new listable tab must update both the loop
+    // above and this assertion in the same commit.
+    let copy_link_count = TEMPLATE.matches("data-copy-link-tab=\"").count();
+    assert_eq!(
+        copy_link_count, 4,
+        "expected exactly 4 copy-link buttons, found {copy_link_count}"
+    );
+    // Explain and GreenOps stay button-less (no toolbar, no
+    // copy-link). Check by scanning for their panel IDs and
+    // asserting no copy-link id sits in the same rendered HTML
+    // produced for a minimal report.
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("-", None));
+    assert!(!html.contains("id=\"explain-copy-link\""));
+    assert!(!html.contains("id=\"green-copy-link\""));
+    // The CSS class backing every copy-link button must exist.
+    assert!(
+        TEMPLATE.contains(".ps-copy-link-btn"),
+        ".ps-copy-link-btn CSS class missing"
+    );
+}
+
+#[test]
+fn template_ships_a_strict_content_security_policy() {
+    // Defense-in-depth. The dashboard is fully self-contained, so
+    // a CSP that forbids every non-inline origin plus external
+    // requests blocks accidental regressions (e.g. a future edit
+    // that introduces an <img src="https://..."> via the JSON
+    // payload). Since 0.5.23 the CSP value is built per render
+    // (static vs live mode), so the assertion targets the
+    // <meta http-equiv="Content-Security-Policy" content="..."/>
+    // tag specifically rather than the whole HTML, since the JS
+    // body legitimately mentions "connect-src" inside live-mode
+    // helper comments and string literals.
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("normal.json", None));
+    let meta_marker = r#"<meta http-equiv="Content-Security-Policy" content=""#;
+    let start = html
+        .find(meta_marker)
+        .expect("CSP meta tag missing in rendered HTML");
+    let after_marker = &html[start + meta_marker.len()..];
+    let close = after_marker
+        .find('"')
+        .expect("CSP meta tag content attribute is unclosed");
+    let csp_value = &after_marker[..close];
+    assert!(csp_value.contains("default-src 'none'"));
+    assert!(csp_value.contains("base-uri 'none'"));
+    assert!(csp_value.contains("form-action 'none'"));
+    // The redesign embeds Geist/Geist Mono as base64 data: woff2, so
+    // the CSP must allow `font-src data:` (and nothing wider).
+    assert!(
+        csp_value.contains("font-src data:"),
+        "embedded fonts require font-src data: in the CSP, got: {csp_value}"
+    );
+    assert!(
+        !csp_value.contains("connect-src"),
+        "static mode must not advertise connect-src in the CSP, got: {csp_value}"
+    );
+}
+
+#[test]
+fn embeds_brand_fonts_as_base64_woff2() {
+    // The self-contained report ships Geist + Geist Mono inline so it
+    // renders the brand typeface offline. The base64 data: URIs must
+    // reach the output, and the source must stay placeholder-safe.
+    assert!(
+        !FONT_FACES.contains("{{"),
+        "embedded font CSS must not contain `{{{{` placeholder bytes"
+    );
+    let face_count = FONT_FACES.matches("@font-face").count();
+    assert_eq!(
+        face_count, 6,
+        "expected 6 @font-face rules, found {face_count}"
+    );
+    assert!(FONT_FACES.contains("font-family:'Geist'"));
+    assert!(FONT_FACES.contains("font-family:'Geist Mono'"));
+    assert!(FONT_FACES.contains("src:url(data:font/woff2;base64,"));
+
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("normal.json", None));
+    assert!(
+        html.contains("@font-face") && html.contains("data:font/woff2;base64,"),
+        "rendered HTML must embed the base64 woff2 font faces"
+    );
+    assert!(
+        !html.contains(FONT_FACES_PLACEHOLDER),
+        "the FONT_FACES placeholder must be substituted in the output"
+    );
+}
+
+#[test]
+fn template_carries_csp_placeholder() {
+    let csp_pos = TEMPLATE
+        .find(CSP_PLACEHOLDER)
+        .expect("CSP placeholder missing");
+    let title_pos = TEMPLATE.find(TITLE_PLACEHOLDER).expect("title placeholder");
+    let json_pos = TEMPLATE.find(JSON_PLACEHOLDER).expect("JSON placeholder");
+    assert!(
+        csp_pos < title_pos,
+        "CSP placeholder must precede title placeholder so replacen order stays stable"
+    );
+    assert!(
+        csp_pos < json_pos,
+        "CSP placeholder must precede JSON placeholder so replacen order stays stable"
+    );
+}
+
+#[test]
+fn build_csp_static_mode_returns_strict_policy() {
+    let csp = build_csp(None);
+    assert!(csp.contains("default-src 'none'"));
+    assert!(csp.contains("base-uri 'none'"));
+    assert!(
+        !csp.contains("connect-src"),
+        "static mode must not include connect-src"
+    );
+}
+
+#[test]
+fn build_csp_live_mode_appends_connect_src() {
+    let csp = build_csp(Some("http://localhost:4318"));
+    assert!(csp.contains("default-src 'none'"));
+    assert!(
+        csp.contains("connect-src 'self' http://localhost:4318"),
+        "live mode must whitelist 'self' plus the daemon URL: {csp}"
+    );
+}
+
+#[test]
+fn build_csp_live_mode_only_whitelists_provided_url() {
+    let csp = build_csp(Some("https://daemon.example.com"));
+    // Wildcard `connect-src *` would defeat the purpose; the
+    // directive must only allow same-origin and the daemon.
+    assert!(!csp.contains("connect-src *"));
+    assert!(csp.contains("connect-src 'self' https://daemon.example.com"));
+}
+
+#[test]
+fn rendered_html_in_static_mode_does_not_carry_daemon_field() {
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("normal.json", None));
+    assert!(
+        !html.contains(r#""daemon":"#),
+        "static mode payload must omit the daemon field"
+    );
+}
+
+#[test]
+fn rendered_html_in_live_mode_with_ipv6_literal_preserves_brackets() {
+    // IPv6 authorities embed `[`/`]` brackets per RFC 3986. Verify
+    // they survive both the JSON payload (where they are not
+    // escape-meaningful) and the CSP directive (where the brackets
+    // are valid host-literal syntax). `validate_url` upstream
+    // accepts the form, the renderer must not corrupt it.
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let mut options = opts("normal.json", None);
+    options.daemon_url = Some("http://[::1]:4318".to_string());
+    let (html, _) = render(&report, &[], &options);
+    assert!(
+        html.contains(r#""daemon":{"url":"http://[::1]:4318"}"#),
+        "JSON payload must round-trip the IPv6 literal verbatim"
+    );
+    assert!(
+        html.contains("connect-src 'self' http://[::1]:4318"),
+        "CSP must whitelist the IPv6 literal verbatim"
+    );
+}
+
+#[test]
+fn rendered_html_in_live_mode_carries_daemon_field_and_connect_src() {
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let mut options = opts("normal.json", None);
+    options.daemon_url = Some("http://localhost:4318".to_string());
+    let (html, _) = render(&report, &[], &options);
+    assert!(
+        html.contains(r#""daemon":{"url":"http://localhost:4318"}"#),
+        "live-mode payload must serialize the DaemonHandle"
+    );
+    assert!(
+        html.contains("connect-src 'self' http://localhost:4318"),
+        "live-mode CSP must whitelist 'self' plus the daemon URL"
+    );
+}
+
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[test]
+fn template_propagates_api_key_header_constant() {
+    // Cross-surface drift guard. The daemon's `check_ack_auth` reads
+    // the header named by `http_client::API_KEY_HEADER`. Live-mode
+    // HTML is the *other* side of that wire: its `fetchWithAuth`
+    // helper must attach the same header name. Asserting on the
+    // constant (not the literal `"X-API-Key"`) means a rename of the
+    // constant either updates the template at the same time, or
+    // fails this test loudly.
+    let header = crate::http_client::API_KEY_HEADER;
+    assert!(
+        TEMPLATE.contains(header),
+        "live-mode JS must propagate `{header}` on authenticated requests; \
+         template contains no occurrence of the constant"
+    );
+    assert!(
+        TEMPLATE.contains("function fetchWithAuth"),
+        "fetchWithAuth helper missing from the template; \
+         without it the header above is never attached"
+    );
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn live_mode_acks_cap_matches_daemon_constant() {
+    // The HTML JS hardcodes `DAEMON_ACKS_CAP = N` as the limit before the
+    // footer note kicks in. The daemon caps `/api/acks` at
+    // `MAX_ACKS_RESPONSE`. Both must stay in lockstep — drift means the JS
+    // either truncates findings the daemon would have served, or claims a
+    // larger window than the daemon backs. Parse N out of the template and
+    // assert equality against the daemon constant; do not check a literal
+    // here.
+    let needle = "var DAEMON_ACKS_CAP = ";
+    let start = TEMPLATE
+        .find(needle)
+        .expect("template must define DAEMON_ACKS_CAP");
+    let after = &TEMPLATE[start + needle.len()..];
+    let end = after.find(';').expect("DAEMON_ACKS_CAP must end with ';'");
+    let parsed: usize = after[..end]
+        .trim()
+        .parse()
+        .expect("DAEMON_ACKS_CAP value must be a usize");
+    assert_eq!(
+        parsed,
+        crate::daemon::query_api::MAX_ACKS_RESPONSE,
+        "HTML DAEMON_ACKS_CAP drift vs daemon MAX_ACKS_RESPONSE"
+    );
+}
+
+#[test]
+fn template_finding_action_button_default_label_is_ack() {
+    // The per-row action container is always rendered. In static
+    // mode CSS keeps it hidden. In live mode, the JS swaps the
+    // label to "Revoke" for already-acked signatures.
+    assert!(TEMPLATE.contains("ps-fin-action-btn"));
+    assert!(TEMPLATE.contains("\"Ack\""));
+}
+
+#[test]
+fn template_does_not_leak_session_storage_to_local_storage() {
+    // The X-API-Key is sessionStorage-scoped: `localStorage.setItem`
+    // would persist it across tab restarts and across browser
+    // restarts, which is not the threat model we accept.
+    assert!(
+        !TEMPLATE.contains("localStorage.setItem"),
+        "do not persist the X-API-Key beyond the tab session"
+    );
+    assert!(
+        !TEMPLATE.contains("localStorage.set"),
+        "do not persist the X-API-Key beyond the tab session"
+    );
+}
+
+#[test]
+fn hostile_input_label_with_json_placeholder_does_not_double_substitute() {
+    // An input_label carrying the literal `{{REPORT_JSON}}` must
+    // not trigger a second substitution. `replacen(..., 1)` already
+    // consumed the only JSON placeholder in the template, so the
+    // title injection only sees the title placeholder.
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("{{REPORT_JSON}}.json", None));
+    // The title text is HTML-escaped, so `{` and `}` survive as
+    // literal bytes. There must be no injection into the JSON
+    // block (which would appear as a trailing stray `}` outside
+    // the `<script id="report-data">` block).
+    assert!(
+        html.contains("<title>perf-sentinel: {{REPORT_JSON}}.json</title>"),
+        "placeholder literal must survive as data"
+    );
+}
+
+#[test]
+fn hostile_template_containing_title_placeholder_survives_as_data() {
+    // A SQL template carrying `{{PAGE_TITLE}}` inside a Finding
+    // payload ends up in the JSON block. The title substitution
+    // runs on TEMPLATE, whose first `{{PAGE_TITLE}}` occurrence
+    // is the static `<title>` tag, so the user-controlled one is
+    // never consumed.
+    let f = finding("t1", "svc", "/ep", "SELECT '{{PAGE_TITLE}}'");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("normal.json", None));
+    assert!(
+        html.contains("SELECT '{{PAGE_TITLE}}'"),
+        "user-controlled placeholder literal must survive in the JSON payload"
+    );
+}
+
+#[test]
+fn page_title_strips_control_characters() {
+    // ANSI escape sequences, `BiDi` marks, null bytes, and other
+    // control codes must not survive into the rendered title,
+    // otherwise a hostile filename could render an OSC hyperlink
+    // in the browser tab on some platforms. Dropping the ESC byte
+    // defangs the sequence even though the remaining printable
+    // bytes (`[31m`) pass through as plain text.
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("a\x1b[31mb\x00c\u{202e}d.json", None));
+    assert!(!html.contains('\x1b'), "ESC must not leak into the title");
+    assert!(
+        !html.contains('\x00'),
+        "null byte must not leak into the title"
+    );
+    assert!(
+        !html.contains('\u{202e}'),
+        "`BiDi` override must not leak into the title"
+    );
+    // Sanity on the visible fragment after stripping: the printable
+    // remains of the ANSI sequence plus the non-control letters
+    // survive as literal text, which is safe in a `<title>`.
+    assert!(html.contains("<title>perf-sentinel: a[31mbcd.json</title>"));
+}
+
+#[test]
+fn page_title_uses_filename_from_input_label() {
+    let f = finding("t1", "svc", "/ep", "SELECT 1");
+    let report = minimal_report(vec![f]);
+
+    let (html_with_path, _) = render(
+        &report,
+        &[],
+        &opts("/tmp/reports/prod-2026-04-21.json", None),
+    );
+    assert!(
+        html_with_path.contains("<title>perf-sentinel: prod-2026-04-21.json</title>"),
+        "title should show the filename without path components"
+    );
+
+    let (html_stdin, _) = render(&report, &[], &opts("-", None));
+    assert!(
+        html_stdin.contains("<title>perf-sentinel report</title>"),
+        "stdin label falls back to the default title"
+    );
+
+    let (html_empty, _) = render(&report, &[], &opts("", None));
+    assert!(
+        html_empty.contains("<title>perf-sentinel report</title>"),
+        "empty label falls back to the default title"
+    );
+
+    // HTML-unsafe characters in the filename are escaped.
+    let (html_hostile, _) = render(&report, &[], &opts("/tmp/<hack>&.json", None));
+    assert!(
+        html_hostile.contains("<title>perf-sentinel: &lt;hack&gt;&amp;.json</title>"),
+        "unsafe characters in the filename are HTML-escaped"
+    );
+    assert!(
+        !html_hostile.contains("<title>perf-sentinel: <hack>"),
+        "raw < must not leak into the title"
+    );
+}
+
+#[test]
+fn embeds_correlations_when_report_carries_them() {
+    // Daemon-produced Reports can carry cross-trace correlations.
+    // The template's Correlations tab is guarded on
+    // `report.correlations?.length > 0`, so the tab lights up
+    // automatically when the field is non-empty. Assert the
+    // serialized payload carries the field with the expected shape
+    // so the JS sees what it expects.
+    use crate::detect::FindingType;
+    use crate::detect::correlate_cross::{CorrelationEndpoint, CrossTraceCorrelation};
+
+    let correlation = CrossTraceCorrelation {
+        source: CorrelationEndpoint {
+            finding_type: FindingType::NPlusOneSql,
+            service: "order-svc".to_string(),
+            template: "SELECT * FROM o WHERE id = ?".to_string(),
+        },
+        target: CorrelationEndpoint {
+            finding_type: FindingType::SlowHttp,
+            service: "payment-svc".to_string(),
+            template: "POST /api/charge".to_string(),
+        },
+        co_occurrence_count: 8,
+        source_total_occurrences: 10,
+        confidence: 0.8,
+        median_lag_ms: 120.0,
+        first_seen: "2026-04-21T10:00:00Z".to_string(),
+        last_seen: "2026-04-21T10:05:00Z".to_string(),
+        sample_trace_id: None,
+    };
+
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let mut report = minimal_report(vec![f]);
+    report.correlations = vec![correlation];
+    let (html, _) = render(&report, &[], &opts("-", None));
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+
+    let corrs = value["report"]["correlations"].as_array().unwrap();
+    assert_eq!(corrs.len(), 1);
+    assert_eq!(corrs[0]["source"]["service"].as_str().unwrap(), "order-svc");
+    assert_eq!(
+        corrs[0]["target"]["service"].as_str().unwrap(),
+        "payment-svc"
+    );
+    assert_eq!(corrs[0]["co_occurrence_count"].as_u64().unwrap(), 8);
+
+    // The Correlations panel scaffolding must exist in the static
+    // shell so the JS can reveal it without touching innerHTML.
+    assert!(html.contains(r#"id="panel-correlations""#));
+}
