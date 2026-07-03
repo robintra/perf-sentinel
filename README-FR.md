@@ -143,7 +143,7 @@ perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 perf-sentinel watch
 ```
 
-`demo --html` est une vitrine complète : tous les onglets du tableau de bord sont remplis (findings, Explain, GreenOps, pg_stat, Diff et corrélations inter-traces synthétisées). L'acquittement en direct reste réservé au daemon, voir `watch` puis `query --daemon <URL> monitor`.
+`demo --html` est une vitrine complète : tous les onglets du tableau de bord sont remplis (Overview, Findings avec Explain en ligne, Carbon, pg_stat, Diff et corrélations inter-traces synthétisées). L'acquittement en direct reste réservé au daemon, voir `watch` puis `query --daemon <URL> monitor`.
 
 `.perf-sentinel.toml` minimal à la racine du repo :
 

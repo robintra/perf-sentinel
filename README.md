@@ -143,7 +143,7 @@ perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 perf-sentinel watch
 ```
 
-`demo --html` is a full showcase: every dashboard tab is populated (findings, Explain, GreenOps, pg_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
+`demo --html` is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
 
 Minimal `.perf-sentinel.toml` at the repo root:
 
