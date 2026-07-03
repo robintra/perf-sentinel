@@ -209,26 +209,34 @@ impl IngestSource for JsonIngest {
 pub fn detect_format(raw: &[u8]) -> InputFormat {
     let peek = std::str::from_utf8(&raw[..raw.len().min(1024)]).unwrap_or("");
 
-    // Jaeger: { "data": [{ ..., "spans": [...] }] }. Checked BEFORE the
-    // OTLP sniff: a Jaeger export can legitimately carry the literal
-    // "resourceSpans" inside a span name or tag value (e.g. a trace OF an
-    // OTel Collector), while a camelCase OTLP request can never satisfy
-    // the two-part lowercase `"data"` + `"spans"` rule, so this order
-    // preserves the pre-0.9.5 Jaeger detection guarantee.
-    if peek.trim_start().starts_with('{') && peek.contains("\"data\"") {
-        let deeper = std::str::from_utf8(&raw[..raw.len().min(4096)]).unwrap_or("");
-        if deeper.contains("\"spans\"") {
-            return InputFormat::Jaeger;
+    // `{`-rooted formats are told apart STRUCTURALLY, on top-level keys
+    // only, never on whole-buffer substrings: a Jaeger export can carry
+    // the literal "resourceSpans" inside a span name or tag value (a
+    // trace OF an OTel Collector), and an OTLP request can carry "data"
+    // as an attribute key or value while always containing a nested
+    // "spans" key inside scopeSpans, so substring sniffs misroute in
+    // BOTH directions.
+    if peek.trim_start().starts_with('{') {
+        let mut saw_data_key = false;
+        for key in TopLevelKeys::new(peek) {
+            match key {
+                // OTLP/JSON: { "resourceSpans": [...] } (camelCase per the
+                // protobuf JSON mapping; the snake_case spelling routes here
+                // too so it fails with a clear serde error instead of
+                // Native's confusing "expected array").
+                "resourceSpans" | "resource_spans" => return InputFormat::Otlp,
+                // Jaeger: { "data": [{ ..., "spans": [...] }] }; the nested
+                // "spans" key is confirmed on a deeper window below.
+                "data" => saw_data_key = true,
+                _ => {}
+            }
         }
-    }
-
-    // OTLP/JSON: { "resourceSpans": [...] } (camelCase per the protobuf JSON
-    // mapping; the snake_case spelling routes here too so it fails with a
-    // clear serde error instead of Native's confusing "expected array").
-    if peek.trim_start().starts_with('{')
-        && (peek.contains("\"resourceSpans\"") || peek.contains("\"resource_spans\""))
-    {
-        return InputFormat::Otlp;
+        if saw_data_key {
+            let deeper = std::str::from_utf8(&raw[..raw.len().min(4096)]).unwrap_or("");
+            if deeper.contains("\"spans\"") {
+                return InputFormat::Jaeger;
+            }
+        }
     }
 
     // Zipkin: [{ "traceId": "...", "localEndpoint": {...} }]
@@ -240,6 +248,82 @@ pub fn detect_format(raw: &[u8]) -> InputFormat {
     }
 
     InputFormat::Native
+}
+
+/// Iterator over the keys of the ROOT JSON object inside a (possibly
+/// truncated) prefix: depth-1 strings whose next non-whitespace byte is
+/// `:`. Strings at any other depth (nested keys, attribute names) and
+/// string VALUES never qualify, which is what makes the format sniff
+/// immune to payload content. Escape-aware, stops silently when the
+/// prefix ends mid-string.
+struct TopLevelKeys<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+    depth: usize,
+}
+
+impl<'a> TopLevelKeys<'a> {
+    fn new(peek: &'a str) -> Self {
+        Self {
+            bytes: peek.as_bytes(),
+            pos: 0,
+            depth: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for TopLevelKeys<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        while self.pos < self.bytes.len() {
+            match self.bytes[self.pos] {
+                b'{' | b'[' => {
+                    self.depth += 1;
+                    self.pos += 1;
+                }
+                b'}' | b']' => {
+                    self.depth = self.depth.saturating_sub(1);
+                    self.pos += 1;
+                }
+                b'"' => {
+                    let start = self.pos + 1;
+                    let mut i = start;
+                    let mut escape = false;
+                    while i < self.bytes.len() {
+                        let c = self.bytes[i];
+                        if escape {
+                            escape = false;
+                        } else if c == b'\\' {
+                            escape = true;
+                        } else if c == b'"' {
+                            break;
+                        }
+                        i += 1;
+                    }
+                    if i >= self.bytes.len() {
+                        // Truncated mid-string at the end of the peek window.
+                        return None;
+                    }
+                    self.pos = i + 1;
+                    if self.depth == 1 {
+                        let mut j = self.pos;
+                        while j < self.bytes.len() && self.bytes[j].is_ascii_whitespace() {
+                            j += 1;
+                        }
+                        if j < self.bytes.len()
+                            && self.bytes[j] == b':'
+                            && let Ok(key) = std::str::from_utf8(&self.bytes[start..i])
+                        {
+                            return Some(key);
+                        }
+                    }
+                }
+                _ => self.pos += 1,
+            }
+        }
+        None
+    }
 }
 
 /// Errors that can occur during JSON ingestion.
@@ -386,6 +470,23 @@ mod tests {
             }]
         }"#;
         assert_eq!(detect_format(json.as_bytes()), InputFormat::Jaeger);
+    }
+
+    #[test]
+    fn detect_otlp_wins_over_stray_data_literal() {
+        // Regression (reverse direction): an OTLP dump whose first spans
+        // carry a "data" attribute key or value must NOT be misrouted to
+        // Jaeger. OTLP always contains a nested "spans" key (scopeSpans),
+        // so a substring rule on "data" would have flipped it.
+        let json = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"data","value":{"stringValue":"data"}}]},"scopeSpans":[{"spans":[]}]}]}"#;
+        assert_eq!(detect_format(json.as_bytes()), InputFormat::Otlp);
+    }
+
+    #[test]
+    fn top_level_keys_ignores_nested_keys_and_string_values() {
+        let json = r#"{"a": {"nested": 1}, "b": ["data", {"c": 2}], "d": "resourceSpans"}"#;
+        let keys: Vec<&str> = TopLevelKeys::new(json).collect();
+        assert_eq!(keys, ["a", "b", "d"]);
     }
 
     #[test]
