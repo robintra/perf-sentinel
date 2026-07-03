@@ -302,6 +302,15 @@ DD_TRACE_AGENT_URL=http://otel-collector:8126
 
 perf-sentinel reçoit alors une copie de chaque trace et les findings sont émis en NDJSON, exactement comme dans la topologie collector central ci-dessus.
 
+**Batch plutôt que le daemon.** Le chemin Collector ci-dessus alimente le daemon `watch`. Pour un `analyze` ponctuel à la place, sachez que l'entrée batch ne lit pas l'OTLP JSON (voir [Formats d'ingestion](#formats-dingestion) plus bas : uniquement natif, Jaeger et Zipkin), donc un exporter `file` du Collector suivi d'`analyze --input` n'est pas reconnu. Routez le pont vers un backend Jaeger ou Tempo et tirez-en un lot :
+
+```bash
+perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service checkout --lookback 15m
+perf-sentinel tempo        --endpoint http://tempo:3200   --service checkout --lookback 15m
+```
+
+Pour un simple fichier, exportez une trace au format JSON Jaeger depuis l'UI Jaeger (bouton "Download JSON") et passez-la à `analyze --input`. La réserve d'obfuscation ci-dessus reste valable, gardez `sanitizer_aware_classification = "strict"`.
+
 ---
 
 ## Démarrage rapide : sidecar
@@ -391,6 +400,8 @@ perf-sentinel auto-détecte le format d'entrée avec `perf-sentinel analyze --in
 | **Zipkin JSON v2**             | Tableau d'objets avec `"traceId"` + `"localEndpoint"` | Exporté depuis l'UI Zipkin |
 
 Aucun flag `--format` n'est nécessaire pour l'entrée : le format est détecté automatiquement depuis les premiers octets du fichier.
+
+**L'OTLP JSON n'est pas un format d'entrée batch.** L'OTLP n'atteint perf-sentinel que par les listeners du daemon (`watch`) ou les sous-commandes `tempo` et `jaeger-query`, jamais par `analyze --input`. Si vous êtes sur dd-trace, voir [Vous venez de Datadog](#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
 
 ```bash
 # Export Jaeger
