@@ -658,11 +658,13 @@ values such as counts.
   required.
 
 - `ingestion_drops` (**sticky**): at least one OTLP request was
-  rejected since daemon start due to channel saturation. The message
-  reports the count. Cross-check
-  `perf_sentinel_otlp_rejected_total{reason="channel_full"}` for the
-  same value, then consider increasing daemon CPU allocation or
-  `[daemon] max_active_traces`. The warning persists until daemon
+  rejected since daemon start due to channel saturation or the
+  memory-pressure guard (a separate warning entry per cause, each
+  message names its cause and count). Cross-check
+  `perf_sentinel_otlp_rejected_total{reason="channel_full"}` or
+  `{reason="memory_pressure"}` for the same value, then consider
+  increasing daemon CPU allocation or `[daemon] max_active_traces`
+  for saturation, or the container memory limit for memory pressure. The warning persists until daemon
   restart even after backpressure subsides, the underlying counter is
   cumulative since process start.
 

@@ -664,11 +664,14 @@ valeurs dynamiques telles que des compteurs.
   aucune action opérateur n'est requise.
 
 - `ingestion_drops` (**collant**) : au moins une requête OTLP a été
-  rejetée depuis le démarrage à cause de la saturation du canal. Le
-  message reporte le count. Cross-checker avec
-  `perf_sentinel_otlp_rejected_total{reason="channel_full"}` pour la
-  même valeur, puis envisager d'augmenter l'allocation CPU du daemon
-  ou `[daemon] max_active_traces`. Le warning persiste jusqu'au
+  rejetée depuis le démarrage à cause de la saturation du canal ou du
+  garde-fou mémoire (une entrée de warning par cause, chaque message
+  nomme sa cause et son count). Cross-checker avec
+  `perf_sentinel_otlp_rejected_total{reason="channel_full"}` ou
+  `{reason="memory_pressure"}` pour la même valeur, puis envisager
+  d'augmenter l'allocation CPU du daemon ou `[daemon]
+  max_active_traces` pour la saturation, ou la limite mémoire du
+  conteneur pour la pression mémoire. Le warning persiste jusqu'au
   redémarrage du daemon même après que la backpressure soit retombée,
   le compteur sous-jacent est cumulatif depuis le démarrage du process.
 
