@@ -436,10 +436,15 @@ pub struct MetricsState {
     /// crosses `[daemon] memory_high_water_pct`.
     pub otlp_rejected_memory_pressure: IntCounter,
     /// Memory-pressure admission flag, set by the cgroup watcher
-    /// (`daemon::mem_pressure`) and read by the OTLP handlers. `Arc` so a
-    /// `MetricsState` clone shares the same flag, like the prometheus
-    /// counters. Off (`false`) whenever the guard is disabled.
+    /// (`daemon::mem_pressure`) and read by the ingest listeners. `Arc`
+    /// so a `MetricsState` clone shares the same flag, like the
+    /// prometheus counters. Off (`false`) whenever the guard is disabled.
     pub ingest_over_memory_limit: Arc<AtomicBool>,
+    /// Gauge twin of the admission flag: `1` while the guard is
+    /// rejecting ingest, `0` otherwise. Alerts key on this state, not on
+    /// the rejection-counter rate, so they keep firing while ingest is
+    /// paused even after exporters stop retrying.
+    pub ingest_memory_pressure: IntGauge,
     /// OTLP spans received across all requests, before I/O filtering.
     /// Compared with `otlp_spans_filtered_total` this gives the span
     /// retention ratio: a fleet whose instrumentation strips
@@ -448,6 +453,10 @@ pub struct MetricsState {
     /// pair makes that visible. Spans in requests later rejected as
     /// `channel_full` count as received but are not retained, so
     /// cross-check `otlp_rejected_total` during backpressure storms.
+    /// `memory_pressure` rejections happen BEFORE decode, so their span
+    /// counts are unknowable and this counter does not advance: track
+    /// those episodes via `otlp_rejected_total{reason="memory_pressure"}`
+    /// (requests) and the `ingest_memory_pressure` gauge instead.
     pub otlp_spans_received_total: IntCounter,
     /// OTLP spans skipped by conversion because they are not analyzable
     /// I/O operations, labeled by `reason`. Pre-warmed to 0 for every
@@ -635,6 +644,12 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let ingest_memory_pressure = IntGauge::new(
+            "perf_sentinel_ingest_memory_pressure",
+            "1 while the memory-pressure admission guard is rejecting ingest, 0 otherwise",
+        )
+        .expect("metric creation should not fail");
+
         let analysis_shed_batches_total = IntCounter::new(
             "perf_sentinel_analysis_shed_batches_total",
             "Analysis batches shed because the worker queue was full or the worker stopped",
@@ -723,6 +738,9 @@ impl MetricsState {
         registry
             .register(Box::new(avoidable_io_ops.clone()))
             .expect("registration should not fail");
+        registry
+            .register(Box::new(ingest_memory_pressure.clone()))
+            .expect("metric registration should not fail");
         registry
             .register(Box::new(analysis_queue_depth.clone()))
             .expect("registration should not fail");
@@ -1024,6 +1042,7 @@ impl MetricsState {
             otlp_rejected_channel_full,
             otlp_rejected_memory_pressure,
             ingest_over_memory_limit: Arc::new(AtomicBool::new(false)),
+            ingest_memory_pressure,
             otlp_spans_received_total,
             otlp_spans_filtered_total,
             #[cfg(feature = "daemon")]
@@ -1085,11 +1104,13 @@ impl MetricsState {
         self.analysis_shed_traces_total.inc_by(trace_count as u64);
     }
 
-    /// Set the memory-pressure admission flag read by the OTLP handlers.
-    /// Called by the cgroup watcher (`daemon::mem_pressure`) each poll.
+    /// Set the memory-pressure admission flag read by the ingest
+    /// listeners, and its gauge twin for alerting. Called by the cgroup
+    /// watcher (`daemon::mem_pressure`) each poll.
     #[inline]
     pub fn set_memory_high_water(&self, over: bool) {
         self.ingest_over_memory_limit.store(over, Ordering::Relaxed);
+        self.ingest_memory_pressure.set(i64::from(over));
     }
 
     /// Increment `perf_sentinel_ack_operations_total` for the given

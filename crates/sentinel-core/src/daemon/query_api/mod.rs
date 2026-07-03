@@ -426,6 +426,8 @@ struct ConfigResponse {
     max_retained_findings: usize,
     ingest_queue_capacity: usize,
     analysis_queue_capacity: usize,
+    /// `[daemon] memory_high_water_pct` (0 = guard disabled).
+    memory_high_water_pct: u8,
     api_enabled: bool,
     /// True when both TLS cert and key paths are set (paths themselves
     /// never exposed).
@@ -460,6 +462,7 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
         max_retained_findings: d.max_retained_findings,
         ingest_queue_capacity: d.ingest_queue_capacity,
         analysis_queue_capacity: d.analysis_queue_capacity,
+        memory_high_water_pct: d.memory_high_water_pct,
         api_enabled: d.api_enabled,
         tls_configured: d.tls.cert_path.is_some() && d.tls.key_path.is_some(),
         ack_enabled: d.ack.enabled,
