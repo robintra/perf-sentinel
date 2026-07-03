@@ -707,6 +707,25 @@ fn tuning_advisor_flags_analysis_sheds_with_queue_capacity() {
 }
 
 #[test]
+fn tuning_advisor_flags_memory_pressure_rejections() {
+    let metrics = MetricsState::new();
+    metrics.otlp_rejected_memory_pressure.inc_by(4);
+    let daemon = crate::config::DaemonConfig {
+        memory_high_water_pct: 80,
+        ..crate::config::DaemonConfig::default()
+    };
+    let msgs = tuning_messages(&metrics, &daemon);
+    assert_eq!(msgs.len(), 1);
+    assert!(
+        msgs[0].contains("memory guard")
+            && msgs[0].contains("memory_high_water_pct = 80")
+            && msgs[0].contains("container memory limit"),
+        "got: {}",
+        msgs[0]
+    );
+}
+
+#[test]
 fn tuning_advisor_flags_trace_window_near_cap() {
     let metrics = MetricsState::new();
     metrics.active_traces.set(9_500.0);

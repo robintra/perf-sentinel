@@ -1117,6 +1117,14 @@ impl Config {
             &1,
             &1_048_576,
         )?;
+        // 0 disables the memory-pressure admission guard; 1..=100 is a
+        // percentage of the cgroup memory limit.
+        check_range(
+            "memory_high_water_pct",
+            &self.daemon.memory_high_water_pct,
+            &0,
+            &100,
+        )?;
         check_range("listen_port_http", &self.daemon.listen_port, &1, &65535)?;
         check_range(
             "listen_port_grpc",

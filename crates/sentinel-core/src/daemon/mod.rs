@@ -14,6 +14,7 @@ mod event_loop;
 #[cfg(unix)]
 mod json_socket;
 mod listeners;
+mod mem_pressure;
 mod sampling;
 mod tls;
 
@@ -171,6 +172,9 @@ fn publish_config_caps(metrics: &MetricsState, daemon: &crate::config::DaemonCon
 /// # Panics
 ///
 /// Panics if `config.daemon.max_active_traces` is 0 (config validation prevents this).
+// Daemon startup wiring: bind listeners, spawn scrapers + guards, run the
+// loop, clean up. Linear orchestration, splitting would scatter the sequence.
+#[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     validate_official_reporting(&config)?;
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(config.daemon.ingest_queue_capacity);
@@ -182,6 +186,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     })));
     let metrics = Arc::new(MetricsState::new());
     publish_config_caps(&metrics, &config.daemon);
+    // Memory-pressure admission guard (opt-in): poll cgroup usage and flip
+    // the flag the OTLP handlers read. `None` when disabled.
+    let memory_watch =
+        mem_pressure::spawn_if_enabled(&metrics, config.daemon.memory_high_water_pct);
     let findings_store = Arc::new(findings_store::FindingsStore::new(
         config.daemon.max_retained_findings,
     ));
@@ -272,6 +280,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         archive_handle.as_ref().map(|h| h.tx.clone()),
     )
     .await;
+
+    if let Some(handle) = memory_watch {
+        handle.abort();
+    }
 
     if let Some(handle) = archive_handle {
         drop(handle.tx);

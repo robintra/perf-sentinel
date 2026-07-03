@@ -87,8 +87,15 @@ Valeurs du label `reason` :
   La voie HTTP renvoie 503, la voie gRPC renvoie `UNAVAILABLE` en
   saturation (les deux sont retryables selon la spec OTLP) et
   `INTERNAL` seulement quand le canal est fermé pendant l'arrêt.
+- `memory_pressure` (HTTP et gRPC) : la mémoire du cgroup a franchi le
+  seuil `[daemon] memory_high_water_pct`, l'ingest est donc rejeté
+  (HTTP 503, gRPC `UNAVAILABLE`, les deux retryables) pour borner la RSS
+  indépendamment de la profondeur de queue, jusqu'à ce que l'usage
+  repasse sous le seuil. Ne se déclenche jamais quand le garde-fou est
+  désactivé (`memory_high_water_pct = 0`, défaut) ni sur un hôte sans
+  limite mémoire cgroup v2.
 
-Les 3 reasons sont pré-warmées à 0 au démarrage pour que les dashboards
+Les 4 reasons sont pré-warmées à 0 au démarrage pour que les dashboards
 puissent plotter la ligne zéro avant le premier rejet.
 
 `payload_too_large` n'est **pas** comptabilisé par cette metric.
@@ -129,7 +136,7 @@ analysable. Valeurs du label `reason` de
 | `perf_sentinel_events_processed_total`         | counter   | (aucun)            | Compte cumulatif d'events traités par l'event loop.                                                                                                                                                                                                                                                   |
 | `perf_sentinel_active_traces`                  | gauge     | (aucun)            | Traces actuellement actives dans la fenêtre glissante.                                                                                                                                                                                                                                                |
 | `perf_sentinel_analysis_queue_depth`           | gauge     | (aucun)            | Lots en attente dans la file du worker d'analyse (incrémenté à l'enfilement, décrémenté quand le worker prend un lot). Une valeur non nulle durable signifie que detect+score prend du retard sur l'ingestion.                                                                                        |
-| `perf_sentinel_stored_findings`                | gauge     | (aucun)            | Findings actuellement retenus dans le ring buffer de la query API (depuis 0.8.8). À apparier avec `perf_sentinel_max_retained_findings` pour un ratio de headroom.                                                                                                                                   |
+| `perf_sentinel_stored_findings`                | gauge     | (aucun)            | Findings actuellement retenus dans le ring buffer de la query API (depuis 0.8.8). À apparier avec `perf_sentinel_max_retained_findings` pour un ratio de headroom.                                                                                                                                    |
 | `perf_sentinel_max_active_traces`              | gauge     | (aucun)            | Plafond configuré de la fenêtre glissante (`[daemon] max_active_traces`), positionné une fois au démarrage (depuis 0.8.8). À apparier avec `perf_sentinel_active_traces`. Le conseiller de réglages alerte à 90 %.                                                                                    |
 | `perf_sentinel_analysis_queue_capacity`        | gauge     | (aucun)            | Plafond configuré de la file du worker d'analyse (`[daemon] analysis_queue_capacity`), positionné une fois au démarrage (depuis 0.8.8). À apparier avec `perf_sentinel_analysis_queue_depth`.                                                                                                         |
 | `perf_sentinel_max_retained_findings`          | gauge     | (aucun)            | Plafond configuré du ring buffer de findings (`[daemon] max_retained_findings`), positionné une fois au démarrage (depuis 0.8.8). À apparier avec `perf_sentinel_stored_findings`.                                                                                                                    |
@@ -271,7 +278,7 @@ touché, ils ne sont visibles que dans les logs daemon au niveau
 | Metric                                               | Type    | Labels    | Description                                                                                                                                                                                                                                                                |
 |------------------------------------------------------|---------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `perf_sentinel_io_waste_ratio`                       | gauge   | (aucun)   | Ratio I/O waste cumulatif (avoidable / total) depuis le démarrage. Utiliser `rate()` sur les counters sous-jacents pour des valeurs sur fenêtre.                                                                                                                           |
-| `perf_sentinel_energy_kwh`                           | gauge   | (aucun)   | Énergie du workload sur la dernière fenêtre de scoring, kWh (depuis 0.8.8). Total scalaire seulement : le détail par service et par région reste hors `/metrics` (cardinalité) et vit sur les onglets Energy/Trends de `query monitor`.                                     |
+| `perf_sentinel_energy_kwh`                           | gauge   | (aucun)   | Énergie du workload sur la dernière fenêtre de scoring, kWh (depuis 0.8.8). Total scalaire seulement : le détail par service et par région reste hors `/metrics` (cardinalité) et vit sur les onglets Energy/Trends de `query monitor`.                                    |
 | `perf_sentinel_carbon_gco2`                          | gauge   | (aucun)   | Carbone opérationnel de la dernière fenêtre de scoring, grammes CO2e, sommé sur les régions (depuis 0.8.8). Même logique scalaire que `perf_sentinel_energy_kwh`.                                                                                                          |
 | `perf_sentinel_total_io_ops`                         | counter | (aucun)   | Total cumulatif d'ops I/O traitées.                                                                                                                                                                                                                                        |
 | `perf_sentinel_avoidable_io_ops`                     | counter | (aucun)   | Total cumulatif d'ops I/O évitables détectées.                                                                                                                                                                                                                             |
@@ -289,11 +296,11 @@ chacun avec un cycle de vie différent. La distinction compte pour la
 stratégie de monitoring : un warning transitoire se résout seul, un
 collant persiste jusqu'au redémarrage du daemon.
 
-| Kind              | Cycle de vie | Émis quand                                                                            | Effacé par                                                                         |
-|-------------------|--------------|---------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| `cold_start`      | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon           | Premier batch réussi (les deux compteurs strictement positifs)                     |
-| `ingestion_drops` | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` depuis le démarrage    | Redémarrage du daemon (reset du compteur)                                          |
-| `tuning`          | Mixte        | Un compteur lifetime montre un réglage sous-dimensionné pour la charge (voir dessous) | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre |
+| Kind              | Cycle de vie | Émis quand                                                                                              | Effacé par                                                                         |
+|-------------------|--------------|---------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `cold_start`      | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon                             | Premier batch réussi (les deux compteurs strictement positifs)                     |
+| `ingestion_drops` | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full" ou "memory_pressure"} > 0` depuis le démarrage | Redémarrage du daemon (reset du compteur)                                          |
+| `tuning`          | Mixte        | Un compteur lifetime montre un réglage sous-dimensionné pour la charge (voir dessous)                   | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre |
 
 `cold_start` est un warning d'état : "le snapshot n'est pas
 significatif maintenant". `ingestion_drops` est un warning d'audit :
@@ -306,15 +313,16 @@ détection.
 
 Les entrées `tuning` sont des conseils de configuration : chaque
 message nomme le réglage, sa valeur actuelle et l'ajustement suggéré.
-Six règles tournent à chaque appel `/api/export/report` :
+Sept règles tournent à chaque appel `/api/export/report` :
 
-| Déclencheur                                                                 | Réglage suggéré                                                              |
-|-----------------------------------------------------------------------------|------------------------------------------------------------------------------|
-| `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                             |
-| `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` ou plus de CPU                            |
-| `perf_sentinel_active_traces` à 90 % ou plus de `max_active_traces`         | `[daemon] max_active_traces` ou un `trace_ttl_ms` plus bas                   |
-| `perf_sentinel_service_io_ops_overflow_total > 0`                           | Agréger ou réduire les noms de services (le plafond de 1024 séries est fixe) |
-| `perf_sentinel_correlator_pairs_evicted_total > 0` avec corrélation activée | `[daemon.correlation] max_tracked_pairs`                                     |
+| Déclencheur                                                                 | Réglage suggéré                                                                        |
+|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                                       |
+| `perf_sentinel_otlp_rejected_total{reason="memory_pressure"} > 0`           | Limite mémoire du conteneur (le garde-fou borne la RSS)                                |
+| `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` ou plus de CPU                                      |
+| `perf_sentinel_active_traces` à 90 % ou plus de `max_active_traces`         | `[daemon] max_active_traces` ou un `trace_ttl_ms` plus bas                             |
+| `perf_sentinel_service_io_ops_overflow_total > 0`                           | Agréger ou réduire les noms de services (le plafond de 1024 séries est fixe)           |
+| `perf_sentinel_correlator_pairs_evicted_total > 0` avec corrélation activée | `[daemon.correlation] max_tracked_pairs`                                               |
 | Tous les spans OTLP reçus filtrés comme non analysables (après 1000 spans)  | Corriger les attributs de spans ou pointer les services instrumentés vers cet endpoint |
 
 Les règles à compteurs sont collantes (les compteurs lifetime ne se
