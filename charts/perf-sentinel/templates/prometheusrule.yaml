@@ -26,13 +26,21 @@ spec:
             summary: "perf-sentinel daemon is not reporting metrics"
             description: "perf_sentinel_active_traces has been absent for 5m. The daemon is down or its /metrics endpoint is not being scraped."
         - alert: PerfSentinelIngestRejecting
-          expr: rate(perf_sentinel_otlp_rejected_total[5m]) > 0
+          expr: rate(perf_sentinel_otlp_rejected_total{reason="channel_full"}[5m]) > 0
           for: 10m
           labels:
             severity: warning
           annotations:
             summary: "perf-sentinel is rejecting OTLP spans"
-            description: "perf_sentinel_otlp_rejected_total is increasing: the ingest channel is full and spans are refused (HTTP 503). Raise daemon.ingest_queue_capacity or limits.cpu."
+            description: "perf_sentinel_otlp_rejected_total{reason=channel_full} is increasing: the ingest channel is full and spans are refused (HTTP 503). Raise daemon.ingest_queue_capacity or limits.cpu."
+        - alert: PerfSentinelMemoryPressureRejecting
+          expr: rate(perf_sentinel_otlp_rejected_total{reason="memory_pressure"}[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "perf-sentinel is rejecting OTLP spans under memory pressure"
+            description: "perf_sentinel_otlp_rejected_total{reason=memory_pressure} is increasing: the daemon is refusing ingest to keep RSS under the cgroup memory limit (protecting against OOM). Raise resources.limits.memory or add replicas to spread ingestion."
         - alert: PerfSentinelAnalysisShedding
           expr: rate(perf_sentinel_analysis_shed_traces_total[5m]) > 0
           for: 10m
