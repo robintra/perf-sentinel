@@ -305,7 +305,7 @@
               
                 <div data-dc-tpl="120" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="121" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">OTLP live</span></div>
-                  <div data-dc-tpl="122" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK.</span></div>
+                  <div data-dc-tpl="122" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le datadogreceiver du Collector.</span></div>
                 </div>
               
                 <div data-dc-tpl="120" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -1461,7 +1461,7 @@ class Component extends DCLogic {
         fmInLabel: 'Inputs', fmOutLabel: 'Outputs',
         fmInputs: [
           { name: 'Trace files', desc: 'Native perf-sentinel JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
-          { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK.' },
+          { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector datadogreceiver.' },
           { name: 'Grafana Tempo', desc: 'Pull traces directly from a Tempo backend with perf-sentinel tempo.' },
           { name: 'Jaeger query API', desc: 'Pull from a Jaeger or Victoria Traces backend with perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.' },
@@ -1629,7 +1629,7 @@ class Component extends DCLogic {
         fmInLabel: 'Entrées', fmOutLabel: 'Sorties',
         fmInputs: [
           { name: 'Fichiers de traces', desc: 'JSON natif perf-sentinel, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
-          { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK.' },
+          { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le datadogreceiver du Collector.' },
           { name: 'Grafana Tempo', desc: 'Récupère les traces directement depuis un backend Tempo avec perf-sentinel tempo.' },
           { name: 'API Jaeger query', desc: 'Récupère depuis un backend Jaeger ou Victoria Traces avec perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Classe les hotspots PostgreSQL depuis la vue catalogue avec perf-sentinel pg-stat.' },
