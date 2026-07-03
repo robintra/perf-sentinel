@@ -22,6 +22,16 @@ pub(crate) fn require_terminal_or_exit() {
     }
 }
 
+/// Print a sanitized fatal error and exit 1. Shared by the load steps
+/// of `cmd_disclose_tui` so each failure site stays a one-liner.
+fn exit_with_error(err: &dyn std::fmt::Display) -> ! {
+    eprintln!(
+        "Error: {}",
+        sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
+    );
+    std::process::exit(1);
+}
+
 /// Shared launcher for the unified multi-view TUI. `analyze --tui`,
 /// `explain --tui` and `inspect` all funnel here, differing only by the
 /// initial view (and, for explain, the focused trace). Stubs per-trace
@@ -186,27 +196,10 @@ pub(crate) fn cmd_disclose_tui(
 
     require_terminal_or_exit();
 
-    let org = match org_config_loader::load_from_path(org_config) {
-        Ok(c) => c,
-        Err(err) => {
-            eprintln!(
-                "Error: {}",
-                sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
-            );
-            std::process::exit(1);
-        }
-    };
+    let org =
+        org_config_loader::load_from_path(org_config).unwrap_or_else(|err| exit_with_error(&err));
 
-    let archive_range = match archive_time_range(&input) {
-        Ok(range) => range,
-        Err(err) => {
-            eprintln!(
-                "Error: {}",
-                sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
-            );
-            std::process::exit(1);
-        }
-    };
+    let archive_range = archive_time_range(&input).unwrap_or_else(|err| exit_with_error(&err));
 
     let state = disclose::DiscloseState::new(
         input,
