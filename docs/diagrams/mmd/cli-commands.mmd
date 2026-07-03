@@ -11,12 +11,13 @@ flowchart LR
     demo["demo<br/><i>embedded dataset</i>"]
     bench["bench<br/><i>--input file<br/>--iterations N</i>"]
     pgstat["pg-stat<br/><i>--input csv|json<br/>--prometheus URL<br/>--top-n N --traces file</i>"]
+    mysqlstat["mysql-stat<br/><i>--input csv|json<br/>--top-n N --traces file<br/>performance_schema digests</i>"]
     tempo["tempo ⚙ tempo<br/><i>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h</i>"]
     jaeger_query["jaeger-query ⚙ jaeger-query<br/><i>Jaeger or Victoria Traces<br/>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h --max-traces N</i>"]
     calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
     query["query<br/><i>--daemon URL<br/>(subcommand)</i>"]
     ack["ack ⚙ daemon<br/><i>--daemon URL<br/>(subcommand: create|revoke|list)<br/>auth: env / --api-key-file / TTY prompt</i>"]
-    report["report<br/><i>--input file|-<br/>--output report.html<br/>--pg-stat file | --pg-stat-prometheus URL<br/>--before baseline.json<br/>--max-traces-embedded N</i>"]
+    report["report<br/><i>--input file|-<br/>--output report.html<br/>--pg-stat file | --pg-stat-prometheus URL<br/>--mysql-stat file<br/>--before baseline.json<br/>--max-traces-embedded N</i>"]
     diff["diff<br/><i>--before file --after file<br/>--format text|json|sarif</i>"]
     disclose["disclose<br/><i>--intent internal|official|audited<br/>--confidentiality internal|public<br/>--period-type calendar-*|custom<br/>--from --to YYYY-MM-DD<br/>--input ndjson archive(s)<br/>--org-config toml<br/>--emit-attestation (optional)<br/>--tui read-only preview ⚙ tui</i>"]
     verify_hash["verify-hash<br/><i>--report file | --url URL<br/>--attestation in-toto v1<br/>--bundle cosign<br/>--expected-identity --expected-issuer<br/>--format text|json</i>"]
@@ -72,7 +73,7 @@ flowchart LR
     report_verify["Verification<br/>result<br/><i>text or JSON</i>"]
     report_baked["Report<br/>with baked<br/>content_hash"]
 
-    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & jaeger_query & calibrate & query & ack & report & diff & disclose & verify_hash & hash_bake
+    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & mysqlstat & tempo & jaeger_query & calibrate & query & ack & report & diff & disclose & verify_hash & hash_bake
 
     analyze --> analyze_pipeline
     analyze_pipeline --> report_text
@@ -108,6 +109,7 @@ flowchart LR
     pgstat --> pgstat_sources
     pg_file --> ranking
     pg_prom --> ranking
+    mysqlstat --> ranking
     ranking --> report_text
     ranking --> report_json
 
