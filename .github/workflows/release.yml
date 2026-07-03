@@ -81,7 +81,7 @@ jobs:
         if: matrix.musl
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      # `rust-toolchain.toml` pins 1.96.0 and rustup auto-installs it on the
+      # `rust-toolchain.toml` pins 1.96.1 and rustup auto-installs it on the
       # first cargo call. The target must be added to THAT toolchain, not to
       # the `stable` channel the action sets up (they are different versions).
       # The two musl targets add a cross-libc target onto their host toolchain;
