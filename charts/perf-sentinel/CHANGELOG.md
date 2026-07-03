@@ -6,6 +6,28 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.5]
+
+### Added
+
+- New `PerfSentinelMemoryPressureRejecting` alert, and
+  `PerfSentinelIngestRejecting` is now scoped to `reason="channel_full"`,
+  so a memory-guard rejection carries the right remediation (raise
+  `resources.limits.memory`, not the ingest queue). Pairs with the new
+  daemon `[daemon] memory_high_water_pct` knob.
+
+### Changed
+
+- appVersion 0.9.5. The binary adds OTLP JSON auto-detection to batch
+  `analyze --input` (single object or Collector `file` exporter NDJSON)
+  and a new `mysql-stat` subcommand ranking MySQL hotspots from
+  `performance_schema.events_statements_summary_by_digest` exports, with
+  a matching `mysql_stat` tab in the self-contained HTML dashboard. An
+  opt-in daemon memory-pressure guard (`[daemon] memory_high_water_pct`,
+  default off) rejects OTLP ingest when cgroup v2 memory crosses the
+  configured high-water mark, bounding RSS against OOM. The toolchain
+  moves to Rust 1.96.1.
+
 ## [0.9.4]
 
 ### Changed
