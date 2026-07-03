@@ -187,8 +187,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let metrics = Arc::new(MetricsState::new());
     publish_config_caps(&metrics, &config.daemon);
     // Memory-pressure admission guard (opt-in): poll cgroup usage and flip
-    // the flag the OTLP handlers read. `None` when disabled.
-    let memory_watch =
+    // the flag the ingest listeners read. `None` when disabled. The guard
+    // aborts the watcher on drop, covering the early `?` returns below
+    // (listener bind, archive open) as well as the normal exit.
+    let _memory_watch =
         mem_pressure::spawn_if_enabled(&metrics, config.daemon.memory_high_water_pct);
     let findings_store = Arc::new(findings_store::FindingsStore::new(
         config.daemon.max_retained_findings,
@@ -280,10 +282,6 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         archive_handle.as_ref().map(|h| h.tx.clone()),
     )
     .await;
-
-    if let Some(handle) = memory_watch {
-        handle.abort();
-    }
 
     if let Some(handle) = archive_handle {
         drop(handle.tx);

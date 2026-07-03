@@ -456,6 +456,23 @@ fn rejects_negative_sampling_rate() {
 }
 
 #[test]
+fn memory_high_water_pct_rejects_the_hysteresis_dead_zone() {
+    // 0 disables; 1..=5 would clamp the hysteresis low bound at or
+    // below zero and the guard could never un-reject once tripped.
+    assert!(load_from_str("[daemon]\nmemory_high_water_pct = 0").is_ok());
+    assert!(load_from_str("[daemon]\nmemory_high_water_pct = 6").is_ok());
+    assert!(load_from_str("[daemon]\nmemory_high_water_pct = 100").is_ok());
+    let err = load_from_str("[daemon]\nmemory_high_water_pct = 5")
+        .expect_err("dead-zone pct must be rejected")
+        .to_string();
+    assert!(
+        err.contains("memory_high_water_pct") && err.contains("hysteresis"),
+        "got: {err}"
+    );
+    assert!(load_from_str("[daemon]\nmemory_high_water_pct = 101").is_err());
+}
+
+#[test]
 fn rejects_io_waste_ratio_max_above_one() {
     let result = load_from_str("[thresholds]\nio_waste_ratio_max = 1.5");
     assert!(result.is_err());
