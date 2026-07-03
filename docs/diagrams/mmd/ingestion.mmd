@@ -8,12 +8,15 @@ flowchart TD
 
     peek["Peek first 1 KB"]
 
+    otlp_check{"starts with curly brace\nAND contains resourceSpans"}
+
     obj_check{"starts with curly brace\nAND contains data key"}
     deeper["Peek first 4 KB"]
     spans_check{"contains spans key"}
 
     zipkin_check{"starts with bracket\nAND contains traceId\nAND contains localEndpoint"}
 
+    otlp_parse["OTLP JSON<br/><i>single request or NDJSON<br/>stream deserializer</i>"]
     jaeger_parse["Jaeger JSON"]
     zipkin_parse["Zipkin JSON v2"]
     native_parse["Native JSON"]
@@ -26,7 +29,9 @@ flowchart TD
     size -- "yes" --> reject
     size -- "no" --> peek
 
-    peek --> obj_check
+    peek --> otlp_check
+    otlp_check -- "yes" --> otlp_parse
+    otlp_check -- "no" --> obj_check
     obj_check -- "yes" --> deeper
     deeper --> spans_check
     spans_check -- "yes" --> jaeger_parse
@@ -35,12 +40,14 @@ flowchart TD
     zipkin_check -- "yes" --> zipkin_parse
     zipkin_check -- "no" --> native_parse
 
+    otlp_parse --> sanitize
     jaeger_parse --> sanitize
     zipkin_parse --> sanitize
     native_parse --> sanitize
     sanitize --> output
 
     style reject fill:#4a2d2d,stroke:#f87171
+    style otlp_parse fill:#3b2d4a,stroke:#a78bfa
     style jaeger_parse fill:#4a3b2d,stroke:#fbbf24
     style zipkin_parse fill:#2d4a3e,stroke:#4ade80
     style native_parse fill:#2d3b4a,stroke:#60a5fa
