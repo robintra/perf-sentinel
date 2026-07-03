@@ -3244,7 +3244,9 @@
       "mean_exec_time_ms", "rows_sent", "rows_examined", "seen_in_traces"
     ];
     var rows = activeMysqlStatEntries().filter(function (e) {
-      return matchesSearch(e.normalized_template, term);
+      // Match template + schema, mirroring the visible row filter
+      // (matchRowByText sees the whole row, Schema column included).
+      return matchesSearch(e.normalized_template + " " + (e.schema_name || ""), term);
     }).map(function (e) {
       return [
         e.normalized_template || "",
