@@ -87,11 +87,17 @@ Valeurs du label `reason` :
   La voie HTTP renvoie 503, la voie gRPC renvoie `UNAVAILABLE` en
   saturation (les deux sont retryables selon la spec OTLP) et
   `INTERNAL` seulement quand le canal est fermé pendant l'arrêt.
-- `memory_pressure` (HTTP et gRPC) : la mémoire du cgroup a franchi le
-  seuil `[daemon] memory_high_water_pct`, l'ingest est donc rejeté
-  (HTTP 503, gRPC `UNAVAILABLE`, les deux retryables) pour borner la RSS
-  indépendamment de la profondeur de queue, jusqu'à ce que l'usage
-  repasse sous le seuil. Ne se déclenche jamais quand le garde-fou est
+- `memory_pressure` (HTTP, gRPC et la socket JSON Unix) : le working
+  set du cgroup a franchi le seuil `[daemon] memory_high_water_pct`,
+  l'ingest est donc rejeté (HTTP 503, gRPC `UNAVAILABLE`, les deux
+  retryables) pour borner la RSS indépendamment de la profondeur de
+  queue, jusqu'à ce que l'usage retombe 5 points de pourcentage sous le
+  seuil (hystérésis). L'état on/off vit sur la gauge
+  `perf_sentinel_ingest_memory_pressure` (`1` pendant le rejet), c'est
+  elle que l'alerte Helm surveille. Ces rejets précèdent le décodage,
+  donc `perf_sentinel_otlp_spans_received_total` n'avance pas pendant
+  un épisode (le nombre de spans est inconnaissable), le compteur
+  compte des requêtes. Ne se déclenche jamais quand le garde-fou est
   désactivé (`memory_high_water_pct = 0`, défaut) ni sur un hôte sans
   limite mémoire cgroup v2.
 

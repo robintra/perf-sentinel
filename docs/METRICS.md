@@ -85,12 +85,19 @@ sibling Pod cannot read the daemon's process state freely.
   returns 503, the gRPC path returns `UNAVAILABLE` on saturation
   (both retryable per the OTLP spec) and `INTERNAL` only when the
   channel is closed during shutdown.
-- `memory_pressure` (HTTP and gRPC): cgroup memory crossed the
-  `[daemon] memory_high_water_pct` high-water mark, so ingest is
-  rejected (HTTP 503, gRPC `UNAVAILABLE`, both retryable) to bound RSS
-  independently of queue depth, until usage falls back below the mark.
-  Never fires when the guard is disabled (`memory_high_water_pct = 0`,
-  the default) or on a host without a cgroup v2 memory limit.
+- `memory_pressure` (HTTP, gRPC and the Unix JSON socket): the cgroup
+  working set crossed the `[daemon] memory_high_water_pct` high-water
+  mark, so ingest is rejected (HTTP 503, gRPC `UNAVAILABLE`, both
+  retryable) to bound RSS independently of queue depth, until usage
+  falls 5 percentage points back below the mark (hysteresis). The live
+  on/off state is on the `perf_sentinel_ingest_memory_pressure` gauge
+  (`1` while rejecting), which is what the Helm alert keys on. These
+  rejections happen BEFORE the request is decoded, so
+  `perf_sentinel_otlp_spans_received_total` does not advance during an
+  episode (the span counts are unknowable); the counter tallies
+  requests, not spans. Never fires when the guard is disabled
+  (`memory_high_water_pct = 0`, the default) or on a host without a
+  cgroup v2 memory limit.
 
 All 4 reasons are pre-warmed to 0 at startup so dashboards can plot
 zero-values before the first rejection.
