@@ -1893,17 +1893,18 @@ async fn cmd_report(
         )
     });
 
-    let options = sentinel_core::report::html::RenderOptions {
-        input_label,
-        max_traces_embedded,
-        pg_stat,
-        mysql_stat,
-        diff,
-        #[cfg(feature = "daemon")]
-        daemon_url,
-        #[cfg(not(feature = "daemon"))]
-        daemon_url: None,
-    };
+    // Field-by-field on a Default: RenderOptions is #[non_exhaustive], so
+    // cross-crate struct literals do not compile.
+    let mut options = sentinel_core::report::html::RenderOptions::default();
+    options.input_label = input_label;
+    options.max_traces_embedded = max_traces_embedded;
+    options.pg_stat = pg_stat;
+    options.mysql_stat = mysql_stat;
+    options.diff = diff;
+    #[cfg(feature = "daemon")]
+    {
+        options.daemon_url = daemon_url;
+    }
 
     let (html, stats) = sentinel_core::report::html::render(&report, &traces, &options);
     if let Err(e) = write_file_no_follow(output, html.as_bytes()) {
