@@ -106,8 +106,9 @@ const PAYLOAD_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Options controlling HTML rendering.
 ///
 /// `#[non_exhaustive]` for SemVer-minor field additions (0.9.5 added
-/// `mysql_stat`); external crates construct it with
-/// `RenderOptions { input_label: ..., ..Default::default() }`.
+/// `mysql_stat`); struct literals (including functional record update)
+/// do not compile outside this crate, so external crates start from
+/// `RenderOptions::default()` and set the public fields one by one.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct RenderOptions {
