@@ -110,7 +110,7 @@
 <span style="color:var(--term-comment)"># 4. Stream traces from your apps (daemon mode)</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span></code></pre>
         </div>
-        <p data-dc-tpl="63" style="margin: 16px 0px 0px; font-size: 14px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">demo --html is a full showcase: every dashboard tab is populated (findings, Explain, GreenOps, pg_stat, Diff and synthesized cross-trace correlations).</span></p>
+        <p data-dc-tpl="63" style="margin: 16px 0px 0px; font-size: 14px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations).</span></p>
         <p data-dc-tpl="64" style="margin: 10px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><strong data-dc-tpl="65" style="color: var(--text); font-weight: 600;"><span class="sc-interp">On dd-trace?</span></strong> <span class="sc-interp">There is no OpenTelemetry file to feed step 2: bridge via the Collector <code class="dc-cmd">datadogreceiver</code>, then either <code class="dc-cmd">watch</code> for the daemon or a Jaeger/Tempo backend with <code class="dc-cmd">jaeger-query</code>/<code class="dc-cmd">tempo</code> for batch, since <code class="dc-cmd">analyze</code> does not read OTLP. See</span> <a data-dc-tpl="66" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
       </section>
 
@@ -1415,7 +1415,7 @@ class Component extends DCLogic {
         qsTitle: 'Quickstart',
         qsIntro: 'Four steps, from the built-in demo to a live daemon. Nothing to install on your application side, but your spans must already carry the query text (`db.statement`) and the target URL (`http.url`): spans without those attributes are dropped silently, so audit your own tracing first with `perf-sentinel inspect`.',
         qsCode: '# 1. Try the built-in demo (no app-side setup)\nperf-sentinel demo                   # colored terminal report\nperf-sentinel demo --tui             # interactive TUI report\nperf-sentinel demo --html demo.html  # HTML dashboard\n\n# 2. Analyze a captured trace file\nperf-sentinel analyze --input traces.json\n\n# 3. Use it as a CI quality gate (exit 1 over threshold)\nperf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml\n\n# 4. Stream traces from your apps (daemon mode)\nperf-sentinel watch',
-        qsNote: 'demo --html is a full showcase: every dashboard tab is populated (findings, Explain, GreenOps, pg_stat, Diff and synthesized cross-trace correlations).',
+        qsNote: 'demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations).',
         qsDdLabel: 'On dd-trace?',
         qsDdNote: 'There is no OpenTelemetry file to feed step 2: bridge via the Collector `datadogreceiver`, then either `watch` for the daemon or a Jaeger/Tempo backend with `jaeger-query`/`tempo` for batch, since `analyze` does not read OTLP. See',
         qsDdLink: 'Coming from Datadog',
@@ -1587,7 +1587,7 @@ class Component extends DCLogic {
         qsTitle: 'Démarrage rapide',
         qsIntro: 'Quatre étapes, de la démo intégrée au daemon live. Rien à installer côté applications, mais vos spans doivent déjà porter le texte de la requête (`db.statement`) et l’URL cible (`http.url`) : les spans sans ces attributs sont écartés en silence, auditez donc votre tracing d’abord avec `perf-sentinel inspect`.',
         qsCode: '# 1. Essayer la démo intégrée (rien côté apps)\nperf-sentinel demo                   # rapport terminal en couleurs\nperf-sentinel demo --tui             # rapport TUI interactif\nperf-sentinel demo --html demo.html  # tableau de bord HTML\n\n# 2. Analyser un fichier de traces capturées\nperf-sentinel analyze --input traces.json\n\n# 3. En quality gate CI (exit 1 si seuil dépassé)\nperf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml\n\n# 4. Streamer les traces de vos apps (mode daemon)\nperf-sentinel watch',
-        qsNote: 'demo --html est une vitrine complète : tous les onglets du tableau de bord sont remplis (findings, Explain, GreenOps, pg_stat, Diff et corrélations inter-traces synthétisées).',
+        qsNote: 'demo --html est une vitrine complète : tous les onglets du tableau de bord sont remplis (Overview, Findings avec Explain en ligne, Carbon, pg_stat, Diff et corrélations inter-traces synthétisées).',
         qsDdLabel: 'Sur dd-trace ?',
         qsDdNote: 'Pas de fichier OpenTelemetry à passer à l’étape 2 : faites le pont via le `datadogreceiver` du Collector, puis soit `watch` pour le daemon, soit un backend Jaeger/Tempo avec `jaeger-query`/`tempo` en batch, car `analyze` ne lit pas l’OTLP. Voir',
         qsDdLink: 'Vous venez de Datadog',
