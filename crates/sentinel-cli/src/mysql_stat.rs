@@ -23,7 +23,11 @@ pub(crate) fn load_mysql_stat_from_file(
     match sentinel_core::ingest::mysql_stat::parse_mysql_stat(&raw, limits::MAX_BATCH_INPUT_BYTES) {
         Ok(entries) => sentinel_core::ingest::mysql_stat::rank_mysql_stat(&entries, top_n),
         Err(e) => {
-            eprintln!("Error parsing --mysql-stat {}: {e}", path.display());
+            eprintln!(
+                "Error parsing --mysql-stat {}: {}",
+                path.display(),
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
             std::process::exit(1);
         }
     }
@@ -47,7 +51,10 @@ pub(crate) fn cmd_mysql_stat(
     ) {
         Ok(entries) => entries,
         Err(e) => {
-            eprintln!("Error parsing performance_schema digest export: {e}");
+            eprintln!(
+                "Error parsing performance_schema digest export: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
             std::process::exit(1);
         }
     };
@@ -76,7 +83,10 @@ fn run_mysql_stat_pipeline(
                 mysql_stat::cross_reference(&mut entries, &report.findings);
             }
             Err(e) => {
-                eprintln!("Warning: failed to ingest trace file for cross-reference: {e}");
+                eprintln!(
+                    "Warning: failed to ingest trace file for cross-reference: {}",
+                    sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+                );
             }
         }
     }
