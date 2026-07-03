@@ -831,6 +831,18 @@ fn draw_focus_changes_active_panel_border_style() {
     );
 }
 
+/// App primed on the Correlations panel with a single correlation whose
+/// `sample_trace_id` is `sample` (the shape every Enter/Escape test uses).
+fn correlations_app(sample: Option<&str>) -> App {
+    let mut app = make_test_app().with_correlations(vec![{
+        let mut c = make_correlation("a", "b");
+        c.sample_trace_id = sample.map(ToString::to_string);
+        c
+    }]);
+    app.active_panel = Panel::Correlations;
+    app
+}
+
 fn make_correlation(src_svc: &str, tgt_svc: &str) -> CrossTraceCorrelation {
     use sentinel_core::detect::correlate_cross::CorrelationEndpoint;
     CrossTraceCorrelation {
@@ -1645,12 +1657,7 @@ fn ack_modal_error_message_is_rendered() {
 
 #[test]
 fn enter_in_correlations_jumps_to_sample_trace_detail() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = Some("trace-2".to_string());
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(Some("trace-2"));
     app.selected_correlation = 0;
 
     app.enter();
@@ -1666,12 +1673,7 @@ fn enter_in_correlations_jumps_to_sample_trace_detail() {
 
 #[test]
 fn enter_in_correlations_with_no_sample_trace_id_is_silent() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = None;
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(None);
     let panel_before = app.active_panel;
     let trace_before = app.selected_trace;
 
@@ -1686,12 +1688,7 @@ fn enter_in_correlations_with_no_sample_trace_id_is_silent() {
 
 #[test]
 fn enter_in_correlations_with_unknown_trace_id_is_silent() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = Some("trace-from-yesterday".to_string());
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(Some("trace-from-yesterday"));
     let panel_before = app.active_panel;
     let trace_before = app.selected_trace;
 
@@ -1706,12 +1703,7 @@ fn enter_in_correlations_with_unknown_trace_id_is_silent() {
 
 #[test]
 fn enter_in_correlations_resets_finding_and_scroll() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = Some("trace-2".to_string());
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(Some("trace-2"));
     app.selected_correlation = 0;
     app.selected_finding = 3;
     app.scroll_offset = 5;
@@ -1739,12 +1731,7 @@ fn enter_in_correlations_with_empty_correlations_is_silent() {
 
 #[test]
 fn enter_in_correlations_with_out_of_bounds_cursor_is_silent() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = Some("trace-2".to_string());
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(Some("trace-2"));
     app.selected_correlation = 99;
 
     app.enter();
@@ -1755,12 +1742,7 @@ fn enter_in_correlations_with_out_of_bounds_cursor_is_silent() {
 
 #[test]
 fn escape_from_correlations_drilled_detail_returns_to_correlations() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = Some("trace-2".to_string());
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(Some("trace-2"));
     app.selected_correlation = 0;
     app.enter();
     assert_eq!(app.active_panel, Panel::Detail);
@@ -1792,12 +1774,7 @@ fn escape_from_findings_drilled_detail_still_returns_to_findings() {
 
 #[test]
 fn jump_to_same_trace_preserves_cached_detail() {
-    let mut app = make_test_app().with_correlations(vec![{
-        let mut c = make_correlation("a", "b");
-        c.sample_trace_id = Some("trace-1".to_string());
-        c
-    }]);
-    app.active_panel = Panel::Correlations;
+    let mut app = correlations_app(Some("trace-1"));
     app.selected_correlation = 0;
     app.cached_detail = Some((0, "rendered tree for trace-1".to_string()));
 

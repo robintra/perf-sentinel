@@ -655,6 +655,36 @@ pub(crate) fn sort_findings(findings: &mut [Finding]) {
     });
 }
 
+/// Test-only `Finding` factory shared by the `pg_stat` and `mysql_stat`
+/// cross-reference tests (only the pattern template matters to them).
+#[cfg(test)]
+pub(crate) fn test_finding_with_template(template: &str) -> Finding {
+    Finding {
+        finding_type: FindingType::NPlusOneSql,
+        severity: Severity::Warning,
+        trace_id: "trace-1".to_string(),
+        service: "order-svc".to_string(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: template.to_string(),
+            occurrences: 6,
+            window_ms: 200,
+            distinct_params: 6,
+            ..Default::default()
+        },
+        suggestion: "batch".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

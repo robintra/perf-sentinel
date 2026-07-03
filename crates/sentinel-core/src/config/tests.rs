@@ -1765,11 +1765,10 @@ fn electricity_maps_env_var_takes_precedence_over_config_file() {
     assert_eq!(cfg.auth_token, "from-env");
 }
 
-#[test]
-fn cloud_auth_header_env_var_takes_precedence_over_config_file() {
-    // Env-lookup returns a header → it wins over `auth_header` in the file.
-    // Mirrors electricity_maps_env_var_takes_precedence_over_config_file.
-    let raw = CloudSection {
+/// `CloudSection` with only an `auth_header` set, for the env-precedence
+/// pair of tests below.
+fn cloud_section_with_file_auth() -> CloudSection {
+    CloudSection {
         prometheus_endpoint: Some("http://prometheus:9090".to_string()),
         scrape_interval_secs: None,
         default_provider: None,
@@ -1777,7 +1776,14 @@ fn cloud_auth_header_env_var_takes_precedence_over_config_file() {
         cpu_metric: None,
         services: HashMap::new(),
         auth_header: Some("Authorization: Bearer from-file".to_string()),
-    };
+    }
+}
+
+#[test]
+fn cloud_auth_header_env_var_takes_precedence_over_config_file() {
+    // Env-lookup returns a header → it wins over `auth_header` in the file.
+    // Mirrors electricity_maps_env_var_takes_precedence_over_config_file.
+    let raw = cloud_section_with_file_auth();
     let cfg =
         convert_cloud_section_with_env(&raw, || Some("Authorization: Bearer from-env".to_string()))
             .expect("cloud section should convert");
@@ -1790,15 +1796,7 @@ fn cloud_auth_header_env_var_takes_precedence_over_config_file() {
 
 #[test]
 fn cloud_auth_header_falls_back_to_config_when_env_unset() {
-    let raw = CloudSection {
-        prometheus_endpoint: Some("http://prometheus:9090".to_string()),
-        scrape_interval_secs: None,
-        default_provider: None,
-        default_instance_type: None,
-        cpu_metric: None,
-        services: HashMap::new(),
-        auth_header: Some("Authorization: Bearer from-file".to_string()),
-    };
+    let raw = cloud_section_with_file_auth();
     let cfg = convert_cloud_section_with_env(&raw, || None).expect("cloud section should convert");
     assert_eq!(
         cfg.auth_header.as_deref(),
