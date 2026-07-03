@@ -35,7 +35,10 @@ pub(crate) async fn dispatch_pg_stat(
         )
         .await
         .unwrap_or_else(|e| {
-            eprintln!("Prometheus fetch failed: {e}");
+            eprintln!(
+                "Prometheus fetch failed: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
             std::process::exit(1);
         });
         cmd_pg_stat_from_entries(entries, top_n, traces, config, format);
@@ -73,7 +76,11 @@ pub(crate) fn load_pg_stat_from_file(
     match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, limits::MAX_BATCH_INPUT_BYTES) {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
-            eprintln!("Error parsing --pg-stat {}: {e}", path.display());
+            eprintln!(
+                "Error parsing --pg-stat {}: {}",
+                path.display(),
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
             std::process::exit(1);
         }
     }
@@ -94,7 +101,10 @@ pub(crate) async fn load_pg_stat_from_prometheus(
     {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
-            eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
+            eprintln!(
+                "Error scraping --pg-stat-prometheus {url}: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
             std::process::exit(1);
         }
     }
@@ -147,7 +157,10 @@ fn cmd_pg_stat(
         match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, limits::MAX_BATCH_INPUT_BYTES) {
             Ok(entries) => entries,
             Err(e) => {
-                eprintln!("Error parsing pg_stat_statements: {e}");
+                eprintln!(
+                    "Error parsing pg_stat_statements: {}",
+                    sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+                );
                 std::process::exit(1);
             }
         };
@@ -191,7 +204,10 @@ fn run_pg_stat_pipeline(
                 pg_stat::cross_reference(&mut entries, &report.findings);
             }
             Err(e) => {
-                eprintln!("Warning: failed to ingest trace file for cross-reference: {e}");
+                eprintln!(
+                    "Warning: failed to ingest trace file for cross-reference: {}",
+                    sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+                );
             }
         }
     }
