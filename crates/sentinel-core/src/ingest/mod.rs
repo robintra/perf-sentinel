@@ -8,6 +8,7 @@ pub mod jaeger_query;
 pub mod json;
 #[cfg(any(feature = "tempo", feature = "jaeger-query"))]
 pub mod lookback;
+pub mod mysql_stat;
 pub mod otlp;
 pub mod pg_stat;
 #[cfg(feature = "tempo")]
