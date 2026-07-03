@@ -145,7 +145,7 @@ perf-sentinel watch
 
 `demo --html` is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
 
-On dd-trace? There is no OpenTelemetry file for step 2, bridge via the Collector `datadogreceiver`: `watch` for the daemon, or a Tempo/Jaeger backend with `tempo`/`jaeger-query` for batch, since `analyze` does not read OTLP. See [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
+On dd-trace? Bridge via the Collector `datadogreceiver`: `watch` for the daemon, a Collector `file` exporter dump for step 2 (`analyze` auto-detects OTLP JSON since 0.9.5), or a Tempo/Jaeger backend with `tempo`/`jaeger-query`. See [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 
 Minimal `.perf-sentinel.toml` at the repo root:
 
@@ -176,6 +176,7 @@ perf-sentinel explain --input traces.json --trace-id abc123        # tree view o
 perf-sentinel inspect --input traces.json                          # interactive TUI
 perf-sentinel diff --before base.json --after head.json            # PR regression diff
 perf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # PostgreSQL hotspots
+perf-sentinel mysql-stat --input digests.csv --traces traces.json  # MySQL hotspots
 perf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # pull from Grafana Tempo
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc
 perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv
@@ -191,22 +192,23 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 <details>
 <summary><b>Input formats</b></summary>
 
-- **Trace files** (auto-detected): native perf-sentinel JSON, Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
+- **Trace files** (auto-detected): native perf-sentinel JSON, OTLP JSON (single object or Collector `file` exporter NDJSON), Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
 - **OTLP live**: gRPC on `:4317` and HTTP on `:4318`, ingested by the `watch` daemon from your OTel Collector or SDK. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
-- **Datadog / dd-trace** (no OpenTelemetry SDK): bridge dd-trace traffic through an OTel Collector running the `datadogreceiver`, which re-exports OTLP to the `watch` daemon, or to a Tempo or Jaeger backend for the batch `tempo`/`jaeger-query` paths below (`analyze` does not read OTLP). perf-sentinel reads the SQL from the Datadog resource natively, no application change. See [docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
+- **Datadog / dd-trace** (no OpenTelemetry SDK): bridge dd-trace traffic through an OTel Collector running the `datadogreceiver`, which re-exports OTLP to the `watch` daemon, to a `file` exporter dump readable by `analyze --input`, or to a Tempo or Jaeger backend for the `tempo`/`jaeger-query` pull paths below. perf-sentinel reads the SQL from the Datadog resource natively, no application change. See [docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 - **Grafana Tempo**: pull traces straight from a Tempo backend with `perf-sentinel tempo`. See [docs/INTEGRATION.md#tempo-integration](docs/INTEGRATION.md#tempo-integration).
 - **Jaeger Query API**: pull from Jaeger upstream or Victoria Traces with `perf-sentinel jaeger-query`. See [docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces](docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces).
 - **`pg_stat_statements`**: rank PostgreSQL hotspots from the catalog view with `perf-sentinel pg-stat`. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+- **MySQL Performance Schema**: rank MySQL hotspots from an `events_statements_summary_by_digest` export with `perf-sentinel mysql-stat` (timer columns convert from picoseconds to milliseconds). Export with `mysqlsh --result-format=csv` or any client CSV/JSON export, `SELECT ... INTO OUTFILE` produces unsupported TSV. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 </details>
 
 <details>
 <summary><b>Output formats</b></summary>
 
-- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`.
-- **`json`**: structured report. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
+- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `diff`, `pg-stat`, `mysql-stat`, `query`, `explain`, `ack`.
+- **`json`**: structured report. Available on `analyze`, `diff`, `pg-stat`, `mysql-stat`, `query`, `explain`, `ack`. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
 - **`sarif`** (SARIF v2.1.0): GitHub/GitLab code scanning with inline PR annotations via `physicalLocations`. Available on `analyze` and `diff`. See [docs/SARIF.md](docs/SARIF.md).
-- **HTML dashboard**: single-file offline report from `perf-sentinel report`, click-through trace trees, dark/light theme, CSV export from Findings / pg_stat / Diff / Correlations tabs. See [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
+- **HTML dashboard**: single-file offline report from `perf-sentinel report`, click-through trace trees, dark/light theme, CSV export from Findings / pg_stat / mysql_stat / Diff / Correlations tabs. See [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
 - **Interactive TUI**: three keyboard-driven views in one drill-down (Analyze, Inspect, Explain) from `perf-sentinel analyze --tui`, `inspect`, or `explain --tui` (or `query inspect` for live daemon data). See [docs/INSPECT.md](docs/INSPECT.md).
 - **Live daemon**: NDJSON findings on stdout, Prometheus `/metrics` with Grafana Exemplars, `/health` probe, HTTP query API. See [docs/METRICS.md](docs/METRICS.md) and [docs/QUERY-API.md](docs/QUERY-API.md).
 - **Periodic disclosure (optional)**: hash-verifiable `perf-sentinel-report/v1.0` JSON from `perf-sentinel disclose`, signable via Sigstore. See [docs/REPORTING.md](docs/REPORTING.md).
@@ -435,7 +437,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 ![Scrapers tab: live health of the energy backends from /api/energy](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/scrapers.png)
 
-**pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries by total execution time, by call count, by mean latency. Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation:
+**pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries by total execution time, by call count, by mean latency. Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation. The MySQL twin is `perf-sentinel mysql-stat --input <digests.csv>` over `performance_schema.events_statements_summary_by_digest` (fourth ranking: rows examined). Digests longer than `performance_schema_max_digest_length` (default 1024) arrive truncated and silently miss the trace cross-reference, raise the setting for long queries:
 
 ![pg-stat: top hotspots by total time, calls and mean latency](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)
 

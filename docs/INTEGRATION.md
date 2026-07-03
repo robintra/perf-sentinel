@@ -13,7 +13,7 @@ perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318)
 - [Quick start: sidecar](#quick-start-sidecar): single-service debug in dev or staging.
 - [Quick start: direct daemon](#quick-start-direct-daemon): local development.
 - [Going further](#going-further): pointers to INSTRUMENTATION.md and CI.md for application-side and CI-side concerns.
-- [Ingestion formats](#ingestion-formats): native JSON, OTLP, Jaeger, Zipkin, Tempo, pg_stat_statements auto-detection rules.
+- [Ingestion formats](#ingestion-formats): native JSON, OTLP, Jaeger, Zipkin, Tempo, pg_stat_statements and MySQL performance_schema auto-detection rules.
 - [Explain mode](#explain-mode): trace-tree view of a single trace.
 - [SARIF export](#sarif-export): SARIF v2.1.0 output for GitHub or GitLab code scanning.
 - [Finding confidence field](#finding-confidence-field): JSON / SARIF `confidence` field for downstream consumers.
@@ -72,7 +72,7 @@ CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI
 
 ### Collect traces
 
-Export traces from your integration tests. perf-sentinel auto-detects native JSON, Jaeger, and Zipkin v2 formats.
+Export traces from your integration tests. perf-sentinel auto-detects native JSON, OTLP JSON, Jaeger, and Zipkin v2 formats.
 
 ### Analyze
 
@@ -185,7 +185,7 @@ perf-sentinel ingests OTLP, not Datadog's native APM format, and it ships no Dat
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge_dark.svg">
-  <img alt="dd-trace bridge topology: the Collector datadogreceiver forwards OTLP to the watch daemon, or to a Tempo/Jaeger backend pulled in batch by tempo/jaeger-query. analyze --input is not available since OTLP is not a batch file format." src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge.svg">
+  <img alt="dd-trace bridge topology: the Collector datadogreceiver forwards OTLP to the watch daemon, to a Tempo/Jaeger backend pulled in batch by tempo/jaeger-query, or to a file exporter whose OTLP JSON dump feeds analyze --input." src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge.svg">
 </picture>
 
 perf-sentinel reads the Datadog resource (`dd.span.Resource`, where dd-trace leaves the obfuscated SQL) natively, so SQL detection works as long as each span keeps a database signal: the stable `db.system.name` (what current receiver versions emit), the older `db.system`, or the dd-trace `db.type` tag. No attribute remapping in the Collector is required. If a Collector version strips all of them, add a `transform` processor that restores one so the gate can fire.
@@ -227,14 +227,14 @@ DD_TRACE_AGENT_URL=http://otel-collector:8126
 
 perf-sentinel then receives a copy of every trace and findings stream as NDJSON, exactly as in the central collector topology above.
 
-**Batch instead of the daemon.** The Collector path above streams into the `watch` daemon. For a one-shot `analyze` run instead, note that batch input does not read OTLP JSON (see [Ingestion formats](#ingestion-formats) below: native, Jaeger and Zipkin only), so a Collector `file` exporter followed by `analyze --input` is not recognized. Route the bridge to a Jaeger or Tempo backend and pull a batch from it:
+**Batch instead of the daemon.** The Collector path above streams into the `watch` daemon. For a one-shot `analyze` run instead, the simplest route since 0.9.5 is the Collector [`file` exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/fileexporter/README.md): its OTLP JSON output (single object or NDJSON, one request per line) is auto-detected by `analyze --input` like any other trace file. Alternatively, route the bridge to a Jaeger or Tempo backend and pull a batch from it:
 
 ```bash
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service checkout --lookback 15m
 perf-sentinel tempo        --endpoint http://tempo:3200   --service checkout --lookback 15m
 ```
 
-For a plain file, export a trace as Jaeger JSON from the Jaeger UI ("Download JSON") and pass it to `analyze --input`. The obfuscation caveat above still applies, keep `sanitizer_aware_classification = "strict"`.
+A trace exported as Jaeger JSON from the Jaeger UI ("Download JSON") works with `analyze --input` too. Whatever the batch route, the obfuscation caveat above still applies, keep `sanitizer_aware_classification = "strict"`.
 
 ---
 
@@ -296,15 +296,18 @@ Findings stream to stdout as NDJSON, metrics at `http://localhost:4318/metrics`.
 
 perf-sentinel auto-detects the input format when using `perf-sentinel analyze --input`:
 
-| Format                          | Detection                                             | Example                 |
-|---------------------------------|-------------------------------------------------------|-------------------------|
-| **Native** (perf-sentinel JSON) | Array of objects with `"type"` field                  | Default format          |
-| **Jaeger JSON**                 | Object with `"data"` key containing `"spans"`         | Exported from Jaeger UI |
-| **Zipkin JSON v2**              | Array of objects with `"traceId"` + `"localEndpoint"` | Exported from Zipkin UI |
+| Format                          | Detection                                             | Example                            |
+|---------------------------------|-------------------------------------------------------|------------------------------------|
+| **Native** (perf-sentinel JSON) | Array of objects with `"type"` field                  | Default format                     |
+| **OTLP JSON**                   | Object with `"resourceSpans"` key                     | Collector `file` exporter dump     |
+| **Jaeger JSON**                 | Object with `"data"` key containing `"spans"`         | Exported from Jaeger UI            |
+| **Zipkin JSON v2**              | Array of objects with `"traceId"` + `"localEndpoint"` | Exported from Zipkin UI            |
 
 No `--format` flag is needed for input: the format is detected automatically from the first few bytes of the file.
 
-**OTLP JSON is not a batch input format.** OTLP reaches perf-sentinel only through the daemon listeners (`watch`) or the `tempo` and `jaeger-query` subcommands, never through `analyze --input`. If you are on dd-trace, see [Coming from Datadog](#coming-from-datadog-dd-trace-no-opentelemetry).
+**OTLP JSON in batch (0.9.5+).** `analyze --input` accepts the OTLP/JSON wire shape (`ExportTraceServiceRequest`, camelCase keys, hex trace/span ids), both as a single object and as the Collector `file` exporter's NDJSON (one request per line). OTLP also reaches perf-sentinel live through the daemon listeners (`watch`) and indirectly through the `tempo` and `jaeger-query` subcommands. If you are on dd-trace, see [Coming from Datadog](#coming-from-datadog-dd-trace-no-opentelemetry).
+
+**Database statistics inputs.** The `pg-stat` and `mysql-stat` subcommands read CSV or JSON exports of `pg_stat_statements` and `performance_schema.events_statements_summary_by_digest` respectively, with the same first-byte auto-detection (`[` or `{` means JSON, anything else CSV). Column names are matched case-insensitively; MySQL timer columns (picoseconds) convert to milliseconds at parse time. Export the MySQL view with `mysqlsh --result-format=csv` or any client CSV/JSON export, `SELECT ... INTO OUTFILE` produces backslash-escaped TSV which is not supported.
 
 ```bash
 # Jaeger export

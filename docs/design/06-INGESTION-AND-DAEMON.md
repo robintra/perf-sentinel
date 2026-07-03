@@ -102,6 +102,7 @@ The payload size is checked **before** deserialization. This prevents `serde_jso
 
 `JsonIngest` now auto-detects the input format using lightweight byte-level heuristics. It peeks at the first 1-4 KB of the payload:
 
+- Starts with `{` and contains `"resourceSpans"` (or `"resource_spans"`) in the first 1 KB: **OTLP/JSON** (single `ExportTraceServiceRequest` or the Collector `file` exporter's NDJSON, decoded via a serde stream deserializer and converted by the same `convert_otlp_request` the daemon listeners use)
 - Starts with `{` and contains `"data"` + `"spans"` in the first 4 KB: **Jaeger**
 - Starts with `[` and contains `"traceId"` + `"localEndpoint"` in the first 1 KB: **Zipkin**
 - Otherwise: **Native** perf-sentinel format

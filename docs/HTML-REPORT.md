@@ -13,7 +13,7 @@ post-mortem exploration of a trace set. It runs in two modes:
   dashboard adds per-finding `Ack`/`Revoke` buttons, a connection
   status indicator, an Acknowledgments panel, a `Show acknowledged`
   toggle, and a manual refresh button. The static panels (Findings,
-  Explain, pg_stat, Diff, Correlations, GreenOps) keep the same
+  Explain, pg_stat, mysql_stat, Diff, Correlations, GreenOps) keep the same
   static-mode behavior, the live mode is purely additive.
 
 ## Static mode
@@ -29,6 +29,21 @@ same input. CSP (Content-Security-Policy, the browser header that
 declares which scripts and resources the page is allowed to load)
 stays strict (`default-src 'none'`), there is no
 `fetch()` call against any host.
+
+### Database statistics tabs
+
+- `--pg-stat <FILE>` embeds a `pg_stat_statements` CSV or JSON export:
+  the dashboard gains a `pg_stat` tab plus the Explain-to-`pg_stat`
+  cross-navigation on SQL spans whose normalized template matches a
+  row. `--pg-stat-prometheus <URL>` scrapes a `postgres_exporter`
+  one-shot instead of a file (mutually exclusive, optional
+  `--pg-stat-auth-header`), and `--pg-stat-top <N>` sizes the rankings
+  (default 10).
+- `--mysql-stat <FILE>` embeds an `events_statements_summary_by_digest`
+  CSV or JSON export (MySQL Performance Schema): the dashboard gains a
+  `mysql_stat` tab with the same ranking sub-switcher (fourth ranking:
+  rows examined). `--mysql-stat-top <N>` sizes the rankings
+  (default 10).
 
 ## Live mode
 

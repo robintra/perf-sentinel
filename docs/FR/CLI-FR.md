@@ -142,7 +142,7 @@ un hint actionnable quand pertinent.
 
 Pour l'instant, voir `perf-sentinel <subcommand> --help` pour la
 liste complète des options de `analyze`, `watch`, `query`, `report`,
-`diff`, `explain`, `inspect`, `pg-stat`, `tempo`, `jaeger-query`,
+`diff`, `explain`, `inspect`, `pg-stat`, `mysql-stat`, `tempo`, `jaeger-query`,
 `demo`, `bench` et `calibrate`. Les commandes elles-mêmes sont
 stables, leur documentation prose est complétée incrémentalement.
 
