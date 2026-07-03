@@ -235,7 +235,7 @@ Deploy perf-sentinel as an AKS Deployment or Azure Container Instance.
 
 ### Self-hosted (Jaeger, Tempo, Zipkin)
 
-If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`), formats are auto-detected.
+If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with an OTLP JSON dump from the Collector `file` exporter, or with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`), formats are auto-detected.
 
 ---
 

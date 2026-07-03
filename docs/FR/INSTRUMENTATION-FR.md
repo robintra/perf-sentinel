@@ -235,7 +235,7 @@ Déployez perf-sentinel comme Deployment AKS ou Azure Container Instance.
 
 ### Auto-hébergé (Jaeger, Tempo, Zipkin)
 
-Si vous utilisez un backend de traces auto-hébergé, l'approche OTel Collector fonctionne de manière identique. Ajoutez perf-sentinel comme exporteur OTLP supplémentaire à côté de votre exporteur backend existant. Alternativement, utilisez le mode batch de perf-sentinel avec des fichiers de traces exportés depuis l'UI Jaeger (`--input jaeger-export.json`) ou Zipkin (`--input zipkin-traces.json`), les formats sont auto-détectés.
+Si vous utilisez un backend de traces auto-hébergé, l'approche OTel Collector fonctionne de manière identique. Ajoutez perf-sentinel comme exporteur OTLP supplémentaire à côté de votre exporteur backend existant. Alternativement, utilisez le mode batch de perf-sentinel avec un dump OTLP JSON de l'exporter `file` du Collector, ou avec des fichiers de traces exportés depuis l'UI Jaeger (`--input jaeger-export.json`) ou Zipkin (`--input zipkin-traces.json`), les formats sont auto-détectés.
 
 ---
 

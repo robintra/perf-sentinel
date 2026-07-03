@@ -13,7 +13,7 @@ perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur 4317, HTTP sur
 - [Démarrage rapide : sidecar](#démarrage-rapide--sidecar) : debug d'un seul service en dev ou staging.
 - [Démarrage rapide : daemon direct](#démarrage-rapide--daemon-direct) : développement local.
 - [Pour aller plus loin](#pour-aller-plus-loin) : pointeurs vers INSTRUMENTATION-FR.md et CI-FR.md pour les sujets côté application et côté CI.
-- [Formats d'ingestion](#formats-dingestion) : règles d'auto-détection JSON natif, OTLP, Jaeger, Zipkin, Tempo, pg_stat_statements.
+- [Formats d'ingestion](#formats-dingestion) : règles d'auto-détection JSON natif, OTLP, Jaeger, Zipkin, Tempo, pg_stat_statements et performance_schema MySQL.
 - [Mode explain](#mode-explain) : vue arborescente d'une trace.
 - [Export SARIF](#export-sarif) : sortie SARIF v2.1.0 pour le code scanning GitHub ou GitLab.
 - [Champ de confiance sur les findings](#champ-de-confiance-sur-les-findings) : champ `confidence` JSON / SARIF pour les consommateurs aval.
@@ -120,13 +120,14 @@ perf-sentinel report --input traces.json --output report.html
 `perf-sentinel report --input traces.json --output report.html` produit un dashboard HTML single-file. Double-clic pour l'ouvrir dans n'importe quel navigateur, fonctionne hors ligne, sans ressource externe. Public visé : les devs qui explorent un artefact CI et préfèrent cliquer plutôt que taper. Le dashboard affiche les findings, les arbres de traces et les métriques `GreenOps` avec navigation croisée entre sections (clic sur un finding pour voir son arbre de trace, la span responsable est surlignée en rouge).
 
 Flags :
-- `--input <FICHIER>` ou `--input -` : fichier de traces ou stdin (même auto-détection de format que `analyze` : JSON natif, Jaeger, Zipkin v2).
+- `--input <FICHIER>` ou `--input -` : fichier de traces ou stdin (même auto-détection de format que `analyze` : JSON natif, OTLP JSON, Jaeger, Zipkin v2).
 - `--output <FICHIER>` : requis, écrasé s'il existe déjà.
 - `--config <CHEMIN>` : `.perf-sentinel.toml` optionnel, mêmes sémantiques que `analyze --config`.
 - `--max-traces-embedded <N>` : cap sur les traces embarquées pour l'onglet Explain. Sans valeur, la sortie est ajustée automatiquement pour viser une taille HTML d'environ 5 Mo en coupant les traces à plus faible IIS. Un bandeau dans l'onglet Findings remonte le ratio tronqué quand la coupe s'applique, et la CLI loggue une ligne `info!` sur stderr (`Embedded N of M traces ... trimmed for file size`) pour que les logs de build CI portent le même signal.
 - `--pg-stat <FICHIER>` : cross-référence un export `pg_stat_statements` CSV ou JSON. Active l'onglet pg_stat et la navigation croisée Explain vers pg_stat sur les spans SQL dont le template normalisé correspond à une ligne pg_stat.
 - `--pg-stat-prometheus <URL>` : scrape one-shot d'un `postgres_exporter`, même effet que `--pg-stat` sans le fichier intermédiaire. Mutuellement exclusif avec `--pg-stat`.
 - `--pg-stat-auth-header "Nom: Valeur"` : en-tête d'authentification optionnel attaché à la requête `--pg-stat-prometheus` (même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`). La variable d'environnement `PERF_SENTINEL_PGSTAT_AUTH_HEADER` est prioritaire sur le flag. Préférez la variable d'environnement en production pour éviter d'exposer le secret dans la liste des arguments de processus ou l'historique shell. Quand la valeur est fournie via le flag et que la variable d'environnement est absente, un warning de démarrage oriente vers la variable d'environnement. Requis pour Grafana Cloud, Grafana Mimir ou tout ingress Prometheus appliquant une auth basic ou bearer. La valeur est marquée `sensitive` pour que hyper la masque dans les logs debug et les tables HPACK. L'envoyer en clair via `http://` déclenche un `tracing::warn!`, préférez `https://` en production.
+- `--mysql-stat <FICHIER>` : embarque un export `events_statements_summary_by_digest` (MySQL Performance Schema) CSV ou JSON. Active l'onglet mysql_stat avec le même sous-sélecteur de rankings que pg_stat (quatrième ranking : lignes examinées). `--mysql-stat-top <N>` ajuste la taille des rankings (défaut 10).
 - `--before <FICHIER>` : rapport baseline JSON (la sortie de `analyze --format json`). Active un onglet Diff qui affiche les nouveaux findings, les findings résolus, les changements de sévérité et les deltas d'I/O par endpoint par rapport à la baseline.
 
 Les codes de sortie diffèrent de `analyze --ci` : `report` sort toujours 0, même quand la quality gate échoue. Le statut de la gate est rendu comme un badge dans la barre supérieure du HTML. Utilise `analyze --ci` quand tu as besoin du signal d'exit-code en CI.
@@ -265,7 +266,7 @@ perf-sentinel ingère de l'OTLP, pas le format APM natif de Datadog, et n'embarq
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge_dark.svg">
-  <img alt="Topologie du pont dd-trace : le datadogreceiver du Collector transmet l'OTLP au daemon watch, ou à un backend Tempo/Jaeger tiré en batch par tempo/jaeger-query. analyze --input n'est pas disponible car l'OTLP n'est pas un format fichier batch." src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge.svg">
+  <img alt="Topologie du pont dd-trace : le datadogreceiver du Collector transmet l'OTLP au daemon watch, à un backend Tempo/Jaeger tiré en batch par tempo/jaeger-query, ou vers un exporter file dont le dump OTLP JSON alimente analyze --input." src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge.svg">
 </picture>
 
 perf-sentinel lit nativement la ressource Datadog (`dd.span.Resource`, où dd-trace laisse le SQL obfusqué), donc la détection SQL fonctionne tant que chaque span conserve un signal base de données : la clé stable `db.system.name` (ce qu'émettent les versions récentes du receiver), l'ancienne `db.system`, ou le tag dd-trace `db.type`. Aucun remappage d'attributs dans le Collector n'est nécessaire. Si une version du Collector les retire toutes, ajoutez un processor `transform` qui en restaure une pour que le garde-fou se déclenche.
@@ -307,14 +308,14 @@ DD_TRACE_AGENT_URL=http://otel-collector:8126
 
 perf-sentinel reçoit alors une copie de chaque trace et les findings sont émis en NDJSON, exactement comme dans la topologie collector central ci-dessus.
 
-**Batch plutôt que le daemon.** Le chemin Collector ci-dessus alimente le daemon `watch`. Pour un `analyze` ponctuel à la place, sachez que l'entrée batch ne lit pas l'OTLP JSON (voir [Formats d'ingestion](#formats-dingestion) plus bas : uniquement natif, Jaeger et Zipkin), donc un exporter `file` du Collector suivi d'`analyze --input` n'est pas reconnu. Routez le pont vers un backend Jaeger ou Tempo et tirez-en un lot :
+**Batch plutôt que le daemon.** Le chemin Collector ci-dessus alimente le daemon `watch`. Pour un `analyze` ponctuel à la place, la voie la plus simple depuis la 0.9.5 est l'exporter [`file` du Collector](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/fileexporter/README.md) : sa sortie OTLP JSON (objet unique ou NDJSON, une requête par ligne) est auto-détectée par `analyze --input` comme n'importe quel fichier de traces. Sinon, routez le pont vers un backend Jaeger ou Tempo et tirez-en un lot :
 
 ```bash
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service checkout --lookback 15m
 perf-sentinel tempo        --endpoint http://tempo:3200   --service checkout --lookback 15m
 ```
 
-Pour un simple fichier, exportez une trace au format JSON Jaeger depuis l'UI Jaeger (bouton "Download JSON") et passez-la à `analyze --input`. La réserve d'obfuscation ci-dessus reste valable, gardez `sanitizer_aware_classification = "strict"`.
+Une trace exportée au format JSON Jaeger depuis l'UI Jaeger (bouton "Download JSON") fonctionne aussi avec `analyze --input`. Quelle que soit la voie batch, la réserve d'obfuscation ci-dessus reste valable, gardez `sanitizer_aware_classification = "strict"`.
 
 ---
 
@@ -401,12 +402,15 @@ perf-sentinel auto-détecte le format d'entrée avec `perf-sentinel analyze --in
 | Format                         | Détection                                             | Exemple                    |
 |--------------------------------|-------------------------------------------------------|----------------------------|
 | **Natif** (perf-sentinel JSON) | Tableau d'objets avec champ `"type"`                  | Format par défaut          |
+| **OTLP JSON**                  | Objet avec clé `"resourceSpans"`                      | Dump exporter `file` du Collector |
 | **Jaeger JSON**                | Objet avec clé `"data"` contenant `"spans"`           | Exporté depuis l'UI Jaeger |
 | **Zipkin JSON v2**             | Tableau d'objets avec `"traceId"` + `"localEndpoint"` | Exporté depuis l'UI Zipkin |
 
 Aucun flag `--format` n'est nécessaire pour l'entrée : le format est détecté automatiquement depuis les premiers octets du fichier.
 
-**L'OTLP JSON n'est pas un format d'entrée batch.** L'OTLP n'atteint perf-sentinel que par les listeners du daemon (`watch`) ou les sous-commandes `tempo` et `jaeger-query`, jamais par `analyze --input`. Si vous êtes sur dd-trace, voir [Vous venez de Datadog](#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
+**L'OTLP JSON en batch (0.9.5+).** `analyze --input` accepte la forme OTLP/JSON du protocole (`ExportTraceServiceRequest`, clés camelCase, ids trace/span en hexadécimal), en objet unique comme en NDJSON de l'exporter `file` du Collector (une requête par ligne). L'OTLP atteint aussi perf-sentinel en live par les listeners du daemon (`watch`) et indirectement par les sous-commandes `tempo` et `jaeger-query`. Si vous êtes sur dd-trace, voir [Vous venez de Datadog](#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
+
+**Entrées de statistiques base de données.** Les sous-commandes `pg-stat` et `mysql-stat` lisent des exports CSV ou JSON de `pg_stat_statements` et de `performance_schema.events_statements_summary_by_digest` respectivement, avec la même auto-détection au premier octet (`[` ou `{` signifie JSON, tout le reste CSV). Les noms de colonnes sont reconnus sans tenir compte de la casse, les colonnes timer MySQL (picosecondes) sont converties en millisecondes au parsing. Exportez la vue MySQL avec `mysqlsh --result-format=csv` ou tout export CSV/JSON client, `SELECT ... INTO OUTFILE` produit du TSV backslash-escaped non supporté.
 
 ```bash
 # Export Jaeger

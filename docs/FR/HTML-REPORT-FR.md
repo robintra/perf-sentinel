@@ -13,7 +13,7 @@ l'exploration post-mortem d'un ensemble de traces. Il fonctionne dans deux modes
   Le dashboard ajoute des boutons `Ack`/`Revoke` par finding, un
   indicateur de statut de connexion, un panel Acknowledgments, un
   toggle `Show acknowledged`, et un bouton refresh manuel. Les panels
-  statiques (Findings, Explain, pg_stat, Diff, Correlations, GreenOps)
+  statiques (Findings, Explain, pg_stat, mysql_stat, Diff, Correlations, GreenOps)
   conservent leur comportement statique, le mode live est purement
   additif.
 
@@ -30,6 +30,21 @@ pour la même entrée. La CSP (Content-Security-Policy, l'en-tête
 navigateur qui déclare quels scripts et ressources la page a le
 droit de charger) reste stricte (`default-src 'none'`),
 aucun `fetch()` n'est émis vers un host quelconque.
+
+### Onglets de statistiques base de données
+
+- `--pg-stat <FICHIER>` embarque un export `pg_stat_statements` CSV ou
+  JSON : le dashboard gagne un onglet `pg_stat` plus la navigation
+  croisée Explain vers `pg_stat` sur les spans SQL dont le template
+  normalisé correspond à une ligne. `--pg-stat-prometheus <URL>`
+  scrape un `postgres_exporter` one-shot à la place d'un fichier
+  (mutuellement exclusif, `--pg-stat-auth-header` optionnel), et
+  `--pg-stat-top <N>` dimensionne les rankings (défaut 10).
+- `--mysql-stat <FICHIER>` embarque un export
+  `events_statements_summary_by_digest` CSV ou JSON (MySQL Performance
+  Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
+  sous-sélecteur de rankings (quatrième ranking : lignes examinées).
+  `--mysql-stat-top <N>` dimensionne les rankings (défaut 10).
 
 ## Mode live
 
