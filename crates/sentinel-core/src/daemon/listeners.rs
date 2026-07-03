@@ -94,6 +94,9 @@ pub(super) async fn spawn_listeners(
         Arc::clone(&metrics),
     );
     let (toml_acks, ack_store) = init_ack_resources(config).await?;
+    // Memory-guard flag for the JSON socket door, cloned before `metrics`
+    // moves into the HTTP router state.
+    let over_memory = metrics.ingest_over_memory_limit.clone();
     let http_router = build_http_router(
         config,
         tx.clone(),
@@ -106,7 +109,7 @@ pub(super) async fn spawn_listeners(
         ack_store,
     );
     let http_handle = spawn_http_listener(http_listener, http_addr, tls_acceptor, http_router);
-    let json_socket_handle = spawn_json_socket_listener(config, tx);
+    let json_socket_handle = spawn_json_socket_listener(config, tx, over_memory);
 
     Ok((grpc_handle, http_handle, json_socket_handle))
 }
@@ -132,10 +135,30 @@ fn spawn_grpc_listener(
     max_payload: usize,
     metrics: Arc<MetricsState>,
 ) -> tokio::task::JoinHandle<()> {
+    // Interceptor state for the pre-decode memory gate: the flag and the
+    // cached rejection counter, cloned before `metrics` moves into the
+    // handler-level sink.
+    let over_memory = metrics.ingest_over_memory_limit.clone();
+    let memory_rejected = metrics.otlp_rejected_memory_pressure.clone();
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics;
     let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics_sink));
     tokio::spawn(async move {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
+        // Pre-decode memory gate: the interceptor runs on request
+        // metadata BEFORE tonic decodes the protobuf message, so a
+        // saturation flood is refused without materializing payloads
+        // into RSS (the in-service check is only the belt for direct
+        // callers). UNAVAILABLE is the retryable status compliant
+        // exporters back off on.
+        let memory_gate = move |req: tonic::Request<()>| {
+            if over_memory.load(std::sync::atomic::Ordering::Relaxed) {
+                memory_rejected.inc();
+                return Err(tonic::Status::unavailable(
+                    "ingest paused: memory high-water, retry",
+                ));
+            }
+            Ok(req)
+        };
         if tls_acceptor.is_some() {
             tracing::info!("OTLP gRPC+TLS listening on {addr}");
         } else {
@@ -149,9 +172,10 @@ fn spawn_grpc_listener(
             .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
                 GRPC_MAX_CONCURRENT_REQUESTS,
             ))
-            .add_service(
+            .add_service(tonic::service::interceptor::InterceptedService::new(
                 TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
-            )
+                memory_gate,
+            ))
             .serve_with_incoming(incoming)
             .await
         {
@@ -466,13 +490,16 @@ fn spawn_http_listener(
 fn spawn_json_socket_listener(
     config: &Config,
     tx: mpsc::Sender<Vec<SpanEvent>>,
+    over_memory: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Option<tokio::task::JoinHandle<()>> {
+    #[cfg(not(unix))]
+    let _ = over_memory;
     #[cfg(unix)]
     {
         let socket_path = config.daemon.json_socket.clone();
         let max_payload = config.daemon.max_payload_size;
         Some(tokio::spawn(async move {
-            super::json_socket::run_json_socket(&socket_path, tx, max_payload).await;
+            super::json_socket::run_json_socket(&socket_path, tx, max_payload, over_memory).await;
         }))
     }
     #[cfg(not(unix))]
