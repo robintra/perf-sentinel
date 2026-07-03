@@ -244,10 +244,26 @@ pub fn cross_reference(entries: &mut [MySqlStatEntry], findings: &[Finding]) {
     }
 }
 
+/// Punctuation and operator tokens `MySQL` digest text surrounds with
+/// spaces while compact application SQL does not.
+fn is_token_punct(c: char) -> bool {
+    matches!(
+        c,
+        '.' | ',' | '(' | ')' | '=' | '<' | '>' | ';' | '!' | '+' | '-' | '*' | '/' | '%' | '?'
+    )
+}
+
 /// Best-effort canonical form for digest-vs-trace template comparison:
-/// strip backtick quoting, drop whitespace around punctuation, collapse
-/// remaining whitespace runs, lowercase (`MySQL` uppercases keywords in
-/// digest text while application SQL usually does not).
+/// strip backtick quoting, drop whitespace around punctuation and
+/// operators, collapse remaining whitespace runs, lowercase (`MySQL`
+/// uppercases keywords in digest text while application SQL usually
+/// does not).
+///
+/// Known ceiling: lowercasing also folds identifiers, so on a
+/// case-sensitive server (`lower_case_table_names=0`) two tables that
+/// differ only by case share a key and the `[seen in traces]` marker
+/// can over-match. Accepted for an informational marker; a
+/// keyword-only fold would need a full keyword table.
 fn comparison_key(template: &str) -> String {
     let mut out = String::with_capacity(template.len());
     let mut pending_space = false;
@@ -259,16 +275,14 @@ fn comparison_key(template: &str) -> String {
             pending_space = true;
             continue;
         }
-        let punct = matches!(c, '.' | ',' | '(' | ')' | '=' | '<' | '>' | ';');
-        if pending_space && !punct && !out.is_empty() {
+        if pending_space
+            && !is_token_punct(c)
+            && !out.is_empty()
             // Drop the pending space when the previous emitted char was
             // punctuation too ("a . b" and "a. b" both become "a.b").
-            if !matches!(
-                out.chars().next_back(),
-                Some('.' | ',' | '(' | ')' | '=' | '<' | '>' | ';')
-            ) {
-                out.push(' ');
-            }
+            && !out.chars().next_back().is_some_and(is_token_punct)
+        {
+            out.push(' ');
         }
         pending_space = false;
         out.extend(c.to_lowercase());
@@ -418,7 +432,7 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
         )));
     }
 
-    let entries = raw_entries
+    let entries: Vec<MySqlStatEntry> = raw_entries
         .into_iter()
         .filter_map(|raw| {
             // Skip the catch-all aggregation row (DIGEST_TEXT NULL).
@@ -439,13 +453,24 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
         })
         .collect();
 
+    // Every row was dropped: distinguish "wrong export shape" from a
+    // legitimate report instead of returning a silent empty success
+    // (rows missing DIGEST_TEXT entirely look exactly like the NULL
+    // catch-all row to the filter above).
+    if entries.is_empty() {
+        return Err(MySqlStatError::JsonParse(
+            "no row carried a usable DIGEST_TEXT (wrong column names in the \
+             export, or every digest is NULL)"
+                .to_string(),
+        ));
+    }
+
     Ok(entries)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{Confidence, FindingType, Pattern, Severity};
     use core::assert_matches;
 
     const CSV_HEADER: &str = "SCHEMA_NAME,DIGEST_TEXT,COUNT_STAR,SUM_TIMER_WAIT,AVG_TIMER_WAIT,SUM_ROWS_SENT,SUM_ROWS_EXAMINED";
@@ -701,32 +726,7 @@ mod tests {
 
     // ----- Cross-reference -----
 
-    fn make_finding(template: &str) -> Finding {
-        Finding {
-            finding_type: FindingType::NPlusOneSql,
-            severity: Severity::Warning,
-            trace_id: "trace-1".to_string(),
-            service: "order-svc".to_string(),
-            source_endpoint: "POST /api/orders/42/submit".to_string(),
-            pattern: Pattern {
-                template: template.to_string(),
-                occurrences: 6,
-                window_ms: 200,
-                distinct_params: 6,
-                ..Default::default()
-            },
-            suggestion: "batch".to_string(),
-            first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
-            last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
-            green_impact: None,
-            confidence: Confidence::default(),
-            classification_method: None,
-            code_location: None,
-            instrumentation_scopes: Vec::new(),
-            suggested_fix: None,
-            signature: String::new(),
-        }
-    }
+    use crate::detect::test_finding_with_template as make_finding;
 
     #[test]
     fn cross_reference_marks_matching_template() {
@@ -788,6 +788,33 @@ mod tests {
         let entries = parse_mysql_stat(json.as_bytes(), 1_048_576).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].calls, 10);
+    }
+
+    #[test]
+    fn parse_json_all_null_digests_is_an_error_not_empty_success() {
+        // Wrong column names (no DIGEST_TEXT at all) and a fully NULL
+        // export must fail loudly, not print "Total entries: 0".
+        let json = r#"[
+            {"QUERY": "SELECT 1", "COUNT_STAR": 1, "SUM_TIMER_WAIT": 1, "AVG_TIMER_WAIT": 1},
+            {"DIGEST_TEXT": null, "COUNT_STAR": 2, "SUM_TIMER_WAIT": 1, "AVG_TIMER_WAIT": 1}
+        ]"#;
+        assert_matches!(
+            parse_mysql_stat(json.as_bytes(), 1_048_576),
+            Err(MySqlStatError::JsonParse(_))
+        );
+    }
+
+    #[test]
+    fn comparison_key_bridges_spaced_operators() {
+        // MySQL digest text spaces operators the app SQL writes compactly.
+        assert_eq!(
+            comparison_key("WHERE `a` != ? AND `b` > ?"),
+            comparison_key("where a!=? and b>?")
+        );
+        assert_eq!(
+            comparison_key("SELECT `a` + `b` FROM `t`"),
+            comparison_key("select a+b from t")
+        );
     }
 
     #[test]
