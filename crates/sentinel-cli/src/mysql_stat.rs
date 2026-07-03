@@ -96,6 +96,7 @@ fn run_mysql_stat_pipeline(
 }
 
 fn print_mysql_stat_report(report: &sentinel_core::ingest::mysql_stat::MySqlStatReport) {
+    use sentinel_core::text_safety::sanitize_for_terminal;
     use std::io::IsTerminal;
 
     let is_tty = std::io::stdout().is_terminal();
@@ -119,13 +120,15 @@ fn print_mysql_stat_report(report: &sentinel_core::ingest::mysql_stat::MySqlStat
             } else {
                 String::new()
             };
+            // Digest exports are untrusted input reaching a terminal:
+            // strip control bytes per the text_safety convention.
             println!(
                 "  {bold}#{}{reset} {}{trace_marker}",
                 i + 1,
-                entry.normalized_template
+                sanitize_for_terminal(&entry.normalized_template)
             );
             if let Some(schema) = &entry.schema_name {
-                println!("    {dim}schema:{reset} {schema}");
+                println!("    {dim}schema:{reset} {}", sanitize_for_terminal(schema));
             }
             println!(
                 "    {dim}calls:{reset} {}  {dim}total:{reset} {:.2}ms  {dim}mean:{reset} {:.2}ms",
