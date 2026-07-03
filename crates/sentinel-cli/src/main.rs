@@ -531,6 +531,17 @@ enum Commands {
         /// with a message pointing at the required companion flag.
         #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         pg_stat_top: Option<u32>,
+        /// Path to an `events_statements_summary_by_digest` CSV or JSON
+        /// export (`MySQL` Performance Schema). When set, the dashboard
+        /// shows a `mysql_stat` tab with the same ranking sub-switcher
+        /// as `pg_stat`.
+        #[arg(long, value_name = "FILE")]
+        mysql_stat: Option<PathBuf>,
+        /// Override the number of top entries per `mysql_stat` ranking
+        /// (default: 10). Only meaningful with --mysql-stat: supplying it
+        /// without the companion flag errors.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=10_000), requires = "mysql_stat")]
+        mysql_stat_top: Option<u32>,
         /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
         /// filename in the current working directory.
         #[arg(long, value_name = "PATH")]
@@ -1238,6 +1249,8 @@ async fn dispatch_command(command: Commands) {
             pg_stat_auth_header,
             before,
             pg_stat_top,
+            mysql_stat,
+            mysql_stat_top,
             acknowledgments,
             no_acknowledgments,
             show_acknowledged,
@@ -1262,6 +1275,8 @@ async fn dispatch_command(command: Commands) {
                 // build has `usize < 32` bits, so the only effect is
                 // to keep the cast honest.
                 pg_stat_top.and_then(|n| usize::try_from(n).ok()),
+                mysql_stat.as_deref(),
+                mysql_stat_top.and_then(|n| usize::try_from(n).ok()),
                 acknowledgments.as_deref(),
                 no_acknowledgments,
                 show_acknowledged,
@@ -1786,6 +1801,8 @@ async fn cmd_report(
     #[cfg(feature = "daemon")] pg_stat_auth_header: Option<String>,
     before_path: Option<&std::path::Path>,
     pg_stat_top: Option<usize>,
+    mysql_stat_path: Option<&std::path::Path>,
+    mysql_stat_top: Option<usize>,
     acknowledgments_path: Option<&std::path::Path>,
     no_acknowledgments: bool,
     show_acknowledged: bool,
@@ -1860,6 +1877,12 @@ async fn cmd_report(
         }
     };
 
+    // --mysql-stat-top is tied to --mysql-stat by clap `requires`, so
+    // no post-parse OR-of-flags validation is needed here.
+    let mysql_top_n = mysql_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
+    let mysql_stat =
+        mysql_stat_path.map(|path| mysql_stat::load_mysql_stat_from_file(path, mysql_top_n));
+
     let diff = before_path.map(|path| {
         load_diff_against_baseline(
             path,
@@ -1874,6 +1897,7 @@ async fn cmd_report(
         input_label,
         max_traces_embedded,
         pg_stat,
+        mysql_stat,
         diff,
         #[cfg(feature = "daemon")]
         daemon_url,

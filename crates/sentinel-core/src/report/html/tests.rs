@@ -112,6 +112,7 @@ fn opts(label: &str, cap: Option<usize>) -> RenderOptions {
         input_label: label.into(),
         max_traces_embedded: cap,
         pg_stat: None,
+        mysql_stat: None,
         diff: None,
         daemon_url: None,
     }
@@ -818,7 +819,7 @@ fn cheatsheet_shortcuts_listed_in_template() {
 fn export_button_rendered_for_listable_tabs_only() {
     // Each listable panel gets its own Export CSV button keyed by
     // `<tab>-export`. Explain and GreenOps stay button-less.
-    for tab in ["findings", "pgstat", "diff", "correlations"] {
+    for tab in ["findings", "pgstat", "mysqlstat", "diff", "correlations"] {
         let needle = format!("id=\"{tab}-export\"");
         assert!(
             TEMPLATE.contains(&needle),
@@ -832,8 +833,8 @@ fn export_button_rendered_for_listable_tabs_only() {
     // substring matches that could over-match suffixed IDs.
     let export_count = TEMPLATE.matches("data-export-tab=\"").count();
     assert_eq!(
-        export_count, 4,
-        "expected exactly 4 export buttons (findings, pgstat, diff, correlations), found {export_count}. \
+        export_count, 5,
+        "expected exactly 5 export buttons (findings, pgstat, mysqlstat, diff, correlations), found {export_count}. \
          If you added a new listable tab, update this assertion and the positive loop above."
     );
     // The CSS class backing every export button must also exist.
@@ -939,6 +940,102 @@ fn synthetic_pg_stat() -> PgStatReport {
             entries,
         }],
     }
+}
+
+fn synthetic_mysql_stat() -> MySqlStatReport {
+    use crate::ingest::mysql_stat::{MySqlStatEntry, MySqlStatRanking, MySqlStatReport};
+    let entries = vec![
+        MySqlStatEntry {
+            query: "SELECT * FROM `order_item` WHERE `order_id` = ?".into(),
+            normalized_template: "SELECT * FROM `order_item` WHERE `order_id` = ?".into(),
+            schema_name: Some("shop".into()),
+            calls: 120,
+            total_exec_time_ms: 840.0,
+            mean_exec_time_ms: 7.0,
+            rows_sent: 500,
+            rows_examined: 45_000,
+            seen_in_traces: true,
+        },
+        MySqlStatEntry {
+            query: "SELECT `id` FROM `orders` WHERE `id` = ?".into(),
+            normalized_template: "SELECT `id` FROM `orders` WHERE `id` = ?".into(),
+            schema_name: None,
+            calls: 30,
+            total_exec_time_ms: 60.0,
+            mean_exec_time_ms: 2.0,
+            rows_sent: 30,
+            rows_examined: 30,
+            seen_in_traces: false,
+        },
+    ];
+    MySqlStatReport {
+        total_entries: 2,
+        top_n: 2,
+        rankings: vec![MySqlStatRanking {
+            label: "top by total_exec_time".into(),
+            entries,
+        }],
+    }
+}
+
+#[test]
+fn embeds_mysql_stat_when_provided() {
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let mut options = opts("-", None);
+    options.mysql_stat = Some(synthetic_mysql_stat());
+    let (html, _) = render(&report, &[], &options);
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    let entries = value["mysql_stat"]["rankings"][0]["entries"]
+        .as_array()
+        .expect("entries array");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(
+        entries[0]["normalized_template"].as_str().unwrap(),
+        "SELECT * FROM `order_item` WHERE `order_id` = ?"
+    );
+    assert_eq!(entries[0]["schema_name"].as_str().unwrap(), "shop");
+    assert!(entries[1]["schema_name"].is_null());
+}
+
+#[test]
+fn omits_mysql_stat_when_absent() {
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let (html, _) = render(&report, &[], &opts("-", None));
+    let blob = extract_payload_json(&html);
+    let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+    assert!(
+        value.get("mysql_stat").is_none(),
+        "mysql_stat must be absent when not provided (skip_serializing_if)"
+    );
+    // The static panel-mysqlstat scaffolding stays in the template; the
+    // JS hides it at runtime based on payload presence.
+    assert!(html.contains(r#"id="panel-mysqlstat""#));
+}
+
+#[test]
+fn mysql_stat_sub_switcher_exposes_all_ranking_labels() {
+    // Same contract as the pg_stat sub-switcher: the template carries
+    // the four human chip labels and the payload rankings drive the
+    // chips client-side.
+    let labels = [
+        "\"top by total_exec_time\"",
+        "\"top by calls\"",
+        "\"top by mean_exec_time\"",
+        "\"top by rows_examined\"",
+    ];
+    for needle in labels {
+        assert!(
+            TEMPLATE.contains(needle),
+            "template is missing mysql_stat sub-switcher label mapping {needle}"
+        );
+    }
+    assert!(
+        TEMPLATE.contains("\"Rows examined\""),
+        "template is missing the human label for the rows_examined ranking"
+    );
 }
 
 #[test]
@@ -1210,6 +1307,7 @@ fn tabs_and_panels_carry_aria_roles() {
         "panel-overview",
         "panel-findings",
         "panel-pgstat",
+        "panel-mysqlstat",
         "panel-diff",
         "panel-correlations",
         "panel-green",
@@ -1222,16 +1320,18 @@ fn tabs_and_panels_carry_aria_roles() {
     // `aria-labelledby="tab-<name>"` with its matching tab id. The
     // app-shell redesign (0.9.0) folded the Explain tab into the
     // Findings master/detail pane and added the Overview landing
-    // panel, keeping the count at 7.
+    // panel; 0.9.5 added the mysql_stat panel, bringing the count
+    // to 8.
     let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
     assert_eq!(
-        tabpanel_count, 7,
-        "expected 7 tabpanels, found {tabpanel_count}"
+        tabpanel_count, 8,
+        "expected 8 tabpanels, found {tabpanel_count}"
     );
     for tab in [
         "overview",
         "findings",
         "pgstat",
+        "mysqlstat",
         "diff",
         "correlations",
         "green",
@@ -1285,7 +1385,7 @@ fn chips_carry_aria_radio_and_pressed_states() {
 
 #[test]
 fn copy_link_button_present_on_listable_tabs_only() {
-    for tab in ["findings", "pgstat", "diff", "correlations"] {
+    for tab in ["findings", "pgstat", "mysqlstat", "diff", "correlations"] {
         let needle = format!("id=\"{tab}-copy-link\"");
         assert!(
             TEMPLATE.contains(&needle),
@@ -1298,8 +1398,8 @@ fn copy_link_button_present_on_listable_tabs_only() {
     // above and this assertion in the same commit.
     let copy_link_count = TEMPLATE.matches("data-copy-link-tab=\"").count();
     assert_eq!(
-        copy_link_count, 4,
-        "expected exactly 4 copy-link buttons, found {copy_link_count}"
+        copy_link_count, 5,
+        "expected exactly 5 copy-link buttons, found {copy_link_count}"
     );
     // Explain and GreenOps stay button-less (no toolbar, no
     // copy-link). Check by scanning for their panel IDs and

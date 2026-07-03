@@ -532,6 +532,26 @@
     <div class="ps-empty" id="pgstat-empty" style="display: none;">No pg_stat entries.</div>
   </div>
 
+  <div id="panel-mysqlstat" role="tabpanel" aria-labelledby="tab-mysqlstat" class="ps-panel ps-panel-narrow" style="display: none;">
+    <div class="ps-pgstat-controls">
+      <span class="ps-rankby-label">rank by</span>
+      <div class="ps-filters" id="mysqlstat-rankings"></div>
+      <div class="ps-search-box ps-pgstat-filter">
+        <span class="ps-search-glyph">⌕</span>
+        <input type="search" class="ps-search" id="mysqlstat-search" placeholder="Filter by SQL template…" aria-label="Filter mysql_stat rows" />
+      </div>
+      <button type="button" class="ps-export-btn" id="mysqlstat-export" data-export-tab="mysqlstat">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="mysqlstat-copy-link" data-copy-link-tab="mysqlstat">Copy link</button>
+    </div>
+    <div class="ps-card">
+      <table class="ps-table" id="mysqlstat-table">
+        <thead><tr><th>Template</th><th style="width: 90px;">Schema</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th><th style="width: 110px;">Rows examined</th></tr></thead>
+        <tbody id="mysqlstat-body"></tbody>
+      </table>
+    </div>
+    <div class="ps-empty" id="mysqlstat-empty" style="display: none;">No mysql_stat entries.</div>
+  </div>
+
   <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" class="ps-panel ps-panel-narrow" style="display: none;">
     <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
     <div class="ps-panel-toolbar">
@@ -1148,6 +1168,7 @@
     overview: { title: "Overview", eyebrow: "summary" },
     findings: { title: "Findings", eyebrow: "findings · triage" },
     pgstat: { title: "pg_stat", eyebrow: "postgres statements" },
+    mysqlstat: { title: "mysql_stat", eyebrow: "mysql statement digests" },
     diff: { title: "Diff", eyebrow: "diff vs baseline" },
     correlations: { title: "Correlations", eyebrow: "cross-trace" },
     green: { title: "Carbon", eyebrow: "greenops" },
@@ -2468,6 +2489,13 @@
   }
   var hasPgStat = Object.keys(pgStatByTemplate).length > 0;
 
+  var mysqlStat = payload.mysql_stat || null;
+  var mysqlStatRankings =
+    mysqlStat && Array.isArray(mysqlStat.rankings) ? mysqlStat.rankings : [];
+  var hasMysqlStat = mysqlStatRankings.some(function (r) {
+    return (r.entries || []).length > 0;
+  });
+
   var diffData = payload.diff || null;
   var hasDiff = !!diffData;
 
@@ -2644,6 +2672,95 @@
       }
     });
     if (matched) matched.scrollIntoView({ block: "nearest" });
+  }
+
+  // -------- mysql_stat panel --------
+  // Same sub-switcher pattern as pg_stat, without the Explain drill and
+  // the session/hash ranking persistence (deliberate simplification: no
+  // cross-nav feeds this tab). Rankings stay in the stable order
+  // `rank_mysql_stat` emits: [by_total_time, by_calls, by_mean_time,
+  // by_rows_examined].
+  var activeMysqlRankingIndex = 0;
+
+  var MYSQLSTAT_LABELS = {
+    "top by total_exec_time": "Total time",
+    "top by calls": "Calls",
+    "top by mean_exec_time": "Mean time",
+    "top by rows_examined": "Rows examined"
+  };
+
+  function activeMysqlStatEntries() {
+    if (mysqlStatRankings.length === 0) return [];
+    var idx = Math.min(activeMysqlRankingIndex, mysqlStatRankings.length - 1);
+    return mysqlStatRankings[idx].entries || [];
+  }
+
+  function renderMysqlStatPanel() {
+    if (!hasMysqlStat) {
+      document.getElementById("mysqlstat-empty").style.display = "";
+      return;
+    }
+    renderMysqlStatRankings();
+    renderMysqlStatTable();
+  }
+
+  function renderMysqlStatRankings() {
+    var root = document.getElementById("mysqlstat-rankings");
+    root.textContent = "";
+    if (mysqlStatRankings.length <= 1) {
+      root.style.display = "none";
+      return;
+    }
+    root.style.display = "";
+    setAttr(root, "role", "radiogroup");
+    setAttr(root, "aria-label", "mysql_stat ranking");
+    mysqlStatRankings.forEach(function (r, idx) {
+      var label = MYSQLSTAT_LABELS[r.label] || r.label || ("Ranking " + (idx + 1));
+      var btn = el("button", "ps-chip", label);
+      btn.type = "button";
+      setAttr(btn, "role", "radio");
+      setAttr(btn, "data-ranking-index", String(idx));
+      var isActive = idx === activeMysqlRankingIndex;
+      setAttr(btn, "aria-checked", isActive ? "true" : "false");
+      if (isActive) btn.classList.add("active");
+      btn.addEventListener("click", function () {
+        selectMysqlStatRanking(idx);
+      });
+      root.appendChild(btn);
+    });
+  }
+
+  function selectMysqlStatRanking(idx) {
+    if (idx === activeMysqlRankingIndex) return;
+    activeMysqlRankingIndex = idx;
+    var chips = document.querySelectorAll("#mysqlstat-rankings .ps-chip");
+    for (var i = 0; i < chips.length; i++) {
+      var isActive = i === idx;
+      chips[i].classList.toggle("active", isActive);
+      setAttr(chips[i], "aria-checked", isActive ? "true" : "false");
+    }
+    renderMysqlStatTable();
+    if (SEARCHABLE_TABS && SEARCHABLE_TABS.mysqlstat) {
+      applySearchFilter(SEARCHABLE_TABS.mysqlstat);
+    }
+  }
+
+  function renderMysqlStatTable() {
+    var body = document.getElementById("mysqlstat-body");
+    body.textContent = "";
+    activeMysqlStatEntries().forEach(function (entry) {
+      var tr = document.createElement("tr");
+      setAttr(tr, "data-template", entry.normalized_template);
+      var tplTd = el("td", "ps-pg-template");
+      highlightInto(tplTd, entry.normalized_template);
+      tr.appendChild(tplTd);
+      tr.appendChild(el("td", null, entry.schema_name || ""));
+      tr.appendChild(el("td", null, fmtNum(entry.calls || 0)));
+      tr.appendChild(el("td", null, fmtNum((entry.total_exec_time_ms || 0).toFixed(1))));
+      tr.appendChild(el("td", null, fmtNum((entry.mean_exec_time_ms || 0).toFixed(2))));
+      tr.appendChild(el("td", null, fmtNum(entry.rows_examined || 0)));
+      body.appendChild(tr);
+    });
   }
 
   // -------- diff panel --------
@@ -2840,6 +2957,10 @@
     pgstat: {
       inputId: "pgstat-search",
       rowsSelector: "#pgstat-body tr"
+    },
+    mysqlstat: {
+      inputId: "mysqlstat-search",
+      rowsSelector: "#mysqlstat-body tr"
     },
     diff: {
       inputId: "diff-search",
@@ -3114,6 +3235,29 @@
       ];
     });
     downloadCsv("pgstat", buildCsv(header, rows));
+  }
+
+  function exportMysqlStatCsv() {
+    var term = searchTermFor("mysqlstat");
+    var header = [
+      "template", "schema_name", "calls", "total_exec_time_ms",
+      "mean_exec_time_ms", "rows_sent", "rows_examined", "seen_in_traces"
+    ];
+    var rows = activeMysqlStatEntries().filter(function (e) {
+      return matchesSearch(e.normalized_template, term);
+    }).map(function (e) {
+      return [
+        e.normalized_template || "",
+        e.schema_name || "",
+        e.calls ?? "",
+        e.total_exec_time_ms ?? "",
+        e.mean_exec_time_ms ?? "",
+        e.rows_sent ?? "",
+        e.rows_examined ?? "",
+        e.seen_in_traces ? "true" : "false"
+      ];
+    });
+    downloadCsv("mysqlstat", buildCsv(header, rows));
   }
 
   function diffFindingMatchBlob(f) {
@@ -3566,6 +3710,11 @@
         return activePgStatEntries().length;
       });
     }
+    if (hasMysqlStat) {
+      registerTab("mysqlstat", "mysql_stat", function () {
+        return activeMysqlStatEntries().length;
+      });
+    }
     if (hasDiff) {
       registerTab("diff", "Diff", function () {
         return (
@@ -3610,6 +3759,7 @@
     restorePersistedPgStatRanking();
     renderFindingsList();
     if (hasPgStat) renderPgStatPanel();
+    if (hasMysqlStat) renderMysqlStatPanel();
     if (hasDiff) renderDiffPanel();
     if (hasCorrelations) renderCorrelationsPanel();
     if (hasGreen) renderGreenPanel();
@@ -3663,6 +3813,7 @@
     var exportHandlers = {
       findings: exportFindingsCsv,
       pgstat: exportPgStatCsv,
+      mysqlstat: exportMysqlStatCsv,
       diff: exportDiffCsv,
       correlations: exportCorrelationsCsv
     };
@@ -3723,7 +3874,7 @@
   }
 
   function wireCopyLinkButtons() {
-    ["findings", "pgstat", "diff", "correlations"].forEach(function (tabKey) {
+    ["findings", "pgstat", "mysqlstat", "diff", "correlations"].forEach(function (tabKey) {
       var btn = document.getElementById(tabKey + "-copy-link");
       if (!btn) return;
       btn.addEventListener("click", function () {
