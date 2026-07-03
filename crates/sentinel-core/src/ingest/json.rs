@@ -1,9 +1,10 @@
 //! JSON ingestion with auto-format detection.
 //!
 //! Detects the input format (native, OTLP/JSON, Jaeger, Zipkin) and dispatches
-//! to the appropriate parser. Format detection peeks at the JSON structure:
-//! - Has `"resourceSpans"` (or `"resource_spans"`) key -> OTLP/JSON
+//! to the appropriate parser. Format detection peeks at the JSON structure,
+//! in this order:
 //! - Has `"data"` key with trace objects containing `"spans"` -> Jaeger
+//! - Has `"resourceSpans"` (or `"resource_spans"`) key -> OTLP/JSON
 //! - Is array where items have `"traceId"` + `"localEndpoint"` -> Zipkin
 //! - Otherwise -> native perf-sentinel format
 
@@ -85,7 +86,11 @@ fn bump_depth(b: u8, depth: &mut usize, in_string: &mut bool) -> bool {
 }
 
 /// The detected input format.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions (0.9.5 added
+/// `Otlp`; external matchers must carry a wildcard arm).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InputFormat {
     /// Native perf-sentinel JSON array of `SpanEvent`.
     Native,
@@ -137,11 +142,29 @@ impl IngestSource for JsonIngest {
                 // exporter's NDJSON (one request per line). convert_otlp_request
                 // sanitizes each event, same code path as the daemon listeners.
                 let mut events = Vec::new();
+                let mut parsed_any = false;
                 for request in serde_json::Deserializer::from_slice(raw).into_iter::<
                     opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest,
                 >() {
-                    let request = request.map_err(JsonIngestError::Parse)?;
-                    events.extend(crate::ingest::otlp::convert_otlp_request(&request));
+                    match request {
+                        Ok(request) => {
+                            parsed_any = true;
+                            events.extend(crate::ingest::otlp::convert_otlp_request(&request));
+                        }
+                        // A truncated trailing document is routine on a live or
+                        // rotated Collector file-exporter dump (exporter still
+                        // writing, file rotated mid-line). Tolerate it once at
+                        // least one request parsed; mid-stream garbage (non-EOF
+                        // errors) and a truncated-only payload still fail.
+                        Err(e) if e.is_eof() && parsed_any => {
+                            tracing::warn!(
+                                "ignoring truncated trailing OTLP JSON document \
+                                 (live or rotated file-exporter dump?)"
+                            );
+                            break;
+                        }
+                        Err(e) => return Err(JsonIngestError::Parse(e)),
+                    }
                 }
                 Ok(events)
             }
@@ -186,6 +209,19 @@ impl IngestSource for JsonIngest {
 pub fn detect_format(raw: &[u8]) -> InputFormat {
     let peek = std::str::from_utf8(&raw[..raw.len().min(1024)]).unwrap_or("");
 
+    // Jaeger: { "data": [{ ..., "spans": [...] }] }. Checked BEFORE the
+    // OTLP sniff: a Jaeger export can legitimately carry the literal
+    // "resourceSpans" inside a span name or tag value (e.g. a trace OF an
+    // OTel Collector), while a camelCase OTLP request can never satisfy
+    // the two-part lowercase `"data"` + `"spans"` rule, so this order
+    // preserves the pre-0.9.5 Jaeger detection guarantee.
+    if peek.trim_start().starts_with('{') && peek.contains("\"data\"") {
+        let deeper = std::str::from_utf8(&raw[..raw.len().min(4096)]).unwrap_or("");
+        if deeper.contains("\"spans\"") {
+            return InputFormat::Jaeger;
+        }
+    }
+
     // OTLP/JSON: { "resourceSpans": [...] } (camelCase per the protobuf JSON
     // mapping; the snake_case spelling routes here too so it fails with a
     // clear serde error instead of Native's confusing "expected array").
@@ -193,14 +229,6 @@ pub fn detect_format(raw: &[u8]) -> InputFormat {
         && (peek.contains("\"resourceSpans\"") || peek.contains("\"resource_spans\""))
     {
         return InputFormat::Otlp;
-    }
-
-    // Jaeger: { "data": [{ ..., "spans": [...] }] }
-    if peek.trim_start().starts_with('{') && peek.contains("\"data\"") {
-        let deeper = std::str::from_utf8(&raw[..raw.len().min(4096)]).unwrap_or("");
-        if deeper.contains("\"spans\"") {
-            return InputFormat::Jaeger;
-        }
     }
 
     // Zipkin: [{ "traceId": "...", "localEndpoint": {...} }]
@@ -338,6 +366,29 @@ mod tests {
     }
 
     #[test]
+    fn detect_jaeger_wins_over_stray_resource_spans_literal() {
+        // Regression: a Jaeger export can mention "resourceSpans" inside a
+        // span name or tag (e.g. a trace OF an OTel Collector). The Jaeger
+        // rule must keep winning, as it did before the OTLP sniff existed.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "export resourceSpans",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [{"key": "note", "value": "handles \"resourceSpans\" batches"}]
+                }],
+                "processes": {"p1": {"serviceName": "collector"}}
+            }]
+        }"#;
+        assert_eq!(detect_format(json.as_bytes()), InputFormat::Jaeger);
+    }
+
+    #[test]
     fn detect_otlp_snake_case_routes_to_otlp() {
         // snake_case is not a valid OTLP/JSON spelling (with-serde is
         // camelCase-only), but routing it to the OTLP arm yields a clear
@@ -375,6 +426,46 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].target, "SELECT 1");
         assert_eq!(events[1].target, "SELECT 2");
+    }
+
+    #[test]
+    fn auto_ingest_otlp_ndjson_tolerates_truncated_tail() {
+        // A live or rotated Collector file-exporter dump routinely ends on
+        // a partially-written line: keep the parsed requests, warn, and do
+        // not fail the whole batch.
+        let full = otlp_request_json("0af7651916cd43dd8448eb211c80319c", "SELECT 1");
+        let truncated = &full[..full.len() / 2];
+        let json = format!("{full}\n{truncated}");
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "SELECT 1");
+    }
+
+    #[test]
+    fn auto_ingest_otlp_truncated_only_payload_still_fails() {
+        // With zero complete requests there is nothing to salvage: the
+        // parse error must surface, not an empty success.
+        let full = otlp_request_json("0af7651916cd43dd8448eb211c80319c", "SELECT 1");
+        let truncated = &full[..full.len() / 2];
+        let ingest = JsonIngest::new(1_048_576);
+        assert_matches!(
+            ingest.ingest(truncated.as_bytes()),
+            Err(JsonIngestError::Parse(_))
+        );
+    }
+
+    #[test]
+    fn auto_ingest_otlp_mid_stream_garbage_still_fails() {
+        // Non-EOF errors (malformed document between valid ones) are not
+        // the truncated-tail case and must abort the ingest.
+        let full = otlp_request_json("0af7651916cd43dd8448eb211c80319c", "SELECT 1");
+        let json = format!("{full}\n{{\"resourceSpans\": 42}}\n{full}");
+        let ingest = JsonIngest::new(1_048_576);
+        assert_matches!(
+            ingest.ingest(json.as_bytes()),
+            Err(JsonIngestError::Parse(_))
+        );
     }
 
     #[test]
