@@ -1,0 +1,65 @@
+[
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `order_item` WHERE `order_id` = ?",
+    "COUNT_STAR": 4200,
+    "SUM_TIMER_WAIT": 12600000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 4200,
+    "SUM_ROWS_EXAMINED": 126000
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `orders` WHERE `user_id` = ?",
+    "COUNT_STAR": 1800,
+    "SUM_TIMER_WAIT": 5400000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 1800,
+    "SUM_ROWS_EXAMINED": 1800
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `products` WHERE `category_id` = ? ORDER BY `rank` DESC LIMIT ?",
+    "COUNT_STAR": 950,
+    "SUM_TIMER_WAIT": 4750000000000,
+    "AVG_TIMER_WAIT": 5000000000,
+    "SUM_ROWS_SENT": 19000,
+    "SUM_ROWS_EXAMINED": 640000
+  },
+  {
+    "SCHEMA_NAME": "crm",
+    "DIGEST_TEXT": "SELECT `c` . `name` , `c` . `email` FROM `customers` `c` WHERE `c` . `id` IN (?, ?, ?)",
+    "COUNT_STAR": 620,
+    "SUM_TIMER_WAIT": 1860000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 1860,
+    "SUM_ROWS_EXAMINED": 1860
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "UPDATE `inventory` SET `stock` = `stock` - ? WHERE `sku` = ?",
+    "COUNT_STAR": 540,
+    "SUM_TIMER_WAIT": 1080000000000,
+    "AVG_TIMER_WAIT": 2000000000,
+    "SUM_ROWS_SENT": 0,
+    "SUM_ROWS_EXAMINED": 540
+  },
+  {
+    "SCHEMA_NAME": "analytics",
+    "DIGEST_TEXT": "SELECT DATE ( `created_at` ) , COUNT ( * ) FROM `orders` GROUP BY DATE ( `created_at` )",
+    "COUNT_STAR": 12,
+    "SUM_TIMER_WAIT": 2400000000000,
+    "AVG_TIMER_WAIT": 200000000000,
+    "SUM_ROWS_SENT": 360,
+    "SUM_ROWS_EXAMINED": 4400000
+  },
+  {
+    "SCHEMA_NAME": null,
+    "DIGEST_TEXT": "SET NAMES ? COLLATE ?",
+    "COUNT_STAR": 2600,
+    "SUM_TIMER_WAIT": 130000000000,
+    "AVG_TIMER_WAIT": 50000000,
+    "SUM_ROWS_SENT": 0,
+    "SUM_ROWS_EXAMINED": 0
+  }
+]

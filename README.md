@@ -143,7 +143,7 @@ perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 perf-sentinel watch
 ```
 
-`demo --html` is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
+`demo --html` is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, mysql_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
 
 On dd-trace? Bridge via the Collector `datadogreceiver`: `watch` for the daemon, a Collector `file` exporter dump for step 2 (`analyze` auto-detects OTLP JSON since 0.9.5), or a Tempo/Jaeger backend with `tempo`/`jaeger-query`. See [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 
