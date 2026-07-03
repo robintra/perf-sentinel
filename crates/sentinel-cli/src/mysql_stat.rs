@@ -1,12 +1,33 @@
 //! `perf-sentinel mysql-stat` subcommand: Performance Schema digest
-//! ingestion (file), ranking, and terminal/JSON output.
+//! ingestion (file), ranking, and terminal/JSON output. Also hosts the
+//! `mysql_stat` loader shared with the `report` subcommand.
 
 use sentinel_core::config::Config;
 use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
 use sentinel_core::pipeline;
 
-use crate::{MySqlStatOutputFormat, limits, load_config, read_events};
+use crate::{MySqlStatOutputFormat, limits, load_config, read_events, read_file_capped};
+
+/// Ingest an `events_statements_summary_by_digest` CSV or JSON file and
+/// produce the ranking report the HTML dashboard embeds. Exits 1 on
+/// parse failure.
+pub(crate) fn load_mysql_stat_from_file(
+    path: &std::path::Path,
+    top_n: usize,
+) -> sentinel_core::ingest::mysql_stat::MySqlStatReport {
+    let raw = read_file_capped(
+        path,
+        u64::try_from(limits::MAX_BATCH_INPUT_BYTES).unwrap_or(u64::MAX),
+    );
+    match sentinel_core::ingest::mysql_stat::parse_mysql_stat(&raw, limits::MAX_BATCH_INPUT_BYTES) {
+        Ok(entries) => sentinel_core::ingest::mysql_stat::rank_mysql_stat(&entries, top_n),
+        Err(e) => {
+            eprintln!("Error parsing --mysql-stat {}: {e}", path.display());
+            std::process::exit(1);
+        }
+    }
+}
 
 /// Run the `mysql-stat` subcommand: parse the digest export, optionally
 /// cross-reference against trace findings, rank, and print.

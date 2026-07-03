@@ -48,6 +48,7 @@ pub(crate) fn cmd_demo(
             // Showcase the pg_stat and Diff tabs from embedded demo fixtures
             // so the dashboard is fully populated without external inputs.
             pg_stat: Some(demo_pg_stat()),
+            mysql_stat: None,
             diff: Some(demo_diff(&report, &config)),
             daemon_url: None,
         };

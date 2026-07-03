@@ -37,6 +37,7 @@
 use crate::correlate::Trace;
 use crate::diff::DiffReport;
 use crate::event::EventType;
+use crate::ingest::mysql_stat::MySqlStatReport;
 use crate::ingest::pg_stat::PgStatReport;
 use crate::normalize::NormalizedEvent;
 use crate::report::Report;
@@ -115,6 +116,11 @@ pub struct RenderOptions {
     /// plus the Explain-to-`pg_stat` cross-navigation for matching SQL
     /// templates.
     pub pg_stat: Option<PgStatReport>,
+    /// Optional `MySQL` Performance Schema digest report embedded
+    /// alongside the analysis. When `Some`, the HTML dashboard exposes
+    /// a `mysql_stat` tab with the same ranking sub-switcher as
+    /// `pg_stat`.
+    pub mysql_stat: Option<MySqlStatReport>,
     /// Optional diff against a baseline run embedded alongside the
     /// analysis. When `Some`, the HTML dashboard exposes a Diff tab
     /// with new/resolved findings, severity changes, and per-endpoint
@@ -182,6 +188,7 @@ pub struct RenderStats {
 ///     input_label: "traces.json".to_string(),
 ///     max_traces_embedded: None,
 ///     pg_stat: None,
+///     mysql_stat: None,
 ///     diff: None,
 ///     daemon_url: None,
 /// });
@@ -266,6 +273,8 @@ struct Payload<'a> {
     trimmed_findings: Option<TrimSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pg_stat: Option<&'a PgStatReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mysql_stat: Option<&'a MySqlStatReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<&'a DiffReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -492,6 +501,7 @@ fn build_payload_with_label<'a>(
         trimmed_traces: trimmed,
         trimmed_findings,
         pg_stat: options.pg_stat.as_ref(),
+        mysql_stat: options.mysql_stat.as_ref(),
         diff: options.diff.as_ref(),
         daemon: options
             .daemon_url
@@ -690,6 +700,7 @@ fn trim_to_size_target<'a>(
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
         trimmed_findings,
         pg_stat: options.pg_stat.as_ref(),
+        mysql_stat: options.mysql_stat.as_ref(),
         diff: options.diff.as_ref(),
         daemon: options
             .daemon_url

@@ -135,6 +135,10 @@ fn cli_report_help_mentions_all_flags() {
         help.contains("--pg-stat-top"),
         "help mentions --pg-stat-top"
     );
+    assert!(
+        help.contains("--mysql-stat-top"),
+        "help mentions --mysql-stat-top"
+    );
 }
 
 #[test]
@@ -360,6 +364,110 @@ fn cli_report_accepts_pg_stat_flag() {
         .as_array()
         .expect("rankings[0].entries");
     assert!(!entries.is_empty(), "pg_stat rankings must carry entries");
+}
+
+#[test]
+fn cli_report_accepts_mysql_stat_flag() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mysql_fixture = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--mysql-stat",
+            &mysql_fixture,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        output.status.success(),
+        "report --mysql-stat failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    let payload = extract_payload_json_from_html(&html);
+    let rankings = payload["mysql_stat"]["rankings"]
+        .as_array()
+        .expect("mysql_stat.rankings");
+    assert_eq!(rankings.len(), 4, "four rankings in stable order");
+    assert_eq!(rankings[3]["label"], "top by rows_examined");
+    assert!(
+        !rankings[0]["entries"].as_array().unwrap().is_empty(),
+        "mysql_stat rankings must carry entries"
+    );
+}
+
+#[test]
+fn cli_report_mysql_stat_top_requires_mysql_stat() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--mysql-stat-top",
+            "5",
+            "--output",
+            "/dev/null",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        !output.status.success(),
+        "--mysql-stat-top without --mysql-stat must be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--mysql-stat"),
+        "error should point at the companion flag, got: {stderr}"
+    );
+}
+
+#[test]
+fn cli_report_mysql_stat_top_rejects_out_of_range() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mysql_fixture = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    for bad in ["0", "10001"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+            .args([
+                "report",
+                "--input",
+                &fixture,
+                "--mysql-stat",
+                &mysql_fixture,
+                "--mysql-stat-top",
+                bad,
+                "--output",
+                "/dev/null",
+            ])
+            .output()
+            .expect("spawn");
+        assert!(
+            !output.status.success(),
+            "--mysql-stat-top {bad} must be rejected"
+        );
+    }
 }
 
 #[test]
