@@ -237,7 +237,8 @@ config:
     environment = "staging"
     api_enabled = true
     # Reject OTLP ingest when cgroup v2 memory crosses this percent of the
-    # container limit, bounding RSS against OOM. 0 disables (default). Set
+    # container limit, bounding RSS against OOM. 0 disables (default), 6 is the
+    # minimum non-zero value (5-point hysteresis band). Set
     # 80-85 when resources.limits.memory is tight.
     # memory_high_water_pct = 0
 
