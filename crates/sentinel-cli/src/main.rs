@@ -21,6 +21,7 @@ mod jaeger_cmd;
 mod limits;
 #[cfg(all(feature = "daemon", feature = "tui"))]
 mod monitor;
+mod mysql_stat;
 mod pg_stat;
 #[cfg(feature = "daemon")]
 mod query;
@@ -85,6 +86,15 @@ enum OutputFormat {
 /// Output format for the pg-stat command.
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum PgStatOutputFormat {
+    /// Colored terminal table (default).
+    Text,
+    /// Structured JSON report.
+    Json,
+}
+
+/// Output format for the mysql-stat command.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum MySqlStatOutputFormat {
     /// Colored terminal table (default).
     Text,
     /// Structured JSON report.
@@ -404,6 +414,30 @@ enum Commands {
         /// Output format: text (colored, default) or json.
         #[arg(long, value_enum, default_value = "text")]
         format: PgStatOutputFormat,
+    },
+
+    /// Analyze `MySQL` Performance Schema statement digests for SQL hotspot detection.
+    ///
+    /// Reads a CSV or JSON export of
+    /// `performance_schema.events_statements_summary_by_digest`. Timer
+    /// columns (picoseconds) are converted to milliseconds.
+    #[command(name = "mysql-stat", after_help = help_examples::MYSQL_STAT)]
+    MySqlStat {
+        /// Path to an `events_statements_summary_by_digest` CSV or JSON export.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Number of top digests per ranking (default 10).
+        #[arg(long, default_value = "10")]
+        top_n: usize,
+        /// Optional: path to a trace file for cross-referencing with trace findings.
+        #[arg(long)]
+        traces: Option<PathBuf>,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Output format: text (colored, default) or json.
+        #[arg(long, value_enum, default_value = "text")]
+        format: MySqlStatOutputFormat,
     },
 
     /// Query a running perf-sentinel daemon for findings and status.
@@ -862,6 +896,10 @@ mod help_examples {
   # Rank SQL hotspots from a pg_stat_statements export
   perf-sentinel pg-stat --input pg_stat.csv --traces traces.json";
 
+    pub const MYSQL_STAT: &str = "Examples:
+  # Rank SQL hotspots from a performance_schema digest export
+  perf-sentinel mysql-stat --input digests.csv --traces traces.json";
+
     // Two variants: the monitor example only exists when the tui
     // feature compiles the subcommand it advertises.
     #[cfg(all(feature = "daemon", feature = "tui"))]
@@ -1149,6 +1187,15 @@ async fn dispatch_command(command: Commands) {
                 format,
             )
             .await;
+        }
+        Commands::MySqlStat {
+            input,
+            top_n,
+            traces,
+            config,
+            format,
+        } => {
+            mysql_stat::cmd_mysql_stat(&input, top_n, traces.as_deref(), config.as_deref(), format);
         }
         #[cfg(feature = "daemon")]
         Commands::Query { daemon, action } => {

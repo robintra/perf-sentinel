@@ -1,0 +1,137 @@
+[
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `order_item` WHERE `order_id` = ?",
+    "COUNT_STAR": 15000,
+    "SUM_TIMER_WAIT": 45005000000000,
+    "AVG_TIMER_WAIT": 3000333333,
+    "SUM_ROWS_SENT": 15000,
+    "SUM_ROWS_EXAMINED": 450000
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `orders` WHERE `id` = ?",
+    "COUNT_STAR": 8000,
+    "SUM_TIMER_WAIT": 24000000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 8000,
+    "SUM_ROWS_EXAMINED": 8000
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `orders` WHERE `status` IN (?, ?, ?)",
+    "COUNT_STAR": 1200,
+    "SUM_TIMER_WAIT": 9600000000000,
+    "AVG_TIMER_WAIT": 8000000000,
+    "SUM_ROWS_SENT": 42000,
+    "SUM_ROWS_EXAMINED": 336000
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "INSERT INTO `audit_log` VALUES (...)",
+    "COUNT_STAR": 2000,
+    "SUM_TIMER_WAIT": 6000000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 0,
+    "SUM_ROWS_EXAMINED": 0
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT COUNT ( * ) FROM `order_item`",
+    "COUNT_STAR": 500,
+    "SUM_TIMER_WAIT": 12500000000000,
+    "AVG_TIMER_WAIT": 25000000000,
+    "SUM_ROWS_SENT": 500,
+    "SUM_ROWS_EXAMINED": 9800000
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "UPDATE `inventory` SET `stock` = ? WHERE `sku` = ?",
+    "COUNT_STAR": 4200,
+    "SUM_TIMER_WAIT": 8400000000000,
+    "AVG_TIMER_WAIT": 2000000000,
+    "SUM_ROWS_SENT": 0,
+    "SUM_ROWS_EXAMINED": 4200
+  },
+  {
+    "SCHEMA_NAME": "crm",
+    "DIGEST_TEXT": "SELECT * FROM `customers` WHERE `email` = ?",
+    "COUNT_STAR": 6100,
+    "SUM_TIMER_WAIT": 18300000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 6100,
+    "SUM_ROWS_EXAMINED": 6100
+  },
+  {
+    "SCHEMA_NAME": "crm",
+    "DIGEST_TEXT": "SELECT `c` . `name` , `o` . `total` FROM `customers` `c` JOIN `orders` `o` ON `o` . `customer_id` = `c` . `id` WHERE `o` . `created_at` > ?",
+    "COUNT_STAR": 900,
+    "SUM_TIMER_WAIT": 27000000000000,
+    "AVG_TIMER_WAIT": 30000000000,
+    "SUM_ROWS_SENT": 45000,
+    "SUM_ROWS_EXAMINED": 7300000
+  },
+  {
+    "SCHEMA_NAME": "crm",
+    "DIGEST_TEXT": "DELETE FROM `sessions` WHERE `expires_at` < ?",
+    "COUNT_STAR": 250,
+    "SUM_TIMER_WAIT": 750000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 0,
+    "SUM_ROWS_EXAMINED": 125000
+  },
+  {
+    "SCHEMA_NAME": null,
+    "DIGEST_TEXT": "SELECT @@`version_comment` LIMIT ?",
+    "COUNT_STAR": 3400,
+    "SUM_TIMER_WAIT": 340000000000,
+    "AVG_TIMER_WAIT": 100000000,
+    "SUM_ROWS_SENT": 3400,
+    "SUM_ROWS_EXAMINED": 0
+  },
+  {
+    "SCHEMA_NAME": null,
+    "DIGEST_TEXT": "SET NAMES ? COLLATE ?",
+    "COUNT_STAR": 5100,
+    "SUM_TIMER_WAIT": 255000000000,
+    "AVG_TIMER_WAIT": 50000000,
+    "SUM_ROWS_SENT": 0,
+    "SUM_ROWS_EXAMINED": 0
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT * FROM `cart_item` WHERE `cart_id` = ?",
+    "COUNT_STAR": 9800,
+    "SUM_TIMER_WAIT": 29400000000000,
+    "AVG_TIMER_WAIT": 3000000000,
+    "SUM_ROWS_SENT": 29400,
+    "SUM_ROWS_EXAMINED": 29400
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT `p` . * FROM `products` `p` WHERE `p` . `category_id` = ? ORDER BY `p` . `rank` DESC LIMIT ?",
+    "COUNT_STAR": 2700,
+    "SUM_TIMER_WAIT": 13500000000000,
+    "AVG_TIMER_WAIT": 5000000000,
+    "SUM_ROWS_SENT": 54000,
+    "SUM_ROWS_EXAMINED": 1900000
+  },
+  {
+    "SCHEMA_NAME": "analytics",
+    "DIGEST_TEXT": "SELECT DATE ( `created_at` ) , COUNT ( * ) FROM `orders` GROUP BY DATE ( `created_at` )",
+    "COUNT_STAR": 24,
+    "SUM_TIMER_WAIT": 4800000000000,
+    "AVG_TIMER_WAIT": 200000000000,
+    "SUM_ROWS_SENT": 720,
+    "SUM_ROWS_EXAMINED": 8800000
+  },
+  {
+    "SCHEMA_NAME": "shop",
+    "DIGEST_TEXT": "SELECT SLEEP ( ? )",
+    "COUNT_STAR": 3,
+    "SUM_TIMER_WAIT": 9000000000000,
+    "AVG_TIMER_WAIT": 3000000000000,
+    "SUM_ROWS_SENT": 3,
+    "SUM_ROWS_EXAMINED": 0
+  }
+]

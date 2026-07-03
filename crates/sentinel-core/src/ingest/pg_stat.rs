@@ -324,7 +324,8 @@ fn parse_csv(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 ///
 /// Iterates over chars (not bytes) to correctly handle multi-byte UTF-8 content
 /// in query strings. Only ASCII delimiters (`"` and `,`) receive special treatment.
-fn parse_csv_row(line: &str) -> Vec<String> {
+/// `pub(crate)`: shared with the `mysql_stat` CSV parser.
+pub(crate) fn parse_csv_row(line: &str) -> Vec<String> {
     let mut fields = Vec::with_capacity(8);
     let mut current = String::new();
     let mut in_quotes = false;

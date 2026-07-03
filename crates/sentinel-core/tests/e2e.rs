@@ -763,3 +763,60 @@ fn pg_stat_csv_and_json_fixtures_produce_same_entries() {
         assert_eq!(csv.calls, json.calls);
     }
 }
+
+#[test]
+fn mysql_stat_csv_fixture_parses_successfully() {
+    let path = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let entries = sentinel_core::ingest::mysql_stat::parse_mysql_stat(&raw, 1_048_576)
+        .expect("CSV parse failed");
+    assert_eq!(entries.len(), 15, "CSV fixture should have 15 entries");
+    assert!(
+        entries[0].normalized_template.contains('?'),
+        "first entry should have normalized template"
+    );
+    assert!(
+        entries[0].total_exec_time_ms > 1.0,
+        "picosecond timers should convert to milliseconds"
+    );
+}
+
+#[test]
+fn mysql_stat_json_fixture_parses_successfully() {
+    let path = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let entries = sentinel_core::ingest::mysql_stat::parse_mysql_stat(&raw, 1_048_576)
+        .expect("JSON parse failed");
+    assert_eq!(entries.len(), 15, "JSON fixture should have 15 entries");
+}
+
+#[test]
+fn mysql_stat_csv_and_json_fixtures_produce_same_entries() {
+    let csv_path = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let json_path = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let csv_raw = std::fs::read(&csv_path).unwrap();
+    let json_raw = std::fs::read(&json_path).unwrap();
+    let csv_entries =
+        sentinel_core::ingest::mysql_stat::parse_mysql_stat(&csv_raw, 1_048_576).unwrap();
+    let json_entries =
+        sentinel_core::ingest::mysql_stat::parse_mysql_stat(&json_raw, 1_048_576).unwrap();
+    assert_eq!(csv_entries.len(), json_entries.len());
+    for (csv, json) in csv_entries.iter().zip(json_entries.iter()) {
+        assert_eq!(csv.normalized_template, json.normalized_template);
+        assert_eq!(csv.calls, json.calls);
+        assert_eq!(csv.schema_name, json.schema_name);
+        assert!((csv.total_exec_time_ms - json.total_exec_time_ms).abs() < f64::EPSILON);
+    }
+}

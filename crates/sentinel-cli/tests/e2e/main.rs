@@ -11,6 +11,7 @@ mod demo;
 mod diff;
 mod disclose;
 mod explain;
+mod mysql_stat;
 mod report;
 mod tui;
 mod watch;
