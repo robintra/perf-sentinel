@@ -3221,7 +3221,15 @@
       "rows", "shared_blks_hit", "shared_blks_read", "seen_in_traces"
     ];
     var rows = activePgStatEntries().filter(function (e) {
-      return matchesSearch(e.normalized_template, term);
+      // Match the SAME text the visible row filter sees (template plus
+      // the formatted numeric cells of renderPgStatTable).
+      var blob = [
+        e.normalized_template,
+        fmtNum(e.calls || 0),
+        fmtNum((e.total_exec_time_ms || 0).toFixed(1)),
+        fmtNum((e.mean_exec_time_ms || 0).toFixed(2))
+      ].join(" ");
+      return matchesSearch(blob, term);
     }).map(function (e) {
       return [
         e.normalized_template || "",
@@ -3244,9 +3252,18 @@
       "mean_exec_time_ms", "rows_sent", "rows_examined", "seen_in_traces"
     ];
     var rows = activeMysqlStatEntries().filter(function (e) {
-      // Match template + schema, mirroring the visible row filter
-      // (matchRowByText sees the whole row, Schema column included).
-      return matchesSearch(e.normalized_template + " " + (e.schema_name || ""), term);
+      // Match the SAME text the visible row filter sees (matchRowByText
+      // reads row.textContent): template, schema and the formatted
+      // numeric cells, so a numeric search exports what stays visible.
+      var blob = [
+        e.normalized_template,
+        e.schema_name || "",
+        fmtNum(e.calls || 0),
+        fmtNum((e.total_exec_time_ms || 0).toFixed(1)),
+        fmtNum((e.mean_exec_time_ms || 0).toFixed(2)),
+        fmtNum(e.rows_examined || 0)
+      ].join(" ");
+      return matchesSearch(blob, term);
     }).map(function (e) {
       return [
         e.normalized_template || "",
