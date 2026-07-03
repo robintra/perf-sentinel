@@ -1117,14 +1117,19 @@ impl Config {
             &1,
             &1_048_576,
         )?;
-        // 0 disables the memory-pressure admission guard; 1..=100 is a
-        // percentage of the cgroup memory limit.
-        check_range(
-            "memory_high_water_pct",
-            &self.daemon.memory_high_water_pct,
-            &0,
-            &100,
-        )?;
+        // 0 disables the memory-pressure admission guard; otherwise the
+        // percentage must clear the 5-point hysteresis band, else the
+        // flag's low-water bound would sit at or below zero and the
+        // guard could never un-reject once tripped.
+        if self.daemon.memory_high_water_pct != 0 {
+            check_range(
+                "memory_high_water_pct",
+                &self.daemon.memory_high_water_pct,
+                &6,
+                &100,
+            )
+            .map_err(|e| format!("{e} (0 disables the guard; 1..=5 would make the 5-point hysteresis low bound unreachable)"))?;
+        }
         check_range("listen_port_http", &self.daemon.listen_port, &1, &65535)?;
         check_range(
             "listen_port_grpc",
