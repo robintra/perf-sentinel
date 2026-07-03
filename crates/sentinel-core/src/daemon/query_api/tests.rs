@@ -723,6 +723,21 @@ fn tuning_advisor_flags_memory_pressure_rejections() {
         "got: {}",
         msgs[0]
     );
+    // Symmetry with the channel_full path: the same episode must also
+    // surface an ingestion_drops warning naming the count and cause.
+    let drops: Vec<String> = collect_warning_details(&metrics, &daemon)
+        .into_iter()
+        .filter(|w| w.kind == crate::report::warnings::INGESTION_DROPS)
+        .map(|w| w.message)
+        .collect();
+    assert_eq!(drops.len(), 1);
+    assert!(
+        drops[0].contains("4 ")
+            && drops[0].contains("memory high-water")
+            && drops[0].contains("OOM"),
+        "got: {}",
+        drops[0]
+    );
 }
 
 #[test]
