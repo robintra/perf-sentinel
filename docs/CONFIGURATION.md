@@ -426,6 +426,7 @@ Streaming mode (`perf-sentinel watch`) settings.
 | `max_retained_findings`   | integer | `10000`                     | Maximum number of recent findings retained in the daemon's ring buffer for the query API. Older findings are evicted when the limit is reached. Range: 0 to 10,000,000, where `0` disables the store entirely and reclaims its memory (recommended when `api_enabled = false`)                                                           |
 | `ingest_queue_capacity`   | integer | `1024`                      | Capacity of the ingestion channel: span-event batches buffered between the listeners and the event loop. Once full, ingestion applies backpressure to producers. Raise it to absorb burstier traffic at the cost of memory. Range: 1 to 1,048,576                                                                                        |
 | `analysis_queue_capacity` | integer | `1024`                      | Capacity of the analysis worker queue: evicted and expired batches awaiting detect+score. Once full, whole batches are shed and counted on `perf_sentinel_analysis_shed_batches_total`. Raise it to tolerate longer analysis bursts before shedding. Range: 1 to 1,048,576                                                               |
+| `memory_high_water_pct`   | integer | `0`                         | Memory-pressure admission control, as a percentage of the cgroup v2 memory limit. When `memory.current / memory.max` crosses this high-water mark, OTLP ingest is rejected with a retryable status (counted on `perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`) until usage falls back below it, bounding RSS independently of queue depth. `0` disables the guard (default). Linux/cgroup-v2 only, inert elsewhere. Set 80-85 to leave headroom above a typical steady-state footprint. Range: 0 to 100 |
 
 ##### Comfort zones and startup warnings
 
@@ -647,6 +648,10 @@ max_retained_findings = 10000
 # load to reduce ingestion backpressure / analysis shedding.
 ingest_queue_capacity = 1024
 analysis_queue_capacity = 1024
+# Optional: reject OTLP ingest when cgroup memory crosses this percent of
+# the container limit, bounding RSS against OOM. 0 disables (default).
+# Linux/cgroup-v2 only. Set 80-85 to leave headroom above steady state.
+memory_high_water_pct = 0
 
 # Optional: cross-trace correlation (daemon mode only)
 # [daemon.correlation]

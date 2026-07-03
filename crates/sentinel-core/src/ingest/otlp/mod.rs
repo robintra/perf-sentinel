@@ -31,6 +31,14 @@ pub trait MetricsSink: Send + Sync {
 
     /// Record one request's span conversion tally (received vs filtered).
     fn record_otlp_spans(&self, stats: SpanConversionStats);
+
+    /// Whether cgroup memory has crossed the configured high-water mark,
+    /// so the handlers should reject ingest to bound RSS. Defaults to
+    /// `false`: the guard is opt-in and only the daemon `MetricsState`
+    /// wires a real signal, batch/test sinks stay unaffected.
+    fn ingest_over_memory_limit(&self) -> bool {
+        false
+    }
 }
 
 /// Per-request span conversion tally.
@@ -748,6 +756,17 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         &self,
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
+        // Memory-pressure admission control: reject before conversion so a
+        // saturation flood cannot grow RSS past the cgroup limit. UNAVAILABLE
+        // is the retryable status compliant exporters back off on.
+        if let Some(m) = self.metrics.as_ref()
+            && m.ingest_over_memory_limit()
+        {
+            m.record_otlp_reject(OtlpRejectReason::MemoryPressure);
+            return Err(Status::unavailable(
+                "ingest paused: memory high-water, retry",
+            ));
+        }
         let (events, stats) = convert_otlp_request_counted(request.get_ref());
         if let Some(m) = self.metrics.as_ref() {
             m.record_otlp_spans(stats);
@@ -816,6 +835,15 @@ pub fn otlp_http_router(
         headers: HeaderMap,
         body: axum::body::Bytes,
     ) -> StatusCode {
+        // Memory-pressure admission control: reject before decode so a
+        // saturation flood cannot grow RSS past the cgroup limit. 503 is
+        // the retryable status compliant exporters back off on.
+        if let Some(m) = state.metrics.as_ref()
+            && m.ingest_over_memory_limit()
+        {
+            m.record_otlp_reject(OtlpRejectReason::MemoryPressure);
+            return StatusCode::SERVICE_UNAVAILABLE;
+        }
         // OTLP/HTTP spec: only `application/x-protobuf` is accepted by
         // perf-sentinel (we do not implement the JSON-encoded variant).
         // Reject upfront so we do not waste CPU running `prost::decode`

@@ -217,6 +217,16 @@ let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
   tracks the backlog. Overload is explicit and observable, never a silent drop. The
   trade-off is intentional: under sustained overload we drop whole batches rather than
   block ingestion (a liveness/backpressure choice, not a throughput one).
+- **Memory-pressure admission control (opt-in).** Queue-depth shedding is a proxy for
+  memory: when analysis keeps up, the queue stays empty while the `TraceWindow` (bounded
+  by trace *count* and TTL, not bytes) can still grow RSS past the cgroup limit and get
+  the pod OOMKilled before any shed fires. When `[daemon] memory_high_water_pct > 0`, a
+  1 Hz watcher (`daemon/mem_pressure.rs`) reads cgroup v2 `memory.current / memory.max`
+  and flips a shared flag (with hysteresis) once usage crosses the mark. The OTLP handlers
+  read the flag and reject ingest with a retryable status
+  (`perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`), halting growth at the
+  source so TTL eviction drains the window and RSS refloods. cgroup v2 / Linux only, inert
+  and zero-overhead when disabled or unsupported.
 - **CarbonContext sampled at eviction time.** The per-batch `CarbonContext` (energy
   scraper snapshots + grid intensity) is built on the loop side when the batch is
   evicted and travels with it, preserving the previous sampling instant.

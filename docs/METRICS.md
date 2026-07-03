@@ -66,10 +66,10 @@ sibling Pod cannot read the daemon's process state freely.
 
 ## OTLP ingestion metrics
 
-| Metric                                    | Type    | Labels   | Description                                                                       |
-|-------------------------------------------|---------|----------|-----------------------------------------------------------------------------------|
-| `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total OTLP requests rejected by the daemon since start, by reason (since 0.5.19). |
-| `perf_sentinel_otlp_spans_received_total` | counter | (none)   | Total OTLP spans received across all requests, before I/O filtering (since 0.8.7). |
+| Metric                                    | Type    | Labels   | Description                                                                                    |
+|-------------------------------------------|---------|----------|------------------------------------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total OTLP requests rejected by the daemon since start, by reason (since 0.5.19).              |
+| `perf_sentinel_otlp_spans_received_total` | counter | (none)   | Total OTLP spans received across all requests, before I/O filtering (since 0.8.7).             |
 | `perf_sentinel_otlp_spans_filtered_total` | counter | `reason` | OTLP spans skipped by conversion because they are not analyzable I/O operations (since 0.8.7). |
 
 `reason` label values:
@@ -85,8 +85,14 @@ sibling Pod cannot read the daemon's process state freely.
   returns 503, the gRPC path returns `UNAVAILABLE` on saturation
   (both retryable per the OTLP spec) and `INTERNAL` only when the
   channel is closed during shutdown.
+- `memory_pressure` (HTTP and gRPC): cgroup memory crossed the
+  `[daemon] memory_high_water_pct` high-water mark, so ingest is
+  rejected (HTTP 503, gRPC `UNAVAILABLE`, both retryable) to bound RSS
+  independently of queue depth, until usage falls back below the mark.
+  Never fires when the guard is disabled (`memory_high_water_pct = 0`,
+  the default) or on a host without a cgroup v2 memory limit.
 
-All 3 reasons are pre-warmed to 0 at startup so dashboards can plot
+All 4 reasons are pre-warmed to 0 at startup so dashboards can plot
 zero-values before the first rejection.
 
 `payload_too_large` is **not** counted by this metric. Tower-http
@@ -120,22 +126,22 @@ pre-warmed to 0:
 
 ## Analysis and findings metrics
 
-| Metric                                       | Type      | Labels             | Description                                                                                                                                                                                                                                                        |
-|----------------------------------------------|-----------|--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `perf_sentinel_findings_total`               | counter   | `type`, `severity` | Findings detected since daemon start. `type` mirrors the `Finding.finding_type` enum, `severity` is `critical` / `warning` / `info`. Carries OpenMetrics exemplars when a `trace_id` is available.                                                                 |
-| `perf_sentinel_traces_analyzed_total`        | counter   | (none)             | Cumulative trace count processed by the event loop.                                                                                                                                                                                                                |
-| `perf_sentinel_events_processed_total`       | counter   | (none)             | Cumulative event count processed by the event loop.                                                                                                                                                                                                                |
-| `perf_sentinel_active_traces`                | gauge     | (none)             | Currently active traces in the sliding window.                                                                                                                                                                                                                     |
-| `perf_sentinel_analysis_queue_depth`         | gauge     | (none)             | Batches pending in the analysis worker queue (incremented on enqueue, decremented when the worker picks a batch up). A sustained nonzero value means detect+score is falling behind ingestion.                                                                     |
-| `perf_sentinel_stored_findings`              | gauge     | (none)             | Findings currently retained in the query ring buffer (since 0.8.8). Pair with `perf_sentinel_max_retained_findings` for a headroom ratio.                                                                                                                          |
-| `perf_sentinel_max_active_traces`            | gauge     | (none)             | Configured cap of the sliding window (`[daemon] max_active_traces`), set once at startup (since 0.8.8). Pair with `perf_sentinel_active_traces`. The settings advisor hints at 90%.                                                                                |
-| `perf_sentinel_analysis_queue_capacity`      | gauge     | (none)             | Configured cap of the analysis worker queue (`[daemon] analysis_queue_capacity`), set once at startup (since 0.8.8). Pair with `perf_sentinel_analysis_queue_depth`.                                                                                               |
-| `perf_sentinel_max_retained_findings`        | gauge     | (none)             | Configured cap of the findings ring buffer (`[daemon] max_retained_findings`), set once at startup (since 0.8.8). Pair with `perf_sentinel_stored_findings`.                                                                                                       |
-| `perf_sentinel_analysis_shed_batches_total`  | counter   | (none)             | Analysis batches shed because the worker queue was full or the worker stopped. Replaces the previous implicit drop: every shed is counted here. Alert on `rate(...) > 0`.                                                                                          |
-| `perf_sentinel_analysis_shed_traces_total`   | counter   | (none)             | Traces dropped by the shed batches counted in `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                         |
-| `perf_sentinel_correlator_pairs_evicted_total` | counter | (none)             | Cross-trace correlator pairs evicted by the `max_tracked_pairs` cap (since 0.8.7). A sustained rate means the correlation topology exceeds the cap and lowest-count pairs are recycled, so `/api/correlations` may drop entries between reads.                     |
-| `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Duration histogram for spans exceeding the slow threshold, by event `type` (`sql` or `http_out`). Buckets: 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 seconds. Used by Grafana `histogram_quantile()` for accurate percentiles across sharded daemon instances. |
-| `perf_sentinel_export_report_requests_total` | counter   | (none)             | Total `GET /api/export/report` requests. Includes cold-start responses (200 with empty envelope).                                                                                                                                                                  |
+| Metric                                         | Type      | Labels             | Description                                                                                                                                                                                                                                                        |
+|------------------------------------------------|-----------|--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_findings_total`                 | counter   | `type`, `severity` | Findings detected since daemon start. `type` mirrors the `Finding.finding_type` enum, `severity` is `critical` / `warning` / `info`. Carries OpenMetrics exemplars when a `trace_id` is available.                                                                 |
+| `perf_sentinel_traces_analyzed_total`          | counter   | (none)             | Cumulative trace count processed by the event loop.                                                                                                                                                                                                                |
+| `perf_sentinel_events_processed_total`         | counter   | (none)             | Cumulative event count processed by the event loop.                                                                                                                                                                                                                |
+| `perf_sentinel_active_traces`                  | gauge     | (none)             | Currently active traces in the sliding window.                                                                                                                                                                                                                     |
+| `perf_sentinel_analysis_queue_depth`           | gauge     | (none)             | Batches pending in the analysis worker queue (incremented on enqueue, decremented when the worker picks a batch up). A sustained nonzero value means detect+score is falling behind ingestion.                                                                     |
+| `perf_sentinel_stored_findings`                | gauge     | (none)             | Findings currently retained in the query ring buffer (since 0.8.8). Pair with `perf_sentinel_max_retained_findings` for a headroom ratio.                                                                                                                          |
+| `perf_sentinel_max_active_traces`              | gauge     | (none)             | Configured cap of the sliding window (`[daemon] max_active_traces`), set once at startup (since 0.8.8). Pair with `perf_sentinel_active_traces`. The settings advisor hints at 90%.                                                                                |
+| `perf_sentinel_analysis_queue_capacity`        | gauge     | (none)             | Configured cap of the analysis worker queue (`[daemon] analysis_queue_capacity`), set once at startup (since 0.8.8). Pair with `perf_sentinel_analysis_queue_depth`.                                                                                               |
+| `perf_sentinel_max_retained_findings`          | gauge     | (none)             | Configured cap of the findings ring buffer (`[daemon] max_retained_findings`), set once at startup (since 0.8.8). Pair with `perf_sentinel_stored_findings`.                                                                                                       |
+| `perf_sentinel_analysis_shed_batches_total`    | counter   | (none)             | Analysis batches shed because the worker queue was full or the worker stopped. Replaces the previous implicit drop: every shed is counted here. Alert on `rate(...) > 0`.                                                                                          |
+| `perf_sentinel_analysis_shed_traces_total`     | counter   | (none)             | Traces dropped by the shed batches counted in `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                         |
+| `perf_sentinel_correlator_pairs_evicted_total` | counter   | (none)             | Cross-trace correlator pairs evicted by the `max_tracked_pairs` cap (since 0.8.7). A sustained rate means the correlation topology exceeds the cap and lowest-count pairs are recycled, so `/api/correlations` may drop entries between reads.                     |
+| `perf_sentinel_slow_duration_seconds`          | histogram | `type`             | Duration histogram for spans exceeding the slow threshold, by event `type` (`sql` or `http_out`). Buckets: 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 seconds. Used by Grafana `histogram_quantile()` for accurate percentiles across sharded daemon instances. |
+| `perf_sentinel_export_report_requests_total`   | counter   | (none)             | Total `GET /api/export/report` requests. Includes cold-start responses (200 with empty envelope).                                                                                                                                                                  |
 
 ## Ack metrics (since 0.5.21)
 
@@ -318,11 +324,11 @@ each with a different lifecycle. The distinction matters for
 monitoring strategies: a transient warning self-resolves, a sticky one
 persists until the daemon restarts.
 
-| Kind              | Lifecycle | Emitted when                                                                        | Cleared by                                                                   |
-|-------------------|-----------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
-| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon         | First successful batch (both counters strictly positive)                     |
-| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` since daemon start   | Daemon restart (counter reset)                                               |
-| `tuning`          | Mixed     | A lifetime counter shows a config knob undersized for the observed load (see below) | Daemon restart for counter-driven rules, load drop for the trace-window rule |
+| Kind              | Lifecycle | Emitted when                                                                                           | Cleared by                                                                   |
+|-------------------|-----------|--------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon                            | First successful batch (both counters strictly positive)                     |
+| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full" or "memory_pressure"} > 0` since daemon start | Daemon restart (counter reset)                                               |
+| `tuning`          | Mixed     | A lifetime counter shows a config knob undersized for the observed load (see below)                    | Daemon restart for counter-driven rules, load drop for the trace-window rule |
 
 `cold_start` is a state warning: "the snapshot is not meaningful right
 now". `ingestion_drops` is an audit warning: "at some point since
@@ -334,16 +340,17 @@ output.
 ### The `tuning` advisor (since 0.8.7)
 
 `tuning` entries are configuration advice: each message names the
-config knob, its current value, and the suggested adjustment. Six
+config knob, its current value, and the suggested adjustment. Seven
 rules run on every `/api/export/report` call:
 
-| Trigger                                                                     | Suggested knob                                                   |
-|-----------------------------------------------------------------------------|------------------------------------------------------------------|
-| `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                 |
-| `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` or more CPU                   |
-| `perf_sentinel_active_traces` at 90% or more of `max_active_traces`         | `[daemon] max_active_traces` or a lower `trace_ttl_ms`           |
-| `perf_sentinel_service_io_ops_overflow_total > 0`                           | Aggregate or reduce service names (the 1024-series cap is fixed) |
-| `perf_sentinel_correlator_pairs_evicted_total > 0` with correlation enabled | `[daemon.correlation] max_tracked_pairs`                         |
+| Trigger                                                                     | Suggested knob                                                      |
+|-----------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                    |
+| `perf_sentinel_otlp_rejected_total{reason="memory_pressure"} > 0`           | Container memory limit (guard is bounding RSS)                      |
+| `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` or more CPU                      |
+| `perf_sentinel_active_traces` at 90% or more of `max_active_traces`         | `[daemon] max_active_traces` or a lower `trace_ttl_ms`              |
+| `perf_sentinel_service_io_ops_overflow_total > 0`                           | Aggregate or reduce service names (the 1024-series cap is fixed)    |
+| `perf_sentinel_correlator_pairs_evicted_total > 0` with correlation enabled | `[daemon.correlation] max_tracked_pairs`                            |
 | Every received OTLP span filtered as non-analyzable (after 1000 spans)      | Fix span attributes or point instrumented services at this endpoint |
 
 Counter-driven rules are sticky (lifetime counters only reset on

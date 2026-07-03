@@ -231,6 +231,14 @@ pub struct DaemonConfig {
     /// awaiting detect+score. When full, whole batches are shed (counted
     /// on `perf_sentinel_analysis_shed_*`).
     pub analysis_queue_capacity: usize,
+    /// Memory-pressure admission control, as a percentage of the cgroup v2
+    /// memory limit (1-100). When the pod's `memory.current / memory.max`
+    /// crosses this high-water mark, OTLP ingest is rejected with a
+    /// retryable status (counted on `perf_sentinel_otlp_rejected_total`
+    /// `{reason="memory_pressure"}`) until usage falls back below the mark,
+    /// so RSS is bounded independently of queue depth. `0` disables the
+    /// guard (default). Linux/cgroup-v2 only, inert elsewhere.
+    pub memory_high_water_pct: u8,
     pub api_enabled: bool,
     /// TLS material for the OTLP listeners. When `cert_path` and
     /// `key_path` are both `Some`, both gRPC and HTTP listen TLS; when
@@ -390,6 +398,7 @@ impl Default for DaemonConfig {
             max_retained_findings: 10_000,
             ingest_queue_capacity: 1024,
             analysis_queue_capacity: 1024,
+            memory_high_water_pct: 0,
             api_enabled: true,
             tls: DaemonTlsConfig::default(),
             ack: DaemonAckConfig::default(),

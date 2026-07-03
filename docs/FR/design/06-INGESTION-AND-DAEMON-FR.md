@@ -203,6 +203,17 @@ let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
   suit le backlog. La surcharge est explicite et observable, jamais un drop silencieux.
   Compromis assumé : sous surcharge soutenue on perd des lots entiers plutôt que de
   bloquer l'ingestion (choix de liveness/contre-pression, pas de débit).
+- **Contrôle d'admission par pression mémoire (opt-in).** Le délestage par profondeur de
+  queue est un proxy de la mémoire : quand l'analyse suit, la queue reste vide alors que
+  la `TraceWindow` (bornée par un *compte* de traces et un TTL, pas par des octets) peut
+  quand même faire croître la RSS au-delà de la limite cgroup et faire OOMKiller le pod
+  avant tout délestage. Quand `[daemon] memory_high_water_pct > 0`, un watcher à 1 Hz
+  (`daemon/mem_pressure.rs`) lit `memory.current / memory.max` du cgroup v2 et bascule un
+  flag partagé (avec hystérésis) dès que l'usage franchit le seuil. Les handlers OTLP
+  lisent ce flag et rejettent l'ingest avec un statut retryable
+  (`perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`), stoppant la croissance
+  à la source pour que l'éviction TTL draine la window et que la RSS reflue. cgroup v2 /
+  Linux uniquement, inerte et sans surcoût quand désactivé ou non supporté.
 - **CarbonContext échantillonné à l'éviction.** Le `CarbonContext` par lot (snapshots
   des scrapers d'énergie + intensité réseau) est construit côté boucle au moment de
   l'éviction et voyage avec le lot, ce qui préserve l'instant d'échantillonnage

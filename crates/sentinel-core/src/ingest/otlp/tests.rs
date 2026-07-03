@@ -1745,6 +1745,35 @@ mod http_handler {
         );
     }
 
+    #[tokio::test]
+    async fn http_handler_rejects_under_memory_pressure() {
+        // Flag set: reject before decode with 503 and bump the
+        // memory_pressure counter, without enqueueing anything. The
+        // receiver stays open, so a rejection can only come from the guard.
+        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+        let (metrics, sink) = fresh_metrics_sink();
+        metrics.set_memory_high_water(true);
+        let router = otlp_http_router(tx, 1_048_576, Some(sink));
+
+        let body = build_minimal_request_bytes();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, "application/x-protobuf")
+            .body(Body::from(body))
+            .expect("build request");
+        let response = router.oneshot(req).await.expect("router runs");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            metrics
+                .otlp_rejected_total
+                .with_label_values(&["memory_pressure"])
+                .get(),
+            1
+        );
+        assert!(rx.try_recv().is_err(), "ingest must be halted at the door");
+    }
+
     #[tokio::test(start_paused = true)]
     async fn http_handler_rejects_when_channel_full_but_open() {
         // Saturation, not closure: the receiver stays alive but the
@@ -1813,6 +1842,37 @@ mod http_handler {
                 .get(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn grpc_handler_rejects_under_memory_pressure() {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+        // Flag set: reject with UNAVAILABLE (retryable) and bump the
+        // memory_pressure counter before conversion. The receiver stays
+        // open, so the rejection can only come from the guard.
+        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+        let metrics = Arc::new(MetricsState::new());
+        metrics.set_memory_high_water(true);
+        let svc = OtlpGrpcService::new(tx, Some(metrics.clone()));
+
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        let req = tonic::Request::new(make_request("svc", vec![span]));
+        assert_eq!(
+            svc.export(req)
+                .await
+                .expect_err("memory pressure rejects")
+                .code(),
+            tonic::Code::Unavailable,
+        );
+        assert_eq!(
+            metrics
+                .otlp_rejected_total
+                .with_label_values(&["memory_pressure"])
+                .get(),
+            1
+        );
+        assert!(rx.try_recv().is_err(), "ingest must be halted at the door");
     }
 
     #[tokio::test(start_paused = true)]

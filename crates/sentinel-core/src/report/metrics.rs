@@ -5,6 +5,7 @@
 //! Supports `OpenMetrics` exemplars for click-through from Grafana to traces.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use axum::Router;
@@ -39,16 +40,20 @@ pub enum OtlpRejectReason {
     ParseError,
     /// HTTP and gRPC: the event channel is saturated or closed.
     ChannelFull,
+    /// HTTP and gRPC: cgroup memory crossed the configured high-water
+    /// mark, so ingest is rejected to bound RSS (memory admission control).
+    MemoryPressure,
 }
 
 impl OtlpRejectReason {
     /// Every variant in declaration order. Fixed-size array so adding a
     /// variant without bumping the count is a compile-time error,
     /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Self::UnsupportedMediaType,
         Self::ParseError,
         Self::ChannelFull,
+        Self::MemoryPressure,
     ];
 
     #[must_use]
@@ -57,6 +62,7 @@ impl OtlpRejectReason {
             Self::UnsupportedMediaType => "unsupported_media_type",
             Self::ParseError => "parse_error",
             Self::ChannelFull => "channel_full",
+            Self::MemoryPressure => "memory_pressure",
         }
     }
 }
@@ -425,6 +431,15 @@ pub struct MetricsState {
     /// surface an `ingestion_drops` warning in the report payload when
     /// the counter is positive.
     pub otlp_rejected_channel_full: IntCounter,
+    /// Cached child for `otlp_rejected_total{reason="memory_pressure"}`.
+    /// Moved by the memory-pressure admission guard when cgroup usage
+    /// crosses `[daemon] memory_high_water_pct`.
+    pub otlp_rejected_memory_pressure: IntCounter,
+    /// Memory-pressure admission flag, set by the cgroup watcher
+    /// (`daemon::mem_pressure`) and read by the OTLP handlers. `Arc` so a
+    /// `MetricsState` clone shares the same flag, like the prometheus
+    /// counters. Off (`false`) whenever the guard is disabled.
+    pub ingest_over_memory_limit: Arc<AtomicBool>,
     /// OTLP spans received across all requests, before I/O filtering.
     /// Compared with `otlp_spans_filtered_total` this gives the span
     /// retention ratio: a fleet whose instrumentation strips
@@ -802,6 +817,8 @@ impl MetricsState {
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ParseError.as_str()]);
         let otlp_rejected_channel_full =
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ChannelFull.as_str()]);
+        let otlp_rejected_memory_pressure =
+            otlp_rejected_total.with_label_values(&[OtlpRejectReason::MemoryPressure.as_str()]);
         // Belt-and-suspenders pre-warm via the exhaustive `ALL`
         // constant. Idempotent with the named handles above (same
         // children) but shifts the guarantee: a future variant added
@@ -1005,6 +1022,8 @@ impl MetricsState {
             otlp_rejected_unsupported_media_type,
             otlp_rejected_parse_error,
             otlp_rejected_channel_full,
+            otlp_rejected_memory_pressure,
+            ingest_over_memory_limit: Arc::new(AtomicBool::new(false)),
             otlp_spans_received_total,
             otlp_spans_filtered_total,
             #[cfg(feature = "daemon")]
@@ -1064,6 +1083,13 @@ impl MetricsState {
     pub fn record_shed(&self, trace_count: usize) {
         self.analysis_shed_batches_total.inc();
         self.analysis_shed_traces_total.inc_by(trace_count as u64);
+    }
+
+    /// Set the memory-pressure admission flag read by the OTLP handlers.
+    /// Called by the cgroup watcher (`daemon::mem_pressure`) each poll.
+    #[inline]
+    pub fn set_memory_high_water(&self, over: bool) {
+        self.ingest_over_memory_limit.store(over, Ordering::Relaxed);
     }
 
     /// Increment `perf_sentinel_ack_operations_total` for the given
@@ -1396,7 +1422,13 @@ impl crate::ingest::otlp::MetricsSink for MetricsState {
             }
             OtlpRejectReason::ParseError => self.otlp_rejected_parse_error.inc(),
             OtlpRejectReason::ChannelFull => self.otlp_rejected_channel_full.inc(),
+            OtlpRejectReason::MemoryPressure => self.otlp_rejected_memory_pressure.inc(),
         }
+    }
+
+    #[inline]
+    fn ingest_over_memory_limit(&self) -> bool {
+        self.ingest_over_memory_limit.load(Ordering::Relaxed)
     }
 
     fn record_otlp_spans(&self, stats: crate::ingest::otlp::SpanConversionStats) {
@@ -2381,13 +2413,11 @@ mod tests {
     }
 
     #[test]
-    fn otlp_rejected_starts_at_zero_for_all_three_reasons() {
+    fn otlp_rejected_starts_at_zero_for_all_reasons() {
         let state = MetricsState::new();
-        for reason in [
-            OtlpRejectReason::UnsupportedMediaType,
-            OtlpRejectReason::ParseError,
-            OtlpRejectReason::ChannelFull,
-        ] {
+        // Iterate the exhaustive `ALL` so a new variant is covered
+        // without editing this test.
+        for reason in OtlpRejectReason::ALL {
             let count = state
                 .otlp_rejected_total
                 .with_label_values(&[reason.as_str()])
@@ -2395,12 +2425,14 @@ mod tests {
             assert_eq!(count, 0, "reason {} should start at 0", reason.as_str());
         }
         let output = state.render();
-        for reason in ["unsupported_media_type", "parse_error", "channel_full"] {
+        for reason in OtlpRejectReason::ALL {
             assert!(
                 output.contains(&format!(
-                    "perf_sentinel_otlp_rejected_total{{reason=\"{reason}\"}} 0"
+                    "perf_sentinel_otlp_rejected_total{{reason=\"{}\"}} 0",
+                    reason.as_str()
                 )),
-                "pre-warmed line for reason {reason} should appear in /metrics, got: {output}"
+                "pre-warmed line for reason {} should appear in /metrics, got: {output}",
+                reason.as_str()
             );
         }
     }

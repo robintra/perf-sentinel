@@ -996,6 +996,9 @@ fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
         .sum()
 }
 
+// Linear warning collector: one independent `if counter > 0` rule per
+// tuning/ingestion signal. Splitting scatters the rules without clarity gain.
+#[allow(clippy::too_many_lines)]
 fn collect_warning_details(
     metrics: &MetricsState,
     daemon: &crate::config::DaemonConfig,
@@ -1019,6 +1022,26 @@ fn collect_warning_details(
                 "{dropped} OTLP requests hit a full ingest queue: raise \
                  [daemon] ingest_queue_capacity (currently {cap}) or \
                  spread ingestion across more daemons"
+            ),
+        ));
+    }
+
+    let mem_rejected = metrics.otlp_rejected_memory_pressure.get();
+    if mem_rejected > 0 {
+        let pct = daemon.memory_high_water_pct;
+        details.push(crate::report::Warning::new(
+            INGESTION_DROPS,
+            format!(
+                "{mem_rejected} OTLP requests rejected since daemon start \
+                 (memory high-water, RSS bounded to protect against OOM)"
+            ),
+        ));
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "{mem_rejected} OTLP requests hit the memory guard \
+                 ([daemon] memory_high_water_pct = {pct}): raise the \
+                 container memory limit or spread ingestion across more daemons"
             ),
         ));
     }
