@@ -1626,14 +1626,15 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
 /// through the normalize/correlate/detect/score pipeline (native event
 /// streams, Zipkin v2), a top-level object is first tried as a
 /// pre-computed `Report` (daemon snapshot, baseline file) and falls
-/// back to `JsonIngest`, which auto-detects Jaeger. Report-first
-/// guarantees a daemon snapshot is never misrouted to the Jaeger
-/// ingest even when its payload contains a `"data"` literal in the
-/// first 4 KB, at the cost of one extra Report parse on Jaeger inputs
-/// (rare through this CLI). The depth cap is enforced before the
-/// Report parse so an over-deep Report does not silently fall through
-/// to the ingest fallback. Empty input and scalar roots exit 1 with
-/// distinct messages.
+/// back to `JsonIngest`, which auto-detects OTLP/JSON and Jaeger.
+/// Report-first guarantees a daemon snapshot is never misrouted to the
+/// Jaeger ingest even when its payload contains a `"data"` literal in
+/// the first 4 KB, at the cost of one extra Report parse on OTLP/Jaeger
+/// inputs (rare through this CLI); an OTLP request can never parse as a
+/// Report (its required fields are absent). The depth cap is enforced
+/// before the Report parse so an over-deep Report does not silently
+/// fall through to the ingest fallback. Empty input and scalar roots
+/// exit 1 with distinct messages.
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,
@@ -1664,7 +1665,7 @@ fn load_report_from_input(
                 Ok(events) => pipeline::analyze_with_traces(events, config),
                 Err(e) => {
                     eprintln!(
-                        "Error: --input top-level object is neither a pre-computed Report JSON nor a Jaeger export. Underlying error: {e}"
+                        "Error: --input top-level object is neither a pre-computed Report JSON, an OTLP/JSON export, nor a Jaeger export. Underlying error: {e}"
                     );
                     std::process::exit(1);
                 }

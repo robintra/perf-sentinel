@@ -1,7 +1,8 @@
 //! JSON ingestion with auto-format detection.
 //!
-//! Detects the input format (native, Jaeger, Zipkin) and dispatches to the
-//! appropriate parser. Format detection peeks at the JSON structure:
+//! Detects the input format (native, OTLP/JSON, Jaeger, Zipkin) and dispatches
+//! to the appropriate parser. Format detection peeks at the JSON structure:
+//! - Has `"resourceSpans"` (or `"resource_spans"`) key -> OTLP/JSON
 //! - Has `"data"` key with trace objects containing `"spans"` -> Jaeger
 //! - Is array where items have `"traceId"` + `"localEndpoint"` -> Zipkin
 //! - Otherwise -> native perf-sentinel format
@@ -88,6 +89,8 @@ fn bump_depth(b: u8, depth: &mut usize, in_string: &mut bool) -> bool {
 pub enum InputFormat {
     /// Native perf-sentinel JSON array of `SpanEvent`.
     Native,
+    /// OTLP/JSON (`ExportTraceServiceRequest`), single object or NDJSON.
+    Otlp,
     /// Jaeger JSON export format.
     Jaeger,
     /// Zipkin JSON v2 format.
@@ -128,6 +131,20 @@ impl IngestSource for JsonIngest {
         }
 
         match detect_format(raw) {
+            InputFormat::Otlp => {
+                // Stream deserializer: accepts a single (pretty-printed)
+                // ExportTraceServiceRequest as well as the Collector file
+                // exporter's NDJSON (one request per line). convert_otlp_request
+                // sanitizes each event, same code path as the daemon listeners.
+                let mut events = Vec::new();
+                for request in serde_json::Deserializer::from_slice(raw).into_iter::<
+                    opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest,
+                >() {
+                    let request = request.map_err(JsonIngestError::Parse)?;
+                    events.extend(crate::ingest::otlp::convert_otlp_request(&request));
+                }
+                Ok(events)
+            }
             InputFormat::Jaeger => {
                 let ingest = crate::ingest::jaeger::JaegerIngest::new(self.max_size);
                 ingest
@@ -168,6 +185,15 @@ impl IngestSource for JsonIngest {
 #[must_use]
 pub fn detect_format(raw: &[u8]) -> InputFormat {
     let peek = std::str::from_utf8(&raw[..raw.len().min(1024)]).unwrap_or("");
+
+    // OTLP/JSON: { "resourceSpans": [...] } (camelCase per the protobuf JSON
+    // mapping; the snake_case spelling routes here too so it fails with a
+    // clear serde error instead of Native's confusing "expected array").
+    if peek.trim_start().starts_with('{')
+        && (peek.contains("\"resourceSpans\"") || peek.contains("\"resource_spans\""))
+    {
+        return InputFormat::Otlp;
+    }
 
     // Jaeger: { "data": [{ ..., "spans": [...] }] }
     if peek.trim_start().starts_with('{') && peek.contains("\"data\"") {
@@ -294,6 +320,97 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].target, "SELECT 1");
+    }
+
+    // ----- OTLP/JSON -----
+
+    /// Compact single-request OTLP/JSON body with one SQL CLIENT span.
+    fn otlp_request_json(trace_id: &str, statement: &str) -> String {
+        format!(
+            r#"{{"resourceSpans":[{{"resource":{{"attributes":[{{"key":"service.name","value":{{"stringValue":"svc"}}}}]}},"scopeSpans":[{{"spans":[{{"traceId":"{trace_id}","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{{"key":"db.statement","value":{{"stringValue":"{statement}"}}}},{{"key":"db.system","value":{{"stringValue":"postgresql"}}}}]}}]}}]}}]}}"#
+        )
+    }
+
+    #[test]
+    fn detect_otlp_format() {
+        let json = r#"{"resourceSpans": [{"scopeSpans": []}]}"#;
+        assert_eq!(detect_format(json.as_bytes()), InputFormat::Otlp);
+    }
+
+    #[test]
+    fn detect_otlp_snake_case_routes_to_otlp() {
+        // snake_case is not a valid OTLP/JSON spelling (with-serde is
+        // camelCase-only), but routing it to the OTLP arm yields a clear
+        // serde error instead of Native's "expected array".
+        let json = r#"{"resource_spans": []}"#;
+        assert_eq!(detect_format(json.as_bytes()), InputFormat::Otlp);
+        let ingest = JsonIngest::new(1_048_576);
+        assert_matches!(
+            ingest.ingest(json.as_bytes()),
+            Err(JsonIngestError::Parse(_))
+        );
+    }
+
+    #[test]
+    fn auto_ingest_otlp() {
+        let json = otlp_request_json("5b8efff798038103d269b633813fc60c", "SELECT 1");
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "SELECT 1");
+        assert_eq!(events[0].service.as_ref(), "svc");
+        assert_eq!(events[0].trace_id, "5b8efff798038103d269b633813fc60c");
+    }
+
+    #[test]
+    fn auto_ingest_otlp_ndjson() {
+        // Collector file-exporter shape: one request per line.
+        let json = format!(
+            "{}\n{}\n",
+            otlp_request_json("0af7651916cd43dd8448eb211c80319c", "SELECT 1"),
+            otlp_request_json("1bf7651916cd43dd8448eb211c80319d", "SELECT 2"),
+        );
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].target, "SELECT 1");
+        assert_eq!(events[1].target, "SELECT 2");
+    }
+
+    #[test]
+    fn auto_ingest_otlp_pretty_printed_single_object() {
+        // A pretty-printed request spans many lines; the stream
+        // deserializer must not treat it as broken NDJSON.
+        let compact = otlp_request_json("5b8efff798038103d269b633813fc60c", "SELECT 1");
+        let value: serde_json::Value = serde_json::from_str(&compact).unwrap();
+        let pretty = serde_json::to_string_pretty(&value).unwrap();
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(pretty.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "SELECT 1");
+    }
+
+    #[test]
+    fn deeply_nested_otlp_payload_is_rejected() {
+        // Same guard as Jaeger/Zipkin: nesting via attribute arrayValue
+        // must trip the pre-dispatch depth cap, not serde's 128 default.
+        let depth = MAX_JSON_DEPTH + 4;
+        let mut payload = String::from(
+            r#"{"resourceSpans":[{"scopeSpans":[{"spans":[{"attributes":[{"key":"a","value":{"arrayValue":{"values":["#,
+        );
+        for _ in 0..depth {
+            payload.push('[');
+        }
+        for _ in 0..depth {
+            payload.push(']');
+        }
+        payload.push_str("]}}}]}]}]}]}");
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(
+            matches!(result, Err(JsonIngestError::PayloadTooDeep { .. })),
+            "deeply-nested OTLP input must be rejected: {result:?}"
+        );
     }
 
     // ----- Sanitize cloud_region on native JSON path -----

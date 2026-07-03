@@ -624,6 +624,63 @@ fn cli_analyze_sarif_output() {
 }
 
 #[test]
+fn cli_analyze_otlp_fixture() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/otlp_export.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "OTLP fixture analysis should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("N+1 SQL"),
+        "should detect N+1 SQL from OTLP"
+    );
+}
+
+#[test]
+fn cli_analyze_otlp_ndjson_fixture() {
+    // Collector file-exporter shape: one ExportTraceServiceRequest per line.
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/otlp_export.ndjson",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "OTLP NDJSON analysis should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("report should be valid JSON: {e}\nstdout: {stdout}"));
+    assert_eq!(
+        report["analysis"]["traces_analyzed"], 2,
+        "both NDJSON lines should contribute a trace"
+    );
+}
+
+#[test]
 fn cli_analyze_jaeger_fixture() {
     let fixture_path = format!(
         "{}/../../tests/fixtures/jaeger_export.json",

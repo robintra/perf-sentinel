@@ -1,0 +1,109 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "order-svc" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": { "name": "io.opentelemetry.jdbc", "version": "2.5.0" },
+          "spans": [
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "eee19b7ec3c1b174",
+              "name": "POST /api/orders/{id}/submit",
+              "kind": 2,
+              "startTimeUnixNano": "1720621921000000000",
+              "endTimeUnixNano": "1720621921050000000",
+              "attributes": [
+                { "key": "http.request.method", "value": { "stringValue": "POST" } },
+                { "key": "http.route", "value": { "stringValue": "POST /api/orders/{id}/submit" } },
+                { "key": "code.function", "value": { "stringValue": "OrderService::create_order" } }
+              ]
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b71",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "db-query",
+              "kind": 3,
+              "startTimeUnixNano": "1720621921001000000",
+              "endTimeUnixNano": "1720621921001800000",
+              "attributes": [
+                { "key": "db.statement", "value": { "stringValue": "SELECT * FROM order_item WHERE order_id = 1" } },
+                { "key": "db.system", "value": { "stringValue": "postgresql" } }
+              ]
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b72",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "db-query",
+              "kind": 3,
+              "startTimeUnixNano": "1720621921050000000",
+              "endTimeUnixNano": "1720621921050750000",
+              "attributes": [
+                { "key": "db.statement", "value": { "stringValue": "SELECT * FROM order_item WHERE order_id = 2" } },
+                { "key": "db.system", "value": { "stringValue": "postgresql" } }
+              ]
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b73",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "db-query",
+              "kind": 3,
+              "startTimeUnixNano": "1720621921100000000",
+              "endTimeUnixNano": "1720621921100900000",
+              "attributes": [
+                { "key": "db.statement", "value": { "stringValue": "SELECT * FROM order_item WHERE order_id = 3" } },
+                { "key": "db.system", "value": { "stringValue": "postgresql" } }
+              ]
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b74",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "db-query",
+              "kind": 3,
+              "startTimeUnixNano": "1720621921150000000",
+              "endTimeUnixNano": "1720621921150850000",
+              "attributes": [
+                { "key": "db.statement", "value": { "stringValue": "SELECT * FROM order_item WHERE order_id = 4" } },
+                { "key": "db.system", "value": { "stringValue": "postgresql" } }
+              ]
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b75",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "db-query",
+              "kind": 3,
+              "startTimeUnixNano": "1720621921200000000",
+              "endTimeUnixNano": "1720621921200700000",
+              "attributes": [
+                { "key": "db.statement", "value": { "stringValue": "SELECT * FROM order_item WHERE order_id = 5" } },
+                { "key": "db.system", "value": { "stringValue": "postgresql" } }
+              ]
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "aaaa19b7ec3c1b76",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "db-query",
+              "kind": 3,
+              "startTimeUnixNano": "1720621921250000000",
+              "endTimeUnixNano": "1720621921250780000",
+              "attributes": [
+                { "key": "db.statement", "value": { "stringValue": "SELECT * FROM order_item WHERE order_id = 6" } },
+                { "key": "db.system", "value": { "stringValue": "postgresql" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -48,7 +48,10 @@ tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "sync", "time
 # gRPC/HTTP listeners only run when the daemon feature is enabled at runtime.
 tonic = "0.14.6"
 prost = "0.14.4"
-opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic-messages", "trace"] }
+# with-serde (already on via the default `full` feature) is pinned explicitly:
+# the batch `analyze --input` OTLP/JSON arm needs the serde impls (camelCase +
+# hex ids) and must survive a future `default-features = false` slimming.
+opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic-messages", "trace", "with-serde"] }
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["timeout", "limit"] }
 prometheus = { version = "0.14.0", features = ["process"] }
