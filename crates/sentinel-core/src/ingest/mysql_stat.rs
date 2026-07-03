@@ -94,8 +94,11 @@ pub enum MySqlStatError {
 /// Timer fields stay in picoseconds here, converted on mapping.
 #[derive(Deserialize)]
 struct RawJsonEntry {
-    #[serde(alias = "DIGEST_TEXT")]
-    digest_text: String,
+    // Option: performance_schema keeps a catch-all aggregation row with
+    // DIGEST_TEXT = NULL once the digest table saturates; that row is
+    // skipped instead of failing the whole export.
+    #[serde(default, alias = "DIGEST_TEXT")]
+    digest_text: Option<String>,
     #[serde(default, alias = "SCHEMA_NAME")]
     schema_name: Option<String>,
     #[serde(alias = "COUNT_STAR")]
@@ -222,18 +225,55 @@ pub fn rank_mysql_stat(entries: &[MySqlStatEntry], top_n: usize) -> MySqlStatRep
 
 /// Cross-reference digest entries with trace-based findings.
 ///
-/// Marks entries whose `normalized_template` matches any finding's pattern template.
+/// Marks entries whose `normalized_template` matches any finding's
+/// pattern template. Both sides are canonicalized first: `MySQL`
+/// `DIGEST_TEXT` spaces every token (`` `c` . `name` ``), uppercases
+/// keywords and forces backtick quoting, none of which appears in a
+/// template normalized from raw application SQL, so an exact string
+/// compare would silently never match.
 pub fn cross_reference(entries: &mut [MySqlStatEntry], findings: &[Finding]) {
-    let templates: std::collections::HashSet<&str> = findings
+    let templates: std::collections::HashSet<String> = findings
         .iter()
-        .map(|f| f.pattern.template.as_str())
+        .map(|f| comparison_key(&f.pattern.template))
         .collect();
 
     for entry in entries {
-        if templates.contains(entry.normalized_template.as_str()) {
+        if templates.contains(&comparison_key(&entry.normalized_template)) {
             entry.seen_in_traces = true;
         }
     }
+}
+
+/// Best-effort canonical form for digest-vs-trace template comparison:
+/// strip backtick quoting, drop whitespace around punctuation, collapse
+/// remaining whitespace runs, lowercase (`MySQL` uppercases keywords in
+/// digest text while application SQL usually does not).
+fn comparison_key(template: &str) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut pending_space = false;
+    for c in template.chars() {
+        if c == '`' {
+            continue;
+        }
+        if c.is_whitespace() {
+            pending_space = true;
+            continue;
+        }
+        let punct = matches!(c, '.' | ',' | '(' | ')' | '=' | '<' | '>' | ';');
+        if pending_space && !punct && !out.is_empty() {
+            // Drop the pending space when the previous emitted char was
+            // punctuation too ("a . b" and "a. b" both become "a.b").
+            if !matches!(
+                out.chars().next_back(),
+                Some('.' | ',' | '(' | ')' | '=' | '<' | '>' | ';')
+            ) {
+                out.push(' ');
+            }
+        }
+        pending_space = false;
+        out.extend(c.to_lowercase());
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -244,12 +284,18 @@ const MAX_CSV_ROWS: usize = 1_000_000;
 
 use super::pg_stat::parse_csv_row;
 
-/// `SCHEMA_NAME` normalization: `MySQL` renders absent schemas as SQL `NULL`.
+/// `SCHEMA_NAME` normalization: `MySQL` renders absent schemas as SQL
+/// `NULL` (client exports) or `\N` (`INTO OUTFILE` style dumps).
 fn parse_schema_name(value: Option<&String>) -> Option<String> {
     value
         .map(|s| s.trim())
-        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("null"))
+        .filter(|s| !is_null_marker(s))
         .map(ToString::to_string)
+}
+
+/// The textual NULL renderings `MySQL` tooling emits for absent values.
+fn is_null_marker(s: &str) -> bool {
+    s.is_empty() || s.eq_ignore_ascii_case("null") || s == "\\N"
 }
 
 fn parse_csv(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
@@ -290,6 +336,11 @@ fn parse_csv(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
         let line_num = line_num + 2; // 1-indexed, header is line 1
 
         let query = fields.get(digest_idx).cloned().unwrap_or_default();
+        // Skip the catch-all aggregation row (DIGEST_TEXT is NULL once
+        // the digest table saturates) instead of ranking a "NULL" query.
+        if is_null_marker(query.trim()) {
+            continue;
+        }
         let calls = parse_u64(&fields, calls_idx, line_num, "count_star")?;
         // Timer columns are picoseconds and can exceed u64 on aggregated
         // servers, so they parse as f64 from the start.
@@ -361,22 +412,21 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
         return Err(MySqlStatError::EmptyInput);
     }
     if raw_entries.len() > MAX_CSV_ROWS {
-        return Err(MySqlStatError::CsvParse {
-            line: 0,
-            detail: format!(
-                "JSON array exceeds maximum of {MAX_CSV_ROWS} entries (got {})",
-                raw_entries.len()
-            ),
-        });
+        return Err(MySqlStatError::JsonParse(format!(
+            "JSON array exceeds maximum of {MAX_CSV_ROWS} entries (got {})",
+            raw_entries.len()
+        )));
     }
 
     let entries = raw_entries
         .into_iter()
-        .map(|raw| {
-            let normalized = normalize_sql(&raw.digest_text);
+        .filter_map(|raw| {
+            // Skip the catch-all aggregation row (DIGEST_TEXT NULL).
+            let digest_text = raw.digest_text.filter(|d| !is_null_marker(d.trim()))?;
+            let normalized = normalize_sql(&digest_text);
             let schema_name = parse_schema_name(raw.schema_name.as_ref());
-            MySqlStatEntry {
-                query: raw.digest_text,
+            Some(MySqlStatEntry {
+                query: digest_text,
                 normalized_template: normalized.template,
                 schema_name,
                 calls: raw.count_star,
@@ -385,7 +435,7 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
                 rows_sent: raw.sum_rows_sent,
                 rows_examined: raw.sum_rows_examined,
                 seen_in_traces: false,
-            }
+            })
         })
         .collect();
 
@@ -693,5 +743,68 @@ mod tests {
         let mut entries = parse_mysql_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
         cross_reference(&mut entries, &[]);
         assert!(entries.iter().all(|e| !e.seen_in_traces));
+    }
+
+    #[test]
+    fn cross_reference_bridges_digest_spacing_and_backticks() {
+        // Regression: MySQL DIGEST_TEXT spaces every token and forces
+        // backticks; the trace-side template comes from raw application
+        // SQL. Exact string equality would silently never match.
+        let csv = format!(
+            "{CSV_HEADER}\ncrm,\"SELECT `c` . `name` , `o` . `total` FROM `customers` `c` WHERE `c` . `id` = ?\",10,1000000000,100000000,10,10"
+        );
+        let mut entries = parse_mysql_stat(csv.as_bytes(), 1_048_576).unwrap();
+        let findings = vec![make_finding(
+            "SELECT c.name, o.total FROM customers c WHERE c.id = ?",
+        )];
+        cross_reference(&mut entries, &findings);
+        assert!(
+            entries[0].seen_in_traces,
+            "spaced backticked digest must match the plain trace template"
+        );
+    }
+
+    #[test]
+    fn comparison_key_canonicalizes_common_digest_shapes() {
+        assert_eq!(
+            comparison_key("SELECT `a` . `b` FROM `t` WHERE `a` . `id` IN (?)"),
+            comparison_key("select a.b from t where a.id in (?)")
+        );
+        // Distinct queries stay distinct.
+        assert_ne!(
+            comparison_key("SELECT `a` FROM `t`"),
+            comparison_key("SELECT `b` FROM `t`")
+        );
+    }
+
+    #[test]
+    fn parse_json_null_digest_row_is_skipped() {
+        // performance_schema keeps a catch-all row with DIGEST_TEXT NULL
+        // once the digest table saturates: skip it, keep the rest.
+        let json = r#"[
+            {"DIGEST_TEXT": null, "COUNT_STAR": 9999, "SUM_TIMER_WAIT": 1, "AVG_TIMER_WAIT": 1},
+            {"DIGEST_TEXT": "SELECT ?", "COUNT_STAR": 10, "SUM_TIMER_WAIT": 1000000000, "AVG_TIMER_WAIT": 100000000}
+        ]"#;
+        let entries = parse_mysql_stat(json.as_bytes(), 1_048_576).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].calls, 10);
+    }
+
+    #[test]
+    fn parse_csv_null_digest_row_is_skipped() {
+        let csv = format!(
+            "{CSV_HEADER}\nshop,NULL,9999,1,1,0,0\nshop,SELECT ?,10,1000000000,100000000,1,1"
+        );
+        let entries = parse_mysql_stat(csv.as_bytes(), 1_048_576).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].calls, 10);
+    }
+
+    #[test]
+    fn parse_csv_backslash_n_schema_maps_to_none() {
+        // \N is the INTO OUTFILE-style NULL rendering.
+        let csv = format!("{CSV_HEADER}\n\\N,SELECT ?,10,1000000000,100000000,1,1");
+        let entries = parse_mysql_stat(csv.as_bytes(), 1_048_576).unwrap();
+        assert_eq!(entries[0].schema_name, None);
     }
 }

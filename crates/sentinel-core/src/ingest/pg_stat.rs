@@ -395,13 +395,10 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
         return Err(PgStatError::EmptyInput);
     }
     if raw_entries.len() > MAX_CSV_ROWS {
-        return Err(PgStatError::CsvParse {
-            line: 0,
-            detail: format!(
-                "JSON array exceeds maximum of {MAX_CSV_ROWS} entries (got {})",
-                raw_entries.len()
-            ),
-        });
+        return Err(PgStatError::JsonParse(format!(
+            "JSON array exceeds maximum of {MAX_CSV_ROWS} entries (got {})",
+            raw_entries.len()
+        )));
     }
 
     let entries = raw_entries
