@@ -1,0 +1,37 @@
+---
+title: "dd-trace bridge: batch and daemon paths"
+---
+flowchart LR
+    app["Your services<br/><i>dd-trace instrumented</i>"]
+
+    subgraph collector["OTel Collector"]
+        recv["datadogreceiver<br/><i>:8126 Datadog Agent intake<br/>dd-trace to OTLP</i>"]
+    end
+
+    dd["Datadog<br/><i>optional, keep in parallel</i>"]
+
+    subgraph daemonpath["Daemon (streaming)"]
+        watch["perf-sentinel watch<br/><i>OTLP :4317 / :4318</i>"]
+        live["Live findings, /metrics, query API,<br/>cross-trace correlations"]
+    end
+
+    subgraph batchpath["Batch (one-shot pull)"]
+        backend["Tempo or Jaeger<br/>backend"]
+        pull["perf-sentinel tempo<br/>or jaeger-query<br/><i>--lookback pull</i>"]
+        out["Report / CI gate<br/><i>text, JSON, SARIF, HTML</i>"]
+    end
+
+    unavailable["analyze --input FILE<br/><i>not available for dd-trace:<br/>OTLP is not a batch file format</i>"]
+
+    app -->|"DD_TRACE_AGENT_URL"| recv
+    recv -.->|"optional tee"| dd
+    recv -->|"otlp exporter"| watch
+    watch --> live
+    recv -->|"tempo / jaeger exporter"| backend
+    backend --> pull --> out
+    app -.->|"no OTLP file to export"| unavailable
+
+    style recv fill:#4a3b2d,stroke:#fbbf24
+    style watch fill:#2d4a3e,stroke:#4ade80
+    style pull fill:#2d3b4a,stroke:#60a5fa
+    style unavailable fill:#4a2d2d,stroke:#f87171
