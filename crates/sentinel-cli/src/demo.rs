@@ -42,16 +42,15 @@ pub(crate) fn cmd_demo(
     seed_demo_region_provenance(&mut report.green_summary.regions);
 
     if let Some(path) = html {
-        let options = sentinel_core::report::html::RenderOptions {
-            input_label: "demo dataset".to_string(),
-            max_traces_embedded: None,
-            // Showcase the pg_stat and Diff tabs from embedded demo fixtures
-            // so the dashboard is fully populated without external inputs.
-            pg_stat: Some(demo_pg_stat()),
-            mysql_stat: None,
-            diff: Some(demo_diff(&report, &config)),
-            daemon_url: None,
-        };
+        // Field-by-field on a Default: RenderOptions is #[non_exhaustive],
+        // so cross-crate struct literals do not compile.
+        let mut options = sentinel_core::report::html::RenderOptions::default();
+        options.input_label = "demo dataset".to_string();
+        // Showcase the pg_stat, mysql_stat and Diff tabs from embedded demo
+        // fixtures so the dashboard is fully populated without external inputs.
+        options.pg_stat = Some(demo_pg_stat());
+        options.mysql_stat = Some(demo_mysql_stat());
+        options.diff = Some(demo_diff(&report, &config));
         let (html_out, _stats) = sentinel_core::report::html::render(&report, &traces, &options);
         if let Err(e) = write_file_no_follow(path, html_out.as_bytes()) {
             eprintln!("Error writing HTML report to {}: {e}", path.display());
@@ -113,6 +112,18 @@ fn demo_pg_stat() -> sentinel_core::ingest::pg_stat::PgStatReport {
     )
     .expect("embedded demo pg_stat fixture is valid");
     sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, DEFAULT_PG_STAT_TOP)
+}
+
+/// Rank the embedded demo `performance_schema` digest snapshot for the
+/// dashboard's `mysql_stat` tab, so the demo showcases every tab.
+fn demo_mysql_stat() -> sentinel_core::ingest::mysql_stat::MySqlStatReport {
+    const DEMO_MYSQL_STAT: &str = include_str!("demo_mysql_stat.json");
+    let entries = sentinel_core::ingest::mysql_stat::parse_mysql_stat(
+        DEMO_MYSQL_STAT.as_bytes(),
+        limits::MAX_BATCH_INPUT_BYTES,
+    )
+    .expect("embedded demo mysql_stat fixture is valid");
+    sentinel_core::ingest::mysql_stat::rank_mysql_stat(&entries, DEFAULT_PG_STAT_TOP)
 }
 
 /// Diff the demo run against an embedded "previous run" so the dashboard's

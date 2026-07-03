@@ -94,8 +94,9 @@ fn cli_demo_html_writes_dashboard() {
             .unwrap_or(false),
         "demo dashboard must embed findings"
     );
-    // The demo is a showcase: synthesized correlations plus pg_stat and diff
-    // fixtures must populate the Correlations, pg_stat and Diff tabs.
+    // The demo is a showcase: synthesized correlations plus pg_stat,
+    // mysql_stat and diff fixtures must populate the Correlations,
+    // pg_stat, mysql_stat and Diff tabs.
     assert!(
         payload["report"]["correlations"]
             .as_array()
@@ -109,6 +110,13 @@ fn cli_demo_html_writes_dashboard() {
             .map(|a| !a.is_empty())
             .unwrap_or(false),
         "demo dashboard must embed pg_stat rankings"
+    );
+    assert!(
+        payload["mysql_stat"]["rankings"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "demo dashboard must embed mysql_stat rankings"
     );
     assert!(
         !payload["diff"]["new_findings"].is_null()
