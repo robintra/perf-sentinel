@@ -2,6 +2,18 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.5]
+
+### Added
+
+- Batch input auto-detects OTLP JSON. `analyze --input` (and the whole `--input` family: `diff`, `explain`, `inspect`, `report`, `calibrate --traces`) accepts an `ExportTraceServiceRequest` in the protobuf JSON mapping (camelCase keys, hex trace/span ids), both as a single object and as the OpenTelemetry Collector `file` exporter's NDJSON (one request per line, decoded through a serde stream deserializer). Conversion reuses the exact daemon OTLP path, so dd-trace bridged through the `datadogreceiver` now has a batch file route with no Tempo/Jaeger backend in between.
+- New `mysql-stat` subcommand: ranks MySQL SQL hotspots from a CSV or JSON export of `performance_schema.events_statements_summary_by_digest`, the MySQL twin of `pg-stat`. Four rankings (total time, calls, mean time, rows examined), picosecond timer columns converted to milliseconds at parse time, case-insensitive column matching, `SCHEMA_NAME` NULL handling, and optional `--traces` cross-referencing against trace findings.
+- The self-contained HTML dashboard gains a `mysql_stat` tab (`report --mysql-stat <file>`, optional `--mysql-stat-top <N>`) with the same ranking sub-switcher, text filter, CSV export and copy-link controls as the `pg_stat` tab.
+
+### Changed
+
+- The workspace toolchain moves to Rust 1.96.1 (fixes a MIR miscompilation and three libssh2 CVEs in Cargo's vendored dependencies).
+
 ## [0.9.4]
 
 ### Added
