@@ -756,8 +756,11 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         &self,
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        // Memory-pressure admission control: reject before conversion so a
-        // saturation flood cannot grow RSS past the cgroup limit. UNAVAILABLE
+        // Memory-pressure admission control, handler-level belt: the
+        // daemon wraps this service in a tonic interceptor that rejects
+        // before the message is even decoded (see
+        // `daemon::listeners::spawn_grpc_listener`), so this branch only
+        // fires for direct callers (unit tests, embedders). UNAVAILABLE
         // is the retryable status compliant exporters back off on.
         if let Some(m) = self.metrics.as_ref()
             && m.ingest_over_memory_limit()
@@ -835,9 +838,12 @@ pub fn otlp_http_router(
         headers: HeaderMap,
         body: axum::body::Bytes,
     ) -> StatusCode {
-        // Memory-pressure admission control: reject before decode so a
-        // saturation flood cannot grow RSS past the cgroup limit. 503 is
-        // the retryable status compliant exporters back off on.
+        // Memory-pressure admission control, handler-level belt: the
+        // outermost `memory_pressure_guard` middleware already rejects
+        // before the body is buffered or decompressed, so this branch
+        // only fires for direct handler callers (unit tests, embedders
+        // that skip the router layers). 503 is the retryable status
+        // compliant exporters back off on.
         if let Some(m) = state.metrics.as_ref()
             && m.ingest_over_memory_limit()
         {
@@ -901,7 +907,28 @@ pub fn otlp_http_router(
     // Scoped to this route so /health and the query API stay responsive.
     const MAX_CONCURRENT_OTLP_HTTP: usize = 32;
 
+    // Outermost admission gate: rejects while the memory guard is
+    // tripped BEFORE the request body is read, so a saturation flood
+    // cannot materialize up to max_payload_size per request into RSS
+    // (the in-handler check only runs after `Bytes` buffered the
+    // decompressed body).
+    async fn memory_pressure_guard(
+        State(state): State<OtlpHttpState>,
+        request: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        if let Some(m) = state.metrics.as_ref()
+            && m.ingest_over_memory_limit()
+        {
+            m.record_otlp_reject(OtlpRejectReason::MemoryPressure);
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+        next.run(request).await
+    }
+
     let state = OtlpHttpState { sender, metrics };
+    let guard_state = state.clone();
     let router = Router::new()
         .route("/v1/traces", post(handle_traces))
         .route_layer(tower::limit::GlobalConcurrencyLimitLayer::new(
@@ -924,7 +951,13 @@ pub fn otlp_http_router(
             max_payload_size,
         ));
 
-    router
+    // Added last = outermost = first on the way in: the memory guard
+    // short-circuits before RequestBodyLimit/Decompression ever touch
+    // the body.
+    router.layer(axum::middleware::from_fn_with_state(
+        guard_state,
+        memory_pressure_guard,
+    ))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
