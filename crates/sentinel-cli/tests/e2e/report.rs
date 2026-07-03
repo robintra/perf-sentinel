@@ -288,6 +288,43 @@ fn cli_report_omits_trim_notice_when_no_trim() {
 // ---------------------------------------------------------------------
 
 #[test]
+fn cli_report_accepts_otlp_json_input() {
+    // Covers the load_report_from_input `{`-object fallback: an OTLP/JSON
+    // export is not a Report, so it must route through JsonIngest.
+    let fixture = format!(
+        "{}/../../tests/fixtures/otlp_export.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        output.status.success(),
+        "report on OTLP JSON failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    let payload = extract_payload_json_from_html(&html);
+    let findings = payload["report"]["findings"]
+        .as_array()
+        .expect("report.findings");
+    assert!(
+        !findings.is_empty(),
+        "OTLP input should analyze into findings"
+    );
+}
+
+#[test]
 fn cli_report_accepts_pg_stat_flag() {
     let fixture = format!(
         "{}/../../tests/fixtures/report_realistic.json",

@@ -431,7 +431,38 @@ fn co2_absent_from_json_when_green_disabled() {
     );
 }
 
-// --- Jaeger/Zipkin auto-detection tests ---
+// --- OTLP/Jaeger/Zipkin auto-detection tests ---
+
+#[test]
+fn otlp_fixture_auto_detected_and_analyzed() {
+    let config = Config::default();
+    let events = load_fixture("otlp_export.json");
+    assert!(!events.is_empty(), "OTLP fixture should produce events");
+    let report = pipeline::analyze(events, &config);
+    let n1 = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .count();
+    assert_eq!(n1, 1, "OTLP fixture should detect N+1 SQL");
+}
+
+#[test]
+fn otlp_ndjson_fixture_ingests_all_lines() {
+    let config = Config::default();
+    let events = load_fixture("otlp_export.ndjson");
+    let report = pipeline::analyze(events, &config);
+    assert_eq!(
+        report.analysis.traces_analyzed, 2,
+        "both NDJSON lines should contribute a trace"
+    );
+    let n1 = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .count();
+    assert_eq!(n1, 1, "first NDJSON line should detect N+1 SQL");
+}
 
 #[test]
 fn jaeger_fixture_auto_detected_and_analyzed() {
@@ -674,6 +705,7 @@ fn full_pipeline_runs_on_new_fixtures() {
     for fixture in [
         "jaeger_export.json",
         "zipkin_export.json",
+        "otlp_export.json",
         "fanout.json",
         "n_plus_one_sql_java_mutiny_reactive.json",
     ] {
