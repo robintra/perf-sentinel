@@ -104,7 +104,12 @@ const _: () = {
 const PAYLOAD_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Options controlling HTML rendering.
-#[derive(Debug, Clone)]
+///
+/// `#[non_exhaustive]` for SemVer-minor field additions (0.9.5 added
+/// `mysql_stat`); external crates construct it with
+/// `RenderOptions { input_label: ..., ..Default::default() }`.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct RenderOptions {
     /// Label shown in the top bar (filename, `-` for stdin, etc.).
     pub input_label: String,
@@ -184,14 +189,10 @@ pub struct RenderStats {
 /// let events = load_events();
 /// let cfg = sentinel_core::config::Config::default();
 /// let (report, traces) = analyze_with_traces(events, &cfg);
-/// let (html, _stats) = render(&report, &traces, &RenderOptions {
-///     input_label: "traces.json".to_string(),
-///     max_traces_embedded: None,
-///     pg_stat: None,
-///     mysql_stat: None,
-///     diff: None,
-///     daemon_url: None,
-/// });
+/// // RenderOptions is #[non_exhaustive]: start from Default and set fields.
+/// let mut options = RenderOptions::default();
+/// options.input_label = "traces.json".to_string();
+/// let (html, _stats) = render(&report, &traces, &options);
 /// assert!(html.starts_with("<!DOCTYPE html>"));
 /// ```
 #[must_use]
