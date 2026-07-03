@@ -145,6 +145,8 @@ perf-sentinel watch
 
 `demo --html` est une vitrine complète : tous les onglets du tableau de bord sont remplis (Overview, Findings avec Explain en ligne, Carbon, pg_stat, Diff et corrélations inter-traces synthétisées). L'acquittement en direct reste réservé au daemon, voir `watch` puis `query --daemon <URL> monitor`.
 
+Sur dd-trace ? Pas de fichier OpenTelemetry pour l'étape 2, faites le pont via le `datadogreceiver` du Collector : `watch` pour le daemon, ou un backend Tempo/Jaeger avec `tempo`/`jaeger-query` en batch, car `analyze` ne lit pas l'OTLP. Voir [Vous venez de Datadog](docs/FR/INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
+
 `.perf-sentinel.toml` minimal à la racine du repo :
 
 ```toml
