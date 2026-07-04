@@ -1416,9 +1416,9 @@
   }
 
   // src/index.ts
-  var REACT_URL = "assets/vendor/react.production.min.js";
+  var REACT_URL = "/assets/vendor/react.production.min.js";
   var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
-  var REACT_DOM_URL = "assets/vendor/react-dom.production.min.js";
+  var REACT_DOM_URL = "/assets/vendor/react-dom.production.min.js";
   var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
   function hideRawTemplate() {
     const s = document.createElement("style");
