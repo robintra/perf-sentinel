@@ -10,14 +10,18 @@ lockstep, replacing the earlier independent `0.2.x` chart line.
 
 ### Added
 
-- New `PerfSentinelMemoryPressureRejecting` alert, and
-  `PerfSentinelIngestRejecting` is now scoped to `reason="channel_full"`,
-  so a memory-guard rejection carries the right remediation (raise
-  `resources.limits.memory`, not the ingest queue). Pairs with the new
-  daemon `[daemon] memory_high_water_pct` knob.
+- New `PerfSentinelMemoryPressureRejecting` alert in the opt-in
+  `PrometheusRule`, state-based on `perf_sentinel_ingest_memory_pressure == 1`,
+  so it keeps firing while the daemon holds ingest to protect RSS even
+  after exporters stop retrying. Its remediation points at
+  `resources.limits.memory` or more replicas, not the ingest queue. Pairs
+  with the new daemon `[daemon] memory_high_water_pct` knob.
 
 ### Changed
 
+- `PerfSentinelIngestRejecting` scoped to `reason!="memory_pressure"`, so it
+  still alerts on `channel_full`, `parse_error`, and `unsupported_media_type`
+  while memory-pressure rejections are owned by the new dedicated alert.
 - appVersion 0.9.5. The binary adds OTLP JSON auto-detection to batch
   `analyze --input` (single object or Collector `file` exporter NDJSON)
   and a new `mysql-stat` subcommand ranking MySQL hotspots from
