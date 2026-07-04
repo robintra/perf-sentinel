@@ -312,6 +312,8 @@ enabled = false                  # skip the correlator for single-service daemon
 
 Setting `max_retained_findings = 0` is the most effective RAM-reclaim lever when the query API isn't consumed. See [LIMITATIONS.md](LIMITATIONS.md) § "Memory is not reclaimed by `api_enabled = false` alone".
 
+**Bounding RSS proactively.** `[daemon] memory_high_water_pct` rejects ingest with a retryable status once the cgroup working-set ratio crosses the mark, capping RSS regardless of traffic (see [CONFIGURATION.md](CONFIGURATION.md)). It polls at a fixed 1-second cadence, so its effectiveness depends on the margin between the limit and the mark: the traces admitted between two polls must fit under `limit - mark`. On a 256 MiB pod at 80% (a ~51 MiB margin) a sustained flood can still OOM before rejection takes effect, while a gradual ramp is held. A wider margin (40% of 256 MiB, or 80% of 512 MiB) holds a sustained flood too. Size the mark so `limit - mark` exceeds the peak window-plus-in-flight footprint, or raise the container limit.
+
 Restart the daemon to apply. **No hot reload**, see [Applying config changes](#applying-config-changes).
 
 ---
