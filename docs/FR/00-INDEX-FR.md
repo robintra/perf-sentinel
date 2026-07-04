@@ -28,7 +28,7 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 | [METRICS-FR.md](METRICS-FR.md)             | Métriques Prometheus exposées par le daemon sur `/metrics`                                                                |
 | [QUERY-API-FR.md](QUERY-API-FR.md)         | API HTTP du daemon (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                          |
 | [SARIF-FR.md](SARIF-FR.md)                 | Format de sortie SARIF v2.1.0 pour l'intégration IDE et GitHub Code Scanning                                              |
-| [SCHEMA-FR.md](SCHEMA-FR.md)               | Schéma JSON du rapport de divulgation périodique (`perf-sentinel-report v1.0`)                                            |
+| [SCHEMA-FR.md](SCHEMA-FR.md)               | Schéma JSON du rapport de divulgation périodique (`perf-sentinel-report v1.3`)                                            |
 
 ## Fonctionnalités
 

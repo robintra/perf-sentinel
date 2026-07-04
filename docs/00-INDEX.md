@@ -28,7 +28,7 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 | [METRICS.md](METRICS.md)             | Prometheus metrics exposed by the daemon on `/metrics`                                                            |
 | [QUERY-API.md](QUERY-API.md)         | Daemon HTTP API (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                     |
 | [SARIF.md](SARIF.md)                 | SARIF v2.1.0 output format for IDE and GitHub Code Scanning integration                                           |
-| [SCHEMA.md](SCHEMA.md)               | JSON Schema for the periodic disclosure report (`perf-sentinel-report v1.0`)                                      |
+| [SCHEMA.md](SCHEMA.md)               | JSON Schema for the periodic disclosure report (`perf-sentinel-report v1.3`)                                      |
 
 ## Features
 
