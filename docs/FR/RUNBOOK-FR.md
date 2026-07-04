@@ -314,6 +314,8 @@ enabled = false                  # skip le correlator pour les daemons mono-serv
 
 Mettre `max_retained_findings = 0` est le levier le plus efficace pour libérer la RAM quand l'API de requêtage n'est pas consommée. Voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md) § "La mémoire n'est pas libérée par `api_enabled = false` seul".
 
+**Borner la RSS de façon proactive.** `[daemon] memory_high_water_pct` rejette l'ingest avec un statut retryable dès que le ratio de working set du cgroup franchit le seuil, plafonnant la RSS quel que soit le trafic (voir [CONFIGURATION-FR.md](CONFIGURATION-FR.md)). Il échantillonne à cadence fixe d'une seconde, donc son efficacité dépend de la marge entre la limite et le seuil : les traces admises entre deux échantillons doivent tenir sous `limite - seuil`. Sur un pod de 256 Mio à 80 % (une marge d'environ 51 Mio) un flood soutenu peut encore provoquer un OOM avant que le rejet ne prenne effet, tandis qu'une montée graduelle est tenue. Une marge plus large (40 % de 256 Mio, ou 80 % de 512 Mio) tient aussi un flood soutenu. Dimensionnez le seuil pour que `limite - seuil` dépasse le pic fenêtre-plus-en-vol, ou relevez la limite du conteneur.
+
 Redémarrez le daemon pour appliquer. **Pas de hot reload**, voir [Appliquer un changement de config](#appliquer-un-changement-de-config).
 
 ---
