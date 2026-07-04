@@ -833,6 +833,21 @@ pub fn otlp_http_router(
         routing::post,
     };
 
+    // True if the Content-Type is (optionally parameterized) protobuf, e.g.
+    // `application/x-protobuf` or `application/x-protobuf; charset=...`.
+    fn is_protobuf_content_type(headers: &HeaderMap) -> bool {
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| {
+                ct.split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .eq_ignore_ascii_case("application/x-protobuf")
+            })
+    }
+
     async fn handle_traces(
         State(state): State<OtlpHttpState>,
         headers: HeaderMap,
@@ -850,31 +865,25 @@ pub fn otlp_http_router(
             m.record_otlp_reject(OtlpRejectReason::MemoryPressure);
             return StatusCode::SERVICE_UNAVAILABLE;
         }
+        // Record a rejection reason when metrics are wired (daemon mode),
+        // a no-op in batch/test contexts. Shared by the reject sites below.
+        let reject = |reason: OtlpRejectReason| {
+            if let Some(m) = state.metrics.as_ref() {
+                m.record_otlp_reject(reason);
+            }
+        };
         // OTLP/HTTP spec: only `application/x-protobuf` is accepted by
         // perf-sentinel (we do not implement the JSON-encoded variant).
         // Reject upfront so we do not waste CPU running `prost::decode`
         // on obviously mistyped requests (curl without a Content-Type,
         // JSON clients misconfigured at the OTel Collector, etc.).
-        let content_type_ok = headers
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|ct| {
-                // Match `application/x-protobuf` with optional parameters
-                // like `; charset=...`. Exact-match or prefix-with-semicolon.
-                let base = ct.split(';').next().unwrap_or("").trim();
-                base.eq_ignore_ascii_case("application/x-protobuf")
-            });
-        if !content_type_ok {
-            if let Some(m) = state.metrics.as_ref() {
-                m.record_otlp_reject(OtlpRejectReason::UnsupportedMediaType);
-            }
+        if !is_protobuf_content_type(&headers) {
+            reject(OtlpRejectReason::UnsupportedMediaType);
             return StatusCode::UNSUPPORTED_MEDIA_TYPE;
         }
         let Ok(request) = <ExportTraceServiceRequest as prost::Message>::decode(body.as_ref())
         else {
-            if let Some(m) = state.metrics.as_ref() {
-                m.record_otlp_reject(OtlpRejectReason::ParseError);
-            }
+            reject(OtlpRejectReason::ParseError);
             return StatusCode::BAD_REQUEST;
         };
         let (events, stats) = convert_otlp_request_counted(&request);
@@ -889,9 +898,7 @@ pub fn otlp_http_router(
                 .is_err()
         {
             tracing::warn!("OTLP HTTP: event channel full or closed, dropping events");
-            if let Some(m) = state.metrics.as_ref() {
-                m.record_otlp_reject(OtlpRejectReason::ChannelFull);
-            }
+            reject(OtlpRejectReason::ChannelFull);
             return StatusCode::SERVICE_UNAVAILABLE;
         }
         StatusCode::OK
