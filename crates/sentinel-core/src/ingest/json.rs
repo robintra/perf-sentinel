@@ -270,6 +270,42 @@ impl<'a> TopLevelKeys<'a> {
             depth: 0,
         }
     }
+
+    /// Scan a quoted string whose opening quote is at `self.pos`, advancing
+    /// `self.pos` past the closing quote. Returns the byte range of the
+    /// content, or `None` if the string is truncated at the end of the peek
+    /// window (escape-aware).
+    fn scan_string(&mut self) -> Option<(usize, usize)> {
+        let start = self.pos + 1;
+        let mut i = start;
+        let mut escape = false;
+        while i < self.bytes.len() {
+            let c = self.bytes[i];
+            if escape {
+                escape = false;
+            } else if c == b'\\' {
+                escape = true;
+            } else if c == b'"' {
+                break;
+            }
+            i += 1;
+        }
+        if i >= self.bytes.len() {
+            return None; // truncated mid-string at the end of the peek window
+        }
+        self.pos = i + 1;
+        Some((start, i))
+    }
+
+    /// True if the next non-whitespace byte at or after `self.pos` is `:`,
+    /// i.e. the string just scanned is an object key rather than a value.
+    fn colon_follows(&self) -> bool {
+        let mut j = self.pos;
+        while j < self.bytes.len() && self.bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        j < self.bytes.len() && self.bytes[j] == b':'
+    }
 }
 
 impl<'a> Iterator for TopLevelKeys<'a> {
@@ -287,36 +323,12 @@ impl<'a> Iterator for TopLevelKeys<'a> {
                     self.pos += 1;
                 }
                 b'"' => {
-                    let start = self.pos + 1;
-                    let mut i = start;
-                    let mut escape = false;
-                    while i < self.bytes.len() {
-                        let c = self.bytes[i];
-                        if escape {
-                            escape = false;
-                        } else if c == b'\\' {
-                            escape = true;
-                        } else if c == b'"' {
-                            break;
-                        }
-                        i += 1;
-                    }
-                    if i >= self.bytes.len() {
-                        // Truncated mid-string at the end of the peek window.
-                        return None;
-                    }
-                    self.pos = i + 1;
-                    if self.depth == 1 {
-                        let mut j = self.pos;
-                        while j < self.bytes.len() && self.bytes[j].is_ascii_whitespace() {
-                            j += 1;
-                        }
-                        if j < self.bytes.len()
-                            && self.bytes[j] == b':'
-                            && let Ok(key) = std::str::from_utf8(&self.bytes[start..i])
-                        {
-                            return Some(key);
-                        }
+                    let (start, end) = self.scan_string()?;
+                    if self.depth == 1
+                        && self.colon_follows()
+                        && let Ok(key) = std::str::from_utf8(&self.bytes[start..end])
+                    {
+                        return Some(key);
                     }
                 }
                 _ => self.pos += 1,
