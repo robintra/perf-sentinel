@@ -110,8 +110,8 @@
 <span style="color:var(--term-comment)"># 4. Stream traces from your apps (daemon mode)</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span></code></pre>
         </div>
-        <p data-dc-tpl="63" style="margin: 16px 0px 0px; font-size: 14px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations).</span></p>
-        <p data-dc-tpl="64" style="margin: 10px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><strong data-dc-tpl="65" style="color: var(--text); font-weight: 600;"><span class="sc-interp">On dd-trace?</span></strong> <span class="sc-interp">There is no OpenTelemetry file to feed step 2: bridge via the Collector <code class="dc-cmd">datadogreceiver</code>, then either <code class="dc-cmd">watch</code> for the daemon or a Jaeger/Tempo backend with <code class="dc-cmd">jaeger-query</code>/<code class="dc-cmd">tempo</code> for batch, since <code class="dc-cmd">analyze</code> does not read OTLP. See</span> <a data-dc-tpl="66" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
+        <p data-dc-tpl="63" style="margin: 16px 0px 0px; font-size: 14px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, mysql_stat, Diff and synthesized cross-trace correlations).</span></p>
+        <p data-dc-tpl="64" style="margin: 10px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><strong data-dc-tpl="65" style="color: var(--text); font-weight: 600;"><span class="sc-interp">On dd-trace?</span></strong> <span class="sc-interp">Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, then either feed its <code class="dc-cmd">file</code> exporter OTLP JSON straight to <code class="dc-cmd">analyze --input</code> for batch (auto-detected), or stream to the <code class="dc-cmd">watch</code> daemon over OTLP. See</span> <a data-dc-tpl="66" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
       </section>
 
       
@@ -241,6 +241,11 @@
             </div>
           
             <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
+              <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">mysql-stat</span></span>
+              <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp"><code class="dc-cmd">performance_schema</code> digests, ranked by total time.</span></span>
+            </div>
+          
+            <div data-dc-tpl="104" style="display: flex; gap: 12px; align-items: baseline; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;">
               <span data-dc-tpl="105" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; font-weight: 600; color: var(--accent);"><span class="sc-interp">calibrate</span></span>
               <span data-dc-tpl="106" style="font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Per-service energy factors from measured power.</span></span>
             </div>
@@ -277,6 +282,7 @@
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">inspect</span> <span style="color:var(--code-flag)">--input</span> traces.json                         <span style="color:var(--term-comment)"> # interactive TUI</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">diff</span> <span style="color:var(--code-flag)">--before</span> base.json <span style="color:var(--code-flag)">--after</span> head.json           <span style="color:var(--term-comment)"> # PR regression diff</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">pg-stat</span> <span style="color:var(--code-flag)">--input</span> pg_stat.csv <span style="color:var(--code-flag)">--traces</span> traces.json    <span style="color:var(--term-comment)"> # PostgreSQL hotspots</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">mysql-stat</span> <span style="color:var(--code-flag)">--input</span> mysql_perf.csv <span style="color:var(--code-flag)">--traces</span> traces.json <span style="color:var(--term-comment)"> # MySQL hotspots</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--trace-id</span> &lt;id&gt;  <span style="color:var(--term-comment)"> # pull from Grafana Tempo</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">jaeger-query</span> <span style="color:var(--code-flag)">--endpoint</span> http://jaeger:16686 <span style="color:var(--code-flag)">--service</span> order-svc
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">calibrate</span> <span style="color:var(--code-flag)">--traces</span> traces.json <span style="color:var(--code-flag)">--measured-energy</span> rapl.csv
@@ -301,7 +307,7 @@
               
                 <div data-dc-tpl="123" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="124" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Trace files</span></div>
-                  <div data-dc-tpl="125" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Native perf-sentinel JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.</span></div>
+                  <div data-dc-tpl="125" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Native perf-sentinel JSON, OTLP JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.</span></div>
                 </div>
               
                 <div data-dc-tpl="123" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -322,6 +328,11 @@
                 <div data-dc-tpl="123" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="124" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp"><code class="dc-cmd">pg_stat_statements</code></span></div>
                   <div data-dc-tpl="125" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.</span></div>
+                </div>
+              
+                <div data-dc-tpl="123" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+                  <div data-dc-tpl="124" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp"><code class="dc-cmd">performance_schema</code></span></div>
+                  <div data-dc-tpl="125" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Rank MySQL hotspots from the digest table with perf-sentinel mysql-stat.</span></div>
                 </div>
               
             </div>
@@ -1311,7 +1322,7 @@ class Component extends DCLogic {
   esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
   hlBash(code) {
-    const SUB = new Set(['demo', 'analyze', 'watch', 'report', 'diff', 'explain', 'inspect', 'pg-stat', 'calibrate', 'disclose', 'tempo', 'jaeger-query', 'query', 'ack']);
+    const SUB = new Set(['demo', 'analyze', 'watch', 'report', 'diff', 'explain', 'inspect', 'pg-stat', 'mysql-stat', 'calibrate', 'disclose', 'tempo', 'jaeger-query', 'query', 'ack']);
     const C = (cls, s) => '<span style="color:var(' + cls + ')">' + s + '</span>';
     return code.split('\n').map(line => {
       if (line.trim() === '') return '';
@@ -1415,9 +1426,9 @@ class Component extends DCLogic {
         qsTitle: 'Quickstart',
         qsIntro: 'Four steps, from the built-in demo to a live daemon. Nothing to install on your application side, but your spans must already carry the query text (`db.statement`) and the target URL (`http.url`): spans without those attributes are dropped silently, so audit your own tracing first with `perf-sentinel inspect`.',
         qsCode: '# 1. Try the built-in demo (no app-side setup)\nperf-sentinel demo                   # colored terminal report\nperf-sentinel demo --tui             # interactive TUI report\nperf-sentinel demo --html demo.html  # HTML dashboard\n\n# 2. Analyze a captured trace file\nperf-sentinel analyze --input traces.json\n\n# 3. Use it as a CI quality gate (exit 1 over threshold)\nperf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml\n\n# 4. Stream traces from your apps (daemon mode)\nperf-sentinel watch',
-        qsNote: 'demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, Diff and synthesized cross-trace correlations).',
+        qsNote: 'demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, mysql_stat, Diff and synthesized cross-trace correlations).',
         qsDdLabel: 'On dd-trace?',
-        qsDdNote: 'There is no OpenTelemetry file to feed step 2: bridge via the Collector `datadogreceiver`, then either `watch` for the daemon or a Jaeger/Tempo backend with `jaeger-query`/`tempo` for batch, since `analyze` does not read OTLP. See',
+        qsDdNote: 'Bridge it through the Collector `datadogreceiver`, then either feed its `file` exporter OTLP JSON straight to `analyze --input` for batch (auto-detected), or stream to the `watch` daemon over OTLP. See',
         qsDdLink: 'Coming from Datadog',
         qsDdHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry',
         inTitle: 'Installation',
@@ -1443,7 +1454,7 @@ class Component extends DCLogic {
           { name: 'report', desc: 'Single-file offline HTML dashboard, light/dark, with CSV export.', example: 'perf-sentinel report --input traces.json --output report.html' },
         ],
         cliCheat: 'One-liner cheat sheet for the rest of the surface',
-        csCode: 'perf-sentinel explain --input traces.json --trace-id abc123        # tree view of one trace\nperf-sentinel inspect --input traces.json                          # interactive TUI\nperf-sentinel diff --before base.json --after head.json            # PR regression diff\nperf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # PostgreSQL hotspots\nperf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # pull from Grafana Tempo\nperf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc\nperf-sentinel calibrate --traces traces.json --measured-energy rapl.csv\nperf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # shell completions\nperf-sentinel man > perf-sentinel.1                                # man page\nperf-sentinel query findings --service order-svc                   # talk to a running daemon',
+        csCode: 'perf-sentinel explain --input traces.json --trace-id abc123        # tree view of one trace\nperf-sentinel inspect --input traces.json                          # interactive TUI\nperf-sentinel diff --before base.json --after head.json            # PR regression diff\nperf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # PostgreSQL hotspots\nperf-sentinel mysql-stat --input mysql_perf.csv --traces traces.json  # MySQL hotspots\nperf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # pull from Grafana Tempo\nperf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc\nperf-sentinel calibrate --traces traces.json --measured-energy rapl.csv\nperf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # shell completions\nperf-sentinel man > perf-sentinel.1                                # man page\nperf-sentinel query findings --service order-svc                   # talk to a running daemon',
         pfDetails: [
           { title: 'Bench methodology (clock scope, datasets)', body: 'File reads, JSON parsing and ingestion all happen before the clock starts, and input batches are cloned up front. The pipeline is single-threaded (no rayon), so core count does not change throughput. Both datasets are 44,043 synthetic events built by duplicating the demo fixture, one repeats the same pattern, the other uses random SQL per query. This isolates pipeline throughput but does not reflect real-production diversity.' },
           { title: 'Same-chip allocator breakdown', body: 'The x86 musl artifact links mimalloc while the macOS arm64 artifact uses the system allocator, so cross-platform binaries differ by allocator as well as ISA. On the same M4 Pro the musl+mimalloc build (the `linux/arm64` artifact in a Docker container) reaches ~1.39M / ~1.51M evt/s versus ~1.23M / ~1.33M native, about 13% faster, confirming the allocator as the main cause of higher Docker throughput. At equal build (both musl+mimalloc), the M4 Pro is ~2.4× the x86 8481C (2.41× repeated, 2.36× varied).' },
@@ -1455,6 +1466,7 @@ class Component extends DCLogic {
           { name: 'explain', desc: 'Drill into one trace (--trace-id), annotated span tree.' },
           { name: 'inspect', desc: 'Standalone four-panel TUI.' },
           { name: 'pg-stat', desc: '`pg_stat_statements` hotspots, ranked by total time.' },
+          { name: 'mysql-stat', desc: '`performance_schema` digests, ranked by total time.' },
           { name: 'calibrate', desc: 'Per-service energy factors from measured power.' },
           { name: 'disclose', desc: 'Verifiable periodic disclosure, signable via Sigstore.' },
           { name: 'tempo', desc: 'Fetch traces straight from a Grafana Tempo backend.' },
@@ -1466,11 +1478,12 @@ class Component extends DCLogic {
         fmIntro: 'Traces come in from files or live OTLP; results go out as terminal text, machine-readable JSON/SARIF, an HTML dashboard, or live daemon streams. Output is deterministic: identical input yields byte-identical JSON and SARIF, findings sorted on a stable key rather than `HashMap` order, so a CI quality gate never flickers.',
         fmInLabel: 'Inputs', fmOutLabel: 'Outputs',
         fmInputs: [
-          { name: 'Trace files', desc: 'Native perf-sentinel JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
+          { name: 'Trace files', desc: 'Native perf-sentinel JSON, OTLP JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
           { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector `datadogreceiver`, see', ddHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry', ddLink: 'Coming from Datadog' },
           { name: 'Grafana Tempo', desc: 'Pull traces directly from a Tempo backend with perf-sentinel tempo.' },
           { name: 'Jaeger query API', desc: 'Pull from a Jaeger or Victoria Traces backend with perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.' },
+          { name: '`performance_schema`', desc: 'Rank MySQL hotspots from the digest table with perf-sentinel mysql-stat.' },
         ],
         fmOutputs: [
           { name: 'text (default)', desc: 'Colored terminal output, grouped by severity.' },
@@ -1587,9 +1600,9 @@ class Component extends DCLogic {
         qsTitle: 'Démarrage rapide',
         qsIntro: 'Quatre étapes, de la démo intégrée au daemon live. Rien à installer côté applications, mais vos spans doivent déjà porter le texte de la requête (`db.statement`) et l’URL cible (`http.url`) : les spans sans ces attributs sont écartés en silence, auditez donc votre tracing d’abord avec `perf-sentinel inspect`.',
         qsCode: '# 1. Essayer la démo intégrée (rien côté apps)\nperf-sentinel demo                   # rapport terminal en couleurs\nperf-sentinel demo --tui             # rapport TUI interactif\nperf-sentinel demo --html demo.html  # tableau de bord HTML\n\n# 2. Analyser un fichier de traces capturées\nperf-sentinel analyze --input traces.json\n\n# 3. En quality gate CI (exit 1 si seuil dépassé)\nperf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml\n\n# 4. Streamer les traces de vos apps (mode daemon)\nperf-sentinel watch',
-        qsNote: 'demo --html est une vitrine complète : tous les onglets du tableau de bord sont remplis (Overview, Findings avec Explain en ligne, Carbon, pg_stat, Diff et corrélations inter-traces synthétisées).',
+        qsNote: 'demo --html est une vitrine complète : tous les onglets du tableau de bord sont remplis (Overview, Findings avec Explain en ligne, Carbon, pg_stat, mysql_stat, Diff et corrélations inter-traces synthétisées).',
         qsDdLabel: 'Sur dd-trace ?',
-        qsDdNote: 'Pas de fichier OpenTelemetry à passer à l’étape 2 : faites le pont via le `datadogreceiver` du Collector, puis soit `watch` pour le daemon, soit un backend Jaeger/Tempo avec `jaeger-query`/`tempo` en batch, car `analyze` ne lit pas l’OTLP. Voir',
+        qsDdNote: 'Faites le pont via le `datadogreceiver` du Collector, puis soit passez l’OTLP JSON écrit par son `file` exporter directement à `analyze --input` en batch (auto-détecté), soit alimentez le daemon `watch` en OTLP. Voir',
         qsDdLink: 'Vous venez de Datadog',
         qsDdHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry',
         inTitle: 'Installation',
@@ -1615,7 +1628,7 @@ class Component extends DCLogic {
           { name: 'report', desc: 'Dashboard HTML offline en un seul fichier, clair/sombre, export CSV.', example: 'perf-sentinel report --input traces.json --output report.html' },
         ],
         cliCheat: 'Aide-mémoire en une ligne pour le reste de la surface',
-        csCode: 'perf-sentinel explain --input traces.json --trace-id abc123        # vue arbre d\u2019une trace\nperf-sentinel inspect --input traces.json                          # TUI interactif\nperf-sentinel diff --before base.json --after head.json            # diff de régression PR\nperf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # hotspots PostgreSQL\nperf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # récupère depuis Grafana Tempo\nperf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc\nperf-sentinel calibrate --traces traces.json --measured-energy rapl.csv\nperf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # complétions shell\nperf-sentinel man > perf-sentinel.1                                # page man\nperf-sentinel query findings --service order-svc                   # interroge un daemon live',
+        csCode: 'perf-sentinel explain --input traces.json --trace-id abc123        # vue arbre d\u2019une trace\nperf-sentinel inspect --input traces.json                          # TUI interactif\nperf-sentinel diff --before base.json --after head.json            # diff de régression PR\nperf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # hotspots PostgreSQL\nperf-sentinel mysql-stat --input mysql_perf.csv --traces traces.json  # hotspots MySQL\nperf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # récupère depuis Grafana Tempo\nperf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc\nperf-sentinel calibrate --traces traces.json --measured-energy rapl.csv\nperf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # complétions shell\nperf-sentinel man > perf-sentinel.1                                # page man\nperf-sentinel query findings --service order-svc                   # interroge un daemon live',
         pfDetails: [
           { title: 'Méthodologie du bench (périmètre du chrono, jeux de données)', body: 'La lecture du fichier, le parsing JSON et l\u2019ingestion ont tous lieu avant le démarrage du chrono, et les lots d\u2019entrée sont clonés en amont. Le pipeline est mono-thread (pas de rayon), le nombre de cœurs ne change donc pas le débit. Les deux jeux comptent 44 043 évènements synthétiques, construits en dupliquant la fixture de démo, l\u2019un répète le même motif, l\u2019autre du SQL aléatoire par requête. Cela isole le débit du pipeline mais ne reflète pas la diversité d\u2019une vraie production.' },
           { title: 'Détail par allocateur sur la même puce', body: 'L\u2019artefact musl x86 est lié à mimalloc tandis que l\u2019artefact macOS arm64 utilise l\u2019allocateur système ; les binaires diffèrent donc par l\u2019allocateur autant que par l\u2019ISA. Sur le même M4 Pro, le build musl+mimalloc (l’artefact `linux/arm64` en conteneur Docker) atteint ~1,39M / ~1,51M évt/s contre ~1,23M / ~1,33M en natif, ~13 % plus vite que l\u2019allocateur natif de macOS, confirmant l\u2019allocateur comme cause principale du débit plus élevé en Docker. À build équivalent, le M4 Pro fait ~2,4× le x86 8481C (2,41× répété, 2,36× varié).' },
@@ -1627,6 +1640,7 @@ class Component extends DCLogic {
           { name: 'explain', desc: 'Drill-down sur une trace (--trace-id), arbre de spans annoté.' },
           { name: 'inspect', desc: 'TUI autonome à quatre panneaux.' },
           { name: 'pg-stat', desc: 'Hotspots `pg_stat_statements`, classés par temps total.' },
+          { name: 'mysql-stat', desc: 'Digests `performance_schema`, classés par temps total.' },
           { name: 'calibrate', desc: 'Facteurs énergie per-service depuis l\u2019énergie mesurée.' },
           { name: 'disclose', desc: 'Divulgation périodique vérifiable, signable via Sigstore.' },
           { name: 'tempo', desc: 'Récupère les traces depuis un backend Grafana Tempo.' },
@@ -1638,11 +1652,12 @@ class Component extends DCLogic {
         fmIntro: 'Les traces arrivent par fichier ou en OTLP live ; les résultats sortent en texte terminal, JSON/SARIF lisibles par machine, dashboard HTML, ou flux du daemon live. La sortie est déterministe : une entrée identique produit un JSON et un SARIF byte-identiques, les findings triés sur une clé stable plutôt que sur l’ordre d’une `HashMap`, donc un quality gate CI ne clignote jamais.',
         fmInLabel: 'Entrées', fmOutLabel: 'Sorties',
         fmInputs: [
-          { name: 'Fichiers de traces', desc: 'JSON natif perf-sentinel, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
+          { name: 'Fichiers de traces', desc: 'JSON natif perf-sentinel, JSON OTLP, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
           { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector, voir', ddHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry', ddLink: 'Vous venez de Datadog' },
           { name: 'Grafana Tempo', desc: 'Récupère les traces directement depuis un backend Tempo avec perf-sentinel tempo.' },
           { name: 'API Jaeger query', desc: 'Récupère depuis un backend Jaeger ou Victoria Traces avec perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Classe les hotspots PostgreSQL depuis la vue catalogue avec perf-sentinel pg-stat.' },
+          { name: '`performance_schema`', desc: 'Classe les hotspots MySQL depuis la table de digests avec perf-sentinel mysql-stat.' },
         ],
         fmOutputs: [
           { name: 'text (défaut)', desc: 'Sortie terminal colorée, regroupée par sévérité.' },
