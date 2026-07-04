@@ -291,8 +291,8 @@
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">query</span> findings <span style="color:var(--code-flag)">--service</span> order-svc                  <span style="color:var(--term-comment)"> # interroge un daemon live</span></code></pre></div></div>
         </details>
         <details data-dc-tpl="112" style="margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 18px;">
-          <summary data-dc-tpl="113" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text);"><span class="sc-interp">Toute la surface CLI en un schéma (17 sous-commandes, un pipeline, 11 sorties)</span></summary>
-          <img data-dc-tpl="114" src="https://raw.githubusercontent.com/robintra/perf-sentinel/5be42bf86a7aaf5ed499c6f3cb93ebfe171d408d/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 17 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width: 100%; background: rgb(10, 15, 26); border: 1px solid var(--border); border-radius: 10px; display: block; margin-top: 14px; padding: 10px;">
+          <summary data-dc-tpl="113" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text);"><span class="sc-interp">Toute la surface CLI en un schéma (18 sous-commandes, un pipeline, 11 sorties)</span></summary>
+          <img data-dc-tpl="114" src="https://raw.githubusercontent.com/robintra/perf-sentinel/7456e227cfa6ff9564f1457107d24b34625baee9/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 18 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width: 100%; background: rgb(10, 15, 26); border: 1px solid var(--border); border-radius: 10px; display: block; margin-top: 14px; padding: 10px;">
         </details>
       </section>
 
@@ -1114,7 +1114,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
         </details>
         <details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
           <summary style="cursor:pointer;font-weight:600;font-size:14px;color:var(--text)">{{ cliMap }}</summary>
-          <img src="https://raw.githubusercontent.com/robintra/perf-sentinel/5be42bf86a7aaf5ed499c6f3cb93ebfe171d408d/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 17 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width:100%;background:#0A0F1A;border:1px solid var(--border);border-radius:10px;display:block;margin-top:14px;padding:10px">
+          <img src="https://raw.githubusercontent.com/robintra/perf-sentinel/7456e227cfa6ff9564f1457107d24b34625baee9/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 18 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width:100%;background:#0A0F1A;border:1px solid var(--border);border-radius:10px;display:block;margin-top:14px;padding:10px">
         </details>
       </section>
 
@@ -1446,7 +1446,7 @@ class Component extends DCLogic {
         ],
         cliTitle: 'CLI reference',
         cliIntro: 'One binary, a handful of subcommands. Run perf-sentinel <cmd> --help for the full flag list.',
-        cliMap: 'The whole CLI surface in one map (17 subcommands, one pipeline, 11 outputs)',
+        cliMap: 'The whole CLI surface in one map (18 subcommands, one pipeline, 11 outputs)',
         cliPrimary: [
           { name: 'demo', desc: 'Built-in synthetic dataset, no capture required.', example: 'perf-sentinel demo --html demo.html' },
           { name: 'analyze', desc: 'Analyze captured traces. --ci to gate, --tui to drill down, --format json|sarif.', example: 'perf-sentinel analyze --input traces.json --ci' },
@@ -1620,7 +1620,7 @@ class Component extends DCLogic {
         ],
         cliTitle: 'Référence CLI',
         cliIntro: 'Un binaire, une poignée de sous-commandes. Lancez perf-sentinel <cmd> --help pour la liste complète des flags.',
-        cliMap: 'Toute la surface CLI en un schéma (17 sous-commandes, un pipeline, 11 sorties)',
+        cliMap: 'Toute la surface CLI en un schéma (18 sous-commandes, un pipeline, 11 sorties)',
         cliPrimary: [
           { name: 'demo', desc: 'Jeu de données synthétique intégré, aucune capture requise.', example: 'perf-sentinel demo --html demo.html' },
           { name: 'analyze', desc: 'Analyse des traces capturées. --ci pour le gate, --tui pour le drill-down, --format json|sarif.', example: 'perf-sentinel analyze --input traces.json --ci' },
