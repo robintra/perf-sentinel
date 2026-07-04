@@ -309,7 +309,7 @@
 <span style="color:var(--code-sub)">      exporters</span>: [azuremonitor, otlp/perf-sentinel]</code></pre></div>
 <p class="ps-p">Deploy perf-sentinel as an AKS Deployment or Azure Container Instance.</p>
 <h3 id="self-hosted-jaeger-tempo-zipkin" class="ps-h3">Self-hosted (Jaeger, Tempo, Zipkin)</h3>
-<p class="ps-p">If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with trace files exported from Jaeger UI (<code class="ps-ic">--input jaeger-export.json</code>) or Zipkin UI (<code class="ps-ic">--input zipkin-traces.json</code>), formats are auto-detected.</p>
+<p class="ps-p">If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with an OTLP JSON dump from the Collector <code class="ps-ic">file</code> exporter, or with trace files exported from Jaeger UI (<code class="ps-ic">--input jaeger-export.json</code>) or Zipkin UI (<code class="ps-ic">--input zipkin-traces.json</code>), formats are auto-detected.</p>
 <hr class="ps-hr">
 <h2 id="production-via-opentelemetry-collector" class="ps-h2">Production: via OpenTelemetry Collector</h2>
 <p class="ps-p">If you already have an <a href="https://opentelemetry.io/docs/collector/" target="_blank" rel="noopener" class="ps-ext">OTel Collector</a>, you will be able to add perf-sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working, perf-sentinel analyzes a copy of the same spans.</p>
