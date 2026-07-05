@@ -1,0 +1,94 @@
+# Semiannual refresh of the embedded datasets: carbon intensity from
+# Ember, instance power from the CCF coefficients. Human in the loop:
+# the scripts regenerate the *_data.rs files and this workflow opens a
+# PR for review, it never pushes to main. PRs created with GITHUB_TOKEN
+# do not trigger `on: pull_request` workflows, so CI is dispatched on
+# the branch explicitly. Plain git + gh (preinstalled) instead of a
+# third-party PR action keeps the supply-chain surface unchanged.
+name: refresh-datasets
+
+on:
+  schedule:
+    - cron: "0 6 3 1,7 *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-datasets
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Skip if a refresh PR is already open
+        id: guard
+        run: |
+          open_pr="$(gh pr list --state open --search 'refresh embedded datasets in:title' --json number --jq '.[].number')"
+          if [ -n "$open_pr" ]; then
+            echo "::notice::Dataset refresh PR #${open_pr} is already open, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Regenerate datasets
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          python3 scripts/refresh-carbon-data.py 2>&1 | tee "$RUNNER_TEMP/diff.md"
+          python3 scripts/refresh-instance-power.py 2>&1 | tee -a "$RUNNER_TEMP/diff.md"
+
+      - name: Detect changes
+        if: steps.guard.outputs.skip != 'true'
+        id: changes
+        run: |
+          if git diff --quiet -- crates/; then
+            echo "::notice::No dataset changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        if: steps.changes.outputs.changed == 'true'
+
+      - name: Check the generated Rust compiles
+        if: steps.changes.outputs.changed == 'true'
+        run: cargo check -p perf-sentinel-core
+
+      - name: Open the refresh PR
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          branch="refresh/datasets-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add crates/
+          git commit -m "chore(data): refresh embedded datasets from upstream sources"
+          git push origin "$branch"
+          {
+            echo "Automated dataset refresh (Ember + CCF coefficients)."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/diff.md"
+            echo '```'
+            echo
+            echo "Review checklist:"
+            echo "- [ ] Hourly profiles renormalized for keys flagged >5% (hourly_profile_mean_* tests must pass)"
+            echo "- [ ] On SPECPOWER_VINTAGE bump: CHANGELOG note for operator TOMLs pinning specpower_table_version"
+            echo "- [ ] Turin proxy still justified (docs/LIMITATIONS.md)"
+            echo "- [ ] Manual rows now covered upstream (script warnings) moved to the generated manifest"
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --title "chore(data): refresh embedded datasets" --body-file "$RUNNER_TEMP/body.md" --base main --head "$branch"
+          gh workflow run ci.yml --ref "$branch"
