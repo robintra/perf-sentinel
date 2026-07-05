@@ -8,8 +8,8 @@ perf-sentinel follows semantic versioning. Security fixes are backported as foll
 
 | Version | Supported |
 |---------|-----------|
-| 0.5.x   | ✅         |
-| < 0.5   | ❌         |
+| 0.9.x   | ✅         |
+| < 0.9   | ❌         |
 
 Only the latest minor release receives security fixes. Users on older versions are encouraged to upgrade.
 
@@ -47,12 +47,12 @@ To help us triage quickly, please include:
 
 The following components are in scope for security reports:
 
-- The `perf-sentinel` binary and its subcommands (`analyze`, `watch`, `query`, `diff`, `explain`, `inspect`, `pg-stat`, `bench`, `tempo`, `calibrate`, `demo`).
+- The `perf-sentinel` binary and all its subcommands.
 - The `perf-sentinel-core` library crate.
 - Network listeners: OTLP gRPC (port 4317), OTLP HTTP, `/metrics`, `/health`, and the query API endpoints (`/api/*`).
-- Opt-in outbound scrapers: Scaphandre, cloud energy (AWS/GCP/Azure), Electricity Maps, pg_stat (Prometheus), Tempo.
+- Opt-in outbound connections: the energy scrapers (Scaphandre, Kepler, Redfish, cloud energy AWS/GCP/Azure, Electricity Maps) and the pull-based ingesters (Tempo, Jaeger query API, pg_stat via Prometheus).
 - Configuration file parsing (`.perf-sentinel.toml`).
-- SARIF, JSON, OpenMetrics output.
+- SARIF, JSON, OpenMetrics, HTML dashboard and NDJSON archive output.
 - Docker images published to Docker Hub (`robintrassard/perf-sentinel`) and GHCR (`ghcr.io/robintra/perf-sentinel`).
 
 ### Out of scope
@@ -64,13 +64,13 @@ The following components are in scope for security reports:
 
 ## Automated security checks
 
-The following scans run in CI and block the pipeline on severity `HIGH` or `CRITICAL`:
+The following scans run in CI:
 
-- **cargo audit** (Rust dependency vulnerabilities): scheduled daily and on every `Cargo.toml` / `Cargo.lock` change. Documented non-applicable advisories live in `audit.toml`. See `.github/workflows/security-audit.yml`.
+- **cargo audit + cargo deny** (Rust dependency advisories and policy): scheduled daily and on every `Cargo.toml` / `Cargo.lock` / `deny.toml` change. The audit job files new advisories as GitHub issues, the `cargo deny check` job blocks the pipeline. Documented non-applicable advisories live in `audit.toml`. See `.github/workflows/security-audit.yml`.
 - **Clippy with pedantic lints** plus SARIF upload to GitHub Code Scanning: every CI run. Catches logic and API-design issues.
 - **CodeQL** (Rust dataflow and taint analysis): runs on push, pull requests and a weekly schedule, with results uploaded to GitHub Code Scanning. Adds cross-function taint tracking (path/SQL/regex injection, crypto misuse, log injection) that the Clippy and SonarCloud passes do not cover. See `.github/workflows/codeql.yml`.
-- **Trivy** (container image vulnerabilities): runs on every release tag before the image is pushed to GHCR or Docker Hub. `ignore-unfixed` is enabled so unpatched upstream CVEs do not block the release. SARIF output is uploaded to GitHub Code Scanning.
-- **Gitleaks** (secret scan): runs on every push and pull request, scanning the full git history with the bundled default ruleset (AWS keys, GitHub tokens, JWT, private keys, etc.).
+- **Trivy** (container image vulnerabilities): runs on every release tag before the image is pushed to GHCR or Docker Hub, and blocks the release on `HIGH` or `CRITICAL` findings. `ignore-unfixed` is enabled so unpatched upstream CVEs do not block the release. SARIF output is uploaded to GitHub Code Scanning.
+- **Gitleaks** (secret scan): runs on every push and pull request, scanning the full git history with the default ruleset (AWS keys, GitHub tokens, JWT, private keys, etc.) extended by a repo-local allowlist (`.gitleaks.toml`).
 - **SonarCloud** (code quality and security hotspots): runs when a `SONAR_TOKEN` secret is available, skipped on Dependabot PRs that do not receive repo secrets.
 
 ## Security-relevant design choices
@@ -78,11 +78,13 @@ The following scans run in CI and block the pipeline on severity `HIGH` or `CRIT
 For context, the following choices are deliberate and documented:
 
 - **Default bind to `127.0.0.1`**: the daemon never listens on all interfaces by default.
-- **Payload size limits**: JSON/OTLP payloads are bounded (`max_payload_size`, default 1 MB).
+- **Payload size limits**: JSON/OTLP payloads are bounded (`max_payload_size`, default 16 MiB).
+- **Memory-pressure admission control**: opt-in via `[daemon] memory_high_water_pct`. Under memory pressure the OTLP listeners shed load with retryable `503`/`UNAVAILABLE` responses, counted on `perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`.
 - **No default outbound network**: scrapers are opt-in and only connect to explicitly configured endpoints.
 - **Credentials rejected at config load**: endpoint URLs containing `user:pass@` are rejected with a clear error; secrets must come from environment variables.
 - **Log redaction**: credentials are redacted in all scraper logs via `redact_endpoint`.
 - **TLS for OTLP listeners**: opt-in via `[daemon.tls]`. The recommended production pattern remains a reverse proxy (envoy, nginx) for broader TLS feature coverage.
+- **Disclosure report integrity**: `disclose` bakes a canonical SHA-256 `content_hash` into the published report, and `verify-hash` recomputes it and delegates signature and provenance checks to `cosign verify-blob` and `gh attestation verify`.
 - **SARIF path sanitization**: filepaths from SARIF output are validated against path traversal, control characters, bidi overrides, and overlong UTF-8 encodings.
 - **HTML dashboard: `textContent`-only rendering**: every user-controlled value (SQL templates, service names, HTTP URLs, trace IDs, code locations, `SuggestedFix` text) is embedded in a `<script id="report-data" type="application/json">` block and rendered exclusively via `Element.textContent` and `document.createElement()`. The template never calls `innerHTML`, `insertAdjacentHTML`, `outerHTML`, `document.write`, `eval`, `new Function`, `DOMParser`, `createContextualFragment`, or `setAttribute` with an `on*` attribute name. A unit test (`no_forbidden_apis_in_template` in `crates/sentinel-core/src/report/html/tests.rs`) greps the template on every build and fails CI if any of those strings appear.
 - **HTML dashboard: script-tag break-out defense**: the Rust injector escapes the substring `</` to `<\/` in the serialized JSON payload so a user-controlled string cannot close the `<script>` block early. `\/` is a permitted JSON string escape, `JSON.parse` round-trips the original value unchanged.
