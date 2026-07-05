@@ -19,29 +19,29 @@ pub(crate) const CARBON_TABLE_VINTAGE: &str = "ember-2025";
 
 pub(super) static GENERATED_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     // AWS regions
-    ("eu-west-1", 255.9, Provider::Aws), // Ireland
-    ("eu-west-2", 217.4, Provider::Aws), // London
-    ("eu-west-3", 41.5, Provider::Aws), // Paris
-    ("eu-central-1", 329.6, Provider::Aws), // Frankfurt
-    ("eu-north-1", 35.4, Provider::Aws), // Stockholm
+    ("eu-west-1", 255.9, Provider::Aws),      // Ireland
+    ("eu-west-2", 217.4, Provider::Aws),      // London
+    ("eu-west-3", 41.5, Provider::Aws),       // Paris
+    ("eu-central-1", 329.6, Provider::Aws),   // Frankfurt
+    ("eu-north-1", 35.4, Provider::Aws),      // Stockholm
     ("ap-northeast-1", 477.4, Provider::Aws), // Tokyo
     ("ap-southeast-1", 497.1, Provider::Aws), // Singapore
-    ("eu-west-4", 253.6, Provider::Aws), // Netherlands (canonical hourly key)
-    ("eu-south-1", 284.6, Provider::Aws), // Milan (Italy)
+    ("eu-west-4", 253.6, Provider::Aws),      // Netherlands (canonical hourly key)
+    ("eu-south-1", 284.6, Provider::Aws),     // Milan (Italy)
     ("ap-southeast-2", 524.6, Provider::Aws), // Sydney
-    ("ap-south-1", 670.5, Provider::Aws), // Mumbai
+    ("ap-south-1", 670.5, Provider::Aws),     // Mumbai
     // GCP regions
-    ("europe-west1", 109.3, Provider::Gcp), // Belgium
-    ("europe-west4", 253.6, Provider::Gcp), // Netherlands
-    ("europe-west9", 41.5, Provider::Gcp), // Paris
-    ("europe-north1", 57.5, Provider::Gcp), // Finland
-    ("europe-west8", 284.6, Provider::Gcp), // Milan (Italy)
+    ("europe-west1", 109.3, Provider::Gcp),      // Belgium
+    ("europe-west4", 253.6, Provider::Gcp),      // Netherlands
+    ("europe-west9", 41.5, Provider::Gcp),       // Paris
+    ("europe-north1", 57.5, Provider::Gcp),      // Finland
+    ("europe-west8", 284.6, Provider::Gcp),      // Milan (Italy)
     ("europe-southwest1", 153.6, Provider::Gcp), // Madrid (Spain)
-    ("europe-central2", 590.8, Provider::Gcp), // Warsaw (Poland)
-    ("europe-north2", 28.1, Provider::Gcp), // Norway
-    ("asia-northeast1", 477.4, Provider::Gcp), // Tokyo
+    ("europe-central2", 590.8, Provider::Gcp),   // Warsaw (Poland)
+    ("europe-north2", 28.1, Provider::Gcp),      // Norway
+    ("asia-northeast1", 477.4, Provider::Gcp),   // Tokyo
     // Azure regions
-    ("westeurope", 253.6, Provider::Azure), // Netherlands
+    ("westeurope", 253.6, Provider::Azure),  // Netherlands
     ("northeurope", 255.9, Provider::Azure), // Ireland
     ("francecentral", 41.5, Provider::Azure),
     ("uksouth", 217.4, Provider::Azure),
