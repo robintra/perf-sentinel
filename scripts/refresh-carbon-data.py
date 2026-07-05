@@ -30,8 +30,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGET = REPO_ROOT / "crates" / "sentinel-core" / "src" / "score" / "carbon_data.rs"
 
 # (rust_key, iso3, trailing comment) per section. Adding a region means
-# adding a line here, by hand. North American subnational regions are
-# deliberately absent: they live in MANUAL_CARBON_ROWS (carbon.rs).
+# adding a line here, by hand. Subnational regions (North America,
+# Brazil BR-CS) are deliberately absent: Ember is national-only and
+# those rows live in MANUAL_CARBON_ROWS (carbon.rs).
 SECTIONS: "list[tuple[str, str, list[tuple[str, str, str]]]]" = [
     ("AWS regions", "Aws", [
         ("eu-west-1", "IRL", "Ireland"),
@@ -45,7 +46,6 @@ SECTIONS: "list[tuple[str, str, list[tuple[str, str, str]]]]" = [
         ("eu-south-1", "ITA", "Milan (Italy)"),
         ("ap-southeast-2", "AUS", "Sydney"),
         ("ap-south-1", "IND", "Mumbai"),
-        ("sa-east-1", "BRA", "Sao Paulo"),
     ]),
     ("GCP regions", "Gcp", [
         ("europe-west1", "BEL", "Belgium"),
@@ -68,7 +68,7 @@ SECTIONS: "list[tuple[str, str, list[tuple[str, str, str]]]]" = [
         ("fr", "FRA", ""), ("de", "DEU", ""), ("gb", "GBR", ""),
         ("uk", "GBR", ""), ("us", "USA", ""), ("ie", "IRL", ""),
         ("se", "SWE", ""), ("no", "NOR", ""), ("jp", "JPN", ""),
-        ("in", "IND", ""), ("au", "AUS", ""), ("br", "BRA", ""),
+        ("in", "IND", ""), ("au", "AUS", ""),
         ("sg", "SGP", ""), ("nl", "NLD", ""), ("be", "BEL", ""),
         ("fi", "FIN", ""), ("it", "ITA", ""), ("es", "ESP", ""),
         ("pl", "POL", ""),
@@ -80,8 +80,9 @@ HEADER = """\
 // Regenerate with: python3 scripts/refresh-carbon-data.py
 //
 // Carbon intensity rows (region_key, gCO2eq/kWh, provider) for regions
-// on effectively national grids. Keys are lowercase. Subnational North
-// American regions live in `MANUAL_CARBON_ROWS` (carbon.rs).
+// on effectively national grids. Keys are lowercase. Subnational rows
+// (North America, Brazil BR-CS) live in `MANUAL_CARBON_ROWS`
+// (carbon.rs).
 //
 // Source: Ember yearly electricity data (CC-BY-4.0), generation-based
 // annual gCO2/kWh, national granularity, latest year per country.
@@ -101,7 +102,7 @@ pub(super) static GENERATED_CARBON_ROWS: &[(&str, f64, Provider)] = &[
 def fetch_ember(source: str) -> "dict[str, tuple[float, int]]":
     """Latest CO2 intensity (gCO2/kWh) and its year, keyed by ISO3."""
     if source.startswith(("http://", "https://")):
-        stream = io.TextIOWrapper(urllib.request.urlopen(source), encoding="utf-8")
+        stream = io.TextIOWrapper(urllib.request.urlopen(source, timeout=120), encoding="utf-8")
     else:
         stream = open(source, encoding="utf-8", newline="")
     out: "dict[str, tuple[float, int]]" = {}
@@ -117,6 +118,11 @@ def fetch_ember(source: str) -> "dict[str, tuple[float, int]]":
                 out[iso3] = (float(value), year)
     if not out:
         raise ValueError("no 'CO2 intensity' rows found, Ember format changed?")
+    # No real grid sits outside (0, 2000] gCO2/kWh. A corrupt upstream
+    # value must fail the run, not ship silently.
+    for iso3, (value, year) in out.items():
+        if value <= 0.0 or value > 2000.0:
+            raise ValueError(f"implausible intensity {value} for {iso3} ({year})")
     return out
 
 

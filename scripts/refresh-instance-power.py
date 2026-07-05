@@ -19,6 +19,7 @@ parse failure. Run twice: the second run must be a no-op.
 import csv
 import io
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -150,11 +151,14 @@ PROVIDER_BANNERS = {
 }
 
 # Architectures whose appearance in a fresh CSV means a manual row in
-# table.rs is now covered upstream and should be dropped there.
+# table.rs (or a cross-provider proxy in FAMILIES, like c4a) is now
+# covered upstream and should be dropped or re-pointed.
 WATCHLIST = [
     ("gcp", "EPYC 5th Gen", "c4d rows (GCP Turin)"),
     ("gcp", "Altra", "t2a rows (Ampere Altra)"),
     ("gcp", "Ampere", "t2a rows (Ampere Altra)"),
+    ("gcp", "Axion", "c4a proxy (currently AWS Graviton4)"),
+    ("gcp", "Neoverse", "c4a proxy (currently AWS Graviton4)"),
     ("azure", "Emerald Rapids", "Standard_D*_v6 / Standard_E*_v6 rows"),
     ("azure", "EPYC 4th Gen", "Standard_Dads_v6 rows"),
     ("azure", "Cobalt", "Standard_Dps_v6 rows (Cobalt 100)"),
@@ -183,24 +187,39 @@ pub(super) static GENERATED_INSTANCE_ROWS: &[(&str, f64, f64)] = &[
 """
 
 
+def request(url: str) -> urllib.request.Request:
+    headers = {"User-Agent": "perf-sentinel-refresh"}
+    # Unauthenticated api.github.com calls from CI runner IPs hit the
+    # shared 60/hr rate limit; use the workflow token when present.
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
 def http_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "perf-sentinel-refresh"})
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(request(url), timeout=60) as resp:
         return json.load(resp)
 
 
 def fetch_ccf(ref: str) -> "tuple[dict[tuple[str, str], tuple[float, float]], str, str]":
-    commit = http_json(f"https://api.github.com/repos/{CCF_REPO}/commits/{ref}")
-    sha = commit["sha"][:12]
-    date = commit["commit"]["committer"]["date"][:10]
+    # Resolve the last commit touching the coefficient CSVs, not the
+    # repo HEAD: unrelated upstream commits (README, CI) must not bump
+    # the vintage or dirty the generated file.
+    commits = http_json(
+        f"https://api.github.com/repos/{CCF_REPO}/commits?sha={ref}&path=output&per_page=1"
+    )
+    if not commits:
+        raise ValueError(f"no commit touching output/ found at ref {ref}")
+    sha = commits[0]["sha"][:12]
+    date = commits[0]["commit"]["committer"]["date"][:10]
     coefficients: "dict[tuple[str, str], tuple[float, float]]" = {}
     for provider in ("aws", "gcp", "azure"):
         url = (
             f"https://raw.githubusercontent.com/{CCF_REPO}/{sha}"
             f"/output/coefficients-{provider}-use.csv"
         )
-        req = urllib.request.Request(url, headers={"User-Agent": "perf-sentinel-refresh"})
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(request(url), timeout=60) as resp:
             text = io.TextIOWrapper(resp, encoding="utf-8")
             for row in csv.DictReader(text):
                 key = (provider, row["Architecture"])
