@@ -13,7 +13,8 @@ Usage:
 git-ref defaults to main. Pass a commit SHA for a reproducible run.
 Prints changed rows on stdout and warnings on stderr. Exits 0 even when
 values changed (the CI workflow decides via git diff), 1 on download or
-parse failure. Run twice: the second run must be a no-op.
+parse failure. Run `cargo fmt -p perf-sentinel-core` afterwards (the CI
+workflow does it). Run twice: the second run plus fmt must be a no-op.
 """
 
 import csv

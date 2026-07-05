@@ -135,7 +135,7 @@ Keep the message to the subject line: no body, no `Co-Authored-By` or other trai
 
 ### Generated data files
 
-- `score/carbon_data.rs` and `score/cloud_energy/table_data.rs` carry a `GENERATED FILE` header: never edit them by hand. Regenerate with `python3 scripts/refresh-carbon-data.py` and `python3 scripts/refresh-instance-power.py` (stdlib only, no pip install). The semiannual `refresh-datasets` workflow runs both and opens a PR when upstream data moved.
+- `score/carbon_data.rs` and `score/cloud_energy/table_data.rs` carry a `GENERATED FILE` header: never edit them by hand. Regenerate with `python3 scripts/refresh-carbon-data.py` and `python3 scripts/refresh-instance-power.py` (stdlib only, no pip install), then run `cargo fmt -p perf-sentinel-core`. The semiannual `refresh-datasets` workflow runs all of it and opens a PR when upstream data moved.
 - The curated companions (`carbon.rs` `MANUAL_CARBON_ROWS`, `table.rs` `MANUAL_INSTANCE_ROWS`) stay hand-maintained. `refresh-instance-power.py` warns when a CCF snapshot starts covering a manual family; the manual carbon rows are subnational grids that the national-only Ember source can never cover.
 
 ### Prometheus metrics
