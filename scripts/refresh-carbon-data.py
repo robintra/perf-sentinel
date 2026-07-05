@@ -118,11 +118,6 @@ def fetch_ember(source: str) -> "dict[str, tuple[float, int]]":
                 out[iso3] = (float(value), year)
     if not out:
         raise ValueError("no 'CO2 intensity' rows found, Ember format changed?")
-    # No real grid sits outside (0, 2000] gCO2/kWh. A corrupt upstream
-    # value must fail the run, not ship silently.
-    for iso3, (value, year) in out.items():
-        if value <= 0.0 or value > 2000.0:
-            raise ValueError(f"implausible intensity {value} for {iso3} ({year})")
     return out
 
 
@@ -142,6 +137,10 @@ def render(intensities: "dict[str, tuple[float, int]]") -> str:
             if iso3 not in intensities:
                 raise ValueError(f"{iso3} (for {key}) missing from Ember data")
             value, year = intensities[iso3]
+            # No grid we embed sits outside (0, 2000] gCO2/kWh. A
+            # corrupt upstream value must fail the run, not ship.
+            if value <= 0.0 or value > 2000.0:
+                raise ValueError(f"implausible intensity {value} for {iso3} ({key}, {year})")
             years.append(year)
             suffix = f" // {comment}" if comment else ""
             lines.append(f'    ("{key}", {round(value, 1)}, Provider::{provider}),{suffix}')
