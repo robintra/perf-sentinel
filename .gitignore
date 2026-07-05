@@ -26,3 +26,7 @@
 /.playwright-mcp/
 # Qodana local-run artifact
 /qodana.sarif.json
+
+# Python bytecode (scripts/ tooling)
+__pycache__/
+*.pyc
