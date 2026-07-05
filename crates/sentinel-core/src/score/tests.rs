@@ -1538,10 +1538,12 @@ fn de_flat_annual_numerical_regression() {
     );
     // Per-region breakdown row should report the annual intensity
     // directly (not a time-weighted mean) because hourly is disabled.
+    // 1e-9 tolerance: the row value round-trips through f64 arithmetic
+    // and most annuals are not exactly representable.
     assert_eq!(summary.regions.len(), 1);
     assert_eq!(summary.regions[0].region, "eu-central-1");
     assert_eq!(summary.regions[0].intensity_source, IntensitySource::Annual);
-    assert!((summary.regions[0].grid_intensity_gco2_kwh - intensity).abs() < f64::EPSILON);
+    assert!((summary.regions[0].grid_intensity_gco2_kwh - intensity).abs() < 1e-9);
 }
 
 #[test]
