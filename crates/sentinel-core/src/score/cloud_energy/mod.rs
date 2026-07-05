@@ -8,6 +8,8 @@ pub mod scraper;
 #[cfg(feature = "daemon")]
 pub mod state;
 pub mod table;
+// Generated rows (scripts/refresh-instance-power.py), logic stays in `table`.
+mod table_data;
 
 pub use config::CloudEnergyConfig;
 #[cfg(feature = "daemon")]

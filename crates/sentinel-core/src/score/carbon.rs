@@ -490,7 +490,7 @@ pub(crate) fn is_valid_region_id(s: &str) -> bool {
 
 /// Cloud provider identifier for PUE lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Provider {
+pub(super) enum Provider {
     Aws,
     Gcp,
     Azure,
@@ -509,94 +509,42 @@ impl Provider {
     }
 }
 
-/// Static carbon intensity table: (`region_key`, gCO₂eq/kWh, provider).
+/// Hand-refreshed rows: North American regions on subnational grids.
+/// The refresh source (Ember) is national-only and these grids diverge
+/// beyond the 2x uncertainty bracket (us-west-2 = 89, hydro Oregon, vs
+/// ~370 US national). Values: CCF and Electricity Maps 2023-2024
+/// consumption-based averages. The `ca` rows carry a hydro-dominant
+/// zone value, far below the national average, matched by the hourly
+/// profile. Nationally-gridded rows live in `carbon_data.rs`.
 ///
-/// Region keys are lowercase for case-insensitive matching.
-/// Intensity values come from Cloud Carbon Footprint (CCF) and
-/// Electricity Maps (2023-2024 annual averages, consumption-based
-/// with imports). PUE values are sourced from each provider's most
-/// recent sustainability report (AWS 2024 global, GCP 2024 fleet
-/// annual average, Azure FY25 owned-and-controlled), refreshed in the
-/// 2026 cycle.
-///
-/// Methodology note on Paris (eu-west-3, ~41 g): tracks Electricity
-/// Maps consumption-based-with-imports (mean of 2023 = 49 and
-/// 2024 = 33) rather than RTE's lower production-based figure,
-/// keeping the table internally consistent with the other European
-/// regions.
-///
-/// Vintage note: refreshed rows use the EM 2023-2024 mean. The
-/// eu-central-1/de row keeps its multi-source 338 (EM 2024 = 341
-/// corroborates it; the hourly profile is normalized to that level).
-/// The `br` country alias carries the BR-CS (Central-South) zone
-/// value, the zone containing Sao Paulo, not a national average.
-static CARBON_TABLE: &[(&str, f64, Provider)] = &[
+/// PUE values come from each provider's latest sustainability report
+/// (AWS 2024 global, GCP 2024 fleet, Azure FY25), 2026 refresh cycle.
+static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),
     ("us-east-2", 410.0, Provider::Aws),
     ("us-west-1", 200.0, Provider::Aws),
     ("us-west-2", 89.0, Provider::Aws),
-    ("eu-west-1", 296.0, Provider::Aws),      // Ireland
-    ("eu-west-2", 231.0, Provider::Aws),      // London
-    ("eu-west-3", 41.0, Provider::Aws),       // Paris
-    ("eu-central-1", 338.0, Provider::Aws),   // Frankfurt
-    ("eu-north-1", 8.0, Provider::Aws),       // Stockholm
-    ("ap-northeast-1", 462.0, Provider::Aws), // Tokyo
-    ("ap-southeast-1", 408.0, Provider::Aws), // Singapore
-    ("eu-west-4", 328.0, Provider::Aws),      // Netherlands (canonical hourly key)
-    ("eu-south-1", 370.0, Provider::Aws),     // Milan (Italy)
-    ("ap-southeast-2", 550.0, Provider::Aws), // Sydney
-    ("ap-south-1", 708.0, Provider::Aws),     // Mumbai
-    ("ca-central-1", 13.0, Provider::Aws),    // Canada
-    ("sa-east-1", 96.0, Provider::Aws),       // São Paulo
+    ("ca-central-1", 13.0, Provider::Aws), // Canada (hydro-dominant zone)
     // GCP regions
     ("us-central1", 426.0, Provider::Gcp),
     ("us-east1", 379.0, Provider::Gcp),
     ("us-west1", 89.0, Provider::Gcp),
-    ("europe-west1", 165.0, Provider::Gcp),      // Belgium
-    ("europe-west4", 328.0, Provider::Gcp),      // Netherlands
-    ("europe-west9", 41.0, Provider::Gcp),       // Paris
-    ("europe-north1", 8.0, Provider::Gcp),       // Finland
-    ("europe-west8", 370.0, Provider::Gcp),      // Milan (Italy)
-    ("europe-southwest1", 200.0, Provider::Gcp), // Madrid (Spain)
-    ("europe-central2", 700.0, Provider::Gcp),   // Warsaw (Poland)
-    ("europe-north2", 7.0, Provider::Gcp),       // Oslo-ish (Norway)
-    ("asia-northeast1", 462.0, Provider::Gcp),   // Tokyo
     // Azure regions
     ("eastus", 379.0, Provider::Azure),
     ("westus2", 89.0, Provider::Azure),
-    ("westeurope", 328.0, Provider::Azure),  // Netherlands
-    ("northeurope", 296.0, Provider::Azure), // Ireland
-    ("francecentral", 41.0, Provider::Azure),
-    ("uksouth", 231.0, Provider::Azure),
     // Country / ISO codes (generic PUE)
-    ("fr", 41.0, Provider::Generic),
-    ("de", 338.0, Provider::Generic),
-    ("gb", 231.0, Provider::Generic),
-    ("uk", 231.0, Provider::Generic),
-    ("us", 379.0, Provider::Generic),
-    ("ie", 296.0, Provider::Generic),
-    ("se", 8.0, Provider::Generic),
-    ("no", 7.0, Provider::Generic),
     ("ca", 13.0, Provider::Generic),
-    ("jp", 462.0, Provider::Generic),
-    ("in", 708.0, Provider::Generic),
-    ("au", 550.0, Provider::Generic),
-    ("br", 96.0, Provider::Generic),
-    ("sg", 408.0, Provider::Generic),
-    ("nl", 328.0, Provider::Generic),
-    ("be", 165.0, Provider::Generic),
-    ("fi", 8.0, Provider::Generic),
-    ("it", 370.0, Provider::Generic),
-    ("es", 200.0, Provider::Generic),
-    ("pl", 700.0, Provider::Generic),
 ];
 
 /// Pre-built map for O(1) region lookup (keys are lowercase).
+/// Chains the generated rows (`carbon_data.rs`) with the manual rows
+/// above; keys are disjoint by construction.
 static REGION_MAP: std::sync::LazyLock<HashMap<&'static str, (f64, Provider)>> =
     std::sync::LazyLock::new(|| {
-        CARBON_TABLE
+        super::carbon_data::GENERATED_CARBON_ROWS
             .iter()
+            .chain(MANUAL_CARBON_ROWS)
             .map(|&(key, intensity, provider)| (key, (intensity, provider)))
             .collect()
     });
@@ -1204,7 +1152,7 @@ mod tests {
             let vals: &[f64; 24] = profile;
             let mean: f64 = vals.iter().sum::<f64>() / 24.0;
             let (annual, _) = lookup_region_lower(key).unwrap_or_else(|| {
-                panic!("{key} is a canonical profile key but is missing from CARBON_TABLE")
+                panic!("{key} is a canonical profile key but is missing from the carbon intensity table")
             });
             let deviation = (mean - annual).abs() / annual;
             assert!(
@@ -1220,7 +1168,9 @@ mod tests {
             let total: f64 = months.iter().flat_map(|m| m.iter()).sum();
             let mean = total / (12.0 * 24.0);
             let (annual, _) = lookup_region_lower(key).unwrap_or_else(|| {
-                panic!("{key} is a canonical monthly profile key but is missing from CARBON_TABLE")
+                panic!(
+                    "{key} is a canonical monthly profile key but is missing from the carbon intensity table"
+                )
             });
             let deviation = (mean - annual).abs() / annual;
             assert!(

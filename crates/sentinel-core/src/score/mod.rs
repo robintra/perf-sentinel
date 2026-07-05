@@ -1,6 +1,8 @@
 //! Scoring stage: computes `GreenOps` I/O intensity scores.
 
 pub mod carbon;
+// Generated rows (scripts/refresh-carbon-data.py), logic stays in `carbon`.
+mod carbon_data;
 pub(crate) mod carbon_profiles;
 pub mod cloud_energy;
 pub mod electricity_maps;
