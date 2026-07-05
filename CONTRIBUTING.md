@@ -133,6 +133,11 @@ Keep the message to the subject line: no body, no `Co-Authored-By` or other trai
 - Do **not** vendor `.proto` files, use the `opentelemetry-proto` crate.
 - Do **not** make outbound network calls, all data (including carbon intensity tables) must be embedded.
 
+### Generated data files
+
+- `score/carbon_data.rs` and `score/cloud_energy/table_data.rs` carry a `GENERATED FILE` header: never edit them by hand. Regenerate with `python3 scripts/refresh-carbon-data.py` and `python3 scripts/refresh-instance-power.py` (stdlib only, no pip install). The semiannual `refresh-datasets` workflow runs both and opens a PR when upstream data moved.
+- The curated companions (`carbon.rs` `MANUAL_CARBON_ROWS`, `table.rs` `MANUAL_INSTANCE_ROWS`) stay hand-maintained. The scripts warn when upstream starts covering a manual row.
+
 ### Prometheus metrics
 
 - Label values must always come from a **bounded, compile-time-known set** (enum variants, not user-controlled strings). This prevents label cardinality explosions that could crash the metrics endpoint.

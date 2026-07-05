@@ -52,13 +52,14 @@ Les deux invocations de clippy couvrent l'ensemble des features par défaut et l
 
 ### 2.5 Fraîcheur des données de référence GreenOps
 
-C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` en step 2). Les tests garantissent la correction, pas la fraîcheur. Avant de taguer, confirmer les millésimes déclarés dans :
+C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` en step 2). Les tests garantissent la correction, pas la fraîcheur. Le workflow `refresh-datasets` régénère les deux tables scriptées deux fois par an (ou via `workflow_dispatch`) et ouvre une PR. Cette étape vérifie que ces PR ont été fusionnées assez récemment. Avant de taguer, confirmer les millésimes déclarés dans :
 
-- `crates/sentinel-core/src/score/cloud_energy/table.rs` : deux constantes `_VINTAGE` coexistent dans ce fichier après le refresh CCF du 2026-04-24, toutes deux pointant vers le même snapshot `ccf-coefficients` 2026-04-24. `CCF_LEGACY_VINTAGE` suit les coefficients par architecture importés de `coefficients-{aws,gcp,azure}-use.csv`. `SPECPOWER_VINTAGE` suit les entrées modernes conservées sur leur calcul `SPECpower_ssj 2008` direct (dans les 5 pour cent de CCF ou absentes du CSV du fournisseur). Bumper `CCF_LEGACY_VINTAGE` quand le repo CCF publie un nouveau snapshot daté. Bumper `SPECPOWER_VINTAGE` quand la fenêtre trimestrielle SPECpower est étendue ou que plus de 50 pour cent des entrées modernes sont ré-alignées sur un nouveau snapshot CCF.
-- `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
-- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, générique), rafraîchies quand un fournisseur publie un nouveau rapport sustainability. Millésime exposé via `PUE_VINTAGE`.
+- `crates/sentinel-core/src/score/cloud_energy/table_data.rs` : `SPECPOWER_VINTAGE`, estampillé avec la date du snapshot `ccf-coefficients` par `scripts/refresh-instance-power.py`. Les lignes manuelles (familles absentes des CSV CCF) restent dans `table.rs`, à côté de `CCF_LEGACY_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon_data.rs` : `CARBON_TABLE_VINTAGE` (`ember-<dernière année de données>`), estampillé par `scripts/refresh-carbon-data.py`. Les lignes nord-américaines subnationales restent manuelles dans `carbon.rs`.
+- `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement et renormalisés à la main quand un refresh scripté déplace une valeur annuelle au-delà de 5 pour cent. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, générique), rafraîchies quand un fournisseur publie un nouveau rapport de durabilité. Millésime exposé via `PUE_VINTAGE`.
 
-Afficher les trois millésimes en une commande :
+Afficher tous les millésimes en une commande :
 
 ```bash
 grep -rn 'VINTAGE' crates/sentinel-core/src/score/
