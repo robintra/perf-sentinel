@@ -487,6 +487,8 @@ fn spawn_http_listener(
 /// platforms logs a warning and returns `None`.
 // `#[cfg(not(unix))]` branch returns `None`, so the `Option` is required.
 #[allow(clippy::unnecessary_wraps)]
+// `over_memory` is moved into the spawned task on unix only.
+#[cfg_attr(not(unix), allow(clippy::needless_pass_by_value))]
 fn spawn_json_socket_listener(
     config: &Config,
     tx: mpsc::Sender<Vec<SpanEvent>>,
