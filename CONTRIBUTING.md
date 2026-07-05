@@ -4,7 +4,7 @@ Thank you for your interest in contributing to perf-sentinel! This document cove
 
 ## Prerequisites
 
-- **Rust 1.96.0+** stable toolchain (edition 2024)
+- **Rust** stable toolchain pinned in `rust-toolchain.toml` (currently 1.96.1, edition 2024)
 - **cargo** (comes with Rust)
 - Optional: `cargo-llvm-cov` for code coverage
 
@@ -28,6 +28,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
+### Windows notes
+
+`.cargo/config.toml` injects `/STACK:8388608` on windows-msvc because the debug `#[tokio::main]` future overflows the default 1 MiB stack. Leave it in place. Some tests and example binaries have known, pre-existing failures on Windows unrelated to any given change. `cargo check --workspace` is the fast correctness signal there.
+
 ### Git hooks
 
 The pre-commit hook runs two checks: gitleaks on staged content for secrets, and `cargo clippy --workspace --features daemon -- -D warnings` when at least one staged file is a `*.rs`. Install once after cloning:
@@ -50,7 +54,7 @@ The clippy check on a Rust-touching commit costs ~5s on a warm cache for modern 
 
 If you have set `core.hooksPath` globally to a custom directory (some `dotfiles` setups do), `install-hooks.sh` aborts with instructions. Either unset it for this repo (`git config --local --unset core.hooksPath`) or chain the invocation from `scripts/hooks/pre-commit` into your existing global hook.
 
-CI also runs gitleaks and clippy on every push (`.github/workflows/ci.yml`), the local hook only catches issues earlier. SonarCloud cloud scan handles cognitive-complexity at threshold 15 on every PR, the local clippy gate is at threshold 60 by design (see `clippy.toml` for the rationale).
+CI also runs gitleaks and clippy on every push (`.github/workflows/ci.yml`), the local hook only catches issues earlier. SonarCloud cloud scan handles cognitive-complexity at threshold 15 on every PR and its quality gate blocks the pipeline (`sonar.qualitygate.wait=true`), the local clippy gate is at threshold 60 by design (see `clippy.toml` for the rationale).
 
 ## Code coverage
 
@@ -115,6 +119,8 @@ test: add e2e test for redundant SQL detection
 refactor: extract normalization into separate module
 ```
 
+Keep the message to the subject line: no body, no `Co-Authored-By` or other trailers.
+
 ### Architecture
 
 - **Pipeline stages, not hexagonal architecture.** Each stage is a pure function that takes data and returns data.
@@ -147,17 +153,19 @@ Integration tests live in:
 
 - `crates/sentinel-core/tests/e2e.rs`: tests the full pipeline with JSON fixtures
 - `crates/sentinel-cli/tests/e2e/`: tests the CLI binary behavior (one test target: `helpers.rs` plus one module per subcommand topic)
+- `crates/sentinel-cli/tests/`: three additional flat targets, `cli_ack.rs`, `hash_bake_e2e.rs` and `verify_hash_e2e.rs`
 
 ### Fixtures
 
 Test fixtures live in `tests/fixtures/`. Group by purpose:
 
 - **Per-detector**: `n_plus_one_sql.json`, `n_plus_one_http.json`, `slow_queries.json`, `fanout.json`, `mixed.json`, `clean_traces.json`.
-- **Polyglot N+1 SQL** (one per ORM, used by the language-aware `SuggestedFix` tests): `n_plus_one_sql_java_jpa.json`, `n_plus_one_sql_java_quarkus.json`, `n_plus_one_sql_csharp_ef_core.json`, `n_plus_one_sql_rust_diesel.json`.
-- **End-to-end demo**: `demo.json` (10 findings across all detectors, drives `tapes/demo.tape`), `report_realistic.json` (5 findings, drives `crates/sentinel-cli/tests/browser/` Playwright stills), `report_minimal.json`, `report_three_estimation_states.json`, `report_with_correlations.json`.
-- **External formats**: `jaeger_export.json`, `zipkin_export.json` (auto-detected by `analyze --input`).
+- **Polyglot N+1 SQL** (one per ORM, used by the language-aware `SuggestedFix` tests): `n_plus_one_sql_java_jpa.json`, `n_plus_one_sql_java_quarkus.json`, `n_plus_one_sql_java_mutiny_reactive.json`, `n_plus_one_sql_csharp_ef_core.json`, `n_plus_one_sql_rust_diesel.json`, `n_plus_one_sql_php_laravel.json`.
+- **End-to-end demo**: `demo.json` (10 findings across all detectors, drives `tapes/demo.tape`), `report_realistic.json` (5 findings, drives `crates/sentinel-cli/tests/browser/` Playwright stills), `report_minimal.json`, `report_three_estimation_states.json`.
+- **External formats**: `jaeger_export.json`, `zipkin_export.json`, `otlp_export.json`, `otlp_export.ndjson` (all auto-detected by `analyze --input`).
 - **Diff baseline**: `baseline_report.json` (consumed by `analyze --before`).
 - **`pg_stat`**: `pg_stat_statements.csv`, `pg_stat_statements.json`.
+- **`mysql_stat`**: `mysql_perf_schema.csv`, `mysql_perf_schema.json` (consumed by `perf-sentinel mysql-stat`).
 - **Carbon calibration**: `demo-energy.csv` (consumed by `perf-sentinel calibrate`).
 
 The CLI `demo` subcommand bundles its own dataset, embedded at `crates/sentinel-cli/src/demo_data.json`.
@@ -168,7 +176,7 @@ Some changes require regenerating committed image assets so the README, the docs
 
 ### Terminal and TUI (VHS)
 
-Terminal-side GIFs and PNGs under `docs/img/{analyze,inspect,explain,calibrate,pg-stat,ack,...}/` are generated by [VHS](https://github.com/charmbracelet/vhs) tapes living in `tapes/*.tape`. Each tape carries a header comment explaining what it captures, the source fixture, and the ffmpeg post-processing (if any). Install once:
+Terminal-side GIFs and PNGs under `docs/img/{analyze,inspect,explain,calibrate,disclose,monitor,pg-stat,ack,...}/` are generated by [VHS](https://github.com/charmbracelet/vhs) tapes living in `tapes/*.tape`. Each tape carries a header comment explaining what it captures, the source fixture, and the ffmpeg post-processing (if any). Install once (macOS shown, see the [VHS install docs](https://github.com/charmbracelet/vhs#installation) for other platforms):
 
 ```bash
 brew install vhs ffmpeg
@@ -186,7 +194,7 @@ python3 scripts/trim-bottom-png.py docs/img/<dir>/*.png  # crop empty bottoms
 Regenerate the relevant tape(s) when you change:
 - The colored CLI output of any subcommand (`render.rs`, `score/`, `quality_gate.rs`, `acknowledgments.rs`).
 - The TUI layout, key bindings, or panel rendering (`tui/`).
-- The `inspect`, `explain`, `calibrate` or `pg-stat` subcommands' user-facing surface.
+- The `inspect`, `explain`, `calibrate`, `disclose`, `pg-stat` or `query monitor` subcommands' user-facing surface.
 
 ### HTML dashboard (Playwright)
 
@@ -203,7 +211,7 @@ The fixture `dashboard-demo.html` is regenerated by `global-setup.ts`, which als
 - The dashboard JS bundle, CSS, or per-tab layout.
 - The set of tabs or the live-mode endpoints (`/api/status`, `/api/acks`, `/api/findings/{sig}/ack`).
 
-When changing the underlying fixture (`tests/fixtures/report_realistic.json`), the Playwright stills update on the next `npm run demo` run, but check `tour.spec.ts` and `stills.spec.ts` for selectors that depend on specific finding signatures (e.g. the mock acks in `global-setup.ts` are pinned to real signatures).
+When changing the underlying fixture (`tests/fixtures/report_realistic.json`), the Playwright stills update on the next `npm run demo` run, but check `demo/tour.spec.ts` and `demo/stills.spec.ts` for selectors that depend on specific finding signatures (e.g. the mock acks in `global-setup.ts` are pinned to real signatures). The regression suite itself lives in `tests/dashboard.spec.ts`.
 
 ### Architecture diagrams
 
@@ -258,9 +266,10 @@ git push origin v0.5.4
 The same check runs as the first job of the release workflow (`check-versions`). If the tag and any `Cargo.toml` in the workspace disagree, the workflow aborts before any artifact is built or published, saving you from deleting a broken release post-hoc.
 
 Bump targets beyond `Cargo.toml`:
-- `PERF_SENTINEL_VERSION` in the three CI templates under `docs/ci-templates/` and their referenced examples in `docs/CI.md` and `docs/FR/CI-FR.md`.
-- `CHANGELOG.md`: move the `[Unreleased]` section content under a new `[x.y.z]` header.
+- `PERF_SENTINEL_VERSION` in the CI templates under `docs/ci-templates/` and their referenced examples in `docs/CI.md` and `docs/FR/CI-FR.md`.
+- `CHANGELOG.md`: add a new `[x.y.z]` section at the top.
 - `CLAUDE.md`: update the "Version" status line after the tag is pushed.
+- `charts/perf-sentinel/Chart.yaml`: bump `version` and `appVersion` in lockstep. The chart itself is published by a separate `chart-v*` tag (`.github/workflows/helm-release.yml`, guarded by `scripts/check-helm-tag-version.sh`).
 - Intra-workspace dependency pins: any `[dependencies]` block that pins a sibling workspace crate by literal version (e.g. `perf-sentinel-core = { version = "0.5.24", path = "../sentinel-core" }` in `crates/sentinel-cli/Cargo.toml`) must be bumped in lockstep. `scripts/check-tag-version.sh` validates these pins and aborts the release on mismatch. List them with:
 
   ```bash

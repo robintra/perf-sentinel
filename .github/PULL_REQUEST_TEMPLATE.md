@@ -23,7 +23,7 @@ Documentation and assets:
 
 - [ ] Public-facing docs updated (`README.md`, `README-FR.md`, relevant files under `docs/` and `docs/FR/`)
 - [ ] Captures regenerated when CLI output, TUI, or HTML dashboard changed (`vhs tapes/<x>.tape`, `npm run demo` in `crates/sentinel-cli/tests/browser/`, see [CONTRIBUTING.md / Documentation assets](../CONTRIBUTING.md#documentation-assets))
-- [ ] `CHANGELOG.md` entry added under `[Unreleased]`
+- [ ] `CHANGELOG.md` entry added under the upcoming version section
 
 Versioning (release PRs only):
 
