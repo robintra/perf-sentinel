@@ -25,6 +25,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # gh workflow run (CI dispatch on the PR branch) needs this.
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -70,7 +72,9 @@ jobs:
       - name: Open the refresh PR
         if: steps.changes.outputs.changed == 'true'
         run: |
-          branch="refresh/datasets-$(date +%Y%m%d)"
+          # Run id makes same-day reruns collision-free (a closed PR
+          # leaves its branch behind and a plain push would reject).
+          branch="refresh/datasets-$(date +%Y%m%d)-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
