@@ -429,13 +429,15 @@ fn per_service_carbon_respects_service_region() {
         .get("svc-high")
         .copied()
         .expect("svc-high");
-    // True ratio ~22.3x: pl is 700 g/kWh with Generic PUE 1.5 (1050),
-    // eu-west-3 is 41 g/kWh with AWS PUE 1.15 (~47.2). A buggy
-    // "average across regions" path would give ~6x. Future intensity
-    // or PUE table refreshes that drift the ratio will surface here.
+    // The ratio must match intensity × PUE per region (~22x today).
+    // A buggy "average across regions" path would give ~6x. Value
+    // drift is reviewed on dataset refresh PRs, not pinned here.
+    let (low_i, low_pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let (high_i, high_pue) = carbon::lookup_region("pl").expect("pl");
+    let expected_ratio = (high_i * high_pue) / (low_i * low_pue);
     assert!(
-        high > low * 22.0 && high < low * 22.6,
-        "svc-high (pl) {high} vs svc-low (eu-west-3) {low}: ratio out of [22.0x, 22.6x]"
+        (high / low - expected_ratio).abs() < expected_ratio * 0.01,
+        "svc-high (pl) {high} vs svc-low (eu-west-3) {low}: expected ratio ~{expected_ratio}"
     );
     assert_eq!(
         summary.per_service_region.get("svc-low").unwrap(),
@@ -853,8 +855,9 @@ fn co2_includes_embodied_term() {
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
-    // Operational: 6 ops × 1e-7 kWh × 41 × 1.15 = 2.829e-5 g
-    let expected_op = 6.0 * 0.000_000_1 * 41.0 * 1.15;
+    // Operational: 6 ops × 1e-7 kWh × intensity × PUE (eu-west-3).
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let expected_op = 6.0 * ENERGY_PER_IO_OP_KWH * intensity * pue;
     assert!((co2.operational_gco2 - expected_op).abs() < 1e-12);
     // Embodied: 1 trace × 0.001 = 0.001
     assert!((co2.embodied_gco2 - 0.001).abs() < f64::EPSILON);
@@ -918,10 +921,8 @@ fn avoidable_excludes_embodied() {
 #[test]
 fn multi_region_bucketing_distinct_per_region() {
     // 3 spans in eu-west-3 + 2 spans in us-east-1 = 2 region buckets.
-    // Regions are sorted by co2_gco2 DESC:
-    // us-east-1 (2 ops × 379 × 1.15 × 1e-7 ≈ 8.7e-5)
-    //  vs eu-west-3 (3 ops × 56 × 1.15 × 1e-7 ≈ 1.9e-5)
-    // → us-east-1 appears first despite having fewer ops.
+    // Regions are sorted by co2_gco2 DESC: us-east-1 has a much higher
+    // intensity, so it appears first despite having fewer ops.
     let trace_eu = make_trace_with_region("t1", "eu-west-3", 3);
     let trace_us = make_trace_with_region("t2", "us-east-1", 2);
     let ctx = ctx_with_region("eu-west-3");
@@ -1507,20 +1508,11 @@ fn hourly_profile_fallback_to_annual_for_region_without_profile() {
 #[test]
 fn de_flat_annual_numerical_regression() {
     // Regression guard for eu-central-1 (Germany): the hourly
-    // profile (grand mean ~341 g/kWh) and the flat annual value
-    // (338) are intentionally close but not equal, so a future
-    // edit that accidentally couples the flat path to hourly data
-    // would produce wrong numbers here. Pin the flat-annual model
-    // explicitly and assert the closed-form formula.
-    //
-    // Formula: 6 ops × ENERGY_PER_IO_OP_KWH × 338 × 1.15
-    //        = 6 × 1e-7 × 338 × 1.15
-    //        = 2.3322e-4
-    //
-    // NOTE: if CARBON_TABLE[eu-central-1] is ever recalibrated, this
-    // test will fail loudly, that's the point. Update both the
-    // constant here and the hourly profile invariant comment in
-    // carbon.rs at the same time.
+    // profile grand mean and the flat annual value are intentionally
+    // close but not equal, so a future edit that accidentally couples
+    // the flat path to hourly data would produce wrong numbers here.
+    // Pin the flat-annual model and assert the closed-form formula,
+    // with expected values derived from the table.
     let trace = make_trace_at_hour("t_de", "eu-central-1", 12, 6);
     let ctx = CarbonContext {
         default_region: None,
@@ -1536,8 +1528,9 @@ fn de_flat_annual_numerical_regression() {
     // Model tag must stay v1 when hourly is disabled, even for a
     // region that has a hourly profile.
     assert_eq!(co2.total.model, "io_proxy_v1");
-    // Exact CO₂ from the flat annual intensity (338) and AWS PUE (1.15).
-    let expected = 6.0 * 1e-7 * 338.0 * 1.15;
+    // Exact CO₂ from the flat annual intensity and PUE of eu-central-1.
+    let (intensity, pue) = carbon::lookup_region("eu-central-1").expect("eu-central-1");
+    let expected = 6.0 * ENERGY_PER_IO_OP_KWH * intensity * pue;
     assert!(
         (co2.operational_gco2 - expected).abs() < 1e-12,
         "DE flat-annual math drifted: expected {expected}, got {}",
@@ -1548,7 +1541,7 @@ fn de_flat_annual_numerical_regression() {
     assert_eq!(summary.regions.len(), 1);
     assert_eq!(summary.regions[0].region, "eu-central-1");
     assert_eq!(summary.regions[0].intensity_source, IntensitySource::Annual);
-    assert!((summary.regions[0].grid_intensity_gco2_kwh - 338.0).abs() < f64::EPSILON);
+    assert!((summary.regions[0].grid_intensity_gco2_kwh - intensity).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -1752,8 +1745,9 @@ fn scaphandre_snapshot_flips_model_and_replaces_coefficient() {
     let co2 = summary.co2.as_ref().unwrap();
     // Top-level model is scaphandre_rapl (takes precedence over v1/v2).
     assert_eq!(co2.total.model, "scaphandre_rapl");
-    // Operational CO₂ = 6 ops × 5e-7 kWh × 41 g/kWh × 1.15 PUE.
-    let expected = 6.0 * 5e-7 * 41.0 * 1.15;
+    // Operational CO₂ = 6 ops × 5e-7 kWh × intensity × PUE (eu-west-3).
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let expected = 6.0 * 5e-7 * intensity * pue;
     assert!(
         (co2.operational_gco2 - expected).abs() < 1e-12,
         "expected {expected}, got {}",
@@ -1831,8 +1825,9 @@ fn cloud_snapshot_flips_model_to_cloud_specpower() {
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "cloud_specpower");
-    // Operational CO2 = 6 ops * 5e-7 kWh * 41 g/kWh * 1.15 PUE.
-    let expected = 6.0 * 5e-7 * 41.0 * 1.15;
+    // Operational CO2 = 6 ops * 5e-7 kWh * intensity * PUE (eu-west-3).
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let expected = 6.0 * 5e-7 * intensity * pue;
     assert!(
         (co2.operational_gco2 - expected).abs() < 1e-12,
         "expected {expected}, got {}",
@@ -1923,7 +1918,8 @@ fn kepler_snapshot_flips_model_to_kepler_ebpf() {
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "kepler_ebpf");
-    let expected = 6.0 * 5e-7 * 41.0 * 1.15;
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let expected = 6.0 * 5e-7 * intensity * pue;
     assert!((co2.operational_gco2 - expected).abs() < 1e-12);
 }
 
@@ -2426,8 +2422,9 @@ fn per_op_coefficients_measured_energy_ignores_coefficient() {
     let co2 = summary.co2.as_ref().unwrap();
 
     // With Scaphandre, energy is measured_energy, not ENERGY_PER_IO_OP_KWH * coeff.
-    // 6 ops × 5e-7 kWh × 41 g/kWh × 1.15 PUE
-    let expected = 6.0 * measured_energy * 41.0 * 1.15;
+    // 6 ops × 5e-7 kWh × intensity × PUE (eu-west-3).
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let expected = 6.0 * measured_energy * intensity * pue;
     assert!(
         (co2.operational_gco2 - expected).abs() < 1e-12,
         "expected {expected}, got {}",
@@ -2608,7 +2605,7 @@ fn transport_co2_sql_excluded() {
 fn transport_co2_numerical_value() {
     use crate::test_helpers::make_http_event_with_size;
     // Verify the exact transport CO2 value, not just > 0.
-    // 100_000 bytes * 4e-11 kWh/byte * 41.0 gCO2/kWh * 1.15 PUE
+    // 100_000 bytes * 4e-11 kWh/byte * intensity * PUE (eu-west-3).
     let response_bytes: u64 = 100_000;
     let mut event = make_http_event_with_size(
         "t1",
@@ -2634,9 +2631,9 @@ fn transport_co2_numerical_value() {
 
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let transport = summary.transport_gco2.unwrap();
-    // eu-west-3: intensity=41.0, PUE=1.15
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
     let expected =
-        response_bytes as f64 * carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH * 41.0 * 1.15;
+        response_bytes as f64 * carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH * intensity * pue;
     assert!(
         (transport - expected).abs() < 1e-18,
         "expected {expected}, got {transport}"
@@ -2680,7 +2677,7 @@ fn transport_co2_uppercase_hostname_matches() {
 
 #[test]
 fn realtime_intensity_overrides_annual() {
-    // eu-west-3 annual = 41.0, but real-time = 200.0
+    // Real-time (200.0) must override the eu-west-3 annual value.
     let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
     let mut rt = HashMap::new();
     rt.insert(
@@ -2698,8 +2695,7 @@ fn realtime_intensity_overrides_annual() {
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
-    // With real-time intensity = 200.0, CO2 should be higher than
-    // annual = 41.0. Verify the model tag reflects Electricity Maps.
+    // Verify the model tag reflects Electricity Maps.
     assert_eq!(co2.total.model, CO2_MODEL_EMAPS);
     assert_eq!(
         summary.regions[0].intensity_source,

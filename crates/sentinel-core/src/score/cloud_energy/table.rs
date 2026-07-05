@@ -261,37 +261,58 @@ mod tests {
     // lookup_instance_power
     // ------------------------------------------------------------------
 
+    // Sizes within a family must scale linearly with vCPU count, per
+    // the `vCPU * coefficient` methodology. Relation-based so a data
+    // refresh does not break them, exact values are reviewed on the
+    // refresh PR diff.
     #[test]
-    fn known_aws_instance() {
-        let (idle, max) = lookup_instance_power("m5.large", "aws");
-        // m5.large (2 vCPU, Cascade Lake) at CCF 2026-04-24:
-        // 2 * 0.690 = 1.4 idle, 2 * 4.063 = 8.1 max.
-        assert!((idle - 1.4).abs() < 0.01);
-        assert!((max - 8.1).abs() < 0.01);
+    fn known_aws_instance_scales_with_vcpu() {
+        let (idle_2, max_2) = lookup_instance_power("m5.large", "aws");
+        let (idle_4, max_4) = lookup_instance_power("m5.xlarge", "aws");
+        assert!((idle_4 - 2.0 * idle_2).abs() < 0.1);
+        assert!((max_4 - 2.0 * max_2).abs() < 0.2);
     }
 
     #[test]
-    fn known_gcp_instance() {
-        let (idle, max) = lookup_instance_power("n2-standard-8", "gcp");
-        // n2-standard-8 (8 vCPU, GCP Cascade Lake) at CCF 2026-04-24:
-        // 8 * 0.690 = 5.5 idle, 8 * 3.755 = 30.0 max.
-        assert!((idle - 5.5).abs() < 0.01);
-        assert!((max - 30.0).abs() < 0.01);
+    fn known_gcp_instance_scales_with_vcpu() {
+        let (idle_2, max_2) = lookup_instance_power("n2-standard-2", "gcp");
+        let (idle_8, max_8) = lookup_instance_power("n2-standard-8", "gcp");
+        assert!((idle_8 - 4.0 * idle_2).abs() < 0.2);
+        assert!((max_8 - 4.0 * max_2).abs() < 0.4);
     }
 
     #[test]
-    fn known_azure_instance() {
-        let (idle, max) = lookup_instance_power("Standard_D8s_v3", "azure");
-        assert!((idle - 5.2).abs() < 0.01);
-        assert!((max - 33.5).abs() < 0.1);
+    fn known_azure_instance_scales_with_vcpu() {
+        let (idle_2, max_2) = lookup_instance_power("Standard_D2s_v3", "azure");
+        let (idle_8, max_8) = lookup_instance_power("Standard_D8s_v3", "azure");
+        assert!((idle_8 - 4.0 * idle_2).abs() < 0.2);
+        assert!((max_8 - 4.0 * max_2).abs() < 0.4);
     }
 
     #[test]
     fn unknown_instance_falls_back_to_provider_default() {
-        let (idle, max) = lookup_instance_power("m999.future", "aws");
-        // AWS default matches m5.large under the homogeneous CCF 2026-04-24 methodology.
-        assert!((idle - 1.4).abs() < 0.01);
-        assert!((max - 8.1).abs() < 0.01);
+        let fallback = lookup_instance_power("m999.future", "aws");
+        let default = *PROVIDER_DEFAULTS.get("aws").expect("aws default");
+        assert_eq!(fallback, default);
+    }
+
+    // Defaults are hand-pinned to a reference instance. When a refresh
+    // moves the reference row, this fails and forces the one-line
+    // PROVIDER_DEFAULTS update.
+    #[test]
+    fn provider_default_matches_reference_instance() {
+        for (provider, reference) in [
+            ("aws", "m5.large"),
+            ("gcp", "n2-standard-2"),
+            ("azure", "Standard_D2s_v6"),
+        ] {
+            let default = *PROVIDER_DEFAULTS.get(provider).expect(provider);
+            let reference_power = *INSTANCE_POWER.get(reference).expect(reference);
+            assert_eq!(
+                default, reference_power,
+                "{provider} default must match {reference}"
+            );
+        }
     }
 
     #[test]
@@ -345,20 +366,14 @@ mod tests {
 
     #[test]
     fn m_series_does_not_carry_dram_premium() {
-        // General-purpose m5.large (Cascade Lake) must remain on the bare
-        // CCF coefficient (2 vCPU * 0.690 / 4.063), without any DRAM
-        // premium uplift. If a future refactor accidentally applies the
-        // premium to general-purpose families, the methodology departure
-        // count documented in `table.rs` head doc-comment would silently
-        // grow and the LIMITATIONS note would be wrong.
-        let (idle, max) = lookup_instance_power("m5.large", "aws");
-        assert!(
-            (idle - 1.4).abs() < 0.05,
-            "m5.large idle drifted: {idle} expected ~1.4"
-        );
-        assert!(
-            (max - 8.1).abs() < 0.1,
-            "m5.large max drifted: {max} expected ~8.1"
+        // m5 and c5 share the bare Cascade Lake coefficient (CCF does
+        // not differentiate general-purpose vs compute). If a refactor
+        // applied the DRAM premium to general-purpose families, m5
+        // would drift away from c5 and this equality would break.
+        assert_eq!(
+            lookup_instance_power("m5.large", "aws"),
+            lookup_instance_power("c5.large", "aws"),
+            "m5.large must stay on the bare coefficient, like c5.large"
         );
     }
 
