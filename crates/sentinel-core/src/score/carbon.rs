@@ -509,13 +509,15 @@ impl Provider {
     }
 }
 
-/// Hand-refreshed rows: North American regions on subnational grids.
-/// The refresh source (Ember) is national-only and these grids diverge
-/// beyond the 2x uncertainty bracket (us-west-2 = 89, hydro Oregon, vs
-/// ~370 US national). Values: CCF and Electricity Maps 2023-2024
+/// Hand-refreshed rows: regions on subnational grids. The refresh
+/// source (Ember) is national-only and these grids diverge beyond the
+/// 2x uncertainty bracket (us-west-2 = 89, hydro Oregon, vs ~370 US
+/// national). Values: CCF and Electricity Maps 2023-2024
 /// consumption-based averages. The `ca` rows carry a hydro-dominant
-/// zone value, far below the national average, matched by the hourly
-/// profile. Nationally-gridded rows live in `carbon_data.rs`.
+/// zone value and the `br` rows the BR-CS (Central-South) zone value
+/// containing Sao Paulo; both hourly profiles are normalized to those
+/// levels, not to the national average. Nationally-gridded rows live
+/// in `carbon_data.rs`.
 ///
 /// PUE values come from each provider's latest sustainability report
 /// (AWS 2024 global, GCP 2024 fleet, Azure FY25), 2026 refresh cycle.
@@ -526,6 +528,7 @@ static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     ("us-west-1", 200.0, Provider::Aws),
     ("us-west-2", 89.0, Provider::Aws),
     ("ca-central-1", 13.0, Provider::Aws), // Canada (hydro-dominant zone)
+    ("sa-east-1", 96.0, Provider::Aws),    // Sao Paulo (BR-CS zone)
     // GCP regions
     ("us-central1", 426.0, Provider::Gcp),
     ("us-east1", 379.0, Provider::Gcp),
@@ -535,6 +538,7 @@ static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     ("westus2", 89.0, Provider::Azure),
     // Country / ISO codes (generic PUE)
     ("ca", 13.0, Provider::Generic),
+    ("br", 96.0, Provider::Generic), // BR-CS zone, matches sa-east-1
 ];
 
 /// Pre-built map for O(1) region lookup (keys are lowercase).
@@ -1393,30 +1397,29 @@ mod tests {
         assert_eq!(e.methodology, "sci_v1_operational_ratio");
     }
 
+    // PUE values are hand-maintained in this file, so pinning them is
+    // fine. Intensities come from the generated table: assert the
+    // same-country relation instead of a value a refresh will move.
     #[test]
     fn lookup_known_aws_region() {
-        let result = lookup_region("eu-west-3");
-        assert!(result.is_some());
-        let (intensity, pue) = result.unwrap();
-        assert!((intensity - 41.0).abs() < f64::EPSILON);
+        let (intensity, pue) = lookup_region("eu-west-3").expect("eu-west-3");
+        let (fr_intensity, _) = lookup_region("fr").expect("fr");
+        assert!((intensity - fr_intensity).abs() < f64::EPSILON);
         assert!((pue - 1.15).abs() < f64::EPSILON);
     }
 
     #[test]
     fn lookup_known_gcp_region() {
-        let result = lookup_region("europe-west9");
-        assert!(result.is_some());
-        let (intensity, pue) = result.unwrap();
-        assert!((intensity - 41.0).abs() < f64::EPSILON);
+        let (intensity, pue) = lookup_region("europe-west9").expect("europe-west9");
+        let (fr_intensity, _) = lookup_region("fr").expect("fr");
+        assert!((intensity - fr_intensity).abs() < f64::EPSILON);
         assert!((pue - 1.09).abs() < f64::EPSILON);
     }
 
     #[test]
     fn lookup_country_code() {
-        let result = lookup_region("FR");
-        assert!(result.is_some());
-        let (intensity, pue) = result.unwrap();
-        assert!((intensity - 41.0).abs() < f64::EPSILON);
+        let (intensity, pue) = lookup_region("FR").expect("FR");
+        assert!(intensity > 0.0);
         assert!((pue - 1.5).abs() < f64::EPSILON);
     }
 
@@ -1436,11 +1439,10 @@ mod tests {
 
     #[test]
     fn io_ops_to_co2_known_region() {
-        let co2 = io_ops_to_co2_grams(1000, "eu-west-3");
-        assert!(co2.is_some());
-        let val = co2.unwrap();
-        // 1000 * 0.0000001 * 41.0 * 1.15 = 0.004715
-        assert!((val - 0.004_715).abs() < 1e-9);
+        let val = io_ops_to_co2_grams(1000, "eu-west-3").expect("eu-west-3");
+        let (intensity, pue) = lookup_region("eu-west-3").expect("eu-west-3");
+        let expected = 1000.0 * ENERGY_PER_IO_OP_KWH * intensity * pue;
+        assert!((val - expected).abs() < 1e-9);
     }
 
     #[test]
@@ -1457,9 +1459,36 @@ mod tests {
 
     #[test]
     fn high_carbon_region_vs_low() {
-        let high = io_ops_to_co2_grams(1000, "ap-south-1").unwrap(); // India, 708
-        let low = io_ops_to_co2_grams(1000, "eu-north-1").unwrap(); // Stockholm, 8
-        assert!(high > low * 10.0, "India should be much higher than Sweden");
+        let high = io_ops_to_co2_grams(1000, "ap-south-1").unwrap(); // India (coal-heavy)
+        let low = io_ops_to_co2_grams(1000, "eu-north-1").unwrap(); // Stockholm (hydro/nuclear)
+        assert!(high > low * 5.0, "India should be much higher than Sweden");
+    }
+
+    // The generated/manual split relies on disjoint keys: a HashMap
+    // collision would silently shadow a generated row with a stale
+    // manual one.
+    #[test]
+    fn generated_and_manual_carbon_keys_are_disjoint() {
+        assert_eq!(
+            REGION_MAP.len(),
+            super::super::carbon_data::GENERATED_CARBON_ROWS.len() + MANUAL_CARBON_ROWS.len(),
+            "a manual carbon row shadows a generated one"
+        );
+    }
+
+    // Upstream data can publish a corrupt value (0, negative, or
+    // mis-scaled). No real grid sits outside (0, 2000] gCO2eq/kWh.
+    #[test]
+    fn all_carbon_rows_are_plausible() {
+        for &(key, intensity, _) in super::super::carbon_data::GENERATED_CARBON_ROWS
+            .iter()
+            .chain(MANUAL_CARBON_ROWS)
+        {
+            assert!(
+                intensity > 0.0 && intensity <= 2000.0,
+                "{key}: implausible carbon intensity {intensity}"
+            );
+        }
     }
 
     #[test]

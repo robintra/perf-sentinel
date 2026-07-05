@@ -2,8 +2,9 @@
 // Regenerate with: python3 scripts/refresh-carbon-data.py
 //
 // Carbon intensity rows (region_key, gCO2eq/kWh, provider) for regions
-// on effectively national grids. Keys are lowercase. Subnational North
-// American regions live in `MANUAL_CARBON_ROWS` (carbon.rs).
+// on effectively national grids. Keys are lowercase. Subnational rows
+// (North America, Brazil BR-CS) live in `MANUAL_CARBON_ROWS`
+// (carbon.rs).
 //
 // Current values: CCF and Electricity Maps 2023-2024 annual averages,
 // consumption-based with imports. The first scripted refresh switches
@@ -12,7 +13,7 @@
 //
 // Vintage notes: eu-west-3/fr tracks the EM consumption mean (2023=49,
 // 2024=33). eu-central-1/de keeps the multi-source 338, matched by its
-// hourly profile. br carries the BR-CS zone value, not a national one.
+// hourly profile.
 
 use super::carbon::Provider;
 
@@ -34,7 +35,6 @@ pub(super) static GENERATED_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     ("eu-south-1", 370.0, Provider::Aws),     // Milan (Italy)
     ("ap-southeast-2", 550.0, Provider::Aws), // Sydney
     ("ap-south-1", 708.0, Provider::Aws),     // Mumbai
-    ("sa-east-1", 96.0, Provider::Aws),       // São Paulo
     // GCP regions
     ("europe-west1", 165.0, Provider::Gcp),      // Belgium
     ("europe-west4", 328.0, Provider::Gcp),      // Netherlands
@@ -62,7 +62,6 @@ pub(super) static GENERATED_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     ("jp", 462.0, Provider::Generic),
     ("in", 708.0, Provider::Generic),
     ("au", 550.0, Provider::Generic),
-    ("br", 96.0, Provider::Generic),
     ("sg", 408.0, Provider::Generic),
     ("nl", 328.0, Provider::Generic),
     ("be", 165.0, Provider::Generic),
