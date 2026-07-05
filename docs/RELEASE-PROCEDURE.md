@@ -54,8 +54,8 @@ The two clippy invocations cover the default feature set and the no-default-feat
 
 This is an operator-driven audit, no script enforces it. Embedded reference data drives the carbon scoring pipeline and ships as Rust source (so it is exercised by `cargo test --workspace` in step 2). Test passes guarantee correctness, not freshness. The `refresh-datasets` workflow regenerates the two scripted tables semiannually (or on `workflow_dispatch`) and opens a PR; this step audits that those PRs were merged recently enough. Before tagging, confirm the vintages declared in:
 
-- `crates/sentinel-core/src/score/cloud_energy/table_data.rs`: `SPECPOWER_VINTAGE`, stamped with the `ccf-coefficients` snapshot date by `scripts/refresh-instance-power.py`. The manual rows (families absent from the CCF CSVs) stay in `table.rs` next to `CCF_LEGACY_VINTAGE`.
-- `crates/sentinel-core/src/score/carbon_data.rs`: `CARBON_TABLE_VINTAGE` (`ember-<latest-data-year>`), stamped by `scripts/refresh-carbon-data.py`. The subnational North American rows stay manual in `carbon.rs`.
+- `crates/sentinel-core/src/score/cloud_energy/table_data.rs`: `SPECPOWER_VINTAGE`, stamped with the `ccf-coefficients` snapshot date by `scripts/refresh-instance-power.py`. The manual rows (families absent from the CCF CSVs) stay in `table.rs`.
+- `crates/sentinel-core/src/score/carbon_data.rs`: `CARBON_TABLE_VINTAGE` (`ember-<latest-data-year>`), stamped by `scripts/refresh-carbon-data.py`. The subnational rows (North America, Brazil BR-CS) stay manual in `carbon.rs`.
 - `crates/sentinel-core/src/score/carbon_profiles.rs`: ENTSO-E / EIA / AEMO / Electricity Maps hourly grid profiles, refreshed at least annually and renormalized by hand when a scripted refresh moves an annual value beyond 5 percent. Vintage exposed as `CARBON_PROFILES_VINTAGE`.
 - `crates/sentinel-core/src/score/carbon.rs`: per-provider PUE constants (AWS, GCP, Azure, generic), refreshed when any provider publishes a new sustainability report. Vintage exposed as `PUE_VINTAGE`.
 
