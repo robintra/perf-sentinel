@@ -6,6 +6,29 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.6]
+
+### Changed
+
+- `appVersion` bumped to `0.9.6`. The embedded carbon-intensity table
+  switches its nationally-gridded rows from Electricity Maps
+  consumption-based 2023-2024 means to Ember yearly generation-based
+  national data (latest year per country), regenerated semiannually by
+  the new `refresh-datasets` workflow through a reviewed PR. Low-carbon
+  grids move the most (Sweden 8 to 35.4, Finland 8 to 57.5, Norway 7 to
+  28.1 gCO2eq/kWh), the generation-vs-consumption accounting difference
+  documented in `docs/METHODOLOGY.md`. Hourly profiles are renormalized
+  to the new annual levels, shapes unchanged. The SPECpower instance
+  table is now generated from the CCF coefficient CSVs (the m6a/c6a
+  families align to the CCF EPYC 3rd Gen coefficient, 26 rows lose
+  hand-rounding slips of at most 0.1 W). Carbon outputs shift for the
+  affected regions. `SPECPOWER_VINTAGE` is unchanged, so operator TOMLs
+  pinning `specpower_table_version` are unaffected. No chart template
+  change, this bump tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to
+  `ghcr.io/robintra/perf-sentinel:0.9.6` to keep the Artifact Hub
+  display metadata in lockstep with `appVersion`.
+
 ## [0.9.5]
 
 ### Added
