@@ -70,7 +70,7 @@ jobs:
           # checkout behavior (github.ref) for push and pull_request.
           ref: ${{ inputs.ref || github.ref }}
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
           components: clippy, rustfmt
@@ -95,7 +95,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --message-format=json > clippy-report.json || true
 
       - name: Install clippy-sarif and sarif-fmt
-        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -104,7 +104,7 @@ jobs:
         run: cat clippy-report.json | clippy-sarif | tee clippy.sarif | sarif-fmt
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: clippy.sarif
           category: clippy
@@ -116,7 +116,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-llvm-cov
 
@@ -156,7 +156,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
 
@@ -232,7 +232,7 @@ jobs:
       - name: Install build toolchain
         run: apt-get update && apt-get install -y --no-install-recommends build-essential perl
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
 

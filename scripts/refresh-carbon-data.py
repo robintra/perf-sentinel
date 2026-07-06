@@ -11,7 +11,9 @@ Usage:
 
 Prints an old/new diff table on stdout and warnings on stderr. Exits 0
 even when values changed (the CI workflow decides via git diff), 1 on
-download or parse failure. Run twice: the second run must be a no-op.
+download or parse failure. Run `cargo fmt -p perf-sentinel-core`
+afterwards (rustfmt owns the trailing-comment alignment; the CI
+workflow does it). Run twice: the second run plus fmt must be a no-op.
 """
 
 import csv
