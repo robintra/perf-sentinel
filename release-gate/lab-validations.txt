@@ -41,3 +41,4 @@ v0.9.5	f756744	2026-07-03	PASS
 # M1-M4). The lab tree was unchanged (still f756744), so this line carries the product tip
 # 468bf99 (binary-identical to the tested e9458e0, docs-only on top) to disambiguate.
 v0.9.5	468bf99	2026-07-04	PASS
+v0.9.6	ebb7354	2026-07-06	PASS
