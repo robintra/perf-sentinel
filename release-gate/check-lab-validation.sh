@@ -105,7 +105,9 @@ IFS=$'\t' read -r latest_date latest_sha < <(printf '%s' "${latest_line}" | awk 
 [[ "${latest_sha}" =~ ^[0-9a-f]{7,64}$ ]] || { echo "release-gate: invalid lab commit sha '${latest_sha}' in ledger (expected 7-64 hex chars)." >&2; exit 1; }
 
 # Convert YYYY-MM-DD to epoch (UTC midnight). BSD date uses -j -f, GNU uses -d.
-if latest_epoch="$(date -u -j -f "%Y-%m-%d" "${latest_date}" +%s 2>/dev/null)"; then
+# BSD -f fills unspecified time fields from the current clock, so pin 00:00:00
+# explicitly or a same-day entry parses to "now" and trips the future check.
+if latest_epoch="$(date -u -j -f "%Y-%m-%d %H:%M:%S" "${latest_date} 00:00:00" +%s 2>/dev/null)"; then
   :
 elif latest_epoch="$(date -u -d "${latest_date}" +%s 2>/dev/null)"; then
   :
