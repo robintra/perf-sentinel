@@ -28,6 +28,10 @@
   [data-ps-root] [data-logo="light"]{display:block}
   [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
   [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  [data-ps-root] [data-diagram]{display:none}
+  [data-ps-root] [data-diagram="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-diagram="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-diagram="dark"]{display:block}
   .ps-docnav a{display:block;padding:6px 12px;border-radius:8px;font-size:12px;color:var(--text-2);border-left:2px solid transparent;transition:color .2s ease,background-color .2s ease,border-color .2s ease;cursor:pointer}
   .ps-docnav a:hover{color:var(--text);background:var(--surface-2)}
   .ps-docnav a[data-active="true"]{color:var(--accent-strong);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
@@ -185,7 +189,7 @@
 <p class="ps-p">Quand <code class="ps-ic">total_io_ops == 0</code>, le ratio est <code class="ps-ic">0.0</code> (pas NaN). C'est la fraction d'opérations I/O qui pourraient être éliminées en corrigeant les anti-patterns détectés. Cela s'aligne avec le composant <strong>Énergie</strong> du <a href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener" class="ps-ext">modèle SCI (ISO/IEC 21031:2024)</a> de la <a href="https://greensoftware.foundation/" target="_blank" rel="noopener" class="ps-ext">Green Software Foundation</a> : réduire les calculs inutiles réduit la consommation d'énergie.</p>
 <h2 id="conversion-carbone" class="ps-h2">Conversion carbone</h2>
 <p class="ps-p">Le pipeline de scoring résout deux dimensions indépendantes pour chaque span : <strong>l'énergie par opération</strong> (<code class="ps-ic">E</code>) et <strong>l'intensité du réseau électrique</strong> (<code class="ps-ic">I</code>). Chacune a sa propre chaîne de repli, de la source la plus précise jusqu'aux valeurs embarquées par défaut.</p>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/carbon-scoring_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/carbon-scoring.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/carbon-scoring_dark.svg" alt="" loading="lazy"></figure>
 <h3 id="alignement-sci-v10" class="ps-h3">Alignement SCI v1.0</h3>
 <p class="ps-p">perf-sentinel aligne son modèle carbone sur la spécification <a href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener" class="ps-ext">Software Carbon Intensity v1.0</a> (adoptée comme <a href="https://www.iso.org/standard/86612.html" target="_blank" rel="noopener" class="ps-ext">ISO/IEC 21031:2024</a>, révision GSF courante v1.1), en cohérence avec la formulation "aligné SCI, directionnel" utilisée partout ailleurs dans le projet : le proxy I/O couvre une frontière logicielle partielle et le rapport publie le numérateur sur son propre schéma plutôt que le format de rapport SCI par R. La formule est :</p>
 <div class="ps-code"><pre><code>SCI = ((E × I) + M) per R</code></pre></div>

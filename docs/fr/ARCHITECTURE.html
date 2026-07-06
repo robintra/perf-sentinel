@@ -28,6 +28,10 @@
   [data-ps-root] [data-logo="light"]{display:block}
   [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
   [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  [data-ps-root] [data-diagram]{display:none}
+  [data-ps-root] [data-diagram="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-diagram="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-diagram="dark"]{display:block}
   .ps-docnav a{display:block;padding:6px 12px;border-radius:8px;font-size:12px;color:var(--text-2);border-left:2px solid transparent;transition:color .2s ease,background-color .2s ease,border-color .2s ease;cursor:pointer}
   .ps-docnav a:hover{color:var(--text);background:var(--surface-2)}
   .ps-docnav a[data-active="true"]{color:var(--accent-strong);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
@@ -139,7 +143,7 @@
 </ul>
 <p class="ps-p">L'axe <code class="ps-ic">Confidence</code> (<code class="ps-ic">ci_batch</code> &lt; <code class="ps-ic">daemon_staging</code> &lt; <code class="ps-ic">daemon_production</code>) est tagué automatiquement par le runtime et exposé dans JSON, SARIF, HTML et l'API de requête du daemon.</p>
 <h2 id="vue-densemble-du-pipeline" class="ps-h2">Vue d'ensemble du pipeline</h2>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg" alt="" loading="lazy"></figure>
 <h2 id="modes-de-fonctionnement" class="ps-h2">Modes de fonctionnement</h2>
 <h3 id="mode-batch-perf-sentinel-analyze" class="ps-h3">Mode batch (<code class="ps-ic">perf-sentinel analyze</code>)</h3>
 <p class="ps-p">Traite un ensemble complet d'événements et produit un rapport unique avec évaluation du quality gate.</p>
@@ -152,7 +156,7 @@
   -&gt; Report { analysis, findings, green_summary, quality_gate }</code></pre></div>
 <p class="ps-p">En mode CI (<code class="ps-ic">--ci</code>), le processus se termine avec le code 1 si le quality gate échoue.</p>
 <h3 id="mode-streaming-perf-sentinel-watch" class="ps-h3">Mode streaming (<code class="ps-ic">perf-sentinel watch</code>)</h3>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg" alt="" loading="lazy"></figure>
 <p class="ps-p">Fonctionne comme un daemon, recevant les événements en temps réel et émettant les findings au fur et à mesure de leur détection.</p>
 <div class="ps-code"><pre><code>OTLP gRPC (port 4317)  \
 OTLP HTTP (port 4318)   +---&gt; canal mpsc ---&gt; TraceWindow (LRU + TTL)
@@ -175,7 +179,7 @@ Socket unix JSON       /                               |
 <li>Les métriques Prometheus sont exposées sur le même port HTTP (4318) à <code class="ps-ic">/metrics</code>.</li>
 </ul>
 <h3 id="api-de-requête-du-daemon" class="ps-h3">API de requête du daemon</h3>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg" alt="" loading="lazy"></figure>
 <p class="ps-p">En mode <code class="ps-ic">watch</code>, le daemon expose son état interne via des endpoints HTTP sur le port 4318 aux côtés de <code class="ps-ic">/v1/traces</code> et <code class="ps-ic">/metrics</code> :</p>
 <ul>
 <li><code class="ps-ic">GET /api/findings</code> (filtrable, plafonné à 1000)</li>

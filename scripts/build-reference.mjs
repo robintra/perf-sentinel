@@ -196,11 +196,22 @@ function sidebar(activeId, lang) {
 const tocHtml = (toc) =>
   toc.map((t) => `<a href="#${t.id}" data-anchor="${t.id}" data-lvl="${t.lvl}">${t.txt}</a>`).join('');
 
+// The renderer bakes one _dark diagram variant (rendered with theme:'dark').
+// Emit both and let the [data-theme] CSS that swaps the logo pick the right one.
+function diagramThemePair(html) {
+  return html.replace(
+    /<img class="ps-diagram" src="([^"]+?)_dark\.svg"([^>]*)>/g,
+    (_m, base, rest) =>
+      `<img class="ps-diagram" data-diagram="light" src="${base}.svg"${rest}>` +
+      `<img class="ps-diagram" data-diagram="dark" src="${base}_dark.svg"${rest}>`,
+  );
+}
+
 function buildPage(id, lang) {
   const fr = lang === 'fr';
   const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
   const dd = dedupeSlugs(rewriteContentLinks(r.html, lang), r.toc);
-  const content = relabelDocPaths(dd.html, lang);
+  const content = diagramThemePair(relabelDocPaths(dd.html, lang));
   const toc = dd.toc;
 
   const label = docLabel(id, lang);

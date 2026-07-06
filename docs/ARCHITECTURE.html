@@ -28,6 +28,10 @@
   [data-ps-root] [data-logo="light"]{display:block}
   [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
   [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  [data-ps-root] [data-diagram]{display:none}
+  [data-ps-root] [data-diagram="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-diagram="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-diagram="dark"]{display:block}
   .ps-docnav a{display:block;padding:6px 12px;border-radius:8px;font-size:12px;color:var(--text-2);border-left:2px solid transparent;transition:color .2s ease,background-color .2s ease,border-color .2s ease;cursor:pointer}
   .ps-docnav a:hover{color:var(--text);background:var(--surface-2)}
   .ps-docnav a[data-active="true"]{color:var(--accent-strong);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
@@ -139,7 +143,7 @@
 </ul>
 <p class="ps-p">The <code class="ps-ic">Confidence</code> axis (<code class="ps-ic">ci_batch</code> &lt; <code class="ps-ic">daemon_staging</code> &lt; <code class="ps-ic">daemon_production</code>) is stamped automatically by the runtime and exposed in JSON, SARIF, HTML and the daemon query API.</p>
 <h2 id="pipeline-overview" class="ps-h2">Pipeline overview</h2>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg" alt="" loading="lazy"></figure>
 <h2 id="operating-modes" class="ps-h2">Operating modes</h2>
 <h3 id="batch-mode-perf-sentinel-analyze" class="ps-h3">Batch mode (<code class="ps-ic">perf-sentinel analyze</code>)</h3>
 <p class="ps-p">Processes a complete set of events and produces a single report with quality gate evaluation.</p>
@@ -152,7 +156,7 @@
   -&gt; Report { analysis, findings, green_summary, quality_gate }</code></pre></div>
 <p class="ps-p">In CI mode (<code class="ps-ic">--ci</code>), the process exits with code 1 if the quality gate fails.</p>
 <h3 id="streaming-mode-perf-sentinel-watch" class="ps-h3">Streaming mode (<code class="ps-ic">perf-sentinel watch</code>)</h3>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg" alt="" loading="lazy"></figure>
 <p class="ps-p">Runs as a daemon, receiving events in real time and emitting findings as they are detected.</p>
 <div class="ps-code"><pre><code>OTLP gRPC (port 4317)  \
 OTLP HTTP (port 4318)   +---&gt; mpsc channel ---&gt; TraceWindow (LRU + TTL)
@@ -175,7 +179,7 @@ JSON unix socket       /                               |
 <li>Prometheus metrics are exposed on the same HTTP port (4318) at <code class="ps-ic">/metrics</code>.</li>
 </ul>
 <h3 id="daemon-query-api" class="ps-h3">Daemon query API</h3>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg" alt="" loading="lazy"></figure>
 <p class="ps-p">In <code class="ps-ic">watch</code> mode, the daemon exposes its internal state via HTTP endpoints on port 4318 alongside <code class="ps-ic">/v1/traces</code> and <code class="ps-ic">/metrics</code>:</p>
 <ul>
 <li><code class="ps-ic">GET /api/findings</code> (filterable, capped at 1000)</li>

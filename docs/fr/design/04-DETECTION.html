@@ -28,6 +28,10 @@
   [data-ps-root] [data-logo="light"]{display:block}
   [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
   [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  [data-ps-root] [data-diagram]{display:none}
+  [data-ps-root] [data-diagram="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-diagram="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-diagram="dark"]{display:block}
   .ps-docnav a{display:block;padding:6px 12px;border-radius:8px;font-size:12px;color:var(--text-2);border-left:2px solid transparent;transition:color .2s ease,background-color .2s ease,border-color .2s ease;cursor:pointer}
   .ps-docnav a:hover{color:var(--text);background:var(--surface-2)}
   .ps-docnav a[data-active="true"]{color:var(--accent-strong);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
@@ -255,7 +259,7 @@
 <h3 id="ne-fait-pas-partie-du-ratio-de-gaspillage" class="ps-h3">Ne fait pas partie du ratio de gaspillage</h3>
 <p class="ps-p">Les findings lents ont <code class="ps-ic">green_impact.estimated_extra_io_ops = 0</code>. Ce sont des opérations <strong>nécessaires</strong> qui se trouvent être lentes : elles ont besoin d'optimisation (indexation, cache), pas d'élimination. Les inclure dans le ratio de gaspillage confondrait "I/O évitables" (N+1, redondant) avec "I/O lentes" (qui nécessitent une solution différente).</p>
 <h2 id="orchestration-de-la-détection" class="ps-h2">Orchestration de la détection</h2>
-<figure class="ps-fig"><img class="ps-diagram" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection_dark.svg" alt="" loading="lazy"></figure>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection_dark.svg" alt="" loading="lazy"></figure>
 <div class="ps-code"><div class="ps-code-lang">rust</div><pre><code><span style="color:var(--code-cmd);font-weight:600">pub</span> <span style="color:var(--code-cmd);font-weight:600">fn</span> detect(traces: &amp;[<span style="color:var(--code-sub)">Trace</span>], config: &amp;<span style="color:var(--code-sub)">DetectConfig</span>) -&gt; <span style="color:var(--code-sub)">Vec</span>&lt;<span style="color:var(--code-sub)">Finding</span>&gt; {
     <span style="color:var(--code-cmd);font-weight:600">let</span> <span style="color:var(--code-cmd);font-weight:600">mut</span> findings = <span style="color:var(--code-sub)">Vec</span>::new();
     <span style="color:var(--code-cmd);font-weight:600">for</span> trace <span style="color:var(--code-cmd);font-weight:600">in</span> traces {
