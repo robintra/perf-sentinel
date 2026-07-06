@@ -25,6 +25,12 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    ignore:
+      # dtolnay/rust-toolchain has no semver releases: its tags (stable,
+      # nightly, 1.x) are moving refs Dependabot cannot map from a SHA
+      # pin, so every weekly run errors on it (unknown_error). The action
+      # changes rarely; bump the pinned SHA by hand when it does.
+      - dependency-name: "dtolnay/rust-toolchain"
     groups:
       # Core CI/CD actions upgraded together to keep the diff coherent.
       ci-actions:
