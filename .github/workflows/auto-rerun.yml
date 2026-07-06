@@ -10,16 +10,18 @@
 # only retry the first attempt; the rerun itself produces `run_attempt
 # == 2`, which this workflow then ignores).
 #
-# Scoped to the two workflows where transient infra failures actually
-# bite: `CI` (PR gate) and `Release` (tag builds + crates.io publish).
-# `Security Audit` and `code-scanning` are not included; they are fast,
-# low-surface and a transient failure there is easily noticed and rerun
-# by hand.
+# Scoped to the workflows where transient infra failures actually
+# bite: `CI` (PR gate), `Release` (tag builds + crates.io publish) and
+# `pages-build-deployment` (the GitHub-managed Pages deploy, which
+# fails with "Deployment failed, try again later" right after a
+# gh-pages push and succeeds on retry). `Security Audit` and
+# `code-scanning` are not included; they are fast, low-surface and a
+# transient failure there is easily noticed and rerun by hand.
 name: Auto-rerun failed workflow
 
 on:
   workflow_run:
-    workflows: ["CI", "Release"]
+    workflows: ["CI", "Release", "pages-build-deployment"]
     types: [completed]
 
 permissions:
