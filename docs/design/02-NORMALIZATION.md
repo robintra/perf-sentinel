@@ -19,6 +19,10 @@ The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that buil
 
 The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings and `CALL` statements.
 
+This "never understands query structure" property is sufficient for the whole pipeline, not just this stage. Every detector (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) reasons over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if perf-sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
+
+A quieter benefit: the tokenizer is *total*. It always emits a best-effort template, even on truncated or unknown-dialect SQL (see the unterminated-literal handling), whereas a real parser rejects input it cannot parse. Since trace SQL is whatever a driver happened to log, a strict parser would need this tokenizer as a fallback anyway.
+
 ## SQL tokenizer: single-pass state machine
 
 `normalize_sql()` processes the query byte-by-byte through five states:

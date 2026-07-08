@@ -19,6 +19,10 @@ Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui 
 
 Le compromis est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) : le tokenizer ne gère que le SQL ASCII et ne réalise pas d'analyse sémantique. Il supporte les CTEs, les identifiants double-quoted, les chaînes dollar-quoted PostgreSQL et les instructions `CALL`.
 
+Cette propriété (ne jamais comprendre la structure de la requête) suffit pour tout le pipeline, pas seulement pour cette étape. Chaque détecteur (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) raisonne sur la *forme de la trace* (nombre d'occurrences, variance temporelle, ordonnancement des spans, scope d'instrumentation ORM) et sur le *fingerprint* de la requête, jamais sur sa grammaire interne. Une analyse SQL structurelle ne serait rentable que si perf-sentinel pivotait vers de l'analyse statique de requête isolée (une autre catégorie de produit), et même là un plan `EXPLAIN` vaut mieux que re-parser le texte loggé.
+
+Un bénéfice plus discret : le tokenizer est *total*. Il produit toujours un template best-effort, même sur du SQL tronqué ou de dialecte inconnu (cf. la gestion des littéraux non terminés), là où un vrai parseur rejette une entrée qu'il ne sait pas analyser. Comme le SQL des traces est ce qu'un driver a bien voulu logger, un parseur strict aurait de toute façon besoin de ce tokenizer comme fallback.
+
 ## Tokenizer SQL : machine à états en une seule passe
 
 `normalize_sql()` traite la requête octet par octet à travers cinq états :

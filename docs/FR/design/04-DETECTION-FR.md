@@ -122,7 +122,7 @@ L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétabli
 4. `sequential_siblings_indexed` (mode Strict uniquement) : tous les spans partagent un même `parent_span_id` non vide et le groupe chaîne `prev.end_us <= next.start_us` après tri par timestamp de début. Les bornes sont calculées en microsecondes pour éviter la troncation silencieuse des durées sous-milliseconde. Substitue `has_orm_scope` sur les piles bare-driver (Vert.x reactive PG, pgx, asyncpg, sqlx, Prisma `queryRaw`) qui n'émettent jamais de scope ORM.
 5. `high_occurrence` (mode Strict, toutes branches) : un nombre d'occurrences élevé (>= 3 x `n_plus_one_threshold`, par défaut 15) sert de signal primaire ET corroboratif. Sous la garde `looks_sanitized` (params vides, template avec `?`), 15+ templates sanitisés identiques dans un seul trace est structurellement un n+1 quel que soit le scope ORM, les siblings séquentiels ou la variance. Les boucles de polling legacy sous le seuil (typiquement 5-10 appels par requête) restent classées en `redundant_sql`.
 
-Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § « `sanitizer_aware_classification` » avec leurs trade-offs précision/rappel.
+Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § "`sanitizer_aware_classification`" avec leurs trade-offs précision/rappel.
 
 ### Limite connue
 

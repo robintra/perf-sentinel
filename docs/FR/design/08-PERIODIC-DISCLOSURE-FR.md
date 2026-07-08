@@ -136,7 +136,7 @@ Le dispatcher (`disclose.rs::cmd_disclose`) retourne `i32` pour que l'appelant p
 - `1` : échec I/O ou parse (org-config illisible, output non écrivable, erreur hash).
 - `2` : échec de validation ou court-circuit `audited`. La liste d'erreurs est imprimée sur stderr.
 
-`audited` est intercepté en premier, avant toute I/O, pour que l'utilisateur reçoive le message « not yet implemented » quel que soit l'état de l'org-config.
+`audited` est intercepté en premier, avant toute I/O, pour que l'utilisateur reçoive le message "not yet implemented" quel que soit l'état de l'org-config.
 
 `generated_by` vaut `"ci"` quand `$CI` est dans l'environnement, `"cli-batch"` sinon. Le chemin daemon utilisera `"daemon"` quand les disclosures planifiées seront ajoutées, c'est un placeholder pour les trois valeurs documentées du champ.
 
