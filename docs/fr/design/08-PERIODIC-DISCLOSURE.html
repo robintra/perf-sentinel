@@ -214,7 +214,7 @@ crates/sentinel-cli/src/disclose.rs          // dispatcher CLI</code></pre></div
 <li><code class="ps-ic">1</code> : échec I/O ou parse (org-config illisible, output non écrivable, erreur hash).</li>
 <li><code class="ps-ic">2</code> : échec de validation ou court-circuit <code class="ps-ic">audited</code>. La liste d'erreurs est imprimée sur stderr.</li>
 </ul>
-<p class="ps-p"><code class="ps-ic">audited</code> est intercepté en premier, avant toute I/O, pour que l'utilisateur reçoive le message « not yet implemented » quel que soit l'état de l'org-config.</p>
+<p class="ps-p"><code class="ps-ic">audited</code> est intercepté en premier, avant toute I/O, pour que l'utilisateur reçoive le message "not yet implemented" quel que soit l'état de l'org-config.</p>
 <p class="ps-p"><code class="ps-ic">generated_by</code> vaut <code class="ps-ic">"ci"</code> quand <code class="ps-ic">$CI</code> est dans l'environnement, <code class="ps-ic">"cli-batch"</code> sinon. Le chemin daemon utilisera <code class="ps-ic">"daemon"</code> quand les disclosures planifiées seront ajoutées, c'est un placeholder pour les trois valeurs documentées du champ.</p>
 <h2 id="commandes-de-vérification" class="ps-h2">Commandes de vérification</h2>
 <p class="ps-p">Un consommateur recompute le content hash avec :</p>
