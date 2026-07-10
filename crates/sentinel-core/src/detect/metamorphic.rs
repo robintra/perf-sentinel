@@ -36,6 +36,8 @@
 //! - **sanitizer non-monotonicity (pinned)**: the known corner where
 //!   removing a span CAN create a finding under `Auto`, kept as a
 //!   characterization test so the trade-off stays documented
+//! - **window boundary**: an above-threshold group fires iff its
+//!   min..max span fits in `window_ms`, with the limit itself inclusive
 //!
 //! The amplification, permutation, silence, and span-removal properties
 //! run twice, on SQL workloads and on their HTTP twins (`*_http_*`):
@@ -139,6 +141,16 @@ fn mixed_http_workload() -> impl Strategy<Value = Vec<SpanEvent>> {
         ));
         events
     })
+}
+
+/// Timestamp `total_ms` after `14:32:01.000`, second-rollover-safe up to
+/// one minute (the fixed-format series helpers above cap at 999 ms).
+fn ts_at(total_ms: usize) -> String {
+    format!(
+        "2025-07-10T14:32:{:02}.{:03}Z",
+        1 + total_ms / 1000,
+        total_ms % 1000
+    )
 }
 
 fn any_mode() -> impl Strategy<Value = SanitizerAwareMode> {
@@ -577,6 +589,43 @@ proptest! {
             }
         }
     }
+
+    /// Window boundary: an above-threshold distinct-params group fires
+    /// if and only if its min..max timestamp span fits in `window_ms`.
+    /// Locks the `build_finding` window gate on both sides of the limit
+    /// (strides are drawn wide enough to straddle it) and pins the
+    /// reported `window_ms` to the generated span.
+    #[test]
+    fn n_plus_one_fires_iff_window_within_limit(
+        count in (THRESHOLD as usize)..=15,
+        stride in 1usize..=120,
+    ) {
+        let events: Vec<SpanEvent> = (0..count)
+            .map(|i| {
+                make_sql_event(
+                    "trace-p",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM users WHERE id = {}", i + 1),
+                    &ts_at(i * stride),
+                )
+            })
+            .collect();
+        let window = ((count - 1) * stride) as u64;
+
+        let findings =
+            detect_n_plus_one(&make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+
+        if window <= WINDOW_MS {
+            prop_assert_eq!(findings.len(), 1, "window {}ms within limit must fire", window);
+            prop_assert_eq!(findings[0].pattern.window_ms, window);
+        } else {
+            prop_assert!(
+                findings.is_empty(),
+                "window {}ms beyond limit must stay silent",
+                window
+            );
+        }
+    }
 }
 
 /// Characterization: the sanitizer heuristic is deliberately non-monotone
@@ -668,4 +717,31 @@ fn cross_trace_slow_findings_are_not_additive() {
     assert_eq!(slow_count(&solo_a), 0);
     assert_eq!(slow_count(&solo_b), 0);
     assert_eq!(slow_count(&combined), 1);
+}
+
+/// The window gate is inclusive: a group spanning exactly `window_ms`
+/// still fires. Deterministic companion to the boundary property above
+/// (6 spans, 100 ms stride, window == limit == 500 ms).
+#[test]
+fn window_exactly_at_limit_fires() {
+    let events: Vec<SpanEvent> = (0..6)
+        .map(|i| {
+            make_sql_event(
+                "trace-p",
+                &format!("span-{i}"),
+                &format!("SELECT * FROM users WHERE id = {}", i + 1),
+                &ts_at(i * 100),
+            )
+        })
+        .collect();
+
+    let findings = detect_n_plus_one(
+        &make_trace(events),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+    );
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].pattern.window_ms, WINDOW_MS);
 }
