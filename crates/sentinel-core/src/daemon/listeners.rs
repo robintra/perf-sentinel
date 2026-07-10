@@ -492,7 +492,7 @@ fn spawn_http_listener(
 fn spawn_json_socket_listener(
     config: &Config,
     tx: mpsc::Sender<Vec<SpanEvent>>,
-    over_memory: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    over_memory: Arc<std::sync::atomic::AtomicBool>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     #[cfg(not(unix))]
     let _ = over_memory;

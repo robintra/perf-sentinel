@@ -200,7 +200,8 @@ def request(url: str) -> urllib.request.Request:
 
 def http_json(url: str) -> dict:
     with urllib.request.urlopen(request(url), timeout=60) as resp:
-        return json.load(resp)
+        data = json.load(resp)
+    return data
 
 
 def fetch_ccf(ref: str) -> "tuple[dict[tuple[str, str], tuple[float, float]], str, str]":

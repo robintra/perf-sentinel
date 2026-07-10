@@ -1447,11 +1447,6 @@ impl crate::ingest::otlp::MetricsSink for MetricsState {
         }
     }
 
-    #[inline]
-    fn ingest_over_memory_limit(&self) -> bool {
-        self.ingest_over_memory_limit.load(Ordering::Relaxed)
-    }
-
     fn record_otlp_spans(&self, stats: crate::ingest::otlp::SpanConversionStats) {
         self.otlp_spans_received_total.inc_by(stats.received);
         for (reason, count) in stats.filtered_counts() {
@@ -1461,6 +1456,11 @@ impl crate::ingest::otlp::MetricsSink for MetricsState {
                     .inc_by(count);
             }
         }
+    }
+
+    #[inline]
+    fn ingest_over_memory_limit(&self) -> bool {
+        self.ingest_over_memory_limit.load(Ordering::Relaxed)
     }
 }
 
