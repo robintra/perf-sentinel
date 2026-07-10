@@ -42,3 +42,4 @@ v0.9.5	f756744	2026-07-03	PASS
 # 468bf99 (binary-identical to the tested e9458e0, docs-only on top) to disambiguate.
 v0.9.5	468bf99	2026-07-04	PASS
 v0.9.6	ebb7354	2026-07-06	PASS
+v0.9.7	ad2c2d3	2026-07-10	PASS
