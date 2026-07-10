@@ -6,6 +6,21 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.7]
+
+### Fixed
+
+- `appVersion` bumped to `0.9.7`. Batch `analyze --input` now accepts
+  OTLP/JSON list attributes serialized the canonical protobuf JSON way,
+  with the empty repeated field omitted (`"arrayValue":{}` or
+  `"kvlistValue":{}`). Previously one such attribute failed the whole
+  file with a `missing field values` error and a non-zero exit, so
+  nothing was analyzed. No chart template change, this bump tracks the
+  new appVersion.
+- `artifacthub.io/images` annotation bumped to
+  `ghcr.io/robintra/perf-sentinel:0.9.7` to keep the Artifact Hub
+  display metadata in lockstep with `appVersion`.
+
 ## [0.9.6]
 
 ### Changed
