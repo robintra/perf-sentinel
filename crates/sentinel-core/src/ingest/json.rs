@@ -137,33 +137,61 @@ impl IngestSource for JsonIngest {
 
         match detect_format(raw) {
             InputFormat::Otlp => {
-                // Stream deserializer: accepts a single (pretty-printed)
-                // ExportTraceServiceRequest as well as the Collector file
-                // exporter's NDJSON (one request per line). convert_otlp_request
-                // sanitizes each event, same code path as the daemon listeners.
+                // Deserialize each document (a single pretty-printed request or
+                // the Collector file exporter's NDJSON, one request per line)
+                // straight into the typed ExportTraceServiceRequest: that keeps
+                // strict duplicate-key rejection, positioned parse errors, and
+                // streaming memory. Only a document that trips protojson's
+                // omitted-`values` case (empty arrayValue/kvlistValue) is
+                // re-parsed through a normalized Value, so the common case pays
+                // nothing. convert_otlp_request sanitizes each event, same code
+                // path as the daemon listeners.
+                type OtlpRequest =
+                    opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
                 let mut events = Vec::new();
                 let mut parsed_any = false;
-                for request in serde_json::Deserializer::from_slice(raw).into_iter::<
-                    opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest,
-                >() {
-                    match request {
-                        Ok(request) => {
+                let mut offset = 0;
+                while offset < raw.len() {
+                    let mut stream = serde_json::Deserializer::from_slice(&raw[offset..])
+                        .into_iter::<OtlpRequest>();
+                    match stream.next() {
+                        None => break,
+                        Some(Ok(request)) => {
                             parsed_any = true;
                             events.extend(crate::ingest::otlp::convert_otlp_request(&request));
+                            offset += stream.byte_offset();
+                        }
+                        // Canonical protojson omits empty repeated fields, so an
+                        // empty-list attribute serializes as `{"arrayValue":{}}`
+                        // and fails with `missing field values`. Backfill the
+                        // empty list via normalize_otlp_json and retry just this
+                        // one document.
+                        Some(Err(e)) if is_missing_values(&e) => {
+                            let mut retry = serde_json::Deserializer::from_slice(&raw[offset..])
+                                .into_iter::<serde_json::Value>();
+                            let Some(Ok(mut value)) = retry.next() else {
+                                return Err(JsonIngestError::Parse(e));
+                            };
+                            normalize_otlp_json(&mut value);
+                            let request: OtlpRequest =
+                                serde_json::from_value(value).map_err(JsonIngestError::Parse)?;
+                            parsed_any = true;
+                            events.extend(crate::ingest::otlp::convert_otlp_request(&request));
+                            offset += retry.byte_offset();
                         }
                         // A truncated trailing document is routine on a live or
                         // rotated Collector file-exporter dump (exporter still
                         // writing, file rotated mid-line). Tolerate it once at
                         // least one request parsed; mid-stream garbage (non-EOF
                         // errors) and a truncated-only payload still fail.
-                        Err(e) if e.is_eof() && parsed_any => {
+                        Some(Err(e)) if e.is_eof() && parsed_any => {
                             tracing::warn!(
                                 "ignoring truncated trailing OTLP JSON document \
                                  (live or rotated file-exporter dump?)"
                             );
                             break;
                         }
-                        Err(e) => return Err(JsonIngestError::Parse(e)),
+                        Some(Err(e)) => return Err(JsonIngestError::Parse(e)),
                     }
                 }
                 Ok(events)
@@ -198,6 +226,40 @@ impl IngestSource for JsonIngest {
                 Ok(events)
             }
         }
+    }
+}
+
+/// True for the serde error opentelemetry-proto raises on an empty-list
+/// attribute serialized the protojson way, `{"arrayValue":{}}` or
+/// `{"kvlistValue":{}}`: the derived Deserialize marks `values` required. The
+/// only proto fields named `values` are ArrayValue/KeyValueList, so this match
+/// is unambiguous and never fires on a well-formed request.
+fn is_missing_values(e: &serde_json::Error) -> bool {
+    e.classify() == serde_json::error::Category::Data
+        && e.to_string().contains("missing field `values`")
+}
+
+/// Backfill the `values` field on empty `arrayValue`/`kvlistValue` attribute
+/// values. Canonical protojson omits empty repeated fields, so `{"arrayValue":{}}`
+/// is a valid empty list, but opentelemetry-proto's derived Deserialize marks
+/// `values` required. Walks the parsed document and inserts an empty array where
+/// missing. Recursion depth is bounded by the pre-dispatch `MAX_JSON_DEPTH` cap.
+fn normalize_otlp_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["arrayValue", "kvlistValue"] {
+                if let Some(serde_json::Value::Object(inner)) = map.get_mut(key)
+                    && !inner.contains_key("values")
+                {
+                    inner.insert("values".to_string(), serde_json::Value::Array(Vec::new()));
+                }
+            }
+            for v in map.values_mut() {
+                normalize_otlp_json(v);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(normalize_otlp_json),
+        _ => {}
     }
 }
 
@@ -450,8 +512,15 @@ mod tests {
 
     /// Compact single-request OTLP/JSON body with one SQL CLIENT span.
     fn otlp_request_json(trace_id: &str, statement: &str) -> String {
+        otlp_request_json_with_attrs(trace_id, statement, "")
+    }
+
+    /// Same span as `otlp_request_json`, with `extra_attrs` spliced into the
+    /// attributes array after db.statement/db.system. Each element must carry a
+    /// leading comma (e.g. `,{"key":..,"value":..}`); pass "" for none.
+    fn otlp_request_json_with_attrs(trace_id: &str, statement: &str, extra_attrs: &str) -> String {
         format!(
-            r#"{{"resourceSpans":[{{"resource":{{"attributes":[{{"key":"service.name","value":{{"stringValue":"svc"}}}}]}},"scopeSpans":[{{"spans":[{{"traceId":"{trace_id}","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{{"key":"db.statement","value":{{"stringValue":"{statement}"}}}},{{"key":"db.system","value":{{"stringValue":"postgresql"}}}}]}}]}}]}}]}}"#
+            r#"{{"resourceSpans":[{{"resource":{{"attributes":[{{"key":"service.name","value":{{"stringValue":"svc"}}}}]}},"scopeSpans":[{{"spans":[{{"traceId":"{trace_id}","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{{"key":"db.statement","value":{{"stringValue":"{statement}"}}}},{{"key":"db.system","value":{{"stringValue":"postgresql"}}}}{extra_attrs}]}}]}}]}}]}}"#
         )
     }
 
@@ -524,6 +593,93 @@ mod tests {
         assert_eq!(events[0].target, "SELECT 1");
         assert_eq!(events[0].service.as_ref(), "svc");
         assert_eq!(events[0].trace_id, "5b8efff798038103d269b633813fc60c");
+    }
+
+    #[test]
+    fn otlp_empty_array_value_ingests() {
+        // Canonical protojson omits empty repeated fields, so `{"arrayValue":{}}`
+        // is a valid empty-list attribute. It must not poison the batch (#81).
+        let json = otlp_request_json_with_attrs(
+            "5b8efff798038103d269b633813fc60c",
+            "SELECT 1",
+            r#",{"key":"tags","value":{"arrayValue":{}}}"#,
+        );
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "SELECT 1");
+    }
+
+    #[test]
+    fn otlp_empty_kvlist_value_ingests() {
+        // `{"kvlistValue":{}}` omits `values` identically and must also parse.
+        let json = otlp_request_json_with_attrs(
+            "5b8efff798038103d269b633813fc60c",
+            "SELECT 1",
+            r#",{"key":"meta","value":{"kvlistValue":{}}}"#,
+        );
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "SELECT 1");
+    }
+
+    #[test]
+    fn normalize_fills_missing_array_values() {
+        // The issue's "attribute reads as an empty list" assertion. It is not
+        // observable on SpanEvent (list attributes are not lifted), so assert it
+        // at the value level: after normalization, `{"arrayValue":{}}` becomes a
+        // valid AnyValue holding an empty ArrayValue.
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, any_value};
+        let mut value: serde_json::Value = serde_json::from_str(r#"{"arrayValue":{}}"#).unwrap();
+        normalize_otlp_json(&mut value);
+        let any: AnyValue = serde_json::from_value(value).unwrap();
+        let Some(any_value::Value::ArrayValue(av)) = any.value else {
+            panic!("expected ArrayValue variant");
+        };
+        assert!(av.values.is_empty());
+    }
+
+    #[test]
+    fn otlp_issue_81_repro_line_ingests() {
+        // The exact repro from #81: a lone SERVER span whose only attribute is
+        // an empty arrayValue. The span is filtered for lacking http.url, so no
+        // events are produced, but ingest must not error on the empty arrayValue.
+        let json = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc-a"}}]},"scopeSpans":[{"scope":{"name":"repro"},"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174","name":"GET /x","kind":2,"startTimeUnixNano":"1783678644000000000","endTimeUnixNano":"1783678644100000000","attributes":[{"key":"empty.list","value":{"arrayValue":{}}}]}]}]}]}"#;
+        let ingest = JsonIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn otlp_empty_array_value_mid_ndjson_continues() {
+        // The lenient retry must advance past the patched document and keep
+        // parsing the rest of the stream, not stop at the first empty list.
+        let line1 = otlp_request_json_with_attrs(
+            "0af7651916cd43dd8448eb211c80319c",
+            "SELECT 1",
+            r#",{"key":"tags","value":{"arrayValue":{}}}"#,
+        );
+        let line2 = otlp_request_json("1bf7651916cd43dd8448eb211c80319d", "SELECT 2");
+        let json = format!("{line1}\n{line2}\n");
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].target, "SELECT 1");
+        assert_eq!(events[1].target, "SELECT 2");
+    }
+
+    #[test]
+    fn otlp_type_wrong_truncated_tail_still_fails() {
+        // A trailing document that is both truncated and type-wrong is not the
+        // benign truncated-tail case: the strict typed parser rejects the wrong
+        // type before EOF, so the batch must fail rather than silently drop it.
+        let full = otlp_request_json("0af7651916cd43dd8448eb211c80319c", "SELECT 1");
+        let json = format!("{full}\n{{\"resourceSpans\":123");
+        let ingest = JsonIngest::new(1_048_576);
+        assert_matches!(
+            ingest.ingest(json.as_bytes()),
+            Err(JsonIngestError::Parse(_))
+        );
     }
 
     #[test]
