@@ -1,0 +1,39 @@
+# Fuzz targets for the ingest parsers and the SQL tokenizer.
+#
+# Run (requires nightly + cargo-fuzz):
+#   rustup toolchain install nightly
+#   cargo install cargo-fuzz
+#   cargo +nightly fuzz run json_ingest
+#   cargo +nightly fuzz run normalize_sql
+
+[package]
+name = "perf-sentinel-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+perf-sentinel-core = { path = "../crates/sentinel-core" }
+
+[[bin]]
+name = "json_ingest"
+path = "fuzz_targets/json_ingest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "normalize_sql"
+path = "fuzz_targets/normalize_sql.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace: keeps the fuzz crate (and its sanitizer-flagged
+# builds) out of the main workspace's build, test, and clippy runs.
+[workspace]
