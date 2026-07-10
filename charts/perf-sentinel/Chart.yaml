@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.6
-appVersion: "0.9.6"
+version: 0.9.7
+appVersion: "0.9.7"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg

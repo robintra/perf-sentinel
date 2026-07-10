@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.7]
+
+### Fixed
+
+- Batch `analyze --input` now accepts OTLP/JSON attributes whose value is an empty list. Canonical protobuf JSON omits empty repeated fields, so an empty list serializes as `{"arrayValue":{}}` (and an empty map as `{"kvlistValue":{}}`) with no `values` key. Before, a single such attribute failed the whole file with `missing field values` and exited non-zero, so nothing was analyzed. The OTLP/JSON reader keeps the strict typed parse as the fast path and backfills the omitted empty list only for the affected document, so files from compliant producers (for example the OpenTelemetry Astronomy Shop demo's recommendation service) analyze cleanly (#81).
+
 ## [0.9.6]
 
 ### Changed
