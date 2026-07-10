@@ -15,7 +15,9 @@
 //!   whole traces upstream never *creates* findings". Deliberately NOT
 //!   covered: [`super::run_full_detection`]'s cross-trace percentile
 //!   detector ([`super::slow::detect_slow_cross_trace`]), which is
-//!   non-additive by design (p50/p95/p99 shift with the population).
+//!   non-additive by design (p50/p95/p99 shift with the population);
+//!   that exclusion is itself pinned by
+//!   `cross_trace_slow_findings_are_not_additive` below.
 //! - **silence**: below-threshold workloads never emit
 //! - **span removal**: dropping spans (collector loss) never creates a
 //!   finding nor inflates occurrences, under the strict distinct-params
@@ -47,12 +49,14 @@ use proptest::prelude::*;
 use super::n_plus_one::{CRITICAL_OCCURRENCE_THRESHOLD, detect_n_plus_one};
 use super::redundant::detect_redundant;
 use super::sanitizer_aware::SanitizerAwareMode;
-use super::{ClassificationMethod, DetectConfig, Finding, FindingType, Severity, detect};
+use super::{
+    ClassificationMethod, DetectConfig, Finding, FindingType, Severity, detect, run_full_detection,
+};
 use crate::correlate::Trace;
 use crate::event::SpanEvent;
 use crate::test_helpers::{
     make_http_event, make_http_event_with_duration, make_sanitized_n_plus_one_events,
-    make_sql_event, make_trace,
+    make_sql_event, make_sql_event_with_duration, make_trace,
 };
 
 const THRESHOLD: u32 = 5;
@@ -619,4 +623,49 @@ fn sanitizer_heuristic_can_fire_after_span_removal() {
         Some(ClassificationMethod::SanitizerHeuristic)
     );
     assert_eq!(after_removal[0].pattern.occurrences, 6);
+}
+
+/// Characterization: cross-trace slow detection is non-additive by
+/// design, which is why the additivity property above targets `detect`
+/// and the lab's sampling-degradation gate asserts *total* findings
+/// only. Two slow spans per trace stay below `slow_min_occurrences` (3)
+/// in isolation, and `run_full_detection` skips cross-trace analysis
+/// for a single trace - but the combined population reaches 4
+/// occurrences across 2 traces with p99 above the threshold, so a
+/// `slow_sql` finding exists in the combined run that no per-trace run
+/// contains.
+#[test]
+fn cross_trace_slow_findings_are_not_additive() {
+    let slow_span = |trace: &str, span: &str, id: usize, ts: &str| {
+        make_sql_event_with_duration(
+            trace,
+            span,
+            &format!("SELECT * FROM big_table WHERE id = {id}"),
+            ts,
+            600_000,
+        )
+    };
+    let trace_a = make_trace(vec![
+        slow_span("trace-a", "a1", 1, "2025-07-10T14:32:01.000Z"),
+        slow_span("trace-a", "a2", 2, "2025-07-10T14:32:01.050Z"),
+    ]);
+    let trace_b = make_trace(vec![
+        slow_span("trace-b", "b1", 3, "2025-07-10T14:32:01.100Z"),
+        slow_span("trace-b", "b2", 4, "2025-07-10T14:32:01.150Z"),
+    ]);
+    let config = default_config();
+    let slow_count = |findings: &[Finding]| {
+        findings
+            .iter()
+            .filter(|f| matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp))
+            .count()
+    };
+
+    let solo_a = run_full_detection(std::slice::from_ref(&trace_a), &config);
+    let solo_b = run_full_detection(std::slice::from_ref(&trace_b), &config);
+    let combined = run_full_detection(&[trace_a, trace_b], &config);
+
+    assert_eq!(slow_count(&solo_a), 0);
+    assert_eq!(slow_count(&solo_b), 0);
+    assert_eq!(slow_count(&combined), 1);
 }
