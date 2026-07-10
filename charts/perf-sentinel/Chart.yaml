@@ -37,6 +37,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: fixed
+      description: "appVersion 0.9.7: batch analyze --input now accepts OTLP/JSON list attributes serialized the canonical protobuf JSON way, with the empty repeated field omitted (arrayValue:{} or kvlistValue:{}). Previously one such attribute failed the whole file with a missing values field and a non-zero exit, so nothing was analyzed. The OTLP/JSON reader keeps the strict typed parse as the fast path and backfills the omitted empty list only for the affected document. No chart template change, this bump tracks the new appVersion."
     - kind: changed
       description: "appVersion 0.9.6: the embedded carbon-intensity table switches its nationally-gridded rows from Electricity Maps consumption-based 2023-2024 means to Ember yearly generation-based national data (latest year per country), regenerated semiannually by the new refresh-datasets workflow through a reviewed PR. Low-carbon grids move the most (Sweden 8 to 35.4, Finland 8 to 57.5, Norway 7 to 28.1 gCO2eq/kWh), the generation-vs-consumption accounting difference documented in docs/METHODOLOGY.md. Hourly profiles are renormalized to the new annual levels, shapes unchanged. The SPECpower instance table is now generated from the CCF coefficient CSVs (the m6a/c6a families align to the CCF EPYC 3rd Gen coefficient, 26 rows lose hand-rounding slips of at most 0.1 W). Carbon outputs shift for the affected regions. SPECPOWER_VINTAGE is unchanged, so operator TOMLs pinning specpower_table_version are unaffected. No chart template change, this bump tracks the new appVersion."
     - kind: added
@@ -99,7 +101,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.6
+      image: ghcr.io/robintra/perf-sentinel:0.9.7
       platforms:
         - linux/amd64
         - linux/arm64
