@@ -369,15 +369,6 @@ fn walk_parents_for_code_attrs<'a>(
 
 // ── Main conversion function ────────────────────────────────────────
 
-/// Convert an OTLP `ExportTraceServiceRequest` into `SpanEvent`s.
-///
-/// Uses a two-pass design per resource: the first pass builds a span index
-/// for parent lookup (needed to resolve `source.endpoint` from parent
-/// attributes), and the second pass converts I/O spans into events.
-///
-/// Spans without `db.statement` or `http.url` attributes are skipped.
-/// Parent span lookup is done within the same request; if the parent is not
-/// found, `source.endpoint` defaults to `"unknown"`.
 /// Build a span index for parent lookup within a single resource
 /// (capped at [`MAX_SPANS_PER_RESOURCE`] spans).
 fn build_span_index(
@@ -454,6 +445,17 @@ fn collect_instrumentation_scopes(
     }
 }
 
+/// Convert an OTLP `ExportTraceServiceRequest` into `SpanEvent`s.
+///
+/// Uses a two-pass design per resource: the first pass builds a span index
+/// for parent lookup (needed to resolve `source.endpoint` from parent
+/// attributes), and the second pass converts I/O spans into events.
+///
+/// Spans that resolve neither a statement (legacy `db.statement`, stable
+/// `db.query.text`, or the dd-trace `dd.span.Resource` fallback) nor an
+/// outbound URL (legacy `http.url`, stable `url.full`) are skipped; see
+/// `classify_io_event`. Parent span lookup is done within the same request;
+/// if the parent is not found, `source.endpoint` defaults to `"unknown"`.
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
     convert_otlp_request_counted(request).0
