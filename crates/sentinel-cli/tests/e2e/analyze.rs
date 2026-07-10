@@ -681,6 +681,37 @@ fn cli_analyze_otlp_ndjson_fixture() {
 }
 
 #[test]
+fn cli_analyze_otlp_empty_array_value() {
+    // Regression for #81: an attribute serialized as an empty list
+    // (`{"arrayValue":{}}`, canonical protojson) must not fail the whole batch.
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/otlp_empty_array_value.ndjson",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "empty arrayValue must not fail ingest: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("report should be valid JSON: {e}\nstdout: {stdout}"));
+    assert_eq!(
+        report["analysis"]["traces_analyzed"], 1,
+        "the SQL span must still contribute a trace"
+    );
+}
+
+#[test]
 fn cli_analyze_jaeger_fixture() {
     let fixture_path = format!(
         "{}/../../tests/fixtures/jaeger_export.json",
