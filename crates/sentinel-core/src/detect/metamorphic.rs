@@ -22,17 +22,29 @@
 //!   rule (`SanitizerAwareMode::Never`; the sanitizer/timing heuristics
 //!   are intentionally out of scope - their verdicts depend on group
 //!   composition, so span removal can legitimately flip them)
+//! - **auto reclassification (HTTP)**: under `Auto`, span removal may
+//!   flip a group between the direct rule and the timing-variance
+//!   heuristic, but it never invents a template the workload does not
+//!   contain, never counts more occurrences than spans present, and
+//!   never splits one group into several findings
+//!
+//! The amplification, permutation, silence, and span-removal properties
+//! run twice, on SQL workloads and on their HTTP twins (`*_http_*`):
+//! `detect_n_plus_one` shares one grouping path for both event types
+//! but classifies them through different heuristics.
 
 use std::collections::HashMap;
 
 use proptest::prelude::*;
 
-use super::n_plus_one::{detect_n_plus_one, CRITICAL_OCCURRENCE_THRESHOLD};
+use super::n_plus_one::{CRITICAL_OCCURRENCE_THRESHOLD, detect_n_plus_one};
 use super::sanitizer_aware::SanitizerAwareMode;
-use super::{detect, DetectConfig, Finding, Severity};
+use super::{ClassificationMethod, DetectConfig, Finding, Severity, detect};
 use crate::correlate::Trace;
 use crate::event::SpanEvent;
-use crate::test_helpers::{make_sql_event, make_trace};
+use crate::test_helpers::{
+    make_http_event, make_http_event_with_duration, make_sql_event, make_trace,
+};
 
 const THRESHOLD: u32 = 5;
 const WINDOW_MS: u64 = 500;
@@ -78,6 +90,38 @@ fn mixed_workload() -> impl Strategy<Value = Vec<SpanEvent>> {
             "trace-p",
             "span-noise",
             "INSERT INTO logs (msg) VALUES ('x')",
+            "2025-07-10T14:32:01.400Z",
+        ));
+        events
+    })
+}
+
+/// One same-template HTTP series: `count` GETs on `/api/{stub}/{i}`,
+/// distinct path ids (distinct params), `stride_ms` apart starting at
+/// `start_ms`. Same in-window generator bounds as [`sql_series`].
+fn http_series(stub: &str, count: usize, stride_ms: usize, start_ms: usize) -> Vec<SpanEvent> {
+    (0..count)
+        .map(|i| {
+            make_http_event(
+                "trace-p",
+                &format!("span-{stub}-{i}"),
+                &format!("http://svc:5000/api/{stub}/{}", i + 1),
+                &format!("2025-07-10T14:32:01.{:03}Z", start_ms + i * stride_ms),
+            )
+        })
+        .collect()
+}
+
+/// HTTP twin of [`mixed_workload`]: two `{id}`-templated series plus an
+/// unrelated parameterless call as noise.
+fn mixed_http_workload() -> impl Strategy<Value = Vec<SpanEvent>> {
+    (1usize..=12, 0usize..=8, 1usize..=10).prop_map(|(n_items, n_orders, stride)| {
+        let mut events = http_series("items", n_items, stride, 0);
+        events.extend(http_series("orders", n_orders, stride, 100));
+        events.push(make_http_event(
+            "trace-p",
+            "span-noise",
+            "http://svc:5000/api/health",
             "2025-07-10T14:32:01.400Z",
         ));
         events
@@ -277,6 +321,152 @@ proptest! {
             prop_assert!(
                 finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences
             );
+        }
+    }
+
+    /// HTTP twin of the amplification property.
+    #[test]
+    fn growing_an_http_n_plus_one_group_preserves_or_strengthens(
+        base in (THRESHOLD as usize)..=20,
+        extra in 1usize..=10,
+        stride in 1usize..=10,
+    ) {
+        let before = make_trace(http_series("items", base, stride, 0));
+        let after = make_trace(http_series("items", base + extra, stride, 0));
+
+        let f_before = detect_n_plus_one(&before, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let f_after = detect_n_plus_one(&after, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+
+        prop_assert_eq!(f_before.len(), 1);
+        prop_assert_eq!(f_after.len(), 1);
+        prop_assert_eq!(f_before[0].pattern.occurrences, base);
+        prop_assert_eq!(f_after[0].pattern.occurrences, base + extra);
+        if f_before[0].severity == Severity::Critical {
+            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
+        }
+        if base + extra >= CRITICAL_OCCURRENCE_THRESHOLD {
+            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
+        }
+    }
+
+    /// HTTP twin of the permutation property.
+    #[test]
+    fn http_findings_invariant_under_span_permutation(
+        (original, shuffled) in mixed_http_workload()
+            .prop_flat_map(|events| (Just(events.clone()), Just(events).prop_shuffle())),
+    ) {
+        let f_original = detect_n_plus_one(
+            &make_trace(original), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let f_shuffled = detect_n_plus_one(
+            &make_trace(shuffled), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        prop_assert_eq!(sorted_keys(&f_original), sorted_keys(&f_shuffled));
+    }
+
+    /// HTTP twin of the silence property.
+    #[test]
+    fn below_threshold_http_workloads_stay_silent(
+        count in 1usize..(THRESHOLD as usize),
+        stride in 1usize..=10,
+    ) {
+        let trace = make_trace(http_series("items", count, stride, 0));
+        let findings = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        prop_assert!(findings.is_empty(), "found {:?}", sorted_keys(&findings));
+    }
+
+    /// HTTP twin of the span-removal property, scoped to `Never` for the
+    /// same reason as the SQL variant: the HTTP timing-variance heuristic
+    /// judges group composition, so removal can legitimately flip it.
+    #[test]
+    fn removing_http_spans_never_creates_or_inflates_findings(
+        (events, keep_mask) in mixed_http_workload().prop_flat_map(|events| {
+            let len = events.len();
+            (Just(events), prop::collection::vec(any::<bool>(), len))
+        }),
+    ) {
+        let kept: Vec<SpanEvent> = events
+            .iter()
+            .zip(&keep_mask)
+            .filter(|(_, keep)| **keep)
+            .map(|(event, _)| event.clone())
+            .collect();
+        prop_assume!(!kept.is_empty());
+
+        let f_full = detect_n_plus_one(
+            &make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
+        let f_kept = detect_n_plus_one(
+            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
+
+        prop_assert!(f_kept.len() <= f_full.len());
+        for finding in &f_kept {
+            let full_match = f_full.iter().find(|f| {
+                f.finding_type == finding.finding_type
+                    && f.pattern.template == finding.pattern.template
+            });
+            prop_assert!(
+                full_match.is_some(),
+                "finding appeared only after span removal: {}",
+                finding.pattern.template
+            );
+            prop_assert!(
+                finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences
+            );
+        }
+    }
+
+    /// Characterization (Auto, HTTP): one template, few distinct path
+    /// ids, spread durations. Span removal may flip the group between
+    /// the direct distinct-params rule and the timing-variance heuristic,
+    /// or silence it - that flip is legitimate and NOT asserted against.
+    /// What must hold: at most one finding per run, only the workload's
+    /// template, never more occurrences than spans, and a classification
+    /// that is either direct (`None`) or the heuristic.
+    #[test]
+    fn http_auto_reclassification_never_invents_templates(
+        (ids, durations, keep_mask) in (6usize..=18).prop_flat_map(|n| (
+            prop::collection::vec(1usize..=8, n),
+            prop::collection::vec(100u64..=100_000, n),
+            prop::collection::vec(any::<bool>(), n),
+        )),
+    ) {
+        let events: Vec<SpanEvent> = ids
+            .iter()
+            .zip(&durations)
+            .enumerate()
+            .map(|(i, (id, duration))| {
+                make_http_event_with_duration(
+                    "trace-p",
+                    &format!("span-{i}"),
+                    &format!("http://svc:5000/api/items/{id}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 10),
+                    *duration,
+                )
+            })
+            .collect();
+        let kept: Vec<SpanEvent> = events
+            .iter()
+            .zip(&keep_mask)
+            .filter(|(_, keep)| **keep)
+            .map(|(event, _)| event.clone())
+            .collect();
+        prop_assume!(!kept.is_empty());
+
+        let kept_len = kept.len();
+        let full = detect_n_plus_one(
+            &make_trace(events.clone()), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let partial = detect_n_plus_one(
+            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+
+        prop_assert!(full.len() <= 1);
+        prop_assert!(partial.len() <= 1);
+        for (findings, span_count) in [(&full, events.len()), (&partial, kept_len)] {
+            for finding in findings {
+                prop_assert_eq!(finding.pattern.template.as_str(), "GET /api/items/{id}");
+                prop_assert!(finding.pattern.occurrences <= span_count);
+                prop_assert!(matches!(
+                    finding.classification_method,
+                    None | Some(ClassificationMethod::SanitizerHeuristic)
+                ));
+            }
         }
     }
 }
