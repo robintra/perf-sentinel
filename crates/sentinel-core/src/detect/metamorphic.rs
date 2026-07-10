@@ -31,6 +31,9 @@
 //!   heuristic, but it never invents a template the workload does not
 //!   contain, never counts more occurrences than spans present, and
 //!   never splits one group into several findings
+//! - **sanitizer non-monotonicity (pinned)**: the known corner where
+//!   removing a span CAN create a finding under `Auto`, kept as a
+//!   characterization test so the trade-off stays documented
 //!
 //! The amplification, permutation, silence, and span-removal properties
 //! run twice, on SQL workloads and on their HTTP twins (`*_http_*`):
@@ -570,4 +573,50 @@ proptest! {
             }
         }
     }
+}
+
+/// Characterization: the sanitizer heuristic is deliberately non-monotone
+/// under span removal, which is why the removal properties above are
+/// scoped to `SanitizerAwareMode::Never`. A mixed group (sanitized spans
+/// plus one span carrying an extracted literal) fails `looks_sanitized`,
+/// so the whole group stays silent; dropping the literal-carrying span
+/// leaves a uniformly sanitized group whose ORM scope flips the verdict
+/// to `LikelyNPlusOne`. Pinned so the corner stays a documented trade-off
+/// instead of resurfacing as a proptest failure.
+#[test]
+fn sanitizer_heuristic_can_fire_after_span_removal() {
+    let mut events =
+        make_sanitized_n_plus_one_events(6, Some("io.opentelemetry.spring-data-jpa-3.0"), None);
+    events.push(make_sql_event(
+        "trace-1",
+        "span-literal",
+        "SELECT * FROM order_items WHERE order_id = 42",
+        "2025-07-10T14:32:01.300Z",
+    ));
+
+    let full = detect_n_plus_one(
+        &make_trace(events.clone()),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+    );
+    assert!(
+        full.is_empty(),
+        "mixed group must stay silent: {:?}",
+        sorted_keys(&full)
+    );
+
+    events.pop();
+    let after_removal = detect_n_plus_one(
+        &make_trace(events),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+    );
+    assert_eq!(after_removal.len(), 1);
+    assert_eq!(
+        after_removal[0].classification_method,
+        Some(ClassificationMethod::SanitizerHeuristic)
+    );
+    assert_eq!(after_removal[0].pattern.occurrences, 6);
 }
