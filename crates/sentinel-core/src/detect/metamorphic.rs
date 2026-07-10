@@ -1,0 +1,282 @@
+//! Metamorphic property tests for the detection stage.
+//!
+//! Ground-truth labels are expensive; invariants are not. Each property
+//! asserts a *relation* between detection runs on transformed inputs
+//! instead of an expected output, so the whole detector logic is
+//! exercised on thousands of generated workloads without a single
+//! hand-labeled corpus:
+//!
+//! - **amplification**: growing an already-detected N+1 group can only
+//!   strengthen the finding, never weaken or drop it
+//! - **permutation**: span arrival order never changes what is found
+//! - **duplication**: a duplicated trace exactly doubles per-class findings
+//! - **additivity**: per-trace detection over a set equals the union of
+//!   detections per trace - the structural guarantee behind "sampling
+//!   whole traces upstream never *creates* findings". Deliberately NOT
+//!   covered: [`super::run_full_detection`]'s cross-trace percentile
+//!   detector ([`super::slow::detect_slow_cross_trace`]), which is
+//!   non-additive by design (p50/p95/p99 shift with the population).
+//! - **silence**: below-threshold workloads never emit
+//! - **span removal**: dropping spans (collector loss) never creates a
+//!   finding nor inflates occurrences, under the strict distinct-params
+//!   rule (`SanitizerAwareMode::Never`; the sanitizer/timing heuristics
+//!   are intentionally out of scope - their verdicts depend on group
+//!   composition, so span removal can legitimately flip them)
+
+use std::collections::HashMap;
+
+use proptest::prelude::*;
+
+use super::n_plus_one::{detect_n_plus_one, CRITICAL_OCCURRENCE_THRESHOLD};
+use super::sanitizer_aware::SanitizerAwareMode;
+use super::{detect, DetectConfig, Finding, Severity};
+use crate::correlate::Trace;
+use crate::event::SpanEvent;
+use crate::test_helpers::{make_sql_event, make_trace};
+
+const THRESHOLD: u32 = 5;
+const WINDOW_MS: u64 = 500;
+
+fn default_config() -> DetectConfig {
+    DetectConfig {
+        n_plus_one_threshold: THRESHOLD,
+        window_ms: WINDOW_MS,
+        slow_threshold_ms: 500,
+        slow_min_occurrences: 3,
+        max_fanout: 20,
+        chatty_service_min_calls: 15,
+        pool_saturation_concurrent_threshold: 10,
+        serialized_min_sequential: 3,
+        sanitizer_aware_classification: SanitizerAwareMode::default(),
+    }
+}
+
+/// One same-template SQL series: `count` spans on `table`, distinct ids
+/// (distinct params, so only the direct classification rule can fire),
+/// `stride_ms` apart starting at `start_ms`. Generator bounds keep every
+/// series inside `WINDOW_MS` (max 30 spans x 10 ms stride + 100 ms offset).
+fn sql_series(table: &str, count: usize, stride_ms: usize, start_ms: usize) -> Vec<SpanEvent> {
+    (0..count)
+        .map(|i| {
+            make_sql_event(
+                "trace-p",
+                &format!("span-{table}-{i}"),
+                &format!("SELECT * FROM {table} WHERE id = {}", i + 1),
+                &format!("2025-07-10T14:32:01.{:03}Z", start_ms + i * stride_ms),
+            )
+        })
+        .collect()
+}
+
+/// A mixed workload: one `users` series above/below threshold, one
+/// `orders` series, plus an unrelated single statement as noise.
+fn mixed_workload() -> impl Strategy<Value = Vec<SpanEvent>> {
+    (1usize..=12, 0usize..=8, 1usize..=10).prop_map(|(n_users, n_orders, stride)| {
+        let mut events = sql_series("users", n_users, stride, 0);
+        events.extend(sql_series("orders", n_orders, stride, 100));
+        events.push(make_sql_event(
+            "trace-p",
+            "span-noise",
+            "INSERT INTO logs (msg) VALUES ('x')",
+            "2025-07-10T14:32:01.400Z",
+        ));
+        events
+    })
+}
+
+fn clone_with_trace_id(events: &[SpanEvent], trace_id: &str) -> Vec<SpanEvent> {
+    events
+        .iter()
+        .cloned()
+        .map(|mut event| {
+            event.trace_id = trace_id.to_string();
+            event
+        })
+        .collect()
+}
+
+/// Order-independent comparison key: everything that identifies a finding
+/// except span-order-dependent context (source endpoint / code location
+/// come from the group's first span in input order, legitimately).
+fn finding_key(finding: &Finding) -> String {
+    format!(
+        "{:?}|{}|{}|{}|{:?}",
+        finding.finding_type,
+        finding.pattern.template,
+        finding.pattern.occurrences,
+        finding.pattern.distinct_params,
+        finding.severity,
+    )
+}
+
+fn sorted_keys(findings: &[Finding]) -> Vec<String> {
+    let mut keys: Vec<String> = findings.iter().map(finding_key).collect();
+    keys.sort();
+    keys
+}
+
+fn key_counts(findings: &[Finding]) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+    for finding in findings {
+        *counts.entry(finding_key(finding)).or_insert(0) += 1;
+    }
+    counts
+}
+
+proptest! {
+    /// Amplification: appending more distinct-param occurrences to a group
+    /// already past the threshold keeps exactly one finding, counts every
+    /// occurrence, and never de-escalates severity.
+    #[test]
+    fn growing_an_n_plus_one_group_preserves_or_strengthens(
+        base in (THRESHOLD as usize)..=20,
+        extra in 1usize..=10,
+        stride in 1usize..=10,
+    ) {
+        let before = make_trace(sql_series("users", base, stride, 0));
+        let after = make_trace(sql_series("users", base + extra, stride, 0));
+
+        let f_before = detect_n_plus_one(&before, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let f_after = detect_n_plus_one(&after, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+
+        prop_assert_eq!(f_before.len(), 1);
+        prop_assert_eq!(f_after.len(), 1);
+        prop_assert_eq!(f_before[0].pattern.occurrences, base);
+        prop_assert_eq!(f_after[0].pattern.occurrences, base + extra);
+        // Severity is anchored on the occurrence count: growth may escalate
+        // Warning -> Critical but must never do the reverse.
+        if f_before[0].severity == Severity::Critical {
+            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
+        }
+        if base + extra >= CRITICAL_OCCURRENCE_THRESHOLD {
+            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
+        }
+    }
+
+    /// Permutation: span arrival order never changes what is found.
+    /// (Windows come from min/max timestamps and grouping is by template,
+    /// so any order sensitivity here is a detector bug.)
+    #[test]
+    fn findings_invariant_under_span_permutation(
+        (original, shuffled) in mixed_workload()
+            .prop_flat_map(|events| (Just(events.clone()), Just(events).prop_shuffle())),
+    ) {
+        let f_original = detect_n_plus_one(
+            &make_trace(original), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let f_shuffled = detect_n_plus_one(
+            &make_trace(shuffled), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        prop_assert_eq!(sorted_keys(&f_original), sorted_keys(&f_shuffled));
+    }
+
+    /// Duplication: feeding the same spans again under a new trace id
+    /// exactly doubles every per-class finding count - no cross-trace
+    /// leakage between per-trace detectors.
+    #[test]
+    fn duplicating_a_trace_doubles_per_class_findings(events in mixed_workload()) {
+        let config = default_config();
+        let solo = detect(&[make_trace(events.clone())], &config);
+        let duo = detect(
+            &[
+                make_trace(events.clone()),
+                make_trace(clone_with_trace_id(&events, "trace-q")),
+            ],
+            &config,
+        );
+
+        let solo_counts = key_counts(&solo);
+        let duo_counts = key_counts(&duo);
+        prop_assert_eq!(duo_counts.len(), solo_counts.len());
+        for (key, count) in &solo_counts {
+            prop_assert_eq!(duo_counts.get(key), Some(&(count * 2)), "class {}", key);
+        }
+    }
+
+    /// Additivity: per-trace detection over a set is exactly the union of
+    /// per-trace detections. This is the structural guarantee behind
+    /// "head/tail-sampling whole traces upstream never creates findings"
+    /// (the lab's sampling-degradation monotone gate, proven at the unit
+    /// level). Cross-trace percentile detection is excluded on purpose.
+    #[test]
+    fn per_trace_detection_is_additive(
+        workloads in prop::collection::vec(mixed_workload(), 2..=4),
+    ) {
+        let config = default_config();
+        let traces: Vec<Trace> = workloads
+            .iter()
+            .enumerate()
+            .map(|(i, events)| make_trace(clone_with_trace_id(events, &format!("trace-{i}"))))
+            .collect();
+
+        let combined = detect(&traces, &config);
+        let mut separate = Vec::new();
+        for trace in &traces {
+            separate.extend(detect(std::slice::from_ref(trace), &config));
+        }
+
+        // Keys extended with the trace id: additivity must hold per trace,
+        // not just in aggregate.
+        let tag = |findings: &[Finding]| {
+            let mut keys: Vec<String> = findings
+                .iter()
+                .map(|f| format!("{}|{}", f.trace_id, finding_key(f)))
+                .collect();
+            keys.sort();
+            keys
+        };
+        prop_assert_eq!(tag(&combined), tag(&separate));
+    }
+
+    /// Silence: a workload where no template reaches the threshold must
+    /// produce no N+1 finding at all.
+    #[test]
+    fn below_threshold_workloads_stay_silent(
+        count in 1usize..(THRESHOLD as usize),
+        stride in 1usize..=10,
+    ) {
+        let trace = make_trace(sql_series("users", count, stride, 0));
+        let findings = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        prop_assert!(findings.is_empty(), "found {:?}", sorted_keys(&findings));
+    }
+
+    /// Span removal (collector loss): dropping any subset of spans never
+    /// creates a finding for a template the full trace did not flag, and
+    /// never inflates occurrences. Scoped to the strict distinct-params
+    /// rule (`Never`): the sanitizer/timing heuristics judge group
+    /// composition, so removal can legitimately flip their verdicts.
+    #[test]
+    fn removing_spans_never_creates_or_inflates_findings(
+        (events, keep_mask) in mixed_workload().prop_flat_map(|events| {
+            let len = events.len();
+            (Just(events), prop::collection::vec(any::<bool>(), len))
+        }),
+    ) {
+        let kept: Vec<SpanEvent> = events
+            .iter()
+            .zip(&keep_mask)
+            .filter(|(_, keep)| **keep)
+            .map(|(event, _)| event.clone())
+            .collect();
+        prop_assume!(!kept.is_empty());
+
+        let f_full = detect_n_plus_one(
+            &make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
+        let f_kept = detect_n_plus_one(
+            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
+
+        prop_assert!(f_kept.len() <= f_full.len());
+        for finding in &f_kept {
+            let full_match = f_full.iter().find(|f| {
+                f.finding_type == finding.finding_type
+                    && f.pattern.template == finding.pattern.template
+            });
+            prop_assert!(
+                full_match.is_some(),
+                "finding appeared only after span removal: {}",
+                finding.pattern.template
+            );
+            prop_assert!(
+                finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences
+            );
+        }
+    }
+}

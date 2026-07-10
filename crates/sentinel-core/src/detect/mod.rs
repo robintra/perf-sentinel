@@ -3,6 +3,8 @@
 pub mod chatty;
 pub mod correlate_cross;
 pub mod fanout;
+#[cfg(test)]
+mod metamorphic;
 pub mod n_plus_one;
 pub mod pool_saturation;
 pub mod redundant;
