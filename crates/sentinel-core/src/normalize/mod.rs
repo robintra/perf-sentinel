@@ -1,6 +1,8 @@
 //! Normalization stage: canonicalizes SQL queries and HTTP URLs.
 
 pub mod http;
+#[cfg(test)]
+mod metamorphic;
 pub mod sql;
 
 use std::sync::Arc;
