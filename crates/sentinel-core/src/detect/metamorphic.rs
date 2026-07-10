@@ -22,6 +22,10 @@
 //!   rule (`SanitizerAwareMode::Never`; the sanitizer/timing heuristics
 //!   are intentionally out of scope - their verdicts depend on group
 //!   composition, so span removal can legitimately flip them)
+//! - **exclusivity**: a template never appears in both the N+1 and the
+//!   redundant finding sets for the same trace, under any
+//!   `SanitizerAwareMode` and any mix of duplicate / distinct /
+//!   sanitized workloads
 //! - **auto reclassification (HTTP)**: under `Auto`, span removal may
 //!   flip a group between the direct rule and the timing-variance
 //!   heuristic, but it never invents a template the workload does not
@@ -33,17 +37,19 @@
 //! `detect_n_plus_one` shares one grouping path for both event types
 //! but classifies them through different heuristics.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use proptest::prelude::*;
 
 use super::n_plus_one::{CRITICAL_OCCURRENCE_THRESHOLD, detect_n_plus_one};
+use super::redundant::detect_redundant;
 use super::sanitizer_aware::SanitizerAwareMode;
-use super::{ClassificationMethod, DetectConfig, Finding, Severity, detect};
+use super::{ClassificationMethod, DetectConfig, Finding, FindingType, Severity, detect};
 use crate::correlate::Trace;
 use crate::event::SpanEvent;
 use crate::test_helpers::{
-    make_http_event, make_http_event_with_duration, make_sql_event, make_trace,
+    make_http_event, make_http_event_with_duration, make_sanitized_n_plus_one_events,
+    make_sql_event, make_trace,
 };
 
 const THRESHOLD: u32 = 5;
@@ -126,6 +132,71 @@ fn mixed_http_workload() -> impl Strategy<Value = Vec<SpanEvent>> {
         ));
         events
     })
+}
+
+fn any_mode() -> impl Strategy<Value = SanitizerAwareMode> {
+    prop_oneof![
+        Just(SanitizerAwareMode::Never),
+        Just(SanitizerAwareMode::Auto),
+        Just(SanitizerAwareMode::Strict),
+        Just(SanitizerAwareMode::Always),
+    ]
+}
+
+/// Workload mixing every classification path on overlapping templates:
+/// an exact-duplicate SQL series (redundant candidate), a distinct-params
+/// series (direct N+1 candidate), and an `OTel`-sanitized series
+/// (heuristic candidate, ORM scope toggled) all share the `order_items /
+/// order_id` template and merge into one group; a duplicate HTTP series
+/// and a noise statement stay separate.
+fn exclusivity_workload() -> impl Strategy<Value = (Vec<SpanEvent>, SanitizerAwareMode)> {
+    (
+        0usize..=8,
+        0usize..=8,
+        0usize..=8,
+        0usize..=6,
+        1usize..=6,
+        any::<bool>(),
+        any_mode(),
+    )
+        .prop_map(
+            |(n_dup, n_distinct, n_sanitized, n_http, stride, orm, mode)| {
+                let mut events = Vec::new();
+                for i in 0..n_dup {
+                    events.push(make_sql_event(
+                        "trace-p",
+                        &format!("span-dup-{i}"),
+                        "SELECT * FROM order_items WHERE order_id = 7",
+                        &format!("2025-07-10T14:32:01.{:03}Z", i * stride),
+                    ));
+                }
+                for i in 0..n_distinct {
+                    events.push(make_sql_event(
+                        "trace-p",
+                        &format!("span-distinct-{i}"),
+                        &format!("SELECT * FROM order_items WHERE order_id = {}", 100 + i),
+                        &format!("2025-07-10T14:32:01.{:03}Z", 100 + i * stride),
+                    ));
+                }
+                let scope = orm.then_some("io.opentelemetry.spring-data-jpa-3.0");
+                events.extend(make_sanitized_n_plus_one_events(n_sanitized, scope, None));
+                for i in 0..n_http {
+                    events.push(make_http_event(
+                        "trace-p",
+                        &format!("span-http-{i}"),
+                        "http://svc:5000/api/items/7",
+                        &format!("2025-07-10T14:32:01.{:03}Z", 300 + i * stride),
+                    ));
+                }
+                events.push(make_sql_event(
+                    "trace-p",
+                    "span-noise",
+                    "INSERT INTO logs (msg) VALUES ('x')",
+                    "2025-07-10T14:32:01.450Z",
+                ));
+                (events, mode)
+            },
+        )
 }
 
 fn clone_with_trace_id(events: &[SpanEvent], trace_id: &str) -> Vec<SpanEvent> {
@@ -409,6 +480,36 @@ proptest! {
             );
             prop_assert!(
                 finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences
+            );
+        }
+    }
+
+    /// Exclusivity: `detect_redundant` receives the N+1 findings so a
+    /// template already classified as N+1 (direct rule or heuristic) is
+    /// never double-reported as redundant, whatever the mode and the mix
+    /// of duplicate / distinct / sanitized spans sharing that template.
+    #[test]
+    fn n_plus_one_and_redundant_never_share_a_template(
+        (events, mode) in exclusivity_workload(),
+    ) {
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, mode);
+        let redundant = detect_redundant(&trace, &n_plus_one);
+
+        let claimed: HashSet<(&FindingType, &str)> = n_plus_one
+            .iter()
+            .map(|f| (&f.finding_type, f.pattern.template.as_str()))
+            .collect();
+        for finding in &redundant {
+            // detect_redundant only emits Redundant{Sql,Http}.
+            let twin = match finding.finding_type {
+                FindingType::RedundantSql => FindingType::NPlusOneSql,
+                _ => FindingType::NPlusOneHttp,
+            };
+            prop_assert!(
+                !claimed.contains(&(&twin, finding.pattern.template.as_str())),
+                "template classified both n+1 and redundant: {}",
+                finding.pattern.template
             );
         }
     }
