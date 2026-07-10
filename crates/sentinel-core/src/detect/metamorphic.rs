@@ -47,6 +47,7 @@
 use std::collections::{HashMap, HashSet};
 
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
 use super::n_plus_one::{CRITICAL_OCCURRENCE_THRESHOLD, detect_n_plus_one};
 use super::redundant::detect_redundant;
@@ -257,6 +258,78 @@ fn key_counts(findings: &[Finding]) -> HashMap<String, usize> {
     counts
 }
 
+/// Shared body for the amplification property. Growing an already-detected
+/// group keeps exactly one finding, counts every occurrence, and never
+/// de-escalates severity. Single-sourced across the SQL and HTTP twins so
+/// the invariant cannot drift between them.
+fn assert_amplification(
+    before: &Trace,
+    after: &Trace,
+    base: usize,
+    extra: usize,
+) -> Result<(), TestCaseError> {
+    let f_before = detect_n_plus_one(before, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+    let f_after = detect_n_plus_one(after, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+
+    prop_assert_eq!(f_before.len(), 1);
+    prop_assert_eq!(f_after.len(), 1);
+    prop_assert_eq!(f_before[0].pattern.occurrences, base);
+    prop_assert_eq!(f_after[0].pattern.occurrences, base + extra);
+    // Severity is anchored on the occurrence count: growth may escalate
+    // Warning -> Critical but must never do the reverse.
+    if f_before[0].severity == Severity::Critical {
+        prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
+    }
+    if base + extra >= CRITICAL_OCCURRENCE_THRESHOLD {
+        prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
+    }
+    Ok(())
+}
+
+/// Shared body for the span-removal monotonicity property, scoped to
+/// `Never`: dropping any subset of spans never creates a finding the full
+/// trace lacked nor inflates occurrences. Single-sourced across the SQL
+/// and HTTP twins so this drift-prone invariant stays identical for both.
+fn assert_removal_monotone(
+    events: Vec<SpanEvent>,
+    keep_mask: &[bool],
+) -> Result<(), TestCaseError> {
+    let kept: Vec<SpanEvent> = events
+        .iter()
+        .zip(keep_mask)
+        .filter(|(_, keep)| **keep)
+        .map(|(event, _)| event.clone())
+        .collect();
+    prop_assume!(!kept.is_empty());
+
+    let f_full = detect_n_plus_one(
+        &make_trace(events),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Never,
+    );
+    let f_kept = detect_n_plus_one(
+        &make_trace(kept),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Never,
+    );
+
+    prop_assert!(f_kept.len() <= f_full.len());
+    for finding in &f_kept {
+        let full_match = f_full.iter().find(|f| {
+            f.finding_type == finding.finding_type && f.pattern.template == finding.pattern.template
+        });
+        prop_assert!(
+            full_match.is_some(),
+            "finding appeared only after span removal: {}",
+            finding.pattern.template
+        );
+        prop_assert!(finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences);
+    }
+    Ok(())
+}
+
 proptest! {
     /// Amplification: appending more distinct-param occurrences to a group
     /// already past the threshold keeps exactly one finding, counts every
@@ -269,22 +342,7 @@ proptest! {
     ) {
         let before = make_trace(sql_series("users", base, stride, 0));
         let after = make_trace(sql_series("users", base + extra, stride, 0));
-
-        let f_before = detect_n_plus_one(&before, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-        let f_after = detect_n_plus_one(&after, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-
-        prop_assert_eq!(f_before.len(), 1);
-        prop_assert_eq!(f_after.len(), 1);
-        prop_assert_eq!(f_before[0].pattern.occurrences, base);
-        prop_assert_eq!(f_after[0].pattern.occurrences, base + extra);
-        // Severity is anchored on the occurrence count: growth may escalate
-        // Warning -> Critical but must never do the reverse.
-        if f_before[0].severity == Severity::Critical {
-            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
-        }
-        if base + extra >= CRITICAL_OCCURRENCE_THRESHOLD {
-            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
-        }
+        assert_amplification(&before, &after, base, extra)?;
     }
 
     /// Permutation: span arrival order never changes what is found.
@@ -384,34 +442,7 @@ proptest! {
             (Just(events), prop::collection::vec(any::<bool>(), len))
         }),
     ) {
-        let kept: Vec<SpanEvent> = events
-            .iter()
-            .zip(&keep_mask)
-            .filter(|(_, keep)| **keep)
-            .map(|(event, _)| event.clone())
-            .collect();
-        prop_assume!(!kept.is_empty());
-
-        let f_full = detect_n_plus_one(
-            &make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
-        let f_kept = detect_n_plus_one(
-            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
-
-        prop_assert!(f_kept.len() <= f_full.len());
-        for finding in &f_kept {
-            let full_match = f_full.iter().find(|f| {
-                f.finding_type == finding.finding_type
-                    && f.pattern.template == finding.pattern.template
-            });
-            prop_assert!(
-                full_match.is_some(),
-                "finding appeared only after span removal: {}",
-                finding.pattern.template
-            );
-            prop_assert!(
-                finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences
-            );
-        }
+        assert_removal_monotone(events, &keep_mask)?;
     }
 
     /// HTTP twin of the amplification property.
@@ -423,20 +454,7 @@ proptest! {
     ) {
         let before = make_trace(http_series("items", base, stride, 0));
         let after = make_trace(http_series("items", base + extra, stride, 0));
-
-        let f_before = detect_n_plus_one(&before, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-        let f_after = detect_n_plus_one(&after, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-
-        prop_assert_eq!(f_before.len(), 1);
-        prop_assert_eq!(f_after.len(), 1);
-        prop_assert_eq!(f_before[0].pattern.occurrences, base);
-        prop_assert_eq!(f_after[0].pattern.occurrences, base + extra);
-        if f_before[0].severity == Severity::Critical {
-            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
-        }
-        if base + extra >= CRITICAL_OCCURRENCE_THRESHOLD {
-            prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
-        }
+        assert_amplification(&before, &after, base, extra)?;
     }
 
     /// HTTP twin of the permutation property.
@@ -473,34 +491,7 @@ proptest! {
             (Just(events), prop::collection::vec(any::<bool>(), len))
         }),
     ) {
-        let kept: Vec<SpanEvent> = events
-            .iter()
-            .zip(&keep_mask)
-            .filter(|(_, keep)| **keep)
-            .map(|(event, _)| event.clone())
-            .collect();
-        prop_assume!(!kept.is_empty());
-
-        let f_full = detect_n_plus_one(
-            &make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
-        let f_kept = detect_n_plus_one(
-            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Never);
-
-        prop_assert!(f_kept.len() <= f_full.len());
-        for finding in &f_kept {
-            let full_match = f_full.iter().find(|f| {
-                f.finding_type == finding.finding_type
-                    && f.pattern.template == finding.pattern.template
-            });
-            prop_assert!(
-                full_match.is_some(),
-                "finding appeared only after span removal: {}",
-                finding.pattern.template
-            );
-            prop_assert!(
-                finding.pattern.occurrences <= full_match.unwrap().pattern.occurrences
-            );
-        }
+        assert_removal_monotone(events, &keep_mask)?;
     }
 
     /// Exclusivity: `detect_redundant` receives the N+1 findings so a
