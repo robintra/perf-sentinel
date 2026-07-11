@@ -571,7 +571,7 @@ proptest! {
         prop_assert!(partial.len() <= 1);
         for (findings, span_count) in [(&full, events.len()), (&partial, kept_len)] {
             for finding in findings {
-                prop_assert_eq!(finding.pattern.template.as_str(), "GET /api/items/{id}");
+                prop_assert_eq!(finding.pattern.template.as_str(), "GET svc/api/items/{id}");
                 prop_assert!(finding.pattern.occurrences <= span_count);
                 prop_assert!(matches!(
                     finding.classification_method,

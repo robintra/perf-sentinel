@@ -3,6 +3,8 @@
 //! Replaces numeric path segments with `{id}`, UUID segments with `{uuid}`,
 //! strips query parameters, and prepends the HTTP method.
 
+use std::borrow::Cow;
+
 /// Check if a string is a UUID (8-4-4-4-12 hex with dashes).
 /// Hand-coded for performance, avoids regex engine overhead on the hot path.
 fn is_uuid(s: &str) -> bool {
@@ -38,12 +40,17 @@ fn bytecount(s: &str, target: u8) -> usize {
 
 /// Normalize an HTTP target URL.
 ///
-/// Strips scheme+authority, replaces numeric segments with `{id}`,
-/// UUID segments with `{uuid}`, strips query params, and prepends the method.
+/// Replaces numeric segments with `{id}`, UUID segments with `{uuid}`,
+/// strips query params, and prepends the method. The callee host is kept in
+/// the template for DNS-addressed calls (`GET user-svc/api/x`) so two calls
+/// to the same path on different backends do not merge into one group and
+/// raise a false redundant/N+1 finding. IP-literal authorities are dropped,
+/// so load-balanced replicas (pods behind one service) still group together.
 #[must_use]
 pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
-    // Strip scheme + authority if present
-    let path_and_query = strip_origin(target);
+    // Split scheme + authority from the path, keeping the authority so a
+    // DNS host can stay in the grouping template.
+    let (authority, path_and_query) = split_origin(target);
 
     // Strip query params
     let (path, query_params) = match path_and_query.split_once('?') {
@@ -70,7 +77,13 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
 
     let normalized_path = normalize_path_segments(path, &mut params);
 
-    let template = format!("{method} {normalized_path}");
+    // `normalized_path` starts with `/` whenever an authority was present
+    // (it is sliced from the authority's trailing `/`), so a DNS host slots
+    // in as `GET host/path` with no extra separator handling.
+    let template = match authority.and_then(host_group_prefix) {
+        Some(host) => format!("{method} {host}{normalized_path}"),
+        None => format!("{method} {normalized_path}"),
+    };
     HttpNormalized { template, params }
 }
 
@@ -99,14 +112,58 @@ fn normalize_path_segments(path: &str, params: &mut Vec<String>) -> String {
     result
 }
 
-/// Strip scheme and authority from a URL, returning just the path (+ query).
-fn strip_origin(target: &str) -> &str {
-    target
+/// Split scheme + authority from an `http(s)` URL. Returns
+/// `(authority, path_and_query)`: `authority` is `None` for a relative URL
+/// (no scheme), and `path_and_query` defaults to `/` when the URL has an
+/// authority but no path (`http://host`).
+fn split_origin(target: &str) -> (Option<&str>, &str) {
+    match target
         .strip_prefix("http://")
         .or_else(|| target.strip_prefix("https://"))
-        .map_or(target, |rest| {
-            rest.find('/').map_or("/", |idx| &rest[idx..])
-        })
+    {
+        Some(rest) => match rest.find('/') {
+            Some(idx) => (Some(&rest[..idx]), &rest[idx..]),
+            None => (Some(rest), "/"),
+        },
+        None => (None, target),
+    }
+}
+
+/// The DNS host to keep in the grouping template, or `None` when the
+/// authority is an IP literal (kept anonymous so load-balanced replicas
+/// still dedup) or empty. Strips RFC 3986 userinfo and the port, and
+/// lowercases the host (DNS is case-insensitive) so casing variants group.
+fn host_group_prefix(authority: &str) -> Option<Cow<'_, str>> {
+    // Strip userinfo: "user:pass@host:port" -> "host:port".
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    // IPv6 literal ("[::1]:8080"): always an address, drop it.
+    if host_port.starts_with('[') {
+        return None;
+    }
+    // Strip the port: "host:port" -> "host".
+    let host = host_port.split(':').next().unwrap_or(host_port);
+    if host.is_empty() || is_ipv4_literal(host) {
+        return None;
+    }
+    if host.bytes().any(|b| b.is_ascii_uppercase()) {
+        Some(Cow::Owned(host.to_ascii_lowercase()))
+    } else {
+        Some(Cow::Borrowed(host))
+    }
+}
+
+/// Whether `host` is a dotted-decimal IPv4 literal (exactly four all-digit
+/// octets). Such authorities are load-balanced replica addresses, so they
+/// are dropped from the template while DNS hostnames are kept.
+fn is_ipv4_literal(host: &str) -> bool {
+    let mut octets = 0u8;
+    for part in host.split('.') {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+        octets += 1;
+    }
+    octets == 4
 }
 
 #[cfg(test)]
@@ -128,9 +185,11 @@ mod tests {
     }
 
     #[test]
-    fn full_url_strips_origin() {
+    fn full_url_keeps_dns_host() {
+        // The DNS host stays in the template (and the port is dropped) so
+        // calls to the same path on different backends stay distinct groups.
         let r = normalize_http("GET", "http://user-svc:5000/api/users/user-123");
-        assert_eq!(r.template, "GET /api/users/user-123");
+        assert_eq!(r.template, "GET user-svc/api/users/user-123");
     }
 
     #[test]
@@ -143,7 +202,7 @@ mod tests {
     #[test]
     fn full_url_with_query() {
         let r = normalize_http("POST", "https://svc.internal/api/items/99?expand=true");
-        assert_eq!(r.template, "POST /api/items/{id}");
+        assert_eq!(r.template, "POST svc.internal/api/items/{id}");
         assert_eq!(r.params, vec!["expand=true", "99"]);
     }
 
@@ -170,21 +229,68 @@ mod tests {
 
     #[test]
     fn port_in_url_not_treated_as_id() {
+        // Host kept, port dropped, and the port digits are not an {id}.
         let r = normalize_http("GET", "http://localhost:8080/api/items");
-        assert_eq!(r.template, "GET /api/items");
+        assert_eq!(r.template, "GET localhost/api/items");
     }
 
     #[test]
-    fn url_without_path_returns_root() {
+    fn url_without_path_keeps_host() {
         let r = normalize_http("GET", "http://example.com");
-        assert_eq!(r.template, "GET /");
+        assert_eq!(r.template, "GET example.com/");
         assert!(r.params.is_empty());
     }
 
     #[test]
     fn https_url_without_path() {
         let r = normalize_http("GET", "https://example.com");
-        assert_eq!(r.template, "GET /");
+        assert_eq!(r.template, "GET example.com/");
+    }
+
+    #[test]
+    fn dns_hosts_disambiguate_same_path() {
+        // The core fix: same method + path on two DNS backends must NOT
+        // collapse into one template (which would raise a false redundant).
+        let a = normalize_http("POST", "http://ms-23205/vs2nqhh1hq");
+        let b = normalize_http("POST", "http://ms-53745/vs2nqhh1hq");
+        assert_eq!(a.template, "POST ms-23205/vs2nqhh1hq");
+        assert_eq!(b.template, "POST ms-53745/vs2nqhh1hq");
+        assert_ne!(a.template, b.template);
+    }
+
+    #[test]
+    fn ipv4_hosts_are_dropped_keeping_replica_dedup() {
+        // Load-balanced pod replicas share a service; their IP authorities
+        // must collapse to one template so the dedup stays intentional.
+        let a = normalize_http("GET", "http://10.0.0.1:8080/api/x");
+        let b = normalize_http("GET", "http://10.0.0.2:8080/api/x");
+        assert_eq!(a.template, "GET /api/x");
+        assert_eq!(a.template, b.template);
+    }
+
+    #[test]
+    fn ipv6_host_is_dropped() {
+        let r = normalize_http("GET", "http://[2001:db8::1]:8080/api/x");
+        assert_eq!(r.template, "GET /api/x");
+    }
+
+    #[test]
+    fn host_is_lowercased() {
+        let r = normalize_http("GET", "http://User-SVC.Example.COM/api/x");
+        assert_eq!(r.template, "GET user-svc.example.com/api/x");
+    }
+
+    #[test]
+    fn userinfo_is_stripped_from_host() {
+        let r = normalize_http("GET", "http://user:pass@svc.internal/api/x");
+        assert_eq!(r.template, "GET svc.internal/api/x");
+    }
+
+    #[test]
+    fn relative_url_has_no_host() {
+        // No authority to key on, behavior unchanged from before the fix.
+        let r = normalize_http("GET", "/api/x");
+        assert_eq!(r.template, "GET /api/x");
     }
 
     #[test]
