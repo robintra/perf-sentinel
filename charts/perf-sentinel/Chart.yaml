@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.7
-appVersion: "0.9.7"
+version: 0.9.8
+appVersion: "0.9.8"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.9.8 (breaking, HTTP acknowledgment signatures reset): the HTTP normalizer now keeps the callee host in the grouping template for DNS-addressed calls (GET user-svc/api/users/{id} instead of GET /api/users/{id}), so two calls to the same path on different backend services no longer collapse into a false redundant_http. IP-literal authorities (IPv4 and bracketed IPv6) are still stripped so load-balanced pod replicas keep deduping, the port and RFC 3986 userinfo are dropped, a trailing DNS root dot is canonicalized, and the host is lowercased. Because the finding signature hashes pattern.template, every outbound-HTTP finding's signature changes, so existing HTTP acknowledgments must be re-created (SQL and RPC findings are unaffected). No chart template change, this bump tracks the new appVersion."
+    - kind: added
+      description: "appVersion 0.9.8: OTLP ingest now admits RPC spans (OTel RPC semconv rpc.system/rpc.service/rpc.method, the standard gRPC and RPC-framework shape). These carried neither db.statement/db.query.text nor http.url/url.full, so the I/O filter dropped every one as non-I/O and the topological detectors (excessive_fanout, chatty_service, serialized_calls) plus the occurrence detectors were blind on gRPC-heavy fleets. RPC spans are keyed on rpc.system and modeled as outbound calls (target rpc.service/rpc.method, span-name fallback), admitting only SpanKind::Client so the inbound SERVER handler span is not double-counted. Admission-only reuse of the HTTP normalize path, so findings surface under the _http types and n_plus_one_sql never applies. No chart template change, this bump tracks the new appVersion."
     - kind: fixed
       description: "appVersion 0.9.7: batch analyze --input now accepts OTLP/JSON list attributes serialized the canonical protobuf JSON way, with the empty repeated field omitted (arrayValue:{} or kvlistValue:{}). Previously one such attribute failed the whole file with a missing values field and a non-zero exit, so nothing was analyzed. The OTLP/JSON reader keeps the strict typed parse as the fast path and backfills the omitted empty list only for the affected document. No chart template change, this bump tracks the new appVersion."
     - kind: changed
@@ -101,7 +105,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.7
+      image: ghcr.io/robintra/perf-sentinel:0.9.8
       platforms:
         - linux/amd64
         - linux/arm64
