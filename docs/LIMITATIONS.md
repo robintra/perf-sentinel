@@ -81,6 +81,8 @@ This means that N+1 patterns (same query, different values) may be classified as
 
 ORMs that inline literal values (SeaORM with raw statements, JDBC without prepared statements) produce spans with visible parameter values, enabling accurate N+1 vs redundant classification.
 
+The same limitation applies to RPC (gRPC, Dubbo). A gRPC request payload lives in the protobuf message body, not in a span attribute, so N distinct calls to one method share a single empty-parameter template and read as `redundant_http` rather than `n_plus_one_http`. RPC spans are also modeled as outbound HTTP calls (they carry no statement or URL), so their findings surface under the `_http` types with HTTP-flavored remediation text, and only the outbound `SpanKind::Client` side is admitted (the inbound handler span carries the same `rpc.*` keys but is inbound work). See [INSTRUMENTATION.md](./INSTRUMENTATION.md#required-span-attributes).
+
 ## HTTP query-string redaction and N+1 visibility
 
 N+1 HTTP detection depends on the varying request parameter being visible in the span. An N+1 loop that varies a path segment (`GET /api/orders/1`, `/api/orders/2`, ...) normalizes to `GET /api/orders/{id}` with distinct extracted params, and is detected. An N+1 loop that varies a query parameter (`GET /api/mock?seq=1`, `?seq=2`, ...) is only detected if the query string survives to the span.

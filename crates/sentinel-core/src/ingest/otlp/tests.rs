@@ -779,12 +779,17 @@ fn parent_span_http_url_used_only_when_route_absent() {
     assert_eq!(sql.source.endpoint, "http://order-svc/api/orders/42/submit");
 }
 
+/// `SpanKind` discriminant for a client-side outbound span.
+const SPAN_KIND_CLIENT: i32 = opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32;
+/// `SpanKind` discriminant for an inbound handler span.
+const SPAN_KIND_SERVER: i32 = opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32;
+
 #[test]
-fn grpc_rpc_span_is_admitted_as_outbound_call() {
+fn grpc_client_rpc_span_is_admitted_as_outbound_call() {
     // RPC semconv spans (rpc.system/service/method) carry neither a
     // statement nor a URL. Before RPC support they were dropped as non-I/O,
     // blinding the topology + occurrence detectors on gRPC-heavy fleets.
-    let span = make_bare_span(
+    let mut span = make_bare_span(
         &[7; 8],
         vec![
             make_kv("rpc.system", "grpc"),
@@ -792,6 +797,7 @@ fn grpc_rpc_span_is_admitted_as_outbound_call() {
             make_kv("rpc.method", "GetOrder"),
         ],
     );
+    span.kind = SPAN_KIND_CLIENT;
     let req = make_request("order-svc", vec![span]);
     let events = convert_otlp_request(&req);
 
@@ -802,10 +808,29 @@ fn grpc_rpc_span_is_admitted_as_outbound_call() {
 }
 
 #[test]
+fn grpc_server_rpc_span_is_not_admitted() {
+    // rpc.* is set on the inbound SERVER handler span too. Admitting it
+    // would double-count every hop and invent a self-directed edge, so only
+    // CLIENT spans (the actual outbound call) are modeled.
+    let mut span = make_bare_span(
+        &[9; 8],
+        vec![
+            make_kv("rpc.system", "grpc"),
+            make_kv("rpc.service", "order.v1.OrderService"),
+            make_kv("rpc.method", "GetOrder"),
+        ],
+    );
+    span.kind = SPAN_KIND_SERVER;
+    let req = make_request("order-svc", vec![span]);
+    assert!(convert_otlp_request(&req).is_empty());
+}
+
+#[test]
 fn rpc_span_without_service_falls_back_to_span_name() {
     // gRPC span name convention is "package.Service/Method"; use it as the
     // target when rpc.service / rpc.method are not both present.
     let mut span = make_bare_span(&[8; 8], vec![make_kv("rpc.system", "grpc")]);
+    span.kind = SPAN_KIND_CLIENT;
     span.name = "order.v1.OrderService/ListOrders".to_string();
     let req = make_request("order-svc", vec![span]);
     let events = convert_otlp_request(&req);
@@ -813,6 +838,27 @@ fn rpc_span_without_service_falls_back_to_span_name() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::HttpOut);
     assert_eq!(events[0].target, "order.v1.OrderService/ListOrders");
+}
+
+#[test]
+fn rpc_span_with_blank_service_and_method_falls_back_to_span_name() {
+    // Empty rpc.service / rpc.method (some emitters) must not produce a
+    // meaningless "/" target; fall back to the span name instead.
+    let mut span = make_bare_span(
+        &[11; 8],
+        vec![
+            make_kv("rpc.system", "grpc"),
+            make_kv("rpc.service", ""),
+            make_kv("rpc.method", ""),
+        ],
+    );
+    span.kind = SPAN_KIND_CLIENT;
+    span.name = "health.Check".to_string();
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "health.Check");
 }
 
 #[test]

@@ -374,6 +374,12 @@ Spans that carry no SQL, HTTP, or RPC attribute are skipped: they are not I/O op
 
 RPC spans (gRPC, Dubbo, and similar frameworks) carry neither a statement nor a URL, so they are keyed on `rpc.system` and modeled as outbound calls: the target is `rpc.service/rpc.method` (falling back to the span name when either is absent), and findings appear under the `_http` types. This keeps the topological detectors (fanout, chatty, serialized) and the occurrence detectors (n+1, redundant) working on RPC-heavy fleets. RPC spans carry no query text, so `n_plus_one_sql` and the SQL normalizer never apply to them.
 
+Three consequences to be aware of on RPC findings:
+
+- **Only CLIENT spans are modeled.** The `rpc.*` attributes are set on the inbound SERVER handler span as well as the outbound CLIENT span, so perf-sentinel admits only `SpanKind::Client`. An RPC span with an unset or non-CLIENT kind is treated as inbound work (not an outbound call), so an instrumentation that never sets the span kind produces no RPC findings.
+- **Findings surface under the `_http` types.** An RPC N+1 is reported as `n_plus_one_http` and its remediation text mentions an HTTP batch endpoint. The finding is correct about the anti-pattern (the repeated dependency call), only the protocol label and the batch-endpoint wording are HTTP-flavored.
+- **Per-call arguments are invisible.** A gRPC request payload lives in the protobuf message body, not in a span attribute, so N distinct calls to the same method share one empty-parameter template. Like a query-redacted HTTP URL (see [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility)), those calls read as `redundant_http` rather than `n_plus_one_http`. The repeated-call signal is genuine either way; only the "cache vs batch" remediation differs.
+
 > **Silent skip.** A span dropped for a missing carrying attribute
 > produces no warning and no error. A SQL span without `db.statement` /
 > `db.query.text`, or an HTTP span without `http.url` / `url.full`,

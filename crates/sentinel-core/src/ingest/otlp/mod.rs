@@ -561,12 +561,14 @@ fn span_filter_reason(
 
 /// Classify an analyzable span as SQL or outbound HTTP, returning
 /// `(event_type, target, operation)`. `None` when it carries no statement,
-/// no URL, and no RPC method. Supports both legacy (pre-1.21) and stable
-/// (1.21+) `OTel` semantic conventions.
+/// no URL, and no RPC client method. `kind` is the OTLP `SpanKind`, used to
+/// admit only CLIENT-side RPC spans. Supports both legacy (pre-1.21) and
+/// stable (1.21+) `OTel` semantic conventions.
 fn classify_io_event(
     c: &ClassifiedAttrs<'_>,
     db_system: Option<&str>,
     span_name: &str,
+    kind: i32,
 ) -> Option<(EventType, String, String)> {
     // OTel db.statement/db.query.text first, then the dd-trace fallback: the
     // datadogreceiver never sets db.statement and leaves the (obfuscated) SQL
@@ -601,12 +603,23 @@ fn classify_io_event(
         Some((EventType::HttpOut, url.to_string(), method))
     } else if let Some(system) = c.rpc_system {
         // RPC (gRPC, Dubbo, ...): no statement or URL, but rpc.service +
-        // rpc.method identify the callee. Modeled as an outbound call
-        // (EventType::HttpOut) so the topology + occurrence detectors see it
+        // rpc.method identify the callee. Only the CLIENT span is the
+        // outbound call: rpc.* is set on the inbound SERVER handler span too
+        // (OTel semconv), and admitting those would double-count every hop
+        // and invent self-directed edges in the topology detectors. Modeled
+        // as EventType::HttpOut so the topology + occurrence detectors see it
         // and it reuses the HTTP normalize/sanitize path. Target is
         // "service/method", falling back to the span name (the gRPC
-        // "package.Service/Method" convention) when either key is absent.
-        let target = match (c.rpc_service, c.rpc_method) {
+        // "package.Service/Method" convention) when either key is absent or
+        // blank.
+        let is_client =
+            kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32;
+        if !is_client {
+            return None;
+        }
+        let svc = c.rpc_service.filter(|s| !s.is_empty());
+        let method = c.rpc_method.filter(|s| !s.is_empty());
+        let target = match (svc, method) {
             (Some(svc), Some(method)) => format!("{svc}/{method}"),
             _ => span_name.to_string(),
         };
@@ -644,7 +657,7 @@ fn convert_span(
     }
 
     let Some((event_type, target, operation)) =
-        classify_io_event(&classified, db_system, &span.name)
+        classify_io_event(&classified, db_system, &span.name, span.kind)
     else {
         return Err(span_filter_reason(&classified, db_system, span.kind));
     };
