@@ -95,6 +95,10 @@ Certaines instrumentations redactent la query string avant l'export. OpenTelemet
 
 Les deux verdicts identifient le pattern d'appels répétés et la suggestion de batcher reste valide. Pour obtenir `n_plus_one_http` spécifiquement sur .NET, désactivez la redaction de la query via la variable d'environnement ci-dessus, ou modélisez l'identifiant variable comme un segment de path plutôt qu'un paramètre de query.
 
+## Compromis du regroupement par host HTTP
+
+Le template HTTP sortant garde le host de l'appelé (`GET user-svc/api/x`), donc deux appels au même chemin sur des backends différents restent des groupes séparés au lieu de fusionner en un faux `redundant_http`. Le coût inverse : un vrai N+1 peut se scinder si un même backend est adressé avec une orthographe de host incohérente dans une trace. Les IP littérales IPv4/IPv6 sont retirées (les replicas load-balancés continuent de se dédupliquer), le point final DNS est canonicalisé (`svc.` == `svc`) et le host est mis en minuscules, mais un nom court et sa forme pleinement qualifiée (`user-svc` vs `user-svc.default.svc.cluster.local`) ne sont pas réconciliés, donc une boucle qui mélange les deux orthographes contre un même backend peut se scinder en groupes sous le seuil et passer inaperçue. De même, une boucle par item qui éclate vers des backends aux noms distincts sur le même chemin (`GET shard-1/lookup`, `GET shard-2/lookup`, ...) est traitée comme des opérations distinctes plutôt qu'un N+1, puisque ces appels ne peuvent pas être batchés en un seul endpoint. Émettre une orthographe de host cohérente par appelé garde le regroupement N+1 intact.
+
 ## Findings lents et ratio de gaspillage
 
 Les findings lents (`slow_sql`, `slow_http`) représentent des opérations qui sont **nécessaires mais lentes** : ce ne sont pas des I/O évitables. Par conséquent, les findings lents ne contribuent **pas** au ratio de gaspillage I/O ni au compteur `avoidable_io_ops` dans le résumé GreenOps. Ils apparaissent tout de même dans la liste des findings avec `green_impact.estimated_extra_io_ops: 0`.
