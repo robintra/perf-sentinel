@@ -6,6 +6,38 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.8]
+
+### Added
+
+- `appVersion` bumped to `0.9.8`. OTLP ingest now admits RPC spans (OTel
+  RPC semconv `rpc.system`, `rpc.service`, `rpc.method`, the standard
+  gRPC shape). These carried neither `db.statement`/`db.query.text` nor
+  `http.url`/`url.full`, so the I/O filter dropped every one as non-I/O
+  and the topological and occurrence detectors were blind on gRPC-heavy
+  fleets. RPC spans are keyed on `rpc.system` and modeled as outbound
+  calls (target `rpc.service/rpc.method`, span-name fallback), admitting
+  only `SpanKind::Client` so the inbound handler span is not
+  double-counted. Findings surface under the `_http` types. No chart
+  template change, this bump tracks the new appVersion.
+
+### Changed
+
+- **Breaking (HTTP acknowledgment signatures reset).** The HTTP
+  normalizer keeps the callee host in the grouping template for
+  DNS-addressed calls (`GET user-svc/api/users/{id}` instead of
+  `GET /api/users/{id}`), so two calls to the same path on different
+  backend services no longer collapse into a false `redundant_http`.
+  IP-literal authorities keep deduping load-balanced replicas, the port
+  and userinfo are dropped, a trailing DNS root dot is canonicalized,
+  and the host is lowercased. Because the finding signature hashes
+  `pattern.template`, every outbound-HTTP finding's signature changes, so
+  existing HTTP acknowledgments must be re-created (SQL and RPC findings
+  are unaffected). No chart template change.
+- `artifacthub.io/images` annotation bumped to
+  `ghcr.io/robintra/perf-sentinel:0.9.8` to keep the Artifact Hub
+  display metadata in lockstep with `appVersion`.
+
 ## [0.9.7]
 
 ### Fixed
