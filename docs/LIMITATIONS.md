@@ -91,6 +91,10 @@ Some instrumentations redact the query string before export. OpenTelemetry .NET 
 
 Both verdicts identify the repeated-call pattern and the suggestion to batch remains valid. To get `n_plus_one_http` on .NET specifically, either disable query redaction via the env var above, or model the varying identifier as a path segment rather than a query parameter.
 
+## HTTP host grouping trade-off
+
+The outbound-HTTP template keeps the callee host (`GET user-svc/api/x`), so two calls to the same path on different backend services stay separate groups instead of collapsing into a false `redundant_http`. The reverse cost is that a genuine N+1 can split when one backend is addressed with inconsistent host spelling within a trace. IPv4/IPv6 literals are dropped (load-balanced pod replicas keep deduping), a trailing DNS root dot is canonicalized (`svc.` == `svc`), and the host is lowercased, but a short name and its fully-qualified form (`user-svc` vs `user-svc.default.svc.cluster.local`) are not reconciled, so a loop that mixes both spellings against one backend can split into sub-threshold groups and go unreported. Likewise a per-item loop that fans out to distinctly-named backends on the same path (`GET shard-1/lookup`, `GET shard-2/lookup`, ...) is treated as distinct operations rather than one N+1, since those calls cannot be batched into a single endpoint. Emitting one consistent host spelling per callee keeps N+1 grouping intact.
+
 ## Slow findings and waste ratio
 
 Slow findings (`slow_sql`, `slow_http`) represent operations that are **necessary but slow**, they are not avoidable I/O. Therefore, slow findings do **not** contribute to the I/O waste ratio or the `avoidable_io_ops` count in the GreenOps summary. They still appear in the findings list with `green_impact.estimated_extra_io_ops: 0`.

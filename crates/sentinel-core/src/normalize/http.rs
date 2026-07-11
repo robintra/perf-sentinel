@@ -121,7 +121,16 @@ fn split_origin(target: &str) -> (Option<&str>, &str) {
         .strip_prefix("http://")
         .or_else(|| target.strip_prefix("https://"))
     {
-        Some(rest) => match rest.find('/') {
+        // RFC 3986: the authority ends at the first '/', '?' or '#'.
+        // Terminating only on '/' would fold a query or fragment into the
+        // authority, leaking it (verbatim, secrets included) into the
+        // grouping template on a URL with no path (`http://host?token=...`).
+        // A '#' terminator means there is no path (fragments never carry a
+        // path), and the fragment is never sent to the server, so the path
+        // is just `/`. A fragment that follows an actual path is left in the
+        // path unchanged (it is handled by `normalize_path_segments`).
+        Some(rest) => match rest.find(['/', '?', '#']) {
+            Some(idx) if rest.as_bytes()[idx] == b'#' => (Some(&rest[..idx]), "/"),
             Some(idx) => (Some(&rest[..idx]), &rest[idx..]),
             None => (Some(rest), "/"),
         },
@@ -131,17 +140,21 @@ fn split_origin(target: &str) -> (Option<&str>, &str) {
 
 /// The DNS host to keep in the grouping template, or `None` when the
 /// authority is an IP literal (kept anonymous so load-balanced replicas
-/// still dedup) or empty. Strips RFC 3986 userinfo and the port, and
-/// lowercases the host (DNS is case-insensitive) so casing variants group.
+/// still dedup) or empty. Strips RFC 3986 userinfo and the port, drops a
+/// single trailing DNS root dot (`svc.` == `svc`), and lowercases the host
+/// (DNS is case-insensitive) so casing variants group.
 fn host_group_prefix(authority: &str) -> Option<Cow<'_, str>> {
-    // Strip userinfo: "user:pass@host:port" -> "host:port".
+    // Strip userinfo: "user:pass@host:port" -> "host:port". Safe because
+    // split_origin already trimmed any query/fragment (which may contain
+    // '@'), so the remaining '@' can only be the userinfo delimiter.
     let host_port = authority.rsplit('@').next().unwrap_or(authority);
     // IPv6 literal ("[::1]:8080"): always an address, drop it.
     if host_port.starts_with('[') {
         return None;
     }
-    // Strip the port: "host:port" -> "host".
+    // Strip the port: "host:port" -> "host", then the DNS root dot.
     let host = host_port.split(':').next().unwrap_or(host_port);
+    let host = host.strip_suffix('.').unwrap_or(host);
     if host.is_empty() || is_ipv4_literal(host) {
         return None;
     }
@@ -154,14 +167,19 @@ fn host_group_prefix(authority: &str) -> Option<Cow<'_, str>> {
 
 /// Whether `host` is a dotted-decimal IPv4 literal (exactly four all-digit
 /// octets). Such authorities are load-balanced replica addresses, so they
-/// are dropped from the template while DNS hostnames are kept.
+/// are dropped from the template while DNS hostnames are kept. Counts in
+/// `usize` and bails past four labels so a host with hundreds of numeric
+/// dot-labels cannot overflow the counter.
 fn is_ipv4_literal(host: &str) -> bool {
-    let mut octets = 0u8;
+    let mut octets = 0usize;
     for part in host.split('.') {
         if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
             return false;
         }
         octets += 1;
+        if octets > 4 {
+            return false;
+        }
     }
     octets == 4
 }
@@ -291,6 +309,51 @@ mod tests {
         // No authority to key on, behavior unchanged from before the fix.
         let r = normalize_http("GET", "/api/x");
         assert_eq!(r.template, "GET /api/x");
+    }
+
+    #[test]
+    fn query_only_url_does_not_leak_into_host() {
+        // Regression: a query on a path-less URL must not fold into the
+        // authority and leak (e.g. a token) verbatim into the template.
+        let r = normalize_http("GET", "http://api.example.com?token=abc123secret");
+        assert_eq!(r.template, "GET api.example.com/");
+        assert!(!r.template.contains("token"), "{}", r.template);
+    }
+
+    #[test]
+    fn query_with_userinfo_does_not_leak() {
+        let r = normalize_http("GET", "http://user:pass@svc.internal?token=xyz");
+        assert_eq!(r.template, "GET svc.internal/");
+        assert!(!r.template.contains("token"), "{}", r.template);
+    }
+
+    #[test]
+    fn fragment_only_url_does_not_pollute_host() {
+        // A path-less fragment is never sent to the server, so it is dropped
+        // and must not become part of the host token.
+        let r = normalize_http("GET", "http://svc.internal#section");
+        assert_eq!(r.template, "GET svc.internal/");
+    }
+
+    #[test]
+    fn trailing_dns_dot_groups_with_bare_host() {
+        // `svc.` (DNS root label) and `svc` are the same host.
+        let dotted = normalize_http("GET", "http://user-svc./api/x");
+        let bare = normalize_http("GET", "http://user-svc/api/x");
+        assert_eq!(dotted.template, "GET user-svc/api/x");
+        assert_eq!(dotted.template, bare.template);
+    }
+
+    #[test]
+    fn pathological_numeric_host_does_not_overflow() {
+        // 260 all-numeric dot-labels must not overflow the octet counter
+        // (debug panic) nor wrap-classify as an IPv4 literal.
+        let host = vec!["1"; 260].join(".");
+        let r = normalize_http("GET", &format!("http://{host}/x"));
+        // Not four octets, so it is treated as a DNS host and kept.
+        assert_eq!(r.template, format!("GET {host}/x"));
+        assert!(super::is_ipv4_literal("1.2.3.4"));
+        assert!(!super::is_ipv4_literal(&host));
     }
 
     #[test]
