@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [0.9.7]
 
+### Added
+
+- OTLP ingest now admits RPC spans (OTel RPC semconv: `rpc.system`, `rpc.service`, `rpc.method`), the standard shape for gRPC and most RPC frameworks. Before, these spans carried neither `db.statement`/`db.query.text` nor `http.url`/`url.full`, so the I/O filter dropped every one as non-I/O and the topological detectors (`excessive_fanout`, `chatty_service`, `serialized_calls`) plus the occurrence detectors (`n_plus_one_http`, `redundant_http`) were blind on gRPC-heavy fleets. RPC spans are keyed on `rpc.system` and modeled as outbound calls: the target is `rpc.service/rpc.method`, falling back to the span name when either key is absent. Admission-only reuse of `EventType::HttpOut`, so the normalize/sanitize path and the finding types are unchanged. RPC spans carry no query text, so `n_plus_one_sql` never applies.
+
 ### Fixed
 
 - Batch `analyze --input` now accepts OTLP/JSON attributes whose value is an empty list. Canonical protobuf JSON omits empty repeated fields, so an empty list serializes as `{"arrayValue":{}}` (and an empty map as `{"kvlistValue":{}}`) with no `values` key. Before, a single such attribute failed the whole file with `missing field values` and exited non-zero, so nothing was analyzed. The OTLP/JSON reader keeps the strict typed parse as the fast path and backfills the omitted empty list only for the affected document, so files from compliant producers (for example the OpenTelemetry Astronomy Shop demo's recommendation service) analyze cleanly (#81).

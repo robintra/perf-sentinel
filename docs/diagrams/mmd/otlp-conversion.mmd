@@ -28,6 +28,10 @@ sequenceDiagram
             P2->>Idx: lookup parent_span_id
             Idx-->>P2: parent endpoint + method
             P2->>Out: SpanEvent type=HttpOut<br/>+ status_code + response_size_bytes<br/>+ cloud_region
+        else Has rpc.system? (gRPC, Dubbo, ...)
+            P2->>Idx: lookup parent_span_id
+            Idx-->>P2: parent endpoint + method
+            P2->>Out: SpanEvent type=HttpOut<br/>target=rpc.service/rpc.method<br/>(else span name) + cloud_region
         else No I/O attributes
             P2->>P2: skip
         end

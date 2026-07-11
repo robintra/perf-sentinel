@@ -68,6 +68,8 @@ This avoids the [chrono](https://docs.rs/chrono/) crate (~150KB binary overhead)
 
 When a span has both a SQL attribute (`db.statement` or `db.query.text`) and an HTTP attribute (`http.url` or `url.full`), SQL takes priority. This is intentional: database instrumentation is more specific than HTTP client instrumentation. The SQL attribute carries the actual query text needed for normalization, while the HTTP attribute might represent the same operation at the transport level.
 
+RPC spans (`rpc.system`, e.g. gRPC or Dubbo) are checked last, after SQL and HTTP: they carry no statement or URL, so their target is `rpc.service/rpc.method` (falling back to the span name), and they enter the pipeline as `EventType::HttpOut` so the topological and occurrence detectors treat them as outbound calls. This admission-only reuse keeps the two-variant `EventType` and the HTTP normalize/sanitize path unchanged.
+
 Both legacy (pre-1.21) and stable (1.21+) [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported: `db.statement` and `db.query.text` for SQL, `http.url` and `url.full` for HTTP, `http.method` and `http.request.method` for the HTTP verb, `http.status_code` and `http.response.status_code` for the status. This ensures compatibility with both older OTel SDKs and modern Java agents (v2.x).
 
 ### Clock skew protection

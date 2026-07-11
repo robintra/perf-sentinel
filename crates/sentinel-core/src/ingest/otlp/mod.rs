@@ -201,6 +201,11 @@ struct ClassifiedAttrs<'a> {
     url_full: Option<&'a str>,
     http_method: Option<&'a str>,
     http_request_method: Option<&'a str>,
+    // RPC semconv (gRPC, Dubbo, ...): no statement or URL, so these are the
+    // only keys that identify the callee. See classify_io_event.
+    rpc_system: Option<&'a str>,
+    rpc_service: Option<&'a str>,
+    rpc_method: Option<&'a str>,
     http_status_code: Option<i64>,
     http_response_status_code: Option<i64>,
     http_response_body_size: Option<i64>,
@@ -273,6 +278,9 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
             "url.full" => out.url_full = any_value_as_str(value),
             "http.method" => out.http_method = any_value_as_str(value),
             "http.request.method" => out.http_request_method = any_value_as_str(value),
+            "rpc.system" => out.rpc_system = any_value_as_str(value),
+            "rpc.service" => out.rpc_service = any_value_as_str(value),
+            "rpc.method" => out.rpc_method = any_value_as_str(value),
             "http.status_code" => out.http_status_code = any_value_as_int(value),
             "http.response.status_code" => out.http_response_status_code = any_value_as_int(value),
             "http.response.body.size" => out.http_response_body_size = any_value_as_int(value),
@@ -451,11 +459,13 @@ fn collect_instrumentation_scopes(
 /// for parent lookup (needed to resolve `source.endpoint` from parent
 /// attributes), and the second pass converts I/O spans into events.
 ///
-/// Spans that resolve neither a statement (legacy `db.statement`, stable
-/// `db.query.text`, or the dd-trace `dd.span.Resource` fallback) nor an
-/// outbound URL (legacy `http.url`, stable `url.full`) are skipped; see
-/// `classify_io_event`. Parent span lookup is done within the same request;
-/// if the parent is not found, `source.endpoint` defaults to `"unknown"`.
+/// Spans that resolve none of a statement (legacy `db.statement`, stable
+/// `db.query.text`, or the dd-trace `dd.span.Resource` fallback), an
+/// outbound URL (legacy `http.url`, stable `url.full`), or an RPC callee
+/// (`rpc.system` with `rpc.service`/`rpc.method` or the span name) are
+/// skipped; see `classify_io_event`. Parent span lookup is done within the
+/// same request; if the parent is not found, `source.endpoint` defaults to
+/// `"unknown"`.
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
     convert_otlp_request_counted(request).0
@@ -550,12 +560,13 @@ fn span_filter_reason(
 }
 
 /// Classify an analyzable span as SQL or outbound HTTP, returning
-/// `(event_type, target, operation)`. `None` when it carries neither a
-/// statement nor a URL. Supports both legacy (pre-1.21) and stable (1.21+)
-/// `OTel` semantic conventions.
+/// `(event_type, target, operation)`. `None` when it carries no statement,
+/// no URL, and no RPC method. Supports both legacy (pre-1.21) and stable
+/// (1.21+) `OTel` semantic conventions.
 fn classify_io_event(
     c: &ClassifiedAttrs<'_>,
     db_system: Option<&str>,
+    span_name: &str,
 ) -> Option<(EventType, String, String)> {
     // OTel db.statement/db.query.text first, then the dd-trace fallback: the
     // datadogreceiver never sets db.statement and leaves the (obfuscated) SQL
@@ -588,6 +599,21 @@ fn classify_io_event(
             .unwrap_or("GET")
             .to_string();
         Some((EventType::HttpOut, url.to_string(), method))
+    } else if let Some(system) = c.rpc_system {
+        // RPC (gRPC, Dubbo, ...): no statement or URL, but rpc.service +
+        // rpc.method identify the callee. Modeled as an outbound call
+        // (EventType::HttpOut) so the topology + occurrence detectors see it
+        // and it reuses the HTTP normalize/sanitize path. Target is
+        // "service/method", falling back to the span name (the gRPC
+        // "package.Service/Method" convention) when either key is absent.
+        let target = match (c.rpc_service, c.rpc_method) {
+            (Some(svc), Some(method)) => format!("{svc}/{method}"),
+            _ => span_name.to_string(),
+        };
+        if target.is_empty() {
+            return None;
+        }
+        Some((EventType::HttpOut, target, system.to_string()))
     } else {
         None
     }
@@ -617,7 +643,9 @@ fn convert_span(
         return Err(OtlpSpanFilterReason::NonSqlDatastore);
     }
 
-    let Some((event_type, target, operation)) = classify_io_event(&classified, db_system) else {
+    let Some((event_type, target, operation)) =
+        classify_io_event(&classified, db_system, &span.name)
+    else {
         return Err(span_filter_reason(&classified, db_system, span.kind));
     };
 
