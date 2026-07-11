@@ -374,6 +374,12 @@ Les spans qui ne portent aucun attribut SQL, HTTP ou RPC sont ignorés. Les agen
 
 Les spans RPC (gRPC, Dubbo et frameworks similaires) ne portent ni statement ni URL, ils sont donc identifiés par `rpc.system` et modélisés comme des appels sortants : la cible est `rpc.service/rpc.method` (avec repli sur le nom du span quand l'un des deux manque), et les findings apparaissent sous les types `_http`. Cela garde les détecteurs topologiques (fanout, bavard, sérialisé) et d'occurrence (n+1, redondant) opérationnels sur les flottes à dominante RPC. Les spans RPC ne portent pas de texte de requête, donc `n_plus_one_sql` et le normalizer SQL ne s'y appliquent jamais.
 
+Trois conséquences à connaître sur les findings RPC :
+
+- **Seuls les spans CLIENT sont modélisés.** Les attributs `rpc.*` sont posés à la fois sur le span SERVER entrant (le handler) et sur le span CLIENT sortant, donc perf-sentinel n'admet que `SpanKind::Client`. Un span RPC dont le kind est absent ou non-CLIENT est traité comme du travail entrant (pas un appel sortant), donc une instrumentation qui ne pose jamais le kind ne produit aucun finding RPC.
+- **Les findings sortent sous les types `_http`.** Un N+1 RPC est rapporté comme `n_plus_one_http` et sa remédiation mentionne un endpoint batch HTTP. Le finding est correct sur l'anti-pattern (l'appel de dépendance répété), seuls le label de protocole et la formulation batch-endpoint sont teintés HTTP.
+- **Les arguments par appel sont invisibles.** La charge utile d'une requête gRPC vit dans le corps du message protobuf, pas dans un attribut de span, donc N appels distincts à la même méthode partagent un unique template à paramètres vides. Comme une URL HTTP à query redactée (voir [LIMITATIONS-FR.md](./LIMITATIONS-FR.md#redaction-de-la-query-string-http-et-visibilité-des-n1)), ces appels sont lus comme `redundant_http` plutôt que `n_plus_one_http`. Le signal d'appel répété est réel dans les deux cas, seule la remédiation "cache vs batch" diffère.
+
 > **Écartement silencieux.** Un span écarté pour un attribut porteur
 > manquant ne produit ni avertissement ni erreur. Un span SQL sans
 > `db.statement` / `db.query.text`, ou un span HTTP sans `http.url` /
