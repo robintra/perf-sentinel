@@ -55,7 +55,7 @@ fn n_plus_one_http_fixture_normalizes_to_same_template() {
         templates.iter().all(|t| *t == templates[0]),
         "expected all templates to be the same, got: {templates:?}"
     );
-    assert_eq!(templates[0], "GET /api/users/{id}");
+    assert_eq!(templates[0], "GET user-svc/api/users/{id}");
 }
 
 #[test]

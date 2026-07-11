@@ -128,18 +128,28 @@ fn is_uuid(s: &str) -> bool {
 
 À 100 000 événements/sec avec une moyenne de 4 segments de chemin par URL, cela économise ~60ms/sec de surcoût regex.
 
-### `strip_origin` sans bibliothèque URL
+### `split_origin` et regroupement conscient du host
 
 ```rust
-fn strip_origin(target: &str) -> &str {
-    target
+fn split_origin(target: &str) -> (Option<&str>, &str) {
+    match target
         .strip_prefix("http://")
         .or_else(|| target.strip_prefix("https://"))
-        .map_or(target, |rest| rest.find('/').map_or("/", |idx| &rest[idx..]))
+    {
+        Some(rest) => match rest.find('/') {
+            Some(idx) => (Some(&rest[..idx]), &rest[idx..]),
+            None => (Some(rest), "/"),
+        },
+        None => (None, target),
+    }
 }
 ```
 
-Cela extrait le chemin d'une URL complète sans inclure le crate [url](https://docs.rs/url/) (~50 Ko de surcoût binaire). Gère `http://`, `https://` et les chemins nus (`/api/foo`). Le `find('/')` localise le début du chemin après l'autorité.
+Cela sépare l'autorité du chemin sans inclure le crate [url](https://docs.rs/url/) (~50 Ko de surcoût binaire). Gère `http://`, `https://` et les chemins nus (`/api/foo`, qui n'ont pas d'autorité).
+
+Le host de l'appelé est ensuite gardé dans le template pour les appels adressés par DNS (`GET user-svc/api/foo`) et retiré pour les autorités en IP littérale. `host_group_prefix` classe l'autorité : une IPv4 en décimal pointé ou une IPv6 littérale entre crochets est une adresse de replica load-balancé et est retirée, donc les pods derrière un même service continuent de se regrouper dans un seul template, tandis qu'un nom d'hôte DNS est mis en minuscules, dépouillé de son userinfo RFC 3986 et de son port, puis préfixé au chemin.
+
+Garder le host empêche deux appels au même chemin sur des backends différents (`http://ms-a/x`, `http://ms-b/x`) de fusionner en un seul template et de lever un faux `redundant_http`. Comme la signature du finding hache le template (`acknowledgments::compute_signature`), la signature d'ack d'un finding HTTP sortant dépend donc du host de l'appelé.
 
 ### Limite de paramètres de requête
 

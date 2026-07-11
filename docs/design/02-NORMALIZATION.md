@@ -128,18 +128,28 @@ fn is_uuid(s: &str) -> bool {
 
 At 100,000 events/sec with an average of 4 path segments per URL, this saves ~60ms/sec of regex overhead.
 
-### `strip_origin` without a URL library
+### `split_origin` and host-aware grouping
 
 ```rust
-fn strip_origin(target: &str) -> &str {
-    target
+fn split_origin(target: &str) -> (Option<&str>, &str) {
+    match target
         .strip_prefix("http://")
         .or_else(|| target.strip_prefix("https://"))
-        .map_or(target, |rest| rest.find('/').map_or("/", |idx| &rest[idx..]))
+    {
+        Some(rest) => match rest.find('/') {
+            Some(idx) => (Some(&rest[..idx]), &rest[idx..]),
+            None => (Some(rest), "/"),
+        },
+        None => (None, target),
+    }
 }
 ```
 
-This extracts the path from a full URL without pulling in the [url](https://docs.rs/url/) crate (~50KB binary overhead). It handles `http://`, `https://` and bare paths (`/api/foo`). The `find('/')` locates the start of the path after the authority.
+This splits the authority from the path without pulling in the [url](https://docs.rs/url/) crate (~50KB binary overhead). It handles `http://`, `https://` and bare paths (`/api/foo`, which have no authority).
+
+The callee host is then kept in the template for DNS-addressed calls (`GET user-svc/api/foo`) and dropped for IP-literal authorities. `host_group_prefix` classifies the authority: an IPv4 dotted-decimal or a bracketed IPv6 literal is a load-balanced replica address and is dropped, so pods behind one service keep deduping into one template, while a DNS hostname is lowercased, stripped of RFC 3986 userinfo and port, and prepended to the path.
+
+Keeping the host stops two calls to the same path on different backends (`http://ms-a/x`, `http://ms-b/x`) from collapsing into one template and raising a false `redundant_http`. Because the finding signature hashes the template (`acknowledgments::compute_signature`), an outbound-HTTP finding's ack signature therefore depends on the callee host.
 
 ### Query parameter limit
 

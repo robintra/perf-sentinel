@@ -2,11 +2,17 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [0.9.7]
+## [0.9.8]
 
 ### Added
 
 - OTLP ingest now admits RPC spans (OTel RPC semconv: `rpc.system`, `rpc.service`, `rpc.method`), the standard shape for gRPC and most RPC frameworks. Before, these spans carried neither `db.statement`/`db.query.text` nor `http.url`/`url.full`, so the I/O filter dropped every one as non-I/O and the topological detectors (`excessive_fanout`, `chatty_service`, `serialized_calls`) plus the occurrence detectors (`n_plus_one_http`, `redundant_http`) were blind on gRPC-heavy fleets. RPC spans are keyed on `rpc.system` and modeled as outbound calls: the target is `rpc.service/rpc.method`, falling back to the span name when either key is absent. Only `SpanKind::Client` is admitted, since `rpc.*` is set on the inbound SERVER handler span too and admitting it would double-count every hop. Admission-only reuse of `EventType::HttpOut`, so the normalize/sanitize path and the finding types are unchanged. RPC spans carry no query text, so `n_plus_one_sql` never applies, and their findings surface under the `_http` types.
+
+### Changed
+
+- **Breaking (HTTP acknowledgment signatures reset).** The HTTP normalizer now keeps the callee host in the grouping template for DNS-addressed calls (`GET user-svc/api/users/{id}` instead of `GET /api/users/{id}`). Before, scheme and authority were stripped unconditionally, so two calls to the same path on different backend services (`http://ms-a/x` and `http://ms-b/x`) collapsed into one template and raised a false `redundant_http` finding with misleading cache/deduplicate advice. Verified on real production topology (Alibaba cluster-trace-microservices-v2022): 10 of the redundant findings on a 300-trace slice were host-strip fusions across distinct callees. IP-literal authorities (IPv4 and bracketed IPv6) are still stripped so load-balanced pod replicas keep deduping, the port and RFC 3986 userinfo are dropped, and the host is lowercased. Because the finding signature hashes `pattern.template`, every outbound-HTTP finding's signature changes, so existing HTTP acknowledgments must be re-created (SQL and relative-URL findings are unaffected). RPC findings (also modeled as `HttpOut` with a host-less `service/method` target) are unchanged.
+
+## [0.9.7]
 
 ### Fixed
 
