@@ -359,17 +359,20 @@ La détection d'anti-patterns repose sur du comptage d'événements. Le sampling
 
 perf-sentinel détecte les anti-patterns I/O en examinant des attributs de span spécifiques. Les conventions sémantiques legacy et stables d'[OpenTelemetry](https://opentelemetry.io/docs/specs/semconv/) sont toutes deux supportées.
 
-| Usage             | Attribut legacy (pre-1.21) | Attribut stable (1.21+)     | Exemple                                   |
-|-------------------|----------------------------|-----------------------------|-------------------------------------------|
-| Texte requête SQL | `db.statement`             | `db.query.text`             | `SELECT * FROM player WHERE game_id = 42` |
-| Système SQL       | `db.system`                | `db.system`                 | `postgresql`, `mysql`                     |
-| URL cible HTTP    | `http.url`                 | `url.full`                  | `http://account-svc:5000/api/account/123` |
-| Méthode HTTP      | `http.method`              | `http.request.method`       | `GET`, `POST`                             |
-| Statut HTTP       | `http.status_code`         | `http.response.status_code` | `200`, `404`                              |
-| Endpoint source   | `http.route`               | `http.route`                | `POST /api/game/{id}/start`               |
-| Nom du service    | `service.name` (ressource) | `service.name` (ressource)  | `game`, `account-svc`                     |
+| Usage             | Attribut legacy (pre-1.21)                | Attribut stable (1.21+)     | Exemple                                   |
+|-------------------|-------------------------------------------|-----------------------------|-------------------------------------------|
+| Texte requête SQL | `db.statement`                            | `db.query.text`             | `SELECT * FROM player WHERE game_id = 42` |
+| Système SQL       | `db.system`                               | `db.system`                 | `postgresql`, `mysql`                     |
+| URL cible HTTP    | `http.url`                                | `url.full`                  | `http://account-svc:5000/api/account/123` |
+| Méthode HTTP      | `http.method`                             | `http.request.method`       | `GET`, `POST`                             |
+| Statut HTTP       | `http.status_code`                        | `http.response.status_code` | `200`, `404`                              |
+| Appelé RPC        | `rpc.system` + `rpc.service`/`rpc.method` | (idem)                      | `grpc`, `order.v1.OrderService/GetOrder`  |
+| Endpoint source   | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
+| Nom du service    | `service.name` (ressource)                | `service.name` (ressource)  | `game`, `account-svc`                     |
 
-Les spans qui n'ont ni attribut SQL ni attribut HTTP sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
+Les spans qui ne portent aucun attribut SQL, HTTP ou RPC sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
+
+Les spans RPC (gRPC, Dubbo et frameworks similaires) ne portent ni statement ni URL, ils sont donc identifiés par `rpc.system` et modélisés comme des appels sortants : la cible est `rpc.service/rpc.method` (avec repli sur le nom du span quand l'un des deux manque), et les findings apparaissent sous les types `_http`. Cela garde les détecteurs topologiques (fanout, bavard, sérialisé) et d'occurrence (n+1, redondant) opérationnels sur les flottes à dominante RPC. Les spans RPC ne portent pas de texte de requête, donc `n_plus_one_sql` et le normalizer SQL ne s'y appliquent jamais.
 
 > **Écartement silencieux.** Un span écarté pour un attribut porteur
 > manquant ne produit ni avertissement ni erreur. Un span SQL sans

@@ -780,6 +780,42 @@ fn parent_span_http_url_used_only_when_route_absent() {
 }
 
 #[test]
+fn grpc_rpc_span_is_admitted_as_outbound_call() {
+    // RPC semconv spans (rpc.system/service/method) carry neither a
+    // statement nor a URL. Before RPC support they were dropped as non-I/O,
+    // blinding the topology + occurrence detectors on gRPC-heavy fleets.
+    let span = make_bare_span(
+        &[7; 8],
+        vec![
+            make_kv("rpc.system", "grpc"),
+            make_kv("rpc.service", "order.v1.OrderService"),
+            make_kv("rpc.method", "GetOrder"),
+        ],
+    );
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
+    assert_eq!(events[0].target, "order.v1.OrderService/GetOrder");
+    assert_eq!(events[0].operation, "grpc");
+}
+
+#[test]
+fn rpc_span_without_service_falls_back_to_span_name() {
+    // gRPC span name convention is "package.Service/Method"; use it as the
+    // target when rpc.service / rpc.method are not both present.
+    let mut span = make_bare_span(&[8; 8], vec![make_kv("rpc.system", "grpc")]);
+    span.name = "order.v1.OrderService/ListOrders".to_string();
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
+    assert_eq!(events[0].target, "order.v1.OrderService/ListOrders");
+}
+
+#[test]
 fn parent_span_url_full_used_when_neither_route_nor_url_present() {
     // OTel stable v1.21+ replaces http.url with url.full. Last-resort
     // fallback once http.route and http.url are both absent.

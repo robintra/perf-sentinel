@@ -359,17 +359,20 @@ Anti-pattern detection relies on counting events. Sampling that drops events dir
 
 perf-sentinel detects I/O anti-patterns by looking at specific span attributes. Both the legacy and stable [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported.
 
-| Purpose         | Legacy attribute (pre-1.21) | Stable attribute (1.21+)    | Example                                   |
-|-----------------|-----------------------------|-----------------------------|-------------------------------------------|
-| SQL query text  | `db.statement`              | `db.query.text`             | `SELECT * FROM player WHERE game_id = 42` |
-| SQL system      | `db.system`                 | `db.system`                 | `postgresql`, `mysql`                     |
-| HTTP target URL | `http.url`                  | `url.full`                  | `http://account-svc:5000/api/account/123` |
-| HTTP method     | `http.method`               | `http.request.method`       | `GET`, `POST`                             |
-| HTTP status     | `http.status_code`          | `http.response.status_code` | `200`, `404`                              |
-| Source endpoint | `http.route`                | `http.route`                | `POST /api/game/{id}/start`               |
-| Service name    | `service.name` (resource)   | `service.name` (resource)   | `game`, `account-svc`                     |
+| Purpose         | Legacy attribute (pre-1.21)               | Stable attribute (1.21+)    | Example                                   |
+|-----------------|-------------------------------------------|-----------------------------|-------------------------------------------|
+| SQL query text  | `db.statement`                            | `db.query.text`             | `SELECT * FROM player WHERE game_id = 42` |
+| SQL system      | `db.system`                               | `db.system`                 | `postgresql`, `mysql`                     |
+| HTTP target URL | `http.url`                                | `url.full`                  | `http://account-svc:5000/api/account/123` |
+| HTTP method     | `http.method`                             | `http.request.method`       | `GET`, `POST`                             |
+| HTTP status     | `http.status_code`                        | `http.response.status_code` | `200`, `404`                              |
+| RPC callee      | `rpc.system` + `rpc.service`/`rpc.method` | (same)                      | `grpc`, `order.v1.OrderService/GetOrder`  |
+| Source endpoint | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
+| Service name    | `service.name` (resource)                 | `service.name` (resource)   | `game`, `account-svc`                     |
 
-Spans that have neither a SQL attribute nor an HTTP attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
+Spans that carry no SQL, HTTP, or RPC attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
+
+RPC spans (gRPC, Dubbo, and similar frameworks) carry neither a statement nor a URL, so they are keyed on `rpc.system` and modeled as outbound calls: the target is `rpc.service/rpc.method` (falling back to the span name when either is absent), and findings appear under the `_http` types. This keeps the topological detectors (fanout, chatty, serialized) and the occurrence detectors (n+1, redundant) working on RPC-heavy fleets. RPC spans carry no query text, so `n_plus_one_sql` and the SQL normalizer never apply to them.
 
 > **Silent skip.** A span dropped for a missing carrying attribute
 > produces no warning and no error. A SQL span without `db.statement` /
