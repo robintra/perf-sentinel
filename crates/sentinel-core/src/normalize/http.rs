@@ -352,8 +352,8 @@ mod tests {
         let r = normalize_http("GET", &format!("http://{host}/x"));
         // Not four octets, so it is treated as a DNS host and kept.
         assert_eq!(r.template, format!("GET {host}/x"));
-        assert!(super::is_ipv4_literal("1.2.3.4"));
-        assert!(!super::is_ipv4_literal(&host));
+        assert!(is_ipv4_literal("1.2.3.4"));
+        assert!(!is_ipv4_literal(&host));
     }
 
     #[test]

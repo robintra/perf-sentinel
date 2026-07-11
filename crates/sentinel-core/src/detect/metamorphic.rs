@@ -13,7 +13,7 @@
 //! - **additivity**: per-trace detection over a set equals the union of
 //!   detections per trace - the structural guarantee behind "sampling
 //!   whole traces upstream never *creates* findings". Deliberately NOT
-//!   covered: [`super::run_full_detection`]'s cross-trace percentile
+//!   covered: [`run_full_detection`]'s cross-trace percentile
 //!   detector ([`super::slow::detect_slow_cross_trace`]), which is
 //!   non-additive by design (p50/p95/p99 shift with the population);
 //!   that exclusion is itself pinned by
@@ -330,6 +330,29 @@ fn assert_removal_monotone(
     Ok(())
 }
 
+/// Shared body for the permutation property. Span arrival order never
+/// changes what is found. Single-sourced across the SQL and HTTP twins so
+/// the invariant cannot drift between them.
+fn assert_permutation_invariant(
+    original: Vec<SpanEvent>,
+    shuffled: Vec<SpanEvent>,
+) -> Result<(), TestCaseError> {
+    let f_original = detect_n_plus_one(
+        &make_trace(original),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+    );
+    let f_shuffled = detect_n_plus_one(
+        &make_trace(shuffled),
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+    );
+    prop_assert_eq!(sorted_keys(&f_original), sorted_keys(&f_shuffled));
+    Ok(())
+}
+
 proptest! {
     /// Amplification: appending more distinct-param occurrences to a group
     /// already past the threshold keeps exactly one finding, counts every
@@ -353,11 +376,7 @@ proptest! {
         (original, shuffled) in mixed_workload()
             .prop_flat_map(|events| (Just(events.clone()), Just(events).prop_shuffle())),
     ) {
-        let f_original = detect_n_plus_one(
-            &make_trace(original), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-        let f_shuffled = detect_n_plus_one(
-            &make_trace(shuffled), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-        prop_assert_eq!(sorted_keys(&f_original), sorted_keys(&f_shuffled));
+        assert_permutation_invariant(original, shuffled)?;
     }
 
     /// Duplication: feeding the same spans again under a new trace id
@@ -463,11 +482,7 @@ proptest! {
         (original, shuffled) in mixed_http_workload()
             .prop_flat_map(|events| (Just(events.clone()), Just(events).prop_shuffle())),
     ) {
-        let f_original = detect_n_plus_one(
-            &make_trace(original), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-        let f_shuffled = detect_n_plus_one(
-            &make_trace(shuffled), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-        prop_assert_eq!(sorted_keys(&f_original), sorted_keys(&f_shuffled));
+        assert_permutation_invariant(original, shuffled)?;
     }
 
     /// HTTP twin of the silence property.
