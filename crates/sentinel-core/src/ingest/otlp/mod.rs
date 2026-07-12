@@ -573,6 +573,45 @@ fn classify_resource_spans(
     out
 }
 
+/// One span's role in the stitch pre-pass.
+enum SpanRole<'a> {
+    /// Statement-bearing SQL span, statement borrowed for adoption.
+    Donor(&'a str),
+    /// Statement-less execute/query span. `has_sql_db_system` false means the
+    /// engine sits only on a child layer (PHP Doctrine), so it is admitted
+    /// only with a sibling donor (checked by the caller).
+    Orphan { has_sql_db_system: bool },
+    /// Not a stitch participant (empty id, non-SQL store, HTTP/RPC, or not an
+    /// execute/query span).
+    Skip,
+}
+
+/// Classify one span's stitch role. Statement resolution and the SQL/non-SQL
+/// gating match `classify_io_event`.
+fn classify_stitch_role<'a>(span: &Span, c: &ClassifiedAttrs<'a>) -> SpanRole<'a> {
+    if span.trace_id.is_empty() || span.span_id.is_empty() {
+        return SpanRole::Skip;
+    }
+    let db_system = c
+        .effective_db_system()
+        .map(crate::ingest::canonical_db_system);
+    if db_system.is_some_and(crate::ingest::is_non_sql_db_system) {
+        return SpanRole::Skip;
+    }
+    if let Some(statement) = resolve_sql_statement(c, db_system) {
+        SpanRole::Donor(statement)
+    } else if !has_http_signal(c)
+        && c.rpc_system.is_none()
+        && looks_like_query_execution(&span.name)
+    {
+        SpanRole::Orphan {
+            has_sql_db_system: db_system.is_some_and(crate::ingest::is_sql_db_system),
+        }
+    } else {
+        SpanRole::Skip
+    }
+}
+
 /// Classify the resource's SQL spans into donors (statement-bearing) and
 /// orphans (statement-less execute/query spans). Non-SQL datastores and
 /// spans with empty ids never participate.
@@ -603,22 +642,12 @@ fn collect_stitch_participants<'a>(
                 break 'outer;
             };
             idx += 1;
-            if span.trace_id.is_empty() || span.span_id.is_empty() {
-                continue;
-            }
-            let db_system = c
-                .effective_db_system()
-                .map(crate::ingest::canonical_db_system);
-            if db_system.is_some_and(crate::ingest::is_non_sql_db_system) {
-                continue;
-            }
-            if let Some(statement) = resolve_sql_statement(c, db_system) {
-                donors.push(StitchDonor { span, statement });
-            } else if !has_http_signal(c)
-                && c.rpc_system.is_none()
-                && looks_like_query_execution(&span.name)
-            {
-                provisional.push((span, db_system.is_some_and(crate::ingest::is_sql_db_system)));
+            match classify_stitch_role(span, c) {
+                SpanRole::Donor(statement) => donors.push(StitchDonor { span, statement }),
+                SpanRole::Orphan { has_sql_db_system } => {
+                    provisional.push((span, has_sql_db_system));
+                }
+                SpanRole::Skip => {}
             }
         }
     }
@@ -764,6 +793,85 @@ fn nearest_donor(
     })
 }
 
+/// Bucket surviving donors by parent (sibling lookup) and by same-trace
+/// ancestor (descendant lookup); sibling buckets are sorted by start time so
+/// carriers binary-search their relevant siblings. O(n), no quadratic scans.
+fn bucket_surviving_donors<'a>(
+    donors: &[StitchDonor<'a>],
+    donor_suppressed: &[bool],
+    span_index: &HashMap<&'a [u8], &'a Span>,
+) -> (
+    HashMap<SpanKey<'a>, Vec<usize>>,
+    HashMap<SpanKey<'a>, Vec<usize>>,
+) {
+    let mut donors_by_parent: HashMap<SpanKey<'a>, Vec<usize>> = HashMap::new();
+    let mut donors_by_ancestor: HashMap<SpanKey<'a>, Vec<usize>> = HashMap::new();
+    for (i, donor) in donors.iter().enumerate() {
+        if donor_suppressed[i] {
+            continue;
+        }
+        if !donor.span.parent_span_id.is_empty() {
+            donors_by_parent
+                .entry((
+                    donor.span.trace_id.as_slice(),
+                    donor.span.parent_span_id.as_slice(),
+                ))
+                .or_default()
+                .push(i);
+        }
+        walk_same_trace_ancestors(donor.span, span_index, |ancestor| {
+            donors_by_ancestor
+                .entry(span_key(ancestor))
+                .or_default()
+                .push(i);
+            false
+        });
+    }
+    for bucket in donors_by_parent.values_mut() {
+        bucket.sort_unstable_by_key(|&i| (donors[i].span.start_time_unix_nano, i));
+    }
+    (donors_by_parent, donors_by_ancestor)
+}
+
+/// Related-donor candidates for one carrier orphan: nearest siblings (from the
+/// sorted parent bucket), same-trace ancestors, then descendants.
+#[allow(clippy::too_many_arguments)]
+fn collect_orphan_candidates<'a>(
+    orphan: &'a Span,
+    donors: &[StitchDonor<'a>],
+    donor_by_id: &HashMap<SpanKey<'a>, usize>,
+    donor_suppressed: &[bool],
+    donor_consumed: &[bool],
+    donors_by_parent: &HashMap<SpanKey<'a>, Vec<usize>>,
+    donors_by_ancestor: &HashMap<SpanKey<'a>, Vec<usize>>,
+    span_index: &HashMap<&'a [u8], &'a Span>,
+    candidates: &mut Vec<usize>,
+) {
+    if !orphan.parent_span_id.is_empty()
+        && let Some(siblings) =
+            donors_by_parent.get(&(orphan.trace_id.as_slice(), orphan.parent_span_id.as_slice()))
+    {
+        push_sibling_candidates(
+            donors,
+            donor_consumed,
+            siblings,
+            orphan.start_time_unix_nano,
+            candidates,
+        );
+    }
+    walk_same_trace_ancestors(orphan, span_index, |ancestor| {
+        if let Some(&i) = donor_by_id.get(&span_key(ancestor))
+            && !donor_suppressed[i]
+        {
+            candidates.push(i);
+        }
+        false
+    });
+    if let Some(descendants) = donors_by_ancestor.get(&span_key(orphan)) {
+        candidates.extend(descendants.iter().copied());
+    }
+}
+
 /// Stitch SQL queries that layered instrumentation split across spans.
 ///
 /// The PHP `OTel` contrib packages (Doctrine + PDO) emit, per query, spans
@@ -824,67 +932,30 @@ fn compute_stitch_decisions<'a>(
     let mut donor_consumed = vec![false; donors.len()];
     let mut stitched: HashSet<SpanKey<'a>> = HashSet::new();
 
+    // Rule 3: each carrier adopts the nearest related donor's statement.
     if !carriers.is_empty() {
-        // Bucket surviving donors by parent (sibling lookup) and by ancestor
-        // (descendant lookup): O(n) buckets, no quadratic sibling scans.
-        let mut donors_by_parent: HashMap<SpanKey<'a>, Vec<usize>> = HashMap::new();
-        let mut donors_by_ancestor: HashMap<SpanKey<'a>, Vec<usize>> = HashMap::new();
-        for (i, donor) in donors.iter().enumerate() {
-            if donor_suppressed[i] {
-                continue;
-            }
-            if !donor.span.parent_span_id.is_empty() {
-                donors_by_parent
-                    .entry((
-                        donor.span.trace_id.as_slice(),
-                        donor.span.parent_span_id.as_slice(),
-                    ))
-                    .or_default()
-                    .push(i);
-            }
-            walk_same_trace_ancestors(donor.span, span_index, |ancestor| {
-                donors_by_ancestor
-                    .entry(span_key(ancestor))
-                    .or_default()
-                    .push(i);
-                false
-            });
-        }
-        // Sorted by (start, span order): carriers binary-search their
-        // relevant siblings, a full bucket scan would be quadratic.
-        for bucket in donors_by_parent.values_mut() {
-            bucket.sort_unstable_by_key(|&i| (donors[i].span.start_time_unix_nano, i));
-        }
-
-        // Rule 3: each carrier adopts the nearest related donor's statement.
+        let (donors_by_parent, donors_by_ancestor) =
+            bucket_surviving_donors(&donors, &donor_suppressed, span_index);
         let mut candidates: Vec<usize> = Vec::new();
         for orphan in carriers {
             candidates.clear();
-            let orphan_start = orphan.start_time_unix_nano;
-            if !orphan.parent_span_id.is_empty()
-                && let Some(siblings) = donors_by_parent
-                    .get(&(orphan.trace_id.as_slice(), orphan.parent_span_id.as_slice()))
-            {
-                push_sibling_candidates(
-                    &donors,
-                    &donor_consumed,
-                    siblings,
-                    orphan_start,
-                    &mut candidates,
-                );
-            }
-            walk_same_trace_ancestors(orphan, span_index, |ancestor| {
-                if let Some(&i) = donor_by_id.get(&span_key(ancestor))
-                    && !donor_suppressed[i]
-                {
-                    candidates.push(i);
-                }
-                false
-            });
-            if let Some(descendants) = donors_by_ancestor.get(&span_key(orphan)) {
-                candidates.extend(descendants.iter().copied());
-            }
-            if let Some(i) = nearest_donor(&donors, &donor_consumed, &candidates, orphan_start) {
+            collect_orphan_candidates(
+                orphan,
+                &donors,
+                &donor_by_id,
+                &donor_suppressed,
+                &donor_consumed,
+                &donors_by_parent,
+                &donors_by_ancestor,
+                span_index,
+                &mut candidates,
+            );
+            if let Some(i) = nearest_donor(
+                &donors,
+                &donor_consumed,
+                &candidates,
+                orphan.start_time_unix_nano,
+            ) {
                 decisions.insert(span_key(orphan), StitchDecision::Adopt(donors[i].statement));
                 donor_consumed[i] = true;
                 stitched.insert(span_key(orphan));
