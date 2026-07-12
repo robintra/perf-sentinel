@@ -88,17 +88,23 @@ pub enum OtlpSpanFilterReason {
     /// Dropped on purpose, not an instrumentation gap, so it is excluded
     /// from the daemon zero-retention warning.
     NonSqlDatastore,
+    /// DB span merged into the single event of a query that layered
+    /// instrumentation split across spans (statement on one, duration on
+    /// another, e.g. PHP Doctrine + PDO). The query is still analyzed, so
+    /// this is excluded from the daemon zero-retention warning.
+    MergedDbSpan,
 }
 
 impl OtlpSpanFilterReason {
     /// Every variant in declaration order. Fixed-size array so adding a
     /// variant without bumping the count is a compile-time error,
     /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::NotIo,
         Self::MissingDbStatement,
         Self::MissingHttpUrl,
         Self::NonSqlDatastore,
+        Self::MergedDbSpan,
     ];
 
     #[must_use]
@@ -108,6 +114,7 @@ impl OtlpSpanFilterReason {
             Self::MissingDbStatement => "missing_db_statement",
             Self::MissingHttpUrl => "missing_http_url",
             Self::NonSqlDatastore => "non_sql_datastore",
+            Self::MergedDbSpan => "merged_db_span",
         }
     }
 }
@@ -2496,7 +2503,13 @@ mod tests {
             output.contains("perf_sentinel_otlp_spans_received_total 0"),
             "received counter should render at 0, got: {output}"
         );
-        for reason in ["not_io", "missing_db_statement", "missing_http_url"] {
+        for reason in [
+            "not_io",
+            "missing_db_statement",
+            "missing_http_url",
+            "non_sql_datastore",
+            "merged_db_span",
+        ] {
             assert!(
                 output.contains(&format!(
                     "perf_sentinel_otlp_spans_filtered_total{{reason=\"{reason}\"}} 0"
@@ -2516,6 +2529,7 @@ mod tests {
             ),
             (OtlpSpanFilterReason::MissingHttpUrl, "missing_http_url"),
             (OtlpSpanFilterReason::NonSqlDatastore, "non_sql_datastore"),
+            (OtlpSpanFilterReason::MergedDbSpan, "merged_db_span"),
         ] {
             assert_eq!(variant.as_str(), label);
         }

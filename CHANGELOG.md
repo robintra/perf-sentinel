@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `slow_sql` now fires for services instrumented by the PHP OTel contrib packages (Symfony + Doctrine + PDO). Those packages split each query across spans: the spans carrying the real duration (`Doctrine::execute`, `PDOStatement::execute`) have no `db.statement`, and the ~0 ms spans carrying the statement are emitted once per layer (Doctrine prepare + `PDO::prepare`, identical statement). Before, OTLP conversion dropped every duration-bearing span as `missing_db_statement`, so all SQL events for such a service lasted ~0 ms and `slow_sql` could never fire regardless of thresholds, while the duplicated statement spans raised spurious `redundant_sql` findings. A stitch pass at OTLP conversion now re-joins each query: a statement-less SQL span whose name suggests query execution (`execute`, `query`; connect/commit/transaction spans keep today's filtering) adopts the statement of the nearest related preceding statement-bearing span (sibling or ancestor/descendant, same trace, donors reusable for the prepare-once-execute-many pattern), and layered duplicates collapse onto the outermost span. Merged spans are counted under the new `merged_db_span` reason of `perf_sentinel_otlp_spans_filtered_total`, excluded from the daemon zero-retention warning. Fail-open: single-layer emitters (Laravel/PDO, Django/psycopg, ActiveRecord) are byte-identical to before, and a span pair split across collector batches degrades to the previous `missing_db_statement` behavior. On layered-instrumentation fleets SQL event counts can also decrease (the duplicate statement events collapse into one), so IIS and waste-ratio baselines shift in the correct direction.
+
 ## [0.9.8]
 
 ### Added

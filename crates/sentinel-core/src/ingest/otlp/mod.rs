@@ -3,7 +3,7 @@
 //! Supports both gRPC (tonic `TraceService`) and HTTP (axum handler) ingestion.
 //! Uses the `opentelemetry-proto` crate for protobuf definitions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use opentelemetry_proto::tonic::collector::trace::v1::{
@@ -54,6 +54,7 @@ pub struct SpanConversionStats {
     pub filtered_missing_db_statement: u64,
     pub filtered_missing_http_url: u64,
     pub filtered_non_sql_datastore: u64,
+    pub filtered_merged_db_span: u64,
 }
 
 impl SpanConversionStats {
@@ -63,6 +64,7 @@ impl SpanConversionStats {
             OtlpSpanFilterReason::MissingDbStatement => self.filtered_missing_db_statement += 1,
             OtlpSpanFilterReason::MissingHttpUrl => self.filtered_missing_http_url += 1,
             OtlpSpanFilterReason::NonSqlDatastore => self.filtered_non_sql_datastore += 1,
+            OtlpSpanFilterReason::MergedDbSpan => self.filtered_merged_db_span += 1,
         }
     }
 
@@ -71,7 +73,7 @@ impl SpanConversionStats {
     /// metrics sink). Kept next to [`Self::count_filtered`] so the two
     /// directions of the mapping cannot drift apart.
     #[must_use]
-    pub fn filtered_counts(&self) -> [(OtlpSpanFilterReason, u64); 4] {
+    pub fn filtered_counts(&self) -> [(OtlpSpanFilterReason, u64); 5] {
         [
             (OtlpSpanFilterReason::NotIo, self.filtered_not_io),
             (
@@ -85,6 +87,10 @@ impl SpanConversionStats {
             (
                 OtlpSpanFilterReason::NonSqlDatastore,
                 self.filtered_non_sql_datastore,
+            ),
+            (
+                OtlpSpanFilterReason::MergedDbSpan,
+                self.filtered_merged_db_span,
             ),
         ]
     }
@@ -453,11 +459,408 @@ fn collect_instrumentation_scopes(
     }
 }
 
+/// Whether the span carries any HTTP signal (legacy or stable semconv).
+/// Gates both the dd-trace statement fallback and the stitch orphan
+/// classification: a span with HTTP keys is never treated as pure SQL.
+fn has_http_signal(c: &ClassifiedAttrs<'_>) -> bool {
+    c.http_url.is_some()
+        || c.url_full.is_some()
+        || c.http_method.is_some()
+        || c.http_request_method.is_some()
+}
+
+/// Resolve the SQL statement a span carries: legacy `db.statement`, stable
+/// `db.query.text`, then the dd-trace `dd.span.Resource` fallback (see
+/// `classify_io_event` for the fail-closed gating rationale). Shared by
+/// `classify_io_event` and the stitch pre-pass so the two can never
+/// disagree on what counts as a statement.
+fn resolve_sql_statement<'a>(c: &ClassifiedAttrs<'a>, db_system: Option<&str>) -> Option<&'a str> {
+    c.db_statement.or(c.db_query_text).or_else(|| {
+        c.dd_resource
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter(|_| {
+                !has_http_signal(c) && db_system.is_some_and(crate::ingest::is_sql_db_system)
+            })
+    })
+}
+
+// ── Split DB span stitching ─────────────────────────────────────────
+
+/// `(trace_id, span_id)` key of the stitch pre-pass maps.
+type SpanKey<'a> = (&'a [u8], &'a [u8]);
+
+fn span_key(span: &Span) -> SpanKey<'_> {
+    (span.trace_id.as_slice(), span.span_id.as_slice())
+}
+
+/// Outcome of the stitch pre-pass for one span, keyed by [`SpanKey`].
+enum StitchDecision<'a> {
+    /// Span merged into another span's event: skip it, counted as
+    /// `merged_db_span`.
+    Suppress,
+    /// Statement-less duration span adopting this statement from a
+    /// related donor span.
+    Adopt(&'a str),
+}
+
+/// A statement-bearing SQL span usable as a statement source.
+struct StitchDonor<'a> {
+    span: &'a Span,
+    statement: &'a str,
+}
+
+/// Bounded look-back for an unconsumed sibling donor, so batch-prepared
+/// statements pair off while crafted payloads stay linear.
+const SIBLING_DONOR_LOOKBACK: usize = 8;
+
+/// Visit the same-trace ancestors of `span`, nearest first, up to
+/// `CODE_ATTRS_MAX_DEPTH` hops; stop early when `visit` returns `true`.
+/// A malformed parent cycle that loops back to `span` itself ends the
+/// walk, so a span is never its own ancestor.
+fn walk_same_trace_ancestors<'a>(
+    span: &'a Span,
+    span_index: &HashMap<&'a [u8], &'a Span>,
+    mut visit: impl FnMut(&'a Span) -> bool,
+) {
+    let mut current = span;
+    for _ in 0..CODE_ATTRS_MAX_DEPTH {
+        if current.parent_span_id.is_empty() {
+            return;
+        }
+        let Some(&parent) = span_index.get(current.parent_span_id.as_slice()) else {
+            return;
+        };
+        if parent.trace_id != span.trace_id || parent.span_id == span.span_id {
+            return;
+        }
+        if visit(parent) {
+            return;
+        }
+        current = parent;
+    }
+}
+
+/// Duration halves of a split query are execute/query spans; statement-less
+/// connect, commit, or transaction spans must keep today's filtering
+/// instead of adopting a neighbor query's statement.
+fn looks_like_query_execution(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("execute") || name.contains("query")
+}
+
+/// Classify the resource's SQL spans into donors (statement-bearing) and
+/// orphans (allowlisted SQL `db.*` system, execute/query span name, no
+/// statement and no HTTP/RPC signal). Spans with empty ids are excluded
+/// (their [`SpanKey`]s would collide). Same span cap and counting break as
+/// `build_span_index`: spans beyond the cap never participate and convert
+/// exactly as before.
+fn collect_stitch_participants(
+    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+) -> (Vec<StitchDonor<'_>>, Vec<&Span>) {
+    let mut donors = Vec::new();
+    let mut orphans = Vec::new();
+    let mut count = 0usize;
+    'outer: for scope_spans in &resource_spans.scope_spans {
+        for span in &scope_spans.spans {
+            count += 1;
+            if count > MAX_SPANS_PER_RESOURCE {
+                break 'outer;
+            }
+            if span.trace_id.is_empty() || span.span_id.is_empty() {
+                continue;
+            }
+            let c = classify_span_attrs(&span.attributes);
+            let db_system = c
+                .effective_db_system()
+                .map(crate::ingest::canonical_db_system);
+            if !db_system.is_some_and(crate::ingest::is_sql_db_system) {
+                continue;
+            }
+            if let Some(statement) = resolve_sql_statement(&c, db_system) {
+                donors.push(StitchDonor { span, statement });
+            } else if !has_http_signal(&c)
+                && c.rpc_system.is_none()
+                && looks_like_query_execution(&span.name)
+            {
+                orphans.push(span);
+            }
+        }
+    }
+    (donors, orphans)
+}
+
+/// Rule 1: collapse layered duplicate statements onto the outermost span.
+/// Mutual ancestry (a malformed parent cycle, which has no outermost span)
+/// suppresses neither donor, keeping pre-stitch behavior.
+fn suppress_layered_duplicates<'a>(
+    donors: &[StitchDonor<'a>],
+    donor_by_id: &HashMap<SpanKey<'a>, usize>,
+    span_index: &HashMap<&'a [u8], &'a Span>,
+) -> Vec<bool> {
+    let mut suppressed = vec![false; donors.len()];
+    for (i, donor) in donors.iter().enumerate() {
+        let mut suppressor = None;
+        walk_same_trace_ancestors(donor.span, span_index, |ancestor| {
+            suppressor = donor_by_id
+                .get(&span_key(ancestor))
+                .copied()
+                .filter(|&j| donors[j].statement == donor.statement);
+            suppressor.is_some()
+        });
+        if let Some(j) = suppressor {
+            let mut mutual = false;
+            walk_same_trace_ancestors(donors[j].span, span_index, |ancestor| {
+                mutual = ancestor.span_id == donor.span.span_id;
+                mutual
+            });
+            suppressed[i] = !mutual;
+        }
+    }
+    suppressed
+}
+
+/// Rule 2 split: a layered orphan defers to its outermost same-trace orphan
+/// ancestor (returned as `deferred` with the carrier's key); the rest carry
+/// their own stitched event.
+fn split_layered_orphans<'a>(
+    orphans: &[&'a Span],
+    span_index: &HashMap<&'a [u8], &'a Span>,
+) -> (Vec<(&'a Span, SpanKey<'a>)>, Vec<&'a Span>) {
+    let orphan_keys: HashSet<SpanKey<'a>> = orphans.iter().map(|o| span_key(o)).collect();
+    let mut deferred = Vec::new();
+    let mut carriers = Vec::new();
+    for &orphan in orphans {
+        let mut carrier_key = None;
+        walk_same_trace_ancestors(orphan, span_index, |ancestor| {
+            if orphan_keys.contains(&span_key(ancestor)) {
+                carrier_key = Some(span_key(ancestor));
+            }
+            false
+        });
+        match carrier_key {
+            Some(key) => deferred.push((orphan, key)),
+            None => carriers.push(orphan),
+        }
+    }
+    (deferred, carriers)
+}
+
+/// Sibling donor candidates for one carrier: the latest preceding donor
+/// (span-order first on ties), plus the nearest unconsumed one within a
+/// bounded look-back. Following siblings are never candidates (a prepare
+/// span starts before its execute).
+fn push_sibling_candidates(
+    donors: &[StitchDonor<'_>],
+    consumed: &[bool],
+    siblings: &[usize],
+    orphan_start: u64,
+    candidates: &mut Vec<usize>,
+) {
+    let at_or_before =
+        siblings.partition_point(|&i| donors[i].span.start_time_unix_nano <= orphan_start);
+    if at_or_before == 0 {
+        return;
+    }
+    let best_start = donors[siblings[at_or_before - 1]].span.start_time_unix_nano;
+    let run_start = siblings[..at_or_before]
+        .partition_point(|&i| donors[i].span.start_time_unix_nano < best_start);
+    candidates.push(siblings[run_start]);
+    for &i in siblings[..at_or_before]
+        .iter()
+        .rev()
+        .take(SIBLING_DONOR_LOOKBACK)
+    {
+        if !consumed[i] {
+            candidates.push(i);
+            return;
+        }
+    }
+}
+
+/// Nearest related donor for an orphan starting at `orphan_start`, among
+/// preceding donors (a prepare span starts before its execute), preferring
+/// unconsumed ones so batch-prepared statements pair off instead of piling
+/// onto the latest prepare. Fallback: smallest absolute gap, which by
+/// construction only descendant donors can win (following siblings are
+/// never candidates). Ties resolve to the first candidate, so pairing is
+/// deterministic.
+fn nearest_donor(
+    donors: &[StitchDonor<'_>],
+    consumed: &[bool],
+    candidates: &[usize],
+    orphan_start: u64,
+) -> Option<usize> {
+    let mut best: Option<(usize, u64, bool)> = None;
+    for &i in candidates {
+        let start = donors[i].span.start_time_unix_nano;
+        if start > orphan_start {
+            continue;
+        }
+        let free = !consumed[i];
+        let better = match best {
+            None => true,
+            Some((_, b_start, b_free)) => (free && !b_free) || (free == b_free && start > b_start),
+        };
+        if better {
+            best = Some((i, start, free));
+        }
+    }
+    best.map(|(i, _, _)| i).or_else(|| {
+        candidates
+            .iter()
+            .copied()
+            .min_by_key(|&i| donors[i].span.start_time_unix_nano.abs_diff(orphan_start))
+    })
+}
+
+/// Stitch SQL queries that layered instrumentation split across spans.
+///
+/// The PHP `OTel` contrib packages (Doctrine + PDO) emit, per query, spans
+/// carrying the real duration but no `db.statement` (`Doctrine::execute`,
+/// `PDOStatement::execute`) alongside ~0 ms spans carrying the statement
+/// (the prepare spans), the latter duplicated once per layer. Without
+/// stitching the duration spans drop as `missing_db_statement`, so every
+/// SQL event lasts ~0 ms (slow detection can never fire) and the duplicate
+/// statement spans fake redundancy.
+///
+/// Three rules over the SQL spans of one resource (per `ResourceSpans`
+/// block; allowlisted SQL engines only, other engines keep today's
+/// behavior):
+/// 1. A donor (statement-bearing span) whose same-trace ancestor is a donor
+///    with the identical statement is suppressed: layered duplicate.
+///    Siblings are never collapsed (single-layer emitters like Laravel/PDO
+///    legitimately emit prepare and execute as siblings), and mutual
+///    ancestry (a malformed parent cycle, which has no outermost span)
+///    suppresses neither.
+/// 2. An orphan whose same-trace ancestor is an orphan defers to the
+///    outermost one: only the outermost carries the stitched event.
+/// 3. Each remaining orphan adopts the statement of the nearest related
+///    donor (sibling or ancestor/descendant, same trace, see
+///    [`nearest_donor`]). Donors are reusable (prepare once, execute N
+///    times yields N events); a donor consumed at least once is suppressed.
+///
+/// Fail-open: an orphan with no related preceding donor (for example a
+/// prepare/execute pair split across collector batches) gets no decision
+/// and still counts `missing_db_statement`.
+///
+/// Known limit: pairing is a nearest-start heuristic. Interleaved
+/// same-parent queries can swap params and durations between events, and
+/// batch-prepared statements can attribute an execution to the wrong
+/// template; nothing is dropped or double-emitted. Real emitters are
+/// per-query sequential.
+fn compute_stitch_decisions<'a>(
+    resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+    span_index: &HashMap<&'a [u8], &'a Span>,
+) -> HashMap<SpanKey<'a>, StitchDecision<'a>> {
+    let (donors, orphans) = collect_stitch_participants(resource_spans);
+    if donors.is_empty() {
+        return HashMap::new();
+    }
+
+    let donor_by_id: HashMap<SpanKey<'a>, usize> = donors
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (span_key(d.span), i))
+        .collect();
+    let donor_suppressed = suppress_layered_duplicates(&donors, &donor_by_id, span_index);
+
+    // Rule 2: deferred spans are only suppressed if the carrier actually
+    // stitches, so the no-donor case stays byte-identical to today.
+    let (deferred, carriers) = split_layered_orphans(&orphans, span_index);
+
+    let mut decisions: HashMap<SpanKey<'a>, StitchDecision<'a>> = HashMap::new();
+    let mut donor_consumed = vec![false; donors.len()];
+    let mut stitched: HashSet<SpanKey<'a>> = HashSet::new();
+
+    if !carriers.is_empty() {
+        // Bucket surviving donors by parent (sibling lookup) and by ancestor
+        // (descendant lookup): O(n) buckets, no quadratic sibling scans.
+        let mut donors_by_parent: HashMap<SpanKey<'a>, Vec<usize>> = HashMap::new();
+        let mut donors_by_ancestor: HashMap<SpanKey<'a>, Vec<usize>> = HashMap::new();
+        for (i, donor) in donors.iter().enumerate() {
+            if donor_suppressed[i] {
+                continue;
+            }
+            if !donor.span.parent_span_id.is_empty() {
+                donors_by_parent
+                    .entry((
+                        donor.span.trace_id.as_slice(),
+                        donor.span.parent_span_id.as_slice(),
+                    ))
+                    .or_default()
+                    .push(i);
+            }
+            walk_same_trace_ancestors(donor.span, span_index, |ancestor| {
+                donors_by_ancestor
+                    .entry(span_key(ancestor))
+                    .or_default()
+                    .push(i);
+                false
+            });
+        }
+        // Sorted by (start, span order): carriers binary-search their
+        // relevant siblings, a full bucket scan would be quadratic.
+        for bucket in donors_by_parent.values_mut() {
+            bucket.sort_unstable_by_key(|&i| (donors[i].span.start_time_unix_nano, i));
+        }
+
+        // Rule 3: each carrier adopts the nearest related donor's statement.
+        let mut candidates: Vec<usize> = Vec::new();
+        for orphan in carriers {
+            candidates.clear();
+            let orphan_start = orphan.start_time_unix_nano;
+            if !orphan.parent_span_id.is_empty()
+                && let Some(siblings) = donors_by_parent
+                    .get(&(orphan.trace_id.as_slice(), orphan.parent_span_id.as_slice()))
+            {
+                push_sibling_candidates(
+                    &donors,
+                    &donor_consumed,
+                    siblings,
+                    orphan_start,
+                    &mut candidates,
+                );
+            }
+            walk_same_trace_ancestors(orphan, span_index, |ancestor| {
+                if let Some(&i) = donor_by_id.get(&span_key(ancestor))
+                    && !donor_suppressed[i]
+                {
+                    candidates.push(i);
+                }
+                false
+            });
+            if let Some(descendants) = donors_by_ancestor.get(&span_key(orphan)) {
+                candidates.extend(descendants.iter().copied());
+            }
+            if let Some(i) = nearest_donor(&donors, &donor_consumed, &candidates, orphan_start) {
+                decisions.insert(span_key(orphan), StitchDecision::Adopt(donors[i].statement));
+                donor_consumed[i] = true;
+                stitched.insert(span_key(orphan));
+            }
+        }
+    }
+
+    for (i, donor) in donors.iter().enumerate() {
+        if donor_suppressed[i] || donor_consumed[i] {
+            decisions.insert(span_key(donor.span), StitchDecision::Suppress);
+        }
+    }
+    for (span, carrier_key) in deferred {
+        if stitched.contains(&carrier_key) {
+            decisions.insert(span_key(span), StitchDecision::Suppress);
+        }
+    }
+    decisions
+}
+
 /// Convert an OTLP `ExportTraceServiceRequest` into `SpanEvent`s.
 ///
-/// Uses a two-pass design per resource: the first pass builds a span index
-/// for parent lookup (needed to resolve `source.endpoint` from parent
-/// attributes), and the second pass converts I/O spans into events.
+/// Per resource: a first pass builds a span index for parent lookup (needed
+/// to resolve `source.endpoint` from parent attributes), a stitch pre-pass
+/// re-joins SQL queries that layered instrumentation split across spans
+/// (see [`compute_stitch_decisions`]), and the final pass converts I/O
+/// spans into events.
 ///
 /// Spans that resolve none of a statement (legacy `db.statement`, stable
 /// `db.query.text`, or the dd-trace `dd.span.Resource` fallback), an
@@ -506,16 +909,26 @@ pub fn convert_otlp_request_counted(
 
         let span_index = build_span_index(resource_spans);
         let scope_index = build_scope_index(resource_spans);
+        let stitch = compute_stitch_decisions(resource_spans, &span_index);
 
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
                 stats.received += 1;
+                let stitched_statement = match stitch.get(&span_key(span)) {
+                    Some(StitchDecision::Suppress) => {
+                        stats.count_filtered(OtlpSpanFilterReason::MergedDbSpan);
+                        continue;
+                    }
+                    Some(StitchDecision::Adopt(statement)) => Some(*statement),
+                    None => None,
+                };
                 match convert_span(
                     span,
                     &service_arc,
                     resource_cloud_region.as_ref(),
                     &span_index,
                     &scope_index,
+                    stitched_statement,
                 ) {
                     Ok(event) => events.push(event),
                     Err(reason) => stats.count_filtered(reason),
@@ -579,17 +992,7 @@ fn classify_io_event(
     // non-SQL/unknown system is never fed to the SQL tokenizer. The resource is
     // trimmed so stray collector whitespace does not fragment N+1 groups.
     // db_system is the canonicalized effective system.
-    let has_http = c.http_url.is_some()
-        || c.url_full.is_some()
-        || c.http_method.is_some()
-        || c.http_request_method.is_some();
-    let statement = c.db_statement.or(c.db_query_text).or_else(|| {
-        c.dd_resource
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .filter(|_| !has_http && db_system.is_some_and(crate::ingest::is_sql_db_system))
-    });
-    if let Some(statement) = statement {
+    if let Some(statement) = resolve_sql_statement(c, db_system) {
         // db_system (e.g. "postgresql") is the engine, not the SQL verb. The
         // verb is extracted from target by energy_coefficient() when scoring.
         let op = db_system.unwrap_or("sql").to_string();
@@ -635,14 +1038,20 @@ fn classify_io_event(
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
 ///
 /// Non-I/O spans return the filter reason so the caller can tally them.
-fn convert_span(
-    span: &Span,
+fn convert_span<'a>(
+    span: &'a Span,
     service_arc: &Arc<str>,
     resource_cloud_region: Option<&Arc<str>>,
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
+    stitched_statement: Option<&'a str>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
-    let classified = classify_span_attrs(&span.attributes);
+    let mut classified = classify_span_attrs(&span.attributes);
+    // Statement adopted from a donor span (`compute_stitch_decisions`);
+    // injected here so the whole SQL tail runs unchanged.
+    if stitched_statement.is_some() {
+        classified.db_statement = stitched_statement;
+    }
     // Canonical effective DB system, computed once and threaded through the
     // non-SQL drop, SQL classification, and gap-reason paths.
     let db_system = classified
