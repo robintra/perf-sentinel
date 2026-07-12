@@ -106,7 +106,10 @@ const grab = (file, re) => readFileSync(join(REF, file), 'utf8').match(re)[0];
 const LANG_CSS = ".ps-lang-btn{display:inline-flex;align-items:center;gap:6px;height:34px;box-sizing:border-box;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);text-decoration:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;line-height:1;transition:border-color .25s ease}.ps-lang-btn:hover,.ps-lang-btn:focus-visible{border-color:var(--accent)}.ps-lang-btn .ps-lang-ico{display:flex;color:var(--accent);transition:transform .45s cubic-bezier(.34,1.4,.5,1)}.ps-lang-btn:hover .ps-lang-ico,.ps-lang-btn:focus-visible .ps-lang-ico{transform:rotate(18deg)}.ps-lang-win{position:relative;display:block;width:19px;height:15px;overflow:hidden}.ps-lang-track{display:flex;width:38px;transition:transform .34s cubic-bezier(.5,0,.15,1)}.ps-lang-btn:hover .ps-lang-track,.ps-lang-btn:focus-visible .ps-lang-track{transform:translateX(-19px)}.ps-lang-cell{flex:0 0 19px;width:19px;height:15px;display:flex;align-items:center;justify-content:flex-start}.ps-lang-cur{color:var(--text-2)}.ps-lang-next{color:var(--text)}";
 const RAW_STYLE = grab('00-INDEX.html', /<style>[\s\S]*?<\/style>/)
   .replace('header [aria-label="Language"],header [aria-label="Theme"]{', 'header [aria-label="Theme"]{')
-  .replace('header [aria-label="Language"]:hover,header [aria-label="Theme"]:hover{', 'header [aria-label="Theme"]:hover{');
+  .replace('header [aria-label="Language"]:hover,header [aria-label="Theme"]:hover{', 'header [aria-label="Theme"]:hover{')
+  // Align the dark-mode accent to the vitrine (#0BA671); the frame drifted to
+  // the brighter terminal green (#26CD94). --term-accent stays untouched.
+  .replace('--accent:#26CD94; --accent-strong:#26CD94;', '--accent:#0BA671; --accent-strong:#0BA671;');
 const STYLE = RAW_STYLE.includes('.ps-lang-btn{') ? RAW_STYLE : RAW_STYLE.replace('</style>', LANG_CSS + '</style>');
 // The EN and FR inline scripts differ only in the search "No results" string,
 // so derive FR from EN (avoids reading our own output for the FR frame).
