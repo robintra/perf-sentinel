@@ -132,6 +132,14 @@ analysable. Valeurs du label `reason` de
   pour omettre le texte des requêtes.
 - `missing_http_url` : le span a une méthode HTTP mais ni `http.url`
   ni `url.full`.
+- `non_sql_datastore` : le span nomme un store non-SQL (Redis,
+  MongoDB, ...) dans `db.system`. Écarté à dessein, pas un manque
+  d'instrumentation (voir [`LIMITATIONS-FR.md`](./LIMITATIONS-FR.md)).
+- `merged_db_span` : span DB fusionné dans l'événement unique d'une
+  requête qu'une instrumentation en couches a scindée en plusieurs
+  spans (statement sur l'un, durée sur l'autre, par exemple PHP
+  Doctrine + PDO). La requête reste analysée, ce n'est pas non plus un
+  manque d'instrumentation.
 
 ## Metrics d'analyse et de findings
 
