@@ -6,6 +6,23 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.9]
+
+### Fixed
+
+- `appVersion` bumped to `0.9.9`. `slow_sql` now fires for services
+  instrumented by the PHP OTel contrib packages (Symfony + Doctrine +
+  PDO), which split each query across a statement-bearing `SELECT orders`
+  span (`db.query.text`, ~0 ms) and its statement-less `Doctrine::execute`
+  sibling (the real duration), with `db.system.name` only on the pdo
+  child. OTLP conversion previously dropped every duration-bearing span as
+  `missing_db_statement`, so those services never produced a slow SQL
+  event. A stitch pass now re-joins each query into one event carrying the
+  statement and the real duration; merged spans count under the new
+  `merged_db_span` reason of `perf_sentinel_otlp_spans_filtered_total`.
+  Single-layer emitters (Laravel, Django, Rails) are unchanged. No chart
+  template change, this bump tracks the new appVersion.
+
 ## [0.9.8]
 
 ### Added
