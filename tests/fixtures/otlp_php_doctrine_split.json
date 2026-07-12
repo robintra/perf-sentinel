@@ -1,0 +1,544 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "order-svc"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "io.opentelemetry.contrib.php.symfony",
+            "version": "1.1.0"
+          },
+          "spans": [
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "eee1000000000abc",
+              "name": "POST /api/orders",
+              "kind": 2,
+              "startTimeUnixNano": "1720621921000000000",
+              "endTimeUnixNano": "1720621933700000000",
+              "attributes": [
+                {
+                  "key": "http.request.method",
+                  "value": {
+                    "stringValue": "POST"
+                  }
+                },
+                {
+                  "key": "http.route",
+                  "value": {
+                    "stringValue": "POST /api/orders"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "scope": {
+            "name": "io.opentelemetry.contrib.php.doctrine",
+            "version": "0.1.0"
+          },
+          "spans": [
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da1a000000000001",
+              "parentSpanId": "eee1000000000abc",
+              "name": "SELECT orders",
+              "kind": 3,
+              "startTimeUnixNano": "1720621923000000000",
+              "endTimeUnixNano": "1720621923000500000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 1 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da2b000000000001",
+              "parentSpanId": "eee1000000000abc",
+              "name": "Doctrine::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621923001000000",
+              "endTimeUnixNano": "1720621923603000000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da1a000000000002",
+              "parentSpanId": "eee1000000000abc",
+              "name": "SELECT orders",
+              "kind": 3,
+              "startTimeUnixNano": "1720621925000000000",
+              "endTimeUnixNano": "1720621925000500000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 2 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da2b000000000002",
+              "parentSpanId": "eee1000000000abc",
+              "name": "Doctrine::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621925001000000",
+              "endTimeUnixNano": "1720621925811000000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da1a000000000003",
+              "parentSpanId": "eee1000000000abc",
+              "name": "SELECT orders",
+              "kind": 3,
+              "startTimeUnixNano": "1720621927000000000",
+              "endTimeUnixNano": "1720621927000500000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da2b000000000003",
+              "parentSpanId": "eee1000000000abc",
+              "name": "Doctrine::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621927001000000",
+              "endTimeUnixNano": "1720621927956000000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da1a000000000004",
+              "parentSpanId": "eee1000000000abc",
+              "name": "SELECT orders",
+              "kind": 3,
+              "startTimeUnixNano": "1720621929000000000",
+              "endTimeUnixNano": "1720621929000500000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 4 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da2b000000000004",
+              "parentSpanId": "eee1000000000abc",
+              "name": "Doctrine::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621929001000000",
+              "endTimeUnixNano": "1720621930205000000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da1a000000000005",
+              "parentSpanId": "eee1000000000abc",
+              "name": "SELECT orders",
+              "kind": 3,
+              "startTimeUnixNano": "1720621931000000000",
+              "endTimeUnixNano": "1720621931000500000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 5 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da2b000000000005",
+              "parentSpanId": "eee1000000000abc",
+              "name": "Doctrine::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621931001000000",
+              "endTimeUnixNano": "1720621933411000000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da1a000000000006",
+              "parentSpanId": "eee1000000000abc",
+              "name": "SELECT orders",
+              "kind": 3,
+              "startTimeUnixNano": "1720621933000000000",
+              "endTimeUnixNano": "1720621933000500000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 6 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "da2b000000000006",
+              "parentSpanId": "eee1000000000abc",
+              "name": "Doctrine::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621933001000000",
+              "endTimeUnixNano": "1720621936614000000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "scope": {
+            "name": "io.opentelemetry.contrib.php.pdo",
+            "version": "0.1.0"
+          },
+          "spans": [
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada1000000000001",
+              "parentSpanId": "da1a000000000001",
+              "name": "PDO::prepare",
+              "kind": 3,
+              "startTimeUnixNano": "1720621923000100000",
+              "endTimeUnixNano": "1720621923000300000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 1 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada2000000000001",
+              "parentSpanId": "da2b000000000001",
+              "name": "PDOStatement::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621923001100000",
+              "endTimeUnixNano": "1720621923602900000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada1000000000002",
+              "parentSpanId": "da1a000000000002",
+              "name": "PDO::prepare",
+              "kind": 3,
+              "startTimeUnixNano": "1720621925000100000",
+              "endTimeUnixNano": "1720621925000300000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 2 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada2000000000002",
+              "parentSpanId": "da2b000000000002",
+              "name": "PDOStatement::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621925001100000",
+              "endTimeUnixNano": "1720621925810900000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada1000000000003",
+              "parentSpanId": "da1a000000000003",
+              "name": "PDO::prepare",
+              "kind": 3,
+              "startTimeUnixNano": "1720621927000100000",
+              "endTimeUnixNano": "1720621927000300000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada2000000000003",
+              "parentSpanId": "da2b000000000003",
+              "name": "PDOStatement::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621927001100000",
+              "endTimeUnixNano": "1720621927955900000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada1000000000004",
+              "parentSpanId": "da1a000000000004",
+              "name": "PDO::prepare",
+              "kind": 3,
+              "startTimeUnixNano": "1720621929000100000",
+              "endTimeUnixNano": "1720621929000300000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 4 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada2000000000004",
+              "parentSpanId": "da2b000000000004",
+              "name": "PDOStatement::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621929001100000",
+              "endTimeUnixNano": "1720621930204900000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada1000000000005",
+              "parentSpanId": "da1a000000000005",
+              "name": "PDO::prepare",
+              "kind": 3,
+              "startTimeUnixNano": "1720621931000100000",
+              "endTimeUnixNano": "1720621931000300000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 5 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada2000000000005",
+              "parentSpanId": "da2b000000000005",
+              "name": "PDOStatement::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621931001100000",
+              "endTimeUnixNano": "1720621933410900000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada1000000000006",
+              "parentSpanId": "da1a000000000006",
+              "name": "PDO::prepare",
+              "kind": 3,
+              "startTimeUnixNano": "1720621933000100000",
+              "endTimeUnixNano": "1720621933000300000",
+              "attributes": [
+                {
+                  "key": "db.statement",
+                  "value": {
+                    "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 6 LIMIT 1"
+                  }
+                },
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "4b8efff798038103d269b633813fc60d",
+              "spanId": "ada2000000000006",
+              "parentSpanId": "da2b000000000006",
+              "name": "PDOStatement::execute",
+              "kind": 3,
+              "startTimeUnixNano": "1720621933001100000",
+              "endTimeUnixNano": "1720621936613900000",
+              "attributes": [
+                {
+                  "key": "db.system",
+                  "value": {
+                    "stringValue": "postgresql"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

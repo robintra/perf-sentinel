@@ -700,6 +700,42 @@ fn sanitizer_aware_strict_reclassifies_vertx_reactive_n_plus_one_end_to_end() {
 }
 
 #[test]
+fn php_doctrine_split_fixture_detects_slow_sql_not_redundant() {
+    // PHP contrib (Symfony + Doctrine + PDO) splits each query across
+    // ~0 ms statement spans (duplicated per layer) and statement-less
+    // duration spans. The ingest stitch pass must yield one event per
+    // query carrying the real duration: slow SQL fires, no fake
+    // redundancy from the duplicate statement spans.
+    let config = Config::default();
+    let events = load_fixture("otlp_php_doctrine_split.json");
+    assert_eq!(events.len(), 6, "one stitched event per query");
+
+    let report = pipeline::analyze(events, &config);
+
+    let slow: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::SlowSql)
+        .collect();
+    assert_eq!(slow.len(), 1, "six 600ms+ queries over the 500ms gate");
+    assert_eq!(slow[0].pattern.occurrences, 6);
+    assert_eq!(
+        slow[0].suggested_fix.as_ref().map(|f| f.framework.as_str()),
+        Some("php_doctrine"),
+        "doctrine scope must survive stitching for framework tagging"
+    );
+    assert_eq!(
+        report
+            .findings
+            .iter()
+            .filter(|f| f.finding_type == FindingType::RedundantSql)
+            .count(),
+        0,
+        "layered duplicate statements must not fake redundancy"
+    );
+}
+
+#[test]
 fn full_pipeline_runs_on_new_fixtures() {
     let config = Config::default();
     for fixture in [
@@ -708,6 +744,7 @@ fn full_pipeline_runs_on_new_fixtures() {
         "otlp_export.json",
         "fanout.json",
         "n_plus_one_sql_java_mutiny_reactive.json",
+        "otlp_php_doctrine_split.json",
     ] {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);

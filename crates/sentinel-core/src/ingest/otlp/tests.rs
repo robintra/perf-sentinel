@@ -226,6 +226,7 @@ fn counted_conversion_classifies_filtered_spans() {
             filtered_missing_db_statement: 1,
             filtered_missing_http_url: 1,
             filtered_non_sql_datastore: 0,
+            filtered_merged_db_span: 0,
         }
     );
 }
@@ -652,6 +653,7 @@ fn server_span_without_url_counts_not_io_not_missing_url() {
             filtered_missing_db_statement: 0,
             filtered_missing_http_url: 1,
             filtered_non_sql_datastore: 0,
+            filtered_merged_db_span: 0,
         }
     );
 }
@@ -680,6 +682,7 @@ fn record_otlp_spans_moves_received_and_filtered_counters() {
         filtered_missing_db_statement: 1,
         filtered_missing_http_url: 0,
         filtered_non_sql_datastore: 3,
+        filtered_merged_db_span: 4,
     });
 
     assert_eq!(state.otlp_spans_received_total.get(), 5);
@@ -693,6 +696,7 @@ fn record_otlp_spans_moves_received_and_filtered_counters() {
     assert_eq!(filtered("missing_db_statement"), 1);
     assert_eq!(filtered("missing_http_url"), 0);
     assert_eq!(filtered("non_sql_datastore"), 3);
+    assert_eq!(filtered("merged_db_span"), 4);
 }
 
 #[test]
@@ -1984,4 +1988,664 @@ mod http_handler {
             1
         );
     }
+}
+
+// ── split DB span stitching (PHP Doctrine/PDO) ──────────────────────
+
+/// Bare span with explicit parent, timestamps and attributes, for
+/// stitch-shape fixtures. Trace defaults to `[1; 16]`.
+fn stitch_span(
+    span_id: &[u8],
+    parent_span_id: &[u8],
+    attributes: Vec<KeyValue>,
+    start_ns: u64,
+    end_ns: u64,
+) -> Span {
+    Span {
+        trace_id: vec![1; 16],
+        span_id: span_id.to_vec(),
+        parent_span_id: parent_span_id.to_vec(),
+        name: "stitch.execute".to_string(),
+        start_time_unix_nano: start_ns,
+        end_time_unix_nano: end_ns,
+        attributes,
+        ..Default::default()
+    }
+}
+
+/// One PHP contrib query as emitted by auto-doctrine + auto-pdo: a
+/// doctrine prepare span carrying the statement at ~0 ms with a pdo
+/// prepare child (identical statement), then a doctrine execute span
+/// carrying only `db.system` and the real duration with a pdo execute
+/// child. Prepare and execute phases are siblings under
+/// `parent_span_id`. Returns `(doctrine_spans, pdo_spans)`.
+fn php_split_query(
+    idx: u8,
+    parent_span_id: &[u8],
+    statement: &str,
+    start_ns: u64,
+    duration_ns: u64,
+) -> (Vec<Span>, Vec<Span>) {
+    let sid = |tag: u8| vec![idx, tag, 0, 0, 0, 0, 0, 0];
+    let stmt_attrs = || {
+        vec![
+            make_kv("db.statement", statement),
+            make_kv("db.system", "postgresql"),
+        ]
+    };
+    let sys_attr = || vec![make_kv("db.system", "postgresql")];
+    let doctrine_prepare = stitch_span(
+        &sid(1),
+        parent_span_id,
+        stmt_attrs(),
+        start_ns,
+        start_ns + 500_000,
+    );
+    let pdo_prepare = stitch_span(
+        &sid(2),
+        &sid(1),
+        stmt_attrs(),
+        start_ns + 100_000,
+        start_ns + 300_000,
+    );
+    let doctrine_execute = stitch_span(
+        &sid(3),
+        parent_span_id,
+        sys_attr(),
+        start_ns + 1_000_000,
+        start_ns + 1_000_000 + duration_ns,
+    );
+    let pdo_execute = stitch_span(
+        &sid(4),
+        &sid(3),
+        sys_attr(),
+        start_ns + 1_100_000,
+        start_ns + 900_000 + duration_ns,
+    );
+    (
+        vec![doctrine_prepare, doctrine_execute],
+        vec![pdo_prepare, pdo_execute],
+    )
+}
+
+#[test]
+fn php_split_query_stitches_one_event_with_execute_duration() {
+    let start = 1_720_621_921_000_000_000u64;
+    let root = stitch_span(
+        &[9, 9, 0, 0, 0, 0, 0, 0],
+        &[],
+        vec![make_kv("http.route", "POST /api/orders")],
+        start,
+        start + 12_700_000_000,
+    );
+    let (doctrine, pdo) = php_split_query(
+        1,
+        &[9, 9, 0, 0, 0, 0, 0, 0],
+        "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1",
+        start,
+        602_000_000,
+    );
+    let req = scoped_request(
+        "order-svc",
+        vec![
+            ("io.opentelemetry.contrib.php.symfony", vec![root]),
+            ("io.opentelemetry.contrib.php.doctrine", doctrine),
+            ("io.opentelemetry.contrib.php.pdo", pdo),
+        ],
+    );
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1, "one event per logical query");
+    assert_eq!(events[0].event_type, EventType::Sql);
+    assert_eq!(
+        events[0].target,
+        "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1"
+    );
+    assert_eq!(events[0].operation, "postgresql");
+    assert_eq!(
+        events[0].duration_us, 602_000,
+        "duration from the execute span"
+    );
+    assert_eq!(
+        events[0].span_id, "0103000000000000",
+        "event carried by the doctrine execute span"
+    );
+    let scopes: Vec<&str> = events[0]
+        .instrumentation_scopes
+        .iter()
+        .map(AsRef::as_ref)
+        .collect();
+    assert_eq!(
+        scopes,
+        vec![
+            "io.opentelemetry.contrib.php.doctrine",
+            "io.opentelemetry.contrib.php.symfony",
+        ],
+        "doctrine scope preserved for framework tagging"
+    );
+    assert_eq!(
+        stats,
+        SpanConversionStats {
+            received: 5,
+            filtered_not_io: 1,
+            filtered_missing_db_statement: 0,
+            filtered_missing_http_url: 0,
+            filtered_non_sql_datastore: 0,
+            filtered_merged_db_span: 3,
+        }
+    );
+}
+
+#[test]
+fn php_prepare_once_execute_many_yields_one_event_per_execute() {
+    // Prepared-statement pattern: one statement-bearing prepare, N
+    // statement-less executes. The donor is reusable, every execute
+    // becomes an event.
+    let root = make_parent_span(&[10; 8], "GET /api/orders");
+    let donor = make_sql_span(
+        &[1; 16],
+        &[30; 8],
+        &[10; 8],
+        "SELECT * FROM orders WHERE id = ?",
+        1_000_000_000,
+        1_000_500_000,
+    );
+    let sys = || vec![make_kv("db.system", "postgresql")];
+    let exec1 = stitch_span(&[31; 8], &[10; 8], sys(), 2_000_000_000, 2_600_000_000);
+    let exec2 = stitch_span(&[32; 8], &[10; 8], sys(), 3_000_000_000, 3_700_000_000);
+    let exec3 = stitch_span(&[33; 8], &[10; 8], sys(), 4_000_000_000, 4_800_000_000);
+    let req = make_request("order-svc", vec![root, donor, exec1, exec2, exec3]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 3);
+    let durations: Vec<u64> = events.iter().map(|e| e.duration_us).collect();
+    assert_eq!(durations, vec![600_000, 700_000, 800_000]);
+    for event in &events {
+        assert_eq!(event.target, "SELECT * FROM orders WHERE id = ?");
+    }
+    assert_eq!(stats.filtered_merged_db_span, 1, "donor suppressed once");
+    assert_eq!(stats.filtered_missing_db_statement, 0);
+}
+
+#[test]
+fn orphan_without_donor_stays_missing_db_statement() {
+    // Fail-open: a prepare/execute pair split across collector batches
+    // leaves the execute spans donor-less. They must count exactly as
+    // before the stitch pass, layered or not.
+    let sys = || vec![make_kv("db.system", "postgresql")];
+    let outer = stitch_span(&[40; 8], &[], sys(), 1_000_000_000, 1_600_000_000);
+    let inner = stitch_span(&[41; 8], &[40; 8], sys(), 1_100_000_000, 1_500_000_000);
+    let req = make_request("order-svc", vec![outer, inner]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert!(events.is_empty());
+    assert_eq!(stats.filtered_missing_db_statement, 2);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn laravel_sibling_prepare_and_execute_both_emit_unchanged() {
+    // Single-layer emitters (Laravel/PDO) put the statement on both the
+    // prepare and the execute span, as siblings. Sibling donors are never
+    // collapsed: today's behavior, two events.
+    let root = make_parent_span(&[10; 8], "GET /api/users");
+    let prepare = make_sql_span(
+        &[1; 16],
+        &[50; 8],
+        &[10; 8],
+        "SELECT * FROM users WHERE id = ?",
+        1_000_000_000,
+        1_000_500_000,
+    );
+    let execute = make_sql_span(
+        &[1; 16],
+        &[51; 8],
+        &[10; 8],
+        "SELECT * FROM users WHERE id = ?",
+        2_000_000_000,
+        2_600_000_000,
+    );
+    let req = make_request("laravel-svc", vec![root, prepare, execute]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].duration_us, 500);
+    assert_eq!(events[1].duration_us, 600_000);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn nested_duplicate_statement_collapses_to_outermost() {
+    let outer = make_sql_span(
+        &[1; 16],
+        &[60; 8],
+        &[],
+        "SELECT * FROM orders WHERE id = ?",
+        1_000_000_000,
+        1_700_000_000,
+    );
+    let inner = make_sql_span(
+        &[1; 16],
+        &[61; 8],
+        &[60; 8],
+        "SELECT * FROM orders WHERE id = ?",
+        1_005_000_000,
+        1_695_000_000,
+    );
+    let req = make_request("order-svc", vec![outer, inner]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].duration_us, 700_000, "outermost span wins");
+    assert_eq!(stats.filtered_merged_db_span, 1);
+}
+
+#[test]
+fn nested_donor_with_different_statement_not_collapsed() {
+    // Legitimate nesting (a stored procedure issuing its own query) is
+    // not a layered duplicate: both statements are real work.
+    let outer = make_sql_span(
+        &[1; 16],
+        &[62; 8],
+        &[],
+        "CALL refresh_orders()",
+        1_000_000_000,
+        1_700_000_000,
+    );
+    let inner = make_sql_span(
+        &[1; 16],
+        &[63; 8],
+        &[62; 8],
+        "SELECT * FROM orders WHERE id = ?",
+        1_005_000_000,
+        1_695_000_000,
+    );
+    let req = make_request("order-svc", vec![outer, inner]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn stitch_picks_nearest_preceding_donor() {
+    let root = make_parent_span(&[10; 8], "GET /api/things");
+    let donor_a = make_sql_span(
+        &[1; 16],
+        &[70; 8],
+        &[10; 8],
+        "SELECT a FROM t",
+        1_000_000_000,
+        1_000_500_000,
+    );
+    let donor_b = make_sql_span(
+        &[1; 16],
+        &[71; 8],
+        &[10; 8],
+        "SELECT b FROM t",
+        3_000_000_000,
+        3_000_500_000,
+    );
+    let orphan = stitch_span(
+        &[72; 8],
+        &[10; 8],
+        vec![make_kv("db.system", "postgresql")],
+        4_000_000_000,
+        4_700_000_000,
+    );
+    let req = make_request("order-svc", vec![root, donor_a, donor_b, orphan]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 2, "unconsumed donor A still emits");
+    let stitched = events
+        .iter()
+        .find(|e| e.duration_us == 700_000)
+        .expect("stitched execute event");
+    assert_eq!(stitched.target, "SELECT b FROM t");
+    assert_eq!(stats.filtered_merged_db_span, 1);
+}
+
+#[test]
+fn stitching_never_crosses_traces() {
+    // Donor in trace A, layered orphans in trace B, same resource: no
+    // stitch, both orphans fall back to missing_db_statement (the
+    // deferred layered suppression only fires when the carrier
+    // actually stitches).
+    let donor = make_sql_span(
+        &[1; 16],
+        &[80; 8],
+        &[],
+        "SELECT 1",
+        1_000_000_000,
+        1_500_000_000,
+    );
+    let sys = || vec![make_kv("db.system", "postgresql")];
+    let mut outer = stitch_span(&[81; 8], &[], sys(), 2_000_000_000, 2_600_000_000);
+    outer.trace_id = vec![2; 16];
+    let mut inner = stitch_span(&[82; 8], &[81; 8], sys(), 2_100_000_000, 2_500_000_000);
+    inner.trace_id = vec![2; 16];
+    let req = make_request("order-svc", vec![donor, outer, inner]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "SELECT 1");
+    assert_eq!(stats.filtered_missing_db_statement, 2);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn non_sql_orphan_not_stitched() {
+    // A statement-less Redis span next to a SQL donor must not adopt
+    // the SQL statement: non-SQL stores never participate.
+    let root = make_parent_span(&[10; 8], "GET /api/cache");
+    let redis = stitch_span(
+        &[90; 8],
+        &[10; 8],
+        vec![make_kv("db.system", "redis")],
+        1_000_000_000,
+        1_600_000_000,
+    );
+    let donor = make_sql_span(
+        &[1; 16],
+        &[91; 8],
+        &[10; 8],
+        "SELECT 1",
+        2_000_000_000,
+        2_000_500_000,
+    );
+    let req = make_request("cache-svc", vec![root, redis, donor]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "SELECT 1");
+    assert_eq!(stats.filtered_non_sql_datastore, 1);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn dd_resource_donor_stitches_orphan() {
+    // The dd-trace bridge resolves statements from dd.span.Resource; a
+    // donor found through that fallback stitches like any other.
+    let root = make_parent_span(&[10; 8], "GET /api/orders");
+    let donor = stitch_span(
+        &[95; 8],
+        &[10; 8],
+        vec![
+            make_kv("dd.span.Resource", "SELECT * FROM orders WHERE id = ?"),
+            make_kv("db.type", "postgres"),
+        ],
+        1_000_000_000,
+        1_000_500_000,
+    );
+    let orphan = stitch_span(
+        &[96; 8],
+        &[10; 8],
+        vec![make_kv("db.type", "postgres")],
+        2_000_000_000,
+        2_600_000_000,
+    );
+    let req = make_request("dd-shop", vec![root, donor, orphan]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "SELECT * FROM orders WHERE id = ?");
+    assert_eq!(events[0].operation, "postgresql");
+    assert_eq!(events[0].duration_us, 600_000);
+    assert_eq!(stats.filtered_merged_db_span, 1);
+}
+
+#[test]
+fn orphan_adopts_statement_from_donor_ancestor() {
+    // Statement on the outer span, duration on the inner child: the
+    // orphan finds its donor through the ancestor walk.
+    let donor = make_sql_span(
+        &[1; 16],
+        &[100; 8],
+        &[],
+        "SELECT * FROM orders WHERE id = ?",
+        1_000_000_000,
+        1_700_000_000,
+    );
+    let orphan = stitch_span(
+        &[101; 8],
+        &[100; 8],
+        vec![make_kv("db.system", "postgresql")],
+        1_050_000_000,
+        1_650_000_000,
+    );
+    let req = make_request("order-svc", vec![donor, orphan]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "SELECT * FROM orders WHERE id = ?");
+    assert_eq!(events[0].duration_us, 600_000, "orphan carries the event");
+    assert_eq!(stats.filtered_merged_db_span, 1);
+}
+
+#[test]
+fn root_orphan_adopts_statement_from_donor_descendant() {
+    // Duration on the outer span, statement on the inner child: the
+    // orphan finds its donor through the descendant bucket.
+    let orphan = stitch_span(
+        &[102; 8],
+        &[],
+        vec![make_kv("db.system", "postgresql")],
+        1_000_000_000,
+        1_700_000_000,
+    );
+    let donor = make_sql_span(
+        &[1; 16],
+        &[103; 8],
+        &[102; 8],
+        "SELECT * FROM orders WHERE id = ?",
+        1_050_000_000,
+        1_050_500_000,
+    );
+    let req = make_request("order-svc", vec![orphan, donor]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "SELECT * FROM orders WHERE id = ?");
+    assert_eq!(events[0].duration_us, 700_000, "orphan carries the event");
+    assert_eq!(stats.filtered_merged_db_span, 1);
+}
+
+#[test]
+fn orphan_with_only_following_sibling_donor_stays_missing() {
+    // A following sibling is never the orphan's prepare (prepare starts
+    // first): fail open instead of adopting an unrelated later query
+    // (the cross-batch split case).
+    let root = make_parent_span(&[10; 8], "GET /api/things");
+    let orphan = stitch_span(
+        &[104; 8],
+        &[10; 8],
+        vec![make_kv("db.system", "postgresql")],
+        1_000_000_000,
+        1_600_000_000,
+    );
+    let donor = make_sql_span(
+        &[1; 16],
+        &[105; 8],
+        &[10; 8],
+        "SELECT 1",
+        2_000_000_000,
+        2_000_500_000,
+    );
+    let req = make_request("order-svc", vec![root, orphan, donor]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1, "the donor still emits its own event");
+    assert_eq!(events[0].target, "SELECT 1");
+    assert_eq!(events[0].duration_us, 500);
+    assert_eq!(stats.filtered_missing_db_statement, 1);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn self_parented_donor_still_emits() {
+    // Malformed self-loop (parent_span_id == span_id) must not make the
+    // span its own layered duplicate.
+    let mut span = make_sql_span(&[1; 16], &[110; 8], &[110; 8], "SELECT 1", 0, 1_000_000);
+    span.parent_span_id = vec![110; 8];
+    let req = make_request("order-svc", vec![span]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn mutual_cycle_donors_keep_both_events() {
+    // Malformed two-node parent cycle with identical statements has no
+    // outermost span: neither is a layered duplicate, both emit as before.
+    let a = make_sql_span(
+        &[1; 16],
+        &[111; 8],
+        &[112; 8],
+        "SELECT 1",
+        1_000_000_000,
+        1_001_000_000,
+    );
+    let b = make_sql_span(
+        &[1; 16],
+        &[112; 8],
+        &[111; 8],
+        "SELECT 1",
+        1_000_000_000,
+        1_001_000_000,
+    );
+    let req = make_request("order-svc", vec![a, b]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 2, "pre-stitch behavior on malformed cycles");
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn connect_span_is_not_stitched() {
+    // A statement-less connect/commit/transaction span must not adopt a
+    // neighbor query's statement: only execute/query spans are orphans.
+    let root = make_parent_span(&[10; 8], "GET /api/orders");
+    let mut connect = stitch_span(
+        &[120; 8],
+        &[10; 8],
+        vec![make_kv("db.system", "postgresql")],
+        1_000_000_000,
+        1_300_000_000,
+    );
+    connect.name = "pg.connect".to_string();
+    let donor = make_sql_span(
+        &[1; 16],
+        &[121; 8],
+        &[10; 8],
+        "SELECT * FROM orders WHERE id = 1",
+        500_000_000,
+        500_400_000,
+    );
+    let req = make_request("order-svc", vec![root, connect, donor]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1, "the query keeps its own event");
+    assert_eq!(events[0].duration_us, 400, "query duration untouched");
+    assert_eq!(stats.filtered_missing_db_statement, 1);
+    assert_eq!(stats.filtered_merged_db_span, 0);
+}
+
+#[test]
+fn transaction_wrapper_does_not_swallow_queries() {
+    // A statement-less transaction wrapper (db.system, no execute/query
+    // name) is not an orphan: each execute under it stitches its own
+    // donor instead of deferring to the wrapper.
+    let mut wrapper = stitch_span(
+        &[130; 8],
+        &[],
+        vec![make_kv("db.system", "postgresql")],
+        1_000_000_000,
+        5_000_000_000,
+    );
+    wrapper.name = "PDO::beginTransaction".to_string();
+    let sys = || vec![make_kv("db.system", "postgresql")];
+    let d1 = make_sql_span(
+        &[1; 16],
+        &[131; 8],
+        &[130; 8],
+        "SELECT a FROM t",
+        1_100_000_000,
+        1_100_400_000,
+    );
+    let e1 = stitch_span(&[132; 8], &[130; 8], sys(), 1_200_000_000, 1_800_000_000);
+    let d2 = make_sql_span(
+        &[1; 16],
+        &[133; 8],
+        &[130; 8],
+        "SELECT b FROM t",
+        2_000_000_000,
+        2_000_400_000,
+    );
+    let e2 = stitch_span(&[134; 8], &[130; 8], sys(), 2_100_000_000, 2_800_000_000);
+    let req = make_request("order-svc", vec![wrapper, d1, e1, d2, e2]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 2);
+    let targets: Vec<&str> = events.iter().map(|e| e.target.as_str()).collect();
+    assert_eq!(targets, vec!["SELECT a FROM t", "SELECT b FROM t"]);
+    assert_eq!(stats.filtered_missing_db_statement, 1, "the wrapper");
+    assert_eq!(stats.filtered_merged_db_span, 2);
+}
+
+#[test]
+fn batch_prepared_statements_pair_off() {
+    // prepare A, prepare B, execute, execute: consumption preference
+    // pairs each execute with a distinct donor, so neither template
+    // loses its duration and none is double-counted.
+    let root = make_parent_span(&[10; 8], "GET /api/things");
+    let d_a = make_sql_span(
+        &[1; 16],
+        &[140; 8],
+        &[10; 8],
+        "SELECT a FROM t",
+        1_000_000_000,
+        1_000_400_000,
+    );
+    let d_b = make_sql_span(
+        &[1; 16],
+        &[141; 8],
+        &[10; 8],
+        "SELECT b FROM t",
+        1_100_000_000,
+        1_100_400_000,
+    );
+    let sys = || vec![make_kv("db.system", "postgresql")];
+    let e1 = stitch_span(&[142; 8], &[10; 8], sys(), 2_000_000_000, 2_600_000_000);
+    let e2 = stitch_span(&[143; 8], &[10; 8], sys(), 3_000_000_000, 3_700_000_000);
+    let req = make_request("order-svc", vec![root, d_a, d_b, e1, e2]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 2);
+    let mut targets: Vec<&str> = events.iter().map(|e| e.target.as_str()).collect();
+    targets.sort_unstable();
+    assert_eq!(
+        targets,
+        vec!["SELECT a FROM t", "SELECT b FROM t"],
+        "each donor consumed exactly once"
+    );
+    assert_eq!(stats.filtered_merged_db_span, 2);
 }

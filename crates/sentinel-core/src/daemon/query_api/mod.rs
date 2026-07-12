@@ -964,6 +964,29 @@ const TUNING_ACTIVE_TRACES_RATIO: f64 = 0.9;
 /// Minimum received-span count before zero retention is meaningful.
 const TUNING_ZERO_RETENTION_MIN_RECEIVED: u64 = 1_000;
 
+/// Sum of filtered OTLP spans that signal an instrumentation gap.
+/// Excludes `NonSqlDatastore` (Redis/Mongo drops are deliberate, a
+/// cache-only fleet must not trip the zero-retention warning) and
+/// `MergedDbSpan` (the query those spans belong to was analyzed).
+fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
+    use crate::report::metrics::OtlpSpanFilterReason;
+    OtlpSpanFilterReason::ALL
+        .iter()
+        .filter(|r| {
+            !matches!(
+                r,
+                OtlpSpanFilterReason::NonSqlDatastore | OtlpSpanFilterReason::MergedDbSpan
+            )
+        })
+        .map(|r| {
+            metrics
+                .otlp_spans_filtered_total
+                .with_label_values(&[r.as_str()])
+                .get()
+        })
+        .sum()
+}
+
 /// Surface aggregated soft conditions in `Report.warning_details`, on
 /// top of the /metrics counters. Operators reading `/api/export/report`
 /// do not always scrape Prometheus, so a count of dropped requests
@@ -981,24 +1004,6 @@ const TUNING_ZERO_RETENTION_MIN_RECEIVED: u64 = 1_000;
 /// Note: the cold-start branch in `handle_export_report` returns before
 /// reaching this helper, so `cold_start` never appears together with
 /// these kinds in a single response by design.
-/// Sum of filtered OTLP spans that signal an instrumentation gap.
-/// Excludes `NonSqlDatastore`: those drops are deliberate (Redis/Mongo and
-/// other non-SQL stores are not modeled), so a cache-only fleet must not
-/// trip the zero-retention warning.
-fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
-    use crate::report::metrics::OtlpSpanFilterReason;
-    OtlpSpanFilterReason::ALL
-        .iter()
-        .filter(|r| !matches!(r, OtlpSpanFilterReason::NonSqlDatastore))
-        .map(|r| {
-            metrics
-                .otlp_spans_filtered_total
-                .with_label_values(&[r.as_str()])
-                .get()
-        })
-        .sum()
-}
-
 // Linear warning collector: one independent `if counter > 0` rule per
 // tuning/ingestion signal. Splitting scatters the rules without clarity gain.
 #[allow(clippy::too_many_lines)]
