@@ -130,6 +130,13 @@ pre-warmed to 0:
   to omit query text.
 - `missing_http_url`: span has an HTTP method but neither `http.url`
   nor `url.full`.
+- `non_sql_datastore`: span names a non-SQL store (Redis, MongoDB, ...)
+  in `db.system`. Dropped on purpose, not an instrumentation gap (see
+  [`LIMITATIONS.md`](./LIMITATIONS.md)).
+- `merged_db_span`: DB span merged into the single event of a query
+  that layered instrumentation split across spans (statement on one,
+  duration on another, e.g. PHP Doctrine + PDO). The query is still
+  analyzed, so this is not an instrumentation gap either.
 
 ## Analysis and findings metrics
 
