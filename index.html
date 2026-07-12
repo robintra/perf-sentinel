@@ -666,7 +666,8 @@
   .ps-th-btn .ps-th-ico{display:flex;color:var(--accent);animation:psSpinIn .44s cubic-bezier(.34,1.5,.5,1)}
   .ps-th-btn .ps-th-lbl{animation:psFade .3s ease}
   @media(max-width:920px){.ps-th-btn{width:34px;padding:0}}
-  .ps-lang-btn{display:inline-flex;align-items:center;gap:6px;background:transparent;border:none;padding:0;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;line-height:1}
+  .ps-lang-btn{display:inline-flex;align-items:center;gap:6px;height:34px;box-sizing:border-box;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;line-height:1;transition:border-color .25s ease}
+  .ps-lang-btn:hover,.ps-lang-btn:focus-visible{border-color:var(--accent)}
   .ps-lang-btn .ps-lang-ico{display:flex;color:var(--text-2);transition:color .3s ease,transform .45s cubic-bezier(.34,1.4,.5,1)}
   .ps-lang-btn:hover .ps-lang-ico,.ps-lang-btn:focus-visible .ps-lang-ico{color:var(--accent);transform:rotate(18deg)}
   .ps-lang-win{position:relative;display:block;width:19px;height:15px;overflow:hidden}
@@ -676,7 +677,6 @@
   .ps-lang-cur{color:var(--text)}
   .ps-lang-btn:hover .ps-lang-cur,.ps-lang-btn:focus-visible .ps-lang-cur{color:var(--text-2)}
   .ps-lang-next{color:var(--accent)}
-  .ps-lang-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 </style>
 <style>
 [data-persona-bar] [data-ptab]{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.02em;border-radius:999px;padding:5px 13px;cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease;white-space:nowrap;color:var(--text-2);background:var(--surface);border:1px solid var(--border)}
