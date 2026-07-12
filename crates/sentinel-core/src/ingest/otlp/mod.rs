@@ -192,7 +192,10 @@ impl CodeAttrs<'_> {
 /// Stable and legacy names for the same logical field are kept distinct:
 /// the namespace derivation must only consume the stable `code.function.name`
 /// (the legacy `code.function` is documented as a bare function name).
-#[derive(Default)]
+///
+/// `Clone` is a plain memcpy of `Option<&str>`/`Option<i64>` fields, used
+/// to reuse the per-resource classification cache in `convert_span`.
+#[derive(Clone, Default)]
 struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
@@ -549,37 +552,61 @@ fn looks_like_query_execution(name: &str) -> bool {
     name.contains("execute") || name.contains("query")
 }
 
+/// One [`ClassifiedAttrs`] per span in iteration order, capped at
+/// [`MAX_SPANS_PER_RESOURCE`] (spans beyond the cap classify inline at
+/// conversion). Shared by the stitch pre-pass and `convert_span` so each
+/// attribute list is scanned once per request.
+fn classify_resource_spans(
+    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+) -> Vec<ClassifiedAttrs<'_>> {
+    let total: usize = resource_spans
+        .scope_spans
+        .iter()
+        .map(|s| s.spans.len())
+        .sum();
+    let mut out = Vec::with_capacity(total.min(MAX_SPANS_PER_RESOURCE));
+    'outer: for scope_spans in &resource_spans.scope_spans {
+        for span in &scope_spans.spans {
+            if out.len() >= MAX_SPANS_PER_RESOURCE {
+                break 'outer;
+            }
+            out.push(classify_span_attrs(&span.attributes));
+        }
+    }
+    out
+}
+
 /// Classify the resource's SQL spans into donors (statement-bearing) and
 /// orphans (allowlisted SQL `db.*` system, execute/query span name, no
 /// statement and no HTTP/RPC signal). Spans with empty ids are excluded
-/// (their [`SpanKey`]s would collide). Same span cap and counting break as
-/// `build_span_index`: spans beyond the cap never participate and convert
+/// (their [`SpanKey`]s would collide). `classified` is the capped
+/// per-resource cache: spans beyond it never participate and convert
 /// exactly as before.
-fn collect_stitch_participants(
-    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
-) -> (Vec<StitchDonor<'_>>, Vec<&Span>) {
+fn collect_stitch_participants<'a>(
+    resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+    classified: &[ClassifiedAttrs<'a>],
+) -> (Vec<StitchDonor<'a>>, Vec<&'a Span>) {
     let mut donors = Vec::new();
     let mut orphans = Vec::new();
-    let mut count = 0usize;
+    let mut idx = 0usize;
     'outer: for scope_spans in &resource_spans.scope_spans {
         for span in &scope_spans.spans {
-            count += 1;
-            if count > MAX_SPANS_PER_RESOURCE {
+            let Some(c) = classified.get(idx) else {
                 break 'outer;
-            }
+            };
+            idx += 1;
             if span.trace_id.is_empty() || span.span_id.is_empty() {
                 continue;
             }
-            let c = classify_span_attrs(&span.attributes);
             let db_system = c
                 .effective_db_system()
                 .map(crate::ingest::canonical_db_system);
             if !db_system.is_some_and(crate::ingest::is_sql_db_system) {
                 continue;
             }
-            if let Some(statement) = resolve_sql_statement(&c, db_system) {
+            if let Some(statement) = resolve_sql_statement(c, db_system) {
                 donors.push(StitchDonor { span, statement });
-            } else if !has_http_signal(&c)
+            } else if !has_http_signal(c)
                 && c.rpc_system.is_none()
                 && looks_like_query_execution(&span.name)
             {
@@ -752,8 +779,9 @@ fn nearest_donor(
 fn compute_stitch_decisions<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
     span_index: &HashMap<&'a [u8], &'a Span>,
+    classified: &[ClassifiedAttrs<'a>],
 ) -> HashMap<SpanKey<'a>, StitchDecision<'a>> {
-    let (donors, orphans) = collect_stitch_participants(resource_spans);
+    let (donors, orphans) = collect_stitch_participants(resource_spans, classified);
     if donors.is_empty() {
         return HashMap::new();
     }
@@ -909,11 +937,15 @@ pub fn convert_otlp_request_counted(
 
         let span_index = build_span_index(resource_spans);
         let scope_index = build_scope_index(resource_spans);
-        let stitch = compute_stitch_decisions(resource_spans, &span_index);
+        let classified = classify_resource_spans(resource_spans);
+        let stitch = compute_stitch_decisions(resource_spans, &span_index, &classified);
 
+        let mut span_idx = 0usize;
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
                 stats.received += 1;
+                let cached_attrs = classified.get(span_idx);
+                span_idx += 1;
                 let stitched_statement = match stitch.get(&span_key(span)) {
                     Some(StitchDecision::Suppress) => {
                         stats.count_filtered(OtlpSpanFilterReason::MergedDbSpan);
@@ -929,6 +961,7 @@ pub fn convert_otlp_request_counted(
                     &span_index,
                     &scope_index,
                     stitched_statement,
+                    cached_attrs,
                 ) {
                     Ok(event) => events.push(event),
                     Err(reason) => stats.count_filtered(reason),
@@ -1045,8 +1078,12 @@ fn convert_span<'a>(
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
     stitched_statement: Option<&'a str>,
+    cached_attrs: Option<&ClassifiedAttrs<'a>>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
-    let mut classified = classify_span_attrs(&span.attributes);
+    // Cache miss only for spans beyond MAX_SPANS_PER_RESOURCE.
+    let mut classified = cached_attrs
+        .cloned()
+        .unwrap_or_else(|| classify_span_attrs(&span.attributes));
     // Statement adopted from a donor span (`compute_stitch_decisions`);
     // injected here so the whole SQL tail runs unchanged.
     if stitched_statement.is_some() {
