@@ -100,7 +100,14 @@ const PSMD = new Function('window', 'document', readFileSync(join(SITE, 'mdrende
 // The <style> is shared; the inline <script> is localized (the search "No results"
 // string), so lift it per language from an EN and an FR page. ---
 const grab = (file, re) => readFileSync(join(REF, file), 'utf8').match(re)[0];
-const STYLE = grab('00-INDEX.html', /<style>[\s\S]*?<\/style>/);
+// The frame style predates the globe language button: drop the old pill's
+// aria-label hover rules and inject the .ps-lang-btn block (idempotent, so
+// re-runs that grab an already-updated frame stay a no-op).
+const LANG_CSS = ".ps-lang-btn{display:inline-flex;align-items:center;gap:6px;height:34px;box-sizing:border-box;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);text-decoration:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;line-height:1;transition:border-color .25s ease}.ps-lang-btn:hover,.ps-lang-btn:focus-visible{border-color:var(--accent)}.ps-lang-btn .ps-lang-ico{display:flex;color:var(--accent);transition:transform .45s cubic-bezier(.34,1.4,.5,1)}.ps-lang-btn:hover .ps-lang-ico,.ps-lang-btn:focus-visible .ps-lang-ico{transform:rotate(18deg)}.ps-lang-win{position:relative;display:block;width:19px;height:15px;overflow:hidden}.ps-lang-track{display:flex;width:38px;transition:transform .34s cubic-bezier(.5,0,.15,1)}.ps-lang-btn:hover .ps-lang-track,.ps-lang-btn:focus-visible .ps-lang-track{transform:translateX(-19px)}.ps-lang-cell{flex:0 0 19px;width:19px;height:15px;display:flex;align-items:center;justify-content:flex-start}.ps-lang-cur{color:var(--text-2)}.ps-lang-next{color:var(--text)}";
+const RAW_STYLE = grab('00-INDEX.html', /<style>[\s\S]*?<\/style>/)
+  .replace('header [aria-label="Language"],header [aria-label="Theme"]{', 'header [aria-label="Theme"]{')
+  .replace('header [aria-label="Language"]:hover,header [aria-label="Theme"]:hover{', 'header [aria-label="Theme"]:hover{');
+const STYLE = RAW_STYLE.includes('.ps-lang-btn{') ? RAW_STYLE : RAW_STYLE.replace('</style>', LANG_CSS + '</style>');
 // The EN and FR inline scripts differ only in the search "No results" string,
 // so derive FR from EN (avoids reading our own output for the FR frame).
 const SCRIPT_EN = grab('00-INDEX.html', /<script>[\s\S]*?<\/script>/);
@@ -108,6 +115,13 @@ const SCRIPT = { en: SCRIPT_EN, fr: SCRIPT_EN.replace('No results', 'Aucun résu
 
 // Static default for the theme pill: system mode (the inline script re-syncs at load).
 const ICON_SYSTEM = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>';
+const GLOBE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg>';
+// Language control: globe + horizontal-slide reveal, an <a> navigating to the
+// same doc in the other language (active label at rest, target on hover).
+const langCtl = (href, fr, target) => {
+  const active = fr ? 'FR' : 'EN', aria = fr ? 'Changer de langue' : 'Switch language';
+  return `<a data-plain data-lang-switch href="${href}" class="ps-lang-btn" aria-label="${aria}" title="${aria}"><span class="ps-lang-ico">${GLOBE}</span><span class="ps-lang-win"><span class="ps-lang-track"><span class="ps-lang-cell ps-lang-cur">${active}</span><span class="ps-lang-cell ps-lang-next">${target}</span></span></span></a>`;
+};
 
 // --- helpers ---
 const plaintext = (html) =>
@@ -242,7 +256,7 @@ function buildPage(id, lang) {
     `<nav class="ps-hdr-nav" style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="/">${ui.navHome} ↗</a><a href="/guide">${ui.navGuide} ↗</a></nav>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px">` +
     `<div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="${ui.search}" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div>` +
-    `<a href="${switchHref}" aria-label="Language" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;line-height:normal;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px">${ui.switchLabel}</a>` +
+    langCtl(switchHref, fr, ui.switchLabel) +
     `<button id="themeBtn" class="ps-th-btn" aria-label="Theme"><span class="ps-th-ico">${ICON_SYSTEM}</span><span class="ps-th-lbl">${fr ? 'Système' : 'System'}</span></button>` +
     `<a href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#fff;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg><span class="gh-txt">GitHub</span></a>` +
     `<label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>` +

@@ -28,14 +28,23 @@ const HOME = { fr: 'Accueil', en: 'Home' };
 const LANGSW = { fr: 'EN', en: 'FR' };
 const OTHER = { fr: 'en', en: 'fr' };
 
-const PILL = "font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.02em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px";
+const GLOBE = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg>';
+
+// Language control: globe + horizontal-slide reveal (active label at rest,
+// target on hover). An <a> so the static legal pages navigate to the other
+// language; the tail script also persists the choice for the SPA pages.
+const langCtl = (href, lang) => {
+  const active = lang === 'fr' ? 'FR' : 'EN', target = LANGSW[lang];
+  const aria = lang === 'fr' ? 'Changer de langue' : 'Switch language';
+  return `<a data-plain data-lang-switch href="${href}" class="ps-lang-btn" aria-label="${aria}" title="${aria}"><span class="ps-lang-ico">${GLOBE}</span><span class="ps-lang-win"><span class="ps-lang-track"><span class="ps-lang-cell ps-lang-cur">${active}</span><span class="ps-lang-cell ps-lang-next">${target}</span></span></span></a>`;
+};
 
 function header(lang, otherHref) {
   return `<header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:18px">` +
     `<a href="/" style="display:flex;align-items:center;flex:none">${logo}</a>` +
     `<a href="/" style="font-size:14px;color:var(--text-2);text-decoration:none">&larr; ${HOME[lang]}</a>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:10px">` +
-    `<a aria-label="Language" href="${otherHref}" style="${PILL};font-weight:600;letter-spacing:.04em;text-decoration:none;display:inline-flex;align-items:center">${LANGSW[lang]}</a>` +
+    langCtl(otherHref, lang) +
     `<button id="themeBtn" class="ps-th-btn" aria-label="Theme"><span class="ps-th-ico">${ICON_SYSTEM}</span><span class="ps-th-lbl">${lang === 'fr' ? 'Système' : 'System'}</span></button>` +
     `<a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px">${GH}GitHub</a>` +
     `</div></div></header>`;
@@ -67,7 +76,7 @@ const initScript = `<script>(function(){var t=null;try{t=localStorage.getItem('p
 const tailScript = (lang) => {
   const names = lang === 'fr' ? "{system:'Système',light:'Clair',dark:'Sombre'}" : "{system:'System',light:'Light',dark:'Dark'}";
   const aria = lang === 'fr' ? "'Changer de thème (actuel : '" : "'Switch theme (current: '";
-  return `<script>(function(){var r=document.querySelector('[data-ps-root]'),b=document.getElementById('themeBtn');var TN=${names};var TI={system:'${ICON_SYSTEM}',light:'${ICON_SUN}',dark:'${ICON_MOON}'};var mq=null;try{mq=window.matchMedia('(prefers-color-scheme: dark)')}catch(e){}function getMode(){var v=null;try{v=localStorage.getItem('ps-theme')}catch(e){}return v==='dark'||v==='light'||v==='system'?v:'system'}function resT(m){return m==='system'?(mq&&mq.matches?'dark':'light'):m}function applyMode(m){r.setAttribute('data-theme',resT(m));if(b){b.innerHTML='<span class="ps-th-ico">'+TI[m]+'</span><span class="ps-th-lbl">'+TN[m]+'</span>';var a=${aria}+TN[m]+')';b.title=a;b.setAttribute('aria-label',a)}}applyMode(getMode());if(b)b.addEventListener('click',function(){var o=['system','light','dark'],n=o[(o.indexOf(getMode())+1)%3];try{localStorage.setItem('ps-theme',n)}catch(e){}applyMode(n)});if(mq){try{mq.addEventListener('change',function(){if(getMode()==='system')r.setAttribute('data-theme',resT('system'))})}catch(e){}}var lb=document.querySelector('[aria-label="Language"]');if(lb)lb.addEventListener('click',function(){try{localStorage.setItem('ps-lang','${OTHER[lang]}');}catch(e){}});})();</script>`;
+  return `<script>(function(){var r=document.querySelector('[data-ps-root]'),b=document.getElementById('themeBtn');var TN=${names};var TI={system:'${ICON_SYSTEM}',light:'${ICON_SUN}',dark:'${ICON_MOON}'};var mq=null;try{mq=window.matchMedia('(prefers-color-scheme: dark)')}catch(e){}function getMode(){var v=null;try{v=localStorage.getItem('ps-theme')}catch(e){}return v==='dark'||v==='light'||v==='system'?v:'system'}function resT(m){return m==='system'?(mq&&mq.matches?'dark':'light'):m}function applyMode(m){r.setAttribute('data-theme',resT(m));if(b){b.innerHTML='<span class="ps-th-ico">'+TI[m]+'</span><span class="ps-th-lbl">'+TN[m]+'</span>';var a=${aria}+TN[m]+')';b.title=a;b.setAttribute('aria-label',a)}}applyMode(getMode());if(b)b.addEventListener('click',function(){var o=['system','light','dark'],n=o[(o.indexOf(getMode())+1)%3];try{localStorage.setItem('ps-theme',n)}catch(e){}applyMode(n)});if(mq){try{mq.addEventListener('change',function(){if(getMode()==='system')r.setAttribute('data-theme',resT('system'))})}catch(e){}}var lb=document.querySelector('[data-lang-switch]');if(lb)lb.addEventListener('click',function(){try{localStorage.setItem('ps-lang','${OTHER[lang]}');}catch(e){}});})();</script>`;
 };
 
 function page(lang, otherHref, title, desc, main) {
