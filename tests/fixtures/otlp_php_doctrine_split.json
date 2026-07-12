@@ -21,7 +21,7 @@
             {
               "traceId": "4b8efff798038103d269b633813fc60d",
               "spanId": "eee1000000000abc",
-              "name": "POST /api/orders",
+              "name": "POST app_fault_slowsql",
               "kind": 2,
               "startTimeUnixNano": "1720621921000000000",
               "endTimeUnixNano": "1720621933700000000",
@@ -35,7 +35,7 @@
                 {
                   "key": "http.route",
                   "value": {
-                    "stringValue": "POST /api/orders"
+                    "stringValue": "POST app_fault_slowsql"
                   }
                 }
               ]
@@ -58,15 +58,15 @@
               "endTimeUnixNano": "1720621923000500000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 1 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "prepare"
                   }
                 }
               ]
@@ -77,13 +77,13 @@
               "parentSpanId": "eee1000000000abc",
               "name": "Doctrine::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621923001000000",
-              "endTimeUnixNano": "1720621923603000000",
+              "startTimeUnixNano": "1720621923000600000",
+              "endTimeUnixNano": "1720621923602600000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "execute"
                   }
                 }
               ]
@@ -98,15 +98,15 @@
               "endTimeUnixNano": "1720621925000500000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 2 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "prepare"
                   }
                 }
               ]
@@ -117,13 +117,13 @@
               "parentSpanId": "eee1000000000abc",
               "name": "Doctrine::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621925001000000",
-              "endTimeUnixNano": "1720621925811000000",
+              "startTimeUnixNano": "1720621925000600000",
+              "endTimeUnixNano": "1720621925810600000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "execute"
                   }
                 }
               ]
@@ -138,15 +138,15 @@
               "endTimeUnixNano": "1720621927000500000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "prepare"
                   }
                 }
               ]
@@ -157,13 +157,13 @@
               "parentSpanId": "eee1000000000abc",
               "name": "Doctrine::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621927001000000",
-              "endTimeUnixNano": "1720621927956000000",
+              "startTimeUnixNano": "1720621927000600000",
+              "endTimeUnixNano": "1720621927955600000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "execute"
                   }
                 }
               ]
@@ -178,15 +178,15 @@
               "endTimeUnixNano": "1720621929000500000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 4 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "prepare"
                   }
                 }
               ]
@@ -197,13 +197,13 @@
               "parentSpanId": "eee1000000000abc",
               "name": "Doctrine::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621929001000000",
-              "endTimeUnixNano": "1720621930205000000",
+              "startTimeUnixNano": "1720621929000600000",
+              "endTimeUnixNano": "1720621930204600000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "execute"
                   }
                 }
               ]
@@ -218,15 +218,15 @@
               "endTimeUnixNano": "1720621931000500000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 5 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "prepare"
                   }
                 }
               ]
@@ -237,13 +237,13 @@
               "parentSpanId": "eee1000000000abc",
               "name": "Doctrine::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621931001000000",
-              "endTimeUnixNano": "1720621933411000000",
+              "startTimeUnixNano": "1720621931000600000",
+              "endTimeUnixNano": "1720621933410600000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "execute"
                   }
                 }
               ]
@@ -258,15 +258,15 @@
               "endTimeUnixNano": "1720621933000500000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 6 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "prepare"
                   }
                 }
               ]
@@ -277,13 +277,13 @@
               "parentSpanId": "eee1000000000abc",
               "name": "Doctrine::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621933001000000",
-              "endTimeUnixNano": "1720621936614000000",
+              "startTimeUnixNano": "1720621933000600000",
+              "endTimeUnixNano": "1720621936613600000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.operation.name",
                   "value": {
-                    "stringValue": "postgresql"
+                    "stringValue": "execute"
                   }
                 }
               ]
@@ -306,15 +306,21 @@
               "endTimeUnixNano": "1720621923000300000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 1 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -325,13 +331,19 @@
               "parentSpanId": "da2b000000000001",
               "name": "PDOStatement::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621923001100000",
-              "endTimeUnixNano": "1720621923602900000",
+              "startTimeUnixNano": "1720621923000700000",
+              "endTimeUnixNano": "1720621923602700000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -346,15 +358,21 @@
               "endTimeUnixNano": "1720621925000300000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 2 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -365,13 +383,19 @@
               "parentSpanId": "da2b000000000002",
               "name": "PDOStatement::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621925001100000",
-              "endTimeUnixNano": "1720621925810900000",
+              "startTimeUnixNano": "1720621925000700000",
+              "endTimeUnixNano": "1720621925810700000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -386,15 +410,21 @@
               "endTimeUnixNano": "1720621927000300000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -405,13 +435,19 @@
               "parentSpanId": "da2b000000000003",
               "name": "PDOStatement::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621927001100000",
-              "endTimeUnixNano": "1720621927955900000",
+              "startTimeUnixNano": "1720621927000700000",
+              "endTimeUnixNano": "1720621927955700000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -426,15 +462,21 @@
               "endTimeUnixNano": "1720621929000300000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 4 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -445,13 +487,19 @@
               "parentSpanId": "da2b000000000004",
               "name": "PDOStatement::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621929001100000",
-              "endTimeUnixNano": "1720621930204900000",
+              "startTimeUnixNano": "1720621929000700000",
+              "endTimeUnixNano": "1720621930204700000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -466,15 +514,21 @@
               "endTimeUnixNano": "1720621931000300000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 5 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -485,13 +539,19 @@
               "parentSpanId": "da2b000000000005",
               "name": "PDOStatement::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621931001100000",
-              "endTimeUnixNano": "1720621933410900000",
+              "startTimeUnixNano": "1720621931000700000",
+              "endTimeUnixNano": "1720621933410700000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -506,15 +566,21 @@
               "endTimeUnixNano": "1720621933000300000",
               "attributes": [
                 {
-                  "key": "db.statement",
+                  "key": "db.query.text",
                   "value": {
                     "stringValue": "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 6 LIMIT 1"
                   }
                 },
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]
@@ -525,13 +591,19 @@
               "parentSpanId": "da2b000000000006",
               "name": "PDOStatement::execute",
               "kind": 3,
-              "startTimeUnixNano": "1720621933001100000",
-              "endTimeUnixNano": "1720621936613900000",
+              "startTimeUnixNano": "1720621933000700000",
+              "endTimeUnixNano": "1720621936613700000",
               "attributes": [
                 {
-                  "key": "db.system",
+                  "key": "db.system.name",
                   "value": {
                     "stringValue": "postgresql"
+                  }
+                },
+                {
+                  "key": "db.namespace",
+                  "value": {
+                    "stringValue": "shop"
                   }
                 }
               ]

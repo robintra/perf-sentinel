@@ -2013,12 +2013,12 @@ fn stitch_span(
     }
 }
 
-/// One PHP contrib query as emitted by auto-doctrine + auto-pdo: a
-/// doctrine prepare span carrying the statement at ~0 ms with a pdo
-/// prepare child (identical statement), then a doctrine execute span
-/// carrying only `db.system` and the real duration with a pdo execute
-/// child. Prepare and execute phases are siblings under
-/// `parent_span_id`. Returns `(doctrine_spans, pdo_spans)`.
+/// One PHP contrib query as emitted live by auto-doctrine + auto-pdo. The
+/// doctrine layer carries the statement (`db.query.text`) but NO `db.system`;
+/// `db.system.name` sits only on the child pdo layer. The statement-bearing
+/// `SELECT orders` (prepare, ~0 ms) and the duration-bearing
+/// `Doctrine::execute` are SIBLINGS under `parent_span_id`, each with its own
+/// pdo child. Returns `(doctrine_spans, pdo_spans)`.
 fn php_split_query(
     idx: u8,
     parent_span_id: &[u8],
@@ -2027,40 +2027,55 @@ fn php_split_query(
     duration_ns: u64,
 ) -> (Vec<Span>, Vec<Span>) {
     let sid = |tag: u8| vec![idx, tag, 0, 0, 0, 0, 0, 0];
-    let stmt_attrs = || {
+    // doctrine layer: statement via db.query.text, no db.system.
+    let doctrine_stmt = || {
         vec![
-            make_kv("db.statement", statement),
-            make_kv("db.system", "postgresql"),
+            make_kv("db.query.text", statement),
+            make_kv("db.operation.name", "prepare"),
         ]
     };
-    let sys_attr = || vec![make_kv("db.system", "postgresql")];
+    // pdo layer: statement + db.system.name (the only place the engine appears).
+    let pdo_stmt = || {
+        vec![
+            make_kv("db.query.text", statement),
+            make_kv("db.system.name", "postgresql"),
+            make_kv("db.namespace", "shop"),
+        ]
+    };
+    let pdo_sys = || {
+        vec![
+            make_kv("db.system.name", "postgresql"),
+            make_kv("db.namespace", "shop"),
+        ]
+    };
     let doctrine_prepare = stitch_span(
         &sid(1),
         parent_span_id,
-        stmt_attrs(),
+        doctrine_stmt(),
         start_ns,
         start_ns + 500_000,
     );
     let pdo_prepare = stitch_span(
         &sid(2),
         &sid(1),
-        stmt_attrs(),
+        pdo_stmt(),
         start_ns + 100_000,
         start_ns + 300_000,
     );
+    // doctrine execute: only db.operation.name, no db.system, no statement.
     let doctrine_execute = stitch_span(
         &sid(3),
         parent_span_id,
-        sys_attr(),
-        start_ns + 1_000_000,
-        start_ns + 1_000_000 + duration_ns,
+        vec![make_kv("db.operation.name", "execute")],
+        start_ns + 600_000,
+        start_ns + 600_000 + duration_ns,
     );
     let pdo_execute = stitch_span(
         &sid(4),
         &sid(3),
-        sys_attr(),
-        start_ns + 1_100_000,
-        start_ns + 900_000 + duration_ns,
+        pdo_sys(),
+        start_ns + 700_000,
+        start_ns + 700_000 + duration_ns,
     );
     (
         vec![doctrine_prepare, doctrine_execute],
@@ -2102,7 +2117,9 @@ fn php_split_query_stitches_one_event_with_execute_duration() {
         events[0].target,
         "SELECT pg_sleep(0.6), orders.id FROM orders ORDER BY orders.id OFFSET 3 LIMIT 1"
     );
-    assert_eq!(events[0].operation, "postgresql");
+    // The doctrine execute span carries no db.system (it sits on the pdo
+    // layer only), so the stitched event's engine label falls back to "sql".
+    assert_eq!(events[0].operation, "sql");
     assert_eq!(
         events[0].duration_us, 602_000,
         "duration from the execute span"
@@ -2648,4 +2665,90 @@ fn batch_prepared_statements_pair_off() {
         "each donor consumed exactly once"
     );
     assert_eq!(stats.filtered_merged_db_span, 2);
+}
+
+#[test]
+fn statement_less_span_without_db_system_needs_a_sibling_donor() {
+    // Rails-style shape: an ORM logical-op span (no db.system, no statement,
+    // execute-ish name) whose ONLY statement-bearing relative is its CHILD.
+    // Without a sibling donor it is not admitted as an orphan, so it never
+    // adopts the descendant's statement: the child emits, the wrapper drops
+    // as before. Guards against regressing single-layer emitters.
+    let root = make_parent_span(&[10; 8], "GET /api/orders");
+    let wrapper = stitch_span(
+        &[150; 8],
+        &[10; 8],
+        vec![make_kv("db.operation.name", "execute")],
+        1_000_000_000,
+        1_600_000_000,
+    );
+    let child = make_sql_span(
+        &[1; 16],
+        &[151; 8],
+        &[150; 8],
+        "SELECT * FROM orders WHERE id = ?",
+        1_050_000_000,
+        1_600_000_000,
+    );
+    let req = make_request("rails-svc", vec![root, wrapper, child]);
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1, "only the child SQL span emits");
+    assert_eq!(events[0].target, "SELECT * FROM orders WHERE id = ?");
+    assert_eq!(
+        events[0].duration_us, 550_000,
+        "child duration, not the wrapper"
+    );
+    assert_eq!(stats.filtered_merged_db_span, 0, "no stitch");
+    // root span + the un-stitched wrapper both convert as not_io.
+    assert_eq!(stats.filtered_not_io, 2);
+}
+
+#[test]
+fn doctrine_layer_stitches_without_db_system() {
+    // Faithful live shape: the doctrine sibling pair carries no db.system
+    // (only the pdo child does), yet SELECT orders (db.query.text donor) and
+    // Doctrine::execute (statement-less orphan) still stitch into one event.
+    let start = 1_720_621_921_000_000_000u64;
+    let root = stitch_span(
+        &[9, 9, 0, 0, 0, 0, 0, 0],
+        &[],
+        vec![make_kv("http.route", "POST app_fault_slowsql")],
+        start,
+        start + 5_000_000_000,
+    );
+    let (doctrine, pdo) = php_split_query(
+        1,
+        &[9, 9, 0, 0, 0, 0, 0, 0],
+        "SELECT pg_sleep(0.6) FROM orders OFFSET 2 LIMIT 1",
+        start,
+        700_000_000,
+    );
+    let req = scoped_request(
+        "order-svc",
+        vec![
+            ("io.opentelemetry.contrib.php.symfony", vec![root]),
+            ("io.opentelemetry.contrib.php.doctrine", doctrine),
+            ("io.opentelemetry.contrib.php.pdo", pdo),
+        ],
+    );
+
+    let (events, stats) = convert_otlp_request_counted(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].duration_us, 700_000, "the 700ms execute duration");
+    assert_eq!(
+        events[0].target,
+        "SELECT pg_sleep(0.6) FROM orders OFFSET 2 LIMIT 1"
+    );
+    assert!(
+        events[0]
+            .instrumentation_scopes
+            .iter()
+            .any(|s| s.as_ref() == "io.opentelemetry.contrib.php.doctrine"),
+        "doctrine scope preserved for php_doctrine tagging"
+    );
+    assert_eq!(stats.filtered_merged_db_span, 3);
+    assert_eq!(stats.filtered_missing_db_statement, 0);
 }
