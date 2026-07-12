@@ -192,10 +192,7 @@ impl CodeAttrs<'_> {
 /// Stable and legacy names for the same logical field are kept distinct:
 /// the namespace derivation must only consume the stable `code.function.name`
 /// (the legacy `code.function` is documented as a bare function name).
-///
-/// `Clone` is a plain memcpy of `Option<&str>`/`Option<i64>` fields, used
-/// to reuse the per-resource classification cache in `convert_span`.
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
@@ -1068,6 +1065,25 @@ fn classify_io_event(
     }
 }
 
+/// Owned attribute rebuild for the spans that cannot borrow the
+/// per-resource cache: stitched spans (statement adopted from a donor
+/// span, injected so the whole SQL tail runs unchanged) and spans beyond
+/// `MAX_SPANS_PER_RESOURCE`. `None` on the borrow-the-cache hot path.
+fn rebuilt_classified<'a>(
+    span: &'a Span,
+    cached_attrs: Option<&ClassifiedAttrs<'a>>,
+    stitched_statement: Option<&'a str>,
+) -> Option<ClassifiedAttrs<'a>> {
+    if cached_attrs.is_some() && stitched_statement.is_none() {
+        return None;
+    }
+    let mut rebuilt = classify_span_attrs(&span.attributes);
+    if stitched_statement.is_some() {
+        rebuilt.db_statement = stitched_statement;
+    }
+    Some(rebuilt)
+}
+
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
 ///
 /// Non-I/O spans return the filter reason so the caller can tally them.
@@ -1080,15 +1096,12 @@ fn convert_span<'a>(
     stitched_statement: Option<&'a str>,
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
-    // Cache miss only for spans beyond MAX_SPANS_PER_RESOURCE.
-    let mut classified = cached_attrs
-        .cloned()
-        .unwrap_or_else(|| classify_span_attrs(&span.attributes));
-    // Statement adopted from a donor span (`compute_stitch_decisions`);
-    // injected here so the whole SQL tail runs unchanged.
-    if stitched_statement.is_some() {
-        classified.db_statement = stitched_statement;
-    }
+    let owned = rebuilt_classified(span, cached_attrs, stitched_statement);
+    let classified = match (&owned, cached_attrs) {
+        (Some(rebuilt), _) => rebuilt,
+        (None, Some(cached)) => cached,
+        (None, None) => unreachable!("rebuilt_classified rebuilds on cache miss"),
+    };
     // Canonical effective DB system, computed once and threaded through the
     // non-SQL drop, SQL classification, and gap-reason paths.
     let db_system = classified
@@ -1103,9 +1116,9 @@ fn convert_span<'a>(
     }
 
     let Some((event_type, target, operation)) =
-        classify_io_event(&classified, db_system, &span.name, span.kind)
+        classify_io_event(classified, db_system, &span.name, span.kind)
     else {
-        return Err(span_filter_reason(&classified, db_system, span.kind));
+        return Err(span_filter_reason(classified, db_system, span.kind));
     };
 
     let start_nanos = span.start_time_unix_nano;
