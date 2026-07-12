@@ -574,17 +574,28 @@ fn classify_resource_spans(
 }
 
 /// Classify the resource's SQL spans into donors (statement-bearing) and
-/// orphans (allowlisted SQL `db.*` system, execute/query span name, no
-/// statement and no HTTP/RPC signal). Spans with empty ids are excluded
-/// (their [`SpanKey`]s would collide). `classified` is the capped
-/// per-resource cache: spans beyond it never participate and convert
-/// exactly as before.
+/// orphans (statement-less execute/query spans). Non-SQL datastores and
+/// spans with empty ids never participate.
+///
+/// A donor needs a resolvable statement, not a `db.system`: the PHP `OTel`
+/// contrib doctrine layer carries `db.query.text` with no `db.system` (that
+/// attribute sits only on the child pdo layer), and the statement-bearing
+/// `SELECT orders` span must be usable as a donor for its `Doctrine::execute`
+/// sibling. An orphan with a SQL `db.system` is admitted directly; an orphan
+/// with no `db.system` (again the doctrine layer) is admitted only when it
+/// has a statement-bearing sibling, so ORM logical-op spans that wrap their
+/// own SQL child (Ruby `ActiveRecord`) do not adopt a descendant's statement.
+///
+/// `classified` is the capped per-resource cache: spans beyond it never
+/// participate and convert exactly as before.
 fn collect_stitch_participants<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
     classified: &[ClassifiedAttrs<'a>],
 ) -> (Vec<StitchDonor<'a>>, Vec<&'a Span>) {
     let mut donors = Vec::new();
-    let mut orphans = Vec::new();
+    // (span, has_sql_db_system): orphans without a db.system are kept only
+    // if a sibling donor exists (resolved after the full pass).
+    let mut provisional: Vec<(&'a Span, bool)> = Vec::new();
     let mut idx = 0usize;
     'outer: for scope_spans in &resource_spans.scope_spans {
         for span in &scope_spans.spans {
@@ -598,7 +609,7 @@ fn collect_stitch_participants<'a>(
             let db_system = c
                 .effective_db_system()
                 .map(crate::ingest::canonical_db_system);
-            if !db_system.is_some_and(crate::ingest::is_sql_db_system) {
+            if db_system.is_some_and(crate::ingest::is_non_sql_db_system) {
                 continue;
             }
             if let Some(statement) = resolve_sql_statement(c, db_system) {
@@ -607,10 +618,25 @@ fn collect_stitch_participants<'a>(
                 && c.rpc_system.is_none()
                 && looks_like_query_execution(&span.name)
             {
-                orphans.push(span);
+                provisional.push((span, db_system.is_some_and(crate::ingest::is_sql_db_system)));
             }
         }
     }
+
+    let donor_parents: HashSet<SpanKey<'a>> = donors
+        .iter()
+        .filter(|d| !d.span.parent_span_id.is_empty())
+        .map(|d| (d.span.trace_id.as_slice(), d.span.parent_span_id.as_slice()))
+        .collect();
+    let orphans = provisional
+        .into_iter()
+        .filter(|&(span, is_sql)| {
+            is_sql
+                || donor_parents
+                    .contains(&(span.trace_id.as_slice(), span.parent_span_id.as_slice()))
+        })
+        .map(|(span, _)| span)
+        .collect();
     (donors, orphans)
 }
 
