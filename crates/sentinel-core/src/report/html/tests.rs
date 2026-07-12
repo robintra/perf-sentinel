@@ -1242,8 +1242,8 @@ fn theme_mode_defaults_to_auto_with_tri_state_cycle() {
     // Assert via the source strings that make up the cycle: the
     // modes array, the matchMedia wiring, and the cycle.
     assert!(
-        TEMPLATE.contains("\"auto\", \"dark\", \"light\""),
-        "THEME_MODES tri-state ordering must be auto -> dark -> light"
+        TEMPLATE.contains("\"auto\", \"light\", \"dark\""),
+        "THEME_MODES tri-state ordering must be auto -> light -> dark"
     );
     assert!(
         TEMPLATE.contains("prefers-color-scheme: dark"),

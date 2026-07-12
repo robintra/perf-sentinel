@@ -99,7 +99,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await pause(page, 600);
 
   // --- Wink at the opposite theme and come back ---
-  // Cycle auto -> dark -> light -> auto. One click advances one
+  // Cycle auto -> light -> dark -> auto. One click advances one
   // notch; from a forced primary theme we need at most three clicks
   // to land on any of the three states. Short 300 ms pauses between
   // clicks keep the cycle readable without dragging the GIF. Throws

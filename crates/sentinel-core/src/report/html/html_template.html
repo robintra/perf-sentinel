@@ -122,10 +122,11 @@
   /* -------- generic controls -------- */
   [data-ghost] { cursor: pointer; transition: border-color .12s, color .12s; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 11px; font-size: 12px; color: var(--text-2); background: transparent; font-family: inherit; }
   [data-ghost]:hover { border-color: var(--border-2); color: var(--text); }
-  .ps-theme-toggle { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 11px; font-size: 12px; color: var(--text-2); background: transparent; cursor: pointer; font-family: inherit; }
-  .ps-theme-toggle:hover { border-color: var(--border-2); color: var(--text); }
-  .ps-theme-toggle .ps-th-svg { flex: none; }
-  .ps-theme-toggle .ps-th-svg.accent { color: var(--brand-text); }
+  .ps-theme-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 104px; height: 34px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 999px; padding: 0 12px; font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; line-height: 1; color: var(--text-2); background: transparent; cursor: pointer; transition: border-color .25s ease, color .25s ease; }
+  .ps-theme-toggle:hover { border-color: var(--brand-text); color: var(--text); }
+  .ps-theme-toggle .ps-th-svg { flex: none; color: var(--brand-text); }
+  .ps-theme-toggle.ps-anim .ps-th-svg { animation: ps-spin-in .44s cubic-bezier(.34,1.5,.5,1); }
+  .ps-theme-toggle.ps-anim .ps-th-lbl { animation: ps-fade .3s ease; }
   /* Per-panel filter input: hidden until the user presses "/" (toggled via inline style by the search wiring). */
   .ps-search { display: none; width: 100%; padding: 8px 11px; font-size: 12.5px; font-family: var(--font-ui); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); outline: none; }
   .ps-search:focus { border-color: var(--brand); }
@@ -353,6 +354,8 @@
   .ps-show-more:hover { background: var(--surface-2); }
 
   @keyframes ps-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+  @keyframes ps-spin-in { from { transform: rotate(-120deg) scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes ps-fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 
   /* -------- modals (native <dialog>) -------- */
   dialog.ps-modal { position: fixed; inset: 0; margin: auto; max-width: 460px; width: calc(100% - 40px); height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); color: var(--text); border-radius: var(--r); border: 1px solid var(--border-2); padding: 22px 24px; box-shadow: 0 24px 70px rgba(0,0,0,.45); }
@@ -457,7 +460,7 @@
         </output>
         <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
         <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
-        <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
+        <button class="ps-theme-toggle" id="theme-toggle" type="button">System</button>
       </div>
     </header>
 
@@ -719,7 +722,8 @@
   // "auto" follows prefers-color-scheme live. Legacy "dark"/"light"
   // sessions keep their forced modes. Applied before DOM render so
   // the body background does not flash.
-  var THEME_MODES = ["auto", "dark", "light"];
+  var THEME_MODES = ["auto", "light", "dark"];
+  var THEME_LABELS = { auto: "System", light: "Light", dark: "Dark" };
   var prefersDarkMQ = null;
   try {
     prefersDarkMQ = globalThis.matchMedia
@@ -738,12 +742,12 @@
   }
   // Build an inline SVG (CSP-safe, no innerHTML) from a list of child
   // {tag, attrs}. Stroke follows `currentColor` so CSS colors the icon.
-  function themeSvg(children, accent) {
+  function themeSvg(children) {
     var NS = "http://www.w3.org/2000/svg";
     var svg = document.createElementNS(NS, "svg");
-    var base = { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none",
-      stroke: "currentColor", "stroke-width": "2.2", "stroke-linecap": "round",
-      "stroke-linejoin": "round", "class": accent ? "ps-th-svg accent" : "ps-th-svg" };
+    var base = { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none",
+      stroke: "currentColor", "stroke-width": "1.9", "stroke-linecap": "round",
+      "stroke-linejoin": "round", "class": "ps-th-svg" };
     setAttrs(svg, base);
     children.forEach(function (c) {
       var node = document.createElementNS(NS, c.tag);
@@ -752,31 +756,35 @@
     });
     return svg;
   }
-  // Sun (light) and moon (dark) match the website; auto is a half-filled
-  // circle (◐) drawn as SVG so all three align the same way (the ◐ text
-  // glyph falls back to a different font and sits off-center).
+  // Sun (light), moon (dark), monitor (auto = follow the OS).
   function themeIcon(mode) {
     if (mode === "light") {
       return themeSvg([
-        { tag: "circle", attrs: { cx: "12", cy: "12", r: "4.2" } },
-        { tag: "path", attrs: { d: "M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5" } }
-      ], true);
+        { tag: "circle", attrs: { cx: "12", cy: "12", r: "4" } },
+        { tag: "path", attrs: { d: "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" } }
+      ]);
     }
     if (mode === "dark") {
-      return themeSvg([{ tag: "path", attrs: { d: "M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" } }], true);
+      return themeSvg([{ tag: "path", attrs: { d: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" } }]);
     }
     return themeSvg([
-      { tag: "circle", attrs: { cx: "12", cy: "12", r: "9" } },
-      { tag: "path", attrs: { d: "M12 3 A9 9 0 0 0 12 21 Z", fill: "currentColor", stroke: "none" } }
-    ], false);
+      { tag: "rect", attrs: { x: "3", y: "4", width: "18", height: "13", rx: "2" } },
+      { tag: "path", attrs: { d: "M8 21h8M12 17v4" } }
+    ]);
   }
-  function applyTheme(mode) {
+  // The .ps-anim class gates the spin/fade keyframes so OS-driven
+  // re-resolutions in auto mode never replay the click animation.
+  function applyTheme(mode, animate) {
     document.documentElement.dataset.theme = resolveThemeColor(mode);
     var btn = document.getElementById("theme-toggle");
     if (btn) {
+      btn.classList.toggle("ps-anim", !!animate);
       btn.textContent = "";
       btn.appendChild(themeIcon(mode));
-      btn.appendChild(el("span", null, mode.charAt(0).toUpperCase() + mode.slice(1)));
+      btn.appendChild(el("span", "ps-th-lbl", THEME_LABELS[mode]));
+      var aria = "Switch theme (current: " + THEME_LABELS[mode] + ")";
+      btn.title = aria;
+      btn.setAttribute("aria-label", aria);
     }
   }
   applyTheme(currentThemeMode());
@@ -3076,14 +3084,14 @@
   }
 
   // -------- theme toggle --------
-  // Click cycles through auto -> dark -> light -> auto. The actual
+  // Click cycles through auto -> light -> dark -> auto. The actual
   // data-theme attribute and button label are handled by applyTheme,
   // defined above alongside the initial boot-time resolution.
   document.getElementById("theme-toggle").addEventListener("click", function () {
     var idx = THEME_MODES.indexOf(currentThemeMode());
     var next = THEME_MODES[(idx + 1) % THEME_MODES.length];
     sessionSet(STORAGE_KEYS.theme, next);
-    applyTheme(next);
+    applyTheme(next, true);
   });
 
   // -------- CSV export --------
