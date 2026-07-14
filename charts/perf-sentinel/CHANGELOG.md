@@ -6,6 +6,35 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.10]
+
+### Changed
+
+- `appVersion` bumped to `0.9.10`. The self-contained HTML dashboard is
+  reskinned to the hi-fi design handoff: DM Sans and JetBrains Mono
+  replace Geist as the embedded brand fonts (OFL-1.1, latin subsets),
+  flat pastel fills replace every gradient, and the sidebar nav, buttons,
+  cards, modals and daemon status dots move onto the theme tokens.
+  Overview KPI cards become semantic and clickable, the Findings card
+  taking a solid color driven by the highest severity present. No chart
+  template change, this bump tracks the new appVersion.
+
+### Added
+
+- `appVersion` bumped to `0.9.10`. The dashboard gains sortable tables
+  (shareable through the `tsort` hash key), a comfort/compact density
+  toggle persisted in the browser, search-match highlighting, and an
+  `Undo` button on the acknowledgment toast. No chart template change,
+  this bump tracks the new appVersion.
+
+### Fixed
+
+- `appVersion` bumped to `0.9.10`. The Acknowledgments tab badge no
+  longer shows a stale `0` next to the live count, the trace tree tints
+  its highlight by finding severity instead of always red, and in live
+  mode only the Ack button swallows row clicks. No chart template change,
+  this bump tracks the new appVersion.
+
 ## [0.9.9]
 
 ### Fixed

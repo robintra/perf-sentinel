@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.9
-appVersion: "0.9.9"
+version: 0.9.10
+appVersion: "0.9.10"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,12 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.9.10: the HTML dashboard is reskinned to the hi-fi design handoff. DM Sans and JetBrains Mono replace Geist as the embedded brand fonts (OFL-1.1, latin subsets), flat pastel fills replace every gradient, and the sidebar nav, buttons, cards, modals and daemon status dots all move onto the theme tokens. Overview KPI cards are now semantic and clickable: the Findings card is a solid color driven by the highest severity present, the card beside it promotes that severity, and the delta-baseline card tints on the net regression or improvement direction. No chart template change, this bump tracks the new appVersion."
+    - kind: added
+      description: "appVersion 0.9.10: the dashboard gains sortable tables (click cycles descending, ascending and default order, Shift+click adds a tie-breaker, the sort persists per table and travels with Copy link), a comfort/compact density toggle persisted in the browser, search-match highlighting, and an Undo button on the acknowledgment toast. No chart template change, this bump tracks the new appVersion."
+    - kind: fixed
+      description: "appVersion 0.9.10: the Acknowledgments tab badge no longer shows a stale zero next to the live count, the trace tree tints its highlight by finding severity and no longer dims every row for whole-trace findings, and in live mode only the Ack button swallows row clicks so the band around it no longer blocks opening a finding. No chart template change, this bump tracks the new appVersion."
     - kind: fixed
       description: "appVersion 0.9.9: slow_sql now fires for services instrumented by the PHP OTel contrib packages (Symfony + Doctrine + PDO). Those packages split each query across a statement-bearing SELECT orders span (db.query.text, ~0 ms) and its statement-less Doctrine::execute sibling carrying the real duration, with db.system.name only on the pdo child, so OTLP conversion previously dropped every duration-bearing span as missing_db_statement and such services never produced a slow SQL event. A stitch pass at OTLP conversion re-joins each query into one event carrying the statement and the real duration; merged spans count under the new merged_db_span reason of perf_sentinel_otlp_spans_filtered_total. Single-layer emitters (Laravel, Django, Rails) are unchanged. No chart template change, this bump tracks the new appVersion."
     - kind: changed
@@ -107,7 +113,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.9
+      image: ghcr.io/robintra/perf-sentinel:0.9.10
       platforms:
         - linux/amd64
         - linux/arm64
