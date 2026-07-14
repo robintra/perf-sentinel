@@ -4372,12 +4372,11 @@
     if (!btn) return;
     var count = liveAcksCount();
     if (count === null || count === undefined) return;
-    var badge = btn.querySelector(".ps-badge");
+    var badge = btn.querySelector(".ps-nav-badge");
     if (badge) {
       badge.textContent = String(count);
     } else {
-      btn.appendChild(document.createTextNode(" "));
-      btn.appendChild(el("span", "ps-badge", String(count)));
+      btn.appendChild(el("span", "ps-nav-badge", String(count)));
     }
   }
 
