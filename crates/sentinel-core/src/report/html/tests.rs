@@ -1720,6 +1720,24 @@ fn template_finding_action_button_default_label_is_ack() {
 }
 
 #[test]
+fn ack_toast_offers_undo_without_confirm() {
+    // A successful POST ack shows a toast with a direct Undo button.
+    // The classic Revoke path keeps its confirmation dialog.
+    assert!(
+        TEMPLATE.contains("function showUndoAckToast("),
+        "undo-ack toast helper missing"
+    );
+    assert!(
+        TEMPLATE.contains("ps-toast-undo"),
+        "undo button styling hook missing"
+    );
+    assert!(
+        TEMPLATE.contains("Revoke acknowledgment for "),
+        "revoke confirmation must stay"
+    );
+}
+
+#[test]
 fn template_does_not_leak_session_storage_to_local_storage() {
     // The X-API-Key is sessionStorage-scoped: persisting it in
     // localStorage would survive tab and browser restarts, which is
