@@ -783,6 +783,7 @@ const CHEATSHEET_DESCRIPTION_FRAGMENTS: &[&str] = &[
     "Open the selected finding",
     "close search",
     "Open search for the active tab",
+    "Focus the global search",
     "Go to Overview",
     "Go to Findings",
     "Go to pg_stat",

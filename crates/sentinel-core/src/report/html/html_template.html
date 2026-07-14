@@ -386,6 +386,9 @@
   .ps-table td[data-tone="ok"] { color: var(--ok-fg); }
   .ps-table td.ps-diff-after { color: var(--text); font-weight: 600; }
   .ps-table tr:last-child td { border-bottom-color: transparent; }
+  /* Diff · Severity changes: Before/After pills and headers centered. */
+  #diff-sev-table th:nth-child(3), #diff-sev-table th:nth-child(4),
+  #diff-sev-table td:nth-child(3), #diff-sev-table td:nth-child(4) { text-align: center; }
   #pgstat-body tr.hilite { background: var(--crit-bg); }
   #pgstat-body tr.hilite td:first-child { color: var(--crit-fg); font-weight: 600; }
   /* pg_stat controls row: "rank by" label + ranking chips + filter box */
@@ -474,6 +477,9 @@
   .ps-fin-action-btn.revoke:hover { background: var(--surface-3); }
   .ps-fin-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
   .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); margin-left: auto; cursor: pointer; }
+  /* Same 13px box for input and label text, +1px optical nudge. */
+  .ps-include-acked-wrap input { margin: 0; width: 13px; height: 13px; }
+  .ps-include-acked-wrap span { height: 13px; line-height: 13px; position: relative; top: 1px; }
   body.ps-live .ps-include-acked-wrap { display: inline-flex; }
   .ps-acks-footer { margin-top: 10px; font-size: 11.5px; color: var(--text-3); }
 
@@ -595,7 +601,7 @@
           <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
           <span id="ps-daemon-status-text">Connecting...</span>
         </output>
-        <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
+        <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data"><svg class="ps-refresh-ico" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 5.35A6 6 0 1 0 14 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"></path><path d="M14 2v3.5h-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg><span>Refresh</span></button>
         <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
         <button class="ps-theme-toggle" id="density-toggle" type="button" aria-label="Toggle UI density"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect class="b1" x="2" y="2.4" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b2" x="2" y="7.05" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b3" x="2" y="11.7" width="12" height="1.9" rx="0.95" fill="currentColor"></rect></svg><span id="density-label">Compact</span></button>
         <button class="ps-theme-toggle" id="theme-toggle" type="button">System</button>
@@ -655,7 +661,7 @@
       <span class="ps-drill-clear" id="pgstat-drill-clear">clear</span>
     </div>
     <div class="ps-pgstat-controls">
-      <span class="ps-rankby-label">rank by</span>
+      <span class="ps-rankby-label">Rank by</span>
       <div class="ps-filters" id="pgstat-rankings"></div>
       <div class="ps-search-box ps-pgstat-filter">
         <span class="ps-search-glyph">⌕</span>
@@ -675,7 +681,7 @@
 
   <div id="panel-mysqlstat" role="tabpanel" aria-labelledby="tab-mysqlstat" class="ps-panel ps-panel-narrow" style="display: none;">
     <div class="ps-pgstat-controls">
-      <span class="ps-rankby-label">rank by</span>
+      <span class="ps-rankby-label">Rank by</span>
       <div class="ps-filters" id="mysqlstat-rankings"></div>
       <div class="ps-search-box ps-pgstat-filter">
         <span class="ps-search-glyph">⌕</span>
@@ -766,7 +772,7 @@
         <span class="ps-kbd">/</span> search
         <span class="ps-kbd">esc</span> back
         <button type="button" class="ps-kbd" id="footer-shortcuts" style="cursor: pointer; background: transparent;">?</button> shortcuts
-        <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">perf-sentinel</a> &middot; eco-designed report &middot; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
+        <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">perf-sentinel</a> &middot; design &amp; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
       </footer>
 
     </div>
@@ -1521,7 +1527,7 @@
       var nRes = (diffData.resolved_findings || []).length;
       // +N new findings is a regression (red), −N resolved an improvement
       // (green), matching the Diff page tones.
-      var dCard = metricCard("Δ baseline", "", "new / resolved");
+      var dCard = metricCard("Δ Baseline", "", "new / resolved");
       var dv = dCard.querySelector(".ps-metric-value");
       dv.appendChild(makeTokenSpan("+" + nNew, "var(--crit-fg)", false));
       dv.appendChild(document.createTextNode(" / "));
@@ -1530,7 +1536,7 @@
       if (nNew !== nRes) setAttr(dCard, "data-grad", nNew > nRes ? "crit" : "ok");
       root.appendChild(wireKpiCard(dCard, "diff"));
     } else {
-      root.appendChild(metricCard("Δ baseline", "-", "no baseline"));
+      root.appendChild(metricCard("Δ Baseline", "-", "no baseline"));
     }
 
     if (hasGreen) {
@@ -1753,7 +1759,7 @@
 
   function buildDiffMini() {
     var card = el("div", "ps-mini-card");
-    card.appendChild(el("span", "ps-mini-title", "Diff vs baseline"));
+    card.appendChild(el("span", "ps-mini-title", "Diff vs Baseline"));
     var pills = el("div", "ps-mini-pills");
     var nNew = (diffData.new_findings || []).length;
     var nResolved = (diffData.resolved_findings || []).length;
@@ -3973,6 +3979,7 @@
     ["Enter", "Open the selected finding"],
     ["Esc", "Close help, close search, clear filters"],
     ["/", "Open search for the active tab"],
+    ["⌘K / Ctrl+K", "Focus the global search"],
     ["g o", "Go to Overview"],
     ["g f", "Go to Findings"],
     ["g p", "Go to pg_stat (if available)"],
@@ -4304,10 +4311,13 @@
 
     function flashCopied() {
       btn.textContent = "Copied";
+      // Swap the CSS-mask chain icon for a check during the flash.
+      btn.classList.add("ps-copied");
       if (btn._copyFlashTimer) clearTimeout(btn._copyFlashTimer);
       btn._copyFlashTimer = setTimeout(function () {
         btn._copyFlashTimer = null;
         btn.textContent = baseLabel;
+        btn.classList.remove("ps-copied");
       }, 1500);
     }
 
@@ -4857,6 +4867,11 @@
     var btn = document.getElementById("ps-refresh-btn");
     if (!btn) return;
     btn.addEventListener("click", function () {
+      var ico = btn.querySelector(".ps-refresh-ico");
+      if (ico) {
+        btn.classList.add("ps-spinning");
+        ico.addEventListener("animationend", function () { btn.classList.remove("ps-spinning"); }, { once: true });
+      }
       btn.disabled = true;
       refreshLiveState().then(function () { btn.disabled = false; });
     });
@@ -4975,6 +4990,14 @@
   refreshTableSort();
   wireHashChangeListener();
   bootLiveMode();
+  // Show the platform's real search shortcut (the key handler accepts both).
+  (function adaptShortcutHint() {
+    var isMac = /Mac|iPhone|iPad/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "");
+    if (!isMac) {
+      var kbd = document.querySelector("#topbar-search-box .ps-search-kbd");
+      if (kbd) kbd.textContent = "Ctrl+K";
+    }
+  })();
 })();
 </script>
 </body>
