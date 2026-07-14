@@ -1444,7 +1444,7 @@ fn template_ships_a_strict_content_security_policy() {
     assert!(csp_value.contains("default-src 'none'"));
     assert!(csp_value.contains("base-uri 'none'"));
     assert!(csp_value.contains("form-action 'none'"));
-    // The redesign embeds Geist/Geist Mono as base64 data: woff2, so
+    // The redesign embeds DM Sans/JetBrains Mono as base64 data: woff2, so
     // the CSP must allow `font-src data:` (and nothing wider).
     assert!(
         csp_value.contains("font-src data:"),
@@ -1458,8 +1458,8 @@ fn template_ships_a_strict_content_security_policy() {
 
 #[test]
 fn embeds_brand_fonts_as_base64_woff2() {
-    // The self-contained report ships Geist + Geist Mono inline so it
-    // renders the brand typeface offline. The base64 data: URIs must
+    // The self-contained report ships DM Sans + JetBrains Mono inline so
+    // it renders the brand typefaces offline. The base64 data: URIs must
     // reach the output, and the source must stay placeholder-safe.
     assert!(
         !FONT_FACES.contains("{{"),
@@ -1467,11 +1467,11 @@ fn embeds_brand_fonts_as_base64_woff2() {
     );
     let face_count = FONT_FACES.matches("@font-face").count();
     assert_eq!(
-        face_count, 6,
-        "expected 6 @font-face rules, found {face_count}"
+        face_count, 8,
+        "expected 8 @font-face rules, found {face_count}"
     );
-    assert!(FONT_FACES.contains("font-family:'Geist'"));
-    assert!(FONT_FACES.contains("font-family:'Geist Mono'"));
+    assert!(FONT_FACES.contains("font-family:'DM Sans'"));
+    assert!(FONT_FACES.contains("font-family:'JetBrains Mono'"));
     assert!(FONT_FACES.contains("src:url(data:font/woff2;base64,"));
 
     let f = finding("t1", "svc", "/ep", "SELECT 1");

@@ -1,5 +1,6 @@
-Geist Sans and Geist Mono Font
-(C) 2023 Vercel, made in collaboration with basement.studio
+DM Sans and JetBrains Mono Fonts
+DM Sans: Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts)
+JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is available with a FAQ at: http://scripts.sil.org/OFL and copied below
