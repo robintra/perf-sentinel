@@ -1472,11 +1472,32 @@
     var total = findings.length;
     var traces = (report.analysis && report.analysis.traces_analyzed) || 0;
 
-    root.appendChild(metricCard("Findings", fmtNum(total), "across " + fmtNum(traces) + " traces"));
-    root.appendChild(tonedValue(
-      metricCard("Critical", fmtNum(sev.critical), fmtNum(sev.warning) + " warn · " + fmtNum(sev.info) + " info"),
-      "crit"
-    ));
+    // Findings: saturated semantic flat (green when clean, otherwise the
+    // highest severity present).
+    var kpiTone = total === 0 ? "ok"
+      : sev.critical > 0 ? "crit"
+      : sev.warning > 0 ? "warn"
+      : "info";
+    var findingsCard = metricCard("Findings", fmtNum(total), "across " + fmtNum(traces) + " traces");
+    setAttr(findingsCard, "data-kpi", kpiTone);
+    root.appendChild(findingsCard);
+
+    // Dominant-severity card: label, count and pastel tone all follow the
+    // highest severity present; the sub line lists only the lower ones.
+    var domCard;
+    if (sev.critical > 0) {
+      domCard = tonedValue(
+        metricCard("Critical", fmtNum(sev.critical), fmtNum(sev.warning) + " warn · " + fmtNum(sev.info) + " info"),
+        "crit"
+      );
+    } else if (sev.warning > 0) {
+      domCard = tonedValue(metricCard("Warn", fmtNum(sev.warning), fmtNum(sev.info) + " info"), "warn");
+    } else if (sev.info > 0) {
+      domCard = tonedValue(metricCard("Info", fmtNum(sev.info), ""), "info");
+    } else {
+      domCard = tonedValue(metricCard("Critical", "0", "0 warn · 0 info"), "ok");
+    }
+    root.appendChild(domCard);
 
     if (hasDiff) {
       var nNew = (diffData.new_findings || []).length;
@@ -1488,6 +1509,8 @@
       dv.appendChild(makeTokenSpan("+" + nNew, "var(--crit-fg)", false));
       dv.appendChild(document.createTextNode(" / "));
       dv.appendChild(makeTokenSpan("−" + nRes, "var(--ok-fg)", false));
+      // Card tint follows the net direction; the tokens keep their colors.
+      if (nNew !== nRes) setAttr(dCard, "data-grad", nNew > nRes ? "crit" : "ok");
       root.appendChild(dCard);
     } else {
       root.appendChild(metricCard("Δ baseline", "-", "no baseline"));
@@ -2419,10 +2442,12 @@
     metrics.appendChild(greenCard("Operational CO2", formatGco2(co2.operational_gco2), "E × I"));
     metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term"));
     var avoidMid = co2.avoidable.mid;
+    // Accent marks actionable savings; a zero amount has nothing to act on.
     metrics.appendChild(greenCard(
       "Avoidable",
       formatGco2(avoidMid),
-      percent(avoidMid, co2.operational_gco2) + " of operational"
+      percent(avoidMid, co2.operational_gco2) + " of operational",
+      avoidMid > 0 ? "accent" : "neutral"
     ));
     metrics.appendChild(greenCard(
       "I/O waste ratio",

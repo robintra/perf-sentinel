@@ -1293,6 +1293,35 @@ fn density_defaults_to_compact_with_topbar_toggle() {
 }
 
 #[test]
+fn overview_kpi_cards_carry_semantic_tones() {
+    // Findings KPI: saturated flat driven by data-kpi (highest severity
+    // present, green when clean). The dominant-severity card and the info
+    // tone need their CSS hooks in the template.
+    assert!(
+        TEMPLATE.contains("data-kpi"),
+        "Findings KPI data-kpi attribute missing"
+    );
+    assert!(
+        TEMPLATE.contains(".ps-metric[data-kpi=\"crit\"]"),
+        "saturated KPI flat CSS missing"
+    );
+    assert!(
+        TEMPLATE.contains("[data-tone=\"info\"]")
+            && TEMPLATE.contains(".ps-metric[data-grad=\"info\"]"),
+        "info tone CSS hooks missing"
+    );
+    assert!(
+        TEMPLATE.contains(".ps-metric[data-grad=\"accent\"]"),
+        "accent (actionable) card CSS hook missing"
+    );
+    // No gradients anywhere: the reskin replaced them with flat pastels.
+    assert!(
+        !TEMPLATE.contains("linear-gradient"),
+        "reskin must not reintroduce gradient fills"
+    );
+}
+
+#[test]
 fn detail_pane_no_trace_states_present() {
     // Two "no trace to show" states survive the master/detail redesign:
     // the cap-reached message rendered inline in openExplain (the finding
