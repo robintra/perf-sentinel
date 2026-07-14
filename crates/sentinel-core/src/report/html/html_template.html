@@ -1627,7 +1627,19 @@
 
     var totalIo = (greenSummary && greenSummary.total_io_ops) || 0;
     var list = el("div", "ps-list");
-    findings.slice(0, 5).forEach(function (f) {
+    // The payload keeps the deterministic detector order (the contract of
+    // every sink), so rank by real impact here: severity, then avoidable
+    // I/O, then IIS.
+    var SEV_RANK = { critical: 0, warning: 1, info: 2 };
+    var topByImpact = findings.slice().sort(function (a, b) {
+      var sa = SEV_RANK[a.severity] ?? 3, sb = SEV_RANK[b.severity] ?? 3;
+      if (sa !== sb) return sa - sb;
+      var ga = a.green_impact || {}, gb = b.green_impact || {};
+      var ia = ga.estimated_extra_io_ops || 0, ib = gb.estimated_extra_io_ops || 0;
+      if (ia !== ib) return ib - ia;
+      return (gb.io_intensity_score || 0) - (ga.io_intensity_score || 0);
+    });
+    topByImpact.slice(0, 5).forEach(function (f) {
       var row = el("div", "ps-row ps-overview-finding");
       // Left column: severity + "type · ×N" then the service / endpoint.
       var left = el("div", "ps-of-left");
