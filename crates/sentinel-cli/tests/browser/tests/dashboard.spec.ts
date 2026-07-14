@@ -190,18 +190,28 @@ test("12. density defaults to compact and the toggle persists comfort", async ({
 test("13. clicking a pg_stat header sorts the table and re-click reverses it", async ({ page }) => {
   await loadDashboard(page, "#pgstat");
   const callsHeader = page.locator("#pgstat-table thead th", { hasText: "Calls" });
-  // Numeric column: first click sorts descending.
+  const callsColumn = async () =>
+    (await page.locator("#pgstat-body tr td:nth-child(2)").allTextContents())
+      .map((s) => parseFloat(s.replace(/[^0-9.+-]/g, "")));
+  const defaultOrder = await callsColumn();
+  expect(defaultOrder.length).toBeGreaterThan(1);
+  // The rows must actually move, not just the header attribute: assert the
+  // full column ordering, or a dead applyTableSort would still pass.
   await callsHeader.click();
   await expect(callsHeader).toHaveAttribute("aria-sort", "descending");
-  const descFirst = await page.locator("#pgstat-body tr td:nth-child(2)").first().textContent();
+  const desc = await callsColumn();
+  expect(desc).toEqual([...desc].sort((a, b) => b - a));
+
   await callsHeader.click();
   await expect(callsHeader).toHaveAttribute("aria-sort", "ascending");
-  const ascFirst = await page.locator("#pgstat-body tr td:nth-child(2)").first().textContent();
-  const parse = (s: string | null) => parseFloat((s || "").replace(/[^0-9.+-]/g, ""));
-  expect(parse(ascFirst)).toBeLessThanOrEqual(parse(descFirst));
-  // Third click returns to the report's default order.
+  const asc = await callsColumn();
+  expect(asc).toEqual([...asc].sort((a, b) => a - b));
+  expect(asc).toEqual([...desc].reverse());
+
+  // Third click restores the report's own order.
   await callsHeader.click();
   await expect(callsHeader).not.toHaveAttribute("aria-sort", /.*/);
+  expect(await callsColumn()).toEqual(defaultOrder);
 });
 
 test("10. tablist carries ARIA roles and selection state", async ({ page }) => {
