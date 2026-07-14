@@ -3265,7 +3265,13 @@
     var nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     nodes.forEach(function (n) {
-      var t = n.nodeValue, pos = 0, idx = t.toLowerCase().indexOf(ql);
+      var t = n.nodeValue;
+      // Offsets are computed on the lowercased copy but slice the original.
+      // A few characters (U+0130 and friends) lengthen when lowercased,
+      // which would shift every later match onto the wrong glyphs: leave
+      // those nodes unmarked rather than highlight the wrong text.
+      if (t.toLowerCase().length !== t.length) return;
+      var pos = 0, idx = t.toLowerCase().indexOf(ql);
       var frag = document.createDocumentFragment();
       while (idx >= 0) {
         frag.appendChild(document.createTextNode(t.slice(pos, idx)));
