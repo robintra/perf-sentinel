@@ -173,8 +173,9 @@
   .ps-metric[data-grad="brand"] { background-color: var(--surface); }
   .ps-metric [data-tone="brand"] { color: var(--text); }
   .ps-metric[data-grad="accent"] { background-color: var(--accent-bg); }
-  /* Overview KPI cards are clickable shortcuts to their tab. */
+  /* Overview KPI cards are clickable/keyboard shortcuts to their tab. */
   #findings-metrics .ps-metric[data-kpi-link] { cursor: pointer; transition: box-shadow .12s; }
+  #findings-metrics .ps-metric[data-kpi-link]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   #findings-metrics .ps-metric[data-kpi-link]:hover { box-shadow: 0 0 0 1.5px var(--btn-bd); }
   /* Saturated semantic flat for the Findings KPI (white text). */
   #findings-metrics .ps-metric[data-kpi] .ps-metric-label { color: rgba(255,255,255,.88); }
@@ -1476,11 +1477,24 @@
   // are wired (a "no baseline" placeholder stays inert).
   function wireKpiCard(card, tabKey, chipKey) {
     setAttr(card, "data-kpi-link", "");
-    card.addEventListener("click", function () {
+    // Keyboard-operable: a plain div would be unreachable by Tab and
+    // announce nothing, so the shortcut would be mouse-only.
+    setAttr(card, "role", "button");
+    card.tabIndex = 0;
+    var label = card.querySelector(".ps-metric-label");
+    setAttr(card, "aria-label", (label ? label.textContent + ": " : "") + "go to " + tabKey);
+    function activate() {
       switchTab(tabKey);
       if (!chipKey) return;
       var chip = document.querySelector('#findings-filters .ps-chip[data-key="' + chipKey + '"]');
       if (chip && chip.getAttribute("aria-checked") !== "true") chip.click();
+    }
+    card.addEventListener("click", activate);
+    card.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        activate();
+      }
     });
     return card;
   }
@@ -3366,9 +3380,10 @@
       var next = document.documentElement.getAttribute("data-density") === "compact" ? "comfort" : "compact";
       document.documentElement.setAttribute("data-density", next);
       try { localStorage.setItem("perf-sentinel:density", next); } catch (e) { /* storage denied */ }
-      // The cursor is still over the button right after a click: show the
-      // next flip, not the mode that was just applied.
-      syncDensityLabel(true);
+      // A mouse click leaves the cursor on the button (preview the next
+      // flip), but keyboard and touch activation do not, and no mouseleave
+      // would ever correct an inverted label there.
+      syncDensityLabel(btn.matches(":hover"));
     });
     syncDensityLabel(false);
   })();
