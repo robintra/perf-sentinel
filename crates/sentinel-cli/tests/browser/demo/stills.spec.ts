@@ -65,34 +65,40 @@ async function viewportScreenshot(
   await page.screenshot({ path, fullPage: false });
 }
 
-// Capture full viewport width but clip vertically to the bottom of the
-// `.ps-footer` element (last visible content) plus a small padding.
-// Avoids both the empty space below short tabs (diff, greenops) and the
-// truncation of long tabs (pg_stat) when the viewport is fixed.
+// Size the viewport to the document, then shoot viewport-only.
+//
+// The app shell is a 100vh sticky column next to a min-height:100vh main
+// area, so the frame height must match the document exactly: a shorter
+// frame leaves the page scrollable and the sidebar footer lands above the
+// main footer (the two rules stop being level), a taller one strands the
+// sidebar footer mid-column with bare background below. `scrollHeight` is
+// the whole document, so short tabs (diff, greenops) still fill exactly
+// 100vh with no dead space and long tabs (pg_stat) are never truncated.
 async function clipScreenshot(
   page: import("@playwright/test").Page,
   path: string
 ) {
-  const height = await page.evaluate(() => {
-    // `.ps-credit` is the very last visible element ("Powered by ..."),
-    // sitting just below `.ps-footer` (the keyboard shortcuts line).
-    const credit = document.querySelector(".ps-credit");
-    if (credit) {
-      const rect = credit.getBoundingClientRect();
-      return Math.ceil(rect.bottom + window.scrollY + 16);
-    }
-    return Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight
+  const measure = () =>
+    page.evaluate(() =>
+      Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight
+      )
     );
-  });
   const viewport = page.viewportSize();
   const width = viewport?.width ?? 1280;
-  await page.screenshot({
-    path,
-    fullPage: true,
-    clip: { x: 0, y: 0, width, height: Math.max(height, 200) },
-  });
+  let height = Math.max(await measure(), 200);
+  await page.setViewportSize({ width, height });
+  await page.waitForTimeout(100);
+  // Growing the viewport re-evaluates the vh-based min-heights, which can
+  // settle the document a few pixels off the first reading.
+  const settled = Math.max(await measure(), 200);
+  if (settled !== height) {
+    height = settled;
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(100);
+  }
+  await page.screenshot({ path, fullPage: false });
 }
 
 test("01 findings with severity + service filters", async ({ page }, info) => {
