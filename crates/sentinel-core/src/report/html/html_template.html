@@ -2040,9 +2040,10 @@
 
     row.addEventListener("click", function (event) {
       var t = event.target;
-      // Bail when the click landed on the live-mode action button so
-      // its own handler runs without ALSO opening the detail pane.
-      if (t && (t.classList.contains("ps-fin-action-btn") || t.closest && t.closest(".ps-fin-actions"))) {
+      // Bail only when the click landed on the action button itself, so
+      // its handler runs without ALSO opening the detail pane. Matching
+      // the whole .ps-fin-actions container made its full row a dead zone.
+      if (t && t.closest && t.closest(".ps-fin-action-btn")) {
         return;
       }
       selectFinding(idx);
@@ -4507,6 +4508,34 @@
     }, 5000);
   }
 
+  // Post-ack toast with a direct Undo (DELETE without the revoke
+  // confirmation dialog). The classic Revoke button keeps its confirm.
+  function showUndoAckToast(sig) {
+    var existing = document.getElementById("ps-toast");
+    if (existing) existing.remove();
+    var t = el("div", "ps-toast success", "Acknowledged. ");
+    setAttr(t, "id", "ps-toast");
+    setAttr(t, "role", "status");
+    var undo = el("button", "ps-toast-undo", "Undo");
+    undo.type = "button";
+    undo.addEventListener("click", function () {
+      t.remove();
+      var path = "/api/findings/" + encodeURIComponent(sig) + "/ack";
+      fetchWithAuth(path, { method: "DELETE" }).then(function (r) {
+        if (r.status === 204) {
+          showToast("success", "Acknowledgment undone.");
+          return refreshLiveState();
+        }
+        showToast("error", "Could not undo (HTTP " + r.status + ").");
+      }).catch(function () {
+        showToast("error", "Network error reaching the daemon.");
+      });
+    });
+    t.appendChild(undo);
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 8000);
+  }
+
   function pingStatus() {
     return fetchWithAuth("/api/status").then(function (r) {
       if (r.status === 200) {
@@ -4705,7 +4734,7 @@
     }).then(function (r) {
       if (r.status === 201) {
         closeAckModal();
-        showToast("success", "Acknowledged.");
+        showUndoAckToast(sig);
         return refreshLiveState();
       }
       return handleAuthRetry(r, function () { postAck(sig, body, errEl); }, errEl, "create");
