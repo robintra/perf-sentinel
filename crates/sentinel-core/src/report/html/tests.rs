@@ -789,6 +789,8 @@ const CHEATSHEET_DESCRIPTION_FRAGMENTS: &[&str] = &[
     "Go to Diff",
     "Go to Correlations",
     "Go to Carbon",
+    "Sort a table by that column",
+    "Add a column as tie-breaker",
     "Show this cheatsheet",
 ];
 
@@ -1289,6 +1291,28 @@ fn density_defaults_to_compact_with_topbar_toggle() {
     assert!(
         TEMPLATE.contains(":root[data-density=\"compact\"]"),
         "compact density CSS scope missing"
+    );
+}
+
+#[test]
+fn tables_are_sortable_with_shareable_state() {
+    // Sortable headers persist per table and travel through the `tsort`
+    // hash key that readHash's router ignores.
+    assert!(
+        TEMPLATE.contains("perf-sentinel:tablesort"),
+        "table sort persistence key missing"
+    );
+    assert!(
+        TEMPLATE.contains("tsort="),
+        "tsort hash serialization missing"
+    );
+    assert!(
+        TEMPLATE.contains("aria-sort"),
+        "aria-sort accessibility wiring missing"
+    );
+    assert!(
+        TEMPLATE.contains("function refreshTableSort("),
+        "explicit post-render sort refresh missing"
     );
 }
 
