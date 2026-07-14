@@ -2318,6 +2318,11 @@
     }
   }
 
+  // Whole-trace findings (chatty_service, pool_saturation, serialized_calls)
+  // match no span template: dimming every row with nothing highlighted is
+  // unreadable, so dim only when at least one span actually matches.
+  var treeHasTplMatch = false;
+
   function renderTree(root, trace, finding) {
     var spans = trace.spans || [];
     if (spans.length === 0) {
@@ -2326,15 +2331,20 @@
     }
     var tree = buildSpanTree(spans);
     var targetTpl = (finding.pattern && finding.pattern.template) || null;
+    treeHasTplMatch = !!targetTpl && spans.some(function (s) { return s.template === targetTpl; });
+    // The highlight tint follows the finding severity (see [data-fsev] CSS).
+    var host = root.closest ? root.closest(".ps-tree") : null;
+    setAttr(host || root, "data-fsev", finding.severity || "");
     emitSpanTreeRows(root, spans, tree, targetTpl);
   }
 
   function buildSpanRow(span, depth, targetTpl) {
     var row = el("div", "ps-span");
-    var isFinding = targetTpl && span.template === targetTpl;
+    var isFinding = treeHasTplMatch && targetTpl && span.template === targetTpl;
     if (isFinding) row.classList.add("hilite");
-    else row.classList.add("dim");
-    row.style.paddingLeft = (depth * 20) + "px";
+    else if (treeHasTplMatch) row.classList.add("dim");
+    // 10px base inset keeps depth-0 text off the rounded edge.
+    row.style.paddingLeft = (10 + depth * 20) + "px";
 
     // Cross-nav to pg_stat: a SQL span whose normalized template matches
     // a row in pg_stat becomes clickable. The click switches to the
