@@ -176,7 +176,7 @@ async function waitForLiveAcks(
   await page.waitForFunction(
     (expected) => {
       const badge = document.querySelector(
-        "#tab-acknowledgments .ps-badge"
+        "#tab-acknowledgments .ps-nav-badge"
       );
       return badge !== null && badge.textContent?.trim() === String(expected);
     },
