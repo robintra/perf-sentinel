@@ -177,6 +177,33 @@ test("11. j key moves selection and the detail pane follows it", async ({ page }
   expect(detailType?.trim()).toBe(selectedType?.trim());
 });
 
+test("12. density defaults to compact and the toggle persists comfort", async ({ page }) => {
+  await loadDashboard(page);
+  await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
+  await page.locator("#density-toggle").click();
+  await expect(page.locator("html")).toHaveAttribute("data-density", "comfort");
+  await page.reload();
+  await page.waitForSelector("[role=tablist]");
+  await expect(page.locator("html")).toHaveAttribute("data-density", "comfort");
+});
+
+test("13. clicking a pg_stat header sorts the table and re-click reverses it", async ({ page }) => {
+  await loadDashboard(page, "#pgstat");
+  const callsHeader = page.locator("#pgstat-table thead th", { hasText: "Calls" });
+  // Numeric column: first click sorts descending.
+  await callsHeader.click();
+  await expect(callsHeader).toHaveAttribute("aria-sort", "descending");
+  const descFirst = await page.locator("#pgstat-body tr td:nth-child(2)").first().textContent();
+  await callsHeader.click();
+  await expect(callsHeader).toHaveAttribute("aria-sort", "ascending");
+  const ascFirst = await page.locator("#pgstat-body tr td:nth-child(2)").first().textContent();
+  const parse = (s: string | null) => parseFloat((s || "").replace(/[^0-9.+-]/g, ""));
+  expect(parse(ascFirst)).toBeLessThanOrEqual(parse(descFirst));
+  // Third click returns to the report's default order.
+  await callsHeader.click();
+  await expect(callsHeader).not.toHaveAttribute("aria-sort", /.*/);
+});
+
 test("10. tablist carries ARIA roles and selection state", async ({ page }) => {
   await loadDashboard(page);
   const tablist = page.locator("[role=tablist]");
