@@ -174,8 +174,8 @@
   .ps-metric [data-tone="brand"] { color: var(--text); }
   .ps-metric[data-grad="accent"] { background-color: var(--accent-bg); }
   /* Overview KPI cards are clickable shortcuts to their tab. */
-  #findings-metrics .ps-metric { cursor: pointer; transition: box-shadow .12s; }
-  #findings-metrics .ps-metric:hover { box-shadow: 0 0 0 1.5px var(--btn-bd); }
+  #findings-metrics .ps-metric[data-kpi-link] { cursor: pointer; transition: box-shadow .12s; }
+  #findings-metrics .ps-metric[data-kpi-link]:hover { box-shadow: 0 0 0 1.5px var(--btn-bd); }
   /* Saturated semantic flat for the Findings KPI (white text). */
   #findings-metrics .ps-metric[data-kpi] .ps-metric-label { color: rgba(255,255,255,.88); }
   #findings-metrics .ps-metric[data-kpi] .ps-metric-value { color: #fff; }
@@ -1465,6 +1465,19 @@
     setAttr(card, "data-grad", tone);
     return card;
   }
+  // Overview KPI cards double as shortcuts: click goes to the matching tab,
+  // optionally pre-selecting a severity chip. Only cards with a real target
+  // are wired (a "no baseline" placeholder stays inert).
+  function wireKpiCard(card, tabKey, chipKey) {
+    setAttr(card, "data-kpi-link", "");
+    card.addEventListener("click", function () {
+      switchTab(tabKey);
+      if (!chipKey) return;
+      var chip = document.querySelector('#findings-filters .ps-chip[data-key="' + chipKey + '"]');
+      if (chip && chip.getAttribute("aria-checked") !== "true") chip.click();
+    });
+    return card;
+  }
   function renderFindingsMetrics() {
     var root = document.getElementById("findings-metrics");
     root.textContent = "";
@@ -1480,24 +1493,28 @@
       : "info";
     var findingsCard = metricCard("Findings", fmtNum(total), "across " + fmtNum(traces) + " traces");
     setAttr(findingsCard, "data-kpi", kpiTone);
-    root.appendChild(findingsCard);
+    root.appendChild(wireKpiCard(findingsCard, "findings", "all"));
 
     // Dominant-severity card: label, count and pastel tone all follow the
     // highest severity present; the sub line lists only the lower ones.
-    var domCard;
+    var domCard, domChip;
     if (sev.critical > 0) {
       domCard = tonedValue(
         metricCard("Critical", fmtNum(sev.critical), fmtNum(sev.warning) + " warn · " + fmtNum(sev.info) + " info"),
         "crit"
       );
+      domChip = "sev:critical";
     } else if (sev.warning > 0) {
       domCard = tonedValue(metricCard("Warn", fmtNum(sev.warning), fmtNum(sev.info) + " info"), "warn");
+      domChip = "sev:warning";
     } else if (sev.info > 0) {
       domCard = tonedValue(metricCard("Info", fmtNum(sev.info), ""), "info");
+      domChip = "sev:info";
     } else {
       domCard = tonedValue(metricCard("Critical", "0", "0 warn · 0 info"), "ok");
+      domChip = "all";
     }
-    root.appendChild(domCard);
+    root.appendChild(wireKpiCard(domCard, "findings", domChip));
 
     if (hasDiff) {
       var nNew = (diffData.new_findings || []).length;
@@ -1511,18 +1528,18 @@
       dv.appendChild(makeTokenSpan("−" + nRes, "var(--ok-fg)", false));
       // Card tint follows the net direction; the tokens keep their colors.
       if (nNew !== nRes) setAttr(dCard, "data-grad", nNew > nRes ? "crit" : "ok");
-      root.appendChild(dCard);
+      root.appendChild(wireKpiCard(dCard, "diff"));
     } else {
       root.appendChild(metricCard("Δ baseline", "-", "no baseline"));
     }
 
     if (hasGreen) {
       var co2 = greenSummary.co2;
-      root.appendChild(tonedValue(
+      root.appendChild(wireKpiCard(tonedValue(
         metricCard("Total CO2", formatGco2(co2.total.mid),
           "low " + formatGco2(co2.total.low) + " · high " + formatGco2(co2.total.high)),
         "brand"
-      ));
+      ), "green"));
     } else {
       root.appendChild(metricCard("Total CO2", "-", "green disabled"));
     }
