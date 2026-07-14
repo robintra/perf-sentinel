@@ -1743,25 +1743,31 @@ fn template_does_not_leak_session_storage_to_local_storage() {
     // The X-API-Key is sessionStorage-scoped: persisting it in
     // localStorage would survive tab and browser restarts, which is
     // not the threat model we accept. UI preferences (density, table
-    // sort) may persist, so every localStorage write must target an
-    // inline "perf-sentinel:" preference literal, never a variable or
-    // the daemon API-key storage constant.
+    // sort) may persist, so every localStorage write must name an
+    // inline "perf-sentinel:" preference key AND carry a value that
+    // cannot be the daemon key. Checking the key alone would let
+    // `setItem("perf-sentinel:cache", liveState.apiKey)` through.
     for (idx, needle) in TEMPLATE.match_indices("localStorage.setItem(") {
         let after = &TEMPLATE[idx + needle.len()..];
+        let call = after.lines().next().unwrap_or("");
         assert!(
-            after.starts_with("\"perf-sentinel:"),
+            call.starts_with("\"perf-sentinel:") || call.starts_with("'perf-sentinel:"),
             "localStorage writes must use an inline perf-sentinel: UI-pref key, found: {}",
-            &after[..after.len().min(40)]
+            &call[..call.len().min(40)]
         );
+        for secret in [
+            "apiKey",
+            "API_KEY",
+            "DAEMON_API_KEY",
+            "sessionGet",
+            "perf-sentinel.daemon",
+        ] {
+            assert!(
+                !call.contains(secret),
+                "localStorage write must not carry the daemon API key ({secret}): {call}"
+            );
+        }
     }
-    assert!(
-        !TEMPLATE.contains("localStorage.setItem(DAEMON_API_KEY_STORAGE"),
-        "do not persist the X-API-Key beyond the tab session"
-    );
-    assert!(
-        !TEMPLATE.contains("localStorage.setItem(\"perf-sentinel.daemon"),
-        "do not persist daemon secrets beyond the tab session"
-    );
 }
 
 #[test]
