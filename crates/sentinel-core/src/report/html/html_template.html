@@ -2833,6 +2833,7 @@
       tr.appendChild(el("td", null, fmtNum((entry.mean_exec_time_ms || 0).toFixed(2))));
       body.appendChild(tr);
     });
+    refreshTableSort();
   }
 
   // First ranking whose top-N entries contain the template, or -1.
@@ -2971,6 +2972,7 @@
       tr.appendChild(el("td", null, fmtNum(entry.rows_examined || 0)));
       body.appendChild(tr);
     });
+    refreshTableSort();
   }
 
   // -------- diff panel --------
@@ -3323,6 +3325,169 @@
     });
     syncDensityLabel(false);
   })();
+
+  // -------- sortable tables --------
+  // Every .ps-table with an id gets clickable headers. Click cycles
+  // default -> first direction -> reverse -> default (numeric columns
+  // start descending, text ascending). Shift+click adds a secondary
+  // tie-breaker key. State persists per table in localStorage and can be
+  // shared through the `tsort` hash key (ignored by readHash's router).
+  // Renderers that rebuild a tbody call refreshTableSort() afterwards:
+  // fresh rows carry no data-orig-idx, which re-triggers the stored sort.
+  var SORT_SEV_RANK = { CRIT: 0, WARN: 1, INFO: 2, OK: 3 };
+  var tableSortState = {};
+  try { tableSortState = JSON.parse(localStorage.getItem("perf-sentinel:tablesort") || "{}") || {}; } catch (e) { tableSortState = {}; }
+  // Shared links seed the sort before the first render.
+  try {
+    var tsortMatch = (location.hash || "").match(/[&#]tsort=([^&]+)/);
+    if (tsortMatch) decodeURIComponent(tsortMatch[1]).split(",").forEach(function (part) {
+      var li = part.lastIndexOf(":");
+      if (li < 0) return;
+      var spec = part.slice(li + 1);
+      if (!/^\d+[ad](\.\d+[ad])*$/.test(spec)) return;
+      tableSortState[part.slice(0, li)] = spec.split(".").map(function (s) {
+        return { i: parseInt(s, 10), dir: /a$/.test(s) ? "ascending" : "descending" };
+      });
+    });
+  } catch (e) { /* hostile hash: ignore */ }
+  function saveTableSort() {
+    try { localStorage.setItem("perf-sentinel:tablesort", JSON.stringify(tableSortState)); } catch (e) { /* storage denied */ }
+  }
+  // Serialized form of the active sort keys, for copy-link. Null when
+  // nothing is sorted.
+  function tableSortHashValue() {
+    var active = Object.keys(tableSortState).filter(function (k) {
+      return tableSortState[k] && tableSortState[k].length;
+    });
+    if (!active.length) return null;
+    return active.map(function (k) {
+      return k + ":" + tableSortState[k].map(function (s) {
+        return s.i + (s.dir === "ascending" ? "a" : "d");
+      }).join(".");
+    }).join(",");
+  }
+  function sortCellText(tr, i) {
+    var td = tr.children[i];
+    return td ? td.textContent.trim() : "";
+  }
+  function sortColKind(rows, i) {
+    var num = 0, sev = 0, tot = 0;
+    rows.forEach(function (r) {
+      var t = sortCellText(r, i);
+      if (!t) return;
+      tot++;
+      if (SORT_SEV_RANK[t.toUpperCase()] !== undefined) sev++;
+      else if (!isNaN(parseFloat(t.replace(/[,\s%×+]/g, "")))) num++;
+    });
+    if (!tot) return "text";
+    if (sev / tot > 0.7) return "sev";
+    if (num / tot > 0.7) return "num";
+    return "text";
+  }
+  function sortFirstDir(kind) { return kind === "text" ? "ascending" : "descending"; }
+  function sortCmp(kind, ta, tb) {
+    if (kind === "sev") return (SORT_SEV_RANK[ta.toUpperCase()] ?? 9) - (SORT_SEV_RANK[tb.toUpperCase()] ?? 9);
+    if (kind === "num") {
+      var na = parseFloat(ta.replace(/[^0-9.+-]/g, ""));
+      if (isNaN(na)) na = -Infinity;
+      var nb = parseFloat(tb.replace(/[^0-9.+-]/g, ""));
+      if (isNaN(nb)) nb = -Infinity;
+      return na - nb;
+    }
+    return ta.localeCompare(tb);
+  }
+  function syncSortHeaders(table) {
+    var keys = tableSortState[table.id] || [];
+    table.querySelectorAll("thead th").forEach(function (th, i) {
+      var ico = th.querySelector(".ps-sort-ico");
+      var pos = keys.findIndex(function (k) { return k.i === i; });
+      if (pos < 0) {
+        th.removeAttribute("aria-sort");
+        if (ico) ico.textContent = "↕";
+        return;
+      }
+      var arrow = keys[pos].dir === "ascending" ? "↑" : "↓";
+      if (ico) ico.textContent = keys.length > 1 ? arrow + (pos + 1) : arrow;
+      // aria-sort announces the primary key only.
+      if (pos === 0) th.setAttribute("aria-sort", keys[pos].dir);
+      else th.removeAttribute("aria-sort");
+    });
+  }
+  function applyTableSort(table) {
+    var tbody = table.tBodies[0];
+    if (!tbody) return;
+    var rows = Array.prototype.slice.call(tbody.children);
+    rows.forEach(function (r, idx) { if (!r.dataset.origIdx) r.dataset.origIdx = String(idx); });
+    var keys = (tableSortState[table.id] || []).map(function (k) {
+      return { i: k.i, dir: k.dir, kind: sortColKind(rows, k.i) };
+    });
+    rows.sort(function (a, b) {
+      // Highlighted rows (pg_stat drill) stay pinned on top.
+      var ha = a.classList.contains("hilite") ? 0 : 1;
+      var hb = b.classList.contains("hilite") ? 0 : 1;
+      if (ha !== hb) return ha - hb;
+      for (var k = 0; k < keys.length; k++) {
+        var c = sortCmp(keys[k].kind, sortCellText(a, keys[k].i), sortCellText(b, keys[k].i));
+        if (c) return keys[k].dir === "ascending" ? c : -c;
+      }
+      return (+a.dataset.origIdx) - (+b.dataset.origIdx);
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+    syncSortHeaders(table);
+  }
+  function onSortHeaderClick(table, i, ev) {
+    var tbody = table.tBodies[0];
+    if (!tbody) return;
+    var rows = Array.prototype.slice.call(tbody.children);
+    var kind = sortColKind(rows, i);
+    var keys = tableSortState[table.id] || [];
+    var pos = keys.findIndex(function (k) { return k.i === i; });
+    if (ev && ev.shiftKey && keys.length && pos !== 0) {
+      // Shift+click: secondary tie-breaker (cycle down -> up -> removed).
+      if (pos < 0) keys.push({ i: i, dir: sortFirstDir(kind) });
+      else if (keys[pos].dir === sortFirstDir(kind)) keys[pos].dir = sortFirstDir(kind) === "ascending" ? "descending" : "ascending";
+      else keys.splice(pos, 1);
+    } else {
+      var cur = pos === 0 && keys.length === 1 ? keys[0].dir : null;
+      var f = sortFirstDir(kind);
+      var next = cur === null ? f : (cur === f ? (f === "ascending" ? "descending" : "ascending") : null);
+      keys = next === null ? [] : [{ i: i, dir: next }];
+    }
+    tableSortState[table.id] = keys;
+    saveTableSort();
+    applyTableSort(table);
+  }
+  function wireSortableTable(table) {
+    if (table.dataset.sortWired) return;
+    table.dataset.sortWired = "1";
+    table.querySelectorAll("thead th").forEach(function (th, i) {
+      if (!th.textContent.trim()) return;
+      th.setAttribute("data-sortable", "");
+      th.setAttribute("title", "Sort by " + th.textContent.trim() + " — Shift+click adds it as a tie-breaker (secondary sort)");
+      var ico = el("span", "ps-sort-ico", "↕");
+      th.appendChild(ico);
+      th.tabIndex = 0;
+      th.addEventListener("click", function (ev) { onSortHeaderClick(table, i, ev); });
+      th.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          onSortHeaderClick(table, i, ev);
+        }
+      });
+    });
+  }
+  function refreshTableSort() {
+    document.querySelectorAll(".ps-table").forEach(function (t) {
+      if (!t.id) return;
+      wireSortableTable(t);
+      var keys = tableSortState[t.id];
+      if (!keys || !keys.length) return;
+      var tb = t.tBodies[0];
+      // Fresh rows (no origIdx yet) mean the tbody was re-rendered:
+      // re-apply the persisted sort.
+      if (tb && tb.children.length && !tb.children[0].dataset.origIdx) applyTableSort(t);
+    });
+  }
 
   // -------- CSV export --------
   // Rows are assembled as arrays of cell values, then each cell is
@@ -3774,6 +3939,8 @@
     ["g c", "Go to Correlations (if available)"],
     ["g r", "Go to Carbon (if available)"],
     ["g a", "Go to Acknowledgments (live mode)"],
+    ["Click header", "Sort a table by that column (cycles down, up, default)"],
+    ["Shift+Click header", "Add a column as tie-breaker (secondary sort)"],
     ["?", "Show this cheatsheet"]
   ];
   function populateCheatsheet() {
@@ -4087,6 +4254,12 @@
     if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
     var baseLabel = btn.dataset.baseLabel;
     var href = location.href;
+    // The copied link also restores any active table sort.
+    var tsort = tableSortHashValue();
+    if (location.hash && tsort) {
+      href = href.replace(/([&#])tsort=[^&]*/g, "$1").replace(/[&#]$/, "");
+      href += "&tsort=" + encodeURIComponent(tsort);
+    }
 
     function flashCopied() {
       btn.textContent = "Copied";
@@ -4367,6 +4540,7 @@
     liveState.acks.forEach(function (a) {
       body.appendChild(buildAckRow(a));
     });
+    refreshTableSort();
     if (footer) {
       var note = liveState.acks.length + " active";
       if (liveState.acks.length >= DAEMON_ACKS_CAP) {
@@ -4729,6 +4903,7 @@
   wireExportButtons();
   wireCopyLinkButtons();
   applyInitialHashOrWrite();
+  refreshTableSort();
   wireHashChangeListener();
   bootLiveMode();
 })();
