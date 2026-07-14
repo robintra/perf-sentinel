@@ -3381,9 +3381,37 @@
   // shared through the `tsort` hash key (ignored by readHash's router).
   // Renderers that rebuild a tbody call refreshTableSort() afterwards:
   // fresh rows carry no data-orig-idx, which re-triggers the stored sort.
-  var SORT_SEV_RANK = { CRIT: 0, WARN: 1, INFO: 2, OK: 3 };
+  // Higher rank = more severe, so the default descending direction puts
+  // CRIT on top like every other "biggest first" column.
+  var SORT_SEV_RANK = { CRIT: 3, WARN: 2, INFO: 1, OK: 0 };
+  // Unit-aware numeric cells: CO2 columns mix g/mg/ug and durations mix
+  // s/ms/us, so magnitudes only compare after scaling to a common unit.
+  var SORT_UNIT_SCALE = { ug: 1e-6, mg: 1e-3, g: 1, kg: 1e3, us: 1e-3, ms: 1, s: 1e3 };
+  // Anchored: a cell is numeric only if it is *entirely* a number with an
+  // optional known unit. Keeps ISO timestamps and hex signatures textual.
+  var SORT_NUM_RE = /^([+-]?\d[\d, \s]*(?:\.\d+)?)\s*(%|×|[a-zµ]{1,2})?$/i;
+  function sortNumericValue(t) {
+    var m = SORT_NUM_RE.exec(t.trim());
+    if (!m) return NaN;
+    var n = parseFloat(m[1].replace(/[, \s]/g, ""));
+    if (isNaN(n)) return NaN;
+    var unit = m[2];
+    if (!unit || unit === "%" || unit === "×") return n;
+    var scale = SORT_UNIT_SCALE[unit.toLowerCase().replace("µ", "u")];
+    // Unknown unit: not comparable as a number, fall back to text.
+    return scale === undefined ? NaN : n * scale;
+  }
   var tableSortState = {};
   try { tableSortState = JSON.parse(localStorage.getItem("perf-sentinel:tablesort") || "{}") || {}; } catch (e) { tableSortState = {}; }
+  // A tampered or future-format value must not throw mid-boot (that would
+  // take hash routing and live mode down with it): keep only valid entries.
+  Object.keys(tableSortState).forEach(function (k) {
+    var v = tableSortState[k];
+    var ok = Array.isArray(v) && v.every(function (s) {
+      return s && Number.isInteger(s.i) && (s.dir === "ascending" || s.dir === "descending");
+    });
+    if (!ok) delete tableSortState[k];
+  });
   // Shared links seed the sort before the first render.
   try {
     var tsortMatch = (location.hash || "").match(/[&#]tsort=([^&]+)/);
@@ -3400,11 +3428,17 @@
   function saveTableSort() {
     try { localStorage.setItem("perf-sentinel:tablesort", JSON.stringify(tableSortState)); } catch (e) { /* storage denied */ }
   }
-  // Serialized form of the active sort keys, for copy-link. Null when
-  // nothing is sorted.
+  // Serialized sort keys for copy-link, scoped to the tables of the tab
+  // being shared. Sending the whole persisted state would reorder the
+  // recipient's other tabs and overwrite their own preferences. Null when
+  // the shared tab has no active sort.
   function tableSortHashValue() {
-    var active = Object.keys(tableSortState).filter(function (k) {
-      return tableSortState[k] && tableSortState[k].length;
+    var panel = document.getElementById("panel-" + currentTab);
+    if (!panel) return null;
+    var active = Array.prototype.slice.call(panel.querySelectorAll(".ps-table")).map(function (t) {
+      return t.id;
+    }).filter(function (k) {
+      return k && tableSortState[k] && tableSortState[k].length;
     });
     if (!active.length) return null;
     return active.map(function (k) {
@@ -3424,7 +3458,7 @@
       if (!t) return;
       tot++;
       if (SORT_SEV_RANK[t.toUpperCase()] !== undefined) sev++;
-      else if (!isNaN(parseFloat(t.replace(/[,\s%×+]/g, "")))) num++;
+      else if (!isNaN(sortNumericValue(t))) num++;
     });
     if (!tot) return "text";
     if (sev / tot > 0.7) return "sev";
@@ -3433,11 +3467,13 @@
   }
   function sortFirstDir(kind) { return kind === "text" ? "ascending" : "descending"; }
   function sortCmp(kind, ta, tb) {
-    if (kind === "sev") return (SORT_SEV_RANK[ta.toUpperCase()] ?? 9) - (SORT_SEV_RANK[tb.toUpperCase()] ?? 9);
+    // Unknown pills and unparseable numbers sink to the bottom of the
+    // first (descending) pass rather than displacing real values.
+    if (kind === "sev") return (SORT_SEV_RANK[ta.toUpperCase()] ?? -1) - (SORT_SEV_RANK[tb.toUpperCase()] ?? -1);
     if (kind === "num") {
-      var na = parseFloat(ta.replace(/[^0-9.+-]/g, ""));
+      var na = sortNumericValue(ta);
       if (isNaN(na)) na = -Infinity;
-      var nb = parseFloat(tb.replace(/[^0-9.+-]/g, ""));
+      var nb = sortNumericValue(tb);
       if (isNaN(nb)) nb = -Infinity;
       return na - nb;
     }
@@ -3469,10 +3505,14 @@
       return { i: k.i, dir: k.dir, kind: sortColKind(rows, k.i) };
     });
     rows.sort(function (a, b) {
-      // Highlighted rows (pg_stat drill) stay pinned on top.
-      var ha = a.classList.contains("hilite") ? 0 : 1;
-      var hb = b.classList.contains("hilite") ? 0 : 1;
-      if (ha !== hb) return ha - hb;
+      // Highlighted rows (pg_stat drill) stay pinned on top while a sort is
+      // active. With no keys the table must restore the renderer's own
+      // order, pin included, or "default" would not be the default.
+      if (keys.length) {
+        var ha = a.classList.contains("hilite") ? 0 : 1;
+        var hb = b.classList.contains("hilite") ? 0 : 1;
+        if (ha !== hb) return ha - hb;
+      }
       for (var k = 0; k < keys.length; k++) {
         var c = sortCmp(keys[k].kind, sortCellText(a, keys[k].i), sortCellText(b, keys[k].i));
         if (c) return keys[k].dir === "ascending" ? c : -c;
@@ -3510,7 +3550,7 @@
     table.querySelectorAll("thead th").forEach(function (th, i) {
       if (!th.textContent.trim()) return;
       th.setAttribute("data-sortable", "");
-      th.setAttribute("title", "Sort by " + th.textContent.trim() + " — Shift+click adds it as a tie-breaker (secondary sort)");
+      th.setAttribute("title", "Sort by " + th.textContent.trim() + ", Shift+click adds it as a tie-breaker (secondary sort)");
       var ico = el("span", "ps-sort-ico", "↕");
       th.appendChild(ico);
       th.tabIndex = 0;
