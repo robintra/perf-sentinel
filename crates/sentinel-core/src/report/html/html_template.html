@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="{{CONTENT_SECURITY_POLICY}}" />
 <title>{{PAGE_TITLE}}</title>
+<script>try{var d=localStorage.getItem('perf-sentinel:density');document.documentElement.setAttribute('data-density',d==='comfort'?'comfort':'compact')}catch(e){document.documentElement.setAttribute('data-density','compact')}</script>
 <style>
 {{FONT_FACES}}
   /* ============================================================
@@ -485,6 +486,41 @@
   /* Search-match highlight injected by the highlighter module. */
   mark.ps-mark { background: color-mix(in srgb, var(--brand) 24%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 
+  /* -------- density (compact by default, toggled from the topbar) -------- */
+  :root[data-density="compact"] { --r: 13px; --r-sm: 7px; }
+  :root[data-density="compact"] body { font-size: 12.5px; }
+  :root[data-density="compact"] .ps-content { padding: 16px 22px 0; }
+  :root[data-density="compact"] .ps-topbar { padding: 12px 22px 6px; }
+  :root[data-density="compact"] .ps-topbar-h1 { font-size: 16px; }
+  :root[data-density="compact"] .ps-nav { padding: 6px 10px; gap: 2px; }
+  :root[data-density="compact"] [data-nav] { padding: 7px 10px; font-size: 12.5px; border-radius: 8px; }
+  :root[data-density="compact"] .ps-metric { padding: 12px 14px; gap: 5px; }
+  :root[data-density="compact"] .ps-metric-value { font-size: 22px; }
+  :root[data-density="compact"] .ps-list, :root[data-density="compact"] .ps-quality-gate { padding: 7px; gap: 6px; }
+  :root[data-density="compact"] .ps-row { padding: 9px 12px; border-radius: 8px; }
+  /* Show-more follows the row inset of each density. */
+  :root[data-density="compact"] .ps-show-more { margin: 0 7px 7px; width: calc(100% - 14px); }
+  :root[data-density="compact"] .ps-detail { padding: 15px 16px; gap: 13px; }
+  :root[data-density="compact"] .ps-panel { gap: 10px; }
+  :root[data-density="compact"] .ps-metrics { gap: 8px; }
+  :root[data-density="compact"] .ps-brand-block { padding: 14px 14px 8px; }
+  :root[data-density="compact"] .ps-logo svg, :root[data-density="compact"] .ps-logo img { height: 28px; }
+  :root[data-density="compact"] .ps-hero-big { font-size: 36px; }
+  :root[data-density="compact"] .ps-hero-left { padding: 18px 20px; }
+  :root[data-density="compact"] .ps-hero-right { padding: 14px 18px; }
+  :root[data-density="compact"] .ps-table th { padding: 8px 10px; }
+  :root[data-density="compact"] .ps-table td { padding: 8px 10px; }
+  /* Fixed width = widest label ("Compact"); outer bars preview the other mode on hover. */
+  #density-toggle { width: 103px; padding: 0 14px; gap: 6px; }
+  #density-toggle svg { flex: none; color: var(--brand-text); }
+  #density-toggle .b1, #density-toggle .b3 { transition: transform .28s cubic-bezier(.34,1.4,.5,1); }
+  :root[data-density="compact"] #density-toggle .b1 { transform: translateY(2.4px); }
+  :root[data-density="compact"] #density-toggle .b3 { transform: translateY(-2.4px); }
+  :root[data-density="compact"] #density-toggle:hover .b1,
+  :root[data-density="compact"] #density-toggle:hover .b3 { transform: translateY(0); }
+  :root[data-density="comfort"] #density-toggle:hover .b1 { transform: translateY(2.4px); }
+  :root[data-density="comfort"] #density-toggle:hover .b3 { transform: translateY(-2.4px); }
+
   /* -------- accessibility -------- */
   button:focus-visible, [data-nav]:focus-visible, .ps-chip:focus-visible, a:focus-visible,
   .ps-row:focus-visible, .ps-table th[data-sortable]:focus-visible {
@@ -498,10 +534,13 @@
   @media (max-width: 1180px) {
     .ps-theme-toggle { width: 40px; padding: 0; gap: 0; justify-content: center; }
     .ps-theme-toggle .ps-th-lbl { display: none; }
+    #density-toggle { width: 40px; padding: 0; }
+    #density-label { display: none; }
     body.ps-live .ps-refresh-btn { width: 34px; padding: 0; justify-content: center; gap: 0; }
     .ps-refresh-btn span { display: none; }
     .ps-search-box { flex: 1 1 180px; min-width: 140px; }
   }
+
   /* Narrow viewports (small windows, embedded iframes): give the content room
      by narrowing the sidebar, stacking the two-column blocks, and letting the
      search box shrink. */
@@ -558,6 +597,7 @@
         </output>
         <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
         <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
+        <button class="ps-theme-toggle" id="density-toggle" type="button" aria-label="Toggle UI density"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect class="b1" x="2" y="2.4" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b2" x="2" y="7.05" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b3" x="2" y="11.7" width="12" height="1.9" rx="0.95" fill="currentColor"></rect></svg><span id="density-label">Compact</span></button>
         <button class="ps-theme-toggle" id="theme-toggle" type="button">System</button>
       </div>
     </header>
@@ -3191,6 +3231,34 @@
     sessionSet(STORAGE_KEYS.theme, next);
     applyTheme(next, true);
   });
+
+  // -------- density toggle --------
+  // The head bootstrap script already stamped data-density before first
+  // paint (compact unless localStorage says comfort). The label previews
+  // the target mode while hovered, and shows the current one otherwise.
+  (function wireDensityToggle() {
+    var btn = document.getElementById("density-toggle");
+    if (!btn) return;
+    function syncDensityLabel(hovering) {
+      var mode = document.documentElement.getAttribute("data-density");
+      var shown = hovering ? (mode === "compact" ? "Comfort" : "Compact")
+                           : (mode === "compact" ? "Compact" : "Comfort");
+      var span = document.getElementById("density-label");
+      if (span) span.textContent = shown;
+      btn.title = mode === "compact" ? "Switch to comfort density" : "Switch to compact density";
+    }
+    btn.addEventListener("mouseenter", function () { syncDensityLabel(true); });
+    btn.addEventListener("mouseleave", function () { syncDensityLabel(false); });
+    btn.addEventListener("click", function () {
+      var next = document.documentElement.getAttribute("data-density") === "compact" ? "comfort" : "compact";
+      document.documentElement.setAttribute("data-density", next);
+      try { localStorage.setItem("perf-sentinel:density", next); } catch (e) { /* storage denied */ }
+      // The cursor is still over the button right after a click: show the
+      // next flip, not the mode that was just applied.
+      syncDensityLabel(true);
+    });
+    syncDensityLabel(false);
+  })();
 
   // -------- CSV export --------
   // Rows are assembled as arrays of cell values, then each cell is

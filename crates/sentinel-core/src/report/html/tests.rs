@@ -192,11 +192,12 @@ fn escapes_closing_script_tag_in_embedded_json() {
     let (html, _) = render(&report, &[trace], &opts("-", None));
     // The raw closing tag must not appear anywhere in the payload.
     // Count the occurrences in the entire document: the static shell
-    // has one (`</script>` closing the JSON block) and one (`</script>`
-    // closing the app JS), so the total must be exactly 2.
+    // has one (`</script>` closing the head density bootstrap), one
+    // (`</script>` closing the JSON block) and one (`</script>`
+    // closing the app JS), so the total must be exactly 3.
     assert_eq!(
         html.matches("</script>").count(),
-        2,
+        3,
         "user-controlled </script> leaked into the document"
     );
     // And the escaped form must appear (proof that the hostile
@@ -1270,6 +1271,28 @@ fn theme_mode_defaults_to_auto_with_tri_state_cycle() {
 }
 
 #[test]
+fn density_defaults_to_compact_with_topbar_toggle() {
+    // The head bootstrap must stamp data-density before first paint,
+    // defaulting to compact unless localStorage opted into comfort.
+    assert!(
+        TEMPLATE.contains("localStorage.getItem('perf-sentinel:density')"),
+        "density bootstrap must read the persisted mode"
+    );
+    assert!(
+        TEMPLATE.contains("d==='comfort'?'comfort':'compact'"),
+        "density bootstrap must default to compact"
+    );
+    assert!(
+        TEMPLATE.contains("id=\"density-toggle\""),
+        "topbar density toggle button missing"
+    );
+    assert!(
+        TEMPLATE.contains(":root[data-density=\"compact\"]"),
+        "compact density CSS scope missing"
+    );
+}
+
+#[test]
 fn detail_pane_no_trace_states_present() {
     // Two "no trace to show" states survive the master/detail redesign:
     // the cap-reached message rendered inline in openExplain (the finding
@@ -1645,16 +1668,27 @@ fn template_finding_action_button_default_label_is_ack() {
 
 #[test]
 fn template_does_not_leak_session_storage_to_local_storage() {
-    // The X-API-Key is sessionStorage-scoped: `localStorage.setItem`
-    // would persist it across tab restarts and across browser
-    // restarts, which is not the threat model we accept.
+    // The X-API-Key is sessionStorage-scoped: persisting it in
+    // localStorage would survive tab and browser restarts, which is
+    // not the threat model we accept. UI preferences (density, table
+    // sort) may persist, so every localStorage write must target an
+    // inline "perf-sentinel:" preference literal, never a variable or
+    // the daemon API-key storage constant.
+    for (idx, needle) in TEMPLATE.match_indices("localStorage.setItem(") {
+        let after = &TEMPLATE[idx + needle.len()..];
+        assert!(
+            after.starts_with("\"perf-sentinel:"),
+            "localStorage writes must use an inline perf-sentinel: UI-pref key, found: {}",
+            &after[..after.len().min(40)]
+        );
+    }
     assert!(
-        !TEMPLATE.contains("localStorage.setItem"),
+        !TEMPLATE.contains("localStorage.setItem(DAEMON_API_KEY_STORAGE"),
         "do not persist the X-API-Key beyond the tab session"
     );
     assert!(
-        !TEMPLATE.contains("localStorage.set"),
-        "do not persist the X-API-Key beyond the tab session"
+        !TEMPLATE.contains("localStorage.setItem(\"perf-sentinel.daemon"),
+        "do not persist daemon secrets beyond the tab session"
     );
 }
 
