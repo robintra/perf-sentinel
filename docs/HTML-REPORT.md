@@ -24,8 +24,8 @@ open report.html
 ```
 
 That is the artifact every CI job can produce. Without `--daemon-url`,
-the generated HTML is byte-equivalent to the 0.5.22 output for the
-same input. CSP (Content-Security-Policy, the browser header that
+the generated HTML is fully static and deterministic for the same
+input. CSP (Content-Security-Policy, the browser header that
 declares which scripts and resources the page is allowed to load)
 stays strict (`default-src 'none'`), there is no
 `fetch()` call against any host.
@@ -44,6 +44,48 @@ stays strict (`default-src 'none'`), there is no
   `mysql_stat` tab with the same ranking sub-switcher (fourth ranking:
   rows examined). `--mysql-stat-top <N>` sizes the rankings
   (default 10).
+
+## Interactive features
+
+The dashboard is fully client-side and works offline. UI preferences
+(density, table sort) persist per browser in `localStorage`, never
+inside the report file.
+
+### Table sorting
+
+Every table header is clickable. The first click sorts the column
+(numeric columns start descending, text ascending), the second click
+reverses the order, the third returns to the report's default order.
+Shift+click adds another column as a tie-breaker for equal values, the
+arrows then show their rank (↓1, ↓2). Severity pills sort by severity
+rank, not alphabetically, and a highlighted `pg_stat` row stays pinned
+on top. The active sort persists per table, and `Copy link` appends it
+to the shared URL through the `tsort` hash key so the recipient lands
+on the same order.
+
+### UI density
+
+The report opens in compact density. The topbar `Compact`/`Comfort`
+button switches to a roomier layout and the choice persists in the
+browser. Hovering the button previews the mode it will switch to.
+
+### Search
+
+`⌘K` (macOS) or `Ctrl+K` focuses the global search box, `/` opens the
+active tab's search. Matches of two characters or more are highlighted
+inside the filtered rows. `?` opens the full shortcut cheatsheet.
+
+### Overview KPI cards
+
+The `Findings` card is a solid semantic color: green when the report
+is clean, blue when only info findings exist, orange for warnings, red
+as soon as one critical is present. The card next to it promotes the
+highest severity present: its label, count and pastel tint follow that
+severity, and the sub-line lists only the lower ones. The `Δ Baseline`
+card turns red on a net regression and green on a net improvement.
+Every KPI card is clickable and jumps to the matching tab, pre-filtered
+when it makes sense (the promoted-severity card opens Findings
+filtered on that severity).
 
 ## Live mode
 
@@ -69,6 +111,11 @@ daemon, the report opens an authentication modal and asks for the
 `X-API-Key`. The key is held in `sessionStorage` (a browser API that
 stores key-value data scoped to the current tab and cleared when the
 tab closes), so it never persists to disk and never leaks across tabs.
+
+A successful `Ack` shows a toast with an `Undo` button for eight
+seconds: one click deletes the acknowledgment straight away, without
+the confirmation dialog. The `Revoke` button on a row keeps its
+confirmation.
 
 ### CSP under live mode
 

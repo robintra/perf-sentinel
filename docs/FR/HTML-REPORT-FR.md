@@ -25,10 +25,10 @@ open report.html
 ```
 
 C'est l'artefact que toute pipeline CI peut produire. Sans
-`--daemon-url`, le HTML généré est byte-équivalent à la sortie 0.5.22
-pour la même entrée. La CSP (Content-Security-Policy, l'en-tête
-navigateur qui déclare quels scripts et ressources la page a le
-droit de charger) reste stricte (`default-src 'none'`),
+`--daemon-url`, le HTML généré est entièrement statique et
+déterministe pour la même entrée. La CSP (Content-Security-Policy,
+l'en-tête navigateur qui déclare quels scripts et ressources la page a
+le droit de charger) reste stricte (`default-src 'none'`),
 aucun `fetch()` n'est émis vers un host quelconque.
 
 ### Onglets de statistiques base de données
@@ -45,6 +45,52 @@ aucun `fetch()` n'est émis vers un host quelconque.
   Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
   sous-sélecteur de rankings (quatrième ranking : lignes examinées).
   `--mysql-stat-top <N>` dimensionne les rankings (défaut 10).
+
+## Fonctions interactives
+
+Le dashboard est entièrement côté client et fonctionne hors ligne. Les
+préférences d'interface (densité, tri des tableaux) persistent par
+navigateur dans `localStorage`, jamais dans le fichier du rapport.
+
+### Tri des tableaux
+
+Chaque en-tête de tableau est cliquable. Le premier clic trie la
+colonne (les colonnes numériques commencent en décroissant, le texte
+en croissant), le deuxième clic inverse l'ordre, le troisième revient
+à l'ordre par défaut du rapport. Shift+clic ajoute une autre colonne
+comme critère de départage des ex æquo, les flèches affichent alors
+leur rang (↓1, ↓2). Les pastilles de sévérité se trient par rang de
+sévérité, pas par ordre alphabétique, et une ligne `pg_stat` en
+surbrillance reste épinglée en tête. Le tri actif persiste par
+tableau, et `Copy link` l'ajoute à l'URL partagée via la clé de hash
+`tsort` pour que le destinataire retrouve le même ordre.
+
+### Densité d'interface
+
+Le rapport s'ouvre en densité compacte. Le bouton `Compact`/`Comfort`
+de la barre du haut bascule vers une mise en page plus aérée et le
+choix persiste dans le navigateur. Survoler le bouton prévisualise le
+mode vers lequel il va basculer.
+
+### Recherche
+
+`⌘K` (macOS) ou `Ctrl+K` place le focus dans la recherche globale,
+`/` ouvre la recherche de l'onglet actif. Les correspondances de deux
+caractères ou plus sont surlignées dans les lignes filtrées. `?` ouvre
+la liste complète des raccourcis.
+
+### Cartes KPI de l'Overview
+
+La carte `Findings` est un aplat de couleur sémantique : vert quand le
+rapport est propre, bleu quand il n'y a que des findings info, orange
+pour des warnings, rouge dès qu'un critique est présent. La carte
+voisine promeut la sévérité la plus haute présente : son libellé, son
+compte et sa teinte pastel suivent cette sévérité, et la sous-ligne ne
+liste que les sévérités inférieures. La carte `Δ Baseline` passe au
+rouge sur une régression nette et au vert sur une amélioration nette.
+Chaque carte KPI est cliquable et mène à l'onglet correspondant,
+préfiltré quand c'est pertinent (la carte de sévérité dominante ouvre
+Findings filtré sur cette sévérité).
 
 ## Mode live
 
@@ -72,6 +118,11 @@ et demande la `X-API-Key`. La clé est stockée en `sessionStorage`
 (une API navigateur qui stocke des paires clé-valeur scopées à
 l'onglet courant et purgées à sa fermeture), donc elle ne persiste
 jamais sur disque et ne fuit jamais vers un autre onglet.
+
+Un `Ack` réussi affiche un toast avec un bouton `Undo` pendant huit
+secondes : un clic supprime l'acquittement directement, sans la
+boîte de confirmation. Le bouton `Revoke` d'une ligne garde sa
+confirmation.
 
 ### CSP en mode live
 
