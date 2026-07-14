@@ -52,8 +52,8 @@ const CSP_PLACEHOLDER: &str = "{{CONTENT_SECURITY_POLICY}}";
 const BRAND_LOGO_PLACEHOLDER: &str = "{{BRAND_LOGO}}";
 const FONT_FACES_PLACEHOLDER: &str = "{{FONT_FACES}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
-// Geist + Geist Mono (OFL-1.1) Latin subset, embedded as base64 woff2 so the
-// self-contained report renders the brand typeface offline, with no network
+// DM Sans + JetBrains Mono (OFL-1.1) Latin subset, embedded as base64 woff2 so
+// the self-contained report renders the brand typefaces offline, with no network
 // fetch. Generated from the @fontsource woff2 subsets; the license text lives
 // in `fonts-LICENSE.txt` beside it. Base64 alphabet contains no `{` so the
 // double-brace guard below holds.

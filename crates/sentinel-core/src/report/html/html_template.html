@@ -10,13 +10,13 @@
   /* ============================================================
      perf-sentinel HTML report, app-shell redesign (release/0.9.0)
      Design tokens ported verbatim from the hi-fi handoff prototype.
-     @font-face blocks for embedded Geist / Geist Mono are injected
-     in the font-embedding step; the stacks below fall back to
-     system fonts until then.
+     @font-face blocks for embedded DM Sans / JetBrains Mono are
+     injected in the font-embedding step; the stacks below fall back
+     to system fonts until then.
      ============================================================ */
   :root {
-    --font-ui: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --font-mono: 'Geist Mono', 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+    --font-ui: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
     /* Legacy aliases kept so any un-migrated rule still resolves. */
     --font-sans: var(--font-ui);
     --r: 11px; --r-sm: 7px;
