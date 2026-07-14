@@ -3217,11 +3217,51 @@
       scheduleHashWrite();
     });
   }
+  // -------- search-match highlighting --------
+  // Wrap matches in <mark class="ps-mark"> inside the filtered rows.
+  // unmark-then-mark keeps the pass idempotent, so it can run on every
+  // filter application (input events and post-render reapplies) without
+  // observers. Text nodes only, never inside controls or headers.
+  function unmarkSearchMatches(root) {
+    root.querySelectorAll("mark.ps-mark").forEach(function (m) {
+      var p = m.parentNode;
+      p.replaceChild(document.createTextNode(m.textContent), m);
+      p.normalize();
+    });
+  }
+  function markSearchMatches(root, q) {
+    var ql = q.toLowerCase();
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        if (!n.nodeValue || n.nodeValue.toLowerCase().indexOf(ql) < 0) return NodeFilter.FILTER_REJECT;
+        var pe = n.parentElement;
+        if (!pe || pe.closest("button, input, th, mark")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(function (n) {
+      var t = n.nodeValue, pos = 0, idx = t.toLowerCase().indexOf(ql);
+      var frag = document.createDocumentFragment();
+      while (idx >= 0) {
+        frag.appendChild(document.createTextNode(t.slice(pos, idx)));
+        frag.appendChild(el("mark", "ps-mark", t.substr(idx, q.length)));
+        pos = idx + q.length;
+        idx = t.toLowerCase().indexOf(ql, pos);
+      }
+      frag.appendChild(document.createTextNode(t.slice(pos)));
+      n.parentNode.replaceChild(frag, n);
+    });
+  }
   function applySearchFilter(cfg) {
     var input = document.getElementById(cfg.inputId);
     var q = (input.value || "").toLowerCase();
     document.querySelectorAll(cfg.rowsSelector).forEach(function (row) {
-      row.style.display = !q || matchRowByText(row, q) ? "" : "none";
+      unmarkSearchMatches(row);
+      var visible = !q || matchRowByText(row, q);
+      row.style.display = visible ? "" : "none";
+      if (visible && q.length >= 2) markSearchMatches(row, q);
     });
   }
   // Re-apply the active findings text search after the list re-renders
