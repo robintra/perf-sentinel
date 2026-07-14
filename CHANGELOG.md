@@ -2,6 +2,27 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The HTML dashboard is reskinned to the hi-fi design handoff (Figma, aligned with perf-sentinel.dev). DM Sans and JetBrains Mono replace Geist as the embedded brand fonts (OFL-1.1, latin subsets, smaller than before). Flat pastel fills replace every gradient, cards drop their borders around floating white rows, the sidebar nav becomes pills, buttons become soft-green pills with icon masks, links underline with a green hover highlight, and modals, toasts, scrollbars and the daemon status dots now follow the theme tokens. Text sizes gain a readability floor (12px for content, 11.5px for metadata).
+- Overview KPI cards are semantic and clickable. The Findings card is a solid color driven by the highest severity present (green when the report is clean). The card next to it promotes the dominant severity: label, count and pastel tint follow it and the sub-line lists only the lower severities. Δ Baseline tints red on a net regression and green on a net improvement. CO2 amounts render neutral (an amount is not a verdict) and the Avoidable card keeps its green accent only when non-zero. Each card jumps to its tab, pre-filtered on the promoted severity where relevant.
+- "Top findings by impact" on the Overview now really ranks by severity, then avoidable I/O, then IIS. Display only, the deterministic finding order of the JSON/CSV/console sinks is unchanged.
+
+### Added
+
+- Sortable dashboard tables: click a header to cycle through descending, ascending and default order, Shift+click adds a tie-breaker column, severity pills sort by rank, highlighted pg_stat rows stay pinned. The sort persists per table in the browser and travels with Copy link through the `tsort` hash key.
+- Compact/comfort density toggle in the topbar, compact by default, persisted in the browser and applied before first paint.
+- Search matches are highlighted in the filtered rows, and the topbar hint shows the platform's real shortcut (⌘K on macOS, Ctrl+K elsewhere).
+- Acknowledging a finding shows a toast with an Undo button (direct delete, no confirmation dialog). The Revoke button keeps its confirmation.
+
+### Fixed
+
+- The Acknowledgments tab badge no longer shows a stale "0" next to the live count: the badge sync targeted `.ps-badge` while the tab renders `.ps-nav-badge`.
+- Trace tree readability: rows keep a 10px base indent at depth 0, the highlight tint follows the finding severity, and whole-trace findings (chatty_service, pool_saturation, serialized_calls) no longer dim every row.
+- In live mode, only the Ack/Revoke button swallows row clicks. The full-width band around it no longer blocks opening the finding detail.
+
 ## [0.9.9]
 
 ### Fixed
