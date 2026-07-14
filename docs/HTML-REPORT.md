@@ -65,9 +65,10 @@ on the same order.
 
 ### UI density
 
-The report opens in compact density. The topbar `Compact`/`Comfort`
-button switches to a roomier layout and the choice persists in the
-browser. Hovering the button previews the mode it will switch to.
+The report opens in comfort density. The topbar `Comfort`/`Compact`
+button switches to a tighter layout that fits more rows per screen, and
+the choice persists in the browser. Hovering the button previews the
+mode it will switch to.
 
 ### Search
 

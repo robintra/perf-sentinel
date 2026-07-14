@@ -1274,16 +1274,16 @@ fn theme_mode_defaults_to_auto_with_tri_state_cycle() {
 }
 
 #[test]
-fn density_defaults_to_compact_with_topbar_toggle() {
+fn density_defaults_to_comfort_with_topbar_toggle() {
     // The head bootstrap must stamp data-density before first paint,
-    // defaulting to compact unless localStorage opted into comfort.
+    // defaulting to comfort unless localStorage opted into compact.
     assert!(
         TEMPLATE.contains("localStorage.getItem('perf-sentinel:density')"),
         "density bootstrap must read the persisted mode"
     );
     assert!(
-        TEMPLATE.contains("d==='comfort'?'comfort':'compact'"),
-        "density bootstrap must default to compact"
+        TEMPLATE.contains("d==='compact'?'compact':'comfort'"),
+        "density bootstrap must default to comfort"
     );
     assert!(
         TEMPLATE.contains("id=\"density-toggle\""),

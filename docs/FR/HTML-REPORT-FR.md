@@ -67,10 +67,11 @@ tableau, et `Copy link` l'ajoute à l'URL partagée via la clé de hash
 
 ### Densité d'interface
 
-Le rapport s'ouvre en densité compacte. Le bouton `Compact`/`Comfort`
-de la barre du haut bascule vers une mise en page plus aérée et le
-choix persiste dans le navigateur. Survoler le bouton prévisualise le
-mode vers lequel il va basculer.
+Le rapport s'ouvre en densité confortable. Le bouton `Comfort`/`Compact`
+de la barre du haut bascule vers une mise en page plus serrée qui
+affiche davantage de lignes par écran, et le choix persiste dans le
+navigateur. Survoler le bouton prévisualise le mode vers lequel il va
+basculer.
 
 ### Recherche
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="{{CONTENT_SECURITY_POLICY}}" />
 <title>{{PAGE_TITLE}}</title>
-<script>try{var d=localStorage.getItem('perf-sentinel:density');document.documentElement.setAttribute('data-density',d==='comfort'?'comfort':'compact')}catch(e){document.documentElement.setAttribute('data-density','compact')}</script>
+<script>try{var d=localStorage.getItem('perf-sentinel:density');document.documentElement.setAttribute('data-density',d==='compact'?'compact':'comfort')}catch(e){document.documentElement.setAttribute('data-density','comfort')}</script>
 <style>
 {{FONT_FACES}}
   /* ============================================================
@@ -517,7 +517,7 @@
   :root[data-density="compact"] .ps-hero-right { padding: 14px 18px; }
   :root[data-density="compact"] .ps-table th { padding: 8px 10px; }
   :root[data-density="compact"] .ps-table td { padding: 8px 10px; }
-  /* Fixed width = widest label ("Compact"); outer bars preview the other mode on hover. */
+  /* Fixed width fits either label; outer bars preview the other mode on hover. */
   #density-toggle { width: 103px; padding: 0 14px; gap: 6px; }
   #density-toggle svg { flex: none; color: var(--brand-text); }
   #density-toggle .b1, #density-toggle .b3 { transition: transform .28s cubic-bezier(.34,1.4,.5,1); }
@@ -606,7 +606,7 @@
         </output>
         <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data"><svg class="ps-refresh-ico" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 5.35A6 6 0 1 0 14 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"></path><path d="M14 2v3.5h-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg><span>Refresh</span></button>
         <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
-        <button class="ps-theme-toggle" id="density-toggle" type="button" aria-label="Toggle UI density"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect class="b1" x="2" y="2.4" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b2" x="2" y="7.05" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b3" x="2" y="11.7" width="12" height="1.9" rx="0.95" fill="currentColor"></rect></svg><span id="density-label">Compact</span></button>
+        <button class="ps-theme-toggle" id="density-toggle" type="button" aria-label="Toggle UI density"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect class="b1" x="2" y="2.4" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b2" x="2" y="7.05" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b3" x="2" y="11.7" width="12" height="1.9" rx="0.95" fill="currentColor"></rect></svg><span id="density-label">Comfort</span></button>
         <button class="ps-theme-toggle" id="theme-toggle" type="button">System</button>
       </div>
     </header>
