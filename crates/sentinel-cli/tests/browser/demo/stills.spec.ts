@@ -85,19 +85,21 @@ async function clipScreenshot(
         document.documentElement.scrollHeight
       )
     );
+  // Resize, then wait on the page actually reporting the new height rather
+  // than on a fixed delay: `innerHeight` is the observable that every
+  // vh-based rule downstream is computed from.
+  const resizeTo = async (h: number) => {
+    await page.setViewportSize({ width, height: h });
+    await page.waitForFunction((expected) => window.innerHeight === expected, h);
+  };
   const viewport = page.viewportSize();
   const width = viewport?.width ?? 1280;
-  let height = Math.max(await measure(), 200);
-  await page.setViewportSize({ width, height });
-  await page.waitForTimeout(100);
+  const height = Math.max(await measure(), 200);
+  await resizeTo(height);
   // Growing the viewport re-evaluates the vh-based min-heights, which can
   // settle the document a few pixels off the first reading.
   const settled = Math.max(await measure(), 200);
-  if (settled !== height) {
-    height = settled;
-    await page.setViewportSize({ width, height });
-    await page.waitForTimeout(100);
-  }
+  if (settled !== height) await resizeTo(settled);
   await page.screenshot({ path, fullPage: false });
 }
 
