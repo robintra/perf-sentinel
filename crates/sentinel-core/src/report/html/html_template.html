@@ -543,8 +543,10 @@
     .ps-theme-toggle .ps-th-lbl { display: none; }
     #density-toggle { width: 40px; padding: 0; }
     #density-label { display: none; }
-    body.ps-live .ps-refresh-btn { width: 34px; padding: 0; justify-content: center; gap: 0; }
-    .ps-refresh-btn span { display: none; }
+    /* Scoped to Refresh by id: it is the only one with an icon to collapse
+       to. "Forget key" shares the class but is a bare label. */
+    body.ps-live #ps-refresh-btn { width: 34px; padding: 0; justify-content: center; gap: 0; }
+    #ps-refresh-btn span { display: none; }
     .ps-search-box { flex: 1 1 180px; min-width: 140px; }
   }
 
@@ -4583,18 +4585,23 @@
     setAttr(t, "role", "status");
     var undo = el("button", "ps-toast-undo", "Undo");
     undo.type = "button";
-    undo.addEventListener("click", function () {
-      t.remove();
+    function undoAck() {
       var path = "/api/findings/" + encodeURIComponent(sig) + "/ack";
-      fetchWithAuth(path, { method: "DELETE" }).then(function (r) {
+      return fetchWithAuth(path, { method: "DELETE" }).then(function (r) {
         if (r.status === 204) {
           showToast("success", "Acknowledgment undone.");
           return refreshLiveState();
         }
-        showToast("error", "Could not undo (HTTP " + r.status + ").");
+        // Same 401 path as revokeAck: reopen the auth modal and retry
+        // instead of dead-ending on a rotated key.
+        return handleAuthRetry(r, undoAck, null, "revoke");
       }).catch(function () {
         showToast("error", "Network error reaching the daemon.");
       });
+    }
+    undo.addEventListener("click", function () {
+      t.remove();
+      undoAck();
     });
     t.appendChild(undo);
     document.body.appendChild(t);
