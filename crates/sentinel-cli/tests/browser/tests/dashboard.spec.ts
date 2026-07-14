@@ -177,14 +177,14 @@ test("11. j key moves selection and the detail pane follows it", async ({ page }
   expect(detailType?.trim()).toBe(selectedType?.trim());
 });
 
-test("12. density defaults to compact and the toggle persists comfort", async ({ page }) => {
+test("12. density defaults to comfort and the toggle persists compact", async ({ page }) => {
   await loadDashboard(page);
-  await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
-  await page.locator("#density-toggle").click();
   await expect(page.locator("html")).toHaveAttribute("data-density", "comfort");
+  await page.locator("#density-toggle").click();
+  await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
   await page.reload();
   await page.waitForSelector("[role=tablist]");
-  await expect(page.locator("html")).toHaveAttribute("data-density", "comfort");
+  await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
 });
 
 test("13. clicking a pg_stat header sorts the table and re-click reverses it", async ({ page }) => {

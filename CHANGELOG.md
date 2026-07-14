@@ -13,7 +13,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Added
 
 - Sortable dashboard tables: click a header to cycle through descending, ascending and default order, Shift+click adds a tie-breaker column, severity pills sort by rank, highlighted pg_stat rows stay pinned. The sort persists per table in the browser and travels with Copy link through the `tsort` hash key.
-- Compact/comfort density toggle in the topbar, compact by default, persisted in the browser and applied before first paint.
+- Comfort/compact density toggle in the topbar, comfort by default, persisted in the browser and applied before first paint.
 - Search matches are highlighted in the filtered rows, and the topbar hint shows the platform's real shortcut (⌘K on macOS, Ctrl+K elsewhere).
 - Acknowledging a finding shows a toast with an Undo button (direct delete, no confirmation dialog). The Revoke button keeps its confirmation.
 
