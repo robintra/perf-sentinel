@@ -161,6 +161,10 @@
      brand bar) to the card's rounded corners, so the green selection bar
      never spills past the corner and the border stays unbroken. */
   .ps-card { border: 1px solid transparent; border-radius: var(--r); background: var(--surface); overflow: hidden; }
+  /* A wide table (acks signatures, mysql/green columns) must scroll inside its
+     card on a narrow viewport rather than be clipped by overflow:hidden. The
+     project rule: wide content scrolls in place, the page body never does. */
+  .ps-card:has(> .ps-table) { overflow-x: auto; overflow-y: hidden; }
   .ps-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .ps-metrics-3 { grid-template-columns: repeat(3, 1fr); }
   .ps-metric { border: 1px solid transparent; border-radius: var(--r); background: var(--surface); padding: 18px 20px; display: flex; flex-direction: column; gap: 7px; }
@@ -597,7 +601,7 @@
         <span class="ps-topbar-eyebrow" id="topbar-eyebrow"></span>
         <h1 class="ps-topbar-h1" id="topbar-h1">Overview</h1>
       </div>
-      <div class="ps-topbar-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
+      <div class="ps-topbar-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
         <div class="ps-search-box" id="topbar-search-box">
           <span class="ps-search-glyph">⌕</span>
           <input type="search" class="ps-search" id="topbar-search" placeholder="Search findings, templates, endpoints…" aria-label="Search findings, templates, endpoints" />
@@ -3234,14 +3238,18 @@
   }
 
   function syntheticFindingFromCorrelation(c) {
-    // Minimum shape openExplain reads: trace_id plus the fields used
-    // by the breadcrumb.
-    var tgt = c.target || {};
+    // Shape openExplain reads. Mirror the source endpoint of the correlation,
+    // which is what the clicked card's tag and service path both show, so the
+    // detail head matches the card: type + a warning pill (cards are warn),
+    // not "undefined".
+    var src = c.source || {};
     return {
       trace_id: c.sample_trace_id,
-      service: tgt.service || "-",
+      type: src.finding_type || "cross-trace",
+      severity: "warning",
+      service: src.service || "-",
       source_endpoint: "-",
-      pattern: { template: tgt.template || "" }
+      pattern: { template: src.template || "" }
     };
   }
 
@@ -4089,7 +4097,12 @@
       if (state.severity === "critical" || state.severity === "warning" || state.severity === "info") {
         filterState.severity = state.severity;
       }
-      if (state.service) filterState.service = state.service;
+      // Only honor a service that a chip actually exists for. A stale or
+      // hand-edited hash naming an absent service would filter the list to
+      // nothing with no active chip to explain why.
+      if (state.service && findings.some(function (f) { return f.service === state.service; })) {
+        filterState.service = state.service;
+      }
       syncFilterChips();
     }
     if (state.tab === "pgstat") {
