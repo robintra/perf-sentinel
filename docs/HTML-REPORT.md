@@ -72,9 +72,24 @@ mode it will switch to.
 
 ### Search
 
-`⌘K` (macOS) or `Ctrl+K` focuses the global search box, `/` opens the
-active tab's search. Matches of two characters or more are highlighted
-inside the filtered rows. `?` opens the full shortcut cheatsheet.
+The topbar box is the only search input, and one query filters every
+searchable tab at once: Findings, pg_stat, mysql_stat, Diff and
+Correlations. Each of those tabs reports its own match count in its
+sidebar badge, so you can type from any tab, including Overview and
+Carbon, and read where the matches are before switching. The query
+survives a tab switch, and matches of two characters or more are
+highlighted in the panel you are looking at.
+
+Findings match on their severity, type (both the raw slug
+`n_plus_one_sql` and the `N+1 SQL` label the row shows), service,
+endpoint and SQL template. The other tabs match on their row text.
+The `Export CSV` button of a tab exports what its query left visible.
+
+`⌘K` (macOS) or `Ctrl+K` focuses the box, and so does `/`. `Esc` clears
+the query and restores the badges. Opening a specific finding (an
+Overview KPI card, a top offender, a SQL span in the trace tree) clears
+the query first, since it would otherwise hide the very row being
+opened. `?` opens the full shortcut cheatsheet.
 
 ### Overview KPI cards
 

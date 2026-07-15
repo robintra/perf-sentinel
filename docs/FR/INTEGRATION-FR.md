@@ -160,7 +160,7 @@ perf-sentinel report --input traces.json \
     --output report.html
 ```
 
-Clavier dans le dashboard : `j`/`k` déplacent la sélection Findings, `enter` ouvre le finding courant dans Explain, `esc` suit une échelle de priorité à quatre tiers (ferme la cheatsheet, ferme la barre de recherche, sort de l'onglet Explain, efface les puces de filtre actives). `/` ouvre un filtre substring sur l'onglet actif, limité aux onglets Findings, pg_stat, Diff ou Correlations. Tape `?` pour la cheatsheet complète qui liste tous les raccourcis, avec en plus les raccourcis style vim `g f` / `g e` / `g p` / `g d` / `g c` / `g r` qui sautent d'un onglet à l'autre.
+Le dashboard HTML est documenté dans [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md), avec la liste complète des options, les raccourcis clavier, la recherche, l'export CSV et le pipeline d'instantané `/api/export/report` du démon en mode live. Dans le dashboard, `?` ouvre la cheatsheet qui liste tous les raccourcis.
 
 Gros résultats : la liste Findings affiche les 500 premières lignes correspondantes et expose un bouton `Show N more findings (remaining M)` sous la liste pour révéler le bloc suivant. Chaque clic sur une puce de filtre, modification de la recherche, ou application d'un hash deep-link remet le compteur à 500, pour que l'utilisateur ne se retrouve jamais paginé sur des lignes qui ne matchent plus.
 

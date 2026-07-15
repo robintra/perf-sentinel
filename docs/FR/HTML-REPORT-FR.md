@@ -75,10 +75,28 @@ basculer.
 
 ### Recherche
 
-`⌘K` (macOS) ou `Ctrl+K` place le focus dans la recherche globale,
-`/` ouvre la recherche de l'onglet actif. Les correspondances de deux
-caractères ou plus sont surlignées dans les lignes filtrées. `?` ouvre
-la liste complète des raccourcis.
+La barre de la topbar est le seul champ de recherche, et une requête
+unique filtre tous les onglets filtrables à la fois : Findings, pg_stat,
+mysql_stat, Diff et Correlations. Chacun de ces onglets affiche son
+propre nombre de correspondances dans sa pastille de la barre latérale,
+si bien que vous pouvez taper depuis n'importe quel onglet, y compris
+Overview et Carbon, et voir où sont les correspondances avant de
+basculer. La requête survit au changement d'onglet, et les
+correspondances de deux caractères ou plus sont surlignées dans le
+panneau que vous regardez.
+
+Les findings sont mis en correspondance sur leur sévérité, leur type
+(à la fois l'identifiant brut `n_plus_one_sql` et le libellé `N+1 SQL`
+affiché sur la ligne), leur service, leur endpoint et leur template SQL.
+Les autres onglets sont mis en correspondance sur le texte de leurs
+lignes. Le bouton `Export CSV` d'un onglet exporte ce que la requête y a
+laissé visible.
+
+`⌘K` (macOS) ou `Ctrl+K` place le focus dans la barre, `/` également.
+`Esc` vide la requête et restaure les pastilles. Ouvrir un finding
+précis (une carte KPI de l'Overview, un top offender, un span SQL de
+l'arbre de trace) vide d'abord la requête, qui masquerait sinon la ligne
+même que vous ouvrez. `?` ouvre la liste complète des raccourcis.
 
 ### Cartes KPI de l'Overview
 
