@@ -147,7 +147,8 @@ test("8. hashchange on in-page update applies state", async ({ page }) => {
   await page.evaluate(() => {
     location.hash = "#pgstat&ranking=calls";
   });
-  await page.waitForTimeout(50);
+  // The assertion below auto-retries until the hashchange handler switches
+  // the tab, so no fixed wait is needed.
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
   const chips = page.locator("#pgstat-rankings .ps-chip");
   await expect(chips.nth(1)).toHaveAttribute("aria-checked", "true");
@@ -157,9 +158,10 @@ test("9. Copy link button writes location.href to the clipboard", async ({ page,
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await loadDashboard(page, "#findings");
   await page.locator("#findings-copy-link").click();
-  await page.waitForTimeout(50);
-  const clip = await page.evaluate(() => navigator.clipboard.readText());
-  expect(clip).toMatch(/#findings$/);
+  // The clipboard write is async, so poll it instead of a fixed wait.
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toMatch(/#findings$/);
 });
 
 test("11. j key moves selection and the detail pane follows it", async ({ page }) => {

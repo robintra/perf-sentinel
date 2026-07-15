@@ -46,8 +46,6 @@ async function openDashboard(
   }, theme);
   await page.goto(PATH + hash);
   await page.waitForSelector("[role=tablist]");
-  // Small settle so chip transitions and tab highlights stabilise.
-  await page.waitForTimeout(200);
 }
 
 // Capture only the viewport (no fullPage). Modal stills (cheatsheet,
@@ -62,7 +60,9 @@ async function viewportScreenshot(
   page: import("@playwright/test").Page,
   path: string
 ) {
-  await page.screenshot({ path, fullPage: false });
+  // `animations: "disabled"` fast-forwards CSS transitions to their end state
+  // and freezes looping ones, so the capture is stable without a fixed settle.
+  await page.screenshot({ path, fullPage: false, animations: "disabled" });
 }
 
 // Size the viewport to the document, then shoot viewport-only.
@@ -100,7 +100,9 @@ async function clipScreenshot(
   // settle the document a few pixels off the first reading.
   const settled = Math.max(await measure(), 200);
   if (settled !== height) await resizeTo(settled);
-  await page.screenshot({ path, fullPage: false });
+  // `animations: "disabled"` fast-forwards CSS transitions to their end state
+  // and freezes looping ones, so the capture is stable without a fixed settle.
+  await page.screenshot({ path, fullPage: false, animations: "disabled" });
 }
 
 test("01 findings with severity + service filters", async ({ page }, info) => {
@@ -108,7 +110,6 @@ test("01 findings with severity + service filters", async ({ page }, info) => {
   await openDashboard(page, theme, "#findings");
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
   await page.locator('#findings-filters .ps-chip[data-key="svc:order-svc"]').click();
-  await page.waitForTimeout(150);
   const path = outPath("findings", theme);
   await clipScreenshot(page, path);
   expectScreenshotWritten(path);
@@ -118,54 +119,34 @@ test("02 explain trace tree", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#findings");
   await page.locator("#findings-list .ps-row").first().click();
-  await page.waitForTimeout(150);
   const path = outPath("explain", theme);
   await clipScreenshot(page, path);
   expectScreenshotWritten(path);
 });
 
-test("03 pg_stat Calls ranking", async ({ page }, info) => {
-  const theme = themeFor(info.project.name);
-  await openDashboard(page, theme, "#pgstat&ranking=calls");
-  await page.waitForTimeout(150);
-  const path = outPath("pg-stat", theme);
-  await clipScreenshot(page, path);
-  expectScreenshotWritten(path);
-});
-
-test("04 diff regression", async ({ page }, info) => {
-  const theme = themeFor(info.project.name);
-  await openDashboard(page, theme, "#diff");
-  await page.waitForTimeout(150);
-  const path = outPath("diff", theme);
-  await clipScreenshot(page, path);
-  expectScreenshotWritten(path);
-});
-
-test("05 correlations cross-trace", async ({ page }, info) => {
-  const theme = themeFor(info.project.name);
-  await openDashboard(page, theme, "#correlations");
-  await page.waitForTimeout(150);
-  const path = outPath("correlations", theme);
-  await clipScreenshot(page, path);
-  expectScreenshotWritten(path);
-});
-
-test("06 greenops regions breakdown", async ({ page }, info) => {
-  const theme = themeFor(info.project.name);
-  await openDashboard(page, theme, "#green");
-  await page.waitForTimeout(150);
-  const path = outPath("greenops", theme);
-  await clipScreenshot(page, path);
-  expectScreenshotWritten(path);
-});
+// Tabs whose still is just "open the dashboard at this hash and shoot": no
+// pre-screenshot interaction, so one parameterized test covers them all.
+const PLAIN_TAB_STILLS = [
+  { name: "03 pg_stat Calls ranking", hash: "#pgstat&ranking=calls", out: "pg-stat" },
+  { name: "04 diff regression", hash: "#diff", out: "diff" },
+  { name: "05 correlations cross-trace", hash: "#correlations", out: "correlations" },
+  { name: "06 greenops regions breakdown", hash: "#green", out: "greenops" }
+];
+for (const still of PLAIN_TAB_STILLS) {
+  test(still.name, async ({ page }, info) => {
+    const theme = themeFor(info.project.name);
+    await openDashboard(page, theme, still.hash);
+    const path = outPath(still.out, theme);
+    await clipScreenshot(page, path);
+    expectScreenshotWritten(path);
+  });
+}
 
 test("07 cheatsheet modal", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme);
   await page.keyboard.press("?");
   await page.waitForSelector("#cheatsheet[open]");
-  await page.waitForTimeout(150);
   const path = outPath("cheatsheet", theme);
   await viewportScreenshot(page, path);
   expectScreenshotWritten(path);
@@ -205,7 +186,6 @@ test("08 ack modal open", async ({ page }, info) => {
     .first();
   await ackBtn.click();
   await page.waitForSelector("#ack-modal[open]");
-  await page.waitForTimeout(150);
   const path = outPath("ack-modal", theme);
   await viewportScreenshot(page, path);
   expectScreenshotWritten(path);
@@ -228,7 +208,6 @@ test("10 show acknowledged toggle", async ({ page }, info) => {
   await openDashboard(page, theme, "#findings");
   await waitForLiveAcks(page, 3);
   await page.locator("#findings-include-acked").check();
-  await page.waitForTimeout(150);
   const path = outPath("ack-toggle", theme);
   await clipScreenshot(page, path);
   expectScreenshotWritten(path);

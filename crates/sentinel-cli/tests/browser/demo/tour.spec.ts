@@ -6,7 +6,10 @@ import {expect, test} from "@playwright/test";
 // stalls when viewed at 15 fps.
 
 async function pause(page: import("@playwright/test").Page, ms: number) {
-  await page.waitForTimeout(ms);
+  // Deliberate fixed dwell for the recorded video: it holds each frame long
+  // enough to read at 15 fps. There is no observable condition to sync on
+  // here, the wait itself is the intended pacing (see the note above).
+  await page.waitForTimeout(ms); // NOSONAR: intentional GIF pacing
 }
 
 // Tour duration overruns the 30 s default once live-mode steps are
