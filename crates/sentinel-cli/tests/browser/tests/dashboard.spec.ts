@@ -158,10 +158,12 @@ test("9. Copy link button writes location.href to the clipboard", async ({ page,
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await loadDashboard(page, "#findings");
   await page.locator("#findings-copy-link").click();
-  // The clipboard write is async, so poll it instead of a fixed wait.
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toMatch(/#findings$/);
+  // The clipboard write is async: wait for it to land, then assert the value.
+  await page.waitForFunction(() =>
+    navigator.clipboard.readText().then((text) => text.endsWith("#findings"))
+  );
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clip).toMatch(/#findings$/);
 });
 
 test("11. j key moves selection and the detail pane follows it", async ({ page }) => {
