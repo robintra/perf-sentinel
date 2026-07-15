@@ -359,7 +359,7 @@ test("14. the top-bar box is the only search input on every tab", async ({ page 
     // when the payload carries its data, so gate on the nav button.
     if (await page.locator(`#tab-${tab}`).count() === 0) continue;
     await page.locator(`#tab-${tab}`).click();
-    expect(await page.locator(`#panel-${tab} input[type=search]`).count()).toBe(0);
+    await expect(page.locator(`#panel-${tab} input[type=search]`)).toHaveCount(0);
   }
   const visibleSearches = page.locator("input[type=search]:visible");
   await expect(visibleSearches).toHaveCount(1);
