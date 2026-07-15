@@ -85,11 +85,11 @@ Findings match on their severity, type (both the raw slug
 endpoint and SQL template. The other tabs match on their row text.
 The `Export CSV` button of a tab exports what its query left visible.
 
-`⌘K` (macOS) or `Ctrl+K` focuses the box, and so does `/`. `Esc` clears
-the query and restores the badges. Opening a specific finding (an
-Overview KPI card, a top offender, a SQL span in the trace tree) clears
-the query first, since it would otherwise hide the very row being
-opened. `?` opens the full shortcut cheatsheet.
+`⌘K` (macOS) or `Ctrl+K` focuses the box, and so does `/`. With the box
+focused, `Esc` clears the query and restores the badges. Opening a
+specific finding (an Overview KPI card, a top offender, a SQL span in the
+trace tree) clears the query first, since it would otherwise hide the
+very row being opened. `?` opens the full shortcut cheatsheet.
 
 ### Overview KPI cards
 

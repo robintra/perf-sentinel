@@ -93,10 +93,10 @@ lignes. Le bouton `Export CSV` d'un onglet exporte ce que la requête y a
 laissé visible.
 
 `⌘K` (macOS) ou `Ctrl+K` place le focus dans la barre, `/` également.
-`Esc` vide la requête et restaure les pastilles. Ouvrir un finding
-précis (une carte KPI de l'Overview, un top offender, un span SQL de
-l'arbre de trace) vide d'abord la requête, qui masquerait sinon la ligne
-même que vous ouvrez. `?` ouvre la liste complète des raccourcis.
+La barre ayant le focus, `Esc` vide la requête et restaure les pastilles.
+Ouvrir un finding précis (une carte KPI de l'Overview, un top offender,
+un span SQL de l'arbre de trace) vide d'abord la requête, qui masquerait
+sinon la ligne même que vous ouvrez. `?` ouvre la liste complète des raccourcis.
 
 ### Cartes KPI de l'Overview
 
