@@ -33,6 +33,17 @@ const DEMO_HTML = join(FIXTURE_DIR, "dashboard-demo.html");
 // (`perf-sentinel report --input traces.json ...`).
 const DEMO_EVENTS = join(FIXTURE_DIR, "traces.json");
 
+// A third dashboard, built by replaying the same events under renamed
+// services so the pipeline emits more findings than the list renders at
+// once (LIST_CAP is 8). The pristine fixture yields 5, which is under the
+// cap and so cannot exercise the paginated search: the match count has to
+// come from the filtered data, not from the rendered rows, and the search
+// has to reach findings sitting past the first page. Growing the shared
+// fixture instead would ripple into the Rust e2e suite.
+const MANY_EVENTS = join(FIXTURE_DIR, "many-findings-traces.json");
+const MANY_HTML = join(FIXTURE_DIR, "dashboard-many.html");
+const MANY_COPIES = 4;
+
 // Inject a cloud_region on every event before the demo render so the
 // GreenOps tab shows a multi-region breakdown with real operational
 // CO2 numbers instead of a single "unknown" row at 0 gCO2. Pins one
@@ -191,12 +202,39 @@ function renderFixtures() {
   );
   injectDemoCorrelations(DEMO_HTML);
   injectDemoAckMock(DEMO_HTML);
+  writeManyFindingsEvents(FIXTURE_JSON, MANY_EVENTS);
+  execFileSync(
+    BINARY,
+    ["report", "--input", MANY_EVENTS, "--output", MANY_HTML],
+    { stdio: "inherit" }
+  );
 }
 
 // Copy the shared trace fixture and stamp a cloud_region on each
 // event so the demo dashboard's GreenOps tab exercises the multi-
 // region scorer. Events that already carry cloud_region are left
 // alone so manual overrides survive future fixture additions.
+// Replay the event set MANY_COPIES times, suffixing every identity field so
+// each copy correlates into its own traces and reports its own findings.
+function writeManyFindingsEvents(source: string, dest: string) {
+  const base: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
+  const out: Array<Record<string, unknown>> = [];
+  const suffix = (v: unknown, i: number) =>
+    typeof v === "string" && v.length > 0 ? `${v}-c${i}` : v;
+  for (let i = 0; i < MANY_COPIES; i++) {
+    for (const ev of base) {
+      out.push({
+        ...ev,
+        trace_id: suffix(ev.trace_id, i),
+        span_id: suffix(ev.span_id, i),
+        parent_span_id: suffix(ev.parent_span_id, i),
+        service: suffix(ev.service, i)
+      });
+    }
+  }
+  writeFileSync(dest, JSON.stringify(out));
+}
+
 function writeDemoEvents(source: string, dest: string) {
   const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
   for (const ev of events) {

@@ -138,7 +138,8 @@ test("7. hash deep-link applies state on fresh load", async ({ page }) => {
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
   const chips = page.locator("#pgstat-rankings .ps-chip");
   await expect(chips.nth(2)).toHaveAttribute("aria-checked", "true");
-  await expect(page.locator("#pgstat-search")).toHaveValue("order_item");
+  // The top-bar box is the only search input and the sole source of truth.
+  await expect(page.locator("#topbar-search")).toHaveValue("order_item");
 });
 
 test("8. hashchange on in-page update applies state", async ({ page }) => {
@@ -225,4 +226,203 @@ test("10. tablist carries ARIA roles and selection state", async ({ page }) => {
   expect(selectedCount).toBe(1);
   const falseCount = await page.locator("[role=tab][aria-selected=false]").count();
   expect(selectedCount + falseCount).toBe(count);
+});
+
+test("23. Diff and Correlations explain themselves when a search empties them", async ({ page }) => {
+  // The query is global, so it can blank a panel the user never typed on.
+  // A blank list under a header claiming N items reads as a broken report.
+  await page.goto("/dashboard-demo.html#diff");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#tab-diff").count() === 0, "demo fixture has no diff");
+
+  await page.locator("#topbar-search").fill("zzz-matches-nothing");
+  for (const id of ["diff-new", "diff-resolved"]) {
+    await expect(page.locator(`#${id}-header`), "the header count must follow the search")
+      .toContainText("(0)");
+    await expect(page.locator(`#${id}-empty`)).toBeVisible();
+    await expect(page.locator(`#${id}-empty`)).toContainText("match the current search");
+  }
+
+  await page.locator("#tab-correlations").click();
+  await expect(page.locator("#correlations-empty")).toBeVisible();
+  await expect(page.locator("#correlations-empty")).toContainText("match the current search");
+
+  // Clearing the query restores the rows and hides the empty states again.
+  // "/" focuses the box first, which is what Escape's "close search" tier
+  // acts on.
+  await page.keyboard.press("/");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#correlations-empty")).toBeHidden();
+  expect(await page.locator("#correlations-list .ps-corr-card").count()).toBeGreaterThan(0);
+});
+
+test("19. searching a finding by the type label shown on its row finds it", async ({ page }) => {
+  // The findings search matches the data, not the row text, so the blob has to
+  // carry the display label ("N+1 SQL") and not just the raw slug
+  // ("n_plus_one_sql"), or the query a user can actually read returns nothing.
+  await loadDashboard(page, "#findings");
+  const label = (await page.locator("#findings-list .ps-fin-type").first().textContent())!.trim();
+  expect(label.length).toBeGreaterThan(0);
+
+  await page.locator("#topbar-search").fill(label);
+  expect(await page.locator("#findings-list .ps-row").count(),
+    `searching the displayed label ${JSON.stringify(label)} must match its own row`)
+    .toBeGreaterThan(0);
+
+  // The raw slug still matches, so deep links and scripted queries keep working.
+  await page.locator("#topbar-search").fill("n_plus_one");
+  expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
+});
+
+test("20. a deep link carrying a search leaves findings consistent on any tab", async ({ page }) => {
+  // The query is global, so landing on pg_stat still has to rebuild the
+  // findings list: a stale list under a filtered badge contradicts itself.
+  await loadDashboard(page, "#pgstat&search=order_item");
+  const badge = Number(await page.locator("#tab-findings .ps-nav-badge").textContent());
+  await page.locator("#tab-findings").click();
+  const rows = await page.locator("#findings-list .ps-row").count();
+  expect(rows, "the panel must agree with the badge the deep link produced").toBe(badge);
+  const counter = await page.locator("#findings-count").textContent();
+  expect(counter).toContain(`${badge} findings`);
+});
+
+test("21. a slash typed into a text field is not stolen by the search shortcut", async ({ page }) => {
+  // "/" focuses the search box, but only when no text field owns the caret.
+  // The ack reason is a free-text field and slashes are common in ticket refs.
+  await page.goto("/dashboard-demo.html#findings");
+  await page.waitForSelector("[role=tablist]");
+  const ackBtn = page.locator("#findings-list .ps-fin-action-btn").first();
+  test.skip(await ackBtn.count() === 0, "demo fixture is not in live mode");
+
+  await ackBtn.click();
+  await page.locator("#ack-modal-reason").click();
+  await page.keyboard.type("see ops/1234");
+  await expect(page.locator("#ack-modal-reason")).toHaveValue("see ops/1234");
+  expect(await page.evaluate(() => document.activeElement!.id)).toBe("ack-modal-reason");
+});
+
+test("22. the Ack button still works after the search re-renders the rows", async ({ page }) => {
+  // Typing rebuilds the findings rows, so the per-row Ack listener has to be
+  // re-attached. Otherwise live mode locks the user out of acking.
+  await page.goto("/dashboard-demo.html#findings");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#findings-list .ps-fin-action-btn").count() === 0,
+    "demo fixture is not in live mode");
+
+  await page.locator("#topbar-search").fill("s");
+  await page.locator("#findings-list .ps-fin-action-btn").first().click();
+  await expect(page.locator("#ack-modal")).toBeVisible();
+});
+
+test("18. the findings search counts and reaches past the rendered page", async ({ page }) => {
+  // dashboard-many.html carries more findings than LIST_CAP (8) renders at
+  // once. The search filters the findings data rather than the rendered rows,
+  // so the badge must report every match and Show more must reveal matches
+  // from later pages. Counting the DOM instead would cap the badge at 8 and
+  // search only the first page.
+  await page.goto("/dashboard-many.html#findings");
+  await page.waitForSelector("[role=tablist]");
+  const badge = page.locator("#tab-findings .ps-nav-badge");
+  const domRows = () => page.locator("#findings-list .ps-row").count();
+
+  const total = Number(await badge.textContent());
+  expect(total, "fixture must exceed LIST_CAP for this test to mean anything")
+    .toBeGreaterThan(8);
+  expect(await domRows()).toBe(8);
+
+  // Every finding carries "svc" in its service name, so all of them match.
+  await page.locator("#topbar-search").fill("svc");
+  expect(Number(await badge.textContent()), "badge must not cap at the rendered page")
+    .toBe(total);
+  expect(await domRows(), "the list stays paginated").toBe(8);
+
+  // Reveal a later page: its rows must be search matches too.
+  await page.locator("#findings-show-more").click();
+  expect(await domRows()).toBeGreaterThan(8);
+  const allMatch = await page.locator("#findings-list .ps-row").evaluateAll(
+    (nodes) => nodes.every((n) => n.textContent!.toLowerCase().includes("svc"))
+  );
+  expect(allMatch, "rows revealed past page 1 must still match the query").toBe(true);
+
+  // A query that matches nothing empties the list and zeroes the badge.
+  await page.locator("#topbar-search").fill("zzz-matches-nothing");
+  await expect(badge).toHaveText("0");
+  expect(await domRows()).toBe(0);
+});
+
+test("14. the top-bar box is the only search input on every tab", async ({ page }) => {
+  // Guards against reintroducing a per-panel search input beside the
+  // top-bar one, which is how the two-visible-bars duplicate first crept in.
+  await loadDashboard(page);
+  for (const tab of ["findings", "pgstat", "mysqlstat", "diff", "correlations"]) {
+    // The panels are static template markup, but a tab is only registered
+    // when the payload carries its data, so gate on the nav button.
+    if (await page.locator(`#tab-${tab}`).count() === 0) continue;
+    await page.locator(`#tab-${tab}`).click();
+    expect(await page.locator(`#panel-${tab} input[type=search]`).count()).toBe(0);
+  }
+  const visibleSearches = page.locator("input[type=search]:visible");
+  await expect(visibleSearches).toHaveCount(1);
+  await expect(visibleSearches).toHaveAttribute("id", "topbar-search");
+});
+
+test("15. search from a non-searchable tab reports matches in the nav badges", async ({ page }) => {
+  // Typing from Overview used to be swallowed silently. The badge is the
+  // feedback surface now, so the count must react without leaving the tab.
+  await loadDashboard(page, "#overview");
+  const badge = page.locator("#tab-findings .ps-nav-badge");
+  const total = Number(await badge.textContent());
+  expect(total).toBeGreaterThan(0);
+
+  await page.locator("#topbar-search").fill("zzz-matches-nothing");
+  await expect(badge).toHaveText("0");
+
+  // Escape clears the query and restores the registered total.
+  await page.keyboard.press("Escape");
+  await expect(badge).toHaveText(String(total));
+});
+
+test("16. the search survives a tab switch and marks the revealed panel", async ({ page }) => {
+  await loadDashboard(page, "#pgstat");
+  await page.locator("#topbar-search").fill("order_item");
+  const visibleOnPgstat = await page
+    .locator("#pgstat-body tr")
+    .evaluateAll((nodes) => nodes.filter((n) => (n as HTMLElement).style.display !== "none").length);
+  expect(visibleOnPgstat).toBeGreaterThan(0);
+
+  // Leave and come back: the query used to be wiped on every switch.
+  await page.locator("#tab-findings").click();
+  await page.locator("#tab-pgstat").click();
+  await expect(page.locator("#topbar-search")).toHaveValue("order_item");
+  const visibleAfter = await page
+    .locator("#pgstat-body tr")
+    .evaluateAll((nodes) => nodes.filter((n) => (n as HTMLElement).style.display !== "none").length);
+  expect(visibleAfter).toBe(visibleOnPgstat);
+  // Marks are applied lazily, only to the panel on screen.
+  expect(await page.locator("#pgstat-body mark.ps-mark").count()).toBeGreaterThan(0);
+});
+
+test("17. pg_stat actions stay grouped and right-aligned at every width", async ({ page }) => {
+  // Layout guard without screenshots. The auto margin that pushes the actions
+  // right moved off the deleted filter box onto a wrapper around both
+  // buttons. It must sit on the wrapper, not on one button: the controls row
+  // wraps below 920px, and a margin on the export button alone left the copy
+  // link stranded on the next line, left-aligned. The narrow viewport is the
+  // point of this test, a default-width check passes either way.
+  for (const width of [1440, 1024, 780]) {
+    await page.setViewportSize({ width, height: 900 });
+    await loadDashboard(page, "#pgstat");
+    // Measure the buttons themselves rather than their wrapper, so this
+    // asserts the visible outcome and not the mechanism that achieves it.
+    const controls = await page.locator("#panel-pgstat .ps-pgstat-controls").boundingBox();
+    const exportBox = await page.locator("#pgstat-export").boundingBox();
+    const copyBox = await page.locator("#pgstat-copy-link").boundingBox();
+    expect(controls, `controls row missing at ${width}px`).not.toBeNull();
+
+    expect(Math.abs(exportBox!.y - copyBox!.y), `buttons split across lines at ${width}px`)
+      .toBeLessThan(2);
+    const rightmost = Math.max(exportBox!.x + exportBox!.width, copyBox!.x + copyBox!.width);
+    const gap = (controls!.x + controls!.width) - rightmost;
+    expect(Math.abs(gap), `buttons not right-aligned at ${width}px`).toBeLessThan(2);
+  }
 });
