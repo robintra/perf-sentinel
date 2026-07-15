@@ -416,6 +416,9 @@
   /* -------- diff / section headers -------- */
   .ps-diff-section { display: flex; flex-direction: column; }
   .ps-diff-section-header { font-size: 13px; font-weight: 600; padding: 15px 18px 4px; border-bottom: 0; color: var(--text); }
+  /* When a section has no table below it, match the bottom padding to the top
+     so the grey card is symmetric around the header text. */
+  .ps-diff-section-header.empty { padding-bottom: 15px; }
   .ps-diff-section-header.red { color: var(--crit-fg); }
   .ps-diff-section-header.green { color: var(--ok-fg); }
   .ps-quality-gate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
@@ -1445,12 +1448,12 @@
     // The search is global and survives the switch: re-run it so the panel
     // being revealed picks up the match highlighting the hidden panels skip.
     applyGlobalSearch();
-    // Lazily render the detail pane the first time the Findings panel is
-    // shown (renderFindingsList skips it while another route is active, so
-    // landing on Overview pays nothing for the trace tree + highlighter).
-    if (key === "findings" && selectedFinding) {
-      var emptyState = document.getElementById("explain-empty");
-      if (emptyState && emptyState.style.display !== "none") openExplain(selectedFinding);
+    // Render the detail pane when landing on Findings if it is not already
+    // showing the current selection. Covers the lazy first render (detailFinding
+    // is null) and a selection that advanced while another route was active
+    // (renderFindingsList skips openExplain off-tab). Same gate as that render.
+    if (key === "findings" && selectedFinding && selectedFinding !== detailFinding) {
+      openExplain(selectedFinding);
     }
     // Move focus only for keyboard activation. Clicks and hash
     // restoration must not steal focus.
@@ -1759,10 +1762,19 @@
     switchTab("findings");
     var idx = visibleFindings.indexOf(f);
     if (idx < 0) {
+      // The target may be hidden by a chip, by the acked filter (live mode),
+      // or sitting past the first page. Clear the chips, reveal acked findings
+      // if the target is one, and grow the shown count to its position, else
+      // resetShownCount would cap the render at LIST_CAP and the click dies.
       filterState.severity = null;
       filterState.service = null;
       syncFilterChips();
-      resetShownCount();
+      if (findingHiddenByAck(f)) {
+        var toggle = document.getElementById("findings-include-acked");
+        if (toggle) toggle.checked = true;
+      }
+      var pos = applyFilters().indexOf(f);
+      shownCount = pos >= 0 ? Math.max(LIST_CAP, pos + 1) : LIST_CAP;
       renderFindingsList();
       idx = visibleFindings.indexOf(f);
     }
@@ -1772,8 +1784,10 @@
   // Opens the detail pane for a finding that is NOT in the master list
   // (a diff "new" finding or a synthetic correlation finding). Switches to
   // Findings and clears the master selection so no list row is misleadingly
-  // highlighted while the detail shows an off-list finding.
+  // highlighted while the detail shows an off-list finding. Clears the query
+  // first, or the master list lands on its empty state next to the detail.
   function openExternalFindingDetail(f) {
+    clearSearchQuery();
     switchTab("findings");
     selectedIndex = -1;
     selectedFinding = null;
@@ -1940,6 +1954,10 @@
   // The selected finding object (not just its index) so the selection and
   // its detail pane survive a list re-render (filter change, "Show more").
   var selectedFinding = null;
+  // The finding whose detail pane is currently rendered. Lets renderFindingsList
+  // skip the expensive trace-tree rebuild when a re-render (e.g. every keystroke
+  // in the global search) leaves the selection unchanged.
+  var detailFinding = null;
   var shownCount = LIST_CAP;
 
   // Select a finding by its index in visibleFindings: highlight the row and
@@ -1958,7 +1976,20 @@
   }
 
   function anyFindingsFilterActive() {
-    return !!(filterState.severity || filterState.service || globalSearchTerm());
+    if (filterState.severity || filterState.service || globalSearchTerm()) return true;
+    // The ack toggle also narrows the list, so an all-acked empty list is a
+    // filtered empty, not an empty report.
+    return findings.some(findingHiddenByAck);
+  }
+  // Live mode hides acknowledged findings unless "Show acknowledged" is on.
+  // Folded into the data filter so the paginated list, the counter, the
+  // sidebar badge and the CSV export all agree on the visible set instead of
+  // rendering acked rows and hiding them afterward.
+  function findingHiddenByAck(f) {
+    if (!isLiveEnabled()) return false;
+    var input = document.getElementById("findings-include-acked");
+    if (!input || input.checked) return false;
+    return !!(f.signature && liveState.acksBySig[f.signature]);
   }
   // The findings list is paginated (LIST_CAP), so its search filters the data
   // here rather than hiding rendered rows: hiding would only ever search the
@@ -1969,6 +2000,7 @@
     return findings.filter(function (f) {
       if (filterState.severity && f.severity !== filterState.severity) return false;
       if (filterState.service && f.service !== filterState.service) return false;
+      if (findingHiddenByAck(f)) return false;
       return findingMatchesSearch(f, term);
     });
   }
@@ -1991,7 +2023,7 @@
       empty.style.display = "";
       resetDetailPane();
       syncShowMore(filtered.length);
-      reapplySearchForTab("findings");
+      reapplySearchForTab("findings", filtered.length);
       return;
     }
     empty.style.display = "none";
@@ -2009,12 +2041,17 @@
     syncSelection();
     // Render the detail only when the Findings panel is the active route, so
     // landing on Overview does not pay for the trace tree + highlighter of a
-    // finding the user has not opened. switchTab() opens it on first visit.
-    if (currentTab === "findings") openExplain(selectedFinding);
+    // finding the user has not opened. Skip when the selection is unchanged, so
+    // a keystroke in the global search does not rebuild the whole detail.
+    if (currentTab === "findings" && selectedFinding !== detailFinding) {
+      openExplain(selectedFinding);
+    }
     syncShowMore(filtered.length);
     // Every caller rebuilds the rows unmarked, so re-mark and refresh the
-    // badge here rather than leaving it to each of them to remember.
-    reapplySearchForTab("findings");
+    // badge here rather than leaving it to each of them to remember. Hand the
+    // already-computed count so the badge does not filter the array a second
+    // time.
+    reapplySearchForTab("findings", filtered.length);
     // The rows are new nodes, so the live-mode Ack buttons lost the listener
     // and the acked filter lost its hidden rows. No-op outside live mode.
     syncFindingActionButtons();
@@ -2022,6 +2059,7 @@
 
   // Resets the detail pane to its empty state (no finding selected).
   function resetDetailPane() {
+    detailFinding = null;
     var emptyState = document.getElementById("explain-empty");
     if (emptyState) emptyState.style.display = "";
     var head = document.getElementById("explain-detail-head");
@@ -2071,8 +2109,8 @@
     row.appendChild(finSub);
 
     // The normalized template is not shown in the compact row but stays
-    // searchable: the text search matches on row.textContent, and the
-    // search placeholders advertise template search.
+    // available to assistive tech. Search matches it through the data
+    // (findingMatchBlob), not this node.
     var tpl = (f.pattern && f.pattern.template) || "";
     if (tpl) row.appendChild(el("span", "ps-sr-only", tpl));
 
@@ -2176,6 +2214,7 @@
   }
 
   function openExplain(f) {
+    detailFinding = f;
     document.getElementById("explain-empty").style.display = "none";
     var content = document.getElementById("explain-content");
     var notEmbedded = document.getElementById("explain-not-embedded");
@@ -3141,6 +3180,7 @@
     var tbl = document.getElementById("diff-sev-table");
     var body = document.getElementById("diff-sev-body");
     hdr.textContent = "Severity changes (" + items.length + ")";
+    hdr.classList.toggle("empty", items.length === 0);
     body.textContent = "";
     if (items.length === 0) {
       tbl.style.display = "none";
@@ -3168,6 +3208,7 @@
     var tbl = document.getElementById("diff-endp-table");
     var body = document.getElementById("diff-endp-body");
     hdr.textContent = "Endpoint metric deltas (" + items.length + ")";
+    hdr.classList.toggle("empty", items.length === 0);
     body.textContent = "";
     if (items.length === 0) {
       tbl.style.display = "none";
@@ -3194,6 +3235,15 @@
   }
 
   // -------- correlations panel --------
+  // The text a correlation card exposes to the DOM search: the source type
+  // label (as shown in the tag) plus both services (the path). The CSV export
+  // matches on this so it filters to the same rows the panel leaves visible.
+  function correlationMatchBlob(c) {
+    var src = c.source || {};
+    var tgt = c.target || {};
+    // Mirror the card tag's fallback so a search on the shown label matches.
+    return [typeLabel(src.finding_type || "cross-trace"), src.service, tgt.service].join(" ");
+  }
   // Renders `CrossTraceCorrelation` entries emitted by the daemon,
   // matching the Rust struct shape: `source` and `target` are
   // `CorrelationEndpoint { finding_type, service, template }`,
@@ -3238,18 +3288,19 @@
   }
 
   function syntheticFindingFromCorrelation(c) {
-    // Shape openExplain reads. Mirror the source endpoint of the correlation,
-    // which is what the clicked card's tag and service path both show, so the
-    // detail head matches the card: type + a warning pill (cards are warn),
-    // not "undefined".
-    var src = c.source || {};
+    // Shape openExplain reads. sample_trace_id is the target-side finding's
+    // trace (correlate_cross.rs), so the detail must describe the target: its
+    // template is the one present in that trace, which lets renderTree
+    // highlight the offending span and renderPgStatXref find the row. Add a
+    // type and a warning pill (cards are warn) so the head is not "undefined".
+    var tgt = c.target || {};
     return {
       trace_id: c.sample_trace_id,
-      type: src.finding_type || "cross-trace",
+      type: tgt.finding_type || "cross-trace",
       severity: "warning",
-      service: src.service || "-",
+      service: tgt.service || "-",
       source_endpoint: "-",
-      pattern: { template: src.template || "" }
+      pattern: { template: tgt.template || "" }
     };
   }
 
@@ -3364,13 +3415,15 @@
       n.parentNode.replaceChild(frag, n);
     });
   }
-  function applySearchFilter(cfg, q, mark) {
+  // knownCount lets a caller that just computed the data-filtered total (only
+  // renderFindingsList) skip the second countMatches() pass over the array.
+  function applySearchFilter(cfg, q, mark, knownCount) {
     var matches = 0;
     document.querySelectorAll(cfg.rowsSelector).forEach(function (row) {
       unmarkSearchMatches(row);
-      // A data-filtered panel renders only matching rows, so never hide one:
-      // its text can legitimately differ from what the filter matched on, and
-      // another writer owns its display (applyAckedFilter hides acked rows).
+      // A data-filtered panel (findings) renders only matching rows upstream
+      // in applyFilters, so never hide one here: its rendered text can differ
+      // from what the data filter matched on.
       var visible = cfg.filtersData || !q || matchRowByText(row, q);
       if (!cfg.filtersData) row.style.display = visible ? "" : "none";
       if (!visible) return;
@@ -3378,7 +3431,8 @@
       if (mark && q.length >= 2) markSearchMatches(row, q);
     });
     if (cfg.afterFilter) cfg.afterFilter();
-    return cfg.countMatches ? cfg.countMatches() : matches;
+    if (!cfg.countMatches) return matches;
+    return knownCount != null ? knownCount : cfg.countMatches();
   }
   // Match counts ride the sidebar badge each tab already has: every searchable
   // tab registers a countFn, so the badge exists. A null match count restores
@@ -3400,11 +3454,11 @@
   // Filter one tab against the current global query and refresh its badge.
   // Used both by the global pass and by the re-render hooks, whose rows come
   // back with default display.
-  function reapplySearchForTab(tabKey) {
+  function reapplySearchForTab(tabKey, knownCount) {
     var cfg = SEARCHABLE_TABS[tabKey];
     if (!cfg) return;
     var q = globalSearchTerm();
-    var matches = applySearchFilter(cfg, q, tabKey === currentTab);
+    var matches = applySearchFilter(cfg, q, tabKey === currentTab, knownCount);
     // A countMatches panel reports its filtered total whether or not a query
     // is active, so its badge keeps one meaning and agrees with the counter
     // inside the panel. The others fall back to their registered total.
@@ -3917,9 +3971,12 @@
         "", "", "", "", ""
       ]);
     });
+    // The DOM search filters only the two findings lists (see
+    // SEARCHABLE_TABS.diff), so these two tables stay unfiltered on screen and
+    // the export must not drop their rows either, or it would omit rows the
+    // user can see.
     (diffData.severity_changes || []).forEach(function (c) {
       var f = c.finding || {};
-      if (!matchesSearch(findingMatchBlob(f), term)) return;
       var p = f.pattern || {};
       rows.push([
         "severity_change", "", f.type || f.finding_type || "",
@@ -3930,8 +3987,6 @@
       ]);
     });
     (diffData.endpoint_metric_deltas || []).forEach(function (d) {
-      var blob = [d.service, d.endpoint].join(" ");
-      if (!matchesSearch(blob, term)) return;
       rows.push([
         "endpoint_delta", "", "",
         d.service || "", d.endpoint || "", "",
@@ -3954,12 +4009,7 @@
       "first_seen", "last_seen"
     ];
     var rows = correlations.filter(function (c) {
-      var src = c.source || {};
-      var tgt = c.target || {};
-      var blob = [
-        src.service, src.finding_type, tgt.service, tgt.finding_type
-      ].join(" ");
-      return matchesSearch(blob, term);
+      return matchesSearch(correlationMatchBlob(c), term);
     }).map(function (c) {
       var s = c.source || {};
       var t = c.target || {};
@@ -4836,11 +4886,6 @@
         else openAckModal(sig);
       };
     });
-    // Re-honor the `Show acknowledged` toggle once the action buttons
-    // (and therefore the latest `acksBySig` mapping) are settled. The
-    // boot path otherwise renders acked findings visible until the
-    // user toggles the checkbox.
-    applyAckedFilter();
   }
 
   function openAckModal(sig) {
@@ -4994,7 +5039,10 @@
   function refreshLiveState() {
     return Promise.all([pingStatus(), fetchAcks()]).then(function () {
       renderAcksPanel();
-      syncFindingActionButtons();
+      // Acks changed, so which findings pass applyFilters changed too:
+      // re-render (which re-wires the action buttons at its exit) rather
+      // than only relabelling the buttons on the stale rowset.
+      renderFindingsList();
       syncAcksTabBadge();
     });
   }
@@ -5053,28 +5101,15 @@
     });
   }
 
-  function applyAckedFilter() {
-    // Hide acked findings when the toggle is unchecked. Idempotent
-    // and called both from the change handler AND from
-    // `syncFindingActionButtons` so the initial state is honored at
-    // boot (otherwise the user sees acked findings until they click
-    // the toggle, even though "Show acknowledged" is unchecked).
-    var input = document.getElementById("findings-include-acked");
-    if (!input) return;
-    var hideAcked = !input.checked;
-    var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
-    rows.forEach(function (row) {
-      var sig = row.dataset.sig || "";
-      var isAcked = !!liveState.acksBySig[sig];
-      if (hideAcked && isAcked) row.style.display = "none";
-      else row.style.display = "";
-    });
-  }
-
   function wireIncludeAckedToggle() {
     var input = document.getElementById("findings-include-acked");
     if (!input) return;
-    input.addEventListener("change", applyAckedFilter);
+    // Toggling "Show acknowledged" changes which findings pass applyFilters,
+    // so re-render from the first page rather than toggle row display.
+    input.addEventListener("change", function () {
+      resetShownCount();
+      renderFindingsList();
+    });
   }
 
   function wireAuthModal() {
