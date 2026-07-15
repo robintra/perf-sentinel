@@ -6,6 +6,27 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.11]
+
+### Changed
+
+- `appVersion` bumped to `0.9.11`. The dashboard consolidates its five
+  per-tab search inputs into one global search box in the top bar that
+  filters every searchable tab at once (Findings, pg_stat, mysql_stat,
+  Diff, Correlations), with per-tab match counts in the sidebar badges
+  and a query that survives tab switches. No chart template change, this
+  bump tracks the new appVersion.
+
+### Fixed
+
+- `appVersion` bumped to `0.9.11`. Cross-trace correlation clicks now
+  open a coherent target-side detail with a highlighted span, the
+  live-mode findings count and sidebar badge match the visible rows
+  (excluding acknowledged findings), wide tables scroll instead of
+  clipping on narrow viewports, and the Diff and Correlations tabs gain
+  empty-state messages and honest header counts. No chart template
+  change, this bump tracks the new appVersion.
+
 ## [0.9.10]
 
 ### Changed

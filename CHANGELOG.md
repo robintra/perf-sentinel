@@ -2,6 +2,20 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.11]
+
+### Changed
+
+- One global search across the dashboard. The top-bar box is now the only search input and filters every searchable tab at once (Findings, pg_stat, mysql_stat, Diff, Correlations), each reporting its own match count in its sidebar badge. A query typed from any tab, including Overview and Carbon, shows where the matches are, and it survives a tab switch. This replaces the five per-tab inputs, one of which stayed visible on pg_stat and mysql_stat and mirrored the top-bar box character for character. Findings match on the type label the row shows ("N+1 SQL" as well as the raw `n_plus_one_sql` slug), and each tab's Export CSV downloads exactly the rows its query left visible.
+
+### Fixed
+
+- Clicking a cross-trace correlation now opens a coherent detail. It describes the target-side finding whose trace the card samples, so the trace tree highlights the offending span and the pg_stat cross-reference resolves, instead of an "undefined" title over an unrelated trace.
+- In live mode under a query, the Findings sidebar badge and the counter now match the rows the panel shows, excluding the acknowledged findings that the "Show acknowledged" toggle hides. The badge no longer over-counts them.
+- On narrow viewports, wide tables (acknowledgments, region breakdown) scroll inside their card instead of being clipped, and the live-mode topbar wraps its buttons instead of pushing the page into a horizontal scroll.
+- Diff and Correlations show an empty-state line when a query hides every row, the Diff section headers recount the visible rows instead of claiming a stale total, and the empty Severity changes and Endpoint metric deltas sections keep symmetric padding.
+- A deep link naming a service that does not exist no longer filters the findings list to nothing, opening a top offender that sits past the first page now reaches it, and "/" no longer steals a slash typed into a text field such as an acknowledgment reason.
+
 ## [0.9.10]
 
 ### Changed

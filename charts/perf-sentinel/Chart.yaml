@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.10
-appVersion: "0.9.10"
+version: 0.9.11
+appVersion: "0.9.11"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.9.11: the dashboard consolidates its five per-tab search inputs into one global search box in the top bar that filters every searchable tab at once (Findings, pg_stat, mysql_stat, Diff, Correlations), with per-tab match counts in the sidebar badges and a query that survives tab switches. Findings match on the type label shown on the row, and each tab's Export CSV downloads the rows its query left visible. No chart template change, this bump tracks the new appVersion."
+    - kind: fixed
+      description: "appVersion 0.9.11: cross-trace correlation clicks open a coherent target-side detail with a highlighted span, the live-mode findings count and sidebar badge match the visible rows (excluding acknowledged findings), wide tables scroll instead of clipping on narrow viewports, and the Diff and Correlations tabs gain empty-state messages and honest header counts. No chart template change, this bump tracks the new appVersion."
     - kind: changed
       description: "appVersion 0.9.10: the HTML dashboard is reskinned to the hi-fi design handoff. DM Sans and JetBrains Mono replace Geist as the embedded brand fonts (OFL-1.1, latin subsets), flat pastel fills replace every gradient, and the sidebar nav, buttons, cards, modals and daemon status dots all move onto the theme tokens. Overview KPI cards are now semantic and clickable: the Findings card is a solid color driven by the highest severity present, the card beside it promotes that severity, and the delta-baseline card tints on the net regression or improvement direction. No chart template change, this bump tracks the new appVersion."
     - kind: added
@@ -113,7 +117,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.10
+      image: ghcr.io/robintra/perf-sentinel:0.9.11
       platforms:
         - linux/amd64
         - linux/arm64
