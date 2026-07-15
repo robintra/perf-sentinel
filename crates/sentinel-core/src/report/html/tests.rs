@@ -782,7 +782,7 @@ const CHEATSHEET_DESCRIPTION_FRAGMENTS: &[&str] = &[
     "Move finding selection up",
     "Open the selected finding",
     "close search",
-    "Open search for the active tab",
+    "Focus the search box (searches every tab)",
     "Focus the global search",
     "Go to Overview",
     "Go to Findings",

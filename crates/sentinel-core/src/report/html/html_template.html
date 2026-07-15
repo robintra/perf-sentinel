@@ -144,16 +144,16 @@
   .ps-theme-toggle .ps-th-svg { flex: none; color: var(--brand-text); }
   .ps-theme-toggle.ps-anim .ps-th-svg { animation: ps-spin-in .44s cubic-bezier(.34,1.5,.5,1); }
   .ps-theme-toggle.ps-anim .ps-th-lbl { animation: ps-fade .3s ease; }
-  /* Per-panel filter input: hidden until the user presses "/" (toggled via inline style by the search wiring). */
-  .ps-search { display: none; width: 100%; padding: 8px 11px; font-size: 12.5px; font-family: var(--font-ui); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); outline: none; }
-  .ps-search:focus { border-color: var(--brand); }
+  /* One search box, in the top bar, and it is the only search input in the
+     report. The focus ring lives on the box (see .ps-search-box:focus-within),
+     the input itself is borderless and transparent inside it. */
   .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-2); background: var(--surface-2); border-radius: 999px; padding: 0 11px; height: 34px; flex: 0 0 390px; min-width: 0; }
   /* Real magnifier icon (CSS mask) instead of the text glyph. */
   .ps-search-box .ps-search-glyph { font-size: 0; flex: none; width: 14px; height: 14px; background-color: var(--text-3);
     -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>') center / contain no-repeat;
     mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>') center / contain no-repeat; }
   /* 1px inset so the first letter is not clipped by the rounded box. */
-  .ps-search-box .ps-search { display: flex; width: auto; flex: 1; min-width: 0; border: 0; background: transparent; padding: 0 0 0 1px; }
+  .ps-search-box .ps-search { display: flex; width: auto; flex: 1; min-width: 0; border: 0; background: transparent; padding: 0 0 0 1px; font-size: 12.5px; font-family: var(--font-ui); color: var(--text); outline: none; }
   .ps-search-box .ps-search-kbd { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); border: 1px solid var(--border-2); border-radius: 6px; padding: 1px 5px; }
 
   /* -------- cards / metrics -------- */
@@ -392,10 +392,14 @@
   #diff-sev-table td:nth-child(3), #diff-sev-table td:nth-child(4) { text-align: center; }
   #pgstat-body tr.hilite { background: var(--crit-bg); }
   #pgstat-body tr.hilite td:first-child { color: var(--crit-fg); font-weight: 600; }
-  /* pg_stat controls row: "rank by" label + ranking chips + filter box */
+  /* pg_stat controls row: "rank by" label + ranking chips, then the actions.
+     The auto margin sits on the action group, not on a button: the row wraps,
+     and a margin on the first button alone lets the second one drop to the
+     next line left-aligned. Not on the chips either, since they get
+     display:none on a single ranking, taking the margin down with them. */
   .ps-pgstat-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .ps-rankby-label { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-right: 2px; }
-  .ps-pgstat-filter { margin-left: auto; height: 32px; flex: 0 1 260px; max-width: 260px; min-width: 180px; }
+  .ps-pgstat-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
   /* -------- footer -------- */
   .ps-footer { margin-top: auto; min-height: 62px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
@@ -621,7 +625,6 @@
 
   <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" class="ps-panel">
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
-    <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-panel-toolbar">
       <label class="ps-include-acked-wrap" id="findings-include-acked-wrap">
@@ -664,14 +667,12 @@
       <span class="ps-drill-clear" id="pgstat-drill-clear">clear</span>
     </div>
     <div class="ps-pgstat-controls">
-      <span class="ps-rankby-label">Rank by</span>
+      <span class="ps-rankby-label" id="pgstat-rankby-label">Rank by</span>
       <div class="ps-filters" id="pgstat-rankings"></div>
-      <div class="ps-search-box ps-pgstat-filter">
-        <span class="ps-search-glyph">⌕</span>
-        <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template…" aria-label="Filter pg_stat rows" />
+      <div class="ps-pgstat-actions">
+        <button type="button" class="ps-export-btn" id="pgstat-export" data-export-tab="pgstat">Export CSV</button>
+        <button type="button" class="ps-copy-link-btn" id="pgstat-copy-link" data-copy-link-tab="pgstat">Copy link</button>
       </div>
-      <button type="button" class="ps-export-btn" id="pgstat-export" data-export-tab="pgstat">Export CSV</button>
-      <button type="button" class="ps-copy-link-btn" id="pgstat-copy-link" data-copy-link-tab="pgstat">Copy link</button>
     </div>
     <div class="ps-card">
       <table class="ps-table" id="pgstat-table">
@@ -684,14 +685,12 @@
 
   <div id="panel-mysqlstat" role="tabpanel" aria-labelledby="tab-mysqlstat" class="ps-panel ps-panel-narrow" style="display: none;">
     <div class="ps-pgstat-controls">
-      <span class="ps-rankby-label">Rank by</span>
+      <span class="ps-rankby-label" id="mysqlstat-rankby-label">Rank by</span>
       <div class="ps-filters" id="mysqlstat-rankings"></div>
-      <div class="ps-search-box ps-pgstat-filter">
-        <span class="ps-search-glyph">⌕</span>
-        <input type="search" class="ps-search" id="mysqlstat-search" placeholder="Filter by SQL template…" aria-label="Filter mysql_stat rows" />
+      <div class="ps-pgstat-actions">
+        <button type="button" class="ps-export-btn" id="mysqlstat-export" data-export-tab="mysqlstat">Export CSV</button>
+        <button type="button" class="ps-copy-link-btn" id="mysqlstat-copy-link" data-copy-link-tab="mysqlstat">Copy link</button>
       </div>
-      <button type="button" class="ps-export-btn" id="mysqlstat-export" data-export-tab="mysqlstat">Export CSV</button>
-      <button type="button" class="ps-copy-link-btn" id="mysqlstat-copy-link" data-copy-link-tab="mysqlstat">Copy link</button>
     </div>
     <div class="ps-card">
       <table class="ps-table" id="mysqlstat-table">
@@ -703,7 +702,6 @@
   </div>
 
   <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" class="ps-panel ps-panel-narrow" style="display: none;">
-    <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
       <button type="button" class="ps-copy-link-btn" id="diff-copy-link" data-copy-link-tab="diff">Copy link</button>
@@ -712,10 +710,12 @@
       <div class="ps-card ps-diff-section">
         <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
         <div class="ps-list" id="diff-new-list"></div>
+        <div class="ps-empty" id="diff-new-empty" style="display: none;"></div>
       </div>
       <div class="ps-card ps-diff-section">
         <div class="ps-diff-section-header green" id="diff-resolved-header">Resolved findings (0)</div>
         <div class="ps-list" id="diff-resolved-list"></div>
+        <div class="ps-empty" id="diff-resolved-empty" style="display: none;"></div>
       </div>
     </div>
     <div class="ps-card ps-diff-section">
@@ -735,12 +735,12 @@
   </div>
 
   <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" class="ps-panel ps-panel-narrow" style="display: none;">
-    <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
       <button type="button" class="ps-copy-link-btn" id="correlations-copy-link" data-copy-link-tab="correlations">Copy link</button>
     </div>
     <div class="ps-list" id="correlations-list"></div>
+    <div class="ps-empty" id="correlations-empty" style="display: none;"></div>
   </div>
 
   <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" class="ps-panel ps-panel-narrow" style="display: none;">
@@ -1426,9 +1426,6 @@
 
   var currentTab = null;
   function switchTab(key, fromKeyboard) {
-    // Clear open search filters so a stale one does not resurface
-    // when the user comes back to a tab.
-    if (typeof clearAllSearchFilters === "function") clearAllSearchFilters();
     currentTab = key;
     document.querySelectorAll(".ps-tab").forEach(function (btn) {
       var active = btn.dataset.tab === key;
@@ -1441,6 +1438,9 @@
       if (panel) panel.style.display = t.key === key ? "" : "none";
     });
     updateTopbarTitle(key);
+    // The search is global and survives the switch: re-run it so the panel
+    // being revealed picks up the match highlighting the hidden panels skip.
+    applyGlobalSearch();
     // Lazily render the detail pane the first time the Findings panel is
     // shown (renderFindingsList skips it while another route is active, so
     // landing on Overview pays nothing for the trace tree + highlighter).
@@ -1486,6 +1486,9 @@
     var label = card.querySelector(".ps-metric-label");
     setAttr(card, "aria-label", (label ? label.textContent + ": " : "") + "go to " + tabKey);
     function activate() {
+      // The card counts every finding, so a leftover query would open a list
+      // that contradicts the number just clicked.
+      clearSearchQuery();
       switchTab(tabKey);
       if (!chipKey) return;
       var chip = document.querySelector('#findings-filters .ps-chip[data-key="' + chipKey + '"]');
@@ -1748,6 +1751,7 @@
   // Switches to the Findings panel and selects a specific finding,
   // clearing any active filter that would hide it.
   function gotoFinding(f) {
+    clearSearchQuery();
     switchTab("findings");
     var idx = visibleFindings.indexOf(f);
     if (idx < 0) {
@@ -1899,7 +1903,6 @@
     syncFilterChips();
     resetShownCount();
     renderFindingsList();
-    reapplyFindingsSearch();
     scheduleHashWrite();
   }
   function syncFilterChips() {
@@ -1950,11 +1953,19 @@
     openExplain(selectedFinding);
   }
 
+  function anyFindingsFilterActive() {
+    return !!(filterState.severity || filterState.service || globalSearchTerm());
+  }
+  // The findings list is paginated (LIST_CAP), so its search filters the data
+  // here rather than hiding rendered rows: hiding would only ever search the
+  // first page and cap the match count at LIST_CAP. The other panels render
+  // every row, so they filter in the DOM (see applySearchFilter).
   function applyFilters() {
+    var term = globalSearchTerm();
     return findings.filter(function (f) {
       if (filterState.severity && f.severity !== filterState.severity) return false;
       if (filterState.service && f.service !== filterState.service) return false;
-      return true;
+      return findingMatchesSearch(f, term);
     });
   }
 
@@ -1968,9 +1979,15 @@
     if (visibleFindings.length === 0) {
       selectedFinding = null;
       selectedIndex = -1;
+      // The chips and the search both reach this branch, so do not claim the
+      // trace set is clean when it is a filter that emptied the list.
+      empty.textContent = anyFindingsFilterActive()
+        ? "No findings match the current filters."
+        : "No findings in this trace set.";
       empty.style.display = "";
       resetDetailPane();
       syncShowMore(filtered.length);
+      reapplySearchForTab("findings");
       return;
     }
     empty.style.display = "none";
@@ -1991,6 +2008,12 @@
     // finding the user has not opened. switchTab() opens it on first visit.
     if (currentTab === "findings") openExplain(selectedFinding);
     syncShowMore(filtered.length);
+    // Every caller rebuilds the rows unmarked, so re-mark and refresh the
+    // badge here rather than leaving it to each of them to remember.
+    reapplySearchForTab("findings");
+    // The rows are new nodes, so the live-mode Ack buttons lost the listener
+    // and the acked filter lost its hidden rows. No-op outside live mode.
+    syncFindingActionButtons();
   }
 
   // Resets the detail pane to its empty state (no finding selected).
@@ -2380,6 +2403,9 @@
     if (pgStatMatch) {
       row.classList.add("ps-span-pgstat-link");
       row.addEventListener("click", function () {
+        // Without this the drilled row can be filtered out, leaving the drill
+        // banner naming a template the table below does not show.
+        clearSearchQuery();
         switchTab("pgstat");
         showPgStatDrill(pgStatMatch);
       });
@@ -2777,15 +2803,24 @@
     renderPgStatTable();
   }
 
+  // Show or hide the "Rank by" label along with its chip row. The label is a
+  // sibling of the chips, so hiding the chips alone leaves it pointing at
+  // nothing.
+  function setRankByVisible(labelId, visible) {
+    var label = document.getElementById(labelId);
+    if (label) label.style.display = visible ? "" : "none";
+  }
   function renderPgStatRankings() {
     var root = document.getElementById("pgstat-rankings");
     root.textContent = "";
     if (pgStatRankings.length <= 1) {
       // Hide the chip row when there is nothing to switch between.
       root.style.display = "none";
+      setRankByVisible("pgstat-rankby-label", false);
       return;
     }
     root.style.display = "";
+    setRankByVisible("pgstat-rankby-label", true);
     // Mutually-exclusive chip group. ARIA radiogroup pattern: the
     // container carries role="radiogroup", each chip is role="radio"
     // with aria-checked rewritten on every selection.
@@ -2835,11 +2870,8 @@
         clearPgStatDrill();
       }
     }
-    // Re-apply the search filter against the new rowset. Null-guard
-    // covers the boot path where the filter init has not run yet.
-    if (SEARCHABLE_TABS && SEARCHABLE_TABS.pgstat) {
-      applySearchFilter(SEARCHABLE_TABS.pgstat);
-    }
+    // Re-apply the search filter against the new rowset.
+    reapplySearchForTab("pgstat");
   }
 
   function renderPgStatTable() {
@@ -2943,9 +2975,11 @@
     root.textContent = "";
     if (mysqlStatRankings.length <= 1) {
       root.style.display = "none";
+      setRankByVisible("mysqlstat-rankby-label", false);
       return;
     }
     root.style.display = "";
+    setRankByVisible("mysqlstat-rankby-label", true);
     setAttr(root, "role", "radiogroup");
     setAttr(root, "aria-label", "mysql_stat ranking");
     mysqlStatRankings.forEach(function (r, idx) {
@@ -2974,9 +3008,7 @@
       setAttr(chips[i], "aria-checked", isActive ? "true" : "false");
     }
     renderMysqlStatTable();
-    if (SEARCHABLE_TABS && SEARCHABLE_TABS.mysqlstat) {
-      applySearchFilter(SEARCHABLE_TABS.mysqlstat);
-    }
+    reapplySearchForTab("mysqlstat");
   }
 
   function renderMysqlStatTable() {
@@ -3001,31 +3033,66 @@
   // -------- diff panel --------
   function renderDiffPanel() {
     if (!hasDiff) return;
-    renderDiffFindingsList(
-      "diff-new-list",
-      "diff-new-header",
-      "New findings",
-      diffData.new_findings || [],
-      true
-    );
-    renderDiffFindingsList(
-      "diff-resolved-list",
-      "diff-resolved-header",
-      "Resolved findings",
-      diffData.resolved_findings || [],
-      "resolved"
-    );
+    renderDiffFindingsList("diff-new-list", diffData.new_findings || [], true);
+    renderDiffFindingsList("diff-resolved-list", diffData.resolved_findings || [], "resolved");
     renderDiffSevTable(diffData.severity_changes || []);
     renderDiffEndpTable(diffData.endpoint_metric_deltas || []);
   }
-  function renderDiffFindingsList(listId, headerId, label, items, kind) {
+  var DIFF_SECTIONS = [
+    {
+      listId: "diff-new-list", headerId: "diff-new-header",
+      emptyId: "diff-new-empty", label: "New findings", noun: "new findings"
+    },
+    {
+      listId: "diff-resolved-list", headerId: "diff-resolved-header",
+      emptyId: "diff-resolved-empty", label: "Resolved findings", noun: "resolved findings"
+    }
+  ];
+  // The header text and count come from syncDiffHeaders, which reads the rows
+  // back, so it stays right when the search hides some of them.
+  function renderDiffFindingsList(listId, items, kind) {
     var list = document.getElementById(listId);
-    var hdr = document.getElementById(headerId);
-    hdr.textContent = label + " (" + items.length + ")";
     list.textContent = "";
     items.forEach(function (f) {
       list.appendChild(buildDiffFindingRow(f, kind));
     });
+    syncDiffHeaders();
+  }
+  function countVisible(selector) {
+    var shown = 0;
+    document.querySelectorAll(selector).forEach(function (row) {
+      if (row.style.display !== "none") shown++;
+    });
+    return shown;
+  }
+  // Empty state for the panels that filter in the DOM. Never claim the report
+  // holds nothing when the search is what emptied the list. Findings has its
+  // own wording because the chips can empty it too.
+  function syncEmptyState(emptyId, shown, noun) {
+    var box = document.getElementById(emptyId);
+    if (!box) return;
+    box.textContent = globalSearchTerm()
+      ? "No " + noun + " match the current search."
+      : "No " + noun + " in this report.";
+    box.style.display = shown === 0 ? "" : "none";
+  }
+  // The section headers carry counts, so they have to track the search: a
+  // query typed on another tab can hide every row, and a header still claiming
+  // "New findings (3)" over a blank list is a lie.
+  function syncDiffHeaders() {
+    DIFF_SECTIONS.forEach(function (s) {
+      var shown = countVisible("#" + s.listId + " .ps-row");
+      var hdr = document.getElementById(s.headerId);
+      if (hdr) hdr.textContent = s.label + " (" + shown + ")";
+      syncEmptyState(s.emptyId, shown, s.noun);
+    });
+  }
+  function syncCorrelationsEmpty() {
+    syncEmptyState(
+      "correlations-empty",
+      countVisible("#correlations-list .ps-corr-card"),
+      "correlations"
+    );
   }
   function buildDiffFindingRow(f, kind) {
     var row = el("div", "ps-row ps-diff-row");
@@ -3163,6 +3230,7 @@
       }
       list.appendChild(card);
     });
+    syncCorrelationsEmpty();
   }
 
   function syntheticFindingFromCorrelation(c) {
@@ -3178,67 +3246,72 @@
   }
 
   // -------- search --------
-  // Filter state is cleared on tab switch. The current panel's search
-  // input stays empty and hidden on activation, so switching away and
-  // back resets the filter implicitly. Simple, no cross-tab carryover.
+  // One query, one input: the top-bar box is the only search control and the
+  // sole source of truth. It filters every searchable tab at once, and each
+  // tab reports its match count through its sidebar badge, so typing from a
+  // non-searchable tab (Overview, Carbon) still gives feedback. The filter
+  // survives tab switches.
   function matchRowByText(row, q) {
     return (row.textContent || "").toLowerCase().includes(q);
   }
+  function findingMatchesSearch(f, term) {
+    return matchesSearch(findingMatchBlob(f), term);
+  }
   var SEARCHABLE_TABS = {
     findings: {
-      inputId: "findings-search",
-      rowsSelector: "#findings-list .ps-row"
+      rowsSelector: "#findings-list .ps-row",
+      // Filtered upstream in applyFilters, and paginated, so the rendered
+      // rows all match and the count has to come from the data.
+      filtersData: true,
+      countMatches: function () { return applyFilters().length; }
     },
     pgstat: {
-      inputId: "pgstat-search",
       rowsSelector: "#pgstat-body tr"
     },
     mysqlstat: {
-      inputId: "mysqlstat-search",
       rowsSelector: "#mysqlstat-body tr"
     },
     diff: {
-      inputId: "diff-search",
       // Filter only the two findings lists; the severity_changes and
       // endpoint_metric_deltas tables stay unfiltered (short lists).
-      rowsSelector: "#diff-new-list .ps-row, #diff-resolved-list .ps-row"
+      rowsSelector: "#diff-new-list .ps-row, #diff-resolved-list .ps-row",
+      afterFilter: syncDiffHeaders
     },
     correlations: {
-      inputId: "correlations-search",
-      rowsSelector: "#correlations-list .ps-corr-card"
+      rowsSelector: "#correlations-list .ps-corr-card",
+      afterFilter: syncCorrelationsEmpty
     }
   };
-  function initSearchInputs() {
-    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
-      var cfg = SEARCHABLE_TABS[tabKey];
-      var input = document.getElementById(cfg.inputId);
-      if (!input) return;
-      input.addEventListener("input", function () {
-        applySearchFilter(cfg);
-        // Mirror back into the always-visible top-bar box so the two search
-        // controls stay in sync (the pg_stat filter box is the only
-        // per-panel input the user can actually see and type into).
-        var ts = document.getElementById("topbar-search");
-        if (ts) ts.value = input.value;
-        scheduleHashWrite();
-      });
-    });
-    wireTopbarSearch();
+  function globalSearchTerm() {
+    var ts = document.getElementById("topbar-search");
+    return ts ? (ts.value || "").toLowerCase() : "";
   }
-  // The always-visible top-bar search box mirrors into the current
-  // panel's per-panel input (the filter source of truth) and runs its
-  // filter. Panels with no searchable config ignore the keystrokes.
-  function wireTopbarSearch() {
+  function initSearchInputs() {
     var ts = document.getElementById("topbar-search");
     if (!ts) return;
     ts.addEventListener("input", function () {
-      var cfg = SEARCHABLE_TABS[currentTab];
-      if (!cfg) return;
-      var panelInput = document.getElementById(cfg.inputId);
-      if (panelInput) panelInput.value = ts.value;
-      applySearchFilter(cfg);
-      scheduleHashWrite();
+      onSearchQueryChanged();
     });
+  }
+  // A new query re-renders the findings list from its first page, since that
+  // panel filters on data rather than on rendered rows. renderFindingsList
+  // already re-marks and re-badges findings, hence the skip.
+  function onSearchQueryChanged() {
+    resetShownCount();
+    renderFindingsList();
+    applyGlobalSearch("findings");
+    scheduleHashWrite();
+  }
+  // Drop the query and re-apply. Escape uses it, and so do the navigation
+  // gestures that mean "show me this exact thing" (a KPI card, a top offender,
+  // a trace-tree span): the query filters like the chips do, so leaving it on
+  // would hide the very target being opened. A no-op when already empty, so
+  // those gestures do not collapse the list pagination for nothing.
+  function clearSearchQuery() {
+    var ts = document.getElementById("topbar-search");
+    if (!ts || !ts.value) return;
+    ts.value = "";
+    onSearchQueryChanged();
   }
   // -------- search-match highlighting --------
   // Wrap matches in <mark class="ps-mark"> inside the filtered rows.
@@ -3283,58 +3356,70 @@
       n.parentNode.replaceChild(frag, n);
     });
   }
-  function applySearchFilter(cfg) {
-    var input = document.getElementById(cfg.inputId);
-    var q = (input.value || "").toLowerCase();
+  function applySearchFilter(cfg, q, mark) {
+    var matches = 0;
     document.querySelectorAll(cfg.rowsSelector).forEach(function (row) {
       unmarkSearchMatches(row);
-      var visible = !q || matchRowByText(row, q);
-      row.style.display = visible ? "" : "none";
-      if (visible && q.length >= 2) markSearchMatches(row, q);
+      // A data-filtered panel renders only matching rows, so never hide one:
+      // its text can legitimately differ from what the filter matched on, and
+      // another writer owns its display (applyAckedFilter hides acked rows).
+      var visible = cfg.filtersData || !q || matchRowByText(row, q);
+      if (!cfg.filtersData) row.style.display = visible ? "" : "none";
+      if (!visible) return;
+      matches++;
+      if (mark && q.length >= 2) markSearchMatches(row, q);
+    });
+    if (cfg.afterFilter) cfg.afterFilter();
+    return cfg.countMatches ? cfg.countMatches() : matches;
+  }
+  // Match counts ride the sidebar badge each tab already has: every searchable
+  // tab registers a countFn, so the badge exists. A null match count restores
+  // that registered total.
+  function updateNavBadge(tabKey, matches) {
+    var btn = document.getElementById("tab-" + tabKey);
+    var badge = btn ? btn.querySelector(".ps-nav-badge") : null;
+    if (!badge) return;
+    if (matches != null) {
+      badge.textContent = String(matches);
+      return;
+    }
+    tabs.forEach(function (t) {
+      if (t.key !== tabKey || !t.countFn) return;
+      var c = t.countFn();
+      if (c !== null && c !== undefined) badge.textContent = String(c);
     });
   }
-  // Re-apply the active findings text search after the list re-renders
-  // (filter chips and Show more rebuild the rows with default display).
-  function reapplyFindingsSearch() {
-    if (SEARCHABLE_TABS && SEARCHABLE_TABS.findings) {
-      applySearchFilter(SEARCHABLE_TABS.findings);
-    }
-  }
-  function openSearchForActiveTab() {
-    var cfg = SEARCHABLE_TABS[currentTab];
+  // Filter one tab against the current global query and refresh its badge.
+  // Used both by the global pass and by the re-render hooks, whose rows come
+  // back with default display.
+  function reapplySearchForTab(tabKey) {
+    var cfg = SEARCHABLE_TABS[tabKey];
     if (!cfg) return;
-    // "/" focuses the always-visible top-bar search, synced from the
-    // active panel's current filter value.
+    var q = globalSearchTerm();
+    var matches = applySearchFilter(cfg, q, tabKey === currentTab);
+    // A countMatches panel reports its filtered total whether or not a query
+    // is active, so its badge keeps one meaning and agrees with the counter
+    // inside the panel. The others fall back to their registered total.
+    updateNavBadge(tabKey, q || cfg.countMatches ? matches : null);
+  }
+  // Only the active panel gets its matches highlighted: markSearchMatches
+  // walks every text node of every visible row, and nobody can read marks on
+  // a hidden panel. Switching tabs re-runs this, so the new panel marks then.
+  // skipTab lets a caller that already re-rendered a panel skip it here.
+  function applyGlobalSearch(skipTab) {
+    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
+      if (tabKey !== skipTab) reapplySearchForTab(tabKey);
+    });
+  }
+  function focusSearch() {
     var ts = document.getElementById("topbar-search");
     if (!ts) return;
-    var panelInput = document.getElementById(cfg.inputId);
-    ts.value = panelInput ? panelInput.value : "";
     ts.focus();
     ts.select();
   }
   function closeSearch(input) {
-    var cfg = SEARCHABLE_TABS[currentTab];
-    var ts = document.getElementById("topbar-search");
-    var panelInput = cfg ? document.getElementById(cfg.inputId) : null;
-    if (ts) ts.value = "";
-    if (panelInput) panelInput.value = "";
-    if (cfg) applySearchFilter(cfg);
-    // Visibility is CSS-governed (see clearAllSearchFilters); just blur.
+    clearSearchQuery();
     if (input) input.blur();
-  }
-  function clearAllSearchFilters() {
-    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
-      var cfg = SEARCHABLE_TABS[tabKey];
-      var input = document.getElementById(cfg.inputId);
-      if (!input || !input.value) return;
-      // Clear the value only. Visibility is governed by CSS: bare
-      // per-panel inputs stay hidden (.ps-search), the pg_stat filter
-      // stays shown because it sits inside a .ps-search-box.
-      input.value = "";
-      applySearchFilter(cfg);
-    });
-    var ts = document.getElementById("topbar-search");
-    if (ts) ts.value = "";
   }
 
   // -------- trim banner --------
@@ -3676,12 +3761,11 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 0);
   }
 
+  // The query is global, so a searchable tab's term is just that query.
+  // Non-searchable tabs export unfiltered.
   function searchTermFor(tabKey) {
-    var cfg = SEARCHABLE_TABS && SEARCHABLE_TABS[tabKey];
-    if (!cfg) return "";
-    var input = document.getElementById(cfg.inputId);
-    if (!input) return "";
-    return (input.value || "").toLowerCase();
+    if (!SEARCHABLE_TABS || !SEARCHABLE_TABS[tabKey]) return "";
+    return globalSearchTerm();
   }
   function matchesSearch(haystack, term) {
     if (!term) return true;
@@ -3689,7 +3773,6 @@
   }
 
   function exportFindingsCsv() {
-    var term = searchTermFor("findings");
     var header = [
       "severity", "type", "service", "endpoint", "template",
       "occurrences", "first_timestamp", "last_timestamp",
@@ -3697,13 +3780,8 @@
       "suggested_fix_framework", "suggested_fix_recommendation",
       "confidence"
     ];
-    var rows = applyFilters().filter(function (f) {
-      var blob = [
-        f.severity, f.type || f.finding_type, f.service, f.source_endpoint,
-        f.pattern && f.pattern.template
-      ].join(" ");
-      return matchesSearch(blob, term);
-    }).map(function (f) {
+    // applyFilters already narrows to the chips and the search term.
+    var rows = applyFilters().map(function (f) {
       var p = f.pattern || {};
       var loc = f.code_location || {};
       var fix = f.suggested_fix || {};
@@ -3792,9 +3870,13 @@
     downloadCsv("mysqlstat", buildCsv(header, rows));
   }
 
-  function diffFindingMatchBlob(f) {
+  // The text a finding is searched on, in both the Findings list and the CSV
+  // exports. Carries the type twice: the raw slug and the label the row shows,
+  // so "n_plus_one_sql" and "N+1 SQL" both match.
+  function findingMatchBlob(f) {
+    var type = f.type || f.finding_type;
     return [
-      f.severity, f.type || f.finding_type, f.service, f.source_endpoint,
+      f.severity, type, typeLabel(type), f.service, f.source_endpoint,
       f.pattern && f.pattern.template
     ].join(" ");
   }
@@ -3808,7 +3890,7 @@
     ];
     var rows = [];
     (diffData.new_findings || []).forEach(function (f) {
-      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      if (!matchesSearch(findingMatchBlob(f), term)) return;
       var p = f.pattern || {};
       rows.push([
         "new", f.severity || "", f.type || f.finding_type || "",
@@ -3818,7 +3900,7 @@
       ]);
     });
     (diffData.resolved_findings || []).forEach(function (f) {
-      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      if (!matchesSearch(findingMatchBlob(f), term)) return;
       var p = f.pattern || {};
       rows.push([
         "resolved", f.severity || "", f.type || f.finding_type || "",
@@ -3829,7 +3911,7 @@
     });
     (diffData.severity_changes || []).forEach(function (c) {
       var f = c.finding || {};
-      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      if (!matchesSearch(findingMatchBlob(f), term)) return;
       var p = f.pattern || {};
       rows.push([
         "severity_change", "", f.type || f.finding_type || "",
@@ -3933,10 +4015,10 @@
 
   function currentStateForHash() {
     var state = { tab: currentTab };
-    if (currentTab && SEARCHABLE_TABS[currentTab]) {
-      var term = searchTermFor(currentTab);
-      if (term) state.search = term;
-    }
+    // The query is global, so it belongs in the URL whatever the tab is,
+    // including a non-searchable one the user typed from.
+    var term = globalSearchTerm();
+    if (term) state.search = term;
     if (currentTab === "findings") {
       if (filterState.severity) state.severity = filterState.severity;
       if (filterState.service) state.service = filterState.service;
@@ -3993,6 +4075,11 @@
   function applyHash(state) {
     if (!state || !state.tab) return false;
     if (!tabIsRegistered(state.tab)) return false;
+    // Restore the global query first, so the re-renders below already filter
+    // against it. The hash is the authority: an absent term clears a stale
+    // one. switchTab then runs applyGlobalSearch for the remaining tabs.
+    var ts = document.getElementById("topbar-search");
+    if (ts) ts.value = state.search || "";
     // Apply filter state before switching so the target tab already
     // shows the correct view. Severity / service chips modify
     // filterState and re-render the findings list.
@@ -4004,8 +4091,6 @@
       }
       if (state.service) filterState.service = state.service;
       syncFilterChips();
-      resetShownCount();
-      renderFindingsList();
     }
     if (state.tab === "pgstat") {
       var idx = rankingIndexForSlug(state.ranking || "");
@@ -4016,22 +4101,12 @@
         selectPgStatRanking(idx);
       }
     }
+    // The query is global, so rebuild the findings list whatever the target
+    // tab is. Its rows are filtered on data, and a stale list would contradict
+    // the badge switchTab is about to refresh.
+    resetShownCount();
+    renderFindingsList();
     switchTab(state.tab);
-    // Restore the search input for the target tab after tab switch,
-    // which runs `clearAllSearchFilters`. Reapply the filter so rows
-    // match the decoded search term.
-    if (state.search && SEARCHABLE_TABS[state.tab]) {
-      var cfg = SEARCHABLE_TABS[state.tab];
-      var input = document.getElementById(cfg.inputId);
-      if (input) {
-        // The per-panel input is the filter source of truth but stays
-        // hidden; the always-visible top-bar box is the one the user sees.
-        input.value = state.search;
-        applySearchFilter(cfg);
-      }
-      var ts = document.getElementById("topbar-search");
-      if (ts) ts.value = state.search;
-    }
     return true;
   }
 
@@ -4041,7 +4116,7 @@
     ["k", "Move finding selection up"],
     ["Enter", "Open the selected finding"],
     ["Esc", "Close help, close search, clear filters"],
-    ["/", "Open search for the active tab"],
+    ["/", "Focus the search box (searches every tab)"],
     ["⌘K / Ctrl+K", "Focus the global search"],
     ["g o", "Go to Overview"],
     ["g f", "Go to Findings"],
@@ -4138,10 +4213,13 @@
       ev.preventDefault();
     }
   }
-  /// Slash handling: open the active tab's search input.
+  /// Slash handling: focus the search box. The search is global, so this
+  /// works from every tab, including the non-searchable ones. Guarded like the
+  /// "?" handler: a slash typed into any text field belongs to that field, not
+  /// to the shortcut.
   function handleSlash(ev) {
-    if (isSearchInputFocused() || !SEARCHABLE_TABS[currentTab]) return;
-    openSearchForActiveTab();
+    if (isTextInputFocused()) return;
+    focusSearch();
     ev.preventDefault();
   }
   /// j / k / enter navigation on the Findings list.
@@ -4340,7 +4418,6 @@
     btn.addEventListener("click", function () {
       shownCount += LIST_CAP;
       renderFindingsList();
-      reapplyFindingsSearch();
     });
   }
 
