@@ -69,7 +69,8 @@ const DEMO_CORRELATIONS = [
     target: {
       finding_type: "slow_http",
       service: "chat-svc",
-      template: "POST /api/notify"
+      // Matches the span template in trace-chat-05 so the detail highlights it.
+      template: "POST notification-svc/api/notify"
     },
     co_occurrence_count: 42,
     source_total_occurrences: 48,
@@ -77,7 +78,9 @@ const DEMO_CORRELATIONS = [
     median_lag_ms: 37.5,
     first_seen: "2026-04-20T09:55:12Z",
     last_seen: "2026-04-20T11:42:08Z",
-    sample_trace_id: "trace-order-01"
+    // The daemon stores the target-side finding's trace, so the sample must be
+    // a chat-svc trace carrying the target "POST /api/notify" span.
+    sample_trace_id: "trace-chat-05"
   },
   {
     source: {
@@ -96,7 +99,9 @@ const DEMO_CORRELATIONS = [
     median_lag_ms: 12.1,
     first_seen: "2026-04-20T10:02:03Z",
     last_seen: "2026-04-20T11:38:44Z",
-    sample_trace_id: "trace-payment-01"
+    // Target is the order-svc n+1, so the sample is an order-svc trace holding
+    // the target "SELECT * FROM order_item" span.
+    sample_trace_id: "trace-order-01"
   },
   {
     source: {
@@ -210,10 +215,6 @@ function renderFixtures() {
   );
 }
 
-// Copy the shared trace fixture and stamp a cloud_region on each
-// event so the demo dashboard's GreenOps tab exercises the multi-
-// region scorer. Events that already carry cloud_region are left
-// alone so manual overrides survive future fixture additions.
 // Replay the event set MANY_COPIES times, suffixing every identity field so
 // each copy correlates into its own traces and reports its own findings.
 function writeManyFindingsEvents(source: string, dest: string) {
@@ -235,6 +236,10 @@ function writeManyFindingsEvents(source: string, dest: string) {
   writeFileSync(dest, JSON.stringify(out));
 }
 
+// Copy the shared trace fixture and stamp a cloud_region on each event so the
+// demo dashboard's GreenOps tab exercises the multi-region scorer. Events that
+// already carry cloud_region are left alone so manual overrides survive future
+// fixture additions.
 function writeDemoEvents(source: string, dest: string) {
   const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
   for (const ev of events) {

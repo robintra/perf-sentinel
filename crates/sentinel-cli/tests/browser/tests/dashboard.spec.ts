@@ -427,10 +427,10 @@ test("17. pg_stat actions stay grouped and right-aligned at every width", async 
   }
 });
 
-test("24. a correlation opens a detail with a real type, not undefined", async ({ page }) => {
-  // The synthetic finding built from a correlation must carry the source type
-  // and a severity, so the detail head matches the clicked card instead of
-  // rendering the literal text "undefined".
+test("24. a correlation opens the target-side detail with its span highlighted", async ({ page }) => {
+  // sample_trace_id is the target-side finding's trace, so the synthetic
+  // finding must describe the target (type + severity, never "undefined"), and
+  // its template must be the one in that trace so the tree highlights the span.
   await page.goto("/dashboard-demo.html#correlations");
   await page.waitForSelector("[role=tablist]");
   const card = page.locator(".ps-correlation-clickable").first();
@@ -440,11 +440,14 @@ test("24. a correlation opens a detail with a real type, not undefined", async (
   await expect(h2).toBeVisible();
   await expect(h2).not.toHaveText(/undefined/i);
   await expect(h2).not.toHaveText("");
+  // The detail describes the target-side finding whose trace this is, so its
+  // offending span is present and highlighted in the tree.
+  expect(await page.locator("#explain-tree .hilite").count()).toBeGreaterThan(0);
 });
 
 test("25. a hash naming an absent service does not silently empty the list", async ({ page }) => {
-  // severity is validated against the three known values; service must be
-  // validated too, or a stale/hand-edited hash filters to nothing with no
+  // severity is validated against the three known values, and service must be
+  // validated the same way, or a stale/hand-edited hash filters to nothing with no
   // active chip to explain the empty list.
   await loadDashboard(page, "#findings&service=ghost-svc-does-not-exist");
   expect(await page.locator("#findings-list .ps-row").count(),
