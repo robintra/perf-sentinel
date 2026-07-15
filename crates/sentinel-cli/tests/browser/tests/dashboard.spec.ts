@@ -426,3 +426,72 @@ test("17. pg_stat actions stay grouped and right-aligned at every width", async 
     expect(Math.abs(gap), `buttons not right-aligned at ${width}px`).toBeLessThan(2);
   }
 });
+
+test("24. a correlation opens a detail with a real type, not undefined", async ({ page }) => {
+  // The synthetic finding built from a correlation must carry the source type
+  // and a severity, so the detail head matches the clicked card instead of
+  // rendering the literal text "undefined".
+  await page.goto("/dashboard-demo.html#correlations");
+  await page.waitForSelector("[role=tablist]");
+  const card = page.locator(".ps-correlation-clickable").first();
+  test.skip(await card.count() === 0, "demo fixture has no clickable correlation");
+  await card.click();
+  const h2 = page.locator("#explain-detail-head .ps-detail-h2");
+  await expect(h2).toBeVisible();
+  await expect(h2).not.toHaveText(/undefined/i);
+  await expect(h2).not.toHaveText("");
+});
+
+test("25. a hash naming an absent service does not silently empty the list", async ({ page }) => {
+  // severity is validated against the three known values; service must be
+  // validated too, or a stale/hand-edited hash filters to nothing with no
+  // active chip to explain the empty list.
+  await loadDashboard(page, "#findings&service=ghost-svc-does-not-exist");
+  expect(await page.locator("#findings-list .ps-row").count(),
+    "an unknown service must be ignored, not applied").toBeGreaterThan(0);
+  const active = await page.locator("#findings-filters .ps-chip.active").getAttribute("data-key");
+  expect(active).toBe("all");
+
+  // A real service from the data still applies.
+  await loadDashboard(page, "#findings&service=order-svc");
+  expect(await page.locator("#findings-filters .ps-chip.active").getAttribute("data-key"))
+    .toBe("svc:order-svc");
+});
+
+test("26. wide tables scroll inside their card instead of being clipped", async ({ page }) => {
+  // .ps-card clips with overflow:hidden. A table wider than the card (the acks
+  // signatures at a narrow width) must scroll in place, and the page body must
+  // never scroll horizontally.
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.goto("/dashboard-demo.html#acknowledgments");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#acks-table").count() === 0, "demo fixture is not in live mode");
+
+  const state = await page.evaluate(() => {
+    const card = document.getElementById("acks-table")!.closest(".ps-card") as HTMLElement;
+    const de = document.documentElement;
+    return {
+      overflowX: getComputedStyle(card).overflowX,
+      scrollable: card.scrollWidth > card.clientWidth,
+      // documentElement, not body: body.clientWidth is skewed by the vertical
+      // scrollbar and gives a false positive.
+      docHOverflow: de.scrollWidth - de.clientWidth,
+    };
+  });
+  expect(state.overflowX).toBe("auto");
+  expect(state.scrollable, "the card must actually be scrollable when the table overflows").toBe(true);
+  expect(state.docHOverflow, "the page must never scroll horizontally").toBeLessThanOrEqual(1);
+});
+
+test("27. the live-mode topbar wraps instead of overflowing on a narrow viewport", async ({ page }) => {
+  // Live mode packs the most into the topbar (status, Refresh, density, theme).
+  // Below ~760px those must wrap to a second line, not push the page into a
+  // horizontal scroll.
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.goto("/dashboard-demo.html#overview");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#ps-daemon-status").isVisible() === false, "not live mode");
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, "topbar must wrap, the page must not scroll horizontally").toBeLessThanOrEqual(1);
+});
