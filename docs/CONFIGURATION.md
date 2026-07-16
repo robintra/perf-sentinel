@@ -275,6 +275,8 @@ Opt-in integration with [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LI
 curl -s http://localhost:9091/metrics | grep -i energy
 ```
 
+**Several rows per service are summed.** Unlike Kepler, whose label key is unique per consumer, Alumet's `label_key` is routinely shared: one pod carries a row per RAPL domain (`package` + `dram`), and `label_key = "domain"` on a dual-socket host carries one `domain="package"` row per socket. Every row sharing a label value is summed, which is the physically correct read since energy is additive. Pick `label_key` so that the rows sharing a value are the ones you want added together.
+
 **Why `energy_interval_secs` exists.** This is the one field to get right. Alumet's exporter publishes every measurement as a Prometheus **gauge holding the last flushed value**, and `rapl_consumed_energy` is a `CounterDiff`: the joules burned during one source `poll_interval`, not a cumulative counter and not a power reading. perf-sentinel divides by this interval to recover watts. The interval appears nowhere on the wire, so it must be declared here, and it must match the Alumet side. **A mismatch rescales energy and carbon linearly and silently**: declaring `1.0` while Alumet polls at `5s` overstates energy 5x, with no warning. See `docs/LIMITATIONS.md#alumet-precision-bounds`. The daemon echoes the value it is using in the `Alumet scraper started` log line.
 
 **Matching Alumet config.** Per-service attribution needs three Alumet plugins working together, `rapl` alone only measures the whole machine and `procfs` only identifies processes by PID:
