@@ -36,7 +36,7 @@ perf-sentinel-core = { version = "0.9.11", path = "../sentinel-core" }
 clap = { version = "4.6.2", features = ["derive", "env"] }
 clap_complete = "4.6.7"
 clap_mangen = "0.3.0"
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.52.4", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0.228", features = ["derive"] }
