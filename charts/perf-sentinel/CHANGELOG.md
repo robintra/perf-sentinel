@@ -6,6 +6,28 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.12]
+
+### Added
+
+- The `prometheusRule.energyScrapers` staleness alerts cover the new Alumet
+  backend (`perf_sentinel_alumet_last_scrape_age_seconds`) alongside
+  Scaphandre, Kepler, Redfish and cloud_energy.
+
+### Changed
+
+- `appVersion` bumped to `0.9.12`. The binary adds Alumet as a sixth opt-in
+  measured-energy backend (`[green.alumet]`, scraping Alumet's
+  prometheus-exporter plugin), at the top of the measured precedence chain
+  (`alumet_rapl` above `scaphandre_rapl`). `GET /api/energy` returns six
+  backend rows instead of five, reordered with `alumet` first: consumers
+  indexing rows by position must switch to reading the `backend` name.
+  Kepler cumulative counters sharing a `service_mappings` label value are
+  summed before the per-window delta, and both the Kepler and Alumet
+  scrapers emit a distinct warn-once when samples flow but no
+  `service_mappings` value matches the wire. The workspace toolchain moves
+  to Rust 1.97.1.
+
 ## [0.9.11]
 
 ### Changed

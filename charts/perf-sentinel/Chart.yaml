@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.11
-appVersion: "0.9.11"
+version: 0.9.12
+appVersion: "0.9.12"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "appVersion 0.9.12: Alumet joins as a sixth opt-in measured-energy backend ([green.alumet], scraping the prometheus-exporter plugin), at the top of the measured precedence chain (alumet_rapl above scaphandre_rapl). The chart's prometheusRule.energyScrapers staleness alerts cover the new perf_sentinel_alumet_last_scrape_age_seconds gauge alongside the four existing backends. GET /api/energy returns six backend rows instead of five, reordered with alumet first, so consumers indexing rows by position must read the backend name instead."
+    - kind: changed
+      description: "appVersion 0.9.12: Kepler cumulative counters sharing a service_mappings label value (one container name repeated across pods) are summed before the per-window delta instead of a last-write-wins read, and both the Kepler and Alumet scrapers emit a distinct warn-once when samples flow but no service_mappings value matches the wire. The workspace toolchain moves to Rust 1.97.1."
     - kind: changed
       description: "appVersion 0.9.11: the dashboard consolidates its five per-tab search inputs into one global search box in the top bar that filters every searchable tab at once (Findings, pg_stat, mysql_stat, Diff, Correlations), with per-tab match counts in the sidebar badges and a query that survives tab switches. Findings match on the type label shown on the row, and each tab's Export CSV downloads the rows its query left visible. No chart template change, this bump tracks the new appVersion."
     - kind: fixed
@@ -117,7 +121,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.11
+      image: ghcr.io/robintra/perf-sentinel:0.9.12
       platforms:
         - linux/amd64
         - linux/arm64
