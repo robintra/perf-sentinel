@@ -331,6 +331,17 @@ Chaque finding embarque un **score d'intensité I/O (IIS)**, total des ops I/O d
 
 `co2.total` est reporté comme le numérateur [Software Carbon Intensity v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci) `(E × I) + M`, sommé sur les traces analysées. Le scoring multi-régions est automatique quand les spans OTel portent l'attribut `cloud.region`. En mode daemon, l'estimation énergie peut être affinée via plusieurs sources mesurées (Alumet ou Scaphandre RAPL sur x86, Kepler eBPF sur ARM et x86, Redfish BMC pour la puissance murale en bare-metal, ou CPU% + SPECpower cloud-natif), et l'intensité du réseau électrique récupérée en temps réel via Electricity Maps.
 
+Aucun prérequis d'infrastructure : le modèle proxy I/O et les tables de réseau embarquées produisent des estimations dès la première trace, les sources mesurées les raffinent là où l'infrastructure le permet.
+
+| Votre infrastructure                                        | Raffinement énergie                            | Précision                       |
+|-------------------------------------------------------------|------------------------------------------------|---------------------------------|
+| N'importe laquelle, zéro installation                       | Modèle proxy I/O (défaut)                      | directionnelle, encadrement ~2x |
+| VMs cloud (AWS, GCP, Azure)                                 | Cloud SPECpower (CPU% + type d'instance)       | ~±30 %                          |
+| Kubernetes, cloud ou on-prem                                | Kepler (eBPF par conteneur)                    | bonne, au mieux sur nœuds RAPL  |
+| Bare metal x86 (dont AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet ou Scaphandre (RAPL)                    | palier le plus élevé            |
+| Serveurs physiques avec BMC                                 | Redfish (puissance à la prise par châssis)     | par nœud, périphérie incluse    |
+| Partout, en plus de toute ligne ci-dessus                   | Electricity Maps (intensité réseau temps réel) | raffine l'axe I, pas E          |
+
 > **Le volet carbone de perf-sentinel chiffre les I/O détectées avec la rigueur d'un calculateur carbone spécialisé émissions logicielles / compute** : méthodologie activity-based, intensité grid horaire par région (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), carbone embarqué bottom-up (Boavizta + HotCarbon 2024) et disclosures signées Sigstore vérifiables par hash.
 >
 > Il convient comme **source primaire de données** pour une plateforme de comptabilité carbone horizontale, ou comme **outil de contrôle interne** pour les KPI d'émissions logicielles et la conformité RGESN.
