@@ -71,9 +71,10 @@ pub const CO2_MODEL_V3: &str = "io_proxy_v3";
 /// Carbon estimation model: Alumet RAPL measurement.
 /// Highest measured-energy precedence. Ranks above Scaphandre: both read
 /// RAPL, but Alumet's sampling is measurably less error-prone (Raffin
-/// et al., "Dissecting the software-based measurement of CPU energy
-/// consumption", ICDE-adjacent comparative analysis), and it attributes
-/// per cgroup rather than per process.
+/// and Trystram, "Dissecting the Software-Based Measurement of CPU
+/// Energy Consumption: A Comparative Analysis", IEEE Transactions on
+/// Parallel and Distributed Systems, 2024, <https://hal.science/hal-04420527v2>),
+/// and it attributes per cgroup rather than per process.
 pub const CO2_MODEL_ALUMET: &str = "alumet_rapl";
 
 /// Carbon estimation model: Scaphandre per-process RAPL measurement.

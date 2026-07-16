@@ -273,7 +273,7 @@ fn handle_alumet_failure(
 pub(super) fn track_zero_sample_streak(
     samples_len: usize,
     services_matched: usize,
-    services_updated: usize,
+    services_with_ops: usize,
     redacted: &str,
     metric_name: &str,
     label_key: &str,
@@ -325,7 +325,8 @@ pub(super) fn track_zero_sample_streak(
     }
     tracing::debug!(
         samples = samples_len,
-        services_updated = services_updated,
+        services_matched = services_matched,
+        services_with_ops = services_with_ops,
         "Alumet scrape succeeded"
     );
 }

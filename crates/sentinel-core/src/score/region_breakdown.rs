@@ -15,7 +15,7 @@ use super::carbon::{
 /// Per-region CO₂ accumulator. `intensity_sum_per_op / total_ops`
 /// gives the ops-weighted mean intensity for the breakdown row.
 ///
-/// The four measured-source bools plus the calibration flag are
+/// The five measured-source bools plus the calibration flag are
 /// independent observations (a single region can mix every source), so a
 /// state machine or enum would not model the domain faithfully. Kept as
 /// a flat flag bag with a targeted `struct_excessive_bools` allow.
