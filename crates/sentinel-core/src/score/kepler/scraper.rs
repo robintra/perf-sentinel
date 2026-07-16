@@ -15,6 +15,7 @@ use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
 use super::apply::process_scrape;
 use super::config::KeplerConfig;
 use super::state::{KeplerState, monotonic_ms};
+use crate::score::alumet::scraper::WarnOnceStreak;
 use crate::score::prom_parser::parse_metric_samples;
 
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
@@ -139,10 +140,13 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
     let mut failure_streak_warned = false;
     let mut consecutive_failures: u32 = 0;
     let mut unsupported_platform_warned = false;
-    // "HTTP 200, samples empty" warn-once latch, reset on HTTP error
-    // so a flapping endpoint does not falsely trip it.
-    let mut consecutive_zero_sample_ticks: u32 = 0;
-    let mut zero_sample_warned = false;
+    // "HTTP 200, nothing usable" warn-once latches, reset on HTTP
+    // error so a flapping endpoint does not falsely trip them. One
+    // independent streak per cause, same rationale as the Alumet
+    // scraper: an empty exposition and a mappings table that matches
+    // nothing are distinct misconfigurations with distinct fixes.
+    let mut no_samples_streak = WarnOnceStreak::default();
+    let mut no_match_streak = WarnOnceStreak::default();
     // Track the last successful scrape so the `last_scrape_age_seconds`
     // gauge advances on every failure tick. Seeded to scraper-start time
     // so a Kepler endpoint broken from boot still climbs the gauge
@@ -158,6 +162,14 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
         service_count = cfg.service_mappings.len(),
         "Kepler scraper started"
     );
+    if cfg.service_mappings.is_empty() {
+        tracing::warn!(
+            endpoint = %redacted,
+            "[green.kepler] service_mappings is empty: the scraper will \
+             poll the endpoint but can never attribute energy to a \
+             service. Add mappings to publish measured coefficients."
+        );
+    }
 
     loop {
         ticker.tick().await;
@@ -173,26 +185,29 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
                 // Mirror Scaphandre: timestamp after the fetch resolves
                 // so `last_update_ms` reflects when the data landed.
                 let now = monotonic_ms();
-                process_scrape(&state, &samples, &deltas, &cfg, &mut last_raw_joules, now);
+                let matched =
+                    process_scrape(&state, &samples, &deltas, &cfg, &mut last_raw_joules, now);
                 last_success_ms = now;
                 metrics.kepler_last_scrape_age_seconds.set(0.0);
                 metrics.kepler_scrape_success.inc();
                 track_zero_sample_streak(
                     samples.len(),
+                    matched,
                     deltas.len(),
+                    cfg.service_mappings.len(),
                     &redacted,
                     metric_name,
                     label_key,
-                    &mut consecutive_zero_sample_ticks,
-                    &mut zero_sample_warned,
+                    &mut no_samples_streak,
+                    &mut no_match_streak,
                 );
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
-                // Reset the empty-sample latch on HTTP failure: the
-                // failure-side warning covers flapping endpoints.
-                consecutive_zero_sample_ticks = 0;
-                zero_sample_warned = false;
+                // Reset both latches on HTTP failure: the failure-side
+                // warning covers flapping endpoints.
+                no_samples_streak.reset();
+                no_match_streak.reset();
                 handle_kepler_failure(
                     &e,
                     &metrics,
@@ -259,46 +274,72 @@ fn handle_kepler_failure(
     }
 }
 
-/// Success-branch latch: warn once after
-/// [`ZERO_SAMPLE_WARN_THRESHOLD`] consecutive HTTP-200 ticks with
-/// zero matching samples. Extracted for the line-count limit and to
-/// unit-test the warn-once edge.
+/// Success-branch latches: warn once per streak of
+/// [`ZERO_SAMPLE_WARN_THRESHOLD`] consecutive HTTP-200 ticks that
+/// produced nothing usable. Extracted for the line-count limit and to
+/// unit-test the warn-once edges.
+///
+/// Same two-cause split as the Alumet scraper: `no_samples` fires when
+/// the metric is absent from the wire (legacy Kepler names, wrong
+/// `metric_kind`), `no_match` fires when samples flow but zero
+/// `service_mappings` label values are present (mistyped values, or
+/// every mapped workload absent from the exposition). A tick with no
+/// samples says nothing about the mappings, so it neither advances nor
+/// resets `no_match`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn track_zero_sample_streak(
     samples_len: usize,
-    services_updated: usize,
+    services_matched: usize,
+    services_with_ops: usize,
+    mapping_count: usize,
     redacted: &str,
     metric_name: &str,
     label_key: &str,
-    consecutive_zero_sample_ticks: &mut u32,
-    zero_sample_warned: &mut bool,
+    no_samples: &mut WarnOnceStreak,
+    no_match: &mut WarnOnceStreak,
 ) {
     if samples_len == 0 {
-        *consecutive_zero_sample_ticks = consecutive_zero_sample_ticks.saturating_add(1);
-        if !*zero_sample_warned && *consecutive_zero_sample_ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
-            let ticks = *consecutive_zero_sample_ticks;
+        if no_samples.tick() {
             tracing::warn!(
                 endpoint = %redacted,
                 metric = metric_name,
                 label = label_key,
-                ticks,
                 "Kepler endpoint replied HTTP 200 but no samples matched \
-                 the configured metric across the last {ticks} ticks. \
+                 the configured metric across the last {ZERO_SAMPLE_WARN_THRESHOLD} ticks. \
                  Most common cause: the cluster runs a Kepler exporter \
                  older than v0.10 (legacy metric names without the \
-                 '_cpu_' infix). Other causes: metric_kind mismatched \
-                 with the deployment topology, or service_mappings label \
-                 values that do not exist on the wire.",
+                 '_cpu_' infix). Other cause: metric_kind mismatched \
+                 with the deployment topology.",
             );
-            *zero_sample_warned = true;
         }
     } else {
-        *consecutive_zero_sample_ticks = 0;
-        *zero_sample_warned = false;
+        no_samples.reset();
+        if services_matched == 0 && mapping_count > 0 {
+            if no_match.tick() {
+                tracing::warn!(
+                    endpoint = %redacted,
+                    metric = metric_name,
+                    label = label_key,
+                    samples = samples_len,
+                    "Kepler endpoint replied HTTP 200 and the metric matched \
+                     samples, but none of the configured service_mappings \
+                     label values were present under the label across the \
+                     last {ZERO_SAMPLE_WARN_THRESHOLD} such ticks, so no measured \
+                     coefficient is being published. Either the mapping \
+                     values are mistyped (container name for 'container', \
+                     kernel comm for 'process', matched verbatim), or every \
+                     mapped workload is currently absent from the \
+                     exposition (scaled to zero, not yet scheduled).",
+                );
+            }
+        } else {
+            no_match.reset();
+        }
     }
     tracing::debug!(
         samples = samples_len,
-        services_updated = services_updated,
+        services_matched = services_matched,
+        services_with_ops = services_with_ops,
         "Kepler scrape succeeded"
     );
 }

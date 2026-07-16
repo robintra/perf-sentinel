@@ -14,6 +14,7 @@ use super::scraper::{
     ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper, track_zero_sample_streak,
 };
 use super::state::KeplerState;
+use crate::score::alumet::scraper::WarnOnceStreak;
 use crate::score::prom_parser::PromSample;
 
 // --- counter-delta tests ----------------------------------------------
@@ -27,7 +28,7 @@ fn first_observation_records_raw_no_delta() {
         label_value: "order".to_string(),
         value: 1000.0,
     }];
-    let deltas = joules_deltas(&samples, &mappings, &mut last);
+    let (deltas, _) = joules_deltas(&samples, &mappings, &mut last);
     assert!(deltas.is_empty(), "first tick must not emit a delta");
     assert_eq!(last.get("order-svc"), Some(&1000.0));
 }
@@ -42,13 +43,13 @@ fn second_observation_emits_positive_delta() {
         label_value: "order".to_string(),
         value: 1000.0,
     }];
-    joules_deltas(&first, &mappings, &mut last);
+    let _ = joules_deltas(&first, &mappings, &mut last);
 
     let second = vec![PromSample {
         label_value: "order".to_string(),
         value: 1234.0,
     }];
-    let deltas = joules_deltas(&second, &mappings, &mut last);
+    let (deltas, _) = joules_deltas(&second, &mappings, &mut last);
     assert_eq!(deltas.len(), 1);
     assert!((deltas.get("order-svc").unwrap() - 234.0).abs() < f64::EPSILON);
     assert_eq!(last.get("order-svc"), Some(&1234.0));
@@ -64,14 +65,14 @@ fn counter_reset_clamps_to_no_delta() {
         label_value: "order".to_string(),
         value: 5000.0,
     }];
-    joules_deltas(&first, &mappings, &mut last);
+    let _ = joules_deltas(&first, &mappings, &mut last);
 
     // Counter went backwards (exporter restart).
     let second = vec![PromSample {
         label_value: "order".to_string(),
         value: 100.0,
     }];
-    let deltas = joules_deltas(&second, &mappings, &mut last);
+    let (deltas, _) = joules_deltas(&second, &mappings, &mut last);
     assert!(
         deltas.is_empty(),
         "negative delta must be omitted, not surfaced"
@@ -90,9 +91,79 @@ fn no_change_produces_empty_deltas() {
         label_value: "order".to_string(),
         value: 1000.0,
     }];
-    joules_deltas(&samples, &mappings, &mut last);
-    let deltas = joules_deltas(&samples, &mappings, &mut last);
+    let _ = joules_deltas(&samples, &mappings, &mut last);
+    let (deltas, _) = joules_deltas(&samples, &mappings, &mut last);
     assert!(deltas.is_empty());
+}
+
+#[test]
+fn counters_sharing_a_label_value_are_summed() {
+    // Two pods each run a container named "order": two cumulative
+    // series under one label value. The deltas must be computed on the
+    // SUM of the counters; a last-write-wins read would flip between
+    // the two counters with exposition order and produce garbage
+    // deltas in both directions.
+    let mut last = HashMap::new();
+    let mut mappings = HashMap::new();
+    mappings.insert("order-svc".to_string(), "order".to_string());
+
+    let first = vec![
+        PromSample {
+            label_value: "order".to_string(),
+            value: 1000.0,
+        },
+        PromSample {
+            label_value: "order".to_string(),
+            value: 500.0,
+        },
+    ];
+    let _ = joules_deltas(&first, &mappings, &mut last);
+    assert_eq!(last.get("order-svc"), Some(&1500.0), "baseline is the sum");
+
+    let second = vec![
+        PromSample {
+            label_value: "order".to_string(),
+            value: 1100.0,
+        },
+        PromSample {
+            label_value: "order".to_string(),
+            value: 650.0,
+        },
+    ];
+    let (deltas, matched) = joules_deltas(&second, &mappings, &mut last);
+    assert_eq!(matched, 1);
+    // (1100 + 650) - (1000 + 500) = 250 J across both pods.
+    assert!((deltas.get("order-svc").unwrap() - 250.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn nan_counter_row_does_not_poison_the_sum() {
+    // The Prometheus text format legitimately carries NaN. One NaN row
+    // must not turn the summed counter into NaN and wedge the delta
+    // pipeline for the label.
+    let mut last = HashMap::new();
+    let mut mappings = HashMap::new();
+    mappings.insert("order-svc".to_string(), "order".to_string());
+
+    let first = vec![
+        PromSample {
+            label_value: "order".to_string(),
+            value: 1000.0,
+        },
+        PromSample {
+            label_value: "order".to_string(),
+            value: f64::NAN,
+        },
+    ];
+    let _ = joules_deltas(&first, &mappings, &mut last);
+    assert_eq!(last.get("order-svc"), Some(&1000.0), "NaN row skipped");
+
+    let second = vec![PromSample {
+        label_value: "order".to_string(),
+        value: 1234.0,
+    }];
+    let (deltas, _) = joules_deltas(&second, &mappings, &mut last);
+    assert!((deltas.get("order-svc").unwrap() - 234.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -105,7 +176,7 @@ fn unmapped_label_is_ignored() {
         label_value: "different-label".to_string(),
         value: 1000.0,
     }];
-    let deltas = joules_deltas(&samples, &mappings, &mut last);
+    let (deltas, _) = joules_deltas(&samples, &mappings, &mut last);
     assert!(deltas.is_empty());
     assert!(!last.contains_key("order-svc"));
 }
@@ -207,7 +278,7 @@ fn process_scrape_end_to_end_after_two_ticks() {
     }];
     let mut ops1 = HashMap::new();
     ops1.insert("order-svc".to_string(), 50);
-    process_scrape(&state, &samples1, &ops1, &cfg, &mut last_raw, 1000);
+    let _ = process_scrape(&state, &samples1, &ops1, &cfg, &mut last_raw, 1000);
     assert!(state.snapshot(1000, 10_000).is_empty());
 
     // Tick 2: delta = 3,600,000 J over 100 ops → 0.01 kWh per op.
@@ -217,7 +288,7 @@ fn process_scrape_end_to_end_after_two_ticks() {
     }];
     let mut ops2 = HashMap::new();
     ops2.insert("order-svc".to_string(), 100);
-    process_scrape(&state, &samples2, &ops2, &cfg, &mut last_raw, 2000);
+    let _ = process_scrape(&state, &samples2, &ops2, &cfg, &mut last_raw, 2000);
     let snap = state.snapshot(2000, 10_000);
     assert_eq!(snap.len(), 1);
     assert!((snap["order-svc"] - 0.01).abs() < 1e-12);
@@ -307,86 +378,95 @@ fn scraper_error_reason_maps_fetch_errors() {
 
 // --- track_zero_sample_streak --------------------------------------
 
+fn kepler_streaks() -> (WarnOnceStreak, WarnOnceStreak) {
+    (WarnOnceStreak::default(), WarnOnceStreak::default())
+}
+
+fn kepler_tick(
+    samples: usize,
+    matched: usize,
+    mappings: usize,
+    a: &mut WarnOnceStreak,
+    b: &mut WarnOnceStreak,
+) {
+    track_zero_sample_streak(
+        samples,
+        matched,
+        0,
+        mappings,
+        "http://redacted/metrics",
+        "kepler_container_cpu_joules_total",
+        "container_name",
+        a,
+        b,
+    );
+}
+
 #[test]
 fn track_zero_sample_streak_does_not_warn_under_threshold() {
-    let mut count: u32 = 0;
-    let mut warned = false;
+    let (mut a, mut b) = kepler_streaks();
     for _ in 0..2 {
-        track_zero_sample_streak(
-            0,
-            0,
-            "http://redacted/metrics",
-            "kepler_container_cpu_joules_total",
-            "container_name",
-            &mut count,
-            &mut warned,
-        );
+        kepler_tick(0, 0, 1, &mut a, &mut b);
     }
-    assert_eq!(count, 2);
     assert!(
-        !warned,
+        !a.has_warned(),
         "warn flag must stay false until the 3rd zero-sample tick"
     );
 }
 
 #[test]
 fn track_zero_sample_streak_warns_after_three_consecutive_empty_ticks() {
-    let mut count: u32 = 0;
-    let mut warned = false;
+    let (mut a, mut b) = kepler_streaks();
     for _ in 0..3 {
-        track_zero_sample_streak(
-            0,
-            0,
-            "http://redacted/metrics",
-            "kepler_container_cpu_joules_total",
-            "container_name",
-            &mut count,
-            &mut warned,
-        );
+        kepler_tick(0, 0, 1, &mut a, &mut b);
     }
-    assert_eq!(count, 3);
     assert!(
-        warned,
+        a.has_warned(),
         "3rd consecutive zero-sample tick must trip the warn flag"
     );
-}
-
-#[test]
-fn track_zero_sample_streak_warns_only_once_per_streak() {
-    let mut count: u32 = 0;
-    let mut warned = false;
-    for _ in 0..10 {
-        track_zero_sample_streak(
-            0,
-            0,
-            "http://redacted/metrics",
-            "kepler_container_cpu_joules_total",
-            "container_name",
-            &mut count,
-            &mut warned,
-        );
-    }
-    // Flag latches at the first trigger and stays true; the helper is
-    // expected to call `tracing::warn!` exactly once over the streak.
-    assert_eq!(count, 10);
-    assert!(warned);
+    assert!(
+        !b.has_warned(),
+        "an empty exposition must not blame the mappings"
+    );
 }
 
 #[test]
 fn track_zero_sample_streak_resets_on_non_empty_scrape() {
-    let mut count: u32 = 5;
-    let mut warned = true;
-    track_zero_sample_streak(
-        7, // samples_len > 0
-        2,
-        "http://redacted/metrics",
-        "kepler_container_cpu_joules_total",
-        "container_name",
-        &mut count,
-        &mut warned,
+    let (mut a, mut b) = kepler_streaks();
+    for _ in 0..3 {
+        kepler_tick(0, 0, 1, &mut a, &mut b);
+    }
+    assert!(a.has_warned());
+    kepler_tick(7, 2, 1, &mut a, &mut b);
+    assert!(
+        !a.has_warned(),
+        "non-empty scrape must reset the warn latch"
     );
-    assert_eq!(count, 0);
-    assert!(!warned, "non-empty scrape must reset the warn latch");
+}
+
+#[test]
+fn no_match_streak_arms_on_mistyped_kepler_mappings() {
+    // The v0.7.4-class gap the Alumet round closed: a mistyped
+    // service_mappings value keeps every counter healthy while nothing
+    // publishes. Three matched-nothing ticks must warn on latch B.
+    let (mut a, mut b) = kepler_streaks();
+    for _ in 0..3 {
+        kepler_tick(7, 0, 1, &mut a, &mut b);
+    }
+    assert!(b.has_warned(), "mistyped mappings must warn after 3 ticks");
+    assert!(!a.has_warned(), "the no-samples latch must stay untouched");
+}
+
+#[test]
+fn no_match_streak_never_arms_on_empty_kepler_mappings() {
+    let (mut a, mut b) = kepler_streaks();
+    for _ in 0..5 {
+        kepler_tick(7, 0, 0, &mut a, &mut b);
+    }
+    assert!(
+        !b.has_warned(),
+        "empty mappings get a startup warn, not a streak warn"
+    );
 }
 
 #[tokio::test]

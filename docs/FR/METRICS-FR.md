@@ -317,11 +317,16 @@ HTTP 200 consécutifs sans échantillon correspondant, le daemon émet
 une ligne `tracing::warn!` portant les champs `metric` et `label`.
 Alertez plutôt sur le log, ou croisez la jauge avec
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` et la
-présence du tag `co2.model` `kepler_ebpf` côté daemon. Notez qu'une
-valeur de `service_mappings` mal saisie produit des compteurs sains et
-aucun warn sur ce backend (le scraper Alumet porte ce diagnostic,
-Kepler pas encore) : la vérification est `per_service_energy_model`
-dans le rapport.
+présence du tag `co2.model` `kepler_ebpf` côté daemon. Deux messages
+de warn distincts existent, un par cause, chacun avec son propre
+streak warn-once : `no samples matched the configured metric` (noms
+Kepler legacy ou `metric_kind` en désaccord avec la topologie) et
+`none of the configured service_mappings label values were present`
+(valeurs de mapping mal saisies, ou toutes les charges mappées
+absentes de l'exposition). Les règles d'alerte par motif de log
+doivent couvrir les deux. Les compteurs cumulatifs partageant une
+valeur de label (un même nom de conteneur répété entre pods) sont
+sommés avant le calcul du delta.
 
 ## Compteurs de scrape Alumet (depuis 0.9.12)
 

@@ -255,6 +255,8 @@ metric_kind = "container"
 
 **Ignoré en mode batch `analyze`.** Comme Scaphandre, seul `watch` lance le scraper.
 
+**Les compteurs partageant une valeur de label sont sommés.** Un même nom de conteneur répété entre pods (ou un même `comm` partagé par plusieurs processus) produit plusieurs séries cumulatives sous une même valeur de mapping. Leurs compteurs sont sommés avant le calcul du delta par fenêtre, le coefficient les couvre donc ensemble.
+
 **Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler prend tout son sens sur ARM64 où Scaphandre est indisponible. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-kepler` pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
 
 **Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Dans un cluster multi-nœuds, l'`endpoint` doit pointer vers un Prometheus amont qui scrape l'ensemble du `DaemonSet` plutôt qu'un seul pod, sinon seule l'énergie d'un nœud sera visible. Le mode Prometheus-médié (requêtes PromQL) est réservé à une version ultérieure.
