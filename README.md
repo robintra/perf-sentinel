@@ -331,6 +331,17 @@ Every finding carries an **I/O intensity score (IIS)**, total I/O ops for an end
 
 `co2.total` is reported as the [Software Carbon Intensity v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci) numerator `(E × I) + M`, summed over analyzed traces. Multi-region scoring is automatic when OTel spans carry `cloud.region`. In daemon mode, energy can be refined via measured sources (Alumet or Scaphandre RAPL on x86, Kepler eBPF on ARM and x86, Redfish BMC for bare-metal wall-plug power, or cloud-native CPU% + SPECpower), and grid intensity pulled live from Electricity Maps.
 
+No infrastructure prerequisite: the I/O proxy model and the embedded grid tables produce estimates from the first trace, measured sources refine them where the infrastructure allows.
+
+| Your infrastructure                                          | Energy refinement                           | Precision                      |
+|--------------------------------------------------------------|---------------------------------------------|--------------------------------|
+| Any, zero setup                                              | I/O proxy model (default)                   | directional, ~2x bracket       |
+| Cloud VMs (AWS, GCP, Azure)                                  | Cloud SPECpower (CPU% + instance type)      | ~±30%                          |
+| Kubernetes, cloud or on-prem                                 | Kepler (eBPF per container)                 | good, best on RAPL nodes       |
+| Bare metal x86 (incl. AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet or Scaphandre (RAPL)                 | highest tier                   |
+| Physical servers with a BMC                                  | Redfish (wall-plug power per chassis)       | node-level, periphery included |
+| Anywhere, on top of any row above                            | Electricity Maps (real-time grid intensity) | refines the I axis, not E      |
+
 > **The carbon side of perf-sentinel prices the detected I/O with the rigor of a specialized software / compute emissions calculator**: activity-based methodology, region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
 >
 > It is **suitable as a primary data source** for a horizontal carbon accounting platform, or **as an internal controlling tool** for software-emissions KPIs and RGESN conformance.
