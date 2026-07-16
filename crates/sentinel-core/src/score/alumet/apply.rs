@@ -39,7 +39,13 @@ pub fn compute_energy_per_op_kwh(
     scrape_interval_secs: f64,
     ops: u64,
 ) -> Option<f64> {
-    if ops == 0 || !joules_per_interval.is_finite() || joules_per_interval < 0.0 {
+    // `<= 0.0` rather than `< 0.0`: a zero reading means the exporter's
+    // last flush caught the consumer idle, not that the work in this
+    // scrape window was free. Publishing 0.0 would override every
+    // lower-tier backend with a measured zero for a service that
+    // demonstrably did I/O. Mirrors Kepler's `delta > 0.0` filter, the
+    // caller keeps the previous entry instead.
+    if ops == 0 || !joules_per_interval.is_finite() || joules_per_interval <= 0.0 {
         return None;
     }
     // Config validation already rejects these, re-checked here because
@@ -66,6 +72,11 @@ pub fn compute_energy_per_op_kwh(
 /// Unlike Kepler, there is no delta bookkeeping: the reading already is
 /// an interval delta, so each scrape stands alone and an exporter
 /// restart needs no counter-reset guard.
+///
+/// Returns how many mapped services found their label on the wire,
+/// independent of whether they had ops. The caller uses it to tell
+/// "the endpoint answered but nothing maps to my services" (a config
+/// error) from "everything matched but the services were idle" (fine).
 #[allow(clippy::implicit_hasher)]
 pub fn apply_scrape(
     state: &AlumetState,
@@ -73,20 +84,34 @@ pub fn apply_scrape(
     op_deltas: &HashMap<String, u64>,
     cfg: &AlumetConfig,
     now_ms: u64,
-) {
+) -> usize {
     // O(N) index over samples so the service loop stays O(N + M) on
     // endpoints exposing hundreds of series.
-    let by_label: HashMap<&str, f64> = samples
-        .iter()
-        .map(|s| (s.label_value.as_str(), s.value))
-        .collect();
+    //
+    // Values are SUMMED per label, not overwritten: unlike Kepler, whose
+    // `metric_kind` enum pins a label key that is unique per consumer
+    // (`container_name`, `comm`), Alumet's `label_key` is operator-chosen
+    // and routinely non-unique. One `name="checkout-pod"` carries a row
+    // per RAPL domain (package + dram), and `label_key = "domain"` on a
+    // dual-socket host carries one `domain="package"` row per socket.
+    // Energy is additive, so summing is the physically correct read;
+    // `.collect()` would keep whichever row the exposition emitted last
+    // and silently halve the figure under a `measured` provenance tag.
+    let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
+    for s in samples {
+        *by_label.entry(s.label_value.as_str()).or_insert(0.0) += s.value;
+    }
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();
     let mut next = state.current_owned();
     let mut any_change = false;
+    let mut matched = 0usize;
     for (service, label_value) in &cfg.service_mappings {
         let Some(&joules) = by_label.get(label_value.as_str()) else {
             continue;
         };
+        // Counted before the ops gate: the label exists on the wire, so
+        // the mapping is right even if the service happens to be idle.
+        matched += 1;
         let Some(ops) = op_deltas.get(service).copied() else {
             continue;
         };
@@ -110,4 +135,5 @@ pub fn apply_scrape(
     if any_change {
         state.publish(next);
     }
+    matched
 }

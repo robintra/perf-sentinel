@@ -156,6 +156,83 @@ fn apply_scrape_skips_service_with_zero_ops_explicit_entry() {
 }
 
 #[test]
+fn apply_scrape_sums_series_sharing_a_label_value() {
+    // Alumet's label_key is operator-chosen and routinely non-unique:
+    // one pod carries a row per RAPL domain, and `label_key = "domain"`
+    // on a dual-socket host carries one `package` row per socket.
+    // Energy is additive, so the rows must sum. Overwriting (a plain
+    // `.collect()` into a HashMap) would keep the last row and halve the
+    // figure silently, under a top-precedence `measured` tag.
+    let state = AlumetState::default();
+    let cfg = sample_config();
+    let samples = vec![
+        PromSample {
+            label_value: "checkout-pod".to_string(),
+            value: 6.0,
+        },
+        PromSample {
+            label_value: "checkout-pod".to_string(),
+            value: 4.0,
+        },
+    ];
+    let mut op_deltas = HashMap::new();
+    op_deltas.insert("checkout".to_string(), 100);
+    apply_scrape(&state, &samples, &op_deltas, &cfg, 1000);
+    let snap = state.snapshot(1000, 10_000);
+    // 6 + 4 = 10 J over a 1s interval, extrapolated over the 5s window.
+    let expected = (10.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
+    assert!(
+        (snap["checkout"] - expected).abs() < 1e-18,
+        "rows sharing a label_value must sum, got {} want {expected}",
+        snap["checkout"]
+    );
+}
+
+#[test]
+fn apply_scrape_reports_matched_services_independently_of_ops() {
+    let state = AlumetState::default();
+    let cfg = sample_config();
+    let samples = vec![PromSample {
+        label_value: "checkout-pod".to_string(),
+        value: 10.0,
+    }];
+    // Idle service: the label is on the wire, so the mapping is right.
+    let matched = apply_scrape(&state, &samples, &HashMap::new(), &cfg, 1000);
+    assert_eq!(matched, 1, "an idle mapped service still counts as matched");
+
+    // Mistyped mapping: nothing on the wire carries that label value.
+    let wrong = vec![PromSample {
+        label_value: "typo-pod".to_string(),
+        value: 10.0,
+    }];
+    let matched = apply_scrape(&state, &wrong, &HashMap::new(), &cfg, 1000);
+    assert_eq!(matched, 0, "a mapping that matches nothing must report 0");
+}
+
+#[test]
+fn zero_joules_reading_keeps_the_previous_entry() {
+    // A zero reading means the exporter's last flush caught the consumer
+    // idle, not that the window's work was free. Publishing 0.0 would
+    // override every lower-tier backend with a measured zero for a
+    // service that demonstrably did I/O.
+    let state = AlumetState::default();
+    let cfg = sample_config();
+    state.insert_for_test("checkout".to_string(), 5e-7, 100);
+    let samples = vec![PromSample {
+        label_value: "checkout-pod".to_string(),
+        value: 0.0,
+    }];
+    let mut op_deltas = HashMap::new();
+    op_deltas.insert("checkout".to_string(), 500);
+    apply_scrape(&state, &samples, &op_deltas, &cfg, 200);
+    let snap = state.snapshot(200, 10_000);
+    assert!(
+        (snap["checkout"] - 5e-7).abs() < f64::EPSILON,
+        "a 0 J reading must not publish a measured zero"
+    );
+}
+
+#[test]
 fn apply_scrape_ignores_unmapped_label() {
     let state = AlumetState::default();
     let cfg = sample_config();
@@ -226,21 +303,99 @@ fn zero_sample_streak_warns_once_then_latches() {
     let mut ticks = 0;
     let mut warned = false;
     for _ in 0..2 {
-        track_zero_sample_streak(0, 0, "http://x/metrics", "m", "l", &mut ticks, &mut warned);
+        track_zero_sample_streak(
+            0,
+            0,
+            0,
+            "http://x/metrics",
+            "m",
+            "l",
+            &mut ticks,
+            &mut warned,
+        );
     }
     assert!(!warned, "must not warn before the 3-tick threshold");
-    track_zero_sample_streak(0, 0, "http://x/metrics", "m", "l", &mut ticks, &mut warned);
+    track_zero_sample_streak(
+        0,
+        0,
+        0,
+        "http://x/metrics",
+        "m",
+        "l",
+        &mut ticks,
+        &mut warned,
+    );
     assert!(warned, "third consecutive zero-sample tick must warn");
     assert_eq!(ticks, 3);
 }
 
 #[test]
-fn zero_sample_streak_resets_on_samples() {
+fn zero_sample_streak_resets_on_matched_samples() {
     let mut ticks = 5;
     let mut warned = true;
-    track_zero_sample_streak(2, 1, "http://x/metrics", "m", "l", &mut ticks, &mut warned);
+    track_zero_sample_streak(
+        2,
+        1,
+        1,
+        "http://x/metrics",
+        "m",
+        "l",
+        &mut ticks,
+        &mut warned,
+    );
     assert_eq!(ticks, 0);
-    assert!(!warned, "a successful match must re-arm the latch");
+    assert!(!warned, "a matched service must re-arm the latch");
+}
+
+#[test]
+fn streak_arms_when_samples_parse_but_no_service_matches() {
+    // The mistyped-service_mappings case: metric_name and label_key are
+    // right, so samples keep flowing and every counter reads healthy,
+    // but nothing maps. Gating the latch on samples_len alone would
+    // leave this misconfiguration with no diagnostic at all.
+    let mut ticks = 0;
+    let mut warned = false;
+    for _ in 0..3 {
+        track_zero_sample_streak(
+            9,
+            0,
+            0,
+            "http://x/metrics",
+            "m",
+            "l",
+            &mut ticks,
+            &mut warned,
+        );
+    }
+    assert!(
+        warned,
+        "samples parsed but zero services matched must still warn"
+    );
+}
+
+#[test]
+fn streak_stays_quiet_when_matched_services_are_merely_idle() {
+    // Symmetric guard: a matched service with no ops is normal operation
+    // (nights, low traffic), not a misconfiguration. Must not warn.
+    let mut ticks = 0;
+    let mut warned = false;
+    for _ in 0..5 {
+        track_zero_sample_streak(
+            2,
+            1,
+            0,
+            "http://x/metrics",
+            "m",
+            "l",
+            &mut ticks,
+            &mut warned,
+        );
+    }
+    assert!(
+        !warned,
+        "an idle but matched service must not trip the warn"
+    );
+    assert_eq!(ticks, 0);
 }
 
 // --- scraper error mapping --------------------------------------------
@@ -302,6 +457,64 @@ async fn fetch_metrics_once_reads_a_live_exposition() {
         "name",
     );
     assert_eq!(samples.len(), 2);
+}
+
+#[tokio::test]
+async fn spawn_scraper_unreachable_endpoint_keeps_running() {
+    // Bind+drop to get a guaranteed-closed port.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+
+    let mut cfg = sample_config();
+    cfg.endpoint = format!("http://{addr}/metrics");
+    cfg.scrape_interval = Duration::from_millis(50);
+    let state = AlumetState::new();
+    let metrics = std::sync::Arc::new(crate::report::metrics::MetricsState::new());
+    let handle = spawn_scraper(cfg, state, metrics);
+
+    // Let a few scrape attempts fail.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Task is still alive (not aborted, not panicked): an unreachable
+    // endpoint must degrade to the precedence chain, not kill the task.
+    assert!(!handle.is_finished());
+    handle.abort();
+}
+
+#[tokio::test]
+async fn spawn_scraper_staleness_gauge_climbs_when_never_succeeds() {
+    // Same regression guard Kepler carries: if `last_success_ms` were
+    // seeded to 0 instead of scraper-start time, the gauge would sit at
+    // 0.0 forever on an endpoint broken from boot, and every
+    // staleness alert (including the Helm PrometheusRule) would stay
+    // silent on a scraper that never worked.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+
+    let mut cfg = sample_config();
+    cfg.endpoint = format!("http://{addr}/metrics");
+    cfg.scrape_interval = Duration::from_millis(50);
+    let state = AlumetState::new();
+    let metrics = std::sync::Arc::new(crate::report::metrics::MetricsState::new());
+    let handle = spawn_scraper(cfg, state, metrics.clone());
+
+    // Poll until the gauge moves rather than waiting a fixed window: on
+    // Windows, connecting to a dropped port can take until the 3s fetch
+    // timeout, so a short fixed wait flakes. Same shape as Kepler's.
+    let mut age = 0.0;
+    for _ in 0..320 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        age = metrics.alumet_last_scrape_age_seconds.get();
+        if age > 0.0 {
+            break;
+        }
+    }
+    handle.abort();
+    assert!(
+        age > 0.0,
+        "staleness gauge should climb on never-succeeded scraper, got {age}"
+    );
 }
 
 #[tokio::test]
