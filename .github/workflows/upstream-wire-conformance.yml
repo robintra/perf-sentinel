@@ -1,5 +1,5 @@
-# Wire-conformance integration test for the Kepler, Redfish and
-# Scaphandre scrapers.
+# Wire-conformance integration test for the Kepler, Redfish,
+# Scaphandre and Alumet scrapers.
 #
 # This workflow exists to catch upstream renames or schema changes BEFORE
 # they ship a dead-on-arrival perf-sentinel release, the v0.7.4 trap. It
@@ -10,7 +10,7 @@
 # code so parser conformance is asserted for real, but the watt and
 # energy values are synthetic and have no physical meaning.
 #
-# Three independent jobs. No `needs:` chain, so an upstream rename in
+# Four independent jobs. No `needs:` chain, so an upstream rename in
 # one source does not mask a regression in another.
 
 name: Upstream wire conformance
@@ -20,13 +20,17 @@ on:
   push:
     branches: [main]
     paths:
+      - 'crates/sentinel-core/src/score/alumet/**'
       - 'crates/sentinel-core/src/score/kepler/**'
+      - 'crates/sentinel-core/src/score/prom_parser.rs'
       - 'crates/sentinel-core/src/score/redfish/**'
       - 'crates/sentinel-core/src/score/scaphandre/**'
       - '.github/workflows/upstream-wire-conformance.yml'
   pull_request:
     paths:
+      - 'crates/sentinel-core/src/score/alumet/**'
       - 'crates/sentinel-core/src/score/kepler/**'
+      - 'crates/sentinel-core/src/score/prom_parser.rs'
       - 'crates/sentinel-core/src/score/redfish/**'
       - 'crates/sentinel-core/src/score/scaphandre/**'
       - '.github/workflows/upstream-wire-conformance.yml'
@@ -880,3 +884,209 @@ jobs:
             /tmp/scaph-metrics.txt /tmp/scaph-ticker.pid /tmp/scaph-target.pid \
             /tmp/scaph-daemon.pid /tmp/perf-sentinel.toml /tmp/perf-sentinel.log \
             /tmp/svc-a.jar /tmp/svc-b.jar /tmp/svc-a.pid /tmp/svc-b.pid /tmp/jbuild 2>/dev/null || true
+
+  alumet-wire-conformance:
+    name: alumet-wire-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ALUMET_VERSION: v0.9.5
+      ALUMET_DEB_SHA256: 1ce5ff9a43619e4023c247623622c6e1d5e44e8e511e9505d04254d9043f0c68
+    steps:
+      - name: Checkout
+        id: checkout-1
+        continue-on-error: true
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Checkout (retry 2/3)
+        id: checkout-2
+        if: steps.checkout-1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Checkout (retry 3/3)
+        if: steps.checkout-2.outcome == 'failure'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          shared-key: upstream-wire-conformance
+
+      - name: Build perf-sentinel
+        run: cargo build --release -p perf-sentinel
+
+      - name: Install Alumet from upstream .deb
+        # Pinned by SHA256, same rationale as the Scaphandre job: if
+        # upstream republishes the tag with a different artifact, this
+        # step fails loudly and the pin is refreshed deliberately.
+        # RAPL is unavailable on shared runners (no powercap tree), so
+        # the agent runs the procfs source: the metric NAMES, the
+        # `_alumet` suffix shaping, and the resource label set come
+        # from the real upstream binary, which is what the parser
+        # contract needs. Values are synthetic for our purpose.
+        run: |
+          curl -fsSL -o /tmp/alumet.deb \
+            "https://github.com/alumet-dev/alumet/releases/download/${ALUMET_VERSION}/alumet-agent_${ALUMET_VERSION#v}-1_amd64_ubuntu_24.04.deb"
+          echo "${ALUMET_DEB_SHA256}  /tmp/alumet.deb" | sha256sum --check
+          sudo dpkg -i /tmp/alumet.deb
+          alumet-agent --version
+
+      - name: Start Alumet agent (procfs + prometheus-exporter)
+        # `--plugins a,b` disables every other plugin, so no RAPL/perf
+        # access is attempted. The exporter binds 127.0.0.1 explicitly
+        # (upstream default is 0.0.0.0), overriding via the CLI so no
+        # config file needs to be committed. The agent auto-generates
+        # its default config for the enabled plugins on first run.
+        run: |
+          cd /tmp
+          nohup alumet-agent \
+            --plugins procfs,prometheus-exporter \
+            --config-override 'plugins.prometheus-exporter.host="127.0.0.1"' \
+            run > /tmp/alumet.log 2>&1 &
+          echo $! > /tmp/alumet.pid
+
+      - name: Wait for Alumet /metrics reachable
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9091/metrics >/dev/null 2>&1; then
+              echo "alumet /metrics reachable after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:9091/metrics >/dev/null
+
+      - name: Wire assertion - Alumet exposition conforms to parser contract
+        # The exporter shapes every metric name as
+        # sanitize(prefix + name + suffix), default suffix `_alumet`,
+        # and attaches four fixed resource labels to every sample. The
+        # exact per-metric name also depends on upstream unit-suffix
+        # handling, so the e2e leg DISCOVERS a metric name from the
+        # wire instead of hardcoding one: what this job pins is the
+        # suffix shaping, the label set, and that the discovered name
+        # round-trips through the perf-sentinel parser.
+        id: wire
+        run: |
+          # Warmup so the procfs source has flushed at least once.
+          sleep 6
+          curl -fsS http://127.0.0.1:9091/metrics -o /tmp/alumet-metrics.txt
+          echo "--- /metrics head (first 40 lines)"
+          head -40 /tmp/alumet-metrics.txt
+          echo "---"
+
+          fail=0
+
+          if grep -qE '^[a-zA-Z_:][a-zA-Z0-9_:]*_alumet(\{| )' /tmp/alumet-metrics.txt; then
+            n=$(grep -cE '^[a-zA-Z_:][a-zA-Z0-9_:]*_alumet(\{| )' /tmp/alumet-metrics.txt)
+            echo "::notice::default '_alumet' suffix present on the wire (${n} samples)"
+          else
+            echo "::error::No metric with the default '_alumet' suffix found. Exporter naming contract violated."
+            fail=1
+          fi
+
+          if grep -qE 'resource_consumer_kind="process"' /tmp/alumet-metrics.txt; then
+            echo "::notice::procfs process rows carry resource_consumer_kind=\"process\""
+          else
+            echo "::error::No sample with resource_consumer_kind=\"process\" found. Label contract violated."
+            fail=1
+          fi
+
+          # Discover a metric name that has per-process rows, for the
+          # e2e leg below.
+          metric=$(grep -oE '^[a-zA-Z_:][a-zA-Z0-9_:]*_alumet\{[^}]*resource_consumer_kind="process"' /tmp/alumet-metrics.txt | head -1 | cut -d'{' -f1)
+          if [ -n "${metric}" ]; then
+            echo "::notice::discovered per-process metric: ${metric}"
+            echo "metric=${metric}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::error::No '_alumet' metric with per-process rows found."
+            fail=1
+          fi
+
+          exit "${fail}"
+
+      - name: End-to-end assertion - perf-sentinel scrapes Alumet cleanly
+        # Run perf-sentinel against the live Alumet for 4 scrape ticks
+        # and check that the scraper started, the zero-sample warn did
+        # NOT fire (the parser found matching samples on the real
+        # wire), and the no-match warn did NOT fire (the mapping on
+        # resource_consumer_kind="process" matched). energy_interval_secs
+        # is irrelevant to wire conformance, any valid value works.
+        run: |
+          cat > /tmp/perf-sentinel.toml <<EOF
+          [daemon]
+          listen_address = "127.0.0.1"
+          listen_port_http = 14318
+          listen_port_grpc = 14317
+          api_enabled = true
+          environment = "staging"
+
+          [green.alumet]
+          endpoint = "http://127.0.0.1:9091/metrics"
+          scrape_interval_secs = 5
+          metric_name = "${{ steps.wire.outputs.metric }}"
+          label_key = "resource_consumer_kind"
+          energy_interval_secs = 1.0
+
+          [green.alumet.service_mappings]
+          "wire-conformance-svc" = "process"
+          EOF
+
+          ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
+            > /tmp/perf-sentinel.log 2>&1 &
+          PID=$!
+
+          # 4 ticks at 5s + margin, same window as the Kepler job.
+          sleep 22
+          kill "${PID}" 2>/dev/null || true
+          wait "${PID}" 2>/dev/null || true
+
+          echo "--- perf-sentinel daemon log (tail)"
+          tail -80 /tmp/perf-sentinel.log
+          echo "---"
+
+          fail=0
+
+          if grep -qF "Alumet scraper started" /tmp/perf-sentinel.log; then
+            echo "::notice::Alumet scraper started cleanly"
+          else
+            echo "::error::Alumet scraper did not start. End-to-end assertion failed."
+            fail=1
+          fi
+
+          if grep -qF "no samples matched the configured metric" /tmp/perf-sentinel.log; then
+            echo "::error::Zero-sample warn fired: the parser saw HTTP 200 but no samples matched the discovered metric name. Upstream naming changed between the wire assertion and this step, or the parser regressed."
+            fail=1
+          else
+            echo "::notice::No zero-sample warn fired (parser found matching samples)"
+          fi
+
+          if grep -qF "none of the configured service_mappings label values were present" /tmp/perf-sentinel.log; then
+            echo "::error::No-match warn fired: resource_consumer_kind=\"process\" stopped matching. Label contract violated."
+            fail=1
+          else
+            echo "::notice::No no-match warn fired (mapping matched on the wire)"
+          fi
+
+          exit "${fail}"
+
+      - name: Debug artefacts (on failure)
+        if: failure()
+        run: |
+          echo "--- alumet log"
+          tail -200 /tmp/alumet.log 2>/dev/null || true
+          echo "--- alumet /metrics full"
+          cat /tmp/alumet-metrics.txt 2>/dev/null || true
+          echo "--- perf-sentinel log"
+          tail -200 /tmp/perf-sentinel.log 2>/dev/null || true
+
+      - name: Cleanup background processes
+        if: always()
+        run: |
+          if [ -f /tmp/alumet.pid ]; then
+            kill "$(cat /tmp/alumet.pid)" 2>/dev/null || true
+          fi
+          pkill -f 'alumet-agent' 2>/dev/null || true
