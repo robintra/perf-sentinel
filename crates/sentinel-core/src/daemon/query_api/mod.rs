@@ -104,10 +104,11 @@ pub struct QueryApiState {
 /// Configured-or-not flags for the four scraped energy backends.
 /// Electricity Maps is not here: its presence is already carried by
 /// `QueryApiState.scoring_config`.
-// Four genuinely independent flags, not a disguised state machine.
+// Five genuinely independent flags, not a disguised state machine.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnergyBackendsConfigured {
+    pub alumet: bool,
     pub scaphandre: bool,
     pub kepler: bool,
     pub redfish: bool,
@@ -488,8 +489,8 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
 /// on the report's region breakdown).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnergyBackendStatus {
-    /// Stable backend name: `scaphandre`, `kepler`, `redfish`,
-    /// `cloud_energy` or `electricity_maps`.
+    /// Stable backend name: `alumet`, `scaphandre`, `kepler`,
+    /// `redfish`, `cloud_energy` or `electricity_maps`.
     pub backend: String,
     pub configured: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -500,7 +501,7 @@ pub struct EnergyBackendStatus {
     pub scrapes_failed: Option<u64>,
 }
 
-/// `GET /api/energy` response: the five energy/intensity backends in a
+/// `GET /api/energy` response: the six energy/intensity backends in a
 /// fixed order. Additive surface for operator tooling (`query monitor`);
 /// the per-service/per-region mix itself lives on `/api/export/report`.
 #[derive(Debug, Serialize, Deserialize)]
@@ -511,15 +512,25 @@ pub struct EnergyStatusResponse {
 /// Live health of the energy backends, from the shared metrics registry
 /// plus the configured flags frozen at startup. One table row per
 /// backend keeps the name, flag, gauge and counters together: adding a
-/// sixth backend is one row here plus its flag in
+/// seventh backend is one row here plus its flag in
 /// [`EnergyBackendsConfigured`], not three uncoupled edits.
 /// Deliberately bumps no request counter: the monitor polls it once per
 /// refresh tick, and the other read-only endpoints are not counted either.
+///
+/// Row order follows the measured-energy precedence chain, so Alumet
+/// leads. Consumers read by `backend` name, the order is stable rather
+/// than an index contract.
 async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergyStatusResponse> {
     type CounterPair<'a> = (&'a prometheus::IntCounter, &'a prometheus::IntCounter);
     let m = &state.metrics;
     let b = state.energy_backends;
-    let rows: [(&str, bool, Option<&prometheus::Gauge>, Option<CounterPair>); 5] = [
+    let rows: [(&str, bool, Option<&prometheus::Gauge>, Option<CounterPair>); 6] = [
+        (
+            "alumet",
+            b.alumet,
+            Some(&m.alumet_last_scrape_age_seconds),
+            Some((&m.alumet_scrape_success, &m.alumet_scrape_failed)),
+        ),
         (
             "scaphandre",
             b.scaphandre,

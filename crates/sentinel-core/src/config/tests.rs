@@ -2537,6 +2537,78 @@ fn convert_kepler_section_without_endpoint_yields_none() {
 }
 
 #[test]
+fn convert_alumet_section_without_endpoint_yields_none() {
+    let raw = AlumetSection::default();
+    assert!(convert_alumet_section_with_env(&raw, || None).is_none());
+}
+
+#[test]
+fn convert_alumet_section_env_overrides_file_auth_header() {
+    let raw = AlumetSection {
+        endpoint: Some("http://localhost:9091/metrics".to_string()),
+        metric_name: Some("attributed_energy_cpu_alumet".to_string()),
+        label_key: Some("name".to_string()),
+        auth_header: Some("Bearer file-token".to_string()),
+        ..Default::default()
+    };
+    let cfg = convert_alumet_section_with_env(&raw, || Some("Bearer env-token".to_string()))
+        .expect("endpoint set, expected Some");
+    assert_eq!(cfg.auth_header.as_deref(), Some("Bearer env-token"));
+    assert_eq!(cfg.endpoint, "http://localhost:9091/metrics");
+}
+
+#[test]
+fn convert_alumet_section_file_auth_used_when_env_absent() {
+    let raw = AlumetSection {
+        endpoint: Some("http://localhost:9091/metrics".to_string()),
+        metric_name: Some("attributed_energy_cpu_alumet".to_string()),
+        label_key: Some("name".to_string()),
+        auth_header: Some("Bearer file".to_string()),
+        ..Default::default()
+    };
+    let cfg = convert_alumet_section_with_env(&raw, || None).expect("endpoint set");
+    assert_eq!(cfg.auth_header.as_deref(), Some("Bearer file"));
+}
+
+#[test]
+fn convert_alumet_section_missing_metric_name_yields_none() {
+    // Defense in depth: load_from_str rejects this loudly first, this
+    // guards a caller that builds a RawConfig directly.
+    let raw = AlumetSection {
+        endpoint: Some("http://localhost:9091/metrics".to_string()),
+        label_key: Some("name".to_string()),
+        ..Default::default()
+    };
+    assert!(convert_alumet_section_with_env(&raw, || None).is_none());
+}
+
+#[test]
+fn convert_alumet_section_trims_parser_fields() {
+    let raw = AlumetSection {
+        endpoint: Some("http://localhost:9091/metrics".to_string()),
+        metric_name: Some("  attributed_energy_cpu_alumet  ".to_string()),
+        label_key: Some(" name ".to_string()),
+        ..Default::default()
+    };
+    let cfg = convert_alumet_section_with_env(&raw, || None).expect("endpoint set");
+    // A stray space would silently match nothing on the wire.
+    assert_eq!(cfg.metric_name, "attributed_energy_cpu_alumet");
+    assert_eq!(cfg.label_key, "name");
+}
+
+#[test]
+fn convert_alumet_section_uses_default_scrape_interval() {
+    let raw = AlumetSection {
+        endpoint: Some("http://localhost:9091/metrics".to_string()),
+        metric_name: Some("attributed_energy_cpu_alumet".to_string()),
+        label_key: Some("name".to_string()),
+        ..Default::default()
+    };
+    let cfg = convert_alumet_section_with_env(&raw, || None).expect("endpoint set");
+    assert_eq!(cfg.scrape_interval, Duration::from_secs(5));
+}
+
+#[test]
 fn convert_kepler_section_env_overrides_file_auth_header() {
     let raw = KeplerSection {
         endpoint: Some("http://kepler:9102/metrics".to_string()),
@@ -2990,6 +3062,128 @@ schema = "legacy_power"
         result.is_err(),
         "stale top-level power_path must be rejected"
     );
+}
+
+#[test]
+fn load_toml_with_alumet_section() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+scrape_interval_secs = 10
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+energy_interval_secs = 2.0
+
+[green.alumet.service_mappings]
+"checkout" = "checkout-pod"
+"#;
+    let cfg = load_from_str(toml).expect("alumet toml parses and validates");
+    let alumet = cfg.green.alumet.expect("alumet section produced a config");
+    assert_eq!(alumet.endpoint, "http://localhost:9091/metrics");
+    assert_eq!(alumet.scrape_interval, Duration::from_secs(10));
+    assert_eq!(alumet.metric_name, "attributed_energy_cpu_alumet");
+    assert_eq!(alumet.label_key, "name");
+    assert!((alumet.energy_interval_secs - 2.0).abs() < f64::EPSILON);
+    assert_eq!(
+        alumet.service_mappings.get("checkout").map(String::as_str),
+        Some("checkout-pod")
+    );
+}
+
+#[test]
+fn alumet_energy_interval_defaults_to_alumet_rapl_poll_default() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "rapl_consumed_energy_alumet"
+label_key = "domain"
+"#;
+    let cfg = load_from_str(toml).expect("alumet toml parses");
+    let alumet = cfg.green.alumet.expect("alumet config");
+    assert!((alumet.energy_interval_secs - 1.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn load_toml_rejects_alumet_without_metric_name() {
+    // No safe default exists: the exporter's prefix/suffix and the
+    // operator's formula name shape the wire name. A missing field must
+    // be loud, not a silently disabled scraper.
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+label_key = "name"
+"#;
+    let err = load_from_str(toml).expect_err("missing metric_name must error");
+    let msg = err.to_string();
+    assert!(msg.contains("[green.alumet]"), "{msg}");
+    assert!(msg.contains("metric_name"), "{msg}");
+}
+
+#[test]
+fn load_toml_rejects_alumet_without_label_key() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+"#;
+    let err = load_from_str(toml).expect_err("missing label_key must error");
+    assert!(err.to_string().contains("label_key"));
+}
+
+#[test]
+fn load_toml_rejects_alumet_empty_metric_name() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "   "
+label_key = "name"
+"#;
+    let err = load_from_str(toml).expect_err("blank metric_name must error");
+    assert!(err.to_string().contains("metric_name"));
+}
+
+#[test]
+fn load_toml_rejects_alumet_non_positive_energy_interval() {
+    // A zero interval would divide by zero into an infinite
+    // coefficient, poisoning every downstream carbon figure.
+    for bad in ["0.0", "-1.0", "nan", "inf", "3601.0"] {
+        let toml = format!(
+            r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+energy_interval_secs = {bad}
+"#
+        );
+        let err = load_from_str(&toml)
+            .err()
+            .unwrap_or_else(|| panic!("{bad} must be rejected"))
+            .to_string();
+        assert!(err.contains("energy_interval_secs"), "{bad}: {err}");
+    }
+}
+
+#[test]
+fn load_toml_rejects_alumet_control_chars_in_label_key() {
+    let toml = "[green.alumet]\n\
+                endpoint = \"http://localhost:9091/metrics\"\n\
+                metric_name = \"attributed_energy_cpu_alumet\"\n\
+                label_key = \"na\\u001b[31mme\"\n";
+    let err = load_from_str(toml).expect_err("control chars must be rejected");
+    assert!(err.to_string().contains("label_key"));
+}
+
+#[test]
+fn load_toml_rejects_invalid_alumet_endpoint() {
+    let toml = r#"
+[green.alumet]
+endpoint = "ftp://alumet/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+"#;
+    let err = load_from_str(toml).expect_err("invalid scheme must error at validate()");
+    assert!(err.to_string().contains("[green.alumet]"));
 }
 
 #[test]

@@ -871,16 +871,20 @@ async fn energy_endpoint_reports_unconfigured_backends_without_metrics() {
     // age/counter fields (the pre-registered zero gauges must not
     // read as a misleading fresh scrape).
     let energy = fetch_energy(make_state()).await;
-    assert_eq!(energy.backends.len(), 5);
+    assert_eq!(energy.backends.len(), 6);
     for b in &energy.backends {
         assert!(!b.configured, "{} should be unconfigured", b.backend);
         assert!(b.last_scrape_age_seconds.is_none(), "{}", b.backend);
         assert!(b.scrapes_ok.is_none(), "{}", b.backend);
     }
+    // Order follows the measured-energy precedence chain, so Alumet
+    // leads. Pinned on purpose: the response order is a documented
+    // stable surface (docs/QUERY-API.md).
     let names: Vec<&str> = energy.backends.iter().map(|b| b.backend.as_str()).collect();
     assert_eq!(
         names,
         [
+            "alumet",
             "scaphandre",
             "kepler",
             "redfish",
@@ -916,6 +920,26 @@ async fn energy_endpoint_reports_configured_backend_metrics() {
         .unwrap();
     assert!(!kepler.configured);
     assert!(kepler.scrapes_ok.is_none());
+}
+
+#[tokio::test]
+async fn energy_endpoint_reports_configured_alumet_metrics() {
+    let mut state = (*make_state()).clone_for_test();
+    state.energy_backends.alumet = true;
+    state.metrics.alumet_scrape_success.inc_by(4);
+    state.metrics.alumet_scrape_failed.inc_by(1);
+    state.metrics.alumet_last_scrape_age_seconds.set(2.5);
+
+    let energy = fetch_energy(Arc::new(state)).await;
+    let alumet = energy
+        .backends
+        .iter()
+        .find(|b| b.backend == "alumet")
+        .expect("alumet row");
+    assert!(alumet.configured);
+    assert_eq!(alumet.scrapes_ok, Some(4));
+    assert_eq!(alumet.scrapes_failed, Some(1));
+    assert!((alumet.last_scrape_age_seconds.unwrap() - 2.5).abs() < f64::EPSILON);
 }
 
 #[tokio::test]

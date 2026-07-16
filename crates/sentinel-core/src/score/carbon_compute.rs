@@ -81,6 +81,7 @@ fn higher_fidelity_measured(
     #[inline]
     fn rank(tag: &str) -> u8 {
         match tag {
+            super::carbon::CO2_MODEL_ALUMET => 5,
             super::carbon::CO2_MODEL_SCAPHANDRE => 4,
             super::carbon::CO2_MODEL_KEPLER => 3,
             super::carbon::CO2_MODEL_REDFISH => 2,
@@ -538,6 +539,7 @@ fn accumulate_span_into_region(
         }
     }
     match measured_model {
+        Some(super::carbon::CO2_MODEL_ALUMET) => acc.any_alumet = true,
         Some(super::carbon::CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
         Some(super::carbon::CO2_MODEL_KEPLER) => acc.any_kepler_ebpf = true,
         Some(super::carbon::CO2_MODEL_REDFISH) => acc.any_redfish_bmc = true,

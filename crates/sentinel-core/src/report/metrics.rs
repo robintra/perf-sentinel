@@ -238,6 +238,12 @@ impl ScaphandreScrapeReason {
 #[cfg(feature = "daemon")]
 pub(crate) type KeplerScrapeReason = ScaphandreScrapeReason;
 
+/// `reason` label of `perf_sentinel_alumet_scrape_failed_total`. Aliased
+/// to [`ScaphandreScrapeReason`] for the same reason as Kepler: Alumet is
+/// scraped over plain HTTP with the identical six failure modes.
+#[cfg(feature = "daemon")]
+pub(crate) type AlumetScrapeReason = ScaphandreScrapeReason;
+
 /// `reason` label of `perf_sentinel_redfish_scrape_failed_total`. Adds
 /// three Redfish-specific variants on top of the shared HTTP set:
 /// `InvalidJson`, `PathMissing`, and `InvalidValue` cover the BMC
@@ -532,6 +538,24 @@ pub struct MetricsState {
     /// Cached child for `kepler_scrape_total{status="failed"}`.
     #[cfg(feature = "daemon")]
     pub kepler_scrape_failed: IntCounter,
+    /// Age in seconds since the last successful Alumet scrape. Same
+    /// shape as the Kepler counterpart, stays at 0 when Alumet is not
+    /// configured.
+    pub alumet_last_scrape_age_seconds: Gauge,
+    /// Alumet scrape attempts on the daemon-side scraper, labeled by
+    /// `status` (`success` or `failed`).
+    #[cfg(feature = "daemon")]
+    pub alumet_scrape_total: IntCounterVec,
+    /// Failed Alumet scrapes, labeled by failure `reason`. Pre-warmed
+    /// to 0 for the six reachable variants of [`AlumetScrapeReason`].
+    #[cfg(feature = "daemon")]
+    pub alumet_scrape_failed_total: IntCounterVec,
+    /// Cached child for `alumet_scrape_total{status="success"}`.
+    #[cfg(feature = "daemon")]
+    pub alumet_scrape_success: IntCounter,
+    /// Cached child for `alumet_scrape_total{status="failed"}`.
+    #[cfg(feature = "daemon")]
+    pub alumet_scrape_failed: IntCounter,
     /// Age in seconds since the last successful Redfish scrape.
     pub redfish_last_scrape_age_seconds: Gauge,
     /// Redfish scrape attempts on the daemon-side scraper.
@@ -807,6 +831,15 @@ impl MetricsState {
             .register(Box::new(kepler_last_scrape_age_seconds.clone()))
             .expect("registration should not fail");
 
+        let alumet_last_scrape_age_seconds = Gauge::new(
+            "perf_sentinel_alumet_last_scrape_age_seconds",
+            "Age in seconds since the last successful Alumet scrape",
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(alumet_last_scrape_age_seconds.clone()))
+            .expect("registration should not fail");
+
         let redfish_last_scrape_age_seconds = Gauge::new(
             "perf_sentinel_redfish_last_scrape_age_seconds",
             "Age in seconds since the last successful Redfish scrape",
@@ -985,6 +1018,29 @@ impl MetricsState {
         }
 
         #[cfg(feature = "daemon")]
+        let alumet_scrape_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_alumet_scrape_total",
+            "Total Alumet scrape attempts on the daemon scraper, by outcome",
+            &["status"],
+        );
+        #[cfg(feature = "daemon")]
+        let alumet_scrape_failed_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_alumet_scrape_failed_total",
+            "Failed Alumet scrapes on the daemon scraper, by failure reason",
+            &["reason"],
+        );
+        #[cfg(feature = "daemon")]
+        let alumet_scrape_success = alumet_scrape_total.with_label_values(&["success"]);
+        #[cfg(feature = "daemon")]
+        let alumet_scrape_failed = alumet_scrape_total.with_label_values(&["failed"]);
+        #[cfg(feature = "daemon")]
+        for reason in &AlumetScrapeReason::ALL {
+            let _ = alumet_scrape_failed_total.with_label_values(&[reason.as_str()]);
+        }
+
+        #[cfg(feature = "daemon")]
         let redfish_scrape_total = register_int_counter_vec(
             &registry,
             "perf_sentinel_redfish_scrape_total",
@@ -1069,6 +1125,7 @@ impl MetricsState {
             #[cfg(feature = "daemon")]
             scaphandre_scrape_failed,
             kepler_last_scrape_age_seconds,
+            alumet_last_scrape_age_seconds,
             #[cfg(feature = "daemon")]
             kepler_scrape_total,
             #[cfg(feature = "daemon")]
@@ -1077,6 +1134,14 @@ impl MetricsState {
             kepler_scrape_success,
             #[cfg(feature = "daemon")]
             kepler_scrape_failed,
+            #[cfg(feature = "daemon")]
+            alumet_scrape_total,
+            #[cfg(feature = "daemon")]
+            alumet_scrape_failed_total,
+            #[cfg(feature = "daemon")]
+            alumet_scrape_success,
+            #[cfg(feature = "daemon")]
+            alumet_scrape_failed,
             redfish_last_scrape_age_seconds,
             #[cfg(feature = "daemon")]
             redfish_scrape_total,
