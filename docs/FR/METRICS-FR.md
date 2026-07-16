@@ -287,22 +287,88 @@ touché, ils ne sont visibles que dans les logs daemon au niveau
   reverse proxy qui renvoie le mauvais statut, un `invalid_utf8`
   persistant vers un endpoint qui n'est pas Scaphandre du tout.
 
+## Compteurs de scrape Kepler (depuis 0.7.4)
+
+Émis par tick du scraper Kepler côté daemon (la tâche qui récupère
+les séries `kepler_*_cpu_joules_total` depuis l'endpoint
+`[green.kepler]` configuré). Enregistrés uniquement quand le daemon
+est compilé avec la feature `daemon`. Le jeu de labels reflète celui
+de Scaphandre parce que les deux sources rencontrent les six mêmes
+modes d'échec HTTP.
+
+| Metric                                         | Type    | Labels   | Description                                                                                       |
+|------------------------------------------------|---------|----------|-----------------------------------------------------------------------------------------------------|
+| `perf_sentinel_kepler_scrape_total`            | counter | `status` | Total des tentatives de scrape Kepler depuis le démarrage, partitionné par issue.                 |
+| `perf_sentinel_kepler_scrape_failed_total`     | counter | `reason` | Total des scrapes Kepler en échec depuis le démarrage, partitionné par cause.                     |
+| `perf_sentinel_kepler_last_scrape_age_seconds` | gauge   | (aucun)  | Secondes depuis la dernière HTTP 200 (remise à 0 sur toute HTTP 200, voir le piège ci-dessous).   |
+
+Les labels `status` et `reason` portent les six mêmes valeurs que les
+compteurs Scaphandre ci-dessus (`success`/`failed`, et les six mêmes
+causes d'échec HTTP), pré-chauffées à zéro avant le premier scrape.
+
+**Piège de staleness zéro-échantillon**.
+`perf_sentinel_kepler_last_scrape_age_seconds` est remise à 0 sur
+chaque réponse HTTP 200, *y compris* une HTTP 200 dont le corps ne
+contient aucune série Kepler v2 correspondante (le cas classique de la
+montée v0.7.4 vers v0.7.5 où le cluster fait encore tourner un
+Kepler < 0.10 avec les noms de métriques legacy). Les alertes pilotées
+par la seule jauge ne détecteront pas ce scénario. Après trois ticks
+HTTP 200 consécutifs sans échantillon correspondant, le daemon émet
+une ligne `tracing::warn!` portant les champs `metric` et `label`.
+Alertez plutôt sur le log, ou croisez la jauge avec
+`rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` et la
+présence du tag `co2.model` `kepler_ebpf` côté daemon.
+
+## Compteurs de scrape Alumet (depuis 0.9.12)
+
+Même forme que le bloc Kepler ci-dessus avec `kepler` -> `alumet`
+dans les noms de métriques (`perf_sentinel_alumet_scrape_total`,
+`perf_sentinel_alumet_scrape_failed_total`,
+`perf_sentinel_alumet_last_scrape_age_seconds`). Les jeux de labels
+`status` et `reason` sont identiques : Alumet est scrapé en HTTP
+simple avec les six mêmes modes d'échec, un seul panel de dashboard
+peut donc agréger le taux des trois sources scrapées au format
+Prometheus.
+
+Le même piège de staleness zéro-échantillon s'applique, et il est plus
+probable ici que pour Kepler : `metric_name` et `label_key` sont
+fournis par l'opérateur (l'exporteur d'Alumet façonne les noms avec un
+`prefix`/`suffix` configurable), donc une coquille ou un renommage
+amont produit des HTTP 200 sans échantillon correspondant et une jauge
+qui se remet sans cesse à 0. Le daemon avertit après trois ticks
+consécutifs de ce type. Croisez la jauge avec
+`rate(perf_sentinel_alumet_scrape_total{status="success"}[5m])` et la
+présence du tag `co2.model` `alumet_rapl`.
+
+Notez qu'aucune métrique ne peut détecter un `energy_interval_secs`
+faux : les scrapes réussissent, les échantillons correspondent, seule
+l'échelle est fausse. Voir
+`docs/FR/LIMITATIONS-FR.md#limites-de-précision-alumet`.
+
+## Compteurs de scrape Redfish (depuis 0.7.4)
+
+Même forme que le bloc Kepler ci-dessus avec `kepler` -> `redfish`
+dans les noms de métriques. Le jeu de labels `reason` ajoute trois
+valeurs propres à Redfish au set HTTP partagé : `invalid_json`,
+`path_missing`, `invalid_value` pour les modes d'échec liés à la
+variance JSON des BMC sur la réponse `/Power`.
+
 ## Metrics GreenOps
 
-| Metric                                               | Type    | Labels    | Description                                                                                                                                                                                                                                                                |
-|------------------------------------------------------|---------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `perf_sentinel_io_waste_ratio`                       | gauge   | (aucun)   | Ratio I/O waste cumulatif (avoidable / total) depuis le démarrage. Utiliser `rate()` sur les counters sous-jacents pour des valeurs sur fenêtre.                                                                                                                           |
-| `perf_sentinel_energy_kwh`                           | gauge   | (aucun)   | Énergie du workload sur la dernière fenêtre de scoring, kWh (depuis 0.8.8). Total scalaire seulement : le détail par service et par région reste hors `/metrics` (cardinalité) et vit sur les onglets Energy/Trends de `query monitor`.                                    |
-| `perf_sentinel_carbon_gco2`                          | gauge   | (aucun)   | Carbone opérationnel de la dernière fenêtre de scoring, grammes CO2e, sommé sur les régions (depuis 0.8.8). Même logique scalaire que `perf_sentinel_energy_kwh`.                                                                                                          |
-| `perf_sentinel_total_io_ops`                         | counter | (aucun)   | Total cumulatif d'ops I/O traitées.                                                                                                                                                                                                                                        |
-| `perf_sentinel_avoidable_io_ops`                     | counter | (aucun)   | Total cumulatif d'ops I/O évitables détectées.                                                                                                                                                                                                                             |
-| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Ops I/O cumulatives par service (lu par chaque scraper d'énergie mesurée pour l'attribution énergie par service). La cardinalité du label est plafonnée à 1024 services distincts par exécution du daemon, les nouveaux services au-delà du plafond ne sont pas attribués. |
-| `perf_sentinel_service_io_ops_overflow_total`        | counter | (aucun)   | Ops I/O non attribuées à un counter par service parce que le plafond de cardinalité de 1024 services était atteint (depuis 0.8.7). Une hausse continue signifie que le débit par service et l'attribution d'énergie mesurée sous-comptent les services nouvellement vus.   |
-| `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (aucun)   | Secondes depuis le dernier scrape Scaphandre réussi. Reste à 0 quand Scaphandre n'est pas configuré. Utile pour des alertes scraper bloqué.                                                                                                                                |
-| `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (aucun)   | Même pattern pour le scraper cloud SPECpower.                                                                                                                                                                                                                              |
-| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Kepler. Voir le piège de staleness zéro-échantillon plus haut.                                                                                                                                                                                |
-| `perf_sentinel_alumet_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Alumet. Le piège de staleness zéro-échantillon y est plus probable, `metric_name` et `label_key` étant fournis par l'opérateur. Aucune métrique ne peut détecter un `energy_interval_secs` faux, voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-alumet`. |
-| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (aucun)   | Même pattern pour le scraper BMC Redfish.                                                                                                                                                                                                                                  |
+| Metric                                               | Type    | Labels    | Description                                                                                                                                                                                                                                                                                 |
+|------------------------------------------------------|---------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_io_waste_ratio`                       | gauge   | (aucun)   | Ratio I/O waste cumulatif (avoidable / total) depuis le démarrage. Utiliser `rate()` sur les counters sous-jacents pour des valeurs sur fenêtre.                                                                                                                                            |
+| `perf_sentinel_energy_kwh`                           | gauge   | (aucun)   | Énergie du workload sur la dernière fenêtre de scoring, kWh (depuis 0.8.8). Total scalaire seulement : le détail par service et par région reste hors `/metrics` (cardinalité) et vit sur les onglets Energy/Trends de `query monitor`.                                                     |
+| `perf_sentinel_carbon_gco2`                          | gauge   | (aucun)   | Carbone opérationnel de la dernière fenêtre de scoring, grammes CO2e, sommé sur les régions (depuis 0.8.8). Même logique scalaire que `perf_sentinel_energy_kwh`.                                                                                                                           |
+| `perf_sentinel_total_io_ops`                         | counter | (aucun)   | Total cumulatif d'ops I/O traitées.                                                                                                                                                                                                                                                         |
+| `perf_sentinel_avoidable_io_ops`                     | counter | (aucun)   | Total cumulatif d'ops I/O évitables détectées.                                                                                                                                                                                                                                              |
+| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Ops I/O cumulatives par service (lu par chaque scraper d'énergie mesurée pour l'attribution énergie par service). La cardinalité du label est plafonnée à 1024 services distincts par exécution du daemon, les nouveaux services au-delà du plafond ne sont pas attribués.                  |
+| `perf_sentinel_service_io_ops_overflow_total`        | counter | (aucun)   | Ops I/O non attribuées à un counter par service parce que le plafond de cardinalité de 1024 services était atteint (depuis 0.8.7). Une hausse continue signifie que le débit par service et l'attribution d'énergie mesurée sous-comptent les services nouvellement vus.                    |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (aucun)   | Secondes depuis le dernier scrape Scaphandre réussi. Reste à 0 quand Scaphandre n'est pas configuré. Utile pour des alertes scraper bloqué.                                                                                                                                                 |
+| `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (aucun)   | Même pattern pour le scraper cloud SPECpower.                                                                                                                                                                                                                                               |
+| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Kepler. Voir le piège de staleness zéro-échantillon plus haut.                                                                                                                                                                                                 |
+| `perf_sentinel_alumet_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Alumet. Voir le piège de staleness zéro-échantillon et la note `energy_interval_secs` plus haut.                                                                                                                                                              |
+| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (aucun)   | Même pattern pour le scraper BMC Redfish.                                                                                                                                                                                                                                                   |
 
 ## Kinds de warning : transitoire vs collant
 
