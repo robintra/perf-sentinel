@@ -23,6 +23,8 @@
 /// the caller's business: Kepler reads it as a cumulative joule counter
 /// and derives a delta, Alumet reads it as the energy of one poll
 /// interval.
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PromSample {
     pub label_value: String,
@@ -67,11 +69,40 @@ pub fn parse_metric_samples(body: &str, metric_name: &str, label_key: &str) -> V
     out
 }
 
+/// Sum samples per `label_value`, with per-row validation.
+///
+/// Values sharing a label value are SUMMED, not overwritten: energy is
+/// additive and label collisions are normal for both consumers (one
+/// container name repeated across pods for Kepler, one row per RAPL
+/// domain or per socket for Alumet). A last-write-wins read would keep
+/// whichever row the exposition emitted last and silently understate
+/// the figure. Per-row validation happens HERE, not only on the sum:
+/// the Prometheus text format legitimately carries NaN, and one NaN row
+/// must not poison every row sharing its label, while a negative row
+/// must not subtract from an otherwise valid sum. Rejected rows still
+/// create the entry, so the label counts as present on the wire (the
+/// series exists, a mapping pointing at it is not the problem).
+#[must_use]
+pub fn sum_by_label(samples: &[PromSample]) -> HashMap<&str, f64> {
+    let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
+    for s in samples {
+        let slot = by_label.entry(s.label_value.as_str()).or_insert(0.0);
+        if s.value.is_finite() && s.value > 0.0 {
+            *slot += s.value;
+        }
+    }
+    by_label
+}
+
 /// Find the index of the closing `}` that matches the leading `{` in a
 /// Prometheus labels block. Handles escape sequences inside label
 /// values so a backslash followed by a quote does not prematurely end
-/// the block.
-fn find_label_block_end(s: &str) -> Option<usize> {
+/// the block. Advancing by 2 bytes over an escape is UTF-8-safe:
+/// Prometheus escape sequences are single-byte ASCII, so the byte after
+/// the backslash cannot split a multi-byte codepoint.
+///
+/// Returns `None` if the `{` is unmatched within the slice.
+pub(crate) fn find_label_block_end(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     if bytes.first() != Some(&b'{') {
         return None;
@@ -113,14 +144,28 @@ fn extract_label(labels: &str, target_key: &str) -> Option<String> {
     None
 }
 
-struct ParsedLabel<'a> {
-    name: &'a str,
-    value: &'a str,
-    needs_unescape: bool,
-    next_index: usize,
+/// One parsed Prometheus label, as returned by [`parse_next_label`].
+/// All string slices borrow from the outer `labels` buffer.
+pub(crate) struct ParsedLabel<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) value: &'a str,
+    pub(crate) needs_unescape: bool,
+    /// Byte offset in `labels.as_bytes()` just past the trailing
+    /// comma / whitespace, i.e. the start of the next label.
+    pub(crate) next_index: usize,
 }
 
-fn parse_next_label<'a>(labels: &'a str, bytes: &[u8], i: usize) -> Option<ParsedLabel<'a>> {
+/// Parse a single `name="value"` label starting at byte offset `i`.
+///
+/// Returns `None` if the buffer is truncated or the shape is invalid
+/// (missing `=`, missing opening `"`, unterminated value). On success,
+/// returns a [`ParsedLabel`] with the three components plus the offset
+/// just past the following separator, ready for the next iteration.
+pub(crate) fn parse_next_label<'a>(
+    labels: &'a str,
+    bytes: &[u8],
+    i: usize,
+) -> Option<ParsedLabel<'a>> {
     let (name, after_eq) = read_label_name(labels, bytes, i)?;
     let (value, needs_unescape, after_close_quote) = read_label_value(labels, bytes, after_eq)?;
     let next_index = advance_past_separators(bytes, after_close_quote);
@@ -174,7 +219,12 @@ fn advance_past_separators(bytes: &[u8], mut i: usize) -> usize {
     i
 }
 
-fn unescape_prometheus_value(raw: &str) -> String {
+/// Unescape a Prometheus label value. Handles `\"`, `\\`, and `\n`
+/// per the exposition format spec. Other backslash sequences are
+/// passed through literally. UTF-8-safe: walks the string by
+/// character, not by byte.
+pub(crate) fn unescape_prometheus_value(raw: &str) -> String {
+    // Fast path: no backslashes means no allocation-per-char walk.
     if !raw.contains('\\') {
         return raw.to_string();
     }

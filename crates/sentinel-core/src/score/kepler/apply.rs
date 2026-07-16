@@ -8,7 +8,8 @@ use std::collections::HashMap;
 
 use super::config::KeplerConfig;
 use super::state::{KeplerState, ServiceEnergy};
-use crate::score::prom_parser::PromSample;
+use crate::score::energy_state::upsert_row;
+use crate::score::prom_parser::{PromSample, sum_by_label};
 
 /// Convert a joules delta + ops delta into a kWh-per-op coefficient.
 /// Returns `None` when the math is meaningless (zero ops, non-finite
@@ -37,27 +38,13 @@ pub fn joules_deltas(
 ) -> (HashMap<String, f64>, usize) {
     // O(N) index over samples so the service loop stays O(N + M)
     // instead of O(N × M) on Kepler endpoints exposing hundreds of
-    // containers per node.
-    //
-    // Counters sharing a label value are SUMMED, not overwritten: one
-    // container name repeated across pods (`container_name="app"`) or
-    // one `comm` shared by several processes yields several cumulative
-    // series under one key. A last-write-wins read would flip between
-    // counters of different magnitudes with exposition order, producing
-    // garbage deltas in both directions. The sum of cumulative counters
-    // stays monotonic while the series set is stable; a vanishing
-    // series drops the sum (negative delta, filtered below, next tick
+    // containers per node. Summing and per-row validation semantics
+    // live in [`sum_by_label`]. On cumulative counters the sum stays
+    // monotonic while the series set is stable; a vanishing series
+    // drops the sum (negative delta, filtered below, next tick
     // re-baselines) and a newly discovered series joins with its
-    // near-zero counter. Per-row validation mirrors the Alumet scraper:
-    // a NaN row must not poison the sum and a negative counter row is
-    // invalid by definition.
-    let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
-    for s in samples {
-        let slot = by_label.entry(s.label_value.as_str()).or_insert(0.0);
-        if s.value.is_finite() && s.value > 0.0 {
-            *slot += s.value;
-        }
-    }
+    // near-zero counter.
+    let by_label = sum_by_label(samples);
     let mut out = HashMap::with_capacity(service_mappings.len());
     let mut matched = 0usize;
     for (service, label_value) in service_mappings {
@@ -108,12 +95,7 @@ pub fn apply_scrape(
             energy_per_op_kwh: energy_per_op,
             last_update_ms: now_ms,
         };
-        // Steady-state update without re-cloning the service key.
-        if let Some(slot) = next.get_mut(service.as_str()) {
-            *slot = row;
-        } else {
-            next.insert(service.clone(), row);
-        }
+        upsert_row(&mut next, service, row);
         any_change = true;
     }
     if any_change {
