@@ -34,8 +34,8 @@ use event_loop::{
     run_event_loop,
 };
 use listeners::{
-    setup_cloud_scraper, setup_correlator, setup_emaps_scraper, setup_kepler_scraper,
-    setup_redfish_scraper, setup_scaphandre_scraper, spawn_listeners,
+    setup_alumet_scraper, setup_cloud_scraper, setup_correlator, setup_emaps_scraper,
+    setup_kepler_scraper, setup_redfish_scraper, setup_scaphandre_scraper, spawn_listeners,
 };
 
 /// Errors that can occur when running the daemon.
@@ -213,6 +213,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     )
     .await?;
 
+    let alumet = setup_alumet_scraper(&config, &metrics);
     let scaphandre = setup_scaphandre_scraper(&config, &metrics);
     let kepler = setup_kepler_scraper(&config, &metrics);
     let redfish = setup_redfish_scraper(&config, &metrics);
@@ -233,6 +234,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let detect_config = DetectConfig::from(&config);
     let energy_sources = EnergySources {
         base_carbon_ctx,
+        alumet_state: alumet.state.as_deref(),
+        alumet_staleness_ms: alumet.staleness_ms,
         scaphandre_state: scaphandre.state.as_deref(),
         scaphandre_staleness_ms: scaphandre.staleness_ms,
         kepler_state: kepler.state.as_deref(),
@@ -246,6 +249,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     };
     let shutdown = ShutdownTargets {
         energy: EnergyScraperHandles {
+            alumet: alumet.handle.as_ref(),
             scaphandre: scaphandre.handle.as_ref(),
             kepler: kepler.handle.as_ref(),
             redfish: redfish.handle.as_ref(),

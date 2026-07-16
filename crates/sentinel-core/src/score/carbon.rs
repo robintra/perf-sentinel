@@ -65,11 +65,20 @@ pub const CO2_MODEL: &str = "io_proxy_v1";
 pub const CO2_MODEL_V2: &str = "io_proxy_v2";
 
 /// Carbon estimation model: monthly x hourly carbon intensity profiles.
-/// Precedence: `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+/// Precedence: `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 pub const CO2_MODEL_V3: &str = "io_proxy_v3";
 
+/// Carbon estimation model: Alumet RAPL measurement.
+/// Highest measured-energy precedence. Ranks above Scaphandre: both read
+/// RAPL, but Alumet's sampling is measurably less error-prone (Raffin
+/// et al., "Dissecting the software-based measurement of CPU energy
+/// consumption", ICDE-adjacent comparative analysis), and it attributes
+/// per cgroup rather than per process.
+pub const CO2_MODEL_ALUMET: &str = "alumet_rapl";
+
 /// Carbon estimation model: Scaphandre per-process RAPL measurement.
-/// Highest measured-energy precedence (`x86_64` only, RAPL-dependent).
+/// Sits below Alumet (also RAPL) and above Kepler (`x86_64` only,
+/// RAPL-dependent).
 pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 
 /// Carbon estimation model: Kepler eBPF + perf-counter measurement.
@@ -83,7 +92,7 @@ pub const CO2_MODEL_KEPLER: &str = "kepler_ebpf";
 pub const CO2_MODEL_REDFISH: &str = "redfish_bmc";
 
 /// Carbon estimation model: cloud CPU% + `SPECpower` interpolation.
-/// Precedence: `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+/// Precedence: `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 pub const CO2_MODEL_CLOUD_SPECPOWER: &str = "cloud_specpower";
 
 /// Carbon intensity source: Electricity Maps real-time API data.
@@ -154,12 +163,22 @@ pub struct EnergyEntry {
     /// Energy consumed per I/O operation, in kWh.
     pub energy_per_op_kwh: f64,
     /// Model tag identifying the measurement source. One of
-    /// [`CO2_MODEL_SCAPHANDRE`], [`CO2_MODEL_KEPLER`],
-    /// [`CO2_MODEL_REDFISH`], or [`CO2_MODEL_CLOUD_SPECPOWER`].
+    /// [`CO2_MODEL_ALUMET`], [`CO2_MODEL_SCAPHANDRE`],
+    /// [`CO2_MODEL_KEPLER`], [`CO2_MODEL_REDFISH`], or
+    /// [`CO2_MODEL_CLOUD_SPECPOWER`].
     pub model_tag: &'static str,
 }
 
 impl EnergyEntry {
+    /// Build an entry from an Alumet RAPL measurement.
+    #[must_use]
+    pub const fn alumet(energy_per_op_kwh: f64) -> Self {
+        Self {
+            energy_per_op_kwh,
+            model_tag: CO2_MODEL_ALUMET,
+        }
+    }
+
     /// Build an entry from a Scaphandre RAPL measurement.
     #[must_use]
     pub const fn scaphandre(energy_per_op_kwh: f64) -> Self {

@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use crate::score::alumet::AlumetConfig;
+use crate::score::alumet::config::DEFAULT_ENERGY_INTERVAL_SECS;
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
@@ -88,6 +90,7 @@ pub(super) struct GreenSection {
     use_hourly_profiles: Option<bool>,
     scaphandre: ScaphandreSection,
     pub(super) kepler: KeplerSection,
+    pub(super) alumet: AlumetSection,
     redfish: RedfishSection,
     cloud: CloudSection,
     per_operation_coefficients: Option<bool>,
@@ -123,6 +126,23 @@ pub(super) struct KeplerSection {
     pub(super) endpoint: Option<String>,
     pub(super) scrape_interval_secs: Option<u64>,
     pub(super) metric_kind: Option<String>,
+    pub(super) service_mappings: HashMap<String, String>,
+    pub(super) auth_header: Option<String>,
+}
+
+/// Raw deserialization target for `[green.alumet]`.
+///
+/// Converted to an `AlumetConfig` during `RawConfig → Config` only when
+/// `endpoint` is set. `metric_name` and `label_key` are then mandatory,
+/// enforced by [`validate_alumet_raw`] before the conversion runs.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub(super) struct AlumetSection {
+    pub(super) endpoint: Option<String>,
+    pub(super) scrape_interval_secs: Option<u64>,
+    pub(super) metric_name: Option<String>,
+    pub(super) label_key: Option<String>,
+    pub(super) energy_interval_secs: Option<f64>,
     pub(super) service_mappings: HashMap<String, String>,
     pub(super) auth_header: Option<String>,
 }
@@ -331,6 +351,7 @@ impl From<RawConfig> for Config {
                     .unwrap_or(green_defaults.use_hourly_profiles),
                 scaphandre: convert_scaphandre_section(&raw.green.scaphandre),
                 kepler: convert_kepler_section(&raw.green.kepler),
+                alumet: convert_alumet_section(&raw.green.alumet),
                 redfish: convert_redfish_section(&raw.green.redfish),
                 cloud_energy: convert_cloud_section(&raw.green.cloud),
                 per_operation_coefficients: raw
@@ -725,6 +746,103 @@ pub(super) fn convert_kepler_section_with_env(
         endpoint: endpoint.clone(),
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
         metric_kind,
+        service_mappings: raw.service_mappings.clone(),
+        auth_header,
+    })
+}
+
+/// Validate the raw `[green.alumet]` section before the lossy
+/// `Config::from` conversion.
+///
+/// Same rationale as [`parse_kepler_metric_kind`]: the conversion would
+/// otherwise downgrade a missing `metric_name` to a log line and
+/// silently drop the whole section, so an operator who set an endpoint
+/// but forgot the metric would get no scraper and no error. There is no
+/// default for `metric_name` or `label_key` because Alumet's exporter
+/// applies an operator-chosen `prefix`/`suffix` to every name and the
+/// per-service series is named after an operator-chosen
+/// `energy-attribution` formula. Guessing would scrape nothing, or
+/// worse, the wrong series.
+pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
+    if raw.endpoint.is_none() {
+        return Ok(());
+    }
+    require_alumet_field(raw.metric_name.as_deref(), "metric_name")?;
+    require_alumet_field(raw.label_key.as_deref(), "label_key")?;
+    if let Some(secs) = raw.energy_interval_secs
+        && (!secs.is_finite() || secs <= 0.0 || secs > 3600.0)
+    {
+        return Err(format!(
+            "[green.alumet] energy_interval_secs must be a finite value in (0, 3600], got {secs}. \
+             It mirrors the poll_interval of the Alumet source feeding the metric."
+        ));
+    }
+    Ok(())
+}
+
+/// Reject an absent, empty, or control-char-bearing mandatory Alumet
+/// string field. Control chars are checked before the value reaches an
+/// error message, mirroring [`parse_kepler_metric_kind`].
+fn require_alumet_field(value: Option<&str>, field: &str) -> Result<(), String> {
+    let Some(literal) = value else {
+        return Err(format!(
+            "[green.alumet] {field} is required when endpoint is set. \
+             Alumet's prometheus-exporter names metrics with an operator-chosen \
+             prefix/suffix (default suffix '_alumet'), so there is no safe default. \
+             Run `curl <endpoint> | grep -i energy` and copy the name verbatim."
+        ));
+    };
+    if has_control_char(literal) {
+        return Err(format!(
+            "[green.alumet] {field} contains control characters"
+        ));
+    }
+    if literal.trim().is_empty() {
+        return Err(format!("[green.alumet] {field} must not be empty"));
+    }
+    Ok(())
+}
+
+/// Convert the raw `[green.alumet]` TOML section into a typed config.
+///
+/// Returns `None` when `endpoint` is absent. Missing mandatory fields
+/// also yield `None` as defense in depth, the authoritative rejection
+/// happens upstream in [`validate_alumet_raw`].
+fn convert_alumet_section(raw: &AlumetSection) -> Option<AlumetConfig> {
+    convert_alumet_section_with_env(raw, || {
+        std::env::var("PERF_SENTINEL_ALUMET_AUTH_HEADER").ok()
+    })
+}
+
+pub(super) fn convert_alumet_section_with_env(
+    raw: &AlumetSection,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<AlumetConfig> {
+    let endpoint = raw.endpoint.as_ref()?;
+    if let Err(msg) = validate_alumet_raw(raw) {
+        tracing::error!("{msg}");
+        return None;
+    }
+    let metric_name = raw.metric_name.as_ref()?.trim().to_string();
+    let label_key = raw.label_key.as_ref()?.trim().to_string();
+
+    let from_env = env_lookup();
+    let auth_header = from_env.clone().or_else(|| raw.auth_header.clone());
+    if from_env.is_none() && raw.auth_header.is_some() {
+        tracing::warn!(
+            "[green.alumet] auth_header is set in the config file. \
+             Prefer the PERF_SENTINEL_ALUMET_AUTH_HEADER environment variable \
+             to avoid committing secrets to version control."
+        );
+    }
+    Some(AlumetConfig {
+        endpoint: endpoint.clone(),
+        scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
+        metric_name,
+        label_key,
+        energy_interval_secs: raw
+            .energy_interval_secs
+            .unwrap_or(DEFAULT_ENERGY_INTERVAL_SECS),
         service_mappings: raw.service_mappings.clone(),
         auth_header,
     })

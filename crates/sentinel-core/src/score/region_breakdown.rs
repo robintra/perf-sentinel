@@ -5,10 +5,11 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use super::carbon::{
-    self, CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_EMAPS, CO2_MODEL_KEPLER,
-    CO2_MODEL_REDFISH, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CO2_MODEL_V3, CarbonEstimate,
-    CarbonReport, GENERIC_PUE, IntensitySource, REGION_STATUS_KNOWN, REGION_STATUS_OUT_OF_TABLE,
-    REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION, lookup_region_lower,
+    self, CO2_MODEL, CO2_MODEL_ALUMET, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_EMAPS,
+    CO2_MODEL_KEPLER, CO2_MODEL_REDFISH, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CO2_MODEL_V3,
+    CarbonEstimate, CarbonReport, GENERIC_PUE, IntensitySource, REGION_STATUS_KNOWN,
+    REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION,
+    lookup_region_lower,
 };
 
 /// Per-region CO₂ accumulator. `intensity_sum_per_op / total_ops`
@@ -27,6 +28,7 @@ pub(super) struct RegionAccumulator {
     pub(super) intensity_sum_per_op: f64,
     /// Highest-fidelity intensity source seen for this region.
     pub(super) max_intensity_source: IntensitySource,
+    pub(super) any_alumet: bool,
     pub(super) any_scaphandre: bool,
     pub(super) any_kepler_ebpf: bool,
     pub(super) any_redfish_bmc: bool,
@@ -56,6 +58,7 @@ pub(super) struct RegionAccumulator {
 pub(super) struct ReportFlags {
     any_hourly: bool,
     any_monthly_hourly: bool,
+    any_alumet: bool,
     any_scaphandre: bool,
     any_kepler_ebpf: bool,
     any_redfish_bmc: bool,
@@ -119,6 +122,7 @@ fn update_flags_from_accumulator(flags: &mut ReportFlags, acc: &RegionAccumulato
         }
         IntensitySource::Annual => {}
     }
+    flags.any_alumet |= acc.any_alumet;
     flags.any_scaphandre |= acc.any_scaphandre;
     flags.any_kepler_ebpf |= acc.any_kepler_ebpf;
     flags.any_redfish_bmc |= acc.any_redfish_bmc;
@@ -217,14 +221,16 @@ fn realtime_metadata_for_row(
 
 /// Pick the top-level `co2.model` tag given the aggregate flags.
 ///
-/// Precedence (most to least precise): real-time, Scaphandre, Kepler,
-/// Redfish, cloud `SPECpower`, monthly/hourly proxy, annual proxy. The
-/// `+cal` suffix only applies to the proxy branches, the measured
-/// branches all short-circuit earlier so the calibration flag is
-/// implicitly suppressed when any measured source is active.
+/// Precedence (most to least precise): real-time, Alumet, Scaphandre,
+/// Kepler, Redfish, cloud `SPECpower`, monthly/hourly proxy, annual
+/// proxy. The `+cal` suffix only applies to the proxy branches, the
+/// measured branches all short-circuit earlier so the calibration flag
+/// is implicitly suppressed when any measured source is active.
 pub(super) fn select_co2_model_tag(flags: ReportFlags) -> &'static str {
     if flags.any_realtime {
         CO2_MODEL_EMAPS
+    } else if flags.any_alumet {
+        CO2_MODEL_ALUMET
     } else if flags.any_scaphandre {
         CO2_MODEL_SCAPHANDRE
     } else if flags.any_kepler_ebpf {

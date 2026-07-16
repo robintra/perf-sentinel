@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use crate::score::alumet::AlumetConfig;
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
@@ -450,6 +451,9 @@ impl Config {
         if let Some(cfg) = &self.green.kepler {
             Self::validate_kepler(cfg)?;
         }
+        if let Some(cfg) = &self.green.alumet {
+            Self::validate_alumet(cfg)?;
+        }
         if let Some(cfg) = &self.green.redfish {
             Self::validate_redfish(cfg)?;
         }
@@ -742,6 +746,113 @@ impl Config {
                 return Err(format!(
                     "[green.kepler] service_mappings label for service '{service}' \
                      must be 1-{max_label_len} chars, got '{label}'{label_hint}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate a parsed `[green.alumet]` config section.
+    ///
+    /// Beyond the shared endpoint and interval checks, this guards the
+    /// two operator-supplied parser inputs (`metric_name`, `label_key`)
+    /// and `energy_interval_secs`, the value that silently rescales
+    /// every reading when it drifts from the Alumet-side
+    /// `poll_interval`. Neither string reaches a Prometheus label, they
+    /// are matched against the scraped body, so there is no cardinality
+    /// exposure here.
+    pub(super) fn validate_alumet(cfg: &AlumetConfig) -> Result<(), String> {
+        if cfg.endpoint.is_empty() {
+            return Err(
+                "[green.alumet] endpoint is required when the section is present".to_string(),
+            );
+        }
+        if !cfg.endpoint.starts_with("http://") && !cfg.endpoint.starts_with("https://") {
+            return Err(format!(
+                "[green.alumet] endpoint '{}' must start with 'http://' or 'https://'",
+                cfg.endpoint
+            ));
+        }
+        validate_http_authority(&cfg.endpoint, "[green.alumet] endpoint")?;
+        let secs = cfg.scrape_interval.as_secs();
+        if !(1..=3600).contains(&secs) {
+            return Err(format!(
+                "[green.alumet] scrape_interval_secs must be in [1, 3600], got {secs}"
+            ));
+        }
+        Self::validate_alumet_parser_field(&cfg.metric_name, "metric_name")?;
+        Self::validate_alumet_parser_field(&cfg.label_key, "label_key")?;
+        let interval = cfg.energy_interval_secs;
+        if !interval.is_finite() || interval <= 0.0 || interval > 3600.0 {
+            return Err(format!(
+                "[green.alumet] energy_interval_secs must be a finite value in (0, 3600], \
+                 got {interval}"
+            ));
+        }
+        Self::validate_alumet_service_mappings(cfg)?;
+        #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+        if let Some(auth) = cfg.auth_header.as_deref() {
+            crate::ingest::auth_header::AuthHeader::parse(auth)
+                .map_err(|msg| format!("[green.alumet] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// Bound one of the two operator-supplied parser inputs. Control
+    /// chars are rejected before the value reaches an error message.
+    fn validate_alumet_parser_field(value: &str, field: &str) -> Result<(), String> {
+        /// Prometheus metric and label names are far shorter than this
+        /// in practice, the cap only bounds the memory a hostile config
+        /// can pin per scrape.
+        const MAX_PARSER_FIELD_LEN: usize = 256;
+        if has_control_char(value) {
+            return Err(format!(
+                "[green.alumet] {field} contains control characters"
+            ));
+        }
+        if value.is_empty() || value.len() > MAX_PARSER_FIELD_LEN {
+            return Err(format!(
+                "[green.alumet] {field} must be 1-{MAX_PARSER_FIELD_LEN} chars, got '{value}'"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate `[green.alumet].service_mappings` keys and values.
+    /// Label values are Alumet label values (a pod name, a cgroup id, a
+    /// RAPL domain), all well under the shared 256-byte cap.
+    fn validate_alumet_service_mappings(cfg: &AlumetConfig) -> Result<(), String> {
+        /// Memory-footprint cap, mirrors `MAX_KEPLER_SERVICE_MAPPINGS`.
+        const MAX_ALUMET_SERVICE_MAPPINGS: usize = 1024;
+        if cfg.service_mappings.len() > MAX_ALUMET_SERVICE_MAPPINGS {
+            return Err(format!(
+                "[green.alumet] service_mappings has {} entries; maximum is {MAX_ALUMET_SERVICE_MAPPINGS}",
+                cfg.service_mappings.len()
+            ));
+        }
+        for (service, label) in &cfg.service_mappings {
+            // Reject control chars first so an ANSI-laden label is not
+            // echoed back to stderr via the length-error `format!`.
+            if has_control_char(service) {
+                return Err("[green.alumet] service_mappings has a service name \
+                     that contains control characters"
+                    .to_string());
+            }
+            if has_control_char(label) {
+                return Err(format!(
+                    "[green.alumet] service_mappings has a label \
+                     for service '{service}' that contains control characters"
+                ));
+            }
+            if service.is_empty() || service.len() > 256 {
+                return Err(format!(
+                    "[green.alumet] service_mappings service name '{service}' must be 1-256 chars"
+                ));
+            }
+            if label.is_empty() || label.len() > 256 {
+                return Err(format!(
+                    "[green.alumet] service_mappings label for service '{service}' \
+                     must be 1-256 chars, got '{label}'"
                 ));
             }
         }

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::detect::Confidence;
+use crate::score::alumet::AlumetConfig;
 use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use crate::score::cloud_energy::config::CloudEnergyConfig;
 use crate::score::kepler::KeplerConfig;
@@ -166,6 +167,9 @@ pub struct GreenConfig {
     pub scaphandre: Option<ScaphandreConfig>,
     /// Kepler eBPF energy scraper config (daemon only).
     pub kepler: Option<KeplerConfig>,
+    /// Alumet energy scraper config (daemon only). Highest
+    /// measured-energy precedence, overrides Scaphandre.
+    pub alumet: Option<AlumetConfig>,
     /// Redfish BMC wall-plug-power scraper config (daemon only).
     pub redfish: Option<RedfishConfig>,
     /// Cloud CPU% + `SPECpower` config (daemon only).
@@ -367,6 +371,7 @@ impl Default for GreenConfig {
             use_hourly_profiles: true,
             scaphandre: None,
             kepler: None,
+            alumet: None,
             redfish: None,
             cloud_energy: None,
             per_operation_coefficients: true,
@@ -468,7 +473,7 @@ mod raw;
 mod toml_paths;
 mod validate;
 
-use raw::{RawConfig, parse_daemon_environment, parse_kepler_metric_kind};
+use raw::{RawConfig, parse_daemon_environment, parse_kepler_metric_kind, validate_alumet_raw};
 use toml_paths::normalize_toml_path_strings;
 pub(crate) use validate::has_control_char;
 
@@ -476,10 +481,10 @@ pub(crate) use validate::has_control_char;
 // names that moved into submodules.
 #[cfg(test)]
 use raw::{
-    CloudSection, ElectricityMapsSection, KeplerSection, RedfishSection, ScaphandreSection,
-    convert_cloud_section_with_env, convert_electricity_maps_section_with_env,
-    convert_kepler_section_with_env, convert_redfish_section_with_env,
-    convert_scaphandre_section_with_env,
+    AlumetSection, CloudSection, ElectricityMapsSection, KeplerSection, RedfishSection,
+    ScaphandreSection, convert_alumet_section_with_env, convert_cloud_section_with_env,
+    convert_electricity_maps_section_with_env, convert_kepler_section_with_env,
+    convert_redfish_section_with_env, convert_scaphandre_section_with_env,
 };
 #[cfg(test)]
 use toml_paths::{TOML_PATH_STRING_KEYS, find_basic_string_end};
@@ -580,6 +585,11 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     // into a silent Kepler disable instead of the documented loud error.
     parse_kepler_metric_kind(raw.green.kepler.metric_kind.as_deref())
         .map_err(ConfigError::Validation)?;
+    // Same pattern for `[green.alumet]`: `metric_name` and `label_key`
+    // are mandatory once an endpoint is set and have no safe default,
+    // so a missing one must be a loud error rather than a silently
+    // dropped section.
+    validate_alumet_raw(&raw.green.alumet).map_err(ConfigError::Validation)?;
     let config = Config::from(raw);
     config.validate().map_err(ConfigError::Validation)?;
     config.warn_listen_addr_if_non_loopback();

@@ -1945,6 +1945,53 @@ fn redfish_snapshot_flips_model_to_redfish_bmc() {
 }
 
 #[test]
+fn alumet_snapshot_flips_model_to_alumet_rapl() {
+    let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+    let mut snapshot = HashMap::new();
+    snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::alumet(5e-7));
+    let ctx = CarbonContext {
+        default_region: None,
+        service_regions: HashMap::new(),
+        embodied_per_request_gco2: 0.0,
+        use_hourly_profiles: false,
+        energy_snapshot: Some(snapshot),
+        per_operation_coefficients: false,
+        ..CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let co2 = summary.co2.as_ref().unwrap();
+    assert_eq!(co2.total.model, "alumet_rapl");
+    let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
+    let expected = 6.0 * 5e-7 * intensity * pue;
+    assert!((co2.operational_gco2 - expected).abs() < 1e-12);
+}
+
+#[test]
+fn alumet_takes_precedence_over_scaphandre_in_model_tag() {
+    // Alumet on the trace's service, Scaphandre on a different one.
+    // Alumet leads the measured chain, so it sets the top-level tag.
+    let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+    let mut snapshot = HashMap::new();
+    snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::alumet(5e-7));
+    snapshot.insert(
+        "other-svc".to_string(),
+        carbon::EnergyEntry::scaphandre(3e-7),
+    );
+    let ctx = CarbonContext {
+        default_region: None,
+        service_regions: HashMap::new(),
+        embodied_per_request_gco2: 0.0,
+        use_hourly_profiles: false,
+        energy_snapshot: Some(snapshot),
+        per_operation_coefficients: false,
+        ..CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let co2 = summary.co2.as_ref().unwrap();
+    assert_eq!(co2.total.model, "alumet_rapl");
+}
+
+#[test]
 fn scaphandre_takes_precedence_over_kepler_in_model_tag() {
     // Scaphandre on the trace's service, Kepler on a different
     // service. Scaphandre wins for the top-level model tag.

@@ -21,6 +21,7 @@ use crate::event::SpanEvent;
 use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
+use crate::score::alumet::AlumetState;
 use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::kepler::KeplerState;
@@ -365,6 +366,7 @@ fn build_http_router(
             ack_api_key: config.daemon.ack.api_key.clone(),
             daemon_config: config.daemon.clone(),
             energy_backends: query_api::EnergyBackendsConfigured {
+                alumet: config.green.alumet.is_some(),
                 scaphandre: config.green.scaphandre.is_some(),
                 kepler: config.green.kepler.is_some(),
                 redfish: config.green.redfish.is_some(),
@@ -575,6 +577,29 @@ pub(super) fn setup_kepler_scraper(
     let staleness_ms = kepler_cfg.scrape_interval.as_millis() as u64 * 3;
     let state = KeplerState::new();
     let handle = score::kepler::spawn_scraper(kepler_cfg, state.clone(), metrics.clone());
+    ScraperSetup {
+        state: Some(state),
+        handle: Some(handle),
+        staleness_ms,
+    }
+}
+
+/// Spawn the Alumet scraper when `[green.alumet]` is configured. Same
+/// staleness convention as Scaphandre (`3x scrape interval`).
+pub(super) fn setup_alumet_scraper(
+    config: &Config,
+    metrics: &Arc<MetricsState>,
+) -> ScraperSetup<AlumetState> {
+    let Some(alumet_cfg) = config.green.alumet.clone() else {
+        return ScraperSetup {
+            state: None,
+            handle: None,
+            staleness_ms: 0,
+        };
+    };
+    let staleness_ms = alumet_cfg.scrape_interval.as_millis() as u64 * 3;
+    let state = AlumetState::new();
+    let handle = score::alumet::spawn_scraper(alumet_cfg, state.clone(), metrics.clone());
     ScraperSetup {
         state: Some(state),
         handle: Some(handle),
