@@ -325,6 +325,10 @@ energy_interval_secs = 1.0
 
 **Precedence.** `alumet_rapl` leads the measured chain, ahead of `scaphandre_rapl`. Both read RAPL, but Alumet's sampling is measurably less error-prone and it attributes per cgroup rather than per process. Running both on the same service is supported, Alumet wins.
 
+**Upstream packaging gotchas.** The upstream `.deb` ships `/etc/alumet/alumet-config.toml` and its `alumet-agent` wrapper points `ALUMET_CONFIG` at it unless the variable is already set. That shipped file has no `prometheus-exporter` section and the exporter's `prefix`/`suffix` fields have no defaults, so enabling the plugin against it fails at startup with `missing field 'prefix'`. Point `ALUMET_CONFIG` at a fresh path so the agent regenerates defaults for your plugin set. In containers, the packaged binary also carries file capabilities (`cap_sys_ptrace`, `cap_sys_nice`, `cap_perfmon`), so a plain `docker run` fails with EPERM unless those are granted with `--cap-add`.
+
+**The scraper alone does not put `alumet_rapl` in the report.** Setting `[green.alumet]` starts the scraper (visible on `/api/energy`), but the measured coefficient only reaches `green_summary` when green scoring resolves a region for the spans (`[green] default_region`, `[green.service_regions]`, or a `cloud.region` span attribute). Without one, `per_service_energy_model` keeps showing the proxy tag, which is easy to misread as a broken Alumet integration.
+
 **Alumet is pre-1.0** (v0.9.5 at time of writing). Metric names and plugin config may change between releases. If a scrape stops matching after an Alumet upgrade, the daemon warns with `no samples matched the configured metric` after three consecutive ticks.
 
 #### `[green.redfish]` (optional, opt-in)
