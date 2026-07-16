@@ -373,21 +373,7 @@ async fn evict_expired_traces(
 /// owned so it can travel to the worker. Sampling the energy sources here
 /// (on the loop side, at eviction time) preserves the previous timing.
 fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> Arc<score::carbon::CarbonContext> {
-    match build_tick_ctx(
-        &sources.base_carbon_ctx,
-        sources.alumet_state,
-        sources.alumet_staleness_ms,
-        sources.scaphandre_state,
-        sources.scaphandre_staleness_ms,
-        sources.kepler_state,
-        sources.kepler_staleness_ms,
-        sources.redfish_state,
-        sources.redfish_staleness_ms,
-        sources.cloud_state,
-        sources.cloud_staleness_ms,
-        sources.emaps_state,
-        sources.emaps_staleness_ms,
-    ) {
+    match build_tick_ctx(sources) {
         // Fast path (no scraper produced fresh data, the common case):
         // share the base context by refcount instead of deep-cloning the
         // region map and calibration table on every evicted batch.
@@ -514,22 +500,29 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
 /// eBPF, Redfish BMC, cloud `SPECpower`. Inserted in reverse order so
 /// the highest-fidelity entry wins for any service that appears in
 /// multiple snapshots.
-#[allow(clippy::too_many_arguments)]
-fn build_tick_ctx<'a>(
-    base: &'a score::carbon::CarbonContext,
-    alumet_state: Option<&AlumetState>,
-    alumet_staleness_ms: u64,
-    scaphandre_state: Option<&ScaphandreState>,
-    scaphandre_staleness_ms: u64,
-    kepler_state: Option<&KeplerState>,
-    kepler_staleness_ms: u64,
-    redfish_state: Option<&RedfishState>,
-    redfish_staleness_ms: u64,
-    cloud_state: Option<&CloudEnergyState>,
-    cloud_staleness_ms: u64,
-    emaps_state: Option<&ElectricityMapsState>,
-    emaps_staleness_ms: u64,
-) -> std::borrow::Cow<'a, score::carbon::CarbonContext> {
+// Takes the whole `EnergySources` bundle rather than thirteen
+// positional arguments: six of those were mutually type-compatible
+// `u64` staleness windows, so a mis-paired argument compiled silently
+// and gated one backend's readings by another's staleness.
+fn build_tick_ctx<'s>(
+    sources: &'s EnergySources<'_>,
+) -> std::borrow::Cow<'s, score::carbon::CarbonContext> {
+    let base = &*sources.base_carbon_ctx;
+    let EnergySources {
+        alumet_state,
+        alumet_staleness_ms,
+        scaphandre_state,
+        scaphandre_staleness_ms,
+        kepler_state,
+        kepler_staleness_ms,
+        redfish_state,
+        redfish_staleness_ms,
+        cloud_state,
+        cloud_staleness_ms,
+        emaps_state,
+        emaps_staleness_ms,
+        ..
+    } = *sources;
     let now = score::scaphandre::monotonic_ms();
 
     // Cloud entries first (lowest precedence).
@@ -1107,32 +1100,22 @@ mod tests {
     #[test]
     fn build_tick_ctx_no_scrapers_yields_borrowed_cow() {
         // Fast path: no scrapers → Cow::Borrowed, no clone.
-        let base = score::carbon::CarbonContext::default();
-        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0, None, 0, None, 0, None, 0);
+        let base = Arc::new(score::carbon::CarbonContext::default());
+        let sources = no_scrapers(&base);
+        let ctx = build_tick_ctx(&sources);
         assert_matches!(ctx, std::borrow::Cow::Borrowed(_));
         assert!(ctx.energy_snapshot.is_none());
     }
 
     #[test]
     fn build_tick_ctx_scaphandre_only() {
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 1e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            None,
-            0,
-            Some(&scaph),
-            500,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.scaphandre_state = Some(&scaph);
+        sources.scaphandre_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
@@ -1140,24 +1123,13 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_cloud_only() {
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-b".into(), 2e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            Some(&cloud),
-            500,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.cloud_state = Some(&cloud);
+        sources.cloud_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
@@ -1165,24 +1137,13 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_kepler_only() {
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let kepler = KeplerState::new();
         kepler.insert_for_test("svc-k".into(), 4e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            None,
-            0,
-            None,
-            0,
-            Some(&kepler),
-            500,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.kepler_state = Some(&kepler);
+        sources.kepler_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-k"].model_tag, "kepler_ebpf");
@@ -1190,24 +1151,13 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_redfish_only() {
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let redfish = RedfishState::new();
         redfish.insert_for_test("svc-r".into(), 6e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            Some(&redfish),
-            500,
-            None,
-            0,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.redfish_state = Some(&redfish);
+        sources.redfish_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-r"].model_tag, "redfish_bmc");
@@ -1215,7 +1165,7 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_scaphandre_overrides_kepler_overrides_cloud_for_same_service() {
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 1e-7, 100);
         let kepler = KeplerState::new();
@@ -1224,21 +1174,14 @@ mod tests {
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-a".into(), 5e-7, 100);
         cloud.insert_for_test("svc-b".into(), 3e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            None,
-            0,
-            Some(&scaph),
-            500,
-            Some(&kepler),
-            500,
-            None,
-            0,
-            Some(&cloud),
-            500,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.scaphandre_state = Some(&scaph);
+        sources.scaphandre_staleness_ms = 500;
+        sources.kepler_state = Some(&kepler);
+        sources.kepler_staleness_ms = 500;
+        sources.cloud_state = Some(&cloud);
+        sources.cloud_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 3);
         // svc-a: Scaphandre wins (top of precedence).
@@ -1252,24 +1195,13 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_alumet_only() {
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let alumet = AlumetState::new();
         alumet.insert_for_test("svc-al".into(), 8e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            Some(&alumet),
-            500,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.alumet_state = Some(&alumet);
+        sources.alumet_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-al"].model_tag, "alumet_rapl");
@@ -1281,27 +1213,18 @@ mod tests {
         // Scaphandre, so a service measured by both must carry Alumet's
         // coefficient and tag. Guards the insertion order in
         // `build_tick_ctx` (reverse precedence, Alumet inserted last).
-        let base = score::carbon::CarbonContext::default();
+        let base = Arc::new(score::carbon::CarbonContext::default());
         let alumet = AlumetState::new();
         alumet.insert_for_test("svc-a".into(), 1e-7, 100);
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 9e-7, 100);
         scaph.insert_for_test("svc-s".into(), 3e-7, 100);
-        let ctx = build_tick_ctx(
-            &base,
-            Some(&alumet),
-            500,
-            Some(&scaph),
-            500,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-            None,
-            0,
-        );
+        let mut sources = no_scrapers(&base);
+        sources.alumet_state = Some(&alumet);
+        sources.alumet_staleness_ms = 500;
+        sources.scaphandre_state = Some(&scaph);
+        sources.scaphandre_staleness_ms = 500;
+        let ctx = build_tick_ctx(&sources);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 2);
         // svc-a: Alumet wins over Scaphandre.
