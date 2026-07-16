@@ -170,12 +170,13 @@ async fn run_scraper_loop(cfg: AlumetConfig, state: Arc<AlumetState>, metrics: A
                 // Mirror Scaphandre: timestamp after the fetch resolves
                 // so `last_update_ms` reflects when the data landed.
                 let now = monotonic_ms();
-                apply_scrape(&state, &samples, &deltas, &cfg, now);
+                let matched = apply_scrape(&state, &samples, &deltas, &cfg, now);
                 last_success_ms = now;
                 metrics.alumet_last_scrape_age_seconds.set(0.0);
                 metrics.alumet_scrape_success.inc();
                 track_zero_sample_streak(
                     samples.len(),
+                    matched,
                     deltas.len(),
                     &redacted,
                     &cfg.metric_name,
@@ -258,12 +259,20 @@ fn handle_alumet_failure(
 }
 
 /// Success-branch latch: warn once after
-/// [`ZERO_SAMPLE_WARN_THRESHOLD`] consecutive HTTP-200 ticks with
-/// zero matching samples. Extracted for the line-count limit and to
+/// [`ZERO_SAMPLE_WARN_THRESHOLD`] consecutive HTTP-200 ticks that
+/// produced nothing usable. Extracted for the line-count limit and to
 /// unit-test the warn-once edge.
+///
+/// `services_matched` is what makes the latch reachable for a mistyped
+/// `service_mappings` value: with a valid `metric_name` and `label_key`
+/// but a label value that does not exist on the wire, `samples_len`
+/// stays positive forever, so gating on it alone would leave that
+/// misconfiguration with no diagnostic at all (every counter reads
+/// healthy and the scraper publishes nothing).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn track_zero_sample_streak(
     samples_len: usize,
+    services_matched: usize,
     services_updated: usize,
     redacted: &str,
     metric_name: &str,
@@ -271,27 +280,43 @@ pub(super) fn track_zero_sample_streak(
     consecutive_zero_sample_ticks: &mut u32,
     zero_sample_warned: &mut bool,
 ) {
-    if samples_len == 0 {
+    if samples_len == 0 || services_matched == 0 {
         *consecutive_zero_sample_ticks = consecutive_zero_sample_ticks.saturating_add(1);
         if !*zero_sample_warned && *consecutive_zero_sample_ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
             let ticks = *consecutive_zero_sample_ticks;
-            tracing::warn!(
-                endpoint = %redacted,
-                metric = metric_name,
-                label = label_key,
-                ticks,
-                "Alumet endpoint replied HTTP 200 but no samples matched \
-                 the configured metric across the last {ticks} ticks. \
-                 Most common cause: metric_name does not match the wire. \
-                 Alumet's prometheus-exporter prepends `prefix` and \
-                 appends `suffix` (default '_alumet') to every metric \
-                 name, and an energy-attribution series is named after \
-                 the operator's formula. Run \
-                 `curl <endpoint> | grep -i energy` and copy the name \
-                 verbatim. Other causes: label_key absent from the \
-                 series, or service_mappings values that do not exist \
-                 on the wire.",
-            );
+            if samples_len == 0 {
+                tracing::warn!(
+                    endpoint = %redacted,
+                    metric = metric_name,
+                    label = label_key,
+                    ticks,
+                    "Alumet endpoint replied HTTP 200 but no samples matched \
+                     the configured metric across the last {ticks} ticks. \
+                     Most common cause: metric_name does not match the wire. \
+                     Alumet's prometheus-exporter prepends `prefix` and \
+                     appends `suffix` (default '_alumet') to every metric \
+                     name, and an energy-attribution series is named after \
+                     the operator's formula. Run \
+                     `curl <endpoint> | grep -i energy` and copy the name \
+                     verbatim. Other cause: label_key absent from the series.",
+                );
+            } else {
+                tracing::warn!(
+                    endpoint = %redacted,
+                    metric = metric_name,
+                    label = label_key,
+                    samples = samples_len,
+                    ticks,
+                    "Alumet endpoint replied HTTP 200 and metric_name matched \
+                     {samples_len} samples, but none of the service_mappings \
+                     label values were found under label_key across the last \
+                     {ticks} ticks, so no measured coefficient is being \
+                     published. The mapping values must match the label \
+                     verbatim. Run \
+                     `curl <endpoint> | grep -o '{label_key}=\"[^\"]*\"' | sort -u` \
+                     to list the values actually on the wire.",
+                );
+            }
             *zero_sample_warned = true;
         }
     } else {
