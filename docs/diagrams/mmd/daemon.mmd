@@ -24,6 +24,7 @@ flowchart TB
     end
 
     subgraph scrapers["Energy scrapers (background tasks)"]
+        alumet["Alumet<br/><i>RAPL per-cgroup<br/>joules per poll_interval<br/>scrape_interval_secs</i>"]
         scaph["Scaphandre<br/><i>RAPL per-process<br/>scrape_interval_secs</i>"]
         kepler["Kepler<br/><i>eBPF joules counter<br/>ARM + x86<br/>scrape_interval_secs</i>"]
         redfish["Redfish BMC<br/><i>chassis wall-plug watts<br/>scrape_interval_secs (15-3600)</i>"]
@@ -31,7 +32,7 @@ flowchart TB
         emaps["Electricity Maps<br/><i>real-time gCO2/kWh<br/>poll_interval_secs</i>"]
     end
 
-    tick_ctx["build_owned_tick_ctx()<br/><i>merge energy snapshots at eviction time, precedence:<br/>scaphandre &gt; kepler &gt; redfish &gt; cloud<br/>+ real-time intensity</i>"]
+    tick_ctx["build_owned_tick_ctx()<br/><i>merge energy snapshots at eviction time, precedence:<br/>alumet &gt; scaphandre &gt; kepler &gt; redfish &gt; cloud<br/>+ real-time intensity</i>"]
 
     enqueue["enqueue_for_analysis()<br/><i>try_reserve(), non-blocking,<br/>never awaits analysis</i>"]
 
@@ -85,6 +86,7 @@ flowchart TB
     ctrlc -- "drain_all()" --> window
     window -. "drain_to_worker_and_join() (Ctrl-C):<br/>blocking send, no shedding, then join" .-> work_channel
 
+    alumet --> tick_ctx
     scaph --> tick_ctx
     kepler --> tick_ctx
     redfish --> tick_ctx

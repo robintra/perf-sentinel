@@ -298,9 +298,10 @@ set listed under **Response shape**.)
 
 ### GET /api/energy
 
-Live health of the five energy/intensity backends (since 0.8.8): the
-four scraped measured-energy sources (Scaphandre, Kepler, Redfish,
-cloud SPECpower) and the Electricity Maps real-time intensity API.
+Live health of the six energy/intensity backends (since 0.8.8): the
+five scraped measured-energy sources (Alumet, Scaphandre, Kepler,
+Redfish, cloud SPECpower) and the Electricity Maps real-time intensity
+API.
 Backs the Scrapers tab of `perf-sentinel query monitor`. The effective
 mix itself (which source won the precedence chain per service, grid
 intensity per region) lives on `/api/export/report` under
@@ -309,9 +310,10 @@ configured, fresh, and succeeding".
 
 **Query parameters:** none.
 
-**Response shape:** an object with a `backends` array of five entries in
-a fixed order (`scaphandre`, `kepler`, `redfish`, `cloud_energy`,
-`electricity_maps`), each:
+**Response shape:** an object with a `backends` array of six entries in
+a fixed order following the measured-energy precedence chain (`alumet`,
+`scaphandre`, `kepler`, `redfish`, `cloud_energy`, `electricity_maps`),
+each:
 
 | Field                     | Type    | Description                                                                                                      |
 |---------------------------|---------|------------------------------------------------------------------------------------------------------------------|
@@ -345,6 +347,7 @@ curl -sS http://127.0.0.1:4318/api/energy
 ```json
 {
   "backends": [
+    { "backend": "alumet", "configured": false },
     {
       "backend": "scaphandre",
       "configured": true,

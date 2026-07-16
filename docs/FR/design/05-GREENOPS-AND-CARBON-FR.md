@@ -428,11 +428,33 @@ kwh               = joules / 3_600_000
 energy_per_op_kwh = kwh / ops_in_window
 ```
 
-**Tag de modèle et précédence.** Le coefficient porte le tag `"cloud_specpower"`. Dans `build_tick_ctx`, les sources de plus haute fidélité prennent la précédence : Scaphandre écrase Kepler, qui écrase Redfish, qui écrase cloud SPECpower pour un même service. Le tag de modèle de niveau supérieur reflète la source la plus précise : `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+**Tag de modèle et précédence.** Le coefficient porte le tag `"cloud_specpower"`. Dans `build_tick_ctx`, les sources de plus haute fidélité prennent la précédence : Alumet écrase Scaphandre, qui écrase Kepler, qui écrase Redfish, qui écrase cloud SPECpower pour un même service. Le tag de modèle de niveau supérieur reflète la source la plus précise : `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 
 **Daemon uniquement.** Comme Scaphandre, l'estimation d'énergie cloud est une fonctionnalité daemon uniquement. La commande `analyze` batch utilise toujours le modèle proxy.
 
 **Ce que cloud SPECpower ne fait PAS.** Voir `docs/FR/LIMITATIONS-FR.md` "Limites de précision du cloud SPECpower" pour la discussion complète. Le modèle SPECpower capture la puissance proportionnelle au CPU mais pas la mémoire, les I/O ou le réseau. La multi-tenance n'est pas corrigée. La précision est d'environ +/-30%.
+
+## Attribution de l'énergie par intervalle d'Alumet
+
+L'intégration `[green.alumet]` scrape le plugin de sortie `prometheus-exporter` d'Alumet et suit le même patron d'état partagé que toutes les autres sources mesurées (`AgedEnergyMap` sur `ArcSwap`, seuil de fraîcheur à `3 × scrape_interval`, `OpsSnapshotDiff` par service). Deux choses la rendent structurellement différente.
+
+**Une troisième forme de relevé.** Scaphandre exporte une jauge de microwatts instantanée, Kepler un compteur cumulatif monotone en joules, Alumet ni l'un ni l'autre. Son exporteur publie chaque mesure comme une jauge Prometheus contenant la dernière valeur flushée, et `rapl_consumed_energy` est déclarée `CounterDiff` : les joules consommés pendant un `poll_interval` de la source (défaut amont 1s, flush toutes les 5s). La valeur est donc un delta d'intervalle republié tel quel entre deux flushes. Ni sommer entre les scrapes (double comptage à l'intérieur d'une fenêtre de flush, intervalles perdus d'une fenêtre à l'autre) ni faire un delta contre le scrape précédent (la valeur est déjà un delta) n'est correct. Le scraper divise par l'`energy_interval_secs` déclaré par l'opérateur pour retrouver des watts moyens, puis intègre sur sa propre fenêtre de scrape :
+
+```
+watts             = joules_par_intervalle / energy_interval_secs
+joules_fenetre    = watts × scrape_interval_secs
+energy_per_op_kwh = joules_fenetre / (ops × 3_600_000)
+```
+
+Passée la division, c'est la formule de Scaphandre mot pour mot, et elle hérite de la même hypothèse de stationnarité. Cela veut aussi dire qu'`alumet/apply.rs` ne porte aucun état entre les ticks : chaque scrape se suffit, et un redémarrage de l'exporteur n'a besoin d'aucune protection contre la remise à zéro d'un compteur.
+
+**`energy_interval_secs` est invérifiable.** L'intervalle n'apparaît nulle part dans l'exposition, et aucun signal à l'exécution ne distingue une déclaration correcte d'une fausse. Un écart avec le `poll_interval` côté Alumet met l'énergie et le carbone à une échelle linéairement fausse, en silence, tout en étiquetant le résultat `measured`. L'autodétection a été envisagée (observer la jauge et chronométrer ses changements pour déduire la période de flush) puis rejetée : elle déduit le `flush_interval`, pas le `poll_interval`, et une heuristique maligne mais fragile vaut moins qu'un couplage de configuration documenté pour une valeur que l'opérateur a déjà sous les yeux. La mitigation est triple : le champ est affiché dans la ligne de log `Alumet scraper started`, `docs/FR/CONFIGURATION-FR.md` montre les deux fichiers côte à côte, et `docs/FR/LIMITATIONS-FR.md#limites-de-précision-alumet` le nomme comme le plus gros risque de justesse de l'intégration. Un compteur cumulatif ou l'exposition de l'intervalle côté amont retirerait le champ.
+
+**Entrées de parseur fournies par l'opérateur.** Le nom de métrique et la clé de label de Kepler sont épinglés par l'énumération `KeplerMetricKind` parce que l'amont fixe les deux. Alumet n'en fixe aucun : l'exporteur applique un `prefix`/`suffix` configurable (suffixe par défaut `_alumet`) à chaque nom, et la série par service vient d'une formule `energy-attribution` que l'opérateur nomme. Donc `metric_name` et `label_key` sont des champs de configuration obligatoires sans défaut, validés contre les caractères de contrôle et la longueur dans `validate_alumet`, et rejetés bruyamment au chargement s'ils sont absents (`validate_alumet_raw`, appelé depuis `load_from_str` avant la conversion lossy `Config::from`). Aucune de ces deux chaînes n'atteint jamais un label Prometheus, elles sont comparées au corps scrapé, il n'y a donc aucune exposition à la cardinalité. Cette surface générique (métrique, label) est aussi ce qui permet à une seule forme de configuration de couvrir toutes les sources Alumet : les pods `k8s` via `name`, les domaines RAPL bruts via `domain`, les PID `procfs` via `resource_consumer_id`.
+
+**Précédence.** `alumet_rapl` est en tête de la chaîne mesurée, au-dessus de `scaphandre_rapl`. Les deux lisent RAPL, mais l'échantillonnage d'Alumet est mesurablement moins erroné (Raffin et al., <https://hal.science/hal-04420527v2/document>) et il attribue par cgroup plutôt que par processus. Comme tous les rangs de cette chaîne, il ordonne la fidélité d'attribution, pas la couverture au wattmètre, voir la note Redfish ci-dessous.
+
+**Parseur partagé.** `parse_metric_samples` dans `score/prom_parser.rs` a été extrait de `kepler/parser.rs` quand Alumet en est devenu le deuxième consommateur : le code était déjà générique sur `(metric_name, label_key)`. `scaphandre/parser.rs` reste séparé, il extrait deux labels (`exe`, `cmdline`) en une seule passe, sa boucle de scan diverge donc légitimement.
 
 ## Notes d'attribution Kepler et Redfish
 

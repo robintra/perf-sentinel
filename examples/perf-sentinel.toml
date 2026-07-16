@@ -92,6 +92,37 @@ include_network_transport = false
 # a `+cal` suffix (e.g. `io_proxy_v2+cal`) when active.
 # calibration_file = "/etc/perf-sentinel/calibration.toml"
 
+# --- Alumet energy scraper (opt-in, no default egress) ---------------------
+# Scrapes the /metrics endpoint of Alumet's prometheus-exporter plugin.
+# Model tag `alumet_rapl`, the TOP of the measured-energy precedence chain
+# (it outranks `scaphandre_rapl`: same RAPL source, less error-prone
+# sampling, per-cgroup rather than per-process attribution).
+#
+# `metric_name` and `label_key` have NO default and are required: Alumet's
+# exporter shapes every name with a configurable prefix/suffix (default
+# suffix `_alumet`), and the per-service series is named after an
+# energy-attribution formula you choose. Read them off your own endpoint:
+#   curl -s http://localhost:9091/metrics | grep -i energy
+#
+# `energy_interval_secs` MUST match the poll_interval of the Alumet source
+# feeding the metric (upstream default 1s). Alumet publishes the joules of
+# one poll interval as a gauge, so perf-sentinel divides by this value to
+# recover watts. A mismatch rescales energy and carbon silently. See
+# docs/LIMITATIONS.md#alumet-precision-bounds.
+#
+# Prerequisites: an Alumet agent with `rapl` + `k8s` + `energy-attribution`
+# + `prometheus-exporter` for per-service attribution (`rapl` alone only
+# measures the whole machine). See docs/CONFIGURATION.md for the matching
+# alumet-config.toml.
+#
+# [green.alumet]
+# endpoint = "http://localhost:9091/metrics"
+# scrape_interval_secs = 5
+# metric_name = "attributed_energy_cpu_alumet"
+# label_key = "name"
+# energy_interval_secs = 1.0
+# service_mappings = { "account-svc" = "account-pod", "game-svc" = "game-pod" }
+
 # --- Scaphandre per-process scraper (opt-in, no default egress) ------------
 # Scrapes Scaphandre's Prometheus endpoint to get per-process power draw and
 # compute `energy_per_op_kwh = (watts × interval) / ops / 3_600_000`. Model

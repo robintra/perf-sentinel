@@ -438,6 +438,25 @@ Independent published measurements vary by hardware and load, but the order of m
 
 When reading benchmarks that compare these tools to an external meter, keep two quantities separate. First, the periphery that no software-only signal can cover. Second, how well a given tool attributes the fraction it does see to a container, a process, or a span. Only the second is a property of the tool. The first is a property of the signal.
 
+### Alumet precision bounds
+
+perf-sentinel ships an opt-in integration with [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2), scraped through its `prometheus-exporter` output plugin. `alumet_rapl` leads the measured-energy precedence chain.
+
+**Why it outranks Scaphandre.** Both read RAPL. Alumet's sampling is measurably less error-prone, as characterized by its own authors in [Dissecting the software-based measurement of CPU energy consumption](https://hal.science/hal-04420527v2/document) (Raffin et al.), and it attributes per cgroup rather than per process, which matches container workloads more closely. Being ranked first is a statement about attribution fidelity, not about coverage: like Scaphandre, RAPL only sees CPU and DRAM, roughly half to two thirds of wall-plug power. For total server energy, see [Redfish BMC precision bounds](#redfish-bmc-precision-bounds).
+
+**The interval-mismatch failure mode. Read this one.** Alumet's `prometheus-exporter` publishes every measurement as a Prometheus **gauge holding the last flushed value**, and `rapl_consumed_energy` is a `CounterDiff`: the joules consumed during one source `poll_interval`. It is neither a cumulative counter (like Kepler) nor a power reading (like Scaphandre). Two consequences:
+
+- Summing raw readings across scrapes is wrong in both directions. Scraping faster than Alumet flushes double-counts the same value, scraping slower drops whole intervals. perf-sentinel therefore never sums, it divides by `energy_interval_secs` to recover watts and integrates over its own scrape window, exactly as it does for Scaphandre's power gauge.
+- **`energy_interval_secs` cannot be verified against the wire.** The interval is nowhere in the exposition. If the declared value drifts from the Alumet-side `poll_interval`, every energy and carbon figure for the mapped services is rescaled linearly and **silently**: declaring `1.0` while Alumet polls at `5s` overstates energy 5x, with no warning, no failed scrape, and a `measured` provenance tag that looks authoritative. This is the single largest correctness risk in the integration. Re-check both files together whenever either changes. The daemon echoes the value it is using in the `Alumet scraper started` log line so the mistake is at least visible at startup.
+
+The stationarity assumption is the same one Scaphandre carries: the sampled interval is taken as representative of the whole scrape window. Alumet's reading is a mean over its `poll_interval` rather than an instantaneous sample, which if anything is the better-behaved of the two.
+
+**Attribution requires plugin composition.** `rapl` alone measures the machine, with no notion of workload. `procfs` identifies consumers by PID only, which is useless for a stable service mapping. Per-service attribution needs `rapl` + `k8s` + `energy-attribution`, and the resulting metric is named after an operator-chosen formula. That is why `metric_name` and `label_key` are mandatory config with no default, see `docs/CONFIGURATION.md`.
+
+**Upstream version.** Alumet is **pre-1.0** (v0.9.5 at time of writing) and ships no wire-conformance CI job yet: GitHub runners expose no powercap tree, so RAPL cannot run there. Metric names and plugin config may change between releases. The runtime net is the zero-sample warn-once, which fires after three consecutive HTTP-200 ticks with no matching samples and names the likely causes. Treat an Alumet upgrade as a reason to re-run `curl <endpoint> | grep -i energy` and compare against `metric_name`.
+
+**Platform requirements.** Linux, and whatever the chosen source plugin requires. The `rapl` source needs Intel or AMD x86_64 with RAPL access (perf-events or a readable `/sys/devices/virtual/powercap/intel-rapl`), so the same bare-metal and RAPL-passthrough constraints as Scaphandre apply. Alumet also ships ARM-relevant sources (`nvidia-jetson`, `grace-hopper`) that perf-sentinel can scrape through the same generic `metric_name` / `label_key` surface, though only the RAPL path carries the `alumet_rapl` tag today.
+
 ### Scaphandre precision bounds
 
 perf-sentinel ships an opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement via Intel RAPL counters. When `[green.scaphandre]` is configured, the `watch` daemon scrapes the Scaphandre Prometheus endpoint every few seconds and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` proxy constant for each mapped service.
@@ -466,7 +485,7 @@ This captures:
 - **Per-service differences**: Java vs .NET vs Node vs Go will have different energy footprints even for similar I/O work.
 - **Workload variance over time**: an idle service and a loaded service get different coefficients as the daemon runs.
 
-Reports where at least one service used a measured coefficient are tagged with `model = "scaphandre_rapl"`. Full precedence chain: `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. When calibration factors are active on proxy models, the suffix `+cal` is appended (e.g. `io_proxy_v2+cal`). The `+cal` suffix never applies to a measured tag, the calibration multiplier targets the proxy coefficient and has no meaning once a measured reading replaces it.
+Reports where at least one service used a measured coefficient are tagged with `model = "scaphandre_rapl"`. Full precedence chain: `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. When calibration factors are active on proxy models, the suffix `+cal` is appended (e.g. `io_proxy_v2+cal`). The `+cal` suffix never applies to a measured tag, the calibration multiplier targets the proxy coefficient and has no meaning once a measured reading replaces it.
 
 **What Scaphandre does NOT do.** This is the critical limitation: **Scaphandre gives per-service coefficients, not per-finding attribution**. Specifically:
 

@@ -2,6 +2,19 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Alumet is supported as a measured-energy backend, opt-in via `[green.alumet]`. The `watch` daemon scrapes the `/metrics` endpoint of Alumet's `prometheus-exporter` plugin and publishes a per-service energy-per-op coefficient tagged `alumet_rapl`, which leads the measured-energy precedence chain ahead of `scaphandre_rapl`: both read RAPL, but Alumet's sampling is measurably less error-prone and it attributes per cgroup rather than per process. Alumet exposes a third reading shape, neither Scaphandre's power gauge nor Kepler's cumulative counter but the joules of one source `poll_interval`, so the section carries a mandatory `energy_interval_secs` that must match the Alumet-side config. `metric_name` and `label_key` are mandatory and have no default, because Alumet's exporter shapes metric names with an operator-chosen prefix and suffix. See `docs/CONFIGURATION.md` and `docs/LIMITATIONS.md#alumet-precision-bounds`.
+- Prometheus counters `perf_sentinel_alumet_scrape_total`, `perf_sentinel_alumet_scrape_failed_total` and the gauge `perf_sentinel_alumet_last_scrape_age_seconds`, same shape and label sets as the Kepler counters.
+
+### Changed
+
+- `GET /api/energy` now returns six backend rows instead of five. The new `alumet` row leads, the array order follows the measured-energy precedence chain. Consumers reading by `backend` name are unaffected, consumers indexing by position will see their indices shift by one.
+- The Helm `prometheusRule.energyScrapers` alert now covers the Alumet scraper alongside the four existing backends.
+- `score::kepler::parser` moved to `score::prom_parser` and is now shared with the Alumet scraper, its code was already generic over the metric name and label key. `parse_kepler_metrics` is now `parse_metric_samples` and `KeplerSample` is now `PromSample`. This is a breaking change for direct consumers of the `perf-sentinel-core` library at that path, the CLI is unaffected.
+
 ## [0.9.11]
 
 ### Changed
