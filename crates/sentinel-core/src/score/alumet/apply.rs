@@ -88,18 +88,31 @@ pub fn apply_scrape(
     // O(N) index over samples so the service loop stays O(N + M) on
     // endpoints exposing hundreds of series.
     //
-    // Values are SUMMED per label, not overwritten: unlike Kepler, whose
-    // `metric_kind` enum pins a label key that is unique per consumer
-    // (`container_name`, `comm`), Alumet's `label_key` is operator-chosen
-    // and routinely non-unique. One `name="checkout-pod"` carries a row
-    // per RAPL domain (package + dram), and `label_key = "domain"` on a
+    // Values are SUMMED per label, not overwritten: Alumet's
+    // `label_key` is operator-chosen and collisions are routine rather
+    // than exceptional. One `name="checkout-pod"` carries a row per
+    // RAPL domain (package + dram), and `label_key = "domain"` on a
     // dual-socket host carries one `domain="package"` row per socket.
     // Energy is additive, so summing is the physically correct read;
     // `.collect()` would keep whichever row the exposition emitted last
     // and silently halve the figure under a `measured` provenance tag.
+    // (Kepler's `joules_deltas` keeps its historical last-write-wins
+    // read; its pinned label keys can collide too, e.g. one container
+    // name repeated across pods, but that is shipped behavior out of
+    // scope here.)
+    // Per-row validation happens HERE, not only on the sum: the
+    // Prometheus text format legitimately carries NaN, and one NaN row
+    // would poison every row sharing its label, while a negative row
+    // would subtract from an otherwise valid sum and understate the
+    // published figure. Rejected rows still create the entry so the
+    // label counts as matched (the series exists on the wire, the
+    // mapping is not the problem).
     let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
     for s in samples {
-        *by_label.entry(s.label_value.as_str()).or_insert(0.0) += s.value;
+        let slot = by_label.entry(s.label_value.as_str()).or_insert(0.0);
+        if s.value.is_finite() && s.value > 0.0 {
+            *slot += s.value;
+        }
     }
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();
     let mut next = state.current_owned();

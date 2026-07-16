@@ -134,9 +134,14 @@ async fn run_scraper_loop(cfg: AlumetConfig, state: Arc<AlumetState>, metrics: A
     let mut consecutive_failures: u32 = 0;
     let mut unsupported_platform_warned = false;
     // "HTTP 200, samples empty" warn-once latch, reset on HTTP error
-    // so a flapping endpoint does not falsely trip it.
-    let mut consecutive_zero_sample_ticks: u32 = 0;
-    let mut zero_sample_warned = false;
+    // so a flapping endpoint does not falsely trip it. One independent
+    // streak per cause: a metric_name that matches nothing and a
+    // service_mappings table that matches nothing are distinct
+    // misconfigurations with distinct fixes, and sharing one counter
+    // would let a streak of the first cause fire the second cause's
+    // message (or a latched first warn suppress the second forever).
+    let mut no_samples_streak = WarnOnceStreak::default();
+    let mut no_match_streak = WarnOnceStreak::default();
     // Track the last successful scrape so the `last_scrape_age_seconds`
     // gauge advances on every failure tick. Seeded to scraper-start time
     // so an Alumet endpoint broken from boot still climbs the gauge.
@@ -155,6 +160,14 @@ async fn run_scraper_loop(cfg: AlumetConfig, state: Arc<AlumetState>, metrics: A
         service_count = cfg.service_mappings.len(),
         "Alumet scraper started"
     );
+    if cfg.service_mappings.is_empty() {
+        tracing::warn!(
+            endpoint = %redacted,
+            "[green.alumet] service_mappings is empty: the scraper will \
+             poll the endpoint but can never attribute energy to a \
+             service. Add mappings to publish measured coefficients."
+        );
+    }
 
     loop {
         ticker.tick().await;
@@ -178,19 +191,20 @@ async fn run_scraper_loop(cfg: AlumetConfig, state: Arc<AlumetState>, metrics: A
                     samples.len(),
                     matched,
                     deltas.len(),
+                    cfg.service_mappings.len(),
                     &redacted,
                     &cfg.metric_name,
                     &cfg.label_key,
-                    &mut consecutive_zero_sample_ticks,
-                    &mut zero_sample_warned,
+                    &mut no_samples_streak,
+                    &mut no_match_streak,
                 );
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
-                // Reset the empty-sample latch on HTTP failure: the
-                // failure-side warning covers flapping endpoints.
-                consecutive_zero_sample_ticks = 0;
-                zero_sample_warned = false;
+                // Reset both latches on HTTP failure: the failure-side
+                // warning covers flapping endpoints.
+                no_samples_streak.reset();
+                no_match_streak.reset();
                 handle_alumet_failure(
                     &e,
                     &metrics,
@@ -258,70 +272,110 @@ fn handle_alumet_failure(
     }
 }
 
-/// Success-branch latch: warn once after
+/// One warn-once streak: counts consecutive bad ticks for a single
+/// cause and fires at most once per streak.
+#[derive(Default)]
+pub(super) struct WarnOnceStreak {
+    ticks: u32,
+    warned: bool,
+}
+
+impl WarnOnceStreak {
+    /// Record one bad tick. Returns `true` exactly when the warn should
+    /// fire now (threshold reached, not yet warned this streak).
+    fn tick(&mut self) -> bool {
+        self.ticks = self.ticks.saturating_add(1);
+        if !self.warned && self.ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
+            self.warned = true;
+            return true;
+        }
+        false
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.ticks = 0;
+        self.warned = false;
+    }
+
+    #[cfg(test)]
+    pub(super) fn has_warned(&self) -> bool {
+        self.warned
+    }
+}
+
+/// Success-branch latches: warn once per streak of
 /// [`ZERO_SAMPLE_WARN_THRESHOLD`] consecutive HTTP-200 ticks that
 /// produced nothing usable. Extracted for the line-count limit and to
-/// unit-test the warn-once edge.
+/// unit-test the warn-once edges.
 ///
-/// `services_matched` is what makes the latch reachable for a mistyped
-/// `service_mappings` value: with a valid `metric_name` and `label_key`
-/// but a label value that does not exist on the wire, `samples_len`
-/// stays positive forever, so gating on it alone would leave that
-/// misconfiguration with no diagnostic at all (every counter reads
-/// healthy and the scraper publishes nothing).
+/// Two independent causes, two independent streaks:
+///
+/// - `no_samples` fires when `metric_name`/`label_key` match nothing on
+///   the wire. A tick with no samples says nothing about the mappings,
+///   so it neither advances nor resets `no_match`.
+/// - `no_match` fires when samples flow but zero `service_mappings`
+///   label values are present. That is either mistyped mapping values
+///   or every mapped workload currently absent from the exposition, the
+///   message names both since the wire cannot tell them apart. Gated on
+///   a non-empty mappings table (an empty table trivially matches
+///   nothing and gets its own startup warning instead).
+///
+/// A partially wrong table (some mappings match, others never do) trips
+/// neither latch, the per-tick `services_matched` debug field and the
+/// report-level `per_service_energy_model` are the signals for that.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn track_zero_sample_streak(
     samples_len: usize,
     services_matched: usize,
     services_with_ops: usize,
+    mapping_count: usize,
     redacted: &str,
     metric_name: &str,
     label_key: &str,
-    consecutive_zero_sample_ticks: &mut u32,
-    zero_sample_warned: &mut bool,
+    no_samples: &mut WarnOnceStreak,
+    no_match: &mut WarnOnceStreak,
 ) {
-    if samples_len == 0 || services_matched == 0 {
-        *consecutive_zero_sample_ticks = consecutive_zero_sample_ticks.saturating_add(1);
-        if !*zero_sample_warned && *consecutive_zero_sample_ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
-            let ticks = *consecutive_zero_sample_ticks;
-            if samples_len == 0 {
-                tracing::warn!(
-                    endpoint = %redacted,
-                    metric = metric_name,
-                    label = label_key,
-                    ticks,
-                    "Alumet endpoint replied HTTP 200 but no samples matched \
-                     the configured metric across the last {ticks} ticks. \
-                     Most common cause: metric_name does not match the wire. \
-                     Alumet's prometheus-exporter prepends `prefix` and \
-                     appends `suffix` (default '_alumet') to every metric \
-                     name, and an energy-attribution series is named after \
-                     the operator's formula. Run \
-                     `curl <endpoint> | grep -i energy` and copy the name \
-                     verbatim. Other cause: label_key absent from the series.",
-                );
-            } else {
+    if samples_len == 0 {
+        if no_samples.tick() {
+            tracing::warn!(
+                endpoint = %redacted,
+                metric = metric_name,
+                label = label_key,
+                "Alumet endpoint replied HTTP 200 but no samples matched \
+                 the configured metric across the last {ZERO_SAMPLE_WARN_THRESHOLD} ticks. \
+                 Most common cause: metric_name does not match the wire. \
+                 Alumet's prometheus-exporter prepends `prefix` and \
+                 appends `suffix` (default '_alumet') to every metric \
+                 name, and an energy-attribution series is named after \
+                 the operator's formula. Run \
+                 `curl <endpoint> | grep -i energy` and copy the name \
+                 verbatim. Other cause: label_key absent from the series.",
+            );
+        }
+    } else {
+        no_samples.reset();
+        if services_matched == 0 && mapping_count > 0 {
+            if no_match.tick() {
                 tracing::warn!(
                     endpoint = %redacted,
                     metric = metric_name,
                     label = label_key,
                     samples = samples_len,
-                    ticks,
                     "Alumet endpoint replied HTTP 200 and metric_name matched \
-                     {samples_len} samples, but none of the service_mappings \
-                     label values were found under label_key across the last \
-                     {ticks} ticks, so no measured coefficient is being \
-                     published. The mapping values must match the label \
-                     verbatim. Run \
-                     `curl <endpoint> | grep -o '{label_key}=\"[^\"]*\"' | sort -u` \
-                     to list the values actually on the wire.",
+                     samples, but none of the configured service_mappings \
+                     label values were present under label_key across the \
+                     last {ZERO_SAMPLE_WARN_THRESHOLD} such ticks, so no measured \
+                     coefficient is being published. Either the mapping \
+                     values are mistyped (they must match the label value \
+                     verbatim), or every mapped workload is currently absent \
+                     from the exposition (scaled to zero, not yet scheduled). \
+                     Inspect the live values for the configured label key \
+                     with curl against the endpoint.",
                 );
             }
-            *zero_sample_warned = true;
+        } else {
+            no_match.reset();
         }
-    } else {
-        *consecutive_zero_sample_ticks = 0;
-        *zero_sample_warned = false;
     }
     tracing::debug!(
         samples = samples_len,
