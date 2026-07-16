@@ -101,7 +101,7 @@ pub struct QueryApiState {
     pub energy_backends: EnergyBackendsConfigured,
 }
 
-/// Configured-or-not flags for the four scraped energy backends.
+/// Configured-or-not flags for the five scraped energy backends.
 /// Electricity Maps is not here: its presence is already carried by
 /// `QueryApiState.scoring_config`.
 // Five genuinely independent flags, not a disguised state machine.
