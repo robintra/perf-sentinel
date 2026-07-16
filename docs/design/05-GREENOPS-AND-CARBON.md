@@ -455,11 +455,33 @@ region = "europe-west1"
 instance_type = "c4d-standard-8"  # AMD Turin (Zen 5), modern entry
 ```
 
-**Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, higher-fidelity sources take precedence: Scaphandre overrides Kepler overrides Redfish overrides cloud SPECpower for the same service. The top-level model tag reflects the most precise source: `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+**Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, higher-fidelity sources take precedence: Alumet overrides Scaphandre overrides Kepler overrides Redfish overrides cloud SPECpower for the same service. The top-level model tag reflects the most precise source: `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 
 **Daemon only.** Like Scaphandre, cloud energy estimation is a daemon-only feature. The `analyze` batch command always uses the proxy model.
 
 **What cloud SPECpower does NOT do.** See `docs/LIMITATIONS.md` "Cloud SPECpower precision bounds" for the full discussion. The SPECpower model captures CPU-proportional power but not memory, I/O or network power. Shared tenancy is not corrected. Accuracy is approximately +/-30%.
+
+## Alumet interval-energy attribution
+
+The `[green.alumet]` integration scrapes Alumet's `prometheus-exporter` output plugin and follows the same shared-state pattern as every other measured source (`ArcSwap`-backed `AgedEnergyMap`, `3 × scrape_interval` staleness gate, per-service `OpsSnapshotDiff`). Two things make it structurally different.
+
+**A third reading shape.** Scaphandre exports an instantaneous microwatt gauge, Kepler a monotonic cumulative joules counter, Alumet neither. Its exporter publishes every measurement as a Prometheus gauge holding the last flushed value, and `rapl_consumed_energy` is declared `CounterDiff`: the joules consumed during one source `poll_interval` (upstream default 1s, flushed every 5s). The value is therefore an interval delta that is re-published unchanged between flushes. Neither summing across scrapes (double-counts within a flush window, drops intervals across one) nor delta-ing against the previous scrape (the value is already a delta) is correct. The scraper divides by the operator-declared `energy_interval_secs` to recover mean watts, then integrates over its own scrape window:
+
+```
+watts             = joules_per_interval / energy_interval_secs
+window_joules     = watts × scrape_interval_secs
+energy_per_op_kwh = window_joules / (ops × 3_600_000)
+```
+
+Past the division this is Scaphandre's formula verbatim, and it inherits the same stationarity assumption. It also means `alumet/apply.rs` holds no cross-tick state: each scrape stands alone, and an exporter restart needs no counter-reset guard.
+
+**`energy_interval_secs` is unverifiable.** The interval is nowhere in the exposition, and no runtime signal distinguishes a correct declaration from a wrong one. A drift from the Alumet-side `poll_interval` rescales energy and carbon linearly and silently, while still tagging the result `measured`. Auto-detection was considered (watch the gauge and time its changes to infer the flush period) and rejected: it infers `flush_interval`, not `poll_interval`, and a clever-but-fragile heuristic is worse than a documented config coupling for a value the operator already has in front of them. The mitigation is threefold: the field is echoed in the `Alumet scraper started` log line, `docs/CONFIGURATION.md` shows both files side by side, and `docs/LIMITATIONS.md#alumet-precision-bounds` names it as the integration's largest correctness risk. Upstream exposing either a cumulative counter or the interval itself would retire the field.
+
+**Operator-supplied parser inputs.** Kepler's metric name and label key are pinned by the `KeplerMetricKind` enum because upstream fixes both. Alumet fixes neither: the exporter applies a configurable `prefix`/`suffix` (default suffix `_alumet`) to every name, and the per-service series comes from an `energy-attribution` formula the operator names. So `metric_name` and `label_key` are mandatory config with no default, validated for control chars and length in `validate_alumet`, and rejected loudly at load time when absent (`validate_alumet_raw`, called from `load_from_str` before the lossy `Config::from`). Neither string ever reaches a Prometheus label, they are matched against the scraped body, so there is no cardinality exposure. This generic (metric, label) surface is also what lets one config shape cover every Alumet source: `k8s` pods via `name`, raw RAPL domains via `domain`, `procfs` PIDs via `resource_consumer_id`.
+
+**Precedence.** `alumet_rapl` leads the measured chain, above `scaphandre_rapl`. Both read RAPL, but Alumet's sampling is measurably less error-prone (Raffin et al., <https://hal.science/hal-04420527v2/document>) and it attributes per cgroup rather than per process. As with every rank in this chain, it orders attribution fidelity, not wall-plug coverage, see the Redfish note below.
+
+**Shared parser.** `parse_metric_samples` in `score/prom_parser.rs` was extracted from `kepler/parser.rs` when Alumet became its second consumer: the code was already generic over `(metric_name, label_key)`. `scaphandre/parser.rs` stays separate, it extracts two labels (`exe`, `cmdline`) in a single pass so its scan loop legitimately diverges.
 
 ## Kepler and Redfish attribution notes
 

@@ -498,7 +498,7 @@ instance_type = "Standard_D8s_v6"  # Emerald Rapids
 
 The daemon interpolates power consumption as `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` using CCF 2026-04-24 per-vCPU coefficients embedded in the binary (~390 instance types across AWS, GCP, Azure, including modern architectures Sapphire Rapids, Emerald Rapids, Genoa, Turin, Graviton 3/4 and Cobalt 100). The model tag is `"cloud_specpower"`. Like Scaphandre, this is a daemon-only feature.
 
-**Energy source precedence.** When several measured sources are configured for the same service, the highest-fidelity wins. The full chain: `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. See `docs/LIMITATIONS.md` for the precision-bounds discussion of each measured source.
+**Energy source precedence.** When several measured sources are configured for the same service, the highest-fidelity wins. The full chain: `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. See `docs/LIMITATIONS.md` for the precision-bounds discussion of each measured source.
 
 #### Authenticated Prometheus endpoint
 

@@ -457,7 +457,7 @@ prometheusRule:
     # Adaptez au ruleSelector de votre ressource Prometheus.
     release: prometheus
   # N'ajoutez les alertes de péremption des scrapers d'énergie par backend
-  # que lorsqu'un backend énergie (Scaphandre, Kepler, Redfish, cloud_energy)
+  # que lorsqu'un backend énergie (Alumet, Scaphandre, Kepler, Redfish, cloud_energy)
   # est configuré.
   energyScrapers: false
   scraperStaleSeconds: 120

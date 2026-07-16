@@ -75,7 +75,7 @@ spec:
             description: "perf_sentinel_service_io_ops_overflow_total is increasing: more distinct services than the per-meter cap, so some per-service I/O accounting is bucketed. Expected on very wide topologies."
         {{- if .Values.prometheusRule.energyScrapers }}
         {{- $stale := .Values.prometheusRule.scraperStaleSeconds }}
-        {{- range $backend := list "scaphandre" "kepler" "redfish" "cloud_energy" }}
+        {{- range $backend := list "alumet" "scaphandre" "kepler" "redfish" "cloud_energy" }}
         - alert: PerfSentinelEnergyScraperStale
           expr: perf_sentinel_{{ $backend }}_last_scrape_age_seconds > {{ $stale }}
           for: 5m

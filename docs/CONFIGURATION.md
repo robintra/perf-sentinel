@@ -255,6 +255,74 @@ metric_kind = "container"
 
 **Production deployment shape.** Kepler typically runs as a Kubernetes `DaemonSet`, one pod per node. In a multi-node cluster the `endpoint` should point at an upstream Prometheus that scrapes the whole DaemonSet rather than a single pod, otherwise only one node's energy will be visible. Prometheus-mediated mode (PromQL queries) is reserved for a follow-up release.
 
+#### `[green.alumet]` (optional, opt-in)
+
+Opt-in integration with [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2) for measured energy. Alumet is a modular measurement framework: a source plugin (`rapl`, `nvidia-nvml`, ...) produces readings, optional transform plugins attribute them to workloads, and an output plugin exposes them. perf-sentinel scrapes the `prometheus-exporter` output. When configured, the `watch` daemon publishes a measured per-op coefficient tagged `alumet_rapl`, which **outranks every other measured source**, including Scaphandre.
+
+| Field                  | Type   | Default  | Description                                                                                                                                     |
+|------------------------|--------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoint`             | string | *(none)* | Full URL of the Alumet `prometheus-exporter` `/metrics` endpoint (upstream default port 9091). Required when the section is present              |
+| `scrape_interval_secs` | int    | `5`      | How often to scrape, in seconds. Valid range: 1-3600                                                                                            |
+| `metric_name`          | string | *(none)* | Prometheus metric name **exactly as it appears on the wire**, including the exporter's `prefix`/`suffix`. Required, no default (see below)      |
+| `label_key`            | string | *(none)* | Prometheus label carrying the workload identity. Required, no default. `name` for the `k8s` source (pod name), `domain` for a raw RAPL series   |
+| `energy_interval_secs` | float  | `1.0`    | Wall-clock seconds the scraped joules value covers. **Must match the `poll_interval` of the Alumet source feeding the metric** (see below)      |
+| `service_mappings`     | table  | `{}`     | Maps perf-sentinel service names to the Alumet label value identifying the same workload                                                        |
+| `auth_header`          | string | *(none)* | Optional `"Name: Value"` header. Prefer `PERF_SENTINEL_ALUMET_AUTH_HEADER` env var                                                              |
+
+**Why `metric_name` and `label_key` have no default.** Alumet's exporter prepends `prefix` and appends `suffix` (default `_alumet`) to every metric name, and the per-service series is produced by an `energy-attribution` formula whose name *you* choose. No default could be right for every deployment, and a wrong guess would scrape nothing. Read the names off your own endpoint:
+
+```bash
+curl -s http://localhost:9091/metrics | grep -i energy
+```
+
+**Why `energy_interval_secs` exists.** This is the one field to get right. Alumet's exporter publishes every measurement as a Prometheus **gauge holding the last flushed value**, and `rapl_consumed_energy` is a `CounterDiff`: the joules burned during one source `poll_interval`, not a cumulative counter and not a power reading. perf-sentinel divides by this interval to recover watts. The interval appears nowhere on the wire, so it must be declared here, and it must match the Alumet side. **A mismatch rescales energy and carbon linearly and silently**: declaring `1.0` while Alumet polls at `5s` overstates energy 5x, with no warning. See `docs/LIMITATIONS.md#alumet-precision-bounds`. The daemon echoes the value it is using in the `Alumet scraper started` log line.
+
+**Matching Alumet config.** Per-service attribution needs three Alumet plugins working together, `rapl` alone only measures the whole machine and `procfs` only identifies processes by PID:
+
+```toml
+# alumet-config.toml
+[plugins.rapl]
+poll_interval = "1s"          # <- perf-sentinel's energy_interval_secs must equal this
+
+[plugins.k8s]
+# pod discovery, provides the `name` / `namespace` attributes
+
+[plugins.energy-attribution.formulas.attributed_energy_cpu]
+expr = "cpu_energy * cpu_usage / 100.0"
+ref = "cpu_energy"
+
+[plugins.energy-attribution.formulas.attributed_energy_cpu.per_resource]
+cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine", domain = "package_total" }
+
+[plugins.energy-attribution.formulas.attributed_energy_cpu.per_consumer]
+cpu_usage = { metric = "cpu_percent", kind = "total" }
+
+[plugins.prometheus-exporter]
+port = 9091
+suffix = "_alumet"            # <- why the metric name below ends in _alumet
+```
+
+The matching perf-sentinel side:
+
+```toml
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+scrape_interval_secs = 5
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+energy_interval_secs = 1.0
+
+[green.alumet.service_mappings]
+"order-svc" = "order-svc-pod"
+"chat-svc" = "chat-svc-pod"
+```
+
+**Ignored in `analyze` batch mode.** Like every measured-energy backend, only `watch` spawns the scraper.
+
+**Precedence.** `alumet_rapl` leads the measured chain, ahead of `scaphandre_rapl`. Both read RAPL, but Alumet's sampling is measurably less error-prone and it attributes per cgroup rather than per process. Running both on the same service is supported, Alumet wins.
+
+**Alumet is pre-1.0** (v0.9.5 at time of writing). Metric names and plugin config may change between releases. If a scrape stops matching after an Alumet upgrade, the daemon warns with `no samples matched the configured metric` after three consecutive ticks.
+
 #### `[green.redfish]` (optional, opt-in)
 
 Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. Unlike Scaphandre and Kepler (which measure CPU + DRAM only), Redfish reads the actual power supply output via the BMC, so periphery (NIC, drives, fans, PSU overhead) is included. Bare-metal only, no cloud VMs.

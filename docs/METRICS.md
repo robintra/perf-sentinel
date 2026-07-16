@@ -307,6 +307,29 @@ the daemon emits a `tracing::warn!` line containing `metric` and
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` and
 the daemon-side `kepler_ebpf` `co2.model` tag presence.
 
+## Alumet scrape counters
+
+Same shape as the Kepler block above with `kepler` -> `alumet` in the
+metric names (`perf_sentinel_alumet_scrape_total`,
+`perf_sentinel_alumet_scrape_failed_total`,
+`perf_sentinel_alumet_last_scrape_age_seconds`). The `status` and
+`reason` label sets are identical: Alumet is scraped over plain HTTP
+with the same six failure modes, so a single dashboard panel can
+union-rate all three Prometheus-scraped sources.
+
+The same zero-sample staleness pitfall applies, and is more likely here
+than for Kepler: `metric_name` and `label_key` are operator-supplied
+(Alumet's exporter shapes names with a configurable `prefix`/`suffix`),
+so a typo or an upstream rename yields HTTP-200 with no matching
+samples and a gauge that keeps resetting to 0. The daemon warns after
+three consecutive such ticks. Pair the gauge with
+`rate(perf_sentinel_alumet_scrape_total{status="success"}[5m])` and the
+presence of the `alumet_rapl` `co2.model` tag.
+
+Note that no metric can catch a wrong `energy_interval_secs`: scrapes
+succeed, samples match, and only the magnitude is wrong. See
+`docs/LIMITATIONS.md#alumet-precision-bounds`.
+
 ## Redfish scrape counters (since 0.7.4)
 
 Same shape as the Kepler block above with `kepler` -> `redfish` in

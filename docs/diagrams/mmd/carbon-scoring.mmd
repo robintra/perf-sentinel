@@ -13,6 +13,7 @@ flowchart TD
         e_calibrated["proxy * factor<br/><i>model: +cal suffix</i>"]
         e_proxy_final["proxy_energy_kwh"]
         e_snap{"energy_snapshot<br/>has service?"}
+        e_alumet["Alumet RAPL<br/><i>joules/interval -> watts<br/>per-cgroup (x86)</i><br/>model: alumet_rapl"]
         e_scaph["Scaphandre RAPL<br/><i>measured kWh/op (x86)</i><br/>model: scaphandre_rapl"]
         e_kepler["Kepler eBPF<br/><i>joules-delta / ops<br/>ARM + x86</i><br/>model: kepler_ebpf"]
         e_redfish["Redfish BMC<br/><i>chassis watts / ops<br/>bare-metal wall-plug</i><br/>model: redfish_bmc"]
@@ -24,6 +25,7 @@ flowchart TD
         e_cal -- "yes" --> e_calibrated --> e_proxy_final
         e_cal -- "no" --> e_proxy_final
         e_proxy_final --> e_snap
+        e_snap -- "Alumet entry" --> e_alumet
         e_snap -- "Scaphandre entry" --> e_scaph
         e_snap -- "Kepler entry" --> e_kepler
         e_snap -- "Redfish entry" --> e_redfish
@@ -67,6 +69,7 @@ flowchart TD
 
     span --> energy
     span --> intensity
+    e_alumet --> e_final
     e_scaph --> e_final
     e_kepler --> e_final
     e_redfish --> e_final
@@ -89,6 +92,7 @@ flowchart TD
     style energy fill:#2d4a3e,stroke:#4ade80
     style intensity fill:#3b2d4a,stroke:#a78bfa
     style report fill:#2d3b4a,stroke:#60a5fa
+    style e_alumet fill:#1a3a2a,stroke:#22c55e
     style e_scaph fill:#1a3a2a,stroke:#22c55e
     style e_kepler fill:#1a3a2a,stroke:#22c55e
     style e_redfish fill:#1a3a2a,stroke:#22c55e

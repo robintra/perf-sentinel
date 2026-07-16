@@ -502,6 +502,25 @@ Les mesures publiées varient selon le matériel et la charge, mais l'ordre de g
 
 Quand vous lisez des benchmarks qui comparent ces outils à un wattmètre externe, gardez deux grandeurs séparées. Premièrement, la périphérie qu'aucun signal purement logiciel ne peut couvrir. Deuxièmement, à quel point un outil donné attribue correctement la fraction qu'il voit à un container, un processus ou un span. Seule la deuxième est une propriété de l'outil. La première est une propriété du signal.
 
+### Limites de précision Alumet
+
+perf-sentinel intègre en opt-in [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2), scrapé via son plugin de sortie `prometheus-exporter`. `alumet_rapl` est en tête de la chaîne de précédence de l'énergie mesurée.
+
+**Pourquoi il surclasse Scaphandre.** Les deux lisent RAPL. L'échantillonnage d'Alumet est mesurablement moins erroné, comme le caractérisent ses propres auteurs dans [Dissecting the software-based measurement of CPU energy consumption](https://hal.science/hal-04420527v2/document) (Raffin et al.), et il attribue par cgroup plutôt que par processus, ce qui colle mieux aux charges conteneurisées. Être classé premier est une affirmation sur la fidélité de l'attribution, pas sur la couverture : comme Scaphandre, RAPL ne voit que le CPU et la DRAM, soit environ la moitié à deux tiers de la puissance prise au wattmètre. Pour l'énergie totale du serveur, voir [Limites de précision Redfish BMC](#limites-de-précision-redfish-bmc).
+
+**Le mode d'échec de l'intervalle. À lire.** Le `prometheus-exporter` d'Alumet publie chaque mesure comme une **jauge Prometheus contenant la dernière valeur flushée**, et `rapl_consumed_energy` est un `CounterDiff` : les joules consommés pendant un `poll_interval` de la source. Ce n'est ni un compteur cumulatif (comme Kepler), ni une puissance (comme Scaphandre). Deux conséquences :
+
+- Sommer les relevés bruts entre scrapes est faux dans les deux sens. Scraper plus vite qu'Alumet ne flushe compte deux fois la même valeur, scraper moins vite perd des intervalles entiers. perf-sentinel ne somme donc jamais, il divise par `energy_interval_secs` pour retrouver des watts et intègre sur sa propre fenêtre de scrape, exactement comme il le fait pour la jauge de puissance de Scaphandre.
+- **`energy_interval_secs` ne peut pas être vérifié sur le fil.** L'intervalle n'apparaît nulle part dans l'exposition. Si la valeur déclarée s'écarte du `poll_interval` côté Alumet, toutes les valeurs d'énergie et de carbone des services concernés sont mises à une échelle linéairement fausse, **en silence** : déclarer `1.0` alors qu'Alumet échantillonne à `5s` surestime l'énergie d'un facteur 5, sans avertissement, sans scrape en échec, et avec une étiquette de provenance `measured` qui a l'air faisant autorité. C'est le plus gros risque de justesse de l'intégration. Revérifiez les deux fichiers ensemble dès que l'un des deux change. Le démon affiche la valeur utilisée dans la ligne de log `Alumet scraper started`, la faute est donc au moins visible au démarrage.
+
+L'hypothèse de stationnarité est la même que celle que porte Scaphandre : l'intervalle échantillonné est pris comme représentatif de toute la fenêtre de scrape. Le relevé d'Alumet est une moyenne sur son `poll_interval` plutôt qu'un échantillon instantané, ce qui est plutôt le mieux comporté des deux.
+
+**L'attribution demande une composition de plugins.** `rapl` seul mesure la machine, sans notion de charge de travail. `procfs` n'identifie les consommateurs que par PID, ce qui est inutilisable pour un mapping de service stable. L'attribution par service demande `rapl` + `k8s` + `energy-attribution`, et la métrique résultante porte le nom d'une formule choisie par l'opérateur. C'est pourquoi `metric_name` et `label_key` sont des champs de configuration obligatoires sans défaut, voir `docs/FR/CONFIGURATION-FR.md`.
+
+**Version amont.** Alumet est **pré-1.0** (v0.9.5 au moment de l'écriture) et n'a pas encore de job CI de conformité de fil : les runners GitHub n'exposent aucun arbre powercap, RAPL ne peut donc pas y tourner. Les noms de métriques et la configuration des plugins peuvent changer d'une version à l'autre. Le filet à l'exécution est l'avertissement unique zéro-échantillon, qui se déclenche après trois ticks HTTP 200 consécutifs sans échantillon correspondant et nomme les causes probables. Traitez une montée de version d'Alumet comme une raison de relancer `curl <endpoint> | grep -i energy` et de comparer avec `metric_name`.
+
+**Prérequis de plateforme.** Linux, et ce qu'exige le plugin source choisi. La source `rapl` demande un x86_64 Intel ou AMD avec accès RAPL (perf-events ou un `/sys/devices/virtual/powercap/intel-rapl` lisible), donc les mêmes contraintes bare-metal et de passthrough RAPL que Scaphandre s'appliquent. Alumet fournit aussi des sources pertinentes sur ARM (`nvidia-jetson`, `grace-hopper`) que perf-sentinel peut scraper via la même surface générique `metric_name` / `label_key`, même si seul le chemin RAPL porte l'étiquette `alumet_rapl` aujourd'hui.
+
 ### Limites de précision Scaphandre
 
 perf-sentinel embarque une intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) pour la mesure énergétique par processus via les compteurs Intel RAPL. Quand `[green.scaphandre]` est configuré, le daemon `watch` scrape l'endpoint Prometheus Scaphandre toutes les quelques secondes et utilise les lectures de puissance mesurées pour remplacer la constante proxy `ENERGY_PER_IO_OP_KWH` fixe pour chaque service mappé.
@@ -530,7 +549,7 @@ Ce qui capture :
 - **Les différences entre services** : Java vs .NET vs Node vs Go auront des empreintes énergétiques différentes même pour des charges I/O similaires.
 - **La variance de charge dans le temps** : un service idle et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. Quand des facteurs de calibration sont actifs sur les modèles proxy, le suffixe `+cal` est ajouté (ex. `io_proxy_v2+cal`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré, le multiplicateur de calibration cible le coefficient proxy et n'a plus de sens dès qu'une lecture mesurée le remplace.
+Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. Quand des facteurs de calibration sont actifs sur les modèles proxy, le suffixe `+cal` est ajouté (ex. `io_proxy_v2+cal`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré, le multiplicateur de calibration cible le coefficient proxy et n'a plus de sens dès qu'une lecture mesurée le remplace.
 
 **Ce que Scaphandre ne fait PAS.** C'est la limitation critique : **Scaphandre donne des coefficients par service, pas d'attribution par finding**. Spécifiquement :
 
@@ -625,7 +644,7 @@ Ce qui capture :
 - **Les caractéristiques de l'instance** : un `c5.4xlarge` (16 vCPUs, 32 GiB) a un profil énergétique différent d'un `m5.xlarge` (4 vCPUs, 16 GiB).
 - **La variance de charge dans le temps** : un service au repos et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`).
+Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`).
 
 **Ce que ça ne fait PAS.** Comme Scaphandre, le modèle cloud SPECpower donne des coefficients par service, pas d'attribution par finding. De plus :
 
