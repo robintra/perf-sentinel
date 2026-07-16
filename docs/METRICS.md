@@ -305,7 +305,11 @@ After three consecutive HTTP-200 ticks with zero matching samples,
 the daemon emits a `tracing::warn!` line containing `metric` and
 `label` fields; alert on the log instead, or pair the gauge with
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` and
-the daemon-side `kepler_ebpf` `co2.model` tag presence.
+the daemon-side `kepler_ebpf` `co2.model` tag presence. Note that a
+mistyped `service_mappings` value produces healthy counters and no
+warn on this backend (the Alumet scraper carries that diagnostic,
+Kepler does not yet): the check is `per_service_energy_model` on the
+report.
 
 ## Alumet scrape counters (since 0.9.12)
 
@@ -325,6 +329,18 @@ samples and a gauge that keeps resetting to 0. The daemon warns after
 three consecutive such ticks. Pair the gauge with
 `rate(perf_sentinel_alumet_scrape_total{status="success"}[5m])` and the
 presence of the `alumet_rapl` `co2.model` tag.
+
+Two distinct warn messages exist, one per cause, each with its own
+warn-once streak: `no samples matched the configured metric`
+(`metric_name` or `label_key` wrong on the wire) and `none of the
+configured service_mappings label values were present` (mistyped
+mapping values, or every mapped workload currently absent from the
+exposition). Log-matching alert rules must cover both messages. Two
+cases trip neither warn: a partially wrong mappings table (at least one
+value matches, the others never do) and a matched label whose readings
+are permanently zero or invalid. For both, the check is
+`per_service_energy_model` on the report showing the service on a
+proxy tag instead of `alumet_rapl`.
 
 Note that no metric can catch a wrong `energy_interval_secs`: scrapes
 succeed, samples match, and only the magnitude is wrong. See
