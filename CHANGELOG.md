@@ -11,6 +11,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Changed
 
+- The workspace toolchain moves to Rust 1.97.1 and the minimum supported Rust version is bumped accordingly.
 - `GET /api/energy` now returns six backend rows instead of five. The new `alumet` row leads, the array order follows the measured-energy precedence chain. Consumers reading by `backend` name are unaffected, consumers indexing by position will see their indices shift by one.
 - The Helm `prometheusRule.energyScrapers` alert now covers the Alumet scraper alongside the four existing backends.
 - `score::kepler::parser` moved to `score::prom_parser` and is now shared with the Alumet scraper, its code was already generic over the metric name and label key. `parse_kepler_metrics` is now `parse_metric_samples` and `KeplerSample` is now `PromSample`. This is a breaking change for direct consumers of the `perf-sentinel-core` library at that path, the CLI is unaffected.
