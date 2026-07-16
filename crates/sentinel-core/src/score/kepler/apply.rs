@@ -25,26 +25,46 @@ pub fn compute_energy_per_op_kwh(joules_delta: f64, ops: u64) -> Option<f64> {
 
 /// Compute per-service joule deltas vs the previous scrape, advance
 /// the per-service `last_raw_joules` table in place, and return only
-/// services with a strictly positive delta. Counter-reset and
-/// first-observation semantics are documented in design doc 05.
+/// services with a strictly positive delta, along with how many mapped
+/// services found their label on the wire (fed to the no-match warn).
+/// Counter-reset and first-observation semantics are documented in
+/// design doc 05.
 #[allow(clippy::implicit_hasher)]
 pub fn joules_deltas(
     samples: &[PromSample],
     service_mappings: &HashMap<String, String>,
     last_raw_joules: &mut HashMap<String, f64>,
-) -> HashMap<String, f64> {
+) -> (HashMap<String, f64>, usize) {
     // O(N) index over samples so the service loop stays O(N + M)
     // instead of O(N × M) on Kepler endpoints exposing hundreds of
     // containers per node.
-    let by_label: HashMap<&str, f64> = samples
-        .iter()
-        .map(|s| (s.label_value.as_str(), s.value))
-        .collect();
+    //
+    // Counters sharing a label value are SUMMED, not overwritten: one
+    // container name repeated across pods (`container_name="app"`) or
+    // one `comm` shared by several processes yields several cumulative
+    // series under one key. A last-write-wins read would flip between
+    // counters of different magnitudes with exposition order, producing
+    // garbage deltas in both directions. The sum of cumulative counters
+    // stays monotonic while the series set is stable; a vanishing
+    // series drops the sum (negative delta, filtered below, next tick
+    // re-baselines) and a newly discovered series joins with its
+    // near-zero counter. Per-row validation mirrors the Alumet scraper:
+    // a NaN row must not poison the sum and a negative counter row is
+    // invalid by definition.
+    let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
+    for s in samples {
+        let slot = by_label.entry(s.label_value.as_str()).or_insert(0.0);
+        if s.value.is_finite() && s.value > 0.0 {
+            *slot += s.value;
+        }
+    }
     let mut out = HashMap::with_capacity(service_mappings.len());
+    let mut matched = 0usize;
     for (service, label_value) in service_mappings {
         let Some(&current) = by_label.get(label_value.as_str()) else {
             continue;
         };
+        matched += 1;
         // Update raw-counter table without cloning the key in the
         // steady state.
         let previous = if let Some(slot) = last_raw_joules.get_mut(service) {
@@ -63,7 +83,7 @@ pub fn joules_deltas(
             }
         }
     }
-    out
+    (out, matched)
 }
 
 /// Apply a freshly-scraped Kepler batch to a [`KeplerState`]. Services
@@ -102,7 +122,8 @@ pub fn apply_scrape(
 }
 
 /// Convenience wrapper: compute deltas and apply in one call. Used by
-/// the scraper loop.
+/// the scraper loop. Returns how many mapped services found their
+/// label on the wire, independent of whether a delta was published.
 #[allow(clippy::implicit_hasher)]
 pub fn process_scrape(
     state: &KeplerState,
@@ -111,7 +132,9 @@ pub fn process_scrape(
     cfg: &KeplerConfig,
     last_raw_joules: &mut HashMap<String, f64>,
     now_ms: u64,
-) {
-    let joules_deltas_map = joules_deltas(samples, &cfg.service_mappings, last_raw_joules);
+) -> usize {
+    let (joules_deltas_map, matched) =
+        joules_deltas(samples, &cfg.service_mappings, last_raw_joules);
     apply_scrape(state, &joules_deltas_map, op_deltas, now_ms);
+    matched
 }

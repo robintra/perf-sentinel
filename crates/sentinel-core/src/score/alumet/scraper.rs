@@ -273,9 +273,11 @@ fn handle_alumet_failure(
 }
 
 /// One warn-once streak: counts consecutive bad ticks for a single
-/// cause and fires at most once per streak.
+/// cause and fires at most once per streak. Shared with the Kepler
+/// scraper, which imports it the same way `kepler::state` borrows the
+/// Scaphandre monotonic clock.
 #[derive(Default)]
-pub(super) struct WarnOnceStreak {
+pub(crate) struct WarnOnceStreak {
     ticks: u32,
     warned: bool,
 }
@@ -283,7 +285,7 @@ pub(super) struct WarnOnceStreak {
 impl WarnOnceStreak {
     /// Record one bad tick. Returns `true` exactly when the warn should
     /// fire now (threshold reached, not yet warned this streak).
-    fn tick(&mut self) -> bool {
+    pub(crate) fn tick(&mut self) -> bool {
         self.ticks = self.ticks.saturating_add(1);
         if !self.warned && self.ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
             self.warned = true;
@@ -292,13 +294,13 @@ impl WarnOnceStreak {
         false
     }
 
-    pub(super) fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.ticks = 0;
         self.warned = false;
     }
 
     #[cfg(test)]
-    pub(super) fn has_warned(&self) -> bool {
+    pub(crate) fn has_warned(&self) -> bool {
         self.warned
     }
 }

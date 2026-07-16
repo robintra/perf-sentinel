@@ -305,11 +305,15 @@ After three consecutive HTTP-200 ticks with zero matching samples,
 the daemon emits a `tracing::warn!` line containing `metric` and
 `label` fields; alert on the log instead, or pair the gauge with
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` and
-the daemon-side `kepler_ebpf` `co2.model` tag presence. Note that a
-mistyped `service_mappings` value produces healthy counters and no
-warn on this backend (the Alumet scraper carries that diagnostic,
-Kepler does not yet): the check is `per_service_energy_model` on the
-report.
+the daemon-side `kepler_ebpf` `co2.model` tag presence. Two distinct
+warn messages exist, one per cause, each with its own warn-once
+streak: `no samples matched the configured metric` (legacy Kepler
+names or a `metric_kind` mismatched with the topology) and `none of
+the configured service_mappings label values were present` (mistyped
+mapping values, or every mapped workload absent from the exposition).
+Log-matching alert rules must cover both. Cumulative counters sharing
+a label value (one container name repeated across pods) are summed
+before the delta is computed.
 
 ## Alumet scrape counters (since 0.9.12)
 
