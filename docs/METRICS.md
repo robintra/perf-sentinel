@@ -307,7 +307,7 @@ the daemon emits a `tracing::warn!` line containing `metric` and
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` and
 the daemon-side `kepler_ebpf` `co2.model` tag presence.
 
-## Alumet scrape counters
+## Alumet scrape counters (since 0.9.12)
 
 Same shape as the Kepler block above with `kepler` -> `alumet` in the
 metric names (`perf_sentinel_alumet_scrape_total`,
