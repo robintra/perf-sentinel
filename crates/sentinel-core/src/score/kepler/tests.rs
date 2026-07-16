@@ -1,105 +1,20 @@
-//! Integration tests for the Kepler scraper: parser, counter-delta,
+//! Integration tests for the Kepler scraper: counter-delta,
 //! attribution, state, and the full HTTP-level scrape path.
+//!
+//! Prometheus exposition parsing is covered in
+//! `crate::score::prom_parser`, the shared module this scraper feeds
+//! from.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use super::apply::{apply_scrape, compute_energy_per_op_kwh, joules_deltas, process_scrape};
 use super::config::{KeplerConfig, KeplerMetricKind};
-use super::parser::{KeplerSample, parse_kepler_metrics};
 use super::scraper::{
     ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper, track_zero_sample_streak,
 };
 use super::state::KeplerState;
-
-// --- parser tests -----------------------------------------------------
-
-#[test]
-fn parse_empty_body() {
-    assert!(
-        parse_kepler_metrics("", "kepler_container_cpu_joules_total", "container_name").is_empty()
-    );
-}
-
-#[test]
-fn parse_comments_only() {
-    let body = "# HELP kepler_container_cpu_joules_total ...\n# TYPE kepler_container_cpu_joules_total counter\n";
-    assert!(
-        parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name")
-            .is_empty()
-    );
-}
-
-#[test]
-fn parse_single_container_sample() {
-    let body =
-        "kepler_container_cpu_joules_total{container_name=\"order-svc\",pod_name=\"p1\"} 1234.5\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].label_value, "order-svc");
-    assert!((out[0].joules_total - 1234.5).abs() < f64::EPSILON);
-}
-
-#[test]
-fn parse_multiple_containers() {
-    let body = "kepler_container_cpu_joules_total{container_name=\"a\"} 100.0\n\
-                kepler_container_cpu_joules_total{container_name=\"b\"} 250.5\n\
-                kepler_container_cpu_joules_total{container_name=\"c\"} 999.9\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    assert_eq!(out.len(), 3);
-    let names: Vec<&str> = out.iter().map(|s| s.label_value.as_str()).collect();
-    assert!(names.contains(&"a"));
-    assert!(names.contains(&"b"));
-    assert!(names.contains(&"c"));
-}
-
-#[test]
-fn parse_skips_unrelated_metrics() {
-    let body = "kepler_node_info{name=\"foo\"} 1\n\
-                kepler_container_cpu_joules_total{container_name=\"order-svc\"} 42.0\n\
-                kepler_host_joules{name=\"bar\"} 7.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].label_value, "order-svc");
-}
-
-#[test]
-fn parse_process_cpu_with_comm_label() {
-    let body = "kepler_process_cpu_joules_total{comm=\"java\",pid=\"42\"} 88.0\n";
-    let out = parse_kepler_metrics(body, "kepler_process_cpu_joules_total", "comm");
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].label_value, "java");
-}
-
-#[test]
-fn parse_skips_invalid_value() {
-    let body = "kepler_container_cpu_joules_total{container_name=\"order-svc\"} not_a_number\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    assert!(out.is_empty());
-}
-
-#[test]
-fn parse_skips_missing_label() {
-    let body = "kepler_container_cpu_joules_total{pod_name=\"only-pod\"} 5.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    assert!(out.is_empty());
-}
-
-#[test]
-fn parse_handles_escaped_quote_in_label() {
-    let body = "kepler_container_cpu_joules_total{container_name=\"with \\\"quotes\\\"\"} 1.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].label_value, "with \"quotes\"");
-}
-
-#[test]
-fn parse_handles_no_labels() {
-    let body = "kepler_container_cpu_joules_total 99.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
-    // No label block means no label_value, sample is skipped.
-    assert!(out.is_empty());
-}
+use crate::score::prom_parser::PromSample;
 
 // --- counter-delta tests ----------------------------------------------
 
@@ -108,9 +23,9 @@ fn first_observation_records_raw_no_delta() {
     let mut last = HashMap::new();
     let mut mappings = HashMap::new();
     mappings.insert("order-svc".to_string(), "order".to_string());
-    let samples = vec![KeplerSample {
+    let samples = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 1000.0,
+        value: 1000.0,
     }];
     let deltas = joules_deltas(&samples, &mappings, &mut last);
     assert!(deltas.is_empty(), "first tick must not emit a delta");
@@ -123,15 +38,15 @@ fn second_observation_emits_positive_delta() {
     let mut mappings = HashMap::new();
     mappings.insert("order-svc".to_string(), "order".to_string());
 
-    let first = vec![KeplerSample {
+    let first = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 1000.0,
+        value: 1000.0,
     }];
     joules_deltas(&first, &mappings, &mut last);
 
-    let second = vec![KeplerSample {
+    let second = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 1234.0,
+        value: 1234.0,
     }];
     let deltas = joules_deltas(&second, &mappings, &mut last);
     assert_eq!(deltas.len(), 1);
@@ -145,16 +60,16 @@ fn counter_reset_clamps_to_no_delta() {
     let mut mappings = HashMap::new();
     mappings.insert("order-svc".to_string(), "order".to_string());
 
-    let first = vec![KeplerSample {
+    let first = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 5000.0,
+        value: 5000.0,
     }];
     joules_deltas(&first, &mappings, &mut last);
 
     // Counter went backwards (exporter restart).
-    let second = vec![KeplerSample {
+    let second = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 100.0,
+        value: 100.0,
     }];
     let deltas = joules_deltas(&second, &mappings, &mut last);
     assert!(
@@ -171,9 +86,9 @@ fn no_change_produces_empty_deltas() {
     let mut mappings = HashMap::new();
     mappings.insert("order-svc".to_string(), "order".to_string());
 
-    let samples = vec![KeplerSample {
+    let samples = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 1000.0,
+        value: 1000.0,
     }];
     joules_deltas(&samples, &mappings, &mut last);
     let deltas = joules_deltas(&samples, &mappings, &mut last);
@@ -186,9 +101,9 @@ fn unmapped_label_is_ignored() {
     let mut mappings = HashMap::new();
     mappings.insert("order-svc".to_string(), "order".to_string());
 
-    let samples = vec![KeplerSample {
+    let samples = vec![PromSample {
         label_value: "different-label".to_string(),
-        joules_total: 1000.0,
+        value: 1000.0,
     }];
     let deltas = joules_deltas(&samples, &mappings, &mut last);
     assert!(deltas.is_empty());
@@ -286,9 +201,9 @@ fn process_scrape_end_to_end_after_two_ticks() {
     let mut last_raw = HashMap::new();
 
     // Tick 1: record raw, no state change.
-    let samples1 = vec![KeplerSample {
+    let samples1 = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 1_000_000.0,
+        value: 1_000_000.0,
     }];
     let mut ops1 = HashMap::new();
     ops1.insert("order-svc".to_string(), 50);
@@ -296,9 +211,9 @@ fn process_scrape_end_to_end_after_two_ticks() {
     assert!(state.snapshot(1000, 10_000).is_empty());
 
     // Tick 2: delta = 3,600,000 J over 100 ops → 0.01 kWh per op.
-    let samples2 = vec![KeplerSample {
+    let samples2 = vec![PromSample {
         label_value: "order".to_string(),
-        joules_total: 4_600_000.0,
+        value: 4_600_000.0,
     }];
     let mut ops2 = HashMap::new();
     ops2.insert("order-svc".to_string(), 100);
@@ -359,7 +274,7 @@ async fn fetch_metrics_once_reads_from_fake_server() {
         .expect("fake server fetch should succeed");
     server.await.unwrap();
 
-    let samples = parse_kepler_metrics(
+    let samples = crate::score::prom_parser::parse_metric_samples(
         &fetched,
         "kepler_container_cpu_joules_total",
         "container_name",

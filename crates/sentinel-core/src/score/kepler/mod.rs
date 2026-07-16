@@ -14,7 +14,6 @@
 #[cfg(feature = "daemon")]
 pub mod apply;
 pub mod config;
-pub mod parser;
 #[cfg(feature = "daemon")]
 pub mod scraper;
 #[cfg(feature = "daemon")]

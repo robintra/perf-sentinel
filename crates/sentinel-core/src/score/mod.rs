@@ -19,6 +19,10 @@ pub(crate) mod energy_state;
 pub mod kepler;
 #[cfg(feature = "daemon")]
 pub(crate) mod ops_snapshot_diff;
+// Shared Prometheus text-exposition parser, generic over the metric
+// name and routing label key. Used by the Kepler and Alumet scrapers.
+// Not daemon-gated: config validation compiles it in a bare build.
+pub mod prom_parser;
 pub mod redfish;
 pub mod scaphandre;
 

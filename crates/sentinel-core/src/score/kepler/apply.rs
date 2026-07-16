@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 
 use super::config::KeplerConfig;
-use super::parser::KeplerSample;
 use super::state::{KeplerState, ServiceEnergy};
+use crate::score::prom_parser::PromSample;
 
 /// Convert a joules delta + ops delta into a kWh-per-op coefficient.
 /// Returns `None` when the math is meaningless (zero ops, non-finite
@@ -29,7 +29,7 @@ pub fn compute_energy_per_op_kwh(joules_delta: f64, ops: u64) -> Option<f64> {
 /// first-observation semantics are documented in design doc 05.
 #[allow(clippy::implicit_hasher)]
 pub fn joules_deltas(
-    samples: &[KeplerSample],
+    samples: &[PromSample],
     service_mappings: &HashMap<String, String>,
     last_raw_joules: &mut HashMap<String, f64>,
 ) -> HashMap<String, f64> {
@@ -38,7 +38,7 @@ pub fn joules_deltas(
     // containers per node.
     let by_label: HashMap<&str, f64> = samples
         .iter()
-        .map(|s| (s.label_value.as_str(), s.joules_total))
+        .map(|s| (s.label_value.as_str(), s.value))
         .collect();
     let mut out = HashMap::with_capacity(service_mappings.len());
     for (service, label_value) in service_mappings {
@@ -106,7 +106,7 @@ pub fn apply_scrape(
 #[allow(clippy::implicit_hasher)]
 pub fn process_scrape(
     state: &KeplerState,
-    samples: &[KeplerSample],
+    samples: &[PromSample],
     op_deltas: &HashMap<String, u64>,
     cfg: &KeplerConfig,
     last_raw_joules: &mut HashMap<String, f64>,

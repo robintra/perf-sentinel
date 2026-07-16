@@ -14,8 +14,8 @@ use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
 
 use super::apply::process_scrape;
 use super::config::KeplerConfig;
-use super::parser::parse_kepler_metrics;
 use super::state::{KeplerState, monotonic_ms};
+use crate::score::prom_parser::parse_metric_samples;
 
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
 /// emits the one-shot "likely misconfigured endpoint" warning. Same
@@ -169,7 +169,7 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
             Ok(body) => {
                 failure_streak_warned = false;
                 consecutive_failures = 0;
-                let samples = parse_kepler_metrics(&body, metric_name, label_key);
+                let samples = parse_metric_samples(&body, metric_name, label_key);
                 // Mirror Scaphandre: timestamp after the fetch resolves
                 // so `last_update_ms` reflects when the data landed.
                 let now = monotonic_ms();
