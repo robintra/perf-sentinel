@@ -938,11 +938,21 @@ jobs:
       - name: Start Alumet agent (procfs + prometheus-exporter)
         # `--plugins a,b` disables every other plugin, so no RAPL/perf
         # access is attempted. The exporter binds 127.0.0.1 explicitly
-        # (upstream default is 0.0.0.0), overriding via the CLI so no
-        # config file needs to be committed. The agent auto-generates
-        # its default config for the enabled plugins on first run.
+        # (upstream default is 0.0.0.0).
+        #
+        # ALUMET_CONFIG must point at a FRESH path: the .deb ships
+        # /etc/alumet/alumet-config.toml (a conffile with no
+        # prometheus-exporter section) and the /usr/bin/alumet-agent
+        # wrapper exports ALUMET_CONFIG to it unless already set. The
+        # exporter's prefix/suffix fields carry no serde defaults, so
+        # launching against the shipped conffile dies with "missing
+        # field `prefix`". A fresh path makes the agent regenerate
+        # defaults for the enabled plugin set (prefix "", suffix
+        # "_alumet", port 9091). Validated against a live v0.9.5 agent
+        # in the simulation lab (scenario alumet-conformance).
         run: |
           cd /tmp
+          export ALUMET_CONFIG=/tmp/alumet-ci-config.toml
           nohup alumet-agent \
             --plugins procfs,prometheus-exporter \
             --config-override 'plugins.prometheus-exporter.host="127.0.0.1"' \
