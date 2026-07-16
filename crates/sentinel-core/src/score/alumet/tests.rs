@@ -11,7 +11,8 @@ use std::time::Duration;
 use super::apply::{apply_scrape, compute_energy_per_op_kwh};
 use super::config::{AlumetConfig, DEFAULT_ENERGY_INTERVAL_SECS};
 use super::scraper::{
-    ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper, track_zero_sample_streak,
+    ScraperError, WarnOnceStreak, fetch_metrics_once, scraper_error_reason, spawn_scraper,
+    track_zero_sample_streak,
 };
 use super::state::AlumetState;
 use crate::score::prom_parser::PromSample;
@@ -189,6 +190,65 @@ fn apply_scrape_sums_series_sharing_a_label_value() {
 }
 
 #[test]
+fn sum_skips_nan_rows_instead_of_poisoning_the_label() {
+    // The Prometheus text format legitimately carries NaN. One NaN row
+    // must not poison every row sharing its label: the valid rows still
+    // sum and publish, and the service still counts as matched.
+    let state = AlumetState::default();
+    let cfg = sample_config();
+    let samples = vec![
+        PromSample {
+            label_value: "checkout-pod".to_string(),
+            value: 6.0,
+        },
+        PromSample {
+            label_value: "checkout-pod".to_string(),
+            value: f64::NAN,
+        },
+    ];
+    let mut op_deltas = HashMap::new();
+    op_deltas.insert("checkout".to_string(), 100);
+    let matched = apply_scrape(&state, &samples, &op_deltas, &cfg, 1000);
+    assert_eq!(matched, 1, "a NaN row must not unmatch the label");
+    let snap = state.snapshot(1000, 10_000);
+    let expected = (6.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
+    assert!(
+        (snap["checkout"] - expected).abs() < 1e-18,
+        "the valid row must publish, got {}",
+        snap["checkout"]
+    );
+}
+
+#[test]
+fn sum_skips_negative_rows_instead_of_subtracting() {
+    // A finite negative row (a mis-pointed metric_name matching a gauge
+    // that dips negative) must not subtract from an otherwise valid sum
+    // and understate the published figure.
+    let state = AlumetState::default();
+    let cfg = sample_config();
+    let samples = vec![
+        PromSample {
+            label_value: "checkout-pod".to_string(),
+            value: 6.0,
+        },
+        PromSample {
+            label_value: "checkout-pod".to_string(),
+            value: -2.0,
+        },
+    ];
+    let mut op_deltas = HashMap::new();
+    op_deltas.insert("checkout".to_string(), 100);
+    apply_scrape(&state, &samples, &op_deltas, &cfg, 1000);
+    let snap = state.snapshot(1000, 10_000);
+    let expected = (6.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
+    assert!(
+        (snap["checkout"] - expected).abs() < 1e-18,
+        "the negative row must be skipped, not subtracted, got {}",
+        snap["checkout"]
+    );
+}
+
+#[test]
 fn apply_scrape_reports_matched_services_independently_of_ops() {
     let state = AlumetState::default();
     let cfg = sample_config();
@@ -296,106 +356,147 @@ fn stale_entries_are_filtered() {
     assert!(!snap.contains_key("stale-svc"));
 }
 
-// --- warn-once latch --------------------------------------------------
+// --- warn-once latches -------------------------------------------------
+
+fn streaks() -> (WarnOnceStreak, WarnOnceStreak) {
+    (WarnOnceStreak::default(), WarnOnceStreak::default())
+}
+
+fn one_tick(
+    samples: usize,
+    matched: usize,
+    mappings: usize,
+    a: &mut WarnOnceStreak,
+    b: &mut WarnOnceStreak,
+) {
+    track_zero_sample_streak(
+        samples,
+        matched,
+        0,
+        mappings,
+        "http://x/metrics",
+        "m",
+        "l",
+        a,
+        b,
+    );
+}
 
 #[test]
-fn zero_sample_streak_warns_once_then_latches() {
-    let mut ticks = 0;
-    let mut warned = false;
+fn no_samples_streak_warns_once_then_latches() {
+    let (mut a, mut b) = streaks();
     for _ in 0..2 {
-        track_zero_sample_streak(
-            0,
-            0,
-            0,
-            "http://x/metrics",
-            "m",
-            "l",
-            &mut ticks,
-            &mut warned,
-        );
+        one_tick(0, 0, 1, &mut a, &mut b);
     }
-    assert!(!warned, "must not warn before the 3-tick threshold");
-    track_zero_sample_streak(
-        0,
-        0,
-        0,
-        "http://x/metrics",
-        "m",
-        "l",
-        &mut ticks,
-        &mut warned,
+    assert!(!a.has_warned(), "must not warn before the 3-tick threshold");
+    one_tick(0, 0, 1, &mut a, &mut b);
+    // Pins WHICH latch armed: an empty exposition is a metric_name
+    // problem, blaming the mappings would send the operator down the
+    // wrong debugging path.
+    assert!(
+        a.has_warned(),
+        "third consecutive zero-sample tick must warn"
     );
-    assert!(warned, "third consecutive zero-sample tick must warn");
-    assert_eq!(ticks, 3);
+    assert!(
+        !b.has_warned(),
+        "an empty exposition must not blame the mappings"
+    );
 }
 
 #[test]
-fn zero_sample_streak_resets_on_matched_samples() {
-    let mut ticks = 5;
-    let mut warned = true;
-    track_zero_sample_streak(
-        2,
-        1,
-        1,
-        "http://x/metrics",
-        "m",
-        "l",
-        &mut ticks,
-        &mut warned,
+fn no_samples_streak_resets_on_any_samples() {
+    let (mut a, mut b) = streaks();
+    for _ in 0..3 {
+        one_tick(0, 0, 1, &mut a, &mut b);
+    }
+    assert!(a.has_warned());
+    one_tick(2, 1, 1, &mut a, &mut b);
+    assert!(
+        !a.has_warned(),
+        "a healthy tick must re-arm the no-samples latch"
     );
-    assert_eq!(ticks, 0);
-    assert!(!warned, "a matched service must re-arm the latch");
 }
 
 #[test]
-fn streak_arms_when_samples_parse_but_no_service_matches() {
+fn no_match_streak_arms_when_samples_parse_but_no_service_matches() {
     // The mistyped-service_mappings case: metric_name and label_key are
     // right, so samples keep flowing and every counter reads healthy,
-    // but nothing maps. Gating the latch on samples_len alone would
-    // leave this misconfiguration with no diagnostic at all.
-    let mut ticks = 0;
-    let mut warned = false;
+    // but nothing maps. Gating on samples_len alone would leave this
+    // misconfiguration with no diagnostic at all.
+    let (mut a, mut b) = streaks();
     for _ in 0..3 {
-        track_zero_sample_streak(
-            9,
-            0,
-            0,
-            "http://x/metrics",
-            "m",
-            "l",
-            &mut ticks,
-            &mut warned,
-        );
+        one_tick(9, 0, 1, &mut a, &mut b);
     }
     assert!(
-        warned,
-        "samples parsed but zero services matched must still warn"
+        b.has_warned(),
+        "samples parsed but zero services matched must warn"
+    );
+    assert!(!a.has_warned(), "the no-samples latch must stay untouched");
+}
+
+#[test]
+fn no_match_streak_never_arms_on_empty_mappings() {
+    // An empty service_mappings table trivially matches nothing, that
+    // is a staged config, not a typo. It gets a startup warning, not a
+    // recurring streak warn.
+    let (mut a, mut b) = streaks();
+    for _ in 0..5 {
+        one_tick(9, 0, 0, &mut a, &mut b);
+    }
+    assert!(
+        !b.has_warned(),
+        "empty mappings must not trip the no-match warn"
     );
 }
 
 #[test]
-fn streak_stays_quiet_when_matched_services_are_merely_idle() {
-    // Symmetric guard: a matched service with no ops is normal operation
-    // (nights, low traffic), not a misconfiguration. Must not warn.
-    let mut ticks = 0;
-    let mut warned = false;
-    for _ in 0..5 {
-        track_zero_sample_streak(
-            2,
-            1,
-            0,
-            "http://x/metrics",
-            "m",
-            "l",
-            &mut ticks,
-            &mut warned,
-        );
+fn no_samples_ticks_do_not_advance_the_no_match_streak() {
+    // Mixed streak: two empty ticks then a samples-present-no-match
+    // tick. The no-match streak must count its OWN ticks from zero, not
+    // inherit the empty ticks and fire on the first transition with a
+    // message blaming the mappings for a metric_name problem.
+    let (mut a, mut b) = streaks();
+    one_tick(0, 0, 1, &mut a, &mut b);
+    one_tick(0, 0, 1, &mut a, &mut b);
+    one_tick(9, 0, 1, &mut a, &mut b);
+    assert!(
+        !b.has_warned(),
+        "the no-match streak must not inherit no-samples ticks"
+    );
+    one_tick(9, 0, 1, &mut a, &mut b);
+    one_tick(9, 0, 1, &mut a, &mut b);
+    assert!(b.has_warned(), "three no-match ticks of its own must warn");
+}
+
+#[test]
+fn a_latched_no_samples_warn_does_not_suppress_the_no_match_warn() {
+    // Exporter warms up empty (latch A fires), then the metric appears
+    // but the mappings are mistyped. The second cause must still get
+    // its own warn, a single shared latch would silence it forever.
+    let (mut a, mut b) = streaks();
+    for _ in 0..3 {
+        one_tick(0, 0, 1, &mut a, &mut b);
+    }
+    assert!(a.has_warned());
+    for _ in 0..3 {
+        one_tick(9, 0, 1, &mut a, &mut b);
     }
     assert!(
-        !warned,
-        "an idle but matched service must not trip the warn"
+        b.has_warned(),
+        "the no-match warn must fire after a latched no-samples warn"
     );
-    assert_eq!(ticks, 0);
+}
+
+#[test]
+fn streaks_stay_quiet_when_matched_services_are_merely_idle() {
+    // A matched service with no ops is normal operation (nights, low
+    // traffic), not a misconfiguration. Must not warn.
+    let (mut a, mut b) = streaks();
+    for _ in 0..5 {
+        one_tick(2, 1, 1, &mut a, &mut b);
+    }
+    assert!(!a.has_warned(), "idle but matched must not trip any warn");
+    assert!(!b.has_warned(), "idle but matched must not trip any warn");
 }
 
 // --- scraper error mapping --------------------------------------------
