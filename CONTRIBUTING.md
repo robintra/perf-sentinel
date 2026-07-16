@@ -4,7 +4,7 @@ Thank you for your interest in contributing to perf-sentinel! This document cove
 
 ## Prerequisites
 
-- **Rust** stable toolchain pinned in `rust-toolchain.toml` (currently 1.96.1, edition 2024)
+- **Rust** stable toolchain pinned in `rust-toolchain.toml` (currently 1.97.1, edition 2024)
 - **cargo** (comes with Rust)
 - Optional: `cargo-llvm-cov` for code coverage
 
