@@ -98,6 +98,18 @@ impl AgedEnergyMap {
 /// to the shared storage. The types are intentionally NOT unified so the
 /// daemon cannot accidentally swap a Scaphandre state for a cloud-energy
 /// state (or vice versa) when tagging the energy model.
+/// Insert or overwrite one service's row without re-cloning the key in
+/// the steady state (the common case: the service already has an
+/// entry, only its coefficient moves). Shared by every scraper's
+/// `apply_scrape`.
+pub(crate) fn upsert_row(map: &mut HashMap<String, EnergyRow>, service: &str, row: EnergyRow) {
+    if let Some(slot) = map.get_mut(service) {
+        *slot = row;
+    } else {
+        map.insert(service.to_owned(), row);
+    }
+}
+
 macro_rules! impl_energy_state {
     (
         $(#[$meta:meta])*

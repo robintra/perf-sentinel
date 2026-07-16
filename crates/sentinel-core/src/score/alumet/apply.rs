@@ -8,7 +8,8 @@ use std::collections::HashMap;
 
 use super::config::AlumetConfig;
 use super::state::{AlumetState, ServiceEnergy};
-use crate::score::prom_parser::PromSample;
+use crate::score::energy_state::upsert_row;
+use crate::score::prom_parser::{PromSample, sum_by_label};
 
 /// Convert one Alumet energy reading + observed op count into an
 /// energy-per-op coefficient (kWh per op).
@@ -86,34 +87,11 @@ pub fn apply_scrape(
     now_ms: u64,
 ) -> usize {
     // O(N) index over samples so the service loop stays O(N + M) on
-    // endpoints exposing hundreds of series.
-    //
-    // Values are SUMMED per label, not overwritten: Alumet's
-    // `label_key` is operator-chosen and collisions are routine rather
-    // than exceptional. One `name="checkout-pod"` carries a row per
-    // RAPL domain (package + dram), and `label_key = "domain"` on a
-    // dual-socket host carries one `domain="package"` row per socket.
-    // Energy is additive, so summing is the physically correct read;
-    // `.collect()` would keep whichever row the exposition emitted last
-    // and silently halve the figure under a `measured` provenance tag.
-    // (Kepler's `joules_deltas` keeps its historical last-write-wins
-    // read; its pinned label keys can collide too, e.g. one container
-    // name repeated across pods, but that is shipped behavior out of
-    // scope here.)
-    // Per-row validation happens HERE, not only on the sum: the
-    // Prometheus text format legitimately carries NaN, and one NaN row
-    // would poison every row sharing its label, while a negative row
-    // would subtract from an otherwise valid sum and understate the
-    // published figure. Rejected rows still create the entry so the
-    // label counts as matched (the series exists on the wire, the
-    // mapping is not the problem).
-    let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
-    for s in samples {
-        let slot = by_label.entry(s.label_value.as_str()).or_insert(0.0);
-        if s.value.is_finite() && s.value > 0.0 {
-            *slot += s.value;
-        }
-    }
+    // endpoints exposing hundreds of series. Label collisions are
+    // routine for Alumet (one row per RAPL domain per pod, one row per
+    // socket under `label_key = "domain"`), the summing and per-row
+    // validation semantics live in [`sum_by_label`].
+    let by_label = sum_by_label(samples);
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();
     let mut next = state.current_owned();
     let mut any_change = false;
@@ -137,12 +115,7 @@ pub fn apply_scrape(
             energy_per_op_kwh: energy_per_op,
             last_update_ms: now_ms,
         };
-        // Steady-state update without re-cloning the service key.
-        if let Some(slot) = next.get_mut(service.as_str()) {
-            *slot = row;
-        } else {
-            next.insert(service.clone(), row);
-        }
+        upsert_row(&mut next, service, row);
         any_change = true;
     }
     if any_change {
