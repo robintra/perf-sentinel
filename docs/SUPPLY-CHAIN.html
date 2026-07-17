@@ -264,7 +264,7 @@
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">cargo</span> audit bin perf-sentinel-linux-amd64</code></pre></div>
 <p class="ps-p"><strong>SPDX SBOM.</strong> Each release ships <code class="ps-ic">perf-sentinel-sbom.spdx.json</code>, an SPDX SBOM that Syft derives from that embedded data and attests under the SPDX predicate (<code class="ps-ic">https://spdx.dev/Document/v2.3</code>) against the Linux amd64 binary, the same predicate the chart uses. Verify the attestation against the binary (the SBOM is the attestation's predicate, the binary is its subject):</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify perf-sentinel-linux-amd64 \
-  <span style="color:var(--code-flag)">--owner</span> <span style="color:var(--code-cmd);font-weight:600">robintra</span> <span style="color:var(--code-flag)">--repo</span> perf-sentinel \
+  <span style="color:var(--code-flag)">--repo</span> <span style="color:var(--code-cmd);font-weight:600">robintra/perf-sentinel</span> \
   <span style="color:var(--code-flag)">--predicate-type</span> <span style="color:var(--code-cmd);font-weight:600">https://spdx.dev/Document/v2.3</span></code></pre></div>
 <p class="ps-p">The SBOM is derived from the Linux amd64 binary; the four release binaries share their Rust dependency closure bar a few platform-shim crates, so it documents the release as a whole.</p>
 <h2 id="pr-review-checklist" class="ps-h2">PR review checklist</h2>
