@@ -110,10 +110,14 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
     let (event_type, target) =
         if let Some(stmt) = get_tag("db.statement").or_else(|| get_tag("db.query.text")) {
             (EventType::Sql, stmt.to_string())
-        } else if let Some(url) = get_tag("http.url").or_else(|| get_tag("url.full")) {
-            (EventType::HttpOut, url.to_string())
         } else {
-            return None;
+            // Not an I/O span unless it carries an HTTP target.
+            (
+                EventType::HttpOut,
+                get_tag("http.url")
+                    .or_else(|| get_tag("url.full"))?
+                    .to_string(),
+            )
         };
 
     let operation = match event_type {
