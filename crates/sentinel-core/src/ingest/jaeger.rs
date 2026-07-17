@@ -160,10 +160,12 @@ fn convert_jaeger_span(
         find_tag(tags, "db.statement").or_else(|| find_tag(tags, "db.query.text"))
     {
         (EventType::Sql, stmt)
-    } else if let Some(url) = find_tag(tags, "http.url").or_else(|| find_tag(tags, "url.full")) {
-        (EventType::HttpOut, url)
     } else {
-        return None; // Not an I/O span
+        // Not an I/O span unless it carries an HTTP target.
+        (
+            EventType::HttpOut,
+            find_tag(tags, "http.url").or_else(|| find_tag(tags, "url.full"))?,
+        )
     };
 
     // Operation
