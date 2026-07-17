@@ -193,6 +193,8 @@ The full alias table is in `score/carbon_profiles.rs`. If your region key is not
 
 Opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement on Linux hosts with Intel RAPL support. When configured, the `watch` daemon spawns a background task that scrapes the Scaphandre Prometheus endpoint every `scrape_interval_secs` and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` constant for each mapped service.
 
+**Prefer `[green.alumet]` for new deployments.** Both integrations read the same RAPL counters, but Alumet's sampling is measurably less error-prone, as characterized by its own authors in [Dissecting the software-based measurement of CPU energy consumption](https://hal.science/hal-04420527v2/document) (Raffin et al.), and it attributes per cgroup rather than per process. Scaphandre support is kept for existing deployments, and `alumet_rapl` outranks `scaphandre_rapl` whenever both feed the same service. See `docs/LIMITATIONS.md#scaphandre-precision-bounds`.
+
 | Field                  | Type    | Default  | Description                                                                                                                                                               |
 |------------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `endpoint`             | string  | *(none)* | Full URL of the Scaphandre Prometheus `/metrics` endpoint. Must start with `http://` or `https://` (TLS supported via hyper-rustls). Required when the section is present |

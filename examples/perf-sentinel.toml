@@ -124,6 +124,8 @@ include_network_transport = false
 # service_mappings = { "account-svc" = "account-pod", "game-svc" = "game-pod" }
 
 # --- Scaphandre per-process scraper (opt-in, no default egress) ------------
+# For new deployments prefer [green.alumet] above: same RAPL source, less
+# error-prone sampling, per-cgroup attribution. Kept for existing setups.
 # Scrapes Scaphandre's Prometheus endpoint to get per-process power draw and
 # compute `energy_per_op_kwh = (watts × interval) / ops / 3_600_000`. Model
 # tag flips to `scaphandre_rapl` when active.

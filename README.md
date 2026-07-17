@@ -338,7 +338,7 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 | Any, zero setup                                              | I/O proxy model (default)                   | directional, ~2x bracket       |
 | Cloud VMs (AWS, GCP, Azure)                                  | Cloud SPECpower (CPU% + instance type)      | ~±30%                          |
 | Kubernetes, cloud or on-prem                                 | Kepler (eBPF per container)                 | good, best on RAPL nodes       |
-| Bare metal x86 (incl. AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet or Scaphandre (RAPL)                 | highest tier                   |
+| Bare metal x86 (incl. AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet (recommended) or Scaphandre (RAPL)   | highest tier                   |
 | Physical servers with a BMC                                  | Redfish (wall-plug power per chassis)       | node-level, periphery included |
 | Anywhere, on top of any row above                            | Electricity Maps (real-time grid intensity) | refines the I axis, not E      |
 

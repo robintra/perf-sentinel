@@ -461,6 +461,8 @@ The stationarity assumption is the same one Scaphandre carries: the sampled inte
 
 perf-sentinel ships an opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement via Intel RAPL counters. When `[green.scaphandre]` is configured, the `watch` daemon scrapes the Scaphandre Prometheus endpoint every few seconds and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` proxy constant for each mapped service.
 
+**Prefer Alumet for new deployments.** [Alumet precision bounds](#alumet-precision-bounds) above explains why `alumet_rapl` outranks `scaphandre_rapl`: same RAPL source, less error-prone sampling as characterized in the Raffin et al. paper, and per-cgroup attribution. Upstream pace points the same way: at the time of writing the latest Scaphandre release is v1.0.2 (February 2025) and the ARM tracking issue below has been open since 2020, while Alumet is under active development. The Scaphandre integration stays supported for existing deployments.
+
 **Upstream version.** The parser is version-agnostic by design: it consumes the standard Prometheus exposition for `scaph_process_power_consumption_microwatts` with `exe` and `cmdline` labels, which has been stable across upstream releases. The wire-conformance CI job (`.github/workflows/upstream-wire-conformance.yml`) pins **Scaphandre v1.0.2** by SHA256 of the upstream `.deb` artifact as the validated reference version. Other recent releases are expected to work, an upstream rename of the metric or labels would trip the zero-sample warn-once net at runtime and the wire-conformance assertion in CI.
 
 **Platform requirements.** Scaphandre works on:

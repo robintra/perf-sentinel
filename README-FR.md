@@ -338,7 +338,7 @@ Aucun prérequis d'infrastructure : le modèle proxy I/O et les tables de résea
 | N'importe laquelle, zéro installation                       | Modèle proxy I/O (défaut)                      | directionnelle, encadrement ~2x |
 | VMs cloud (AWS, GCP, Azure)                                 | Cloud SPECpower (CPU% + type d'instance)       | ~±30 %                          |
 | Kubernetes, cloud ou on-prem                                | Kepler (eBPF par conteneur)                    | bonne, au mieux sur nœuds RAPL  |
-| Bare metal x86 (dont AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet ou Scaphandre (RAPL)                    | palier le plus élevé            |
+| Bare metal x86 (dont AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet (recommandé) ou Scaphandre (RAPL)       | palier le plus élevé            |
 | Serveurs physiques avec BMC                                 | Redfish (puissance à la prise par châssis)     | par nœud, périphérie incluse    |
 | Partout, en plus de toute ligne ci-dessus                   | Electricity Maps (intensité réseau temps réel) | raffine l'axe I, pas E          |
 
