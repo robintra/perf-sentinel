@@ -507,7 +507,7 @@ fn verify_binary_attestation(report: &PeriodicReport) -> Status {
     match report.integrity.binary_attestation.as_ref() {
         None => Status::NotProvided,
         Some(att) => Status::Skip(format!(
-            "binary attestation metadata present (built from {} at {}, builder {}, attestation indexed at {}). Verify the binary with `gh attestation verify <binary> --owner robintra --repo perf-sentinel`.",
+            "binary attestation metadata present (built from {} at {}, builder {}, attestation indexed at {}). Verify the binary with `gh attestation verify <binary> --repo robintra/perf-sentinel`.",
             sanitise_for_terminal(&att.git_tag),
             sanitise_for_terminal(&att.git_commit),
             sanitise_for_terminal(&att.builder_id),

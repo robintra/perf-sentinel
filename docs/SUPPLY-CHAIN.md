@@ -301,7 +301,7 @@ is the attestation's predicate, the binary is its subject):
 
 ```bash
 gh attestation verify perf-sentinel-linux-amd64 \
-  --owner robintra --repo perf-sentinel \
+  --repo robintra/perf-sentinel \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 

@@ -309,7 +309,7 @@ le prédicat de l'attestation, le binaire en est le sujet) :
 
 ```bash
 gh attestation verify perf-sentinel-linux-amd64 \
-  --owner robintra --repo perf-sentinel \
+  --repo robintra/perf-sentinel \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
