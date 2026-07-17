@@ -450,7 +450,7 @@
               <div data-dc-tpl="162" style="padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text-2);"><span class="sc-interp">bonne, au mieux sur nœuds RAPL</span></div>
             
               <div data-dc-tpl="160" style="padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text);"><span class="sc-interp">Bare metal x86 (dont AWS *.metal, OVH, Hetzner, Scaleway)</span></div>
-              <div data-dc-tpl="161" style="padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text-2);"><span class="sc-interp">Alumet ou Scaphandre (RAPL)</span></div>
+              <div data-dc-tpl="161" style="padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text-2);"><span class="sc-interp">Alumet (recommandé) ou Scaphandre (RAPL)</span></div>
               <div data-dc-tpl="162" style="padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text-2);"><span class="sc-interp">palier le plus élevé</span></div>
             
               <div data-dc-tpl="160" style="padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text);"><span class="sc-interp">Serveurs physiques avec BMC</span></div>
@@ -1597,7 +1597,7 @@ class Component extends DCLogic {
           { infra: 'Any, zero setup', src: 'I/O proxy model (default)', prec: 'directional, ~2x bracket' },
           { infra: 'Cloud VMs (AWS, GCP, Azure)', src: 'Cloud SPECpower (CPU% + instance type)', prec: '~\u00b130%' },
           { infra: 'Kubernetes, cloud or on-prem', src: 'Kepler (eBPF per container)', prec: 'good, best on RAPL nodes' },
-          { infra: 'Bare metal x86 (incl. AWS *.metal, OVH, Hetzner, Scaleway)', src: 'Alumet or Scaphandre (RAPL)', prec: 'highest tier' },
+          { infra: 'Bare metal x86 (incl. AWS *.metal, OVH, Hetzner, Scaleway)', src: 'Alumet (recommended) or Scaphandre (RAPL)', prec: 'highest tier' },
           { infra: 'Physical servers with a BMC', src: 'Redfish (wall-plug power per chassis)', prec: 'node-level, periphery included' },
           { infra: 'Anywhere, on top of any row above', src: 'Electricity Maps (real-time grid intensity)', prec: 'refines the I axis, not E' },
         ],
@@ -1782,7 +1782,7 @@ class Component extends DCLogic {
           { infra: 'N\u2019importe laquelle, z\u00e9ro installation', src: 'Mod\u00e8le proxy I/O (d\u00e9faut)', prec: 'directionnelle, encadrement ~2x' },
           { infra: 'VMs cloud (AWS, GCP, Azure)', src: 'Cloud SPECpower (CPU% + type d\u2019instance)', prec: '~\u00b130 %' },
           { infra: 'Kubernetes, cloud ou on-prem', src: 'Kepler (eBPF par conteneur)', prec: 'bonne, au mieux sur n\u0153uds RAPL' },
-          { infra: 'Bare metal x86 (dont AWS *.metal, OVH, Hetzner, Scaleway)', src: 'Alumet ou Scaphandre (RAPL)', prec: 'palier le plus \u00e9lev\u00e9' },
+          { infra: 'Bare metal x86 (dont AWS *.metal, OVH, Hetzner, Scaleway)', src: 'Alumet (recommand\u00e9) ou Scaphandre (RAPL)', prec: 'palier le plus \u00e9lev\u00e9' },
           { infra: 'Serveurs physiques avec BMC', src: 'Redfish (puissance \u00e0 la prise par ch\u00e2ssis)', prec: 'par n\u0153ud, p\u00e9riph\u00e9rie incluse' },
           { infra: 'Partout, en plus de toute ligne ci-dessus', src: 'Electricity Maps (intensit\u00e9 r\u00e9seau temps r\u00e9el)', prec: 'raffine l\u2019axe I, pas E' },
         ],
