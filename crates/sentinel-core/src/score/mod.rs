@@ -39,7 +39,8 @@ mod region_breakdown;
 use std::collections::HashMap;
 
 use crate::correlate::Trace;
-use crate::detect::{Finding, GreenImpact};
+use crate::detect::{Finding, FindingType, GreenImpact};
+use crate::event::EventType;
 use crate::report::{GreenSummary, PerEndpointIoOps, TopOffender};
 use carbon::CarbonContext;
 #[cfg(test)]
@@ -69,15 +70,23 @@ type EndpointKey<'a> = (&'a str, &'a str);
 
 /// Count I/O ops per `(service, endpoint)` and invocations (distinct
 /// traces per `(service, endpoint)`) in a single pass, using
-/// [`EndpointStats::last_seen_trace`] as the per-trace sentinel.
-fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointStats>, usize) {
+/// [`EndpointStats::last_seen_trace`] as the per-trace sentinel. Also
+/// returns the SQL-only op count so the summary can expose the SQL
+/// share of the waste ratio.
+fn count_endpoint_stats(
+    traces: &[Trace],
+) -> (HashMap<EndpointKey<'_>, EndpointStats>, usize, usize) {
     let mut endpoint_stats: HashMap<EndpointKey<'_>, EndpointStats> =
         HashMap::with_capacity(traces.len().min(64));
     let mut total_io_ops: usize = 0;
+    let mut total_sql_io_ops: usize = 0;
 
     for (trace_idx, trace) in traces.iter().enumerate() {
         for span in &trace.spans {
             total_io_ops += 1;
+            if matches!(span.event.event_type, EventType::Sql) {
+                total_sql_io_ops += 1;
+            }
             let key: EndpointKey<'_> = (
                 span.event.service.as_ref(),
                 span.event.source.endpoint.as_str(),
@@ -95,7 +104,7 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointS
         }
     }
 
-    (endpoint_stats, total_io_ops)
+    (endpoint_stats, total_io_ops, total_sql_io_ops)
 }
 
 /// Project the score-side `endpoint_stats` map into the public
@@ -146,9 +155,10 @@ pub fn score_green(
     findings: Vec<Finding>,
     carbon: Option<&CarbonContext>,
 ) -> (Vec<Finding>, GreenSummary, Vec<PerEndpointIoOps>) {
-    let (endpoint_stats, total_io_ops) = count_endpoint_stats(traces);
+    let (endpoint_stats, total_io_ops, total_sql_io_ops) = count_endpoint_stats(traces);
     let per_endpoint_io_ops = endpoint_stats_to_per_endpoint_io_ops(&endpoint_stats);
-    let avoidable_io_ops = dedup_avoidable_io_ops(&findings);
+    let avoidable = dedup_avoidable_io_ops(&findings);
+    let avoidable_io_ops = avoidable.total;
     let iis_map = build_iis_map(&endpoint_stats);
     let enriched = enrich_findings_with_iis(findings, &iis_map);
 
@@ -185,6 +195,8 @@ pub fn score_green(
     let green_summary = GreenSummary {
         total_io_ops,
         avoidable_io_ops,
+        total_sql_io_ops,
+        avoidable_sql_io_ops: avoidable.sql,
         accounted_io_ops: carbon_outputs.accounted_io_ops,
         io_waste_ratio,
         io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
@@ -210,26 +222,47 @@ pub fn score_green(
     (enriched, green_summary, per_endpoint_io_ops)
 }
 
+/// Total and SQL-only sums of the deduped avoidable I/O ops.
+pub(crate) struct AvoidableIoOps {
+    pub total: usize,
+    pub sql: usize,
+}
+
 /// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`),
 /// taking max. Slow findings are not avoidable I/O, they are necessary
-/// operations that happen to be slow.
-pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> usize {
+/// operations that happen to be slow. The SQL-only sum lets operators
+/// apply the SQL waste share to a measured database energy reading.
+pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
     let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
         .count();
-    let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(capacity);
+    // Value = (max avoidable, whether that max came from a SQL finding).
+    let mut dedup: HashMap<(&str, &str, &str), (usize, bool)> = HashMap::with_capacity(capacity);
     for f in findings {
         if !f.finding_type.is_avoidable_io() {
             continue;
         }
         let avoidable = f.pattern.occurrences.saturating_sub(1);
+        let is_sql = matches!(
+            f.finding_type,
+            FindingType::NPlusOneSql | FindingType::RedundantSql
+        );
         let entry = dedup
             .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-            .or_insert(0);
-        *entry = (*entry).max(avoidable);
+            .or_insert((avoidable, is_sql));
+        if avoidable > entry.0 {
+            *entry = (avoidable, is_sql);
+        }
     }
-    dedup.values().sum()
+    let mut out = AvoidableIoOps { total: 0, sql: 0 };
+    for &(avoidable, is_sql) in dedup.values() {
+        out.total += avoidable;
+        if is_sql {
+            out.sql += avoidable;
+        }
+    }
+    out
 }
 
 fn build_iis_map<'a>(

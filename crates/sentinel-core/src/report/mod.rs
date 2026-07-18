@@ -146,6 +146,17 @@ pub struct Analysis {
 pub struct GreenSummary {
     pub total_io_ops: usize,
     pub avoidable_io_ops: usize,
+    /// SQL share of `total_io_ops`. Together with `avoidable_sql_io_ops`
+    /// this lets operators apply the SQL-only waste ratio to a measured
+    /// database energy reading (e.g. Alumet on the database cgroup).
+    /// `0` on baselines from versions before this field existed.
+    #[serde(default)]
+    pub total_sql_io_ops: usize,
+    /// SQL share of `avoidable_io_ops`, same dedup semantics restricted
+    /// to the SQL finding types (`n_plus_one_sql`, `redundant_sql`).
+    /// `0` on baselines from versions before this field existed.
+    #[serde(default)]
+    pub avoidable_sql_io_ops: usize,
     /// Region-resolved I/O ops (`total_io_ops` minus the unknown bucket): the
     /// denominator behind `co2.avoidable`. In-process only (`serde(skip)`),
     /// read by the daemon to rescale avoidable at the canonical threshold.
@@ -306,6 +317,8 @@ impl GreenSummary {
         Self {
             total_io_ops,
             avoidable_io_ops: 0,
+            total_sql_io_ops: 0,
+            avoidable_sql_io_ops: 0,
             accounted_io_ops: total_io_ops,
             io_waste_ratio: 0.0,
             io_waste_ratio_band: InterpretationLevel::Healthy,

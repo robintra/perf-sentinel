@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `green_summary` gains `total_sql_io_ops` and `avoidable_sql_io_ops`, the SQL share of `total_io_ops` and `avoidable_io_ops` with the same dedup semantics restricted to the SQL finding types. They let an operator apply the SQL-only waste ratio to an externally measured database energy reading (for example Alumet on the database cgroup). Both parse as `0` when diffing against baselines produced by earlier versions. See `docs/METHODOLOGY.md`.
+
 ## [0.9.12]
 
 ### Added
