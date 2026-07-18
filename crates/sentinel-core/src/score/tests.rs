@@ -4,7 +4,8 @@ use super::*;
 use crate::detect::{Confidence, FindingType, Pattern, Severity};
 use crate::event::SpanEvent;
 use crate::score::carbon::{
-    CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE, ENERGY_PER_IO_OP_KWH, IntensitySource, UNKNOWN_REGION,
+    CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE, CarbonContext, DbEnergyContext, ENERGY_PER_IO_OP_KWH,
+    IntensitySource, UNKNOWN_REGION,
 };
 use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
 
@@ -438,12 +439,12 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
         suggested_fix: None,
         signature: String::new(),
     };
-    let ctx = crate::score::carbon::CarbonContext {
-        db_energy: Some(crate::score::carbon::DbEnergyContext {
+    let ctx = CarbonContext {
+        db_energy: Some(DbEnergyContext {
             window_kwh: 2.0,
             region: Some("eu-west-3".to_string()),
         }),
-        ..crate::score::carbon::CarbonContext::default()
+        ..CarbonContext::default()
     };
 
     let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
@@ -469,12 +470,12 @@ fn database_waste_emitted_at_zero_ratio_when_no_sql_ops() {
         "2025-07-10T14:32:01.000Z",
     )];
     let trace = make_trace(events);
-    let ctx = crate::score::carbon::CarbonContext {
-        db_energy: Some(crate::score::carbon::DbEnergyContext {
+    let ctx = CarbonContext {
+        db_energy: Some(DbEnergyContext {
             window_kwh: 0.5,
             region: None,
         }),
-        ..crate::score::carbon::CarbonContext::default()
+        ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let db = summary.database_waste.expect("energy must surface");
@@ -494,12 +495,12 @@ fn database_waste_absent_without_window_energy() {
     )];
     let trace = make_trace(events);
     // Base context shape: declaration present, zero energy this window.
-    let ctx = crate::score::carbon::CarbonContext {
-        db_energy: Some(crate::score::carbon::DbEnergyContext {
+    let ctx = CarbonContext {
+        db_energy: Some(DbEnergyContext {
             window_kwh: 0.0,
             region: Some("eu-west-3".to_string()),
         }),
-        ..crate::score::carbon::CarbonContext::default()
+        ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(summary.database_waste.is_none());
