@@ -45,7 +45,7 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 | Document                               | Description                                                                                                           |
 |----------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | [RUNBOOK-FR.md](RUNBOOK-FR.md)         | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production                                   |
-| [ENERGY-FR.md](ENERGY-FR.md)           | Synthèse en langage clair : comment les comptages deviennent des kWh et des gCO2, option par option, avec les sources |
+| [ENERGY-FR.md](ENERGY-FR.md)           | Synthèse vulgarisée : comment les comptages deviennent des kWh et des gCO2, option par option, avec les sources |
 | [METHODOLOGY-FR.md](METHODOLOGY-FR.md) | Chaîne de calcul des traces vers `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`                                   |
 | [LIMITATIONS-FR.md](LIMITATIONS-FR.md) | Compromis connus, contraintes amont, limites de la détection                                                          |
 
