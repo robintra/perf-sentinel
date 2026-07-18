@@ -260,6 +260,30 @@ pub struct GreenSummary {
     /// average. Empty on pre-per-service-ratio baselines.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_measured_ratio: BTreeMap<String, f64>,
+    /// Waste figure for the `[green.alumet.database]` cgroup, daemon
+    /// only. Excluded from every total and from the public disclosure:
+    /// CPU-only lower bound, count-based ratio (`docs/METHODOLOGY.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database_waste: Option<DatabaseWaste>,
+}
+
+/// Measured database window energy × the SQL-only waste ratio.
+/// Informational, never summed into the report totals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DatabaseWaste {
+    /// Window energy of the database cgroup in kWh (CPU share only).
+    pub energy_kwh: f64,
+    /// `energy_kwh × sql_waste_ratio`.
+    pub waste_kwh: f64,
+    /// `waste_kwh` × declared region intensity × PUE. `None` without a
+    /// declared or known region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waste_gco2: Option<f64>,
+    /// Operator-declared region of the database host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// `avoidable_sql_io_ops / total_sql_io_ops`, in `[0, 1]`.
+    pub sql_waste_ratio: f64,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
@@ -334,6 +358,7 @@ impl GreenSummary {
             per_service_region: BTreeMap::new(),
             per_service_energy_model: BTreeMap::new(),
             per_service_measured_ratio: BTreeMap::new(),
+            database_waste: None,
         }
     }
 }

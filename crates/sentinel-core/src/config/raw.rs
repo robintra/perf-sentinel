@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::score::alumet::AlumetConfig;
 use crate::score::alumet::config::DEFAULT_ENERGY_INTERVAL_SECS;
+use crate::score::alumet::{AlumetConfig, AlumetDatabaseConfig};
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
@@ -145,6 +145,18 @@ pub(super) struct AlumetSection {
     pub(super) energy_interval_secs: Option<f64>,
     pub(super) service_mappings: HashMap<String, String>,
     pub(super) auth_header: Option<String>,
+    pub(super) database: Option<AlumetDatabaseSection>,
+}
+
+/// Raw deserialization target for `[green.alumet.database]`.
+///
+/// `deny_unknown_fields` on purpose: a typo here (`label = ...`) would
+/// otherwise silently disable the database waste figure.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub(super) struct AlumetDatabaseSection {
+    pub(super) label_value: Option<String>,
+    pub(super) region: Option<String>,
 }
 
 /// Raw deserialization target for `[green.redfish]`.
@@ -777,6 +789,28 @@ pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
              It mirrors the poll_interval of the Alumet source feeding the metric."
         ));
     }
+    if let Some(db) = raw.database.as_ref() {
+        let label_value = db.label_value.as_deref().map_or("", str::trim);
+        if label_value.is_empty() {
+            return Err(
+                "[green.alumet.database] label_value is required when the section is present"
+                    .to_string(),
+            );
+        }
+        if crate::config::has_control_char(label_value) {
+            return Err(
+                "[green.alumet.database] label_value contains control characters".to_string(),
+            );
+        }
+        if let Some(region) = db.region.as_deref()
+            && !crate::score::carbon::is_valid_region_id(region)
+        {
+            return Err(format!(
+                "[green.alumet.database] region '{region}' contains invalid characters; \
+                 allowed: ASCII letters, digits, '-' and '_', 1-64 chars"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -845,6 +879,12 @@ pub(super) fn convert_alumet_section_with_env(
             .unwrap_or(DEFAULT_ENERGY_INTERVAL_SECS),
         service_mappings: raw.service_mappings.clone(),
         auth_header,
+        database: raw.database.as_ref().and_then(|db| {
+            db.label_value.as_ref().map(|lv| AlumetDatabaseConfig {
+                label_value: lv.trim().to_string(),
+                region: db.region.clone(),
+            })
+        }),
     })
 }
 

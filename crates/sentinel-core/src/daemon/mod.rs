@@ -213,7 +213,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     )
     .await?;
 
-    let alumet = setup_alumet_scraper(&config, &metrics);
+    let (alumet, alumet_db) = setup_alumet_scraper(&config, &metrics);
     let scaphandre = setup_scaphandre_scraper(&config, &metrics);
     let kepler = setup_kepler_scraper(&config, &metrics);
     let redfish = setup_redfish_scraper(&config, &metrics);
@@ -235,6 +235,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let energy_sources = EnergySources {
         base_carbon_ctx,
         alumet_state: alumet.state.as_deref(),
+        alumet_db_state: alumet_db.as_deref(),
         alumet_staleness_ms: alumet.staleness_ms,
         scaphandre_state: scaphandre.state.as_deref(),
         scaphandre_staleness_ms: scaphandre.staleness_ms,

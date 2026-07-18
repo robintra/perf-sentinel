@@ -333,6 +333,18 @@ energy_interval_secs = 1.0
 
 **Alumet is pre-1.0** (v0.9.5 at time of writing). Metric names and plugin config may change between releases. If a scrape stops matching after an Alumet upgrade, the daemon warns with `no samples matched the configured metric` after three consecutive ticks.
 
+##### `[green.alumet.database]` (optional)
+
+Declares one database workload measured by Alumet. A database emits no spans, so it can never appear in `service_mappings` (zero ops, the per-op coefficient path skips it). Instead, its energy over each scoring window is multiplied by the SQL-only waste ratio (`avoidable_sql_io_ops / total_sql_io_ops`) and reported as `green_summary.database_waste`, a standalone figure excluded from `energy_kwh`, `co2` and the public disclosure. See `docs/METHODOLOGY.md` for the formula and `docs/LIMITATIONS.md#alumet-precision-bounds` for why it is a lower bound.
+
+```toml
+[green.alumet.database]
+label_value = "postgres-pod"   # value carried by label_key for the DB cgroup, verbatim
+region = "eu-west-3"           # optional, enables the gCO2 conversion (declared, not inferred)
+```
+
+`label_value` is required, matched exactly like a `service_mappings` value. `region` is optional and uses the same region ids as `[green.service_regions]`: without it the waste is reported in kWh only. One database per config, declare the cgroup that serves your SQL traffic.
+
 #### `[green.redfish]` (optional, opt-in)
 
 Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. Unlike Scaphandre and Kepler (which measure CPU + DRAM only), Redfish reads the actual power supply output via the BMC, so periphery (NIC, drives, fans, PSU overhead) is included. Bare-metal only, no cloud VMs.

@@ -70,6 +70,26 @@ pub struct AlumetConfig {
     /// `PERF_SENTINEL_ALUMET_AUTH_HEADER` environment variable with
     /// fallback to this field, env wins when both are set.
     pub auth_header: Option<String>,
+    /// Optional `[green.alumet.database]` declaration, see
+    /// [`AlumetDatabaseConfig`]. `None` means no database waste figure
+    /// is produced.
+    pub database: Option<AlumetDatabaseConfig>,
+}
+
+/// Operator declaration of a database workload measured by Alumet.
+///
+/// A database emits no spans (zero ops, the per-op path skips it), so
+/// its window energy feeds `green_summary.database_waste` instead,
+/// via the SQL-only waste ratio. See `docs/METHODOLOGY.md`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AlumetDatabaseConfig {
+    /// Alumet label value identifying the database workload under
+    /// `label_key`, matched verbatim like a `service_mappings` value.
+    pub label_value: String,
+    /// Declared region of the database host, used to convert the waste
+    /// energy to gCO2 with the same intensity and PUE tables as
+    /// span-bearing services. `None` reports the waste in kWh only.
+    pub region: Option<String>,
 }
 
 // Manual Debug impl to redact the auth header (potentially a secret).
@@ -86,6 +106,7 @@ impl std::fmt::Debug for AlumetConfig {
                 "auth_header",
                 &self.auth_header.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("database", &self.database)
             .finish()
     }
 }
@@ -105,6 +126,7 @@ mod tests {
             energy_interval_secs: DEFAULT_ENERGY_INTERVAL_SECS,
             service_mappings: mappings,
             auth_header: Some("Authorization: Bearer super-secret-do-not-log".to_string()),
+            database: None,
         }
     }
 

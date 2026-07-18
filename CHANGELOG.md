@@ -7,6 +7,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Added
 
 - `green_summary` gains `total_sql_io_ops` and `avoidable_sql_io_ops`, the SQL share of `total_io_ops` and `avoidable_io_ops` with the same dedup semantics restricted to the SQL finding types. They let an operator apply the SQL-only waste ratio to an externally measured database energy reading (for example Alumet on the database cgroup). Both parse as `0` when diffing against baselines produced by earlier versions. See `docs/METHODOLOGY.md`.
+- `[green.alumet.database]` declares the database cgroup measured by Alumet (`label_value`, optional `region`). The `watch` daemon accumulates that cgroup's window energy and reports `green_summary.database_waste`: the measured kWh multiplied by the SQL-only waste ratio, with a gCO2 conversion when a region is declared. The figure is a CPU-only lower bound, excluded from `energy_kwh`, `co2` and the public disclosure. See `docs/CONFIGURATION.md` and `docs/LIMITATIONS.md#alumet-precision-bounds`.
 
 ## [0.9.12]
 

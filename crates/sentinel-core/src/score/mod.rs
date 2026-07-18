@@ -41,7 +41,7 @@ use std::collections::HashMap;
 use crate::correlate::Trace;
 use crate::detect::{Finding, FindingType, GreenImpact};
 use crate::event::EventType;
-use crate::report::{GreenSummary, PerEndpointIoOps, TopOffender};
+use crate::report::{DatabaseWaste, GreenSummary, PerEndpointIoOps, TopOffender};
 use carbon::CarbonContext;
 #[cfg(test)]
 use carbon::RegionBreakdown;
@@ -183,6 +183,7 @@ pub fn score_green(
     } else {
         0.0
     };
+    let database_waste = build_database_waste(carbon, total_sql_io_ops, avoidable.sql);
     let window_model = carbon_outputs.window_model;
     let per_service = build_per_service_maps(carbon_outputs.per_service, window_model);
     let energy_model = if per_service.energy_kwh > 0.0 {
@@ -217,6 +218,7 @@ pub fn score_green(
         per_service_region: per_service.region,
         per_service_energy_model: per_service.energy_model,
         per_service_measured_ratio: per_service.measured_ratio,
+        database_waste,
     };
 
     (enriched, green_summary, per_endpoint_io_ops)
@@ -263,6 +265,33 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
         }
     }
     out
+}
+
+/// Database window energy × SQL-only waste ratio. Emitted even at ratio
+/// zero (measured energy with no waste is an auditable statement).
+fn build_database_waste(
+    carbon: Option<&CarbonContext>,
+    total_sql_io_ops: usize,
+    avoidable_sql_io_ops: usize,
+) -> Option<DatabaseWaste> {
+    let ctx = carbon?;
+    let db = ctx.db_energy.as_ref()?;
+    if db.window_kwh <= 0.0 || total_sql_io_ops == 0 {
+        return None;
+    }
+    let sql_waste_ratio = (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0);
+    let waste_kwh = db.window_kwh * sql_waste_ratio;
+    let waste_gco2 = db
+        .region
+        .as_deref()
+        .and_then(|region| carbon::db_waste_gco2(waste_kwh, region, ctx));
+    Some(DatabaseWaste {
+        energy_kwh: db.window_kwh,
+        waste_kwh,
+        waste_gco2,
+        region: db.region.clone(),
+        sql_waste_ratio,
+    })
 }
 
 fn build_iis_map<'a>(

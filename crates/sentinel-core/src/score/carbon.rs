@@ -385,6 +385,21 @@ pub struct CarbonContext {
     /// the operator's TOML. `None` when Electricity Maps is not
     /// configured.
     pub scoring_config: Option<ScoringConfig>,
+    /// Declared database measured by Alumet (`[green.alumet.database]`).
+    /// `Some` with `window_kwh = 0.0` in the base context; the daemon
+    /// patches `window_kwh` per tick with the energy accumulated since
+    /// the previous scored batch. Always `None` in batch mode.
+    pub db_energy: Option<DbEnergyContext>,
+}
+
+/// Window energy of the declared database cgroup, feeding
+/// [`crate::report::GreenSummary::database_waste`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DbEnergyContext {
+    /// kWh since the previous scored batch, `0.0` = no reading.
+    pub window_kwh: f64,
+    /// Operator-declared region, `None` skips the carbon conversion.
+    pub region: Option<String>,
 }
 
 /// Active Electricity Maps scoring configuration. Three dimensions
@@ -463,8 +478,23 @@ impl Default for CarbonContext {
             calibration: None,
             real_time_intensity: None,
             scoring_config: None,
+            db_energy: None,
         }
     }
+}
+
+/// Database waste kWh → gCO₂: real-time intensity when available,
+/// embedded annual otherwise, times provider PUE. `None` on unknown region.
+#[must_use]
+pub(crate) fn db_waste_gco2(waste_kwh: f64, region: &str, ctx: &CarbonContext) -> Option<f64> {
+    let region_lower = region.to_ascii_lowercase();
+    let (annual_intensity, pue) = lookup_region_lower(&region_lower)?;
+    let intensity = ctx
+        .real_time_intensity
+        .as_ref()
+        .and_then(|m| m.get(&region_lower))
+        .map_or(annual_intensity, |e| e.gco2_per_kwh);
+    Some(per_op_gco2(waste_kwh, intensity, pue))
 }
 
 /// Resolve region: `cloud_region` > `service_regions` > `default_region` > `None`.

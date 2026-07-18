@@ -401,6 +401,86 @@ fn sql_split_separates_sql_and_http_waste() {
 }
 
 #[test]
+fn database_waste_multiplies_window_energy_by_sql_ratio() {
+    // 6 SQL events, one N+1 finding (avoidable 5), DB consumed 2 kWh.
+    let events: Vec<SpanEvent> = (1..=6)
+        .map(|i| {
+            make_sql_event(
+                "trace-1",
+                &format!("span-{i}"),
+                &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+            )
+        })
+        .collect();
+    let trace = make_trace(events);
+    let finding = Finding {
+        finding_type: FindingType::NPlusOneSql,
+        severity: Severity::Warning,
+        trace_id: "trace-1".to_string(),
+        service: "order-svc".to_string(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
+            occurrences: 6,
+            window_ms: 250,
+            distinct_params: 6,
+            ..Default::default()
+        },
+        suggestion: "batch".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    };
+    let ctx = crate::score::carbon::CarbonContext {
+        db_energy: Some(crate::score::carbon::DbEnergyContext {
+            window_kwh: 2.0,
+            region: Some("eu-west-3".to_string()),
+        }),
+        ..crate::score::carbon::CarbonContext::default()
+    };
+
+    let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
+
+    let db = summary.database_waste.expect("database waste emitted");
+    assert!((db.energy_kwh - 2.0).abs() < 1e-12);
+    assert!((db.sql_waste_ratio - 5.0 / 6.0).abs() < 1e-12);
+    assert!((db.waste_kwh - 2.0 * 5.0 / 6.0).abs() < 1e-12);
+    assert_eq!(db.region.as_deref(), Some("eu-west-3"));
+    // eu-west-3 is a known region, the carbon conversion must land.
+    assert!(db.waste_gco2.expect("gco2 for a known region") > 0.0);
+    // Excluded from the totals: the report's energy stays proxy-based.
+    assert!(summary.energy_kwh < 1.0);
+}
+
+#[test]
+fn database_waste_absent_without_window_energy() {
+    let events = vec![make_sql_event(
+        "trace-1",
+        "span-1",
+        "SELECT * FROM users WHERE id = 1",
+        "2025-07-10T14:32:01.000Z",
+    )];
+    let trace = make_trace(events);
+    // Base context shape: declaration present, zero energy this window.
+    let ctx = crate::score::carbon::CarbonContext {
+        db_energy: Some(crate::score::carbon::DbEnergyContext {
+            window_kwh: 0.0,
+            region: Some("eu-west-3".to_string()),
+        }),
+        ..crate::score::carbon::CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    assert!(summary.database_waste.is_none());
+}
+
+#[test]
 fn clean_traces_zero_waste() {
     // 4 events, no findings -> waste ratio = 0
     let events = vec![

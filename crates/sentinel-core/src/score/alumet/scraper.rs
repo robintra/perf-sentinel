@@ -14,7 +14,7 @@ use crate::score::prom_parser::parse_metric_samples;
 
 use super::apply::apply_scrape;
 use super::config::AlumetConfig;
-use super::state::{AlumetState, monotonic_ms};
+use super::state::{AlumetState, DbEnergyState, monotonic_ms};
 
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
 /// emits the one-shot "likely misconfigured endpoint" warning. Same
@@ -86,14 +86,20 @@ fn fetch_error_reason(err: &FetchError) -> AlumetScrapeReason {
 pub fn spawn_scraper(
     cfg: AlumetConfig,
     state: Arc<AlumetState>,
+    db_state: Option<Arc<DbEnergyState>>,
     metrics: Arc<MetricsState>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        run_scraper_loop(cfg, state, metrics).await;
+        run_scraper_loop(cfg, state, db_state, metrics).await;
     })
 }
 
-async fn run_scraper_loop(cfg: AlumetConfig, state: Arc<AlumetState>, metrics: Arc<MetricsState>) {
+async fn run_scraper_loop(
+    cfg: AlumetConfig,
+    state: Arc<AlumetState>,
+    db_state: Option<Arc<DbEnergyState>>,
+    metrics: Arc<MetricsState>,
+) {
     use std::str::FromStr;
 
     let uri = match hyper::Uri::from_str(&cfg.endpoint) {
@@ -183,7 +189,8 @@ async fn run_scraper_loop(cfg: AlumetConfig, state: Arc<AlumetState>, metrics: A
                 // Mirror Scaphandre: timestamp after the fetch resolves
                 // so `last_update_ms` reflects when the data landed.
                 let now = monotonic_ms();
-                let matched = apply_scrape(&state, &samples, &deltas, &cfg, now);
+                let matched =
+                    apply_scrape(&state, db_state.as_deref(), &samples, &deltas, &cfg, now);
                 last_success_ms = now;
                 metrics.alumet_last_scrape_age_seconds.set(0.0);
                 metrics.alumet_scrape_success.inc();
