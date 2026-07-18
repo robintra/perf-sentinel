@@ -87,8 +87,9 @@ pub struct AlumetDatabaseConfig {
     /// `label_key`, matched verbatim like a `service_mappings` value.
     pub label_value: String,
     /// Declared region of the database host, used to convert the waste
-    /// energy to gCO2 with the same intensity and PUE tables as
-    /// span-bearing services. `None` reports the waste in kWh only.
+    /// energy to gCO2 (real-time intensity when available, embedded
+    /// annual otherwise, times provider PUE; hourly profiles are not
+    /// applied to this figure). `None` reports the waste in kWh only.
     pub region: Option<String>,
 }
 

@@ -148,6 +148,10 @@ async fn run_scraper_loop(
     // message (or a latched first warn suppress the second forever).
     let mut no_samples_streak = WarnOnceStreak::default();
     let mut no_match_streak = WarnOnceStreak::default();
+    // Same latch for a [green.alumet.database] label_value that never
+    // appears on the wire: without it a typo'd cgroup path disables the
+    // database waste figure with no diagnostic at all.
+    let mut db_missing_streak = WarnOnceStreak::default();
     // Track the last successful scrape so the `last_scrape_age_seconds`
     // gauge advances on every failure tick. Seeded to scraper-start time
     // so an Alumet endpoint broken from boot still climbs the gauge.
@@ -166,7 +170,8 @@ async fn run_scraper_loop(
         service_count = cfg.service_mappings.len(),
         "Alumet scraper started"
     );
-    if cfg.service_mappings.is_empty() {
+    // A database-only configuration is legitimate, no warning then.
+    if cfg.service_mappings.is_empty() && cfg.database.is_none() {
         tracing::warn!(
             endpoint = %redacted,
             "[green.alumet] service_mappings is empty: the scraper will \
@@ -205,13 +210,15 @@ async fn run_scraper_loop(
                     &mut no_samples_streak,
                     &mut no_match_streak,
                 );
+                track_db_label_streak(&samples, &cfg, &redacted, &mut db_missing_streak);
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
-                // Reset both latches on HTTP failure: the failure-side
+                // Reset the latches on HTTP failure: the failure-side
                 // warning covers flapping endpoints.
                 no_samples_streak.reset();
                 no_match_streak.reset();
+                db_missing_streak.reset();
                 handle_alumet_failure(
                     &e,
                     &metrics,
@@ -224,6 +231,38 @@ async fn run_scraper_loop(
                 );
             }
         }
+    }
+}
+
+/// Warn-once when the `[green.alumet.database]` label value never
+/// appears among non-empty samples. An empty exposition belongs to the
+/// `no_samples` cause and says nothing about the database label.
+fn track_db_label_streak(
+    samples: &[crate::score::prom_parser::PromSample],
+    cfg: &AlumetConfig,
+    redacted: &str,
+    streak: &mut WarnOnceStreak,
+) {
+    let Some(db_cfg) = cfg.database.as_ref() else {
+        return;
+    };
+    if samples.is_empty() {
+        return;
+    }
+    if samples.iter().any(|s| s.label_value == db_cfg.label_value) {
+        streak.reset();
+    } else if streak.tick() {
+        tracing::warn!(
+            endpoint = %redacted,
+            label = %cfg.label_key,
+            label_value = %db_cfg.label_value,
+            "Alumet samples flowed but the [green.alumet.database] \
+             label_value was absent under label_key across the last \
+             {ZERO_SAMPLE_WARN_THRESHOLD} such ticks, so no database energy is \
+             accumulating. Either the value is mistyped (it must \
+             match the wire verbatim) or the database workload is \
+             absent from the exposition."
+        );
     }
 }
 

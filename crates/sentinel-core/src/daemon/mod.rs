@@ -235,7 +235,13 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let energy_sources = EnergySources {
         base_carbon_ctx,
         alumet_state: alumet.state.as_deref(),
-        alumet_db_state: alumet_db.as_deref(),
+        // Green scoring off means score_green never runs: the loop must
+        // not consume (and thus destroy) the accumulated database energy.
+        alumet_db_state: if config.green.enabled {
+            alumet_db.as_deref()
+        } else {
+            None
+        },
         alumet_staleness_ms: alumet.staleness_ms,
         scaphandre_state: scaphandre.state.as_deref(),
         scaphandre_staleness_ms: scaphandre.staleness_ms,

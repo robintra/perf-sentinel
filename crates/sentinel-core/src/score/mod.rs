@@ -268,7 +268,8 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
 }
 
 /// Database window energy × SQL-only waste ratio. Emitted even at ratio
-/// zero (measured energy with no waste is an auditable statement).
+/// zero, including a window with no SQL ops at all: the consumed energy
+/// must appear somewhere or the archive under-counts it.
 fn build_database_waste(
     carbon: Option<&CarbonContext>,
     total_sql_io_ops: usize,
@@ -276,10 +277,14 @@ fn build_database_waste(
 ) -> Option<DatabaseWaste> {
     let ctx = carbon?;
     let db = ctx.db_energy.as_ref()?;
-    if db.window_kwh <= 0.0 || total_sql_io_ops == 0 {
+    if db.window_kwh <= 0.0 {
         return None;
     }
-    let sql_waste_ratio = (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0);
+    let sql_waste_ratio = if total_sql_io_ops == 0 {
+        0.0
+    } else {
+        (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0)
+    };
     let waste_kwh = db.window_kwh * sql_waste_ratio;
     let waste_gco2 = db
         .region

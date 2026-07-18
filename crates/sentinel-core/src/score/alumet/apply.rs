@@ -46,7 +46,28 @@ pub fn compute_energy_per_op_kwh(
     // lower-tier backend with a measured zero for a service that
     // demonstrably did I/O. Mirrors Kepler's `delta > 0.0` filter, the
     // caller keeps the previous entry instead.
-    if ops == 0 || !joules_per_interval.is_finite() || joules_per_interval <= 0.0 {
+    if ops == 0 {
+        return None;
+    }
+    let kwh = compute_window_kwh(
+        joules_per_interval,
+        energy_interval_secs,
+        scrape_interval_secs,
+    )?;
+    let per_op = kwh / ops as f64;
+    per_op.is_finite().then_some(per_op)
+}
+
+/// Base case of [`compute_energy_per_op_kwh`]: the scrape window's
+/// energy in kWh, without the per-op division. Also used directly for
+/// the database cgroup (no ops).
+#[must_use]
+pub fn compute_window_kwh(
+    joules_per_interval: f64,
+    energy_interval_secs: f64,
+    scrape_interval_secs: f64,
+) -> Option<f64> {
+    if !joules_per_interval.is_finite() || joules_per_interval <= 0.0 {
         return None;
     }
     // Config validation already rejects these, re-checked here because
@@ -60,32 +81,7 @@ pub fn compute_energy_per_op_kwh(
         return None;
     }
     let watts = joules_per_interval / energy_interval_secs;
-    let window_joules = watts * scrape_interval_secs;
     // 1 kWh = 3.6e6 J.
-    let kwh = window_joules / 3_600_000.0;
-    let per_op = kwh / ops as f64;
-    per_op.is_finite().then_some(per_op)
-}
-
-/// Interval-to-window conversion of [`compute_energy_per_op_kwh`]
-/// without the per-op division, for the database cgroup (no ops).
-#[must_use]
-pub fn compute_window_kwh(
-    joules_per_interval: f64,
-    energy_interval_secs: f64,
-    scrape_interval_secs: f64,
-) -> Option<f64> {
-    if !joules_per_interval.is_finite() || joules_per_interval <= 0.0 {
-        return None;
-    }
-    if !energy_interval_secs.is_finite()
-        || energy_interval_secs <= 0.0
-        || !scrape_interval_secs.is_finite()
-        || scrape_interval_secs <= 0.0
-    {
-        return None;
-    }
-    let watts = joules_per_interval / energy_interval_secs;
     let kwh = watts * scrape_interval_secs / 3_600_000.0;
     kwh.is_finite().then_some(kwh)
 }
@@ -118,12 +114,14 @@ pub fn apply_scrape(
     let by_label = sum_by_label(samples);
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();
     // Declared database cgroup: no ops, so its energy accumulates for
-    // the waste figure instead of the per-op path below.
+    // the waste figure instead of the per-op path below. A label seen
+    // with 0 J still marks liveness (0.0 add): an idle database must
+    // not trip the staleness gate and strand banked energy.
     if let (Some(db_cfg), Some(db)) = (cfg.database.as_ref(), db_state)
         && let Some(&joules) = by_label.get(db_cfg.label_value.as_str())
-        && let Some(kwh) =
-            compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
     {
+        let kwh = compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
+            .unwrap_or(0.0);
         db.add_window_kwh(kwh, now_ms);
     }
     let mut next = state.current_owned();

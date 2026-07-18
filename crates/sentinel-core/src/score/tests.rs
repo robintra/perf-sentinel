@@ -460,6 +460,31 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
 }
 
 #[test]
+fn database_waste_emitted_at_zero_ratio_when_no_sql_ops() {
+    // HTTP-only window: the consumed energy must still be reported.
+    let events = vec![make_http_event(
+        "trace-1",
+        "span-1",
+        "http://svc:5000/api/users/1",
+        "2025-07-10T14:32:01.000Z",
+    )];
+    let trace = make_trace(events);
+    let ctx = crate::score::carbon::CarbonContext {
+        db_energy: Some(crate::score::carbon::DbEnergyContext {
+            window_kwh: 0.5,
+            region: None,
+        }),
+        ..crate::score::carbon::CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let db = summary.database_waste.expect("energy must surface");
+    assert!((db.energy_kwh - 0.5).abs() < 1e-12);
+    assert!((db.sql_waste_ratio - 0.0).abs() < f64::EPSILON);
+    assert!((db.waste_kwh - 0.0).abs() < f64::EPSILON);
+    assert!(db.waste_gco2.is_none());
+}
+
+#[test]
 fn database_waste_absent_without_window_energy() {
     let events = vec![make_sql_event(
         "trace-1",

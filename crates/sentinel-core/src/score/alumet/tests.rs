@@ -705,3 +705,28 @@ fn apply_scrape_without_database_config_leaves_state_untouched() {
     apply_scrape(&state, Some(&db), &samples, &HashMap::new(), &cfg, 1000);
     assert!(db.take_window_kwh(1500, 15_000).is_none());
 }
+
+#[test]
+fn zero_joule_scrape_marks_liveness_and_preserves_banked_energy() {
+    let mut cfg = sample_config();
+    cfg.database = Some(AlumetDatabaseConfig {
+        label_value: "postgres-pod".to_string(),
+        region: None,
+    });
+    let state = AlumetState::new();
+    let db = DbEnergyState::new();
+    let energized = vec![PromSample {
+        label_value: "postgres-pod".to_string(),
+        value: 20.0,
+    }];
+    apply_scrape(&state, Some(&db), &energized, &HashMap::new(), &cfg, 1_000);
+    // Long idle: the DB flushes 0 J but the label stays on the wire.
+    let idle = vec![PromSample {
+        label_value: "postgres-pod".to_string(),
+        value: 0.0,
+    }];
+    apply_scrape(&state, Some(&db), &idle, &HashMap::new(), &cfg, 100_000);
+    // Banked energy is still deliverable: liveness was refreshed.
+    let kwh = db.take_window_kwh(101_000, 15_000).unwrap();
+    assert!((kwh - 100.0 / 3_600_000.0).abs() < 1e-15);
+}

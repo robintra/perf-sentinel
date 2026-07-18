@@ -388,7 +388,9 @@ pub struct CarbonContext {
     /// Declared database measured by Alumet (`[green.alumet.database]`).
     /// `Some` with `window_kwh = 0.0` in the base context; the daemon
     /// patches `window_kwh` per tick with the energy accumulated since
-    /// the previous scored batch. Always `None` in batch mode.
+    /// the previous scored batch. Batch mode builds the same `Some`
+    /// when configured, but `window_kwh` stays `0.0` there (no
+    /// scraper), so no figure is ever emitted.
     pub db_energy: Option<DbEnergyContext>,
 }
 
