@@ -412,7 +412,7 @@
           
         </div>
         <p data-dc-tpl="269" style="margin: 24px 0px 0px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; max-width: 760px;"><span class="sc-interp">Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).</span></p>
-        <a data-dc-tpl="270" data-plain="" href="/guide#metrics" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="271" data-ltext=""><span class="sc-interp">Métriques GreenOps dans le guide</span></span><span data-dc-tpl="272" data-arrow=""> →</span></a><a data-dc-tpl="273" data-plain="" href="/docs/ENERGY" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; margin-left: 22px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="274" data-ltext=""><span class="sc-interp">Énergie et carbone, vulgarisés</span></span><span data-dc-tpl="275" data-arrow=""> →</span></a>
+        <a data-dc-tpl="270" data-plain="" href="/guide#metrics" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="271" data-ltext=""><span class="sc-interp">Métriques GreenOps dans le guide</span></span><span data-dc-tpl="272" data-arrow=""> →</span></a><a data-dc-tpl="273" data-plain="" href="/docs/fr/ENERGY" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; margin-left: 22px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="274" data-ltext=""><span class="sc-interp">Énergie et carbone, vulgarisés</span></span><span data-dc-tpl="275" data-arrow=""> →</span></a>
       </div>
     </section>
 
@@ -983,7 +983,7 @@
           </sc-for>
         </div>
         <p style="margin:24px 0 0;font-size:13.5px;color:var(--text-2);line-height:1.6;max-width:760px">{{ goNote }}</p>
-        <a data-plain href="/guide#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goMore }}</span><span data-arrow> →</span></a><a data-plain href="/docs/ENERGY" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;margin-left:22px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goEnergy }}</span><span data-arrow> →</span></a>
+        <a data-plain href="/guide#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goMore }}</span><span data-arrow> →</span></a><a data-plain href="{{ goEnergyHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;margin-left:22px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goEnergy }}</span><span data-arrow> →</span></a>
       </div>
     </section>
 
@@ -1752,7 +1752,7 @@ class Component extends DCLogic {
       perfMore: t.perfMore, modesMore: t.modesMore,
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot, cpNotTitle: t.cpNotTitle, cpNot: t.cpNot,
-      goMore: t.goMore, goEnergy: t.goEnergy, cmpMore: t.cmpMore, supplyMore: t.supplyMore,
+      goMore: t.goMore, goEnergy: t.goEnergy, goEnergyHref: lang === 'fr' ? '/docs/fr/ENERGY' : '/docs/ENERGY', cmpMore: t.cmpMore, supplyMore: t.supplyMore,
       ctaTitle: t.ctaTitle, ctaText: t.ctaText,
       demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,

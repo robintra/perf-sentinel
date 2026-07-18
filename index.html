@@ -983,7 +983,7 @@
           </sc-for>
         </div>
         <p style="margin:24px 0 0;font-size:13.5px;color:var(--text-2);line-height:1.6;max-width:760px">{{ goNote }}</p>
-        <a data-plain href="guide#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goMore }}</span><span data-arrow> →</span></a><a data-plain href="/docs/ENERGY" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;margin-left:22px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goEnergy }}</span><span data-arrow> →</span></a>
+        <a data-plain href="guide#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goMore }}</span><span data-arrow> →</span></a><a data-plain href="{{ goEnergyHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;margin-left:22px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ goEnergy }}</span><span data-arrow> →</span></a>
       </div>
     </section>
 
@@ -1752,7 +1752,7 @@ class Component extends DCLogic {
       perfMore: t.perfMore, modesMore: t.modesMore,
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot, cpNotTitle: t.cpNotTitle, cpNot: t.cpNot,
-      goMore: t.goMore, goEnergy: t.goEnergy, cmpMore: t.cmpMore, supplyMore: t.supplyMore,
+      goMore: t.goMore, goEnergy: t.goEnergy, goEnergyHref: lang === 'fr' ? '/docs/fr/ENERGY' : '/docs/ENERGY', cmpMore: t.cmpMore, supplyMore: t.supplyMore,
       ctaTitle: t.ctaTitle, ctaText: t.ctaText,
       demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
