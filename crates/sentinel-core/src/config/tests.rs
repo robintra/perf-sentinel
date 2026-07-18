@@ -3130,6 +3130,49 @@ label = "typo"
 }
 
 #[test]
+fn alumet_database_label_collision_with_service_mappings_is_rejected() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.service_mappings]
+"db-proxy" = "postgres-pod"
+
+[green.alumet.database]
+label_value = "postgres-pod"
+"#;
+    assert!(
+        load_from_str(toml).is_err(),
+        "one cgroup must not feed both the totals and the waste figure"
+    );
+}
+
+#[test]
+fn alumet_database_without_endpoint_is_rejected() {
+    let toml = r#"
+[green.alumet.database]
+label_value = "postgres-pod"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
+fn alumet_unknown_subsection_name_is_rejected() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.databse]
+label_value = "typo"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
 fn convert_alumet_database_trims_label_and_rejects_bad_input() {
     let mut raw = AlumetSection {
         endpoint: Some("http://localhost:9091/metrics".to_string()),

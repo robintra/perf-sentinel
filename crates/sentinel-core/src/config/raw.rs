@@ -135,8 +135,11 @@ pub(super) struct KeplerSection {
 /// Converted to an `AlumetConfig` during `RawConfig → Config` only when
 /// `endpoint` is set. `metric_name` and `label_key` are then mandatory,
 /// enforced by [`validate_alumet_raw`] before the conversion runs.
+/// `deny_unknown_fields` so a typo'd key or subsection name
+/// (`[green.alumet.databse]`) fails loudly instead of silently
+/// disabling a feature.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct AlumetSection {
     pub(super) endpoint: Option<String>,
     pub(super) scrape_interval_secs: Option<u64>,
@@ -777,6 +780,15 @@ pub(super) fn convert_kepler_section_with_env(
 /// worse, the wrong series.
 pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
     if raw.endpoint.is_none() {
+        // A database declaration without an endpoint would be silently
+        // inert (no scraper ever starts), reject it loudly instead.
+        if raw.database.is_some() {
+            return Err(
+                "[green.alumet.database] is set but [green.alumet] endpoint is missing; \
+                 without an endpoint no scraper starts and the figure never appears"
+                    .to_string(),
+            );
+        }
         return Ok(());
     }
     require_alumet_field(raw.metric_name.as_deref(), "metric_name")?;
