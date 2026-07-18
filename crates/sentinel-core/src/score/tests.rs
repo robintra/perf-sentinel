@@ -5,7 +5,7 @@ use crate::detect::{Confidence, FindingType, Pattern, Severity};
 use crate::event::SpanEvent;
 use crate::score::carbon::{
     CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE, CarbonContext, DbEnergyContext, ENERGY_PER_IO_OP_KWH,
-    IntensitySource, UNKNOWN_REGION,
+    IntensitySource, RealTimeIntensityEntry, UNKNOWN_REGION, db_waste_gco2,
 };
 use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
 
@@ -3272,4 +3272,85 @@ fn calibration_not_applied_when_scaphandre_overrides() {
     let co2 = summary.co2.as_ref().unwrap();
     // Scaphandre wins, no +cal suffix
     assert_eq!(co2.total.model, CO2_MODEL_SCAPHANDRE);
+}
+
+#[test]
+fn db_waste_gco2_covers_every_intensity_fallback() {
+    use std::collections::HashMap;
+
+    // Known region, no real-time: embedded annual intensity + provider PUE.
+    let known =
+        db_waste_gco2(1.0, "eu-west-3", &CarbonContext::default()).expect("known region converts");
+    assert!(known > 0.0);
+
+    // Known region WITH real-time: the live value wins, provider PUE kept.
+    let mut rt = HashMap::new();
+    rt.insert(
+        "eu-west-3".to_string(),
+        RealTimeIntensityEntry::measured(500.0),
+    );
+    let ctx_rt = CarbonContext {
+        real_time_intensity: Some(rt),
+        ..CarbonContext::default()
+    };
+    let with_rt = db_waste_gco2(1.0, "eu-west-3", &ctx_rt).expect("real-time converts");
+    assert!(
+        with_rt > known,
+        "500 gCO2/kWh live must exceed the low annual mean"
+    );
+
+    // Unknown region WITH real-time: GENERIC_PUE fallback, still converts.
+    let mut rt2 = HashMap::new();
+    rt2.insert(
+        "dc-paris-1".to_string(),
+        RealTimeIntensityEntry::measured(300.0),
+    );
+    let ctx_custom = CarbonContext {
+        real_time_intensity: Some(rt2),
+        ..CarbonContext::default()
+    };
+    assert!(db_waste_gco2(1.0, "dc-paris-1", &ctx_custom).expect("custom region converts") > 0.0);
+
+    // Unknown region, no intensity at all: None.
+    assert!(db_waste_gco2(1.0, "dc-paris-1", &CarbonContext::default()).is_none());
+}
+
+#[test]
+fn dedup_raises_the_entry_when_a_later_finding_has_higher_avoidable() {
+    // Same (trace, template, endpoint): a redundant finding (avoidable 2)
+    // is seen first, then an N+1 (avoidable 5). The max-update branch must
+    // raise the deduped value to 5.
+    let template = "SELECT * FROM order_item WHERE order_id = ?".to_string();
+    let base = Finding {
+        finding_type: FindingType::RedundantSql,
+        severity: Severity::Info,
+        trace_id: "trace-1".to_string(),
+        service: "order-svc".to_string(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: template.clone(),
+            occurrences: 3,
+            window_ms: 100,
+            distinct_params: 1,
+            ..Default::default()
+        },
+        suggestion: "cache".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    };
+    let mut bigger = base.clone();
+    bigger.finding_type = FindingType::NPlusOneSql;
+    bigger.pattern.occurrences = 6; // avoidable = 5
+    bigger.pattern.distinct_params = 6;
+
+    let out = dedup_avoidable_io_ops(&[base, bigger]);
+    assert_eq!(out.total, 5);
+    assert_eq!(out.sql, 5);
 }
