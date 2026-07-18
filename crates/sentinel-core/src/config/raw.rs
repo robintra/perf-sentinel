@@ -802,26 +802,13 @@ pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
         ));
     }
     if let Some(db) = raw.database.as_ref() {
-        let label_value = db.label_value.as_deref().map_or("", str::trim);
-        if label_value.is_empty() {
+        let Some(label_value) = db.label_value.as_deref() else {
             return Err(
                 "[green.alumet.database] label_value is required when the section is present"
                     .to_string(),
             );
-        }
-        if crate::config::has_control_char(label_value) {
-            return Err(
-                "[green.alumet.database] label_value contains control characters".to_string(),
-            );
-        }
-        if let Some(region) = db.region.as_deref()
-            && !crate::score::carbon::is_valid_region_id(region)
-        {
-            return Err(format!(
-                "[green.alumet.database] region '{region}' contains invalid characters; \
-                 allowed: ASCII letters, digits, '-' and '_', 1-64 chars"
-            ));
-        }
+        };
+        super::validate::validate_alumet_database_fields(label_value, db.region.as_deref())?;
     }
     Ok(())
 }
@@ -891,9 +878,11 @@ pub(super) fn convert_alumet_section_with_env(
             .unwrap_or(DEFAULT_ENERGY_INTERVAL_SECS),
         service_mappings: raw.service_mappings.clone(),
         auth_header,
+        // label_value stays verbatim (no trim): the docs promise an
+        // exact match with the wire label, spaces included.
         database: raw.database.as_ref().and_then(|db| {
             db.label_value.as_ref().map(|lv| AlumetDatabaseConfig {
-                label_value: lv.trim().to_string(),
+                label_value: lv.clone(),
                 region: db.region.clone(),
             })
         }),
