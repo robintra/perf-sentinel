@@ -346,7 +346,7 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 >
 > It is **suitable as a primary data source** for a horizontal carbon accounting platform, or **as an internal controlling tool** for software-emissions KPIs and RGESN conformance.
 >
-> It is **not yet third-party verified** for standalone CSRD / GHG Protocol Scope 2/3 inventory reporting, which requires audit by a qualified body and integration with non-IT scopes. CO₂ figures carry a `~2×` uncertainty bracket in the default proxy mode (tighter with any measured-energy source: Alumet RAPL, Scaphandre RAPL, Kepler eBPF, Redfish BMC, or cloud SPECpower + calibration). Methodology, sources and bounds: [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+> It is **not yet third-party verified** for standalone CSRD / GHG Protocol Scope 2/3 inventory reporting, which requires audit by a qualified body and integration with non-IT scopes. CO₂ figures carry a `~2×` uncertainty bracket in the default proxy mode (tighter with any measured-energy source: Alumet RAPL, Scaphandre RAPL, Kepler eBPF, Redfish BMC, or cloud SPECpower + calibration). Methodology, sources and bounds: [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md). For a plain-language walk-through of how counts become kWh and gCO₂ per configured option, see [docs/ENERGY.md](docs/ENERGY.md).
 
 Concrete pairings: pass the I/O counts and per-region energy estimates to **Watershed**, **Sweep**, **Greenly** or **Persefoni** as activity data; or use perf-sentinel directly to demonstrate **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) software-optimization conformance, where N+1 detection, redundant calls, caching and fanout reduction map onto the corresponding criteria.
 
@@ -524,6 +524,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 | Interactive TUI                              | [docs/INSPECT.md](docs/INSPECT.md)                                                     |
 | Daemon HTTP query API                        | [docs/QUERY-API.md](docs/QUERY-API.md)                                                 |
 | Acknowledgments workflow                     | [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md)                                     |
+| Energy and carbon, in plain language         | [docs/ENERGY.md](docs/ENERGY.md)                                                       |
 | GreenOps methodology and limitations         | [docs/METHODOLOGY.md](docs/METHODOLOGY.md), [docs/LIMITATIONS.md](docs/LIMITATIONS.md) |
 | Periodic efficiency disclosures (optional)   | [docs/REPORTING.md](docs/REPORTING.md)                                                 |
 | Helm deployment                              | [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md)                                     |
