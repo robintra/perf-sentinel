@@ -940,16 +940,15 @@ jobs:
         # access is attempted. The exporter binds 127.0.0.1 explicitly
         # (upstream default is 0.0.0.0).
         #
-        # ALUMET_CONFIG must point at a FRESH path: the .deb ships
-        # /etc/alumet/alumet-config.toml (a conffile with no
-        # prometheus-exporter section) and the /usr/bin/alumet-agent
-        # wrapper exports ALUMET_CONFIG to it unless already set. The
-        # exporter's prefix/suffix fields carry no serde defaults, so
-        # launching against the shipped conffile dies with "missing
-        # field `prefix`". A fresh path makes the agent regenerate
-        # defaults for the enabled plugin set (prefix "", suffix
-        # "_alumet", port 9091). Validated against a live v0.9.5 agent
-        # in the simulation lab (scenario alumet-conformance).
+        # ALUMET_CONFIG points at a FRESH (non-existent) path so the agent
+        # generates a clean, minimal config for exactly the enabled plugins,
+        # instead of the shipped /etc/alumet/alumet-config.toml (which the
+        # /usr/bin/alumet-agent wrapper would otherwise use, and which
+        # carries csv/perf/... sections). Both paths start fine. An absent
+        # prometheus-exporter section is filled from the plugin's defaults
+        # (prefix "", suffix "_alumet", port 9091). We just want a controlled
+        # config for the conformance capture, validated against a live v0.9.5
+        # agent in the simulation lab (scenario alumet-conformance).
         run: |
           cd /tmp
           export ALUMET_CONFIG=/tmp/alumet-ci-config.toml
