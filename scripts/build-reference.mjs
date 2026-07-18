@@ -28,7 +28,7 @@ const REGISTRY = [
   { key: 'deploy', items: ['INTEGRATION', 'HELM-DEPLOYMENT'] },
   { key: 'reference', items: ['CONFIGURATION', 'CLI', 'METRICS', 'QUERY-API', 'SARIF', 'SCHEMA'] },
   { key: 'features', items: ['HTML-REPORT', 'INSPECT', 'ACKNOWLEDGMENTS', 'ACK-WORKFLOW', 'REPORTING'] },
-  { key: 'ops', items: ['RUNBOOK', 'METHODOLOGY', 'LIMITATIONS'] },
+  { key: 'ops', items: ['RUNBOOK', 'ENERGY', 'METHODOLOGY', 'LIMITATIONS'] },
   { key: 'supply', items: ['SUPPLY-CHAIN', 'RELEASE-PROCEDURE'] },
   { key: 'design', items: ['design/00-INDEX', 'design/01-PIPELINE-AND-TYPES', 'design/02-NORMALIZATION', 'design/03-CORRELATION-AND-STREAMING', 'design/04-DETECTION', 'design/05-GREENOPS-AND-CARBON', 'design/06-INGESTION-AND-DAEMON', 'design/07-CLI-CONFIG-RELEASE', 'design/08-PERIODIC-DISCLOSURE', 'design/09-CARBON-ATTRIBUTION', 'design/10-SIGSTORE-ATTESTATION'] },
 ];
@@ -40,7 +40,7 @@ const DOC_LABEL_EN = {
   '00-INDEX': 'Overview', 'ARCHITECTURE': 'Architecture', 'INTEGRATION': 'Integration', 'INSTRUMENTATION': 'Instrumentation', 'CI': 'CI',
   'CONFIGURATION': 'Configuration', 'CLI': 'CLI reference', 'METRICS': 'Metrics', 'QUERY-API': 'Query API', 'SARIF': 'SARIF', 'SCHEMA': 'Schema',
   'HTML-REPORT': 'HTML report', 'INSPECT': 'Inspect (TUI)', 'ACKNOWLEDGMENTS': 'Acknowledgments', 'ACK-WORKFLOW': 'Ack workflow', 'REPORTING': 'Reporting',
-  'HELM-DEPLOYMENT': 'Helm deployment', 'RUNBOOK': 'Runbook', 'METHODOLOGY': 'Methodology', 'LIMITATIONS': 'Limitations',
+  'HELM-DEPLOYMENT': 'Helm deployment', 'RUNBOOK': 'Runbook', 'ENERGY': 'Energy & carbon', 'METHODOLOGY': 'Methodology', 'LIMITATIONS': 'Limitations',
   'SUPPLY-CHAIN': 'Supply chain', 'RELEASE-PROCEDURE': 'Release procedure',
   'design/00-INDEX': 'Design index', 'design/01-PIPELINE-AND-TYPES': '01 · Pipeline & types', 'design/02-NORMALIZATION': '02 · Normalization', 'design/03-CORRELATION-AND-STREAMING': '03 · Correlation & streaming', 'design/04-DETECTION': '04 · Detection', 'design/05-GREENOPS-AND-CARBON': '05 · GreenOps & carbon', 'design/06-INGESTION-AND-DAEMON': '06 · Ingestion & daemon', 'design/07-CLI-CONFIG-RELEASE': '07 · CLI, config & release', 'design/08-PERIODIC-DISCLOSURE': '08 · Periodic disclosure', 'design/09-CARBON-ATTRIBUTION': '09 · Carbon attribution', 'design/10-SIGSTORE-ATTESTATION': '10 · Sigstore & SLSA',
 };
@@ -48,7 +48,7 @@ const DOC_LABEL_FR = {
   'design/09-CARBON-ATTRIBUTION': '09 · Attribution carbone',
   '00-INDEX': 'Vue d’ensemble', 'INTEGRATION': 'Intégration', 'CLI': 'Référence CLI', 'METRICS': 'Métriques', 'QUERY-API': 'API de query', 'SCHEMA': 'Schéma',
   'HTML-REPORT': 'Rapport HTML', 'ACKNOWLEDGMENTS': 'Acquittements', 'ACK-WORKFLOW': 'Flux d’acquittement', 'REPORTING': 'Divulgation',
-  'HELM-DEPLOYMENT': 'Déploiement Helm', 'METHODOLOGY': 'Méthodologie', 'LIMITATIONS': 'Limites', 'SUPPLY-CHAIN': 'Chaîne d’appro.', 'RELEASE-PROCEDURE': 'Procédure de release',
+  'HELM-DEPLOYMENT': 'Déploiement Helm', 'ENERGY': 'Énergie & carbone', 'METHODOLOGY': 'Méthodologie', 'LIMITATIONS': 'Limites', 'SUPPLY-CHAIN': 'Chaîne d’appro.', 'RELEASE-PROCEDURE': 'Procédure de release',
   'design/00-INDEX': 'Index design', 'design/02-NORMALIZATION': '02 · Normalisation', 'design/04-DETECTION': '04 · Détection', 'design/08-PERIODIC-DISCLOSURE': '08 · Divulgation périodique',
 };
 const docLabel = (id, lang) => (lang === 'fr' && DOC_LABEL_FR[id]) || DOC_LABEL_EN[id] || id;
