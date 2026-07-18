@@ -791,16 +791,26 @@ impl Config {
         }
         Self::validate_alumet_service_mappings(cfg)?;
         if let Some(db) = &cfg.database {
+            // Control chars rejected before the value can reach an error
+            // message, same order as validate_alumet_parser_field.
+            if has_control_char(&db.label_value) {
+                return Err(
+                    "[green.alumet.database] label_value contains control characters".to_string(),
+                );
+            }
             if db.label_value.is_empty() || db.label_value.len() > 256 {
                 return Err(format!(
                     "[green.alumet.database] label_value must be 1-256 chars, got '{}'",
                     db.label_value
                 ));
             }
-            if has_control_char(&db.label_value) {
-                return Err(
-                    "[green.alumet.database] label_value contains control characters".to_string(),
-                );
+            if cfg.service_mappings.values().any(|v| v == &db.label_value) {
+                return Err(format!(
+                    "[green.alumet.database] label_value '{}' also appears in \
+                     service_mappings; one cgroup cannot feed both the energy \
+                     totals and the database waste figure",
+                    db.label_value
+                ));
             }
             if let Some(region) = db.region.as_deref()
                 && !crate::score::carbon::is_valid_region_id(region)
