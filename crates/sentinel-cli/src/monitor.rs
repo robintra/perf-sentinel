@@ -875,7 +875,8 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         return lines;
     };
     let gs = &snapshot.green_summary;
-    if gs.per_service_energy_kwh.is_empty() && gs.regions.is_empty() {
+    if gs.per_service_energy_kwh.is_empty() && gs.regions.is_empty() && gs.database_waste.is_none()
+    {
         lines.push(Line::from(Span::styled(
             "No energy/carbon data (green scoring disabled, or no events analyzed yet).",
             dim,
@@ -891,6 +892,22 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
             dim,
         ),
     ]));
+    if let Some(db) = &gs.database_waste {
+        let gco2 = db
+            .waste_gco2
+            .map_or_else(|| "-".to_string(), |g| format!("{g:.2} gCO2"));
+        let region = db.region.as_deref().unwrap_or("-");
+        lines.push(Line::from(vec![
+            Span::styled("Database waste: ", dim),
+            Span::raw(format!(
+                "{} kWh of {} kWh measured ({:.0}% SQL ratio)   {gco2}",
+                fmt_tiny(db.waste_kwh),
+                fmt_tiny(db.energy_kwh),
+                db.sql_waste_ratio * 100.0,
+            )),
+            Span::styled(format!("   region {region}   excluded from totals"), dim),
+        ]));
+    }
     lines.push(Line::from(""));
 
     if !gs.per_service_energy_kwh.is_empty() {
@@ -1894,7 +1911,8 @@ mod tests {
               "regions":[
                 {"status":"known","region":"eu-west-3","grid_intensity_gco2_kwh":41.0,"pue":1.2,"io_ops":100,"co2_gco2":0.5,"intensity_source":"real_time","intensity_estimated":false},
                 {"status":"known","region":"us-east-1","grid_intensity_gco2_kwh":368.0,"pue":1.2,"io_ops":50,"co2_gco2":2.0,"intensity_source":"annual"}
-              ]
+              ],
+              "database_waste":{"energy_kwh":0.01,"waste_kwh":0.002,"waste_gco2":0.09,"region":"eu-west-3","sql_waste_ratio":0.2}
             }"#,
         )
         .unwrap();
@@ -1976,6 +1994,16 @@ mod tests {
         let snapshot = snapshot_with_warnings(Vec::new());
         let text = line_text(&build_energy_lines(Some(&snapshot)));
         assert!(text.contains("No energy/carbon data"), "got: {text}");
+    }
+
+    #[test]
+    fn energy_renders_database_waste_line() {
+        let snapshot = snapshot_with_energy_mix();
+        let text = line_text(&build_energy_lines(Some(&snapshot)));
+        assert!(text.contains("Database waste:"), "got: {text}");
+        assert!(text.contains("20% SQL ratio"), "got: {text}");
+        assert!(text.contains("0.09 gCO2"), "got: {text}");
+        assert!(text.contains("excluded from totals"), "got: {text}");
     }
 
     #[test]
