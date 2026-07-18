@@ -486,16 +486,24 @@ impl Default for CarbonContext {
 }
 
 /// Database waste kWh → gCO₂: real-time intensity when available,
-/// embedded annual otherwise, times provider PUE. `None` on unknown region.
+/// embedded annual otherwise, times provider PUE. A region unknown to
+/// the embedded table still converts with [`GENERIC_PUE`] when a
+/// real-time entry covers it (custom on-prem region ids), matching the
+/// per-span fallback. `None` only when no intensity exists at all.
 #[must_use]
 pub(crate) fn db_waste_gco2(waste_kwh: f64, region: &str, ctx: &CarbonContext) -> Option<f64> {
     let region_lower = region.to_ascii_lowercase();
-    let (annual_intensity, pue) = lookup_region_lower(&region_lower)?;
-    let intensity = ctx
+    let real_time = ctx
         .real_time_intensity
         .as_ref()
         .and_then(|m| m.get(&region_lower))
-        .map_or(annual_intensity, |e| e.gco2_per_kwh);
+        .map(|e| e.gco2_per_kwh);
+    let (intensity, pue) = match (lookup_region_lower(&region_lower), real_time) {
+        (Some((_, pue)), Some(rt)) => (rt, pue),
+        (Some((annual, pue)), None) => (annual, pue),
+        (None, Some(rt)) => (rt, GENERIC_PUE),
+        (None, None) => return None,
+    };
     Some(per_op_gco2(waste_kwh, intensity, pue))
 }
 

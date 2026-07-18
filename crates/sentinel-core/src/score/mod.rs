@@ -277,7 +277,8 @@ fn build_database_waste(
 ) -> Option<DatabaseWaste> {
     let ctx = carbon?;
     let db = ctx.db_energy.as_ref()?;
-    if db.window_kwh <= 0.0 {
+    // is_finite too: NaN slips a plain <= 0.0 and would serialize null.
+    if !db.window_kwh.is_finite() || db.window_kwh <= 0.0 {
         return None;
     }
     let sql_waste_ratio = if total_sql_io_ops == 0 {
