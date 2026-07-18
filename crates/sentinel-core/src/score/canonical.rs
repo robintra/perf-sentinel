@@ -33,7 +33,7 @@ pub(crate) fn compute_canonical_avoidable(traces: &[Trace], detect_config: &Dete
         findings.append(&mut n1);
         findings.append(&mut redundant);
     }
-    dedup_avoidable_io_ops(&findings)
+    dedup_avoidable_io_ops(&findings).total
 }
 
 /// Build both avoidable tiers from the scored operational [`GreenSummary`]

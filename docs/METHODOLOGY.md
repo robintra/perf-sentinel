@@ -61,6 +61,7 @@ The base proxy for energy is the I/O operation count per `(service, endpoint)` p
 - `total_io_ops`: count of I/O spans across all traces in the analyzed window.
 - `avoidable_io_ops`: count of I/O spans attributed to avoidable anti-patterns. The four avoidable patterns are N+1 SQL, N+1 HTTP, redundant SQL, redundant HTTP, all four enumerated by `FindingType::is_avoidable_io()` and listed in `core_patterns_required` of every official disclosure.
 - `io_waste_ratio = avoidable_io_ops / total_io_ops`, in `[0, 1]`.
+- `total_sql_io_ops` and `avoidable_sql_io_ops`: the SQL share of the two counters above, same dedup semantics restricted to the SQL finding types. They let an operator apply the SQL-only waste ratio to an externally measured database energy reading (for example Alumet on the database cgroup): `db_waste = measured_db_energy * avoidable_sql_io_ops / total_sql_io_ops`. Both are `0` in reports produced by versions that predate the fields.
 
 ## Energy per operation
 

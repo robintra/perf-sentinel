@@ -61,6 +61,7 @@ Le proxy de base pour l'énergie est le nombre d'opérations d'I/O par couple `(
 - `total_io_ops` : nombre de spans d'I/O sur l'ensemble des traces de la fenêtre analysée.
 - `avoidable_io_ops` : nombre de spans d'I/O attribués à des anti-patterns évitables. Les quatre patterns évitables sont N+1 SQL, N+1 HTTP, redundant SQL, redundant HTTP, tous énumérés par `FindingType::is_avoidable_io()` et listés dans `core_patterns_required` de chaque rapport officiel.
 - `io_waste_ratio = avoidable_io_ops / total_io_ops`, dans `[0, 1]`.
+- `total_sql_io_ops` et `avoidable_sql_io_ops` : la part SQL des deux compteurs ci-dessus, avec la même sémantique de déduplication restreinte aux types de findings SQL. Ils permettent d'appliquer le ratio de gaspillage SQL à une énergie de base de données mesurée en dehors de perf-sentinel (par exemple Alumet sur le cgroup de la base) : `gaspillage_db = energie_db_mesuree * avoidable_sql_io_ops / total_sql_io_ops`. Les deux valent `0` dans les rapports produits par des versions antérieures à ces champs.
 
 ## Énergie par opération
 

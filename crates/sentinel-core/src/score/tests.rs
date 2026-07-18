@@ -338,6 +338,69 @@ fn dedup_avoidable_across_finding_types() {
 }
 
 #[test]
+fn sql_split_separates_sql_and_http_waste() {
+    // 6 SQL events + 2 HTTP events in one trace. One SQL N+1 (6
+    // occurrences, avoidable 5) and one HTTP redundant (2 occurrences,
+    // avoidable 1). The SQL split must exclude the HTTP share.
+    let mut events: Vec<SpanEvent> = (1..=6)
+        .map(|i| {
+            make_sql_event(
+                "trace-1",
+                &format!("span-{i}"),
+                &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+            )
+        })
+        .collect();
+    for i in 1..=2 {
+        events.push(make_http_event(
+            "trace-1",
+            &format!("span-h{i}"),
+            "http://svc:5000/api/users/1",
+            &format!("2025-07-10T14:32:02.{:03}Z", i * 50),
+        ));
+    }
+    let trace = make_trace(events);
+
+    let sql_finding = Finding {
+        finding_type: FindingType::NPlusOneSql,
+        severity: Severity::Warning,
+        trace_id: "trace-1".to_string(),
+        service: "order-svc".to_string(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
+            occurrences: 6,
+            window_ms: 250,
+            distinct_params: 6,
+            ..Default::default()
+        },
+        suggestion: "batch".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    };
+    let mut http_finding = sql_finding.clone();
+    http_finding.finding_type = FindingType::RedundantHttp;
+    http_finding.pattern.template = "GET http://svc:5000/api/users/?".to_string();
+    http_finding.pattern.occurrences = 2;
+    http_finding.pattern.distinct_params = 1;
+
+    let (_, summary, _) = score_green(&[trace], vec![sql_finding, http_finding], None);
+
+    assert_eq!(summary.total_io_ops, 8);
+    assert_eq!(summary.total_sql_io_ops, 6);
+    assert_eq!(summary.avoidable_io_ops, 6);
+    assert_eq!(summary.avoidable_sql_io_ops, 5);
+}
+
+#[test]
 fn clean_traces_zero_waste() {
     // 4 events, no findings -> waste ratio = 0
     let events = vec![
