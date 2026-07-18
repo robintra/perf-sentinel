@@ -6,6 +6,22 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.13]
+
+### Changed
+
+- `appVersion` bumped to `0.9.13`. The binary adds `[green.alumet.database]`,
+  which declares the database cgroup measured by Alumet (`label_value`,
+  optional `region`). The `watch` daemon multiplies that cgroup's measured
+  window energy by the SQL-only waste ratio and reports
+  `green_summary.database_waste`, a CPU-only lower bound excluded from
+  `energy_kwh`, `co2` and the public disclosure. `green_summary` also gains
+  `total_sql_io_ops` and `avoidable_sql_io_ops`, and the `query monitor`
+  Energy tab shows a database waste line. Unknown keys and subsection names
+  under `[green.alumet]` are now rejected at config load instead of being
+  silently ignored (a config compat break: remove any stray key). No chart
+  template change, this bump tracks the new `appVersion`.
+
 ## [0.9.12]
 
 ### Added
