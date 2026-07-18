@@ -1309,7 +1309,7 @@ mod tests {
             }),
             ..score::carbon::CarbonContext::default()
         });
-        let db = score::alumet::DbEnergyState::new();
+        let db = DbEnergyState::new();
         let now = score::scaphandre::monotonic_ms();
         db.add_window_kwh(2e-6, now);
         let mut sources = no_scrapers(&base);
