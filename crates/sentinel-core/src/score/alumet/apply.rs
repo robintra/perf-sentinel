@@ -114,14 +114,14 @@ pub fn apply_scrape(
     let by_label = sum_by_label(samples);
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();
     // Declared database cgroup: no ops, so its energy accumulates for
-    // the waste figure instead of the per-op path below. A label seen
-    // with 0 J still marks liveness (0.0 add): an idle database must
-    // not trip the staleness gate and strand banked energy.
+    // the waste figure instead of the per-op path below. Liveness is
+    // marked by the scraper on every successful scrape, not here, so
+    // an idle database or a renamed label does not strand banked energy.
     if let (Some(db_cfg), Some(db)) = (cfg.database.as_ref(), db_state)
         && let Some(&joules) = by_label.get(db_cfg.label_value.as_str())
+        && let Some(kwh) =
+            compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
     {
-        let kwh = compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
-            .unwrap_or(0.0);
         db.add_window_kwh(kwh, now_ms);
     }
     let mut next = state.current_owned();

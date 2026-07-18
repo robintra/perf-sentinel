@@ -288,6 +288,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             evict_ms: config.daemon.trace_ttl_ms / 2,
             confidence: config.confidence(),
             analysis_queue_capacity: config.daemon.analysis_queue_capacity,
+            // 2x the scraper staleness window: flap-free between scrapes,
+            // aged out shortly after a dead scraper's last reading.
+            db_waste_sticky_ttl_ms: alumet.staleness_ms.saturating_mul(2),
         },
         green_summary_cell,
         archive_handle.as_ref().map(|h| h.tx.clone()),

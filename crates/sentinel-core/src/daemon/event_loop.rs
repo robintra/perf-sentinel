@@ -14,8 +14,8 @@ use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{Confidence, DetectConfig};
 use crate::event::SpanEvent;
 use crate::normalize;
-use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
+use crate::report::{DatabaseWaste, GreenSummary};
 use crate::score;
 use crate::score::alumet::{AlumetState, DbEnergyState};
 use crate::score::cloud_energy::CloudEnergyState;
@@ -35,6 +35,10 @@ pub(super) struct EventLoopConfig {
     pub(super) sampling_rate: f64,
     pub(super) evict_ms: u64,
     pub(super) confidence: Confidence,
+    /// How long the live cell keeps the last `database_waste` figure
+    /// when newer batches carry none (`0` = never keep). Derived from
+    /// the Alumet staleness window so a dead scraper's figure ages out.
+    pub(super) db_waste_sticky_ttl_ms: u64,
     /// Capacity of the bounded analysis worker queue. From
     /// `[daemon] analysis_queue_capacity`.
     pub(super) analysis_queue_capacity: usize,
@@ -120,6 +124,7 @@ struct AnalysisWorkerCtx {
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     green_summary_cell: Arc<RwLock<GreenSummary>>,
     archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
+    db_waste_sticky_ttl_ms: u64,
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
@@ -162,6 +167,7 @@ pub(super) async fn run_event_loop(
             correlator,
             green_summary_cell,
             archive_tx,
+            db_waste_sticky_ttl_ms: loop_cfg.db_waste_sticky_ttl_ms,
         },
     ));
 
@@ -262,6 +268,7 @@ async fn drive_event_loop(
 /// CPU-heavy detect+score path off the `select!` loop. Exits when the
 /// channel closes (shutdown), after draining every buffered batch.
 async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
+    let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -276,6 +283,8 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
                 correlator: wctx.correlator.as_deref(),
                 green_summary_cell: &wctx.green_summary_cell,
                 archive_tx: wctx.archive_tx.as_ref(),
+                db_waste_sticky: &mut db_waste_sticky,
+                db_waste_sticky_ttl_ms: wctx.db_waste_sticky_ttl_ms,
             },
         )
         .await;
@@ -695,6 +704,34 @@ struct ProcessTracesCtx<'a> {
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
     archive_tx: Option<&'a mpsc::Sender<super::archive::OwnedArchive>>,
+    /// Worker-owned last `database_waste` figure with its wall-clock
+    /// timestamp, see [`sticky_db_waste`].
+    db_waste_sticky: &'a mut Option<(DatabaseWaste, u64)>,
+    db_waste_sticky_ttl_ms: u64,
+}
+
+/// Live-cell stickiness for `database_waste`: keep the last figure for
+/// up to `ttl_ms` so `/api/export/report` does not flap to `None`
+/// between scrapes, without pinning a dead scraper's figure forever.
+/// The restored ratio belongs to its own window, an accepted mismatch
+/// with the current batch's counters (informational field).
+fn sticky_db_waste(
+    fresh: Option<&DatabaseWaste>,
+    sticky: &mut Option<(DatabaseWaste, u64)>,
+    now_ms: u64,
+    ttl_ms: u64,
+) -> Option<DatabaseWaste> {
+    if let Some(db) = fresh {
+        *sticky = Some((db.clone(), now_ms));
+        return Some(db.clone());
+    }
+    match sticky {
+        Some((db, at)) if now_ms.saturating_sub(*at) <= ttl_ms && ttl_ms > 0 => Some(db.clone()),
+        _ => {
+            *sticky = None;
+            None
+        }
+    }
 }
 
 /// stamps `confidence` on every finding after detection. The
@@ -736,16 +773,17 @@ async fn process_traces(
     // handler unconditionally re-applies it from `state.scoring_config`
     // so the audit-trail metadata cannot drift from the startup config.
     {
+        // The per-window archive keeps the batch-scoped truth; only the
+        // live cell gets the TTL-bounded sticky figure.
+        let restored = sticky_db_waste(
+            green_summary.database_waste.as_ref(),
+            ctx.db_waste_sticky,
+            current_time_ms(),
+            ctx.db_waste_sticky_ttl_ms,
+        );
         let mut cell = ctx.green_summary_cell.write().await;
-        // database_waste is Some only on the batch that consumed a fresh
-        // scrape delta; keep the last figure so /api/export/report does
-        // not flap to None between scrapes. The per-window archive keeps
-        // the batch-scoped truth.
-        let previous_db = cell.database_waste.take();
         cell.clone_from(&green_summary);
-        if cell.database_waste.is_none() {
-            cell.database_waste = previous_db;
-        }
+        cell.database_waste = restored;
     }
 
     // Stamp the daemon's confidence label. Same shared helper as
@@ -901,6 +939,7 @@ mod tests {
     }
 
     /// Build a `ProcessTracesCtx` for tests with sensible defaults.
+    /// The sticky slot is leaked per call: test-only, a few bytes each.
     fn test_ctx<'a>(
         detect_config: &'a DetectConfig,
         carbon_ctx: &'a score::carbon::CarbonContext,
@@ -919,6 +958,8 @@ mod tests {
             correlator: None,
             green_summary_cell,
             archive_tx: None,
+            db_waste_sticky: Box::leak(Box::new(None)),
+            db_waste_sticky_ttl_ms: 0,
         }
     }
 
@@ -1225,6 +1266,40 @@ mod tests {
         assert_eq!(snap["svc-al"].model_tag, "alumet_rapl");
     }
 
+    fn waste_fixture(ratio: f64) -> DatabaseWaste {
+        DatabaseWaste {
+            energy_kwh: 0.01,
+            waste_kwh: 0.01 * ratio,
+            waste_gco2: None,
+            region: None,
+            sql_waste_ratio: ratio,
+        }
+    }
+
+    #[test]
+    fn sticky_db_waste_bridges_gaps_then_ages_out() {
+        let mut sticky = None;
+        let fresh = waste_fixture(0.4);
+        // A fresh figure is stored and passed through.
+        let out = sticky_db_waste(Some(&fresh), &mut sticky, 1_000, 30_000);
+        assert_eq!(out.as_ref(), Some(&fresh));
+        // Gap between scrapes: the last figure bridges it.
+        let out = sticky_db_waste(None, &mut sticky, 10_000, 30_000);
+        assert_eq!(out.as_ref(), Some(&fresh));
+        // Scraper dead: the figure ages out instead of pinning forever.
+        let out = sticky_db_waste(None, &mut sticky, 40_000, 30_000);
+        assert!(out.is_none());
+        assert!(sticky.is_none(), "aged-out figure must be dropped");
+    }
+
+    #[test]
+    fn sticky_db_waste_disabled_at_zero_ttl() {
+        let mut sticky = None;
+        let fresh = waste_fixture(0.2);
+        assert!(sticky_db_waste(Some(&fresh), &mut sticky, 1_000, 0).is_some());
+        assert!(sticky_db_waste(None, &mut sticky, 1_001, 0).is_none());
+    }
+
     #[test]
     fn build_tick_ctx_database_energy_forces_owned_then_consumes() {
         let base = Arc::new(score::carbon::CarbonContext {
@@ -1348,6 +1423,7 @@ mod tests {
             correlator: None,
             green_summary_cell: green_summary_cell.clone(),
             archive_tx: None,
+            db_waste_sticky_ttl_ms: 0,
         }
     }
 
@@ -1630,6 +1706,7 @@ mod tests {
             evict_ms: 60_000,
             confidence: Confidence::DaemonStaging,
             analysis_queue_capacity: 1024,
+            db_waste_sticky_ttl_ms: 0,
         }
     }
 

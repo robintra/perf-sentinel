@@ -148,9 +148,7 @@ async fn run_scraper_loop(
     // message (or a latched first warn suppress the second forever).
     let mut no_samples_streak = WarnOnceStreak::default();
     let mut no_match_streak = WarnOnceStreak::default();
-    // Same latch for a [green.alumet.database] label_value that never
-    // appears on the wire: without it a typo'd cgroup path disables the
-    // database waste figure with no diagnostic at all.
+    // Latch for a database label_value never seen on the wire.
     let mut db_missing_streak = WarnOnceStreak::default();
     // Track the last successful scrape so the `last_scrape_age_seconds`
     // gauge advances on every failure tick. Seeded to scraper-start time
@@ -199,18 +197,18 @@ async fn run_scraper_loop(
                 last_success_ms = now;
                 metrics.alumet_last_scrape_age_seconds.set(0.0);
                 metrics.alumet_scrape_success.inc();
-                track_zero_sample_streak(
-                    samples.len(),
+                post_scrape_bookkeeping(
+                    &samples,
                     matched,
                     deltas.len(),
-                    cfg.service_mappings.len(),
+                    &cfg,
                     &redacted,
-                    &cfg.metric_name,
-                    &cfg.label_key,
+                    db_state.as_deref(),
+                    now,
                     &mut no_samples_streak,
                     &mut no_match_streak,
+                    &mut db_missing_streak,
                 );
-                track_db_label_streak(&samples, &cfg, &redacted, &mut db_missing_streak);
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
@@ -232,6 +230,40 @@ async fn run_scraper_loop(
             }
         }
     }
+}
+
+/// Success-branch liveness and diagnostics, extracted from
+/// [`run_scraper_loop`] for the line-count limit. A successful scrape
+/// proves the chain is alive: banked database energy survives idle
+/// spells and label renames.
+#[allow(clippy::too_many_arguments)]
+fn post_scrape_bookkeeping(
+    samples: &[crate::score::prom_parser::PromSample],
+    matched: usize,
+    deltas_len: usize,
+    cfg: &AlumetConfig,
+    redacted: &str,
+    db_state: Option<&DbEnergyState>,
+    now_ms: u64,
+    no_samples: &mut WarnOnceStreak,
+    no_match: &mut WarnOnceStreak,
+    db_missing: &mut WarnOnceStreak,
+) {
+    if let Some(db) = db_state {
+        db.mark_alive(now_ms);
+    }
+    track_zero_sample_streak(
+        samples.len(),
+        matched,
+        deltas_len,
+        cfg.service_mappings.len(),
+        redacted,
+        &cfg.metric_name,
+        &cfg.label_key,
+        no_samples,
+        no_match,
+    );
+    track_db_label_streak(samples, cfg, redacted, db_missing);
 }
 
 /// Warn-once when the `[green.alumet.database]` label value never

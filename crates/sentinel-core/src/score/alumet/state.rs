@@ -42,9 +42,15 @@ impl DbEnergyState {
         Arc::new(Self::default())
     }
 
-    /// Scraper side: add one scrape window's energy. A `0.0` add marks
-    /// scrape liveness without changing the balance, so an idle database
-    /// does not read as a dead scraper.
+    /// Scraper side: refresh liveness without touching the balance.
+    /// Called on every successful scrape while a database is declared,
+    /// whether or not its label appeared, so banked energy survives an
+    /// idle database and a label rename alike.
+    pub(crate) fn mark_alive(&self, now_ms: u64) {
+        self.last_update_ms.store(now_ms, Ordering::SeqCst);
+    }
+
+    /// Scraper side: add one scrape window's energy.
     pub(crate) fn add_window_kwh(&self, kwh: f64, now_ms: u64) {
         // fetch_update, not load+store: a second writer (apply_scrape is
         // a public path) must not silently drop a window's energy.
