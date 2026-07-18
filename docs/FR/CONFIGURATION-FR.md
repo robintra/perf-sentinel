@@ -337,6 +337,18 @@ energy_interval_secs = 1.0
 
 **Alumet est pré-1.0** (v0.9.5 au moment de l'écriture). Les noms de métriques et la configuration des plugins peuvent changer d'une version à l'autre. Si un scrape cesse de correspondre après une montée de version d'Alumet, le démon avertit avec `no samples matched the configured metric` après trois ticks consécutifs.
 
+##### `[green.alumet.database]` (optionnel)
+
+Déclare une charge de base de données mesurée par Alumet. Une base n'émet pas de spans, elle ne peut donc jamais apparaître dans `service_mappings` (zéro op, le chemin des coefficients par op l'ignore). À la place, son énergie sur chaque fenêtre de scoring est multipliée par le ratio de gaspillage SQL (`avoidable_sql_io_ops / total_sql_io_ops`) et publiée dans `green_summary.database_waste`, un chiffre autonome exclu de `energy_kwh`, de `co2` et de la divulgation publique. Voir `docs/FR/METHODOLOGY-FR.md` pour la formule et [Limites de précision Alumet](LIMITATIONS-FR.md#limites-de-précision-alumet) pour la raison d'une borne basse.
+
+```toml
+[green.alumet.database]
+label_value = "postgres-pod"   # valeur portée par label_key pour le cgroup de la base, texto
+region = "eu-west-3"           # optionnel, active la conversion gCO2 (déclarée, pas inférée)
+```
+
+`label_value` est obligatoire, apparié exactement comme une valeur de `service_mappings`. `region` est optionnel et utilise les mêmes identifiants de région que `[green.service_regions]` : sans lui le gaspillage est publié en kWh seulement. Une base par configuration, déclarez le cgroup qui sert votre trafic SQL.
+
 #### `[green.redfish]` (optionnel, opt-in)
 
 Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour les lectures de puissance murale sur bare-metal. Contrairement à Scaphandre et Kepler (qui mesurent uniquement CPU + DRAM), Redfish lit la sortie réelle de l'alimentation via le BMC, donc la périphérie (NIC, disques, ventilateurs, pertes PSU) est incluse. Bare-metal uniquement, pas de VMs cloud.

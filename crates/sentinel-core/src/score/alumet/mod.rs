@@ -26,11 +26,11 @@ pub mod scraper;
 #[cfg(feature = "daemon")]
 pub mod state;
 
-pub use config::AlumetConfig;
+pub use config::{AlumetConfig, AlumetDatabaseConfig};
 #[cfg(feature = "daemon")]
 pub use scraper::spawn_scraper;
 #[cfg(feature = "daemon")]
-pub use state::AlumetState;
+pub use state::{AlumetState, DbEnergyState};
 
 #[cfg(all(test, feature = "daemon"))]
 mod tests;

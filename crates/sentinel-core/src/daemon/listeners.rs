@@ -589,22 +589,36 @@ pub(super) fn setup_kepler_scraper(
 pub(super) fn setup_alumet_scraper(
     config: &Config,
     metrics: &Arc<MetricsState>,
-) -> ScraperSetup<AlumetState> {
+) -> (
+    ScraperSetup<AlumetState>,
+    Option<Arc<score::alumet::DbEnergyState>>,
+) {
     let Some(alumet_cfg) = config.green.alumet.clone() else {
-        return ScraperSetup {
-            state: None,
-            handle: None,
-            staleness_ms: 0,
-        };
+        return (
+            ScraperSetup {
+                state: None,
+                handle: None,
+                staleness_ms: 0,
+            },
+            None,
+        );
     };
     let staleness_ms = alumet_cfg.scrape_interval.as_millis() as u64 * 3;
     let state = AlumetState::new();
-    let handle = score::alumet::spawn_scraper(alumet_cfg, state.clone(), metrics.clone());
-    ScraperSetup {
-        state: Some(state),
-        handle: Some(handle),
-        staleness_ms,
-    }
+    let db_state = alumet_cfg
+        .database
+        .as_ref()
+        .map(|_| score::alumet::DbEnergyState::new());
+    let handle =
+        score::alumet::spawn_scraper(alumet_cfg, state.clone(), db_state.clone(), metrics.clone());
+    (
+        ScraperSetup {
+            state: Some(state),
+            handle: Some(handle),
+            staleness_ms,
+        },
+        db_state,
+    )
 }
 
 /// Spawn the Redfish scraper when `[green.redfish]` is configured.

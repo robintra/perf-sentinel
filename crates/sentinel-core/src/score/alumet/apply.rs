@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use super::config::AlumetConfig;
-use super::state::{AlumetState, ServiceEnergy};
+use super::state::{AlumetState, DbEnergyState, ServiceEnergy};
 use crate::score::energy_state::upsert_row;
 use crate::score::prom_parser::{PromSample, sum_by_label};
 
@@ -67,6 +67,29 @@ pub fn compute_energy_per_op_kwh(
     per_op.is_finite().then_some(per_op)
 }
 
+/// Interval-to-window conversion of [`compute_energy_per_op_kwh`]
+/// without the per-op division, for the database cgroup (no ops).
+#[must_use]
+pub fn compute_window_kwh(
+    joules_per_interval: f64,
+    energy_interval_secs: f64,
+    scrape_interval_secs: f64,
+) -> Option<f64> {
+    if !joules_per_interval.is_finite() || joules_per_interval <= 0.0 {
+        return None;
+    }
+    if !energy_interval_secs.is_finite()
+        || energy_interval_secs <= 0.0
+        || !scrape_interval_secs.is_finite()
+        || scrape_interval_secs <= 0.0
+    {
+        return None;
+    }
+    let watts = joules_per_interval / energy_interval_secs;
+    let kwh = watts * scrape_interval_secs / 3_600_000.0;
+    kwh.is_finite().then_some(kwh)
+}
+
 /// Apply a freshly-scraped Alumet batch to an [`AlumetState`]. Services
 /// with no ops this window keep their previous entry.
 ///
@@ -81,6 +104,7 @@ pub fn compute_energy_per_op_kwh(
 #[allow(clippy::implicit_hasher)]
 pub fn apply_scrape(
     state: &AlumetState,
+    db_state: Option<&DbEnergyState>,
     samples: &[PromSample],
     op_deltas: &HashMap<String, u64>,
     cfg: &AlumetConfig,
@@ -93,6 +117,15 @@ pub fn apply_scrape(
     // validation semantics live in [`sum_by_label`].
     let by_label = sum_by_label(samples);
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();
+    // Declared database cgroup: no ops, so its energy accumulates for
+    // the waste figure instead of the per-op path below.
+    if let (Some(db_cfg), Some(db)) = (cfg.database.as_ref(), db_state)
+        && let Some(&joules) = by_label.get(db_cfg.label_value.as_str())
+        && let Some(kwh) =
+            compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
+    {
+        db.add_window_kwh(kwh, now_ms);
+    }
     let mut next = state.current_owned();
     let mut any_change = false;
     let mut matched = 0usize;

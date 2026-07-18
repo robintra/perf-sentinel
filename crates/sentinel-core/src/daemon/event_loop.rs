@@ -17,7 +17,7 @@ use crate::normalize;
 use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
-use crate::score::alumet::AlumetState;
+use crate::score::alumet::{AlumetState, DbEnergyState};
 use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::kepler::KeplerState;
@@ -70,6 +70,7 @@ pub(super) struct ListenerHandles<'a> {
 pub(super) struct EnergySources<'a> {
     pub(super) base_carbon_ctx: Arc<score::carbon::CarbonContext>,
     pub(super) alumet_state: Option<&'a AlumetState>,
+    pub(super) alumet_db_state: Option<&'a DbEnergyState>,
     pub(super) alumet_staleness_ms: u64,
     pub(super) scaphandre_state: Option<&'a ScaphandreState>,
     pub(super) scaphandre_staleness_ms: u64,
@@ -510,6 +511,7 @@ fn build_tick_ctx<'s>(
     let base = &*sources.base_carbon_ctx;
     let EnergySources {
         alumet_state,
+        alumet_db_state,
         alumet_staleness_ms,
         scaphandre_state,
         scaphandre_staleness_ms,
@@ -549,6 +551,10 @@ fn build_tick_ctx<'s>(
     let emaps_snap = emaps_state
         .map(|s| s.snapshot_with_metadata(now, emaps_staleness_ms))
         .unwrap_or_default();
+    // Database energy accumulated since the previous scored batch.
+    // Consuming here (once per built batch) keeps shed batches from
+    // losing energy: they never build a context.
+    let db_window_kwh = alumet_db_state.and_then(|db| db.take_window_kwh(now, alumet_staleness_ms));
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
     if cloud_snap.is_empty()
@@ -557,6 +563,7 @@ fn build_tick_ctx<'s>(
         && scaph_snap.is_empty()
         && alumet_snap.is_empty()
         && emaps_snap.is_empty()
+        && db_window_kwh.is_none()
     {
         return std::borrow::Cow::Borrowed(base);
     }
@@ -594,6 +601,9 @@ fn build_tick_ctx<'s>(
     };
     if !emaps_snap.is_empty() {
         ctx.real_time_intensity = Some(emaps_snap);
+    }
+    if let (Some(kwh), Some(db)) = (db_window_kwh, ctx.db_energy.as_mut()) {
+        db.window_kwh = kwh;
     }
 
     std::borrow::Cow::Owned(ctx)
@@ -1258,6 +1268,7 @@ mod tests {
         EnergySources {
             base_carbon_ctx: base.clone(),
             alumet_state: None,
+            alumet_db_state: None,
             alumet_staleness_ms: 0,
             scaphandre_state: None,
             scaphandre_staleness_ms: 0,

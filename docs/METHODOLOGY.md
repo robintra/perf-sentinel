@@ -62,6 +62,7 @@ The base proxy for energy is the I/O operation count per `(service, endpoint)` p
 - `avoidable_io_ops`: count of I/O spans attributed to avoidable anti-patterns. The four avoidable patterns are N+1 SQL, N+1 HTTP, redundant SQL, redundant HTTP, all four enumerated by `FindingType::is_avoidable_io()` and listed in `core_patterns_required` of every official disclosure.
 - `io_waste_ratio = avoidable_io_ops / total_io_ops`, in `[0, 1]`.
 - `total_sql_io_ops` and `avoidable_sql_io_ops`: the SQL share of the two counters above, same dedup semantics restricted to the SQL finding types. They let an operator apply the SQL-only waste ratio to an externally measured database energy reading (for example Alumet on the database cgroup): `db_waste = measured_db_energy * avoidable_sql_io_ops / total_sql_io_ops`. Both are `0` in reports produced by versions that predate the fields.
+- `database_waste`: the daemon computes that same formula directly when `[green.alumet.database]` is declared, with the measured window energy of the declared database cgroup. The optional declared region converts the waste to gCO2 with the same intensity and PUE tables as services. The figure is a CPU-only lower bound with a count-based ratio, excluded from `energy_kwh`, `co2` and the public disclosure, see the "Alumet precision bounds" section of [docs/LIMITATIONS.md](LIMITATIONS.md).
 
 ## Energy per operation
 

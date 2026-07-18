@@ -3091,6 +3091,74 @@ energy_interval_secs = 2.0
 }
 
 #[test]
+fn load_toml_with_alumet_database_section() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "resource_consumer_id"
+
+[green.alumet.database]
+label_value = "/kubepods/pod-postgres"
+region = "eu-west-3"
+"#;
+    let cfg = load_from_str(toml).expect("alumet database toml parses and validates");
+    // The base carbon context carries the declaration with zero energy.
+    let ctx = cfg.carbon_context();
+    let alumet = cfg.green.alumet.expect("alumet config");
+    let db = alumet.database.expect("database declaration");
+    assert_eq!(db.label_value, "/kubepods/pod-postgres");
+    assert_eq!(db.region.as_deref(), Some("eu-west-3"));
+    let db_energy = ctx.db_energy.expect("db_energy in base context");
+    assert!((db_energy.window_kwh - 0.0).abs() < f64::EPSILON);
+    assert_eq!(db_energy.region.as_deref(), Some("eu-west-3"));
+}
+
+#[test]
+fn alumet_database_unknown_key_is_rejected() {
+    // deny_unknown_fields: a typo must not silently disable the figure.
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.database]
+label = "typo"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
+fn convert_alumet_database_trims_label_and_rejects_bad_input() {
+    let mut raw = AlumetSection {
+        endpoint: Some("http://localhost:9091/metrics".to_string()),
+        metric_name: Some("attributed_energy_cpu_alumet".to_string()),
+        label_key: Some("name".to_string()),
+        database: Some(AlumetDatabaseSection {
+            label_value: Some(" pg-pod ".to_string()),
+            region: Some("eu-west-3".to_string()),
+        }),
+        ..Default::default()
+    };
+    let cfg = convert_alumet_section_with_env(&raw, || None).expect("valid database section");
+    let db = cfg.database.expect("database config");
+    assert_eq!(db.label_value, "pg-pod");
+
+    raw.database = Some(AlumetDatabaseSection {
+        label_value: None,
+        region: None,
+    });
+    assert!(convert_alumet_section_with_env(&raw, || None).is_none());
+
+    raw.database = Some(AlumetDatabaseSection {
+        label_value: Some("pg-pod".to_string()),
+        region: Some("bad region!".to_string()),
+    });
+    assert!(convert_alumet_section_with_env(&raw, || None).is_none());
+}
+
+#[test]
 fn alumet_energy_interval_defaults_to_alumet_rapl_poll_default() {
     let toml = r#"
 [green.alumet]

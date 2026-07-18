@@ -465,6 +465,17 @@ impl Config {
             calibration: self.green.calibration.clone(),
             real_time_intensity: None, // set per-tick in daemon via build_tick_ctx
             scoring_config,
+            // window_kwh stays 0.0 here; the daemon patches it per tick
+            // with the energy accumulated since the previous scored batch.
+            db_energy: self
+                .green
+                .alumet
+                .as_ref()
+                .and_then(|a| a.database.as_ref())
+                .map(|db| crate::score::carbon::DbEnergyContext {
+                    window_kwh: 0.0,
+                    region: db.region.clone(),
+                }),
         }
     }
 }
@@ -481,10 +492,11 @@ pub(crate) use validate::has_control_char;
 // names that moved into submodules.
 #[cfg(test)]
 use raw::{
-    AlumetSection, CloudSection, ElectricityMapsSection, KeplerSection, RedfishSection,
-    ScaphandreSection, convert_alumet_section_with_env, convert_cloud_section_with_env,
-    convert_electricity_maps_section_with_env, convert_kepler_section_with_env,
-    convert_redfish_section_with_env, convert_scaphandre_section_with_env,
+    AlumetDatabaseSection, AlumetSection, CloudSection, ElectricityMapsSection, KeplerSection,
+    RedfishSection, ScaphandreSection, convert_alumet_section_with_env,
+    convert_cloud_section_with_env, convert_electricity_maps_section_with_env,
+    convert_kepler_section_with_env, convert_redfish_section_with_env,
+    convert_scaphandre_section_with_env,
 };
 #[cfg(test)]
 use toml_paths::{TOML_PATH_STRING_KEYS, find_basic_string_end};

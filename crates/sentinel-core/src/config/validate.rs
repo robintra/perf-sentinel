@@ -790,6 +790,27 @@ impl Config {
             ));
         }
         Self::validate_alumet_service_mappings(cfg)?;
+        if let Some(db) = &cfg.database {
+            if db.label_value.is_empty() || db.label_value.len() > 256 {
+                return Err(format!(
+                    "[green.alumet.database] label_value must be 1-256 chars, got '{}'",
+                    db.label_value
+                ));
+            }
+            if has_control_char(&db.label_value) {
+                return Err(
+                    "[green.alumet.database] label_value contains control characters".to_string(),
+                );
+            }
+            if let Some(region) = db.region.as_deref()
+                && !crate::score::carbon::is_valid_region_id(region)
+            {
+                return Err(format!(
+                    "[green.alumet.database] region '{region}' contains invalid characters; \
+                     allowed: ASCII letters, digits, '-' and '_', 1-64 chars"
+                ));
+            }
+        }
         #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)
