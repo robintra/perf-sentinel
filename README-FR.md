@@ -526,7 +526,7 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 | TUI interactif                                   | [docs/FR/INSPECT-FR.md](docs/FR/INSPECT-FR.md)                                                                 |
 | API HTTP de query du daemon                      | [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md)                                                             |
 | Workflow d'acquittement                          | [docs/FR/ACKNOWLEDGMENTS-FR.md](docs/FR/ACKNOWLEDGMENTS-FR.md)                                                 |
-| Énergie et carbone, en langage clair             | [docs/FR/ENERGY-FR.md](docs/FR/ENERGY-FR.md)                                                                   |
+| Énergie et carbone, vulgarisés                   | [docs/FR/ENERGY-FR.md](docs/FR/ENERGY-FR.md)                                                                   |
 | Méthodologie et limites GreenOps                 | [docs/FR/METHODOLOGY-FR.md](docs/FR/METHODOLOGY-FR.md), [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md) |
 | Disclosures périodiques d'efficacité (optionnel) | [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md)                                                             |
 | Déploiement Helm                                 | [docs/FR/HELM-DEPLOYMENT-FR.md](docs/FR/HELM-DEPLOYMENT-FR.md)                                                 |
