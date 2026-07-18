@@ -11,8 +11,8 @@ use std::time::Duration;
 use super::apply::{apply_scrape, compute_energy_per_op_kwh, compute_window_kwh};
 use super::config::{AlumetConfig, AlumetDatabaseConfig, DEFAULT_ENERGY_INTERVAL_SECS};
 use super::scraper::{
-    ScraperError, WarnOnceStreak, fetch_metrics_once, scraper_error_reason, spawn_scraper,
-    track_zero_sample_streak,
+    ScraperError, WarnOnceStreak, fetch_metrics_once, post_scrape_bookkeeping,
+    scraper_error_reason, spawn_scraper, track_db_label_streak, track_zero_sample_streak,
 };
 use super::state::AlumetState;
 use super::state::DbEnergyState;
@@ -726,4 +726,76 @@ fn mark_alive_preserves_banked_energy_through_idle_and_label_loss() {
     // Banked energy is still deliverable.
     let kwh = db.take_window_kwh(101_000, 15_000).unwrap();
     assert!((kwh - 100.0 / 3_600_000.0).abs() < 1e-15);
+}
+
+// --- post-scrape diagnostics -------------------------------------------
+
+#[test]
+fn track_db_label_streak_covers_every_branch() {
+    let mut cfg = sample_config();
+    let redacted = "http://host/metrics";
+    let mut streak = WarnOnceStreak::default();
+
+    // No database declared: early return, no warn.
+    track_db_label_streak(&[], &cfg, redacted, &mut streak);
+    assert!(!streak.has_warned());
+
+    cfg.database = Some(AlumetDatabaseConfig {
+        label_value: "pg-pod".to_string(),
+        region: None,
+    });
+
+    // Empty exposition: belongs to the no_samples cause, not this one.
+    track_db_label_streak(&[], &cfg, redacted, &mut streak);
+    assert!(!streak.has_warned());
+
+    // Label present: reset, no warn.
+    let present = vec![PromSample {
+        label_value: "pg-pod".to_string(),
+        value: 1.0,
+    }];
+    track_db_label_streak(&present, &cfg, redacted, &mut streak);
+    assert!(!streak.has_warned());
+
+    // Label absent across three consecutive non-empty ticks: warn fires.
+    let absent = vec![PromSample {
+        label_value: "other".to_string(),
+        value: 1.0,
+    }];
+    for _ in 0..3 {
+        track_db_label_streak(&absent, &cfg, redacted, &mut streak);
+    }
+    assert!(streak.has_warned());
+}
+
+#[test]
+fn post_scrape_bookkeeping_marks_liveness_and_runs_diagnostics() {
+    let mut cfg = sample_config();
+    cfg.database = Some(AlumetDatabaseConfig {
+        label_value: "pg-pod".to_string(),
+        region: None,
+    });
+    let db = DbEnergyState::new();
+    let samples = vec![PromSample {
+        label_value: "checkout-pod".to_string(),
+        value: 5.0,
+    }];
+    let mut no_samples = WarnOnceStreak::default();
+    let mut no_match = WarnOnceStreak::default();
+    let mut db_missing = WarnOnceStreak::default();
+    post_scrape_bookkeeping(
+        &samples,
+        1,
+        1,
+        &cfg,
+        "http://host/metrics",
+        Some(&db),
+        1_234,
+        &mut no_samples,
+        &mut no_match,
+        &mut db_missing,
+    );
+    // Liveness was marked, so banked energy stays deliverable.
+    db.add_window_kwh(1e-6, 1_234);
+    assert!(db.take_window_kwh(1_300, 15_000).is_some());
 }

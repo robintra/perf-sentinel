@@ -3321,3 +3321,35 @@ schema = "legacy_power"
     let err = load_from_str(toml).expect_err("below-min interval must error at validate()");
     assert!(err.to_string().contains("[green.redfish]"));
 }
+
+#[test]
+fn validate_alumet_database_fields_rejects_bad_input() {
+    use super::validate::validate_alumet_database_fields as v;
+    assert!(v("ctrl\u{0007}bell", None).is_err()); // control char
+    assert!(v("   ", None).is_err()); // blank after trim
+    assert!(v(&"x".repeat(257), None).is_err()); // too long
+    assert!(v("pg-pod", Some("bad region!")).is_err()); // invalid region charset
+    assert!(v("pg-pod", Some("eu-west-3")).is_ok());
+}
+
+#[test]
+fn alumet_database_unknown_region_warns_but_loads() {
+    // Charset-valid but not in the embedded table: warns, does not reject.
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.database]
+label_value = "pg-pod"
+region = "eu-wets-3"
+"#;
+    let cfg = load_from_str(toml).expect("unknown-but-valid region warns, not rejects");
+    let region = cfg
+        .green
+        .alumet
+        .and_then(|a| a.database)
+        .and_then(|d| d.region);
+    assert_eq!(region.as_deref(), Some("eu-wets-3"));
+}

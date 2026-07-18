@@ -237,7 +237,7 @@ async fn run_scraper_loop(
 /// proves the chain is alive: banked database energy survives idle
 /// spells and label renames.
 #[allow(clippy::too_many_arguments)]
-fn post_scrape_bookkeeping(
+pub(super) fn post_scrape_bookkeeping(
     samples: &[crate::score::prom_parser::PromSample],
     matched: usize,
     deltas_len: usize,
@@ -269,7 +269,7 @@ fn post_scrape_bookkeeping(
 /// Warn-once when the `[green.alumet.database]` label value never
 /// appears among non-empty samples. An empty exposition belongs to the
 /// `no_samples` cause and says nothing about the database label.
-fn track_db_label_streak(
+pub(super) fn track_db_label_streak(
     samples: &[crate::score::prom_parser::PromSample],
     cfg: &AlumetConfig,
     redacted: &str,
