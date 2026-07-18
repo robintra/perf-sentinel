@@ -895,8 +895,9 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     if let Some(db) = &gs.database_waste {
         let gco2 = db
             .waste_gco2
-            .map_or_else(|| "-".to_string(), |g| format!("{g:.2} gCO2"));
-        let region = db.region.as_deref().unwrap_or("-");
+            .map_or_else(|| "-".to_string(), |g| format!("{} gCO2", fmt_tiny(g)));
+        // Daemon-sourced string: sanitize + cap like every other cell.
+        let region = truncate_cell(db.region.as_deref().unwrap_or("-"), 24);
         lines.push(Line::from(vec![
             Span::styled("Database waste: ", dim),
             Span::raw(format!(
@@ -2002,8 +2003,20 @@ mod tests {
         let text = line_text(&build_energy_lines(Some(&snapshot)));
         assert!(text.contains("Database waste:"), "got: {text}");
         assert!(text.contains("20% SQL ratio"), "got: {text}");
-        assert!(text.contains("0.09 gCO2"), "got: {text}");
+        assert!(text.contains("0.090000 gCO2"), "got: {text}");
         assert!(text.contains("excluded from totals"), "got: {text}");
+    }
+
+    #[test]
+    fn database_waste_region_is_sanitized_for_terminal() {
+        let mut snapshot = snapshot_with_energy_mix();
+        let db = snapshot.green_summary.database_waste.as_mut().unwrap();
+        db.region = Some("eu\u{1b}[2Jwest".to_string());
+        let text = line_text(&build_energy_lines(Some(&snapshot)));
+        assert!(
+            !text.contains('\u{1b}'),
+            "escape must not reach the terminal"
+        );
     }
 
     #[test]
