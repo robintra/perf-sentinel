@@ -3173,7 +3173,7 @@ label_value = "typo"
 }
 
 #[test]
-fn convert_alumet_database_trims_label_and_rejects_bad_input() {
+fn convert_alumet_database_keeps_label_verbatim_and_rejects_bad_input() {
     let mut raw = AlumetSection {
         endpoint: Some("http://localhost:9091/metrics".to_string()),
         metric_name: Some("attributed_energy_cpu_alumet".to_string()),
@@ -3186,7 +3186,8 @@ fn convert_alumet_database_trims_label_and_rejects_bad_input() {
     };
     let cfg = convert_alumet_section_with_env(&raw, || None).expect("valid database section");
     let db = cfg.database.expect("database config");
-    assert_eq!(db.label_value, "pg-pod");
+    // Verbatim, spaces included: the wire label is matched exactly.
+    assert_eq!(db.label_value, " pg-pod ");
 
     raw.database = Some(AlumetDatabaseSection {
         label_value: None,

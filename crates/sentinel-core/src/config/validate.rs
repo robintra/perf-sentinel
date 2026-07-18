@@ -82,6 +82,33 @@ pub(crate) fn has_control_char(s: &str) -> bool {
     })
 }
 
+/// Shared `[green.alumet.database]` field checks, used by the raw TOML
+/// pass (fail loud at load) and the typed pass (defense in depth for
+/// programmatic construction). Control chars are rejected before the
+/// value can reach an error message.
+pub(super) fn validate_alumet_database_fields(
+    label_value: &str,
+    region: Option<&str>,
+) -> Result<(), String> {
+    if has_control_char(label_value) {
+        return Err("[green.alumet.database] label_value contains control characters".to_string());
+    }
+    if label_value.trim().is_empty() || label_value.len() > 256 {
+        return Err(format!(
+            "[green.alumet.database] label_value must be 1-256 chars and not blank, got '{label_value}'"
+        ));
+    }
+    if let Some(region) = region
+        && !crate::score::carbon::is_valid_region_id(region)
+    {
+        return Err(format!(
+            "[green.alumet.database] region '{region}' contains invalid characters; \
+             allowed: ASCII letters, digits, '-' and '_', 1-64 chars"
+        ));
+    }
+    Ok(())
+}
+
 /// Validate the wildcard-mode interactions of `[daemon.cors] allowed_origins`.
 ///
 /// - `["*"]` mixed with explicit origins is ambiguous and silently degrades to
@@ -791,19 +818,7 @@ impl Config {
         }
         Self::validate_alumet_service_mappings(cfg)?;
         if let Some(db) = &cfg.database {
-            // Control chars rejected before the value can reach an error
-            // message, same order as validate_alumet_parser_field.
-            if has_control_char(&db.label_value) {
-                return Err(
-                    "[green.alumet.database] label_value contains control characters".to_string(),
-                );
-            }
-            if db.label_value.is_empty() || db.label_value.len() > 256 {
-                return Err(format!(
-                    "[green.alumet.database] label_value must be 1-256 chars, got '{}'",
-                    db.label_value
-                ));
-            }
+            validate_alumet_database_fields(&db.label_value, db.region.as_deref())?;
             if cfg.service_mappings.values().any(|v| v == &db.label_value) {
                 return Err(format!(
                     "[green.alumet.database] label_value '{}' also appears in \
@@ -812,13 +827,19 @@ impl Config {
                     db.label_value
                 ));
             }
+            // Charset-valid but unknown regions are legitimate (custom
+            // ids covered by Electricity Maps), so warn instead of
+            // rejecting: without any intensity the gCO2 stays absent.
             if let Some(region) = db.region.as_deref()
-                && !crate::score::carbon::is_valid_region_id(region)
+                && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
             {
-                return Err(format!(
-                    "[green.alumet.database] region '{region}' contains invalid characters; \
-                     allowed: ASCII letters, digits, '-' and '_', 1-64 chars"
-                ));
+                tracing::warn!(
+                    region,
+                    "[green.alumet.database] region is not in the embedded \
+                     intensity table: waste_gco2 will be absent unless \
+                     Electricity Maps real-time intensity covers it. Check \
+                     for a typo (e.g. eu-west-3)."
+                );
             }
         }
         #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
