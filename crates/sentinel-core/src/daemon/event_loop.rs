@@ -735,10 +735,18 @@ async fn process_traces(
     // `score_green` (it travels through `CarbonContext`), but the
     // handler unconditionally re-applies it from `state.scoring_config`
     // so the audit-trail metadata cannot drift from the startup config.
-    ctx.green_summary_cell
-        .write()
-        .await
-        .clone_from(&green_summary);
+    {
+        let mut cell = ctx.green_summary_cell.write().await;
+        // database_waste is Some only on the batch that consumed a fresh
+        // scrape delta; keep the last figure so /api/export/report does
+        // not flap to None between scrapes. The per-window archive keeps
+        // the batch-scoped truth.
+        let previous_db = cell.database_waste.take();
+        cell.clone_from(&green_summary);
+        if cell.database_waste.is_none() {
+            cell.database_waste = previous_db;
+        }
+    }
 
     // Stamp the daemon's confidence label. Same shared helper as
     // `pipeline::analyze`, so the two paths cannot drift on the loop.
@@ -1215,6 +1223,37 @@ mod tests {
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-al"].model_tag, "alumet_rapl");
+    }
+
+    #[test]
+    fn build_tick_ctx_database_energy_forces_owned_then_consumes() {
+        let base = Arc::new(score::carbon::CarbonContext {
+            db_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: None,
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let db = score::alumet::DbEnergyState::new();
+        let now = score::scaphandre::monotonic_ms();
+        db.add_window_kwh(2e-6, now);
+        let mut sources = no_scrapers(&base);
+        sources.alumet_db_state = Some(&db);
+        sources.alumet_staleness_ms = 60_000;
+
+        // Fresh DB energy alone must force the owned path and patch it in.
+        let ctx = build_tick_ctx(&sources);
+        assert!(
+            matches!(ctx, std::borrow::Cow::Owned(_)),
+            "fresh db energy must not take the borrowed fast path"
+        );
+        let kwh = ctx.db_energy.as_ref().unwrap().window_kwh;
+        assert!((kwh - 2e-6).abs() < 1e-18);
+
+        // The take consumed it: the next build borrows the base again.
+        let ctx2 = build_tick_ctx(&sources);
+        assert!(matches!(ctx2, std::borrow::Cow::Borrowed(_)));
+        assert!((ctx2.db_energy.as_ref().unwrap().window_kwh - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]

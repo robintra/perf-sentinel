@@ -42,22 +42,31 @@ impl DbEnergyState {
         Arc::new(Self::default())
     }
 
-    /// Scraper side: add one scrape window's energy.
-    pub(super) fn add_window_kwh(&self, kwh: f64, now_ms: u64) {
-        let current = f64::from_bits(self.cumulative_kwh_bits.load(Ordering::SeqCst));
-        self.cumulative_kwh_bits
-            .store((current + kwh).to_bits(), Ordering::SeqCst);
+    /// Scraper side: add one scrape window's energy. A `0.0` add marks
+    /// scrape liveness without changing the balance, so an idle database
+    /// does not read as a dead scraper.
+    pub(crate) fn add_window_kwh(&self, kwh: f64, now_ms: u64) {
+        // fetch_update, not load+store: a second writer (apply_scrape is
+        // a public path) must not silently drop a window's energy.
+        let _ = self
+            .cumulative_kwh_bits
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |bits| {
+                Some((f64::from_bits(bits) + kwh).to_bits())
+            });
         self.last_update_ms.store(now_ms, Ordering::SeqCst);
     }
 
     /// Consumer side: energy accumulated since the previous take.
     ///
-    /// `None` when the last scrape is older than `staleness_ms` (the
-    /// consumed marker is not advanced, so the energy is delivered once
-    /// the scraper recovers) or when nothing accumulated.
+    /// `None` when the last label-bearing scrape is older than
+    /// `staleness_ms` (the consumed marker is not advanced, so the
+    /// energy is delivered once the scraper recovers) or when nothing
+    /// accumulated.
     pub fn take_window_kwh(&self, now_ms: u64, staleness_ms: u64) -> Option<f64> {
+        // No never-updated sentinel needed: an untouched state has a
+        // zero cumulative, so the delta check below returns None.
         let last = self.last_update_ms.load(Ordering::SeqCst);
-        if last == 0 || now_ms.saturating_sub(last) > staleness_ms {
+        if now_ms.saturating_sub(last) > staleness_ms {
             return None;
         }
         let cumulative_bits = self.cumulative_kwh_bits.load(Ordering::SeqCst);
