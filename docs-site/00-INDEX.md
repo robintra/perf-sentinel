@@ -43,6 +43,7 @@ perf-sentinel's user-facing documentation. For deep design rationale aimed at co
 | Document                                 | Description                                                                         |
 |------------------------------------------|-------------------------------------------------------------------------------------|
 | [RUNBOOK.md](RUNBOOK.md)                 | Incident runbook: symptom-driven troubleshooting for production deployments         |
+| [ENERGY.md](ENERGY.md)                   | Plain-language synthesis: how counts become kWh and gCO2, per configured option      |
 | [METHODOLOGY.md](METHODOLOGY.md)         | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq` |
 | [LIMITATIONS.md](LIMITATIONS.md)         | Known trade-offs, upstream constraints, detection boundaries                        |
 
