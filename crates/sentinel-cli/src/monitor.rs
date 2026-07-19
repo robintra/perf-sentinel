@@ -2007,6 +2007,16 @@ mod tests {
     }
 
     #[test]
+    fn energy_database_waste_estimated_reads_within_totals() {
+        let mut snapshot = snapshot_with_energy_mix();
+        let db = snapshot.green_summary.database_waste.as_mut().unwrap();
+        db.model = sentinel_core::report::DB_WASTE_MODEL_ESTIMATED.to_string();
+        let text = line_text(&build_energy_lines(Some(&snapshot)));
+        assert!(text.contains("model estimated"), "got: {text}");
+        assert!(text.contains("within the report totals"), "got: {text}");
+    }
+
+    #[test]
     fn database_waste_region_is_sanitized_for_terminal() {
         let mut snapshot = snapshot_with_energy_mix();
         let db = snapshot.green_summary.database_waste.as_mut().unwrap();

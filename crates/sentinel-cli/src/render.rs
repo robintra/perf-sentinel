@@ -1775,6 +1775,15 @@ mod tests {
         assert!(line.contains("within the report totals"), "{line}");
         assert!(line.contains("5.500e-7 kWh"), "{line}");
         assert!(!line.contains("region"), "{line}");
+        // Empty model (a legacy baseline) renders the dash placeholder and
+        // the non-estimated "excluded" scope.
+        let legacy = DatabaseWaste {
+            model: String::new(),
+            ..estimated.clone()
+        };
+        let line = format_database_waste_line(&legacy);
+        assert!(line.contains("model -"), "{line}");
+        assert!(line.contains("excluded from totals"), "{line}");
         // Smoke the full print path with the SQL share visible.
         let mut summary = GreenSummary::disabled(10);
         summary.total_sql_io_ops = 6;

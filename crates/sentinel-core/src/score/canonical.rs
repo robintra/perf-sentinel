@@ -208,4 +208,24 @@ mod tests {
         // 6.0 gCO2 of energy × the canonical 5/6 ratio.
         assert!((db.canonical_waste_gco2.expect("carbon leg") - 5.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn db_waste_tiers_zero_sql_yields_zero_canonical() {
+        // total_sql_io_ops == 0: the canonical ratio is 0, so both canonical
+        // legs collapse to zero without dividing by zero.
+        let mut operational = GreenSummary::disabled(0);
+        operational.total_sql_io_ops = 0;
+        operational.database_waste = Some(crate::report::DatabaseWaste {
+            energy_kwh: 1.0,
+            waste_kwh: 0.0,
+            waste_gco2: None,
+            energy_gco2: Some(3.0),
+            region: None,
+            sql_waste_ratio: 0.0,
+            model: "estimated".to_string(),
+        });
+        let db = build_db_waste_tiers(&operational, 0).expect("tiers");
+        assert!(db.canonical_waste_kwh.abs() < 1e-12);
+        assert!(db.canonical_waste_gco2.expect("carbon leg").abs() < 1e-12);
+    }
 }
