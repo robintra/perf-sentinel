@@ -44,7 +44,7 @@ Counting operations on the application side misses a structural point: the energ
 database waste = measured DB energy x (avoidable SQL ops / total SQL ops)
 ```
 
-The result is `green_summary.database_waste`, with a gCO2 conversion when you declare the database's region. It is a lower bound (CPU energy only, no DRAM, no disk) computed with a count-based ratio, so it stays informational: excluded from `energy_kwh`, from `co2`, and from the public disclosure. The full list of bounds is in [LIMITATIONS.md](LIMITATIONS.md#alumet-precision-bounds).
+The result is `green_summary.database_waste`, with a gCO2 conversion when you declare the database's region. And the figure exists even without Alumet: when no measurement is available (batch runs, managed databases, no `[green.alumet.database]`), it is estimated from the modeled energy of the SQL spans instead, and its `model` tag says which path produced it (`alumet_rapl` = measured, `io_proxy_*` = estimated). Measured is a lower bound (CPU energy only, no DRAM, no disk), estimated inherits the proxy's 2x bracket, both use a count-based ratio, so the figure stays informational: excluded from `energy_kwh` and from `co2`, and published in the disclosure only as a separate labeled block outside every total. The full list of bounds is in [LIMITATIONS.md](LIMITATIONS.md#alumet-precision-bounds).
 
 ## What the numbers are not
 

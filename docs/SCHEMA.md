@@ -1,14 +1,14 @@
-# Schema reference: perf-sentinel-report v1.3
+# Schema reference: perf-sentinel-report v1.4
 
 This document describes the JSON shape of a periodic disclosure report in prose. The machine-readable JSON Schema lives at `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Two filled examples sit under `docs/schemas/examples/`.
 
-v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. v1.2 adds `aggregate.temporal_coverage` (a measurement-continuity signal), `scope_manifest.coverage_basis` (a provenance marker), and the reserved `integrity.cross_period_log` hook. v1.3 adds `methodology.standard_crosswalk` (an interpretive ESRS E1 datapoint crosswalk) and per-pattern `applications[].anti_patterns[].rgesn_criteria` (RGESN 2024 criteria). The schema accepts `perf-sentinel-report/v1.0` through `v1.3`, and every added field defaults when absent, so older readers and reports remain valid and the `content_hash` of an older report is unchanged when re-hashed on a newer binary.
+v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. v1.2 adds `aggregate.temporal_coverage` (a measurement-continuity signal), `scope_manifest.coverage_basis` (a provenance marker), and the reserved `integrity.cross_period_log` hook. v1.3 adds `methodology.standard_crosswalk` (an interpretive ESRS E1 datapoint crosswalk) and per-pattern `applications[].anti_patterns[].rgesn_criteria` (RGESN 2024 criteria). v1.4 adds `aggregate.database_waste` (the database-side avoidable energy and carbon at both thresholds, with its provenance models, an informational lower bound kept out of every total). The schema accepts `perf-sentinel-report/v1.0` through `v1.4`, and every added field defaults when absent, so older readers and reports remain valid and the `content_hash` of an older report is unchanged when re-hashed on a newer binary.
 
 ## Top-level keys
 
 | key               | type           | required | notes                                                                    |
 |-------------------|----------------|----------|--------------------------------------------------------------------------|
-| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.3"` (also accepts `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`) |
+| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.4"` (also accepts `"…/v1.3"`, `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`) |
 | `report_metadata` | object         | yes      | see [Report metadata](#report-metadata)                                  |
 | `organisation`    | object         | yes      | see [Organisation](#organisation)                                        |
 | `period`          | object         | yes      | see [Period](#period)                                                    |
@@ -63,6 +63,10 @@ The report carries the avoidable energy and carbon at two N+1 detection threshol
 - `operational_waste` is computed at the operator's configured N+1 threshold and records that threshold in `n_plus_one_threshold`. Comparing it against `canonical_waste` shows how much avoidable waste the operator's threshold hides.
 
 Each tier carries `n_plus_one_threshold` (integer), `energy_kwh` and `carbon_kgco2eq` (non-negative), `waste_ratio` (`[0, 1]`), and `efficiency_score` (`[0, 100]`). For `intent = "official"`, the validator requires `canonical_waste.n_plus_one_threshold` to equal the binary's canonical threshold; the operational threshold is the operator's recorded choice and is deliberately not range-checked, since a loose threshold is exactly what that tier exists to surface. The total energy and carbon (`total_energy_kwh`, `total_carbon_kgco2eq`) are span-derived and independent of either threshold.
+
+### Database waste (v1.4)
+
+`database_waste` is an optional object carrying the database-side avoidable energy and carbon over the period. It is a lower bound and an informational figure: never folded into `total_energy_kwh`, `total_carbon_kgco2eq` or the waste tiers, and absent on pre-v1.4 reports and when no window carried the figure. The per-window figure is the database energy multiplied by the SQL-only waste ratio: energy measured on the declared Alumet database cgroup when `[green.alumet.database]` is configured, otherwise estimated from the modeled energy of the window's SQL spans. `models` carries the distinct provenance tags observed over the period (`alumet_rapl` = measured, `io_proxy_*` = estimated), so an auditor can tell measurement from model without leaving the report. `windows_with_figure` counts the windows that carried the block. The `operational_*` figures use the operator's N+1 threshold, the `canonical_*` figures recompute the SQL ratio at the binary-pinned canonical threshold against the same energy, the same anti-manipulation construction as the waste tiers above.
 
 ### Quality signals (0.7.0+)
 

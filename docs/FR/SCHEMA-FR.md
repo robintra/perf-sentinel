@@ -1,14 +1,14 @@
-# Référence schéma : perf-sentinel-report v1.3
+# Référence schéma : perf-sentinel-report v1.4
 
 Ce document décrit la forme JSON d'un rapport de transparence périodique en prose. Le JSON Schema lisible par machine se trouve dans `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Deux exemples remplis sont sous `docs/schemas/examples/`.
 
-La v1.1 ajoute les tiers `canonical_waste` et `operational_waste` à `aggregate`. La v1.2 ajoute `aggregate.temporal_coverage` (un signal de continuité de mesure), `scope_manifest.coverage_basis` (un marqueur de provenance) et le hook réservé `integrity.cross_period_log`. La v1.3 ajoute `methodology.standard_crosswalk` (une correspondance interprétative vers les datapoints ESRS E1) et `applications[].anti_patterns[].rgesn_criteria` par pattern (critères RGESN 2024). Le schéma accepte `perf-sentinel-report/v1.0` jusqu'à `v1.3`, et chaque champ ajouté prend une valeur par défaut quand il est absent, donc les lecteurs et rapports plus anciens restent valides et le `content_hash` d'un rapport plus ancien reste identique quand il est rehashé sur un binaire plus récent.
+La v1.1 ajoute les tiers `canonical_waste` et `operational_waste` à `aggregate`. La v1.2 ajoute `aggregate.temporal_coverage` (un signal de continuité de mesure), `scope_manifest.coverage_basis` (un marqueur de provenance) et le hook réservé `integrity.cross_period_log`. La v1.3 ajoute `methodology.standard_crosswalk` (une correspondance interprétative vers les datapoints ESRS E1) et `applications[].anti_patterns[].rgesn_criteria` par pattern (critères RGESN 2024). La v1.4 ajoute `aggregate.database_waste` (l'énergie et le carbone évitables côté base de données aux deux seuils, avec ses modèles de provenance, une borne basse informative tenue hors de tous les totaux). Le schéma accepte `perf-sentinel-report/v1.0` jusqu'à `v1.4`, et chaque champ ajouté prend une valeur par défaut quand il est absent, donc les lecteurs et rapports plus anciens restent valides et le `content_hash` d'un rapport plus ancien reste identique quand il est rehashé sur un binaire plus récent.
 
 ## Clés racine
 
 | clé               | type           | requise | notes                                                                             |
 |-------------------|----------------|---------|-----------------------------------------------------------------------------------|
-| `schema_version`  | string (enum)  | oui     | `"perf-sentinel-report/v1.3"` (accepte aussi `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`)  |
+| `schema_version`  | string (enum)  | oui     | `"perf-sentinel-report/v1.4"` (accepte aussi `"…/v1.3"`, `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`)  |
 | `report_metadata` | object         | oui     | voir [Métadonnées de rapport](#métadonnées-de-rapport)                            |
 | `organisation`    | object         | oui     | voir [Organisation](#organisation)                                                |
 | `period`          | object         | oui     | voir [Période](#période)                                                          |
@@ -63,6 +63,10 @@ Le rapport porte le gaspillage évitable, énergie et carbone, à deux seuils de
 - `operational_waste` est calculé au seuil N+1 configuré par l'opérateur et enregistre ce seuil dans `n_plus_one_threshold`. Le comparer à `canonical_waste` montre combien de gaspillage évitable le seuil de l'opérateur masque.
 
 Chaque tier porte `n_plus_one_threshold` (entier), `energy_kwh` et `carbon_kgco2eq` (non négatifs), `waste_ratio` (`[0, 1]`) et `efficiency_score` (`[0, 100]`). Pour `intent = "official"`, le validator exige que `canonical_waste.n_plus_one_threshold` égale le seuil canonique du binaire. Le seuil opérationnel est le choix enregistré de l'opérateur et n'est délibérément pas borné, puisqu'un seuil relâché est précisément ce que ce tier sert à exposer. L'énergie et le carbone totaux (`total_energy_kwh`, `total_carbon_kgco2eq`) sont dérivés des spans et indépendants des deux seuils.
+
+### Gaspillage base de données (v1.4)
+
+`database_waste` est un objet optionnel portant l'énergie et le carbone évitables côté base de données sur la période. C'est une borne basse et un chiffre informatif : jamais intégré à `total_energy_kwh`, `total_carbon_kgco2eq` ni aux tiers de gaspillage, absent des rapports pré-v1.4 et quand aucune fenêtre n'a porté le chiffre. Le chiffre par fenêtre est l'énergie de la base multipliée par le ratio de gaspillage SQL seul : énergie mesurée sur le cgroup Alumet déclaré quand `[green.alumet.database]` est configuré, sinon estimée depuis l'énergie modélisée des spans SQL de la fenêtre. `models` porte les étiquettes de provenance distinctes observées sur la période (`alumet_rapl` = mesuré, `io_proxy_*` = estimé), un auditeur distingue donc mesure et modèle sans quitter le rapport. `windows_with_figure` compte les fenêtres qui portaient le bloc. Les chiffres `operational_*` utilisent le seuil N+1 de l'opérateur, les chiffres `canonical_*` recalculent le ratio SQL au seuil canonique épinglé dans le binaire contre la même énergie, la même construction anti-manipulation que les tiers de gaspillage ci-dessus.
 
 ### Signaux de qualité (0.7.0+)
 
