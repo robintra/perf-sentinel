@@ -537,6 +537,14 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     println!("{bold}{cyan}--- GreenOps Summary ---{reset}");
     println!("  Total I/O ops:     {}", summary.total_io_ops);
     println!("  Avoidable I/O ops: {}", summary.avoidable_io_ops);
+    // Hidden when no SQL ops were seen (HTTP-only run, or a baseline
+    // from a version predating the split, which parses as 0).
+    if summary.total_sql_io_ops > 0 {
+        println!(
+            "  SQL share:         {} of {} SQL ops avoidable",
+            summary.avoidable_sql_io_ops, summary.total_sql_io_ops,
+        );
+    }
     // Read the pre-computed band from the struct field (see print_findings).
     let waste_level = summary.io_waste_ratio_band;
     let waste_color = interpret_color(waste_level, colors);
@@ -562,6 +570,26 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         if let Some(transport) = carbon.transport_gco2 {
             println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
         }
+    }
+
+    // Daemon-only figure: batch analyze never produces it, the line
+    // renders whenever a daemon-produced Report reaches this sink.
+    if let Some(db) = &summary.database_waste {
+        let gco2 = db
+            .waste_gco2
+            .map(|g| format!(", {g:.6} gCO\u{2082}"))
+            .unwrap_or_default();
+        // Region flows through user-supplied --input JSON, sanitize at
+        // the print sink like every other snapshot string.
+        let region = db.region.as_deref().map_or_else(String::new, |r| {
+            format!(", region {}", sanitize_for_terminal(r))
+        });
+        println!(
+            "  Database waste:    {:.6} kWh of {:.6} kWh measured ({:.0}% SQL ratio){gco2}{region} [excluded from totals]",
+            db.waste_kwh,
+            db.energy_kwh,
+            db.sql_waste_ratio * 100.0,
+        );
     }
 
     // Carbon scoring config header. Hidden when Electricity Maps is
@@ -1685,6 +1713,32 @@ mod tests {
             summary.scoring_config = Some(cfg);
             print_green_summary(&summary, false);
         }
+    }
+
+    #[test]
+    fn green_summary_prints_sql_share_and_database_waste() {
+        use sentinel_core::report::{DatabaseWaste, GreenSummary};
+        let mut summary = GreenSummary::disabled(10);
+        summary.total_sql_io_ops = 6;
+        summary.avoidable_sql_io_ops = 5;
+        summary.database_waste = Some(DatabaseWaste {
+            energy_kwh: 0.2,
+            waste_kwh: 0.16,
+            waste_gco2: Some(7.95),
+            // Escape bytes exercise the print-sink sanitizer.
+            region: Some("eu\u{1b}[2Jwest".to_string()),
+            sql_waste_ratio: 5.0 / 6.0,
+        });
+        print_green_summary(&summary, false);
+        // Region absent and gCO2 absent: the optional suffixes drop out.
+        summary.database_waste = Some(DatabaseWaste {
+            energy_kwh: 0.2,
+            waste_kwh: 0.0,
+            waste_gco2: None,
+            region: None,
+            sql_waste_ratio: 0.0,
+        });
+        print_green_summary(&summary, false);
     }
 
     #[test]
