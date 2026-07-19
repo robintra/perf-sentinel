@@ -361,6 +361,25 @@
         "efficiency_score": { "type": "number", "minimum": 0, "maximum": 100 }
       }
     },
+    "DatabaseWasteAggregate": {
+      "type": "object",
+      "required": ["energy_kwh", "models", "windows_with_figure", "operational_waste_kwh", "canonical_waste_kwh"],
+      "additionalProperties": false,
+      "properties": {
+        "energy_kwh": { "type": "number", "minimum": 0 },
+        "models": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_+]+$" },
+          "description": "Distinct provenance tags observed over the period: alumet_rapl = measured on the database cgroup, estimated = built from the modeled energy of the SQL spans."
+        },
+        "windows_with_figure": { "type": "integer", "minimum": 1 },
+        "operational_waste_kwh": { "type": "number", "minimum": 0 },
+        "operational_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." },
+        "canonical_waste_kwh": { "type": "number", "minimum": 0 },
+        "canonical_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." }
+      }
+    },
     "Aggregate": {
       "type": "object",
       "required": [
@@ -427,6 +446,10 @@
           "type": "integer",
           "minimum": 0,
           "description": "Number of scoring windows that fell back to the proxy attribution path."
+        },
+        "database_waste": {
+          "$ref": "#/$defs/DatabaseWasteAggregate",
+          "description": "Since v1.4. Database-side avoidable energy and carbon over the period at both thresholds, with provenance models. Informational lower bound, never folded into total_energy_kwh/total_carbon_kgco2eq. Absent on pre-v1.4 reports and when no window carried the figure."
         },
         "per_service_energy_models": {
           "type": "object",

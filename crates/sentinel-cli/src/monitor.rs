@@ -908,7 +908,14 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
                 db.sql_waste_ratio * 100.0,
             )),
             Span::styled(
-                format!("   model {model}   region {region}   excluded from totals"),
+                format!(
+                    "   model {model}   region {region}   {}",
+                    if db.model == "alumet_rapl" {
+                        "excluded from totals"
+                    } else {
+                        "within the report totals"
+                    }
+                ),
                 dim,
             ),
         ]));
@@ -1755,20 +1762,7 @@ fn intensity_source_label(src: IntensitySource) -> &'static str {
     }
 }
 
-/// Format a tiny physical quantity (kWh, gCO2e): six fixed decimals
-/// down to `1e-5`, scientific notation below so a tiny-but-real window
-/// does not collapse to a misleading `0.000000`.
-fn fmt_tiny(v: f64) -> String {
-    // Normalize negative zero to positive: an empty `regions` sum (green
-    // disabled, or no region scored yet) yields `-0.0`, which would
-    // otherwise render as a stray "-0.000000" in the chart legend.
-    let v = if v == 0.0 { 0.0 } else { v };
-    if v == 0.0 || v >= 1e-5 {
-        format!("{v:.6}")
-    } else {
-        format!("{v:.3e}")
-    }
-}
+use crate::render::fmt_tiny;
 
 /// Sanitize a daemon-sourced cell value and hard-cap its length (with an
 /// ellipsis) so the fixed-width energy tables stay aligned.

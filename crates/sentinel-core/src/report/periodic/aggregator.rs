@@ -215,9 +215,11 @@ struct WasteTierAccumulator {
 struct DbWasteAccumulator {
     energy_kwh: f64,
     operational_kwh: f64,
-    operational_g: f64,
+    /// `None` until a window carried a carbon conversion, so an absent
+    /// conversion is not published as an affirmative zero.
+    operational_g: Option<f64>,
     canonical_kwh: f64,
-    canonical_g: f64,
+    canonical_g: Option<f64>,
     models: BTreeSet<String>,
     windows: u64,
 }
@@ -422,11 +424,23 @@ impl Builder {
                 let acc = &mut self.db_waste;
                 acc.energy_kwh += db.energy_kwh;
                 acc.operational_kwh += db.operational_waste_kwh;
-                acc.operational_g += db.operational_waste_gco2.unwrap_or(0.0);
                 acc.canonical_kwh += db.canonical_waste_kwh;
-                acc.canonical_g += db.canonical_waste_gco2.unwrap_or(0.0);
+                // Keep None-vs-zero: sums stay None until a window
+                // actually carried a carbon conversion.
+                if let Some(g) = db.operational_waste_gco2 {
+                    acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + g);
+                }
+                if let Some(g) = db.canonical_waste_gco2 {
+                    acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + g);
+                }
                 acc.windows = acc.windows.saturating_add(1);
-                if !db.model.is_empty() && acc.models.len() < MAX_BINARY_VERSIONS {
+                // Same bounds as the sibling energy-model collector: a
+                // tampered archive line must not land an unbounded
+                // string in the published models set.
+                if !db.model.is_empty()
+                    && db.model.len() <= MAX_ENERGY_MODEL_LEN
+                    && acc.models.len() < MAX_BINARY_VERSIONS
+                {
                     acc.models.insert(db.model.clone());
                 }
             }
@@ -708,9 +722,9 @@ impl Builder {
                     models: self.db_waste.models,
                     windows_with_figure: self.db_waste.windows,
                     operational_waste_kwh: self.db_waste.operational_kwh,
-                    operational_waste_kgco2eq: self.db_waste.operational_g / 1000.0,
+                    operational_waste_kgco2eq: self.db_waste.operational_g.map(|g| g / 1000.0),
                     canonical_waste_kwh: self.db_waste.canonical_kwh,
-                    canonical_waste_kgco2eq: self.db_waste.canonical_g / 1000.0,
+                    canonical_waste_kgco2eq: self.db_waste.canonical_g.map(|g| g / 1000.0),
                 }),
                 per_service_energy_models: self.per_service_energy_models,
                 per_service_measured_ratio: self
@@ -1250,9 +1264,9 @@ mod tests {
         assert!((db.energy_kwh - 1.5).abs() < 1e-12);
         assert!((db.operational_waste_kwh - 0.75).abs() < 1e-12);
         // gCO2 sums are converted to kg: (50 + 25) / 1000.
-        assert!((db.operational_waste_kgco2eq - 0.075).abs() < 1e-12);
+        assert!((db.operational_waste_kgco2eq.unwrap() - 0.075).abs() < 1e-12);
         assert!((db.canonical_waste_kwh - 1.2).abs() < 1e-12);
-        assert!((db.canonical_waste_kgco2eq - 0.12).abs() < 1e-12);
+        assert!((db.canonical_waste_kgco2eq.unwrap() - 0.12).abs() < 1e-12);
         let models: Vec<&str> = db.models.iter().map(String::as_str).collect();
         assert_eq!(models, vec!["alumet_rapl", "io_proxy_v3"]);
     }

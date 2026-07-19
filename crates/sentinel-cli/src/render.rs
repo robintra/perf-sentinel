@@ -524,6 +524,50 @@ fn severity_label(severity: &Severity) -> &'static str {
     }
 }
 
+/// Sub-1e-5 magnitudes switch to scientific notation instead of
+/// collapsing to zeros in fixed-point. Shared by the text report and
+/// the monitor TUI so the same value renders identically in both.
+pub(crate) fn fmt_tiny(v: f64) -> String {
+    // Normalize negative zero so an empty sum never renders "-0.000000".
+    let v = if v == 0.0 { 0.0 } else { v };
+    if v == 0.0 || v >= 1e-5 {
+        format!("{v:.6}")
+    } else {
+        format!("{v:.3e}")
+    }
+}
+
+/// The database-waste text line. Pure so the sanitization and the
+/// measured-versus-estimated label are assertable. `region` and `model`
+/// flow through user-supplied `--input` JSON, sanitize at the sink.
+fn format_database_waste_line(db: &sentinel_core::report::DatabaseWaste) -> String {
+    let gco2 = db
+        .waste_gco2
+        .map(|g| format!(", {} gCO\u{2082}", fmt_tiny(g)))
+        .unwrap_or_default();
+    let region = db.region.as_deref().map_or_else(String::new, |r| {
+        format!(", region {}", sanitize_for_terminal(r))
+    });
+    let model = if db.model.is_empty() {
+        "-".into()
+    } else {
+        sanitize_for_terminal(&db.model)
+    };
+    // The estimated figure is a re-presented share of the report totals,
+    // only the measured cgroup reading is genuinely additional energy.
+    let scope = if db.model == "alumet_rapl" {
+        "[excluded from totals]"
+    } else {
+        "[within the report totals]"
+    };
+    format!(
+        "  Database waste:    {} kWh of {} kWh ({:.0}% SQL ratio, model {model}){gco2}{region} {scope}",
+        fmt_tiny(db.waste_kwh),
+        fmt_tiny(db.energy_kwh),
+        db.sql_waste_ratio * 100.0,
+    )
+}
+
 fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
     let colors = ansi_colors(force_color);
     let AnsiColors {
@@ -572,38 +616,8 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         }
     }
 
-    // Daemon-only figure: batch analyze never produces it, the line
-    // renders whenever a daemon-produced Report reaches this sink.
     if let Some(db) = &summary.database_waste {
-        let gco2 = db
-            .waste_gco2
-            .map(|g| format!(", {g:.6} gCO\u{2082}"))
-            .unwrap_or_default();
-        // Region and model flow through user-supplied --input JSON,
-        // sanitize at the print sink like every other snapshot string.
-        let region = db.region.as_deref().map_or_else(String::new, |r| {
-            format!(", region {}", sanitize_for_terminal(r))
-        });
-        let model = if db.model.is_empty() {
-            "-".into()
-        } else {
-            sanitize_for_terminal(&db.model)
-        };
-        // Tiny proxy figures (1e-7 kWh/op) collapse to 0.000000 in
-        // fixed-point, switch to scientific below one microwatt-hour.
-        let fmt_kwh = |v: f64| {
-            if v == 0.0 || v.abs() >= 1e-6 {
-                format!("{v:.6}")
-            } else {
-                format!("{v:.2e}")
-            }
-        };
-        println!(
-            "  Database waste:    {} kWh of {} kWh ({:.0}% SQL ratio, model {model}){gco2}{region} [excluded from totals]",
-            fmt_kwh(db.waste_kwh),
-            fmt_kwh(db.energy_kwh),
-            db.sql_waste_ratio * 100.0,
-        );
+        println!("{}", format_database_waste_line(db));
     }
 
     // Carbon scoring config header. Hidden when Electricity Maps is
@@ -1732,28 +1746,40 @@ mod tests {
     #[test]
     fn green_summary_prints_sql_share_and_database_waste() {
         use sentinel_core::report::{DatabaseWaste, GreenSummary};
-        let mut summary = GreenSummary::disabled(10);
-        summary.total_sql_io_ops = 6;
-        summary.avoidable_sql_io_ops = 5;
-        summary.database_waste = Some(DatabaseWaste {
+        // Measured path: sanitized region, measured label, scientific gCO2.
+        let measured = DatabaseWaste {
             energy_kwh: 0.2,
             waste_kwh: 0.16,
-            waste_gco2: Some(7.95),
-            // Escape bytes exercise the print-sink sanitizer.
+            waste_gco2: Some(4e-7),
+            energy_gco2: Some(5e-7),
             region: Some("eu\u{1b}[2Jwest".to_string()),
             sql_waste_ratio: 5.0 / 6.0,
             model: "alumet_rapl".to_string(),
-        });
-        print_green_summary(&summary, false);
-        // Region absent and gCO2 absent: the optional suffixes drop out.
-        summary.database_waste = Some(DatabaseWaste {
-            energy_kwh: 0.2,
+        };
+        let line = format_database_waste_line(&measured);
+        assert!(!line.contains('\u{1b}'), "escape reached the sink: {line}");
+        assert!(line.contains("model alumet_rapl"), "{line}");
+        assert!(line.contains("excluded from totals"), "{line}");
+        assert!(line.contains("4.000e-7 gCO"), "{line}");
+        // Estimated path: within-totals label, optional suffixes drop out.
+        let estimated = DatabaseWaste {
+            energy_kwh: 5.5e-7,
             waste_kwh: 0.0,
             waste_gco2: None,
+            energy_gco2: None,
             region: None,
             sql_waste_ratio: 0.0,
-            model: "io_proxy_v3".to_string(),
-        });
+            model: "estimated".to_string(),
+        };
+        let line = format_database_waste_line(&estimated);
+        assert!(line.contains("within the report totals"), "{line}");
+        assert!(line.contains("5.500e-7 kWh"), "{line}");
+        assert!(!line.contains("region"), "{line}");
+        // Smoke the full print path with the SQL share visible.
+        let mut summary = GreenSummary::disabled(10);
+        summary.total_sql_io_ops = 6;
+        summary.avoidable_sql_io_ops = 5;
+        summary.database_waste = Some(estimated);
         print_green_summary(&summary, false);
     }
 

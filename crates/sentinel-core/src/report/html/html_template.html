@@ -2595,10 +2595,13 @@
     var dbw = greenSummary.database_waste;
     if (dbw) {
       var dbValue = Number.isFinite(dbw.waste_gco2) ? formatGco2(dbw.waste_gco2) : formatKwh(dbw.waste_kwh);
+      // The estimated figure is a re-presented share of the totals,
+      // only the measured cgroup reading is additional energy.
+      var dbScope = dbw.model === "alumet_rapl" ? "excluded from totals" : "within the report totals";
       var dbSub = formatKwh(dbw.waste_kwh) + " of " + formatKwh(dbw.energy_kwh) + " · " +
         Math.round((dbw.sql_waste_ratio || 0) * 100) + "% SQL · " +
         (dbw.model || "-") + (dbw.region ? " · " + dbw.region : "") +
-        " · excluded from totals";
+        " · " + dbScope;
       metrics.appendChild(greenCard(
         "Database waste",
         dbValue,
