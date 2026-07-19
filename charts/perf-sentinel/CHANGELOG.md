@@ -6,6 +6,22 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.14]
+
+### Changed
+
+- `appVersion` bumped to `0.9.14`. `green_summary.database_waste` now exists
+  on every run: when no Alumet measurement of the database cgroup is available
+  (batch runs, managed databases, no `[green.alumet.database]`), the figure is
+  estimated from the modeled energy of the window's SQL spans and tagged
+  `model = "estimated"`, so the database-side waste is surfaced even without a
+  measured backend. A declared database with no delivered reading emits nothing
+  (its energy carries over, no double count). The figure now appears on the
+  batch text report and the HTML dashboard's Green panel, not only the daemon.
+  Periodic disclosure schema v1.4 publishes `aggregate.database_waste` at both
+  thresholds with its provenance split, still kept out of every energy and
+  carbon total. No chart template change, this bump tracks the new appVersion.
+
 ## [0.9.13]
 
 ### Changed

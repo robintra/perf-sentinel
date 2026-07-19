@@ -2,7 +2,7 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.9.14]
 
 ### Added
 

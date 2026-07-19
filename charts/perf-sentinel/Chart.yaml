@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.13
-appVersion: "0.9.13"
+version: 0.9.14
+appVersion: "0.9.14"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "appVersion 0.9.14: green_summary.database_waste now exists on every run. When no Alumet measurement of the database cgroup is available (batch runs, managed databases, no [green.alumet.database]), the figure is estimated from the modeled energy of the window's SQL spans and tagged model=estimated, so the database-side waste is surfaced even without a measured backend. A declared database with no delivered reading emits nothing (its energy carries over, no double count). The figure now shows on the batch text report and the HTML dashboard Green panel, not only the daemon. No chart template change, this bump tracks the new appVersion."
+    - kind: added
+      description: "appVersion 0.9.14: periodic disclosure schema v1.4 publishes aggregate.database_waste at both thresholds (operator and binary-pinned canonical) with its provenance models and the measured/estimated split (measured_energy_kwh, measured_windows, estimated_windows, windows_with_carbon). An informational lower bound kept out of every energy and carbon total. The per-window archive carries the matching disclosure_waste.database block. No chart template change, this bump tracks the new appVersion."
     - kind: added
       description: "appVersion 0.9.13: [green.alumet.database] declares the database cgroup measured by Alumet (label_value, optional region). The watch daemon multiplies that cgroup's measured window energy by the SQL-only waste ratio and reports green_summary.database_waste, a CPU-only lower bound excluded from energy_kwh, co2 and the public disclosure. green_summary also gains total_sql_io_ops and avoidable_sql_io_ops (the SQL share of the I/O op counts), and the query monitor Energy tab shows a database waste line. No chart template change, this bump tracks the new appVersion."
     - kind: changed
@@ -125,7 +129,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.13
+      image: ghcr.io/robintra/perf-sentinel:0.9.14
       platforms:
         - linux/amd64
         - linux/arm64
