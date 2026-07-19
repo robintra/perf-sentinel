@@ -40,8 +40,8 @@ struct CarbonRunState {
     overflow_warned: bool,
     total_transport_gco2: f64,
     multi_region_active: bool,
-    /// Modeled energy of the SQL spans, region-independent. Feeds the
-    /// estimated `database_waste` fallback.
+    /// Energy of the region-resolved SQL spans (the same population as
+    /// `energy_kwh`/`co2`). Feeds the estimated `database_waste`.
     sql_energy_kwh: f64,
     /// Operational gCO₂ of the region-resolved SQL spans.
     sql_gco2: f64,
@@ -132,7 +132,7 @@ pub(super) struct CarbonComputeOutputs {
     /// surfaced so the disclosure path can rescale avoidable at a
     /// canonical threshold without a second carbon pass.
     pub accounted_io_ops: usize,
-    /// Modeled energy of the window's SQL spans (region-independent).
+    /// Energy of the window's region-resolved SQL spans.
     pub sql_energy_kwh: f64,
     /// Operational gCO₂ of the region-resolved SQL spans.
     pub sql_gco2: f64,
@@ -217,19 +217,17 @@ fn process_span_for_carbon(
     if span.event.cloud_region.is_some() {
         state.multi_region_active = true;
     }
-    // Energy is region-independent: accumulate the SQL share before the
-    // region gate so the estimated database_waste covers every SQL span.
     let (energy_kwh, measured_model, calibrated) = resolve_span_energy(span, ctx);
-    let is_sql = span.event.event_type == crate::event::EventType::Sql;
-    if is_sql {
-        state.sql_energy_kwh += energy_kwh;
-    }
     let Some(region_ctx) = resolve_span_region(span, ctx, state) else {
         return;
     };
     let intensity = resolve_span_intensity(span, &region_ctx, ctx);
     let op_co2 = per_op_gco2(energy_kwh, intensity.value, region_ctx.pue);
-    if is_sql {
+    // SQL share for the estimated database_waste, accumulated after the
+    // region gate so it covers the same population as `energy_kwh` and
+    // `co2` and stays a true subset of the report totals.
+    if span.event.event_type == crate::event::EventType::Sql {
+        state.sql_energy_kwh += energy_kwh;
         state.sql_gco2 += op_co2;
     }
 

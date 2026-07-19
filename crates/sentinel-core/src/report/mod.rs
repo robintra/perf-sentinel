@@ -146,14 +146,15 @@ pub struct DisclosureWaste {
 pub struct DisclosureDbWaste {
     /// Window energy of the database figure (measured or estimated).
     pub energy_kwh: f64,
-    /// Provenance tag of that energy (`alumet_rapl`, `io_proxy_*`, ...).
+    /// Provenance tag of that energy (`alumet_rapl` measured,
+    /// `estimated` fallback).
     pub model: String,
     pub operational_waste_kwh: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operational_waste_gco2: Option<f64>,
     pub canonical_waste_kwh: f64,
-    /// Rescaled from the operational gCO₂ per kWh; `None` when the
-    /// operational figure had no carbon conversion.
+    /// Window `energy_gco2` scaled by the canonical SQL ratio; `None`
+    /// when the window energy had no carbon conversion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_waste_gco2: Option<f64>,
 }

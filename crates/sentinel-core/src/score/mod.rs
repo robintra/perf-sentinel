@@ -292,7 +292,7 @@ fn build_database_waste(
         (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0)
     };
     if let Some(db) = ctx.db_energy.as_ref() {
-        // is_finite too: NaN slips a plain > 0.0 and would serialize null.
+        // is_finite too: NaN slips a plain <= 0.0 check and would serialize null.
         if !db.window_kwh.is_finite() || db.window_kwh <= 0.0 {
             return None;
         }
@@ -313,12 +313,13 @@ fn build_database_waste(
             model: carbon::CO2_MODEL_ALUMET.to_string(),
         });
     }
-    if outputs.sql_energy_kwh <= 0.0 || total_sql_io_ops == 0 {
+    // is_finite too: NaN slips a plain <= 0.0 check.
+    if !outputs.sql_energy_kwh.is_finite() || outputs.sql_energy_kwh <= 0.0 || total_sql_io_ops == 0
+    {
         return None;
     }
-    // sql_gco2 only covers region-resolved SQL spans, the same
-    // accounted-population rule the report's co2 figure follows.
-    let energy_gco2 = (outputs.sql_gco2 > 0.0).then_some(outputs.sql_gco2);
+    let energy_gco2 =
+        (outputs.sql_gco2.is_finite() && outputs.sql_gco2 > 0.0).then_some(outputs.sql_gco2);
     Some(DatabaseWaste {
         energy_kwh: outputs.sql_energy_kwh,
         waste_kwh: outputs.sql_energy_kwh * sql_waste_ratio,

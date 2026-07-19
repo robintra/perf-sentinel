@@ -31,7 +31,7 @@ const MAX_ENERGY_MODELS: usize = 64;
 
 /// Per-string length cap for `energy_model` entries collected from
 /// archive lines. Longer values are rejected (dropped, never inserted).
-const MAX_ENERGY_MODEL_LEN: usize = 64;
+const MAX_ENERGY_MODEL_LEN: usize = super::schema::MODEL_TAG_MAX_LEN;
 
 /// Cardinality cap on distinct `binary_version` strings tracked in
 /// `Builder.binary_versions`. Overflow entries are silently dropped.
@@ -214,6 +214,7 @@ struct WasteTierAccumulator {
 #[derive(Default)]
 struct DbWasteAccumulator {
     energy_kwh: f64,
+    measured_energy_kwh: f64,
     operational_kwh: f64,
     /// `None` until a window carried a carbon conversion, so an absent
     /// conversion is not published as an affirmative zero.
@@ -222,6 +223,9 @@ struct DbWasteAccumulator {
     canonical_g: Option<f64>,
     models: BTreeSet<String>,
     windows: u64,
+    measured_windows: u64,
+    estimated_windows: u64,
+    windows_with_carbon: u64,
 }
 
 #[derive(Default)]
@@ -420,27 +424,37 @@ impl Builder {
         if let Some(dw) = &report.disclosure_waste {
             fold_tier(&mut self.canonical_waste, &dw.canonical);
             fold_tier(&mut self.operational_waste, &dw.operational);
-            if let Some(db) = &dw.database {
+            // An out-of-spec provenance tag drops the window's whole
+            // database block: a figure whose provenance cannot be
+            // published must not reach the sums either.
+            if let Some(db) = &dw.database
+                && super::schema::is_valid_model_tag(&db.model)
+            {
                 let acc = &mut self.db_waste;
-                acc.energy_kwh += db.energy_kwh;
-                acc.operational_kwh += db.operational_waste_kwh;
-                acc.canonical_kwh += db.canonical_waste_kwh;
+                let energy = sanitize_f64(db.energy_kwh);
+                acc.energy_kwh += energy;
+                acc.operational_kwh += sanitize_f64(db.operational_waste_kwh);
+                acc.canonical_kwh += sanitize_f64(db.canonical_waste_kwh);
                 // Keep None-vs-zero: sums stay None until a window
                 // actually carried a carbon conversion.
                 if let Some(g) = db.operational_waste_gco2 {
-                    acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + g);
+                    acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + sanitize_f64(g));
                 }
                 if let Some(g) = db.canonical_waste_gco2 {
-                    acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + g);
+                    acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
                 }
                 acc.windows = acc.windows.saturating_add(1);
-                // Same bounds as the sibling energy-model collector: a
-                // tampered archive line must not land an unbounded
-                // string in the published models set.
-                if !db.model.is_empty()
-                    && db.model.len() <= MAX_ENERGY_MODEL_LEN
-                    && acc.models.len() < MAX_BINARY_VERSIONS
-                {
+                if db.model == crate::report::DB_WASTE_MODEL_ESTIMATED {
+                    acc.estimated_windows = acc.estimated_windows.saturating_add(1);
+                } else {
+                    acc.measured_windows = acc.measured_windows.saturating_add(1);
+                    acc.measured_energy_kwh += energy;
+                }
+                if db.operational_waste_gco2.is_some() || db.canonical_waste_gco2.is_some() {
+                    acc.windows_with_carbon = acc.windows_with_carbon.saturating_add(1);
+                }
+                // Same cap as the sibling energy-model collector.
+                if acc.models.len() < MAX_BINARY_VERSIONS || acc.models.contains(&db.model) {
                     acc.models.insert(db.model.clone());
                 }
             }
@@ -719,8 +733,12 @@ impl Builder {
                 fallback_windows_count: self.fallback_windows,
                 database_waste: (self.db_waste.windows > 0).then(|| DatabaseWasteAggregate {
                     energy_kwh: self.db_waste.energy_kwh,
+                    measured_energy_kwh: self.db_waste.measured_energy_kwh,
                     models: self.db_waste.models,
                     windows_with_figure: self.db_waste.windows,
+                    measured_windows: self.db_waste.measured_windows,
+                    estimated_windows: self.db_waste.estimated_windows,
+                    windows_with_carbon: self.db_waste.windows_with_carbon,
                     operational_waste_kwh: self.db_waste.operational_kwh,
                     operational_waste_kgco2eq: self.db_waste.operational_g.map(|g| g / 1000.0),
                     canonical_waste_kwh: self.db_waste.canonical_kwh,
@@ -1250,11 +1268,20 @@ mod tests {
         let mut r2 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
         r2.disclosure_waste = Some(crate::report::DisclosureWaste {
             canonical: tier.clone(),
+            operational: tier.clone(),
+            database: Some(db_block(0.5, "estimated")),
+        });
+        // Out-of-spec provenance tag: the whole block is dropped, none
+        // of its figures reach the sums.
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let mut r3 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        r3.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: tier.clone(),
             operational: tier,
-            database: Some(db_block(0.5, "io_proxy_v3")),
+            database: Some(db_block(9.0, "bad tag!")),
         });
 
-        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
+        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2), (ts3, r3)]);
         let agg = aggregate_from_paths(&[path], &q1_2026(), false)
             .unwrap()
             .aggregate;
@@ -1268,7 +1295,12 @@ mod tests {
         assert!((db.canonical_waste_kwh - 1.2).abs() < 1e-12);
         assert!((db.canonical_waste_kgco2eq.unwrap() - 0.12).abs() < 1e-12);
         let models: Vec<&str> = db.models.iter().map(String::as_str).collect();
-        assert_eq!(models, vec!["alumet_rapl", "io_proxy_v3"]);
+        assert_eq!(models, vec!["alumet_rapl", "estimated"]);
+        // Provenance split: one measured window, one estimated.
+        assert!((db.measured_energy_kwh - 1.0).abs() < 1e-12);
+        assert_eq!(db.measured_windows, 1);
+        assert_eq!(db.estimated_windows, 1);
+        assert_eq!(db.windows_with_carbon, 2);
     }
 
     #[test]

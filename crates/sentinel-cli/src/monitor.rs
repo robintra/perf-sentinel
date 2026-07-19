@@ -910,10 +910,10 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
             Span::styled(
                 format!(
                     "   model {model}   region {region}   {}",
-                    if db.model == "alumet_rapl" {
-                        "excluded from totals"
-                    } else {
+                    if db.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
                         "within the report totals"
+                    } else {
+                        "excluded from totals"
                     }
                 ),
                 dim,

@@ -67,6 +67,20 @@ pub const CORE_PATTERNS_REQUIRED: &[&str] = &[
     "redundant_http",
 ];
 
+/// Upper bound on an energy/provenance model tag, shared by the
+/// aggregator folds and the validator.
+pub(crate) const MODEL_TAG_MAX_LEN: usize = 64;
+
+/// True when `tag` is 1-64 chars of `[A-Za-z0-9_+]`, the charset every
+/// published model tag must satisfy.
+pub(crate) fn is_valid_model_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= MODEL_TAG_MAX_LEN
+        && tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+')
+}
+
 #[must_use]
 pub fn core_patterns_required() -> Vec<String> {
     CORE_PATTERNS_REQUIRED
@@ -370,10 +384,25 @@ pub struct CalibrationInputs {
 pub struct DatabaseWasteAggregate {
     /// Energy the figure covered over the period, in kWh.
     pub energy_kwh: f64,
-    /// Distinct provenance tags observed (`alumet_rapl`, `io_proxy_*`).
+    /// Share of `energy_kwh` from windows with a measured figure
+    /// (any model other than `estimated`), in kWh.
+    #[serde(default)]
+    pub measured_energy_kwh: f64,
+    /// Distinct provenance tags observed (`alumet_rapl`, `estimated`).
     pub models: BTreeSet<String>,
     /// Windows that carried the figure (of the period's total).
     pub windows_with_figure: u64,
+    /// Windows whose figure came from a measured source.
+    #[serde(default)]
+    pub measured_windows: u64,
+    /// Windows whose figure was the estimated fallback.
+    #[serde(default)]
+    pub estimated_windows: u64,
+    /// Windows whose figure carried a carbon conversion. Reads on the
+    /// `*_kgco2eq` sums: fewer contributing windows than
+    /// `windows_with_figure` means a partial carbon picture.
+    #[serde(default)]
+    pub windows_with_carbon: u64,
     pub operational_waste_kwh: f64,
     /// `None` when no window carried a carbon conversion, so an absent
     /// conversion never reads as an affirmative zero-carbon claim.
