@@ -131,6 +131,31 @@ pub struct AvoidableTier {
 pub struct DisclosureWaste {
     pub canonical: AvoidableTier,
     pub operational: AvoidableTier,
+    /// Database-side waste for the window, both tiers. `None` when the
+    /// window produced no [`DatabaseWaste`] figure. Absent on archives
+    /// predating the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<DisclosureDbWaste>,
+}
+
+/// Window database waste at both thresholds. The canonical figure uses
+/// the same measured or estimated energy with the SQL ratio recomputed
+/// at the binary-pinned N+1 threshold, so the published number cannot
+/// be shrunk by raising the operator threshold.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DisclosureDbWaste {
+    /// Window energy of the database figure (measured or estimated).
+    pub energy_kwh: f64,
+    /// Provenance tag of that energy (`alumet_rapl`, `io_proxy_*`, ...).
+    pub model: String,
+    pub operational_waste_kwh: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_waste_gco2: Option<f64>,
+    pub canonical_waste_kwh: f64,
+    /// Rescaled from the operational gCO₂ per kWh; `None` when the
+    /// operational figure had no carbon conversion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_waste_gco2: Option<f64>,
 }
 
 /// Analysis metadata.

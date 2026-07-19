@@ -167,7 +167,7 @@ fn green_panel_carries_database_waste_card() {
     // Pins the Database waste card block and its exclusion label in the
     // green panel JS, and the SQL-share subtitle on the ratio card.
     assert!(
-        html.contains(r#"greenSummary.database_waste"#),
+        html.contains("greenSummary.database_waste"),
         "green panel must read database_waste"
     );
     assert!(

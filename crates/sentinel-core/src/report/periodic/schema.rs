@@ -1,4 +1,4 @@
-//! Wire schema (v1.3) for the periodic disclosure report.
+//! Wire schema (v1.4) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
 //!
@@ -22,13 +22,19 @@
 //! `AntiPatternDetail.rgesn_criteria` (RGESN 2024 criteria). Both follow the
 //! same `serde(default)` + `skip_serializing_if` rule, so an older report keeps
 //! its `content_hash` when re-hashed here.
+//!
+//! v1.4 adds `Aggregate.database_waste`: the database-side avoidable energy
+//! and carbon over the period, at both thresholds, with its provenance
+//! models. Informational lower bound, never folded into the aggregate
+//! totals. Same `serde(default)` + `skip_serializing_if` rule, so an older
+//! report keeps its `content_hash` when re-hashed here.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.3";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.4";
 
 /// Scope fields the operator declares by hand in the org config. These are
 /// unaudited inputs: the binary cannot verify the size of the portfolio they
@@ -353,6 +359,27 @@ pub struct CalibrationInputs {
     pub calibration_applied: bool,
 }
 
+/// Database-side waste summed over the period's windows that carried a
+/// `database_waste` figure. Informational: a lower bound built from the
+/// database cgroup energy (measured via Alumet, or estimated from the
+/// modeled SQL energy, per `models`) multiplied by the SQL-only waste
+/// ratio. The `canonical_*` figures use the binary-pinned N+1 threshold
+/// so the published number cannot be shrunk by operator config. Never
+/// folded into the aggregate energy or carbon totals.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DatabaseWasteAggregate {
+    /// Energy the figure covered over the period, in kWh.
+    pub energy_kwh: f64,
+    /// Distinct provenance tags observed (`alumet_rapl`, `io_proxy_*`).
+    pub models: BTreeSet<String>,
+    /// Windows that carried the figure (of the period's total).
+    pub windows_with_figure: u64,
+    pub operational_waste_kwh: f64,
+    pub operational_waste_kgco2eq: f64,
+    pub canonical_waste_kwh: f64,
+    pub canonical_waste_kgco2eq: f64,
+}
+
 /// Avoidable energy and carbon for one N+1 threshold, summed over the period.
 ///
 /// `n_plus_one_threshold` is the threshold that produced these figures: the
@@ -460,6 +487,14 @@ pub struct Aggregate {
     /// proxy attribution path.
     #[serde(default)]
     pub fallback_windows_count: u64,
+    /// Database-side waste over the period: the energy the database
+    /// figure covered and its avoidable share at both thresholds. A
+    /// lower bound (CPU-only when measured, modeled otherwise, see
+    /// `models`), excluded from `total_energy_kwh` and
+    /// `total_carbon_kgco2eq`. Absent on pre-v1.4 reports and when no
+    /// window carried the figure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database_waste: Option<DatabaseWasteAggregate>,
     /// Per-service set of distinct energy models observed over the
     /// period. The `+cal` suffix is stripped before insertion; see
     /// `calibration_inputs.calibration_applied` for the period-wide
@@ -736,6 +771,7 @@ mod tests {
             binary_versions: BTreeSet::new(),
             runtime_windows_count: 0,
             fallback_windows_count: 0,
+            database_waste: None,
             per_service_energy_models: BTreeMap::new(),
             per_service_measured_ratio: BTreeMap::new(),
             temporal_coverage: TemporalCoverage {
