@@ -52,12 +52,12 @@ impl DbEnergyState {
 
     /// Scraper side: add one scrape window's energy.
     pub(crate) fn add_window_kwh(&self, kwh: f64, now_ms: u64) {
-        // fetch_update, not load+store: a second writer (apply_scrape is
-        // a public path) must not silently drop a window's energy. Keep
-        // fetch_update, not try_update, until the MSRV reaches 1.99.0.
+        // Atomic read-modify-write, not load+store: a second writer
+        // (apply_scrape is a public path) must not silently drop a
+        // window's energy.
         let _ = self
             .cumulative_kwh_bits
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |bits| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |bits| {
                 Some((f64::from_bits(bits) + kwh).to_bits())
             });
         self.last_update_ms.store(now_ms, Ordering::SeqCst);

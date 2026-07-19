@@ -2969,7 +2969,7 @@ fn realtime_intensity_overrides_annual() {
     let mut rt = HashMap::new();
     rt.insert(
         "eu-west-3".to_string(),
-        carbon::RealTimeIntensityEntry::measured(200.0),
+        RealTimeIntensityEntry::measured(200.0),
     );
 
     let ctx = CarbonContext {
@@ -2998,7 +2998,7 @@ fn realtime_intensity_overrides_hourly_profile() {
     let mut rt = HashMap::new();
     rt.insert(
         "eu-west-3".to_string(),
-        carbon::RealTimeIntensityEntry::measured(300.0),
+        RealTimeIntensityEntry::measured(300.0),
     );
 
     let ctx = CarbonContext {
@@ -3031,7 +3031,7 @@ fn realtime_with_scaphandre_uses_emaps_model() {
     let mut rt = HashMap::new();
     rt.insert(
         "eu-west-3".to_string(),
-        carbon::RealTimeIntensityEntry::measured(100.0),
+        RealTimeIntensityEntry::measured(100.0),
     );
 
     let ctx = CarbonContext {
@@ -3059,7 +3059,7 @@ fn realtime_intensity_estimation_metadata_round_trips_through_json() {
     let mut rt = HashMap::new();
     rt.insert(
         "eu-west-3".to_string(),
-        carbon::RealTimeIntensityEntry {
+        RealTimeIntensityEntry {
             gco2_per_kwh: 200.0,
             is_estimated: Some(true),
             estimation_method: Some("TIME_SLICER_AVERAGE".to_string()),
@@ -3114,7 +3114,7 @@ fn realtime_intensity_estimation_metadata_lands_in_region_breakdown() {
     let mut rt = HashMap::new();
     rt.insert(
         "eu-west-3".to_string(),
-        carbon::RealTimeIntensityEntry {
+        RealTimeIntensityEntry {
             gco2_per_kwh: 200.0,
             is_estimated: Some(true),
             estimation_method: Some("TIME_SLICER_AVERAGE".to_string()),
@@ -3147,7 +3147,7 @@ fn realtime_intensity_without_metadata_leaves_region_fields_none() {
     let mut rt = HashMap::new();
     rt.insert(
         "eu-west-3".to_string(),
-        carbon::RealTimeIntensityEntry::measured(200.0),
+        RealTimeIntensityEntry::measured(200.0),
     );
 
     let ctx = CarbonContext {
@@ -3203,7 +3203,7 @@ fn realtime_for_out_of_table_region_uses_generic_pue() {
     let mut rt = HashMap::new();
     rt.insert(
         "moon-base-1".to_string(),
-        carbon::RealTimeIntensityEntry::measured(150.0),
+        RealTimeIntensityEntry::measured(150.0),
     );
 
     let ctx = CarbonContext {
