@@ -367,6 +367,7 @@
       "additionalProperties": false,
       "properties": {
         "energy_kwh": { "type": "number", "minimum": 0 },
+        "measured_energy_kwh": { "type": "number", "minimum": 0, "description": "Share of energy_kwh from windows with a measured figure (any model other than estimated)." },
         "models": {
           "type": "array",
           "uniqueItems": true,
@@ -374,6 +375,9 @@
           "description": "Distinct provenance tags observed over the period: alumet_rapl = measured on the database cgroup, estimated = built from the modeled energy of the SQL spans."
         },
         "windows_with_figure": { "type": "integer", "minimum": 1 },
+        "measured_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure came from a measured source." },
+        "estimated_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure was the estimated fallback." },
+        "windows_with_carbon": { "type": "integer", "minimum": 0, "description": "Windows whose figure carried a carbon conversion. Fewer than windows_with_figure means the kgCO2eq sums cover a partial carbon picture." },
         "operational_waste_kwh": { "type": "number", "minimum": 0 },
         "operational_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." },
         "canonical_waste_kwh": { "type": "number", "minimum": 0 },

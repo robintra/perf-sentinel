@@ -465,17 +465,10 @@ impl Config {
             calibration: self.green.calibration.clone(),
             real_time_intensity: None, // set per-tick in daemon via build_tick_ctx
             scoring_config,
-            // window_kwh stays 0.0 here; the daemon patches it per tick
-            // with the energy accumulated since the previous scored batch.
-            db_energy: self
-                .green
-                .alumet
-                .as_ref()
-                .and_then(|a| a.database.as_ref())
-                .map(|db| crate::score::carbon::DbEnergyContext {
-                    window_kwh: 0.0,
-                    region: db.region.clone(),
-                }),
+            // None here so batch runs fall back to the estimated figure.
+            // The daemon injects the declaration (see `daemon::run`), it
+            // is the only mode that can deliver measured window energy.
+            db_energy: None,
         }
     }
 }

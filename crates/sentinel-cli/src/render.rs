@@ -553,12 +553,12 @@ fn format_database_waste_line(db: &sentinel_core::report::DatabaseWaste) -> Stri
     } else {
         sanitize_for_terminal(&db.model)
     };
-    // The estimated figure is a re-presented share of the report totals,
-    // only the measured cgroup reading is genuinely additional energy.
-    let scope = if db.model == "alumet_rapl" {
-        "[excluded from totals]"
-    } else {
+    // Only the estimated figure is a re-presented share of the report
+    // totals. Measured (or unknown) models are additional energy.
+    let scope = if db.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
         "[within the report totals]"
+    } else {
+        "[excluded from totals]"
     };
     format!(
         "  Database waste:    {} kWh of {} kWh ({:.0}% SQL ratio, model {model}){gco2}{region} {scope}",

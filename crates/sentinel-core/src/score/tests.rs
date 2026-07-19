@@ -522,13 +522,23 @@ fn database_waste_estimated_when_no_database_declared() {
         "SELECT * FROM users WHERE id = 1",
         "2025-07-10T14:32:01.000Z",
     )];
-    let trace = make_trace(events);
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&CarbonContext::default()));
+    let trace = make_trace(events.clone());
+    let ctx = CarbonContext {
+        default_region: Some("eu-west-3".to_string()),
+        ..CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let db = summary.database_waste.expect("estimated fallback emitted");
     assert!(db.energy_kwh > 0.0, "modeled SQL energy must be positive");
     assert!((db.sql_waste_ratio - 0.0).abs() < f64::EPSILON);
     assert_eq!(db.region, None);
     assert_eq!(db.model, "estimated", "estimated path carries its own tag");
+
+    // Unknown-bucket spans are outside the accounted totals, so they
+    // feed no estimate either: the figure stays a true subset.
+    let trace = make_trace(events);
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&CarbonContext::default()));
+    assert!(summary.database_waste.is_none());
 }
 
 #[test]

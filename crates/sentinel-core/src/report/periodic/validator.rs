@@ -410,8 +410,9 @@ fn validate_database_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
     let Some(db) = &agg.database_waste else {
         return;
     };
-    let figures: [(&'static str, f64); 5] = [
+    let figures: [(&'static str, f64); 6] = [
         ("database_waste.energy_kwh", db.energy_kwh),
+        ("database_waste.measured_energy_kwh", db.measured_energy_kwh),
         (
             "database_waste.operational_waste_kwh",
             db.operational_waste_kwh,
@@ -440,16 +441,12 @@ fn validate_database_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
         }
     }
     for model in &db.models {
-        if model.is_empty()
-            || model.len() > 64
-            || !model
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+')
-        {
+        if !super::schema::is_valid_model_tag(model) {
             errors.push(ValidationError::Aggregate {
                 field: "database_waste.models",
                 reason: format!(
-                    "model tag must be 1-64 chars of [A-Za-z0-9_+], got {} chars",
+                    "model tag must be 1-{} chars of [A-Za-z0-9_+], got {} chars",
+                    super::schema::MODEL_TAG_MAX_LEN,
                     model.len()
                 ),
             });
@@ -459,6 +456,27 @@ fn validate_database_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
         errors.push(ValidationError::Aggregate {
             field: "database_waste.windows_with_figure",
             reason: "block present with zero windows".to_string(),
+        });
+    }
+    // The provenance split must re-add to the total when populated
+    // (zero split = a report predating the fields, accepted as-is).
+    let split = db.measured_windows.saturating_add(db.estimated_windows);
+    if split > 0 && split != db.windows_with_figure {
+        errors.push(ValidationError::Aggregate {
+            field: "database_waste.measured_windows",
+            reason: format!(
+                "measured + estimated windows ({split}) != windows_with_figure ({})",
+                db.windows_with_figure
+            ),
+        });
+    }
+    if db.windows_with_carbon > db.windows_with_figure {
+        errors.push(ValidationError::Aggregate {
+            field: "database_waste.windows_with_carbon",
+            reason: format!(
+                "exceeds windows_with_figure ({} > {})",
+                db.windows_with_carbon, db.windows_with_figure
+            ),
         });
     }
 }

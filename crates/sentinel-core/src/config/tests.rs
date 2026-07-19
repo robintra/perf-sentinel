@@ -3103,15 +3103,14 @@ label_value = "/kubepods/pod-postgres"
 region = "eu-west-3"
 "#;
     let cfg = load_from_str(toml).expect("alumet database toml parses and validates");
-    // The base carbon context carries the declaration with zero energy.
+    // Batch context stays measured-free: the daemon alone injects the
+    // declaration, so batch runs keep the estimated fallback.
     let ctx = cfg.carbon_context();
+    assert!(ctx.db_energy.is_none());
     let alumet = cfg.green.alumet.expect("alumet config");
     let db = alumet.database.expect("database declaration");
     assert_eq!(db.label_value, "/kubepods/pod-postgres");
     assert_eq!(db.region.as_deref(), Some("eu-west-3"));
-    let db_energy = ctx.db_energy.expect("db_energy in base context");
-    assert!((db_energy.window_kwh - 0.0).abs() < f64::EPSILON);
-    assert_eq!(db_energy.region.as_deref(), Some("eu-west-3"));
 }
 
 #[test]

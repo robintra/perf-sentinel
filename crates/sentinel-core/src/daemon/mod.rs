@@ -230,7 +230,22 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         None => None,
     };
 
-    let base_carbon_ctx = Arc::new(config.carbon_context());
+    // Inject the database declaration here (not in `carbon_context()`):
+    // only the daemon can deliver measured window energy, batch keeps
+    // `db_energy: None` and falls back to the estimated figure.
+    let base_carbon_ctx = Arc::new({
+        let mut ctx = config.carbon_context();
+        ctx.db_energy = config
+            .green
+            .alumet
+            .as_ref()
+            .and_then(|a| a.database.as_ref())
+            .map(|db| crate::score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: db.region.clone(),
+            });
+        ctx
+    });
     let detect_config = DetectConfig::from(&config);
     let energy_sources = EnergySources {
         base_carbon_ctx,
