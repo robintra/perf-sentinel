@@ -177,8 +177,19 @@
       var id = segs.join('/').replace(/\.md$/i, '').replace(/-FR$/, '');
       return { internal: true, id: id, anchor: anchor };
     }
-    // other relative resources -> GitHub blob
-    return { external: true, href: 'https://github.com/robintra/perf-sentinel/blob/main/docs/' + href.replace(/^\.\//, '') + (anchor ? '#' + anchor : '') };
+    // other relative resources -> GitHub. Resolve from the doc's real
+    // source dir (docs/ for EN, docs/FR/ for FR) and normalize `..`, else a
+    // link from an FR doc, or one that climbs to the repo root, escapes past
+    // the ref and 404s. Trailing slash -> a directory, use /tree/ not /blob/.
+    var segs = ctx.lang === 'fr' ? ['docs', 'FR'] : ['docs'];
+    href.replace(/^\.\//, '').split('/').forEach(function (seg) {
+      if (seg === '..') { if (segs.length) segs.pop(); }
+      else if (seg === '.' || seg === '') { }
+      else segs.push(seg);
+    });
+    var kind = /\/$/.test(href) ? '/tree/main/' : '/blob/main/';
+    var path = segs.join('/') + (/\/$/.test(href) ? '/' : '');
+    return { external: true, href: 'https://github.com/robintra/perf-sentinel' + kind + path + (anchor ? '#' + anchor : '') };
   }
   function inline(text, ctx) {
     var codes = [];

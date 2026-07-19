@@ -302,7 +302,7 @@
 <li><code class="ps-ic">perf_sentinel_traces_analyzed_total</code> : total de traces complétées</li>
 <li><code class="ps-ic">perf_sentinel_slow_duration_seconds{type}</code> : histogram des durées de spans lents (utiliser <code class="ps-ic">histogram_quantile()</code> pour des percentiles globaux sur des instances shardées)</li>
 </ul>
-<p class="ps-p">Voir <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/../../examples/otel-collector-config.yaml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">examples/otel-collector-config.yaml</code></a> pour la config complète avec les options de sampling et filtrage.</p>
+<p class="ps-p">Voir <a href="https://github.com/robintra/perf-sentinel/blob/main/examples/otel-collector-config.yaml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">examples/otel-collector-config.yaml</code></a> pour la config complète avec les options de sampling et filtrage.</p>
 <hr class="ps-hr">
 <h2 id="vous-venez-de-datadog-dd-trace-sans-opentelemetry" class="ps-h2">Vous venez de Datadog (dd-trace, sans OpenTelemetry)</h2>
 <p class="ps-p">perf-sentinel ingère de l'OTLP, pas le format APM natif de Datadog, et n'embarque aucun adaptateur Datadog par choix. Si vos services sont instrumentés avec <strong>dd-trace</strong> (le traceur propriétaire de Datadog) et que vous n'avez pas d'instrumentation OpenTelemetry, faites le pont avec un OpenTelemetry Collector équipé du <a href="https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">datadogreceiver</code></a>. Ce receiver implémente l'API d'intake de traces de l'agent Datadog sur le port 8126, convertit les spans dd-trace en OTLP, et un exporter <code class="ps-ic">otlp</code> transmet une copie à perf-sentinel. Aucun changement de code applicatif n'est requis : vous repointez dd-trace vers le Collector, et vous pouvez continuer à envoyer vers Datadog en parallèle.</p>
@@ -349,7 +349,7 @@
 <span style="color:var(--code-cmd);font-weight:600">OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf</span></code></pre></div>
 <h3 id="étape-3--voir-les-findings" class="ps-h3">Étape 3 : Voir les findings</h3>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">docker</span> compose logs <span style="color:var(--code-flag)">-f</span> perf-sentinel</code></pre></div>
-<p class="ps-p">Voir <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/../../examples/docker-compose-sidecar.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">examples/docker-compose-sidecar.yml</code></a> pour la configuration complète.</p>
+<p class="ps-p">Voir <a href="https://github.com/robintra/perf-sentinel/blob/main/examples/docker-compose-sidecar.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">examples/docker-compose-sidecar.yml</code></a> pour la configuration complète.</p>
 <hr class="ps-hr">
 <h2 id="démarrage-rapide--daemon-direct" class="ps-h2">Démarrage rapide : daemon direct</h2>
 <p class="ps-p"><strong>Cas d'usage :</strong> développement local. Exécutez perf-sentinel sur votre machine et pointez vos services vers lui.</p>
