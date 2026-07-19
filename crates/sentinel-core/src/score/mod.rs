@@ -271,11 +271,14 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
     out
 }
 
-/// Measured database energy (declared Alumet cgroup) × SQL waste ratio
-/// when a reading landed this window, otherwise an estimated fallback
-/// from the modeled energy of the window's SQL spans, tagged by
-/// `model`. The measured path emits even at ratio zero: the consumed
-/// energy must appear somewhere or the archive under-counts it.
+/// Measured database energy (declared Alumet cgroup) × SQL waste ratio.
+/// The measured path emits even at ratio zero (the consumed energy must
+/// appear somewhere or the archive under-counts it) and returns `None`
+/// on windows with no delivered reading: the carry-over banks that
+/// energy for a later window, an estimate here would double-count it.
+/// Only when NO database is declared does the figure fall back to an
+/// estimate from the modeled energy of the window's SQL spans, tagged
+/// [`crate::report::DB_WASTE_MODEL_ESTIMATED`].
 fn build_database_waste(
     carbon: Option<&CarbonContext>,
     outputs: &carbon_compute::CarbonComputeOutputs,
@@ -288,20 +291,23 @@ fn build_database_waste(
     } else {
         (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0)
     };
-    // is_finite too: NaN slips a plain > 0.0 and would serialize null.
-    if let Some(db) = ctx.db_energy.as_ref()
-        && db.window_kwh.is_finite()
-        && db.window_kwh > 0.0
-    {
-        let waste_kwh = db.window_kwh * sql_waste_ratio;
-        let waste_gco2 = db
+    if let Some(db) = ctx.db_energy.as_ref() {
+        // is_finite too: NaN slips a plain > 0.0 and would serialize null.
+        if !db.window_kwh.is_finite() || db.window_kwh <= 0.0 {
+            return None;
+        }
+        // gCO2 of the WHOLE window energy, so the disclosure's canonical
+        // tier can rescale carbon without going through the operational
+        // ratio (which an operator threshold can zero).
+        let energy_gco2 = db
             .region
             .as_deref()
-            .and_then(|region| carbon::db_waste_gco2(waste_kwh, region, ctx));
+            .and_then(|region| carbon::db_waste_gco2(db.window_kwh, region, ctx));
         return Some(DatabaseWaste {
             energy_kwh: db.window_kwh,
-            waste_kwh,
-            waste_gco2,
+            waste_kwh: db.window_kwh * sql_waste_ratio,
+            waste_gco2: energy_gco2.map(|g| g * sql_waste_ratio),
+            energy_gco2,
             region: db.region.clone(),
             sql_waste_ratio,
             model: carbon::CO2_MODEL_ALUMET.to_string(),
@@ -310,14 +316,17 @@ fn build_database_waste(
     if outputs.sql_energy_kwh <= 0.0 || total_sql_io_ops == 0 {
         return None;
     }
-    let waste_gco2 = (outputs.sql_gco2 > 0.0).then_some(outputs.sql_gco2 * sql_waste_ratio);
+    // sql_gco2 only covers region-resolved SQL spans, the same
+    // accounted-population rule the report's co2 figure follows.
+    let energy_gco2 = (outputs.sql_gco2 > 0.0).then_some(outputs.sql_gco2);
     Some(DatabaseWaste {
         energy_kwh: outputs.sql_energy_kwh,
         waste_kwh: outputs.sql_energy_kwh * sql_waste_ratio,
-        waste_gco2,
+        waste_gco2: energy_gco2.map(|g| g * sql_waste_ratio),
+        energy_gco2,
         region: None,
         sql_waste_ratio,
-        model: outputs.window_model.to_string(),
+        model: crate::report::DB_WASTE_MODEL_ESTIMATED.to_string(),
     })
 }
 

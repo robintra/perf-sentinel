@@ -400,6 +400,67 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
         });
     }
     validate_waste_tiers(agg, errors);
+    validate_database_waste(agg, errors);
+}
+
+/// Validate the v1.4 `database_waste` block when present: finite
+/// non-negative figures and bounded, charset-clean model tags, the same
+/// bar every sibling aggregate field meets.
+fn validate_database_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
+    let Some(db) = &agg.database_waste else {
+        return;
+    };
+    let figures: [(&'static str, f64); 5] = [
+        ("database_waste.energy_kwh", db.energy_kwh),
+        (
+            "database_waste.operational_waste_kwh",
+            db.operational_waste_kwh,
+        ),
+        (
+            "database_waste.operational_waste_kgco2eq",
+            db.operational_waste_kgco2eq.unwrap_or(0.0),
+        ),
+        ("database_waste.canonical_waste_kwh", db.canonical_waste_kwh),
+        (
+            "database_waste.canonical_waste_kgco2eq",
+            db.canonical_waste_kgco2eq.unwrap_or(0.0),
+        ),
+    ];
+    for (field, value) in figures {
+        if !value.is_finite() {
+            errors.push(ValidationError::Aggregate {
+                field,
+                reason: format!("must be a finite number, got {value}"),
+            });
+        } else if value < 0.0 {
+            errors.push(ValidationError::Aggregate {
+                field,
+                reason: format!("must be >= 0, got {value}"),
+            });
+        }
+    }
+    for model in &db.models {
+        if model.is_empty()
+            || model.len() > 64
+            || !model
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+')
+        {
+            errors.push(ValidationError::Aggregate {
+                field: "database_waste.models",
+                reason: format!(
+                    "model tag must be 1-64 chars of [A-Za-z0-9_+], got {} chars",
+                    model.len()
+                ),
+            });
+        }
+    }
+    if db.windows_with_figure == 0 {
+        errors.push(ValidationError::Aggregate {
+            field: "database_waste.windows_with_figure",
+            reason: "block present with zero windows".to_string(),
+        });
+    }
 }
 
 /// Validate the v1.2 temporal-coverage block. The float ratio is always

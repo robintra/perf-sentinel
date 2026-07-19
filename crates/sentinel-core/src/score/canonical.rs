@@ -78,8 +78,9 @@ pub(crate) fn compute_disclosure_waste(
 
 /// Both database-waste tiers from the window's operational figure. The
 /// canonical tier reuses the same energy with the SQL ratio recomputed
-/// at the canonical threshold; its gCO₂ is rescaled from the
-/// operational gCO₂ per kWh (`None` when there was no conversion).
+/// at the canonical threshold; its gCO₂ scales the ratio-independent
+/// `energy_gco2` base, so an operator threshold that zeroes the
+/// operational figure cannot zero the canonical carbon leg.
 fn build_db_waste_tiers(
     operational: &GreenSummary,
     canonical_sql_avoidable: usize,
@@ -91,18 +92,13 @@ fn build_db_waste_tiers(
     } else {
         (canonical_sql_avoidable as f64 / total_sql as f64).min(1.0)
     };
-    let canonical_waste_kwh = db.energy_kwh * canonical_ratio;
-    let gco2_per_kwh = db
-        .waste_gco2
-        .filter(|_| db.waste_kwh > 0.0)
-        .map(|g| g / db.waste_kwh);
     Some(DisclosureDbWaste {
         energy_kwh: db.energy_kwh,
         model: db.model.clone(),
         operational_waste_kwh: db.waste_kwh,
         operational_waste_gco2: db.waste_gco2,
-        canonical_waste_kwh,
-        canonical_waste_gco2: gco2_per_kwh.map(|r| r * canonical_waste_kwh),
+        canonical_waste_kwh: db.energy_kwh * canonical_ratio,
+        canonical_waste_gco2: db.energy_gco2.map(|g| g * canonical_ratio),
     })
 }
 
@@ -191,6 +187,9 @@ mod tests {
             energy_kwh: 1.2,
             waste_kwh: 0.0,
             waste_gco2: None,
+            // gCO2 of the whole energy: the base the canonical carbon
+            // leg scales, immune to the zeroed operational ratio.
+            energy_gco2: Some(6.0),
             region: None,
             sql_waste_ratio: 0.0,
             model: "alumet_rapl".to_string(),
@@ -205,7 +204,8 @@ mod tests {
         assert!(db.operational_waste_kwh.abs() < 1e-12);
         // Canonical: 5 avoidable SQL of 6 total SQL against 1.2 kWh.
         assert!((db.canonical_waste_kwh - 1.2 * 5.0 / 6.0).abs() < 1e-9);
-        // No operational carbon conversion to rescale from.
-        assert!(db.canonical_waste_gco2.is_none());
+        // The canonical carbon leg survives the zeroed operator ratio:
+        // 6.0 gCO2 of energy × the canonical 5/6 ratio.
+        assert!((db.canonical_waste_gco2.expect("carbon leg") - 5.0).abs() < 1e-9);
     }
 }

@@ -285,15 +285,24 @@ pub struct GreenSummary {
     /// average. Empty on pre-per-service-ratio baselines.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_measured_ratio: BTreeMap<String, f64>,
-    /// Waste figure for the `[green.alumet.database]` cgroup, daemon
-    /// only. Excluded from every total and from the public disclosure:
-    /// CPU-only lower bound, count-based ratio (`docs/METHODOLOGY.md`).
+    /// Database-side waste figure, on every run. Measured on the
+    /// declared `[green.alumet.database]` cgroup when a reading landed
+    /// (daemon), otherwise estimated from the modeled energy of the
+    /// window's SQL spans; `model` says which. Never summed into
+    /// `energy_kwh`/`co2` (the estimated energy is a re-presented share
+    /// of them), published in the disclosure only as the separate
+    /// `aggregate.database_waste` block (`docs/METHODOLOGY.md`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_waste: Option<DatabaseWaste>,
 }
 
-/// Measured database window energy × the SQL-only waste ratio.
-/// Informational, never summed into the report totals.
+/// `model` value on the estimated [`DatabaseWaste`] path: the figure is
+/// built from the modeled energy of the SQL spans, not a measurement of
+/// the database. The measured path carries `alumet_rapl` instead.
+pub const DB_WASTE_MODEL_ESTIMATED: &str = "estimated";
+
+/// Database window energy × the SQL-only waste ratio. Informational,
+/// never summed into the report totals.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseWaste {
     /// Window energy of the database cgroup in kWh (CPU share only).
@@ -304,6 +313,12 @@ pub struct DatabaseWaste {
     /// declared or known region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waste_gco2: Option<f64>,
+    /// gCO₂ of the whole `energy_kwh` (region-resolved population on
+    /// the estimated path). Ratio-independent base the disclosure's
+    /// canonical tier rescales from, so an operator threshold cannot
+    /// zero the canonical carbon figure. `None` without a conversion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_gco2: Option<f64>,
     /// Operator-declared region of the database host. `None` on the
     /// estimated path (no database was declared).
     #[serde(default, skip_serializing_if = "Option::is_none")]

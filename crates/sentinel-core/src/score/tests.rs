@@ -490,10 +490,10 @@ fn database_waste_emitted_at_zero_ratio_when_no_sql_ops() {
 }
 
 #[test]
-fn database_waste_estimated_when_no_measured_energy() {
-    // Declaration present but zero measured energy this window (the
-    // base-context shape, and every batch run): the figure falls back
-    // to the modeled energy of the SQL spans instead of vanishing.
+fn database_waste_declared_but_undelivered_emits_nothing() {
+    // A declared database with no delivered reading this window banks
+    // its energy for a later window (carry-over): estimating here would
+    // double-count that energy in the period aggregate.
     let events = vec![make_sql_event(
         "trace-1",
         "span-1",
@@ -509,16 +509,26 @@ fn database_waste_estimated_when_no_measured_energy() {
         ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    assert!(summary.database_waste.is_none());
+}
+
+#[test]
+fn database_waste_estimated_when_no_database_declared() {
+    // No [green.alumet.database] at all: the figure is estimated from
+    // the modeled SQL energy and tagged as such.
+    let events = vec![make_sql_event(
+        "trace-1",
+        "span-1",
+        "SELECT * FROM users WHERE id = 1",
+        "2025-07-10T14:32:01.000Z",
+    )];
+    let trace = make_trace(events);
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&CarbonContext::default()));
     let db = summary.database_waste.expect("estimated fallback emitted");
     assert!(db.energy_kwh > 0.0, "modeled SQL energy must be positive");
     assert!((db.sql_waste_ratio - 0.0).abs() < f64::EPSILON);
-    assert!((db.waste_kwh - 0.0).abs() < f64::EPSILON);
-    assert_eq!(db.region, None, "estimated path carries no declared region");
-    assert!(
-        db.model.starts_with("io_proxy"),
-        "estimated model tag, got {}",
-        db.model
-    );
+    assert_eq!(db.region, None);
+    assert_eq!(db.model, "estimated", "estimated path carries its own tag");
 }
 
 #[test]
@@ -536,30 +546,11 @@ fn database_waste_estimated_carries_regional_gco2() {
         })
         .collect();
     let trace = make_trace(events);
-    let finding = Finding {
-        finding_type: FindingType::NPlusOneSql,
-        severity: Severity::Warning,
-        trace_id: "trace-1".to_string(),
-        service: "order-svc".to_string(),
-        source_endpoint: "POST /api/orders/42/submit".to_string(),
-        pattern: Pattern {
-            template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
-            occurrences: 6,
-            window_ms: 250,
-            distinct_params: 6,
-            ..Default::default()
-        },
-        suggestion: "batch".to_string(),
-        first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
-        last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
-        green_impact: None,
-        confidence: Confidence::default(),
-        classification_method: None,
-        code_location: None,
-        instrumentation_scopes: Vec::new(),
-        suggested_fix: None,
-        signature: String::new(),
-    };
+    let mut finding =
+        crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+    finding.pattern.template = "SELECT * FROM order_item WHERE order_id = ?".to_string();
+    finding.pattern.occurrences = 6;
+    finding.pattern.distinct_params = 6;
     let ctx = CarbonContext {
         default_region: Some("eu-west-3".to_string()),
         ..CarbonContext::default()
@@ -569,6 +560,9 @@ fn database_waste_estimated_carries_regional_gco2() {
     assert!((db.sql_waste_ratio - 5.0 / 6.0).abs() < 1e-12);
     assert!((db.waste_kwh - db.energy_kwh * 5.0 / 6.0).abs() < 1e-15);
     assert!(db.waste_gco2.expect("resolved region converts") > 0.0);
+    // The ratio-independent carbon base is present for the disclosure.
+    assert!(db.energy_gco2.expect("energy gco2 base") > 0.0);
+    assert_eq!(db.model, "estimated");
 }
 
 #[test]

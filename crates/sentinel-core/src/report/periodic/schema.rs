@@ -375,9 +375,13 @@ pub struct DatabaseWasteAggregate {
     /// Windows that carried the figure (of the period's total).
     pub windows_with_figure: u64,
     pub operational_waste_kwh: f64,
-    pub operational_waste_kgco2eq: f64,
+    /// `None` when no window carried a carbon conversion, so an absent
+    /// conversion never reads as an affirmative zero-carbon claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_waste_kgco2eq: Option<f64>,
     pub canonical_waste_kwh: f64,
-    pub canonical_waste_kgco2eq: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_waste_kgco2eq: Option<f64>,
 }
 
 /// Avoidable energy and carbon for one N+1 threshold, summed over the period.
