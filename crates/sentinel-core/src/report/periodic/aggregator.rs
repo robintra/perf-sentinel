@@ -424,39 +424,8 @@ impl Builder {
         if let Some(dw) = &report.disclosure_waste {
             fold_tier(&mut self.canonical_waste, &dw.canonical);
             fold_tier(&mut self.operational_waste, &dw.operational);
-            // An out-of-spec provenance tag drops the window's whole
-            // database block: a figure whose provenance cannot be
-            // published must not reach the sums either.
-            if let Some(db) = &dw.database
-                && super::schema::is_valid_model_tag(&db.model)
-            {
-                let acc = &mut self.db_waste;
-                let energy = sanitize_f64(db.energy_kwh);
-                acc.energy_kwh += energy;
-                acc.operational_kwh += sanitize_f64(db.operational_waste_kwh);
-                acc.canonical_kwh += sanitize_f64(db.canonical_waste_kwh);
-                // Keep None-vs-zero: sums stay None until a window
-                // actually carried a carbon conversion.
-                if let Some(g) = db.operational_waste_gco2 {
-                    acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + sanitize_f64(g));
-                }
-                if let Some(g) = db.canonical_waste_gco2 {
-                    acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
-                }
-                acc.windows = acc.windows.saturating_add(1);
-                if db.model == crate::report::DB_WASTE_MODEL_ESTIMATED {
-                    acc.estimated_windows = acc.estimated_windows.saturating_add(1);
-                } else {
-                    acc.measured_windows = acc.measured_windows.saturating_add(1);
-                    acc.measured_energy_kwh += energy;
-                }
-                if db.operational_waste_gco2.is_some() || db.canonical_waste_gco2.is_some() {
-                    acc.windows_with_carbon = acc.windows_with_carbon.saturating_add(1);
-                }
-                // Same cap as the sibling energy-model collector.
-                if acc.models.len() < MAX_BINARY_VERSIONS || acc.models.contains(&db.model) {
-                    acc.models.insert(db.model.clone());
-                }
+            if let Some(db) = &dw.database {
+                self.fold_database_block(db);
             }
         } else {
             // accounted_io_ops is not serialized, so the legacy energy share
@@ -472,6 +441,43 @@ impl Builder {
                 .saturating_add(m.avoidable_io);
             self.operational_waste.avoidable_kwh += m.energy_kwh * ratio;
             self.operational_waste.avoidable_kg += m.avoidable_kg;
+        }
+    }
+
+    /// Fold one window's `disclosure_waste.database` block into the running
+    /// database-waste sums. An out-of-spec provenance tag drops the whole
+    /// block: a figure whose provenance cannot be published must not reach
+    /// the sums either.
+    fn fold_database_block(&mut self, db: &crate::report::DisclosureDbWaste) {
+        if !super::schema::is_valid_model_tag(&db.model) {
+            return;
+        }
+        let acc = &mut self.db_waste;
+        let energy = sanitize_f64(db.energy_kwh);
+        acc.energy_kwh += energy;
+        acc.operational_kwh += sanitize_f64(db.operational_waste_kwh);
+        acc.canonical_kwh += sanitize_f64(db.canonical_waste_kwh);
+        // Keep None-vs-zero: sums stay None until a window actually carried
+        // a carbon conversion.
+        if let Some(g) = db.operational_waste_gco2 {
+            acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + sanitize_f64(g));
+        }
+        if let Some(g) = db.canonical_waste_gco2 {
+            acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
+        }
+        acc.windows = acc.windows.saturating_add(1);
+        if db.model == crate::report::DB_WASTE_MODEL_ESTIMATED {
+            acc.estimated_windows = acc.estimated_windows.saturating_add(1);
+        } else {
+            acc.measured_windows = acc.measured_windows.saturating_add(1);
+            acc.measured_energy_kwh += energy;
+        }
+        if db.operational_waste_gco2.is_some() || db.canonical_waste_gco2.is_some() {
+            acc.windows_with_carbon = acc.windows_with_carbon.saturating_add(1);
+        }
+        // Same cap as the sibling energy-model collector.
+        if acc.models.len() < MAX_BINARY_VERSIONS || acc.models.contains(&db.model) {
+            acc.models.insert(db.model.clone());
         }
     }
 

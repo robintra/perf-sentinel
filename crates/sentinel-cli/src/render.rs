@@ -568,6 +568,26 @@ fn format_database_waste_line(db: &sentinel_core::report::DatabaseWaste) -> Stri
     )
 }
 
+/// The CO2 block of the `GreenOps` summary. Split out of
+/// [`print_green_summary`] to keep that function's branching shallow.
+fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport) {
+    println!(
+        "  Est. CO\u{2082}:          {:.6} g (low {:.6}, high {:.6}, model {})",
+        carbon.total.mid, carbon.total.low, carbon.total.high, carbon.total.model,
+    );
+    println!(
+        "  Avoidable CO\u{2082}:     {:.6} g (low {:.6}, high {:.6})",
+        carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
+    );
+    println!(
+        "  Operational:       {:.6} g    Embodied: {:.6} g    Methodology: {}",
+        carbon.operational_gco2, carbon.embodied_gco2, carbon.total.methodology,
+    );
+    if let Some(transport) = carbon.transport_gco2 {
+        println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
+    }
+}
+
 fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
     let colors = ansi_colors(force_color);
     let AnsiColors {
@@ -599,21 +619,7 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     );
 
     if let Some(carbon) = summary.co2.as_ref() {
-        println!(
-            "  Est. CO\u{2082}:          {:.6} g (low {:.6}, high {:.6}, model {})",
-            carbon.total.mid, carbon.total.low, carbon.total.high, carbon.total.model,
-        );
-        println!(
-            "  Avoidable CO\u{2082}:     {:.6} g (low {:.6}, high {:.6})",
-            carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
-        );
-        println!(
-            "  Operational:       {:.6} g    Embodied: {:.6} g    Methodology: {}",
-            carbon.operational_gco2, carbon.embodied_gco2, carbon.total.methodology,
-        );
-        if let Some(transport) = carbon.transport_gco2 {
-            println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
-        }
+        print_carbon_summary(carbon);
     }
 
     if let Some(db) = &summary.database_waste {
