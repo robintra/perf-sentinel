@@ -579,15 +579,29 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
             .waste_gco2
             .map(|g| format!(", {g:.6} gCO\u{2082}"))
             .unwrap_or_default();
-        // Region flows through user-supplied --input JSON, sanitize at
-        // the print sink like every other snapshot string.
+        // Region and model flow through user-supplied --input JSON,
+        // sanitize at the print sink like every other snapshot string.
         let region = db.region.as_deref().map_or_else(String::new, |r| {
             format!(", region {}", sanitize_for_terminal(r))
         });
+        let model = if db.model.is_empty() {
+            "-".into()
+        } else {
+            sanitize_for_terminal(&db.model)
+        };
+        // Tiny proxy figures (1e-7 kWh/op) collapse to 0.000000 in
+        // fixed-point, switch to scientific below one microwatt-hour.
+        let fmt_kwh = |v: f64| {
+            if v == 0.0 || v.abs() >= 1e-6 {
+                format!("{v:.6}")
+            } else {
+                format!("{v:.2e}")
+            }
+        };
         println!(
-            "  Database waste:    {:.6} kWh of {:.6} kWh measured ({:.0}% SQL ratio){gco2}{region} [excluded from totals]",
-            db.waste_kwh,
-            db.energy_kwh,
+            "  Database waste:    {} kWh of {} kWh ({:.0}% SQL ratio, model {model}){gco2}{region} [excluded from totals]",
+            fmt_kwh(db.waste_kwh),
+            fmt_kwh(db.energy_kwh),
             db.sql_waste_ratio * 100.0,
         );
     }
@@ -1728,6 +1742,7 @@ mod tests {
             // Escape bytes exercise the print-sink sanitizer.
             region: Some("eu\u{1b}[2Jwest".to_string()),
             sql_waste_ratio: 5.0 / 6.0,
+            model: "alumet_rapl".to_string(),
         });
         print_green_summary(&summary, false);
         // Region absent and gCO2 absent: the optional suffixes drop out.
@@ -1737,6 +1752,7 @@ mod tests {
             waste_gco2: None,
             region: None,
             sql_waste_ratio: 0.0,
+            model: "io_proxy_v3".to_string(),
         });
         print_green_summary(&summary, false);
     }

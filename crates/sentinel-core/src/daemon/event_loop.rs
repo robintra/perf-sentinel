@@ -1273,6 +1273,7 @@ mod tests {
             waste_gco2: None,
             region: None,
             sql_waste_ratio: ratio,
+            model: "alumet_rapl".to_string(),
         }
     }
 

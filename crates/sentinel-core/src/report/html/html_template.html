@@ -1021,6 +1021,12 @@
     if (abs === 0) return "0 g";
     return grams.toExponential(2) + " g";
   }
+  function formatKwh(kwh) {
+    if (!Number.isFinite(kwh)) return "-";
+    var abs = Math.abs(kwh);
+    if (abs >= 0.001 || abs === 0) return kwh.toFixed(3) + " kWh";
+    return kwh.toExponential(2) + " kWh";
+  }
   // Thousands separators (comma, en-US) on the integer part, decimals kept:
   // 55500 -> "55,500", 1240.5 -> "1,240.5", 320 -> "320".
   function fmtNum(value) {

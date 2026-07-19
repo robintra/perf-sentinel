@@ -454,6 +454,10 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
     assert!((db.sql_waste_ratio - 5.0 / 6.0).abs() < 1e-12);
     assert!((db.waste_kwh - 2.0 * 5.0 / 6.0).abs() < 1e-12);
     assert_eq!(db.region.as_deref(), Some("eu-west-3"));
+    assert_eq!(
+        db.model, "alumet_rapl",
+        "measured path carries the RAPL tag"
+    );
     // eu-west-3 is a known region, the carbon conversion must land.
     assert!(db.waste_gco2.expect("gco2 for a known region") > 0.0);
     // Excluded from the totals: the report's energy stays proxy-based.
@@ -486,7 +490,10 @@ fn database_waste_emitted_at_zero_ratio_when_no_sql_ops() {
 }
 
 #[test]
-fn database_waste_absent_without_window_energy() {
+fn database_waste_estimated_when_no_measured_energy() {
+    // Declaration present but zero measured energy this window (the
+    // base-context shape, and every batch run): the figure falls back
+    // to the modeled energy of the SQL spans instead of vanishing.
     let events = vec![make_sql_event(
         "trace-1",
         "span-1",
@@ -494,7 +501,6 @@ fn database_waste_absent_without_window_energy() {
         "2025-07-10T14:32:01.000Z",
     )];
     let trace = make_trace(events);
-    // Base context shape: declaration present, zero energy this window.
     let ctx = CarbonContext {
         db_energy: Some(DbEnergyContext {
             window_kwh: 0.0,
@@ -503,7 +509,66 @@ fn database_waste_absent_without_window_energy() {
         ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
-    assert!(summary.database_waste.is_none());
+    let db = summary.database_waste.expect("estimated fallback emitted");
+    assert!(db.energy_kwh > 0.0, "modeled SQL energy must be positive");
+    assert!((db.sql_waste_ratio - 0.0).abs() < f64::EPSILON);
+    assert!((db.waste_kwh - 0.0).abs() < f64::EPSILON);
+    assert_eq!(db.region, None, "estimated path carries no declared region");
+    assert!(
+        db.model.starts_with("io_proxy"),
+        "estimated model tag, got {}",
+        db.model
+    );
+}
+
+#[test]
+fn database_waste_estimated_carries_regional_gco2() {
+    // With a resolvable region the estimated fallback also converts to
+    // gCO2, and the waste scales with the SQL ratio.
+    let events: Vec<SpanEvent> = (1..=6)
+        .map(|i| {
+            make_sql_event(
+                "trace-1",
+                &format!("span-{i}"),
+                &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+            )
+        })
+        .collect();
+    let trace = make_trace(events);
+    let finding = Finding {
+        finding_type: FindingType::NPlusOneSql,
+        severity: Severity::Warning,
+        trace_id: "trace-1".to_string(),
+        service: "order-svc".to_string(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
+            occurrences: 6,
+            window_ms: 250,
+            distinct_params: 6,
+            ..Default::default()
+        },
+        suggestion: "batch".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    };
+    let ctx = CarbonContext {
+        default_region: Some("eu-west-3".to_string()),
+        ..CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
+    let db = summary.database_waste.expect("estimated fallback emitted");
+    assert!((db.sql_waste_ratio - 5.0 / 6.0).abs() < 1e-12);
+    assert!((db.waste_kwh - db.energy_kwh * 5.0 / 6.0).abs() < 1e-15);
+    assert!(db.waste_gco2.expect("resolved region converts") > 0.0);
 }
 
 #[test]

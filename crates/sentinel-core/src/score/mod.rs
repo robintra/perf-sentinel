@@ -171,6 +171,8 @@ pub fn score_green(
             per_service: std::collections::BTreeMap::new(),
             window_model: "",
             accounted_io_ops: total_io_ops,
+            sql_energy_kwh: 0.0,
+            sql_gco2: 0.0,
         },
     };
 
@@ -183,7 +185,8 @@ pub fn score_green(
     } else {
         0.0
     };
-    let database_waste = build_database_waste(carbon, total_sql_io_ops, avoidable.sql);
+    let database_waste =
+        build_database_waste(carbon, &carbon_outputs, total_sql_io_ops, avoidable.sql);
     let window_model = carbon_outputs.window_model;
     let per_service = build_per_service_maps(carbon_outputs.per_service, window_model);
     let energy_model = if per_service.energy_kwh > 0.0 {
@@ -267,36 +270,53 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
     out
 }
 
-/// Database window energy × SQL-only waste ratio. Emitted even at ratio
-/// zero, including a window with no SQL ops at all: the consumed energy
-/// must appear somewhere or the archive under-counts it.
+/// Measured database energy (declared Alumet cgroup) × SQL waste ratio
+/// when a reading landed this window, otherwise an estimated fallback
+/// from the modeled energy of the window's SQL spans, tagged by
+/// `model`. The measured path emits even at ratio zero: the consumed
+/// energy must appear somewhere or the archive under-counts it.
 fn build_database_waste(
     carbon: Option<&CarbonContext>,
+    outputs: &carbon_compute::CarbonComputeOutputs,
     total_sql_io_ops: usize,
     avoidable_sql_io_ops: usize,
 ) -> Option<DatabaseWaste> {
     let ctx = carbon?;
-    let db = ctx.db_energy.as_ref()?;
-    // is_finite too: NaN slips a plain <= 0.0 and would serialize null.
-    if !db.window_kwh.is_finite() || db.window_kwh <= 0.0 {
-        return None;
-    }
     let sql_waste_ratio = if total_sql_io_ops == 0 {
         0.0
     } else {
         (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0)
     };
-    let waste_kwh = db.window_kwh * sql_waste_ratio;
-    let waste_gco2 = db
-        .region
-        .as_deref()
-        .and_then(|region| carbon::db_waste_gco2(waste_kwh, region, ctx));
+    // is_finite too: NaN slips a plain > 0.0 and would serialize null.
+    if let Some(db) = ctx.db_energy.as_ref()
+        && db.window_kwh.is_finite()
+        && db.window_kwh > 0.0
+    {
+        let waste_kwh = db.window_kwh * sql_waste_ratio;
+        let waste_gco2 = db
+            .region
+            .as_deref()
+            .and_then(|region| carbon::db_waste_gco2(waste_kwh, region, ctx));
+        return Some(DatabaseWaste {
+            energy_kwh: db.window_kwh,
+            waste_kwh,
+            waste_gco2,
+            region: db.region.clone(),
+            sql_waste_ratio,
+            model: carbon::CO2_MODEL_ALUMET.to_string(),
+        });
+    }
+    if outputs.sql_energy_kwh <= 0.0 || total_sql_io_ops == 0 {
+        return None;
+    }
+    let waste_gco2 = (outputs.sql_gco2 > 0.0).then_some(outputs.sql_gco2 * sql_waste_ratio);
     Some(DatabaseWaste {
-        energy_kwh: db.window_kwh,
-        waste_kwh,
+        energy_kwh: outputs.sql_energy_kwh,
+        waste_kwh: outputs.sql_energy_kwh * sql_waste_ratio,
         waste_gco2,
-        region: db.region.clone(),
+        region: None,
         sql_waste_ratio,
+        model: outputs.window_model.to_string(),
     })
 }
 
