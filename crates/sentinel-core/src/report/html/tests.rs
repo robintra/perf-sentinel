@@ -161,6 +161,26 @@ fn renders_minimal_report_to_valid_html() {
 }
 
 #[test]
+fn green_panel_carries_database_waste_card() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    // Pins the Database waste card block and its exclusion label in the
+    // green panel JS, and the SQL-share subtitle on the ratio card.
+    assert!(
+        html.contains(r#"greenSummary.database_waste"#),
+        "green panel must read database_waste"
+    );
+    assert!(
+        html.contains("excluded from totals"),
+        "the card must state the exclusion from totals"
+    );
+    assert!(
+        html.contains("avoidable / total ops"),
+        "waste ratio subtitle missing"
+    );
+}
+
+#[test]
 fn quality_gate_rules_scaffold_and_csv_confidence_present() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));

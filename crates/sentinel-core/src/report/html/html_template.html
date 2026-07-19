@@ -2577,7 +2577,9 @@
     metrics.appendChild(greenCard(
       "I/O waste ratio",
       Math.round((greenSummary.io_waste_ratio || 0) * 100) + "%",
-      "avoidable / total ops",
+      (greenSummary.total_sql_io_ops || 0) > 0
+        ? "avoidable / total ops · SQL " + fmtNum(greenSummary.avoidable_sql_io_ops || 0) + " of " + fmtNum(greenSummary.total_sql_io_ops)
+        : "avoidable / total ops",
       bandTone(greenSummary.io_waste_ratio_band)
     ));
     var topOff = greenSummary.top_offenders && greenSummary.top_offenders[0];
@@ -2587,6 +2589,23 @@
       "I/O intensity per call",
       bandTone(topOff && topOff.io_intensity_band)
     ));
+    // Measured on the declared Alumet database cgroup, or estimated
+    // from the modeled SQL energy; the model tag says which. Excluded
+    // from every total, hence its own card.
+    var dbw = greenSummary.database_waste;
+    if (dbw) {
+      var dbValue = Number.isFinite(dbw.waste_gco2) ? formatGco2(dbw.waste_gco2) : formatKwh(dbw.waste_kwh);
+      var dbSub = formatKwh(dbw.waste_kwh) + " of " + formatKwh(dbw.energy_kwh) + " · " +
+        Math.round((dbw.sql_waste_ratio || 0) * 100) + "% SQL · " +
+        (dbw.model || "-") + (dbw.region ? " · " + dbw.region : "") +
+        " · excluded from totals";
+      metrics.appendChild(greenCard(
+        "Database waste",
+        dbValue,
+        dbSub,
+        dbw.waste_kwh > 0 ? "accent" : "neutral"
+      ));
+    }
 
     renderCarbonFormula();
     renderScoringConfigBandeau(greenSummary.scoring_config);
