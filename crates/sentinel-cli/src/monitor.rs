@@ -898,15 +898,19 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
             .map_or_else(|| "-".to_string(), |g| format!("{} gCO2", fmt_tiny(g)));
         // Daemon-sourced string: sanitize + cap like every other cell.
         let region = truncate_cell(db.region.as_deref().unwrap_or("-"), 24);
+        let model = truncate_cell(if db.model.is_empty() { "-" } else { &db.model }, 24);
         lines.push(Line::from(vec![
             Span::styled("Database waste: ", dim),
             Span::raw(format!(
-                "{} kWh of {} kWh measured ({:.0}% SQL ratio)   {gco2}",
+                "{} kWh of {} kWh ({:.0}% SQL ratio)   {gco2}",
                 fmt_tiny(db.waste_kwh),
                 fmt_tiny(db.energy_kwh),
                 db.sql_waste_ratio * 100.0,
             )),
-            Span::styled(format!("   region {region}   excluded from totals"), dim),
+            Span::styled(
+                format!("   model {model}   region {region}   excluded from totals"),
+                dim,
+            ),
         ]));
     }
     lines.push(Line::from(""));
@@ -1913,7 +1917,7 @@ mod tests {
                 {"status":"known","region":"eu-west-3","grid_intensity_gco2_kwh":41.0,"pue":1.2,"io_ops":100,"co2_gco2":0.5,"intensity_source":"real_time","intensity_estimated":false},
                 {"status":"known","region":"us-east-1","grid_intensity_gco2_kwh":368.0,"pue":1.2,"io_ops":50,"co2_gco2":2.0,"intensity_source":"annual"}
               ],
-              "database_waste":{"energy_kwh":0.01,"waste_kwh":0.002,"waste_gco2":0.09,"region":"eu-west-3","sql_waste_ratio":0.2}
+              "database_waste":{"energy_kwh":0.01,"waste_kwh":0.002,"waste_gco2":0.09,"region":"eu-west-3","sql_waste_ratio":0.2,"model":"alumet_rapl"}
             }"#,
         )
         .unwrap();
@@ -2004,6 +2008,7 @@ mod tests {
         assert!(text.contains("Database waste:"), "got: {text}");
         assert!(text.contains("20% SQL ratio"), "got: {text}");
         assert!(text.contains("0.090000 gCO2"), "got: {text}");
+        assert!(text.contains("model alumet_rapl"), "got: {text}");
         assert!(text.contains("excluded from totals"), "got: {text}");
     }
 

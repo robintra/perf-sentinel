@@ -279,11 +279,19 @@ pub struct DatabaseWaste {
     /// declared or known region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waste_gco2: Option<f64>,
-    /// Operator-declared region of the database host.
+    /// Operator-declared region of the database host. `None` on the
+    /// estimated path (no database was declared).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
     /// `avoidable_sql_io_ops / total_sql_io_ops`, in `[0, 1]`.
     pub sql_waste_ratio: f64,
+    /// Provenance tag: `alumet_rapl` when the energy is measured on the
+    /// declared database cgroup, otherwise the window's energy model
+    /// (`io_proxy_v3`, ...) for the estimated fallback built from the
+    /// modeled energy of the window's SQL spans. Empty on baselines
+    /// predating the field.
+    #[serde(default)]
+    pub model: String,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.

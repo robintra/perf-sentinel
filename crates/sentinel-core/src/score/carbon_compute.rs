@@ -40,6 +40,11 @@ struct CarbonRunState {
     overflow_warned: bool,
     total_transport_gco2: f64,
     multi_region_active: bool,
+    /// Modeled energy of the SQL spans, region-independent. Feeds the
+    /// estimated `database_waste` fallback.
+    sql_energy_kwh: f64,
+    /// Operational gCO₂ of the region-resolved SQL spans.
+    sql_gco2: f64,
 }
 
 /// Per-service energy and carbon accumulated during scoring. Feeds
@@ -127,6 +132,10 @@ pub(super) struct CarbonComputeOutputs {
     /// surfaced so the disclosure path can rescale avoidable at a
     /// canonical threshold without a second carbon pass.
     pub accounted_io_ops: usize,
+    /// Modeled energy of the window's SQL spans (region-independent).
+    pub sql_energy_kwh: f64,
+    /// Operational gCO₂ of the region-resolved SQL spans.
+    pub sql_gco2: f64,
 }
 
 /// Compute carbon report, per-region breakdown, and multi-region flag.
@@ -157,6 +166,8 @@ pub(super) fn compute_carbon_report(
             per_service: BTreeMap::new(),
             window_model: "",
             accounted_io_ops: 0,
+            sql_energy_kwh: 0.0,
+            sql_gco2: 0.0,
         };
     }
 
@@ -187,6 +198,8 @@ pub(super) fn compute_carbon_report(
         per_service: state.per_service,
         window_model: model,
         accounted_io_ops: total_io_ops.saturating_sub(state.unknown_ops),
+        sql_energy_kwh: state.sql_energy_kwh,
+        sql_gco2: state.sql_gco2,
     }
 }
 
@@ -204,12 +217,21 @@ fn process_span_for_carbon(
     if span.event.cloud_region.is_some() {
         state.multi_region_active = true;
     }
+    // Energy is region-independent: accumulate the SQL share before the
+    // region gate so the estimated database_waste covers every SQL span.
+    let (energy_kwh, measured_model, calibrated) = resolve_span_energy(span, ctx);
+    let is_sql = span.event.event_type == crate::event::EventType::Sql;
+    if is_sql {
+        state.sql_energy_kwh += energy_kwh;
+    }
     let Some(region_ctx) = resolve_span_region(span, ctx, state) else {
         return;
     };
     let intensity = resolve_span_intensity(span, &region_ctx, ctx);
-    let (energy_kwh, measured_model, calibrated) = resolve_span_energy(span, ctx);
     let op_co2 = per_op_gco2(energy_kwh, intensity.value, region_ctx.pue);
+    if is_sql {
+        state.sql_gco2 += op_co2;
+    }
 
     let region_ref = region_ctx.region_ref;
     let pue = region_ctx.pue;
