@@ -15,7 +15,7 @@ use crate::report::Report;
 use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 
 use super::errors::AggregationError;
-use super::schema::{Aggregate, Period, TemporalCoverage, WasteTier};
+use super::schema::{Aggregate, DatabaseWasteAggregate, Period, TemporalCoverage, WasteTier};
 
 pub const UNATTRIBUTED_SERVICE: &str = "_unattributed";
 
@@ -212,6 +212,17 @@ struct WasteTierAccumulator {
 }
 
 #[derive(Default)]
+struct DbWasteAccumulator {
+    energy_kwh: f64,
+    operational_kwh: f64,
+    operational_g: f64,
+    canonical_kwh: f64,
+    canonical_g: f64,
+    models: BTreeSet<String>,
+    windows: u64,
+}
+
+#[derive(Default)]
 struct Builder {
     per_service: BTreeMap<String, ServiceAccumulator>,
     windows_aggregated: u64,
@@ -223,6 +234,10 @@ struct Builder {
     /// Avoidable tiers from each window's `Report.disclosure_waste`.
     canonical_waste: WasteTierAccumulator,
     operational_waste: WasteTierAccumulator,
+    /// Database-waste sums from each window's `disclosure_waste.database`.
+    /// Windows predating the block are not folded (no canonical figure),
+    /// so both tiers stay consistent.
+    db_waste: DbWasteAccumulator,
     /// Sum of runtime-calibrated `energy_kwh` for windows that carry it.
     runtime_energy_kwh: f64,
     /// Distinct energy model strings collected across all windows. The
@@ -403,6 +418,18 @@ impl Builder {
         if let Some(dw) = &report.disclosure_waste {
             fold_tier(&mut self.canonical_waste, &dw.canonical);
             fold_tier(&mut self.operational_waste, &dw.operational);
+            if let Some(db) = &dw.database {
+                let acc = &mut self.db_waste;
+                acc.energy_kwh += db.energy_kwh;
+                acc.operational_kwh += db.operational_waste_kwh;
+                acc.operational_g += db.operational_waste_gco2.unwrap_or(0.0);
+                acc.canonical_kwh += db.canonical_waste_kwh;
+                acc.canonical_g += db.canonical_waste_gco2.unwrap_or(0.0);
+                acc.windows = acc.windows.saturating_add(1);
+                if !db.model.is_empty() && acc.models.len() < MAX_BINARY_VERSIONS {
+                    acc.models.insert(db.model.clone());
+                }
+            }
         } else {
             // accounted_io_ops is not serialized, so the legacy energy share
             // uses total_io as the denominator (clamped). Threshold stays 0.
@@ -676,6 +703,15 @@ impl Builder {
                 binary_versions: self.binary_versions,
                 runtime_windows_count: self.runtime_windows,
                 fallback_windows_count: self.fallback_windows,
+                database_waste: (self.db_waste.windows > 0).then(|| DatabaseWasteAggregate {
+                    energy_kwh: self.db_waste.energy_kwh,
+                    models: self.db_waste.models,
+                    windows_with_figure: self.db_waste.windows,
+                    operational_waste_kwh: self.db_waste.operational_kwh,
+                    operational_waste_kgco2eq: self.db_waste.operational_g / 1000.0,
+                    canonical_waste_kwh: self.db_waste.canonical_kwh,
+                    canonical_waste_kgco2eq: self.db_waste.canonical_g / 1000.0,
+                }),
                 per_service_energy_models: self.per_service_energy_models,
                 per_service_measured_ratio: self
                     .per_service_measured_ratio_sums
@@ -1134,6 +1170,7 @@ mod tests {
         // not the operational green_summary.
         let mut report = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
         report.disclosure_waste = Some(crate::report::DisclosureWaste {
+            database: None,
             canonical: crate::report::AvoidableTier {
                 n_plus_one_threshold: 2,
                 avoidable_io_ops: 200,
@@ -1168,6 +1205,56 @@ mod tests {
                 < 1e-12
         );
         assert!((agg.aggregate_waste_ratio - agg.canonical_waste.waste_ratio).abs() < 1e-12);
+        // No window carried a database block: the aggregate omits it.
+        assert!(agg.database_waste.is_none());
+    }
+
+    #[test]
+    fn aggregator_sums_database_waste_across_windows() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let db_block = |energy: f64, model: &str| crate::report::DisclosureDbWaste {
+            energy_kwh: energy,
+            model: model.to_string(),
+            operational_waste_kwh: energy * 0.5,
+            operational_waste_gco2: Some(energy * 50.0),
+            canonical_waste_kwh: energy * 0.8,
+            canonical_waste_gco2: Some(energy * 80.0),
+        };
+        let tier = crate::report::AvoidableTier {
+            n_plus_one_threshold: 2,
+            avoidable_io_ops: 10,
+            avoidable_kwh: 0.1,
+            avoidable_gco2: 1.0,
+        };
+        let mut r1 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        r1.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: tier.clone(),
+            operational: tier.clone(),
+            database: Some(db_block(1.0, "alumet_rapl")),
+        });
+        let mut r2 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        r2.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: tier.clone(),
+            operational: tier,
+            database: Some(db_block(0.5, "io_proxy_v3")),
+        });
+
+        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
+        let agg = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate;
+
+        let db = agg.database_waste.expect("database aggregate");
+        assert_eq!(db.windows_with_figure, 2);
+        assert!((db.energy_kwh - 1.5).abs() < 1e-12);
+        assert!((db.operational_waste_kwh - 0.75).abs() < 1e-12);
+        // gCO2 sums are converted to kg: (50 + 25) / 1000.
+        assert!((db.operational_waste_kgco2eq - 0.075).abs() < 1e-12);
+        assert!((db.canonical_waste_kwh - 1.2).abs() < 1e-12);
+        assert!((db.canonical_waste_kgco2eq - 0.12).abs() < 1e-12);
+        let models: Vec<&str> = db.models.iter().map(String::as_str).collect();
+        assert_eq!(models, vec!["alumet_rapl", "io_proxy_v3"]);
     }
 
     #[test]

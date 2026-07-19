@@ -11,16 +11,21 @@
 
 use crate::correlate::Trace;
 use crate::detect::{DISCLOSURE_N_PLUS_ONE_THRESHOLD, DetectConfig, n_plus_one, redundant};
-use crate::report::{AvoidableTier, DisclosureWaste, GreenSummary};
+use crate::report::{AvoidableTier, DisclosureDbWaste, DisclosureWaste, GreenSummary};
 
+use super::AvoidableIoOps;
 use super::dedup_avoidable_io_ops;
 use super::region_breakdown::avoidable_share;
 
 /// Re-run N+1 at [`DISCLOSURE_N_PLUS_ONE_THRESHOLD`] (then redundant against
-/// that set) over every trace, and dedup the avoidable I/O ops. Only the N+1
-/// threshold is overridden; window and sanitizer mode stay as configured.
+/// that set) over every trace, and dedup the avoidable I/O ops (total and
+/// SQL-only). Only the N+1 threshold is overridden; window and sanitizer
+/// mode stay as configured.
 #[must_use]
-pub(crate) fn compute_canonical_avoidable(traces: &[Trace], detect_config: &DetectConfig) -> usize {
+pub(crate) fn compute_canonical_avoidable(
+    traces: &[Trace],
+    detect_config: &DetectConfig,
+) -> AvoidableIoOps {
     let mut findings = Vec::new();
     for trace in traces {
         let mut n1 = n_plus_one::detect_n_plus_one(
@@ -33,7 +38,7 @@ pub(crate) fn compute_canonical_avoidable(traces: &[Trace], detect_config: &Dete
         findings.append(&mut n1);
         findings.append(&mut redundant);
     }
-    dedup_avoidable_io_ops(&findings).total
+    dedup_avoidable_io_ops(&findings)
 }
 
 /// Build both avoidable tiers from the scored operational [`GreenSummary`]
@@ -51,7 +56,8 @@ pub(crate) fn compute_disclosure_waste(
     let operational_gco2 = operational.co2.as_ref().map_or(0.0, |r| r.operational_gco2);
     let operational_avoidable_gco2 = operational.co2.as_ref().map_or(0.0, |r| r.avoidable.mid);
 
-    let canonical_io = compute_canonical_avoidable(traces, detect_config);
+    let canonical = compute_canonical_avoidable(traces, detect_config);
+    let canonical_io = canonical.total;
 
     DisclosureWaste {
         canonical: AvoidableTier {
@@ -66,7 +72,38 @@ pub(crate) fn compute_disclosure_waste(
             avoidable_kwh: avoidable_share(energy_kwh, operational.avoidable_io_ops, accounted),
             avoidable_gco2: operational_avoidable_gco2,
         },
+        database: build_db_waste_tiers(operational, canonical.sql),
     }
+}
+
+/// Both database-waste tiers from the window's operational figure. The
+/// canonical tier reuses the same energy with the SQL ratio recomputed
+/// at the canonical threshold; its gCO₂ is rescaled from the
+/// operational gCO₂ per kWh (`None` when there was no conversion).
+fn build_db_waste_tiers(
+    operational: &GreenSummary,
+    canonical_sql_avoidable: usize,
+) -> Option<DisclosureDbWaste> {
+    let db = operational.database_waste.as_ref()?;
+    let total_sql = operational.total_sql_io_ops;
+    let canonical_ratio = if total_sql == 0 {
+        0.0
+    } else {
+        (canonical_sql_avoidable as f64 / total_sql as f64).min(1.0)
+    };
+    let canonical_waste_kwh = db.energy_kwh * canonical_ratio;
+    let gco2_per_kwh = db
+        .waste_gco2
+        .filter(|_| db.waste_kwh > 0.0)
+        .map(|g| g / db.waste_kwh);
+    Some(DisclosureDbWaste {
+        energy_kwh: db.energy_kwh,
+        model: db.model.clone(),
+        operational_waste_kwh: db.waste_kwh,
+        operational_waste_gco2: db.waste_gco2,
+        canonical_waste_kwh,
+        canonical_waste_gco2: gco2_per_kwh.map(|r| r * canonical_waste_kwh),
+    })
 }
 
 #[cfg(test)]
@@ -97,7 +134,8 @@ mod tests {
             low, high,
             "canonical count must not depend on operator config"
         );
-        assert_eq!(low, 5);
+        assert_eq!(low.total, 5);
+        assert_eq!(low.sql, 5);
     }
 
     /// With the operator threshold at 50 the operational tier sees zero
@@ -138,5 +176,36 @@ mod tests {
         assert!((waste.canonical.avoidable_gco2 - 10.0).abs() < 1e-9);
         // 2.0 kWh * (5 / 6)
         assert!((waste.canonical.avoidable_kwh - (2.0 * 5.0 / 6.0)).abs() < 1e-9);
+    }
+
+    /// Same anti-gaming property for the database block: an operator
+    /// threshold that hides every finding zeroes the operational figure
+    /// but the canonical tier recomputes the SQL ratio at the pinned
+    /// threshold against the same energy.
+    #[test]
+    fn disclosure_database_waste_recomputes_canonical_ratio() {
+        let traces = vec![make_trace(make_n_plus_one_events())];
+        let mut operational = GreenSummary::disabled(6);
+        operational.total_sql_io_ops = 6;
+        operational.database_waste = Some(crate::report::DatabaseWaste {
+            energy_kwh: 1.2,
+            waste_kwh: 0.0,
+            waste_gco2: None,
+            region: None,
+            sql_waste_ratio: 0.0,
+            model: "alumet_rapl".to_string(),
+        });
+
+        let waste = compute_disclosure_waste(&traces, &operational, &detect_config(50));
+
+        let db = waste.database.expect("database tiers");
+        assert_eq!(db.model, "alumet_rapl");
+        assert!((db.energy_kwh - 1.2).abs() < 1e-12);
+        // Operator threshold 50 finds nothing: operational waste is zero.
+        assert!(db.operational_waste_kwh.abs() < 1e-12);
+        // Canonical: 5 avoidable SQL of 6 total SQL against 1.2 kWh.
+        assert!((db.canonical_waste_kwh - 1.2 * 5.0 / 6.0).abs() < 1e-9);
+        // No operational carbon conversion to rescale from.
+        assert!(db.canonical_waste_gco2.is_none());
     }
 }

@@ -228,6 +228,7 @@ pub fn score_green(
 }
 
 /// Total and SQL-only sums of the deduped avoidable I/O ops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AvoidableIoOps {
     pub total: usize,
     pub sql: usize,
