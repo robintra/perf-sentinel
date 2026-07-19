@@ -1169,4 +1169,128 @@ mod tests {
         };
         assert_eq!(count, KNOWN_PATTERNS.len());
     }
+
+    fn valid_db_waste() -> crate::report::periodic::schema::DatabaseWasteAggregate {
+        crate::report::periodic::schema::DatabaseWasteAggregate {
+            energy_kwh: 1.0,
+            measured_energy_kwh: 0.4,
+            models: ["alumet_rapl".to_string(), "estimated".to_string()]
+                .into_iter()
+                .collect(),
+            windows_with_figure: 3,
+            measured_windows: 1,
+            estimated_windows: 2,
+            windows_with_carbon: 2,
+            operational_waste_kwh: 0.5,
+            operational_waste_kgco2eq: Some(0.05),
+            canonical_waste_kwh: 0.8,
+            canonical_waste_kgco2eq: Some(0.08),
+        }
+    }
+
+    fn db_errors(
+        db: crate::report::periodic::schema::DatabaseWasteAggregate,
+    ) -> Vec<ValidationError> {
+        let mut agg = good_report(ReportIntent::Official, Confidentiality::Public).aggregate;
+        agg.database_waste = Some(db);
+        let mut errors = Vec::new();
+        validate_database_waste(&agg, &mut errors);
+        errors
+    }
+
+    #[test]
+    fn database_waste_absent_is_ok() {
+        let mut agg = good_report(ReportIntent::Official, Confidentiality::Public).aggregate;
+        agg.database_waste = None;
+        let mut errors = Vec::new();
+        validate_database_waste(&agg, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn database_waste_valid_block_passes() {
+        assert!(db_errors(valid_db_waste()).is_empty());
+    }
+
+    #[test]
+    fn database_waste_non_finite_figure_rejected() {
+        let mut db = valid_db_waste();
+        db.energy_kwh = f64::NAN;
+        let errors = db_errors(db);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::Aggregate { field: "database_waste.energy_kwh", reason } if reason.contains("finite")
+        )));
+    }
+
+    #[test]
+    fn database_waste_negative_figure_rejected() {
+        let mut db = valid_db_waste();
+        db.canonical_waste_kgco2eq = Some(-1.0);
+        let errors = db_errors(db);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::Aggregate { field: "database_waste.canonical_waste_kgco2eq", reason } if reason.contains(">= 0")
+        )));
+    }
+
+    #[test]
+    fn database_waste_bad_model_tag_rejected() {
+        let mut db = valid_db_waste();
+        db.models = ["bad tag!".to_string()].into_iter().collect();
+        let errors = db_errors(db);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::Aggregate {
+                field: "database_waste.models",
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn database_waste_zero_windows_rejected() {
+        let mut db = valid_db_waste();
+        db.windows_with_figure = 0;
+        db.measured_windows = 0;
+        db.estimated_windows = 0;
+        db.windows_with_carbon = 0;
+        let errors = db_errors(db);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::Aggregate {
+                field: "database_waste.windows_with_figure",
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn database_waste_split_mismatch_rejected() {
+        let mut db = valid_db_waste();
+        db.measured_windows = 1;
+        db.estimated_windows = 1; // 1 + 1 != windows_with_figure (3)
+        let errors = db_errors(db);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::Aggregate {
+                field: "database_waste.measured_windows",
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn database_waste_carbon_exceeds_figure_rejected() {
+        let mut db = valid_db_waste();
+        db.windows_with_carbon = db.windows_with_figure + 1;
+        let errors = db_errors(db);
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::Aggregate {
+                field: "database_waste.windows_with_carbon",
+                ..
+            }
+        )));
+    }
 }
