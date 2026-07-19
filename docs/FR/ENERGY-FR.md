@@ -44,7 +44,7 @@ Compter les opérations côté application manque un point structurel : l'énerg
 gaspillage base = énergie DB mesurée x (ops SQL évitables / ops SQL totales)
 ```
 
-Le résultat est `green_summary.database_waste`, avec une conversion gCO2 quand vous déclarez la région de la base. C'est une borne basse (énergie CPU seulement, ni DRAM ni disque) calculée avec un ratio par comptage, elle reste donc informative : exclue de `energy_kwh`, de `co2` et de la divulgation publique. La liste complète des bornes est dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
+Le résultat est `green_summary.database_waste`, avec une conversion gCO2 quand vous déclarez la région de la base. Et le chiffre existe même sans Alumet : quand aucune mesure n'est disponible (exécutions batch, bases managées, pas de `[green.alumet.database]`), il est estimé depuis l'énergie modélisée des spans SQL, et son étiquette `model` dit quel chemin l'a produit (`alumet_rapl` = mesuré, `io_proxy_*` = estimé). Le mesuré est une borne basse (énergie CPU seulement, ni DRAM ni disque), l'estimé hérite de l'encadrement 2x du proxy, les deux utilisent un ratio par comptage, le chiffre reste donc informatif : exclu de `energy_kwh` et de `co2`, et publié dans la divulgation seulement comme bloc séparé étiqueté hors de tous les totaux. La liste complète des bornes est dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
 
 ## Ce que les chiffres ne sont pas
 

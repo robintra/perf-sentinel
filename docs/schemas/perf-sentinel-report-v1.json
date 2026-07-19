@@ -24,7 +24,8 @@
         "perf-sentinel-report/v1.0",
         "perf-sentinel-report/v1.1",
         "perf-sentinel-report/v1.2",
-        "perf-sentinel-report/v1.3"
+        "perf-sentinel-report/v1.3",
+        "perf-sentinel-report/v1.4"
       ]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
