@@ -194,7 +194,8 @@
 <h2 id="workflow" class="ps-h2">Workflow</h2>
 <ol>
 <li>Run perf-sentinel and identify the finding you want to ack.</li>
-<li>Capture its signature: ```bash perf-sentinel analyze --input traces.json --format json \ | jq -r '.findings[] | select(.service == "order-service") | .signature' ```</li>
+<li>Capture its signature:<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--format</span> json \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> <span style="color:var(--code-flag)">-r</span> '.findings[] | select(.service == "order-service") | .signature'</code></pre></div></li>
 <li>Open a PR that adds a <code class="ps-ic">[[acknowledged]]</code> block to <code class="ps-ic">.perf-sentinel-acknowledgments.toml</code>. Discuss the <code class="ps-ic">reason</code> in PR review.</li>
 <li>Merge. The next CI run reads the updated file and the finding stops appearing.</li>
 </ol>

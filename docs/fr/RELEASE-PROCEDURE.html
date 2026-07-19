@@ -186,7 +186,8 @@
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">git</span> push <span style="color:var(--code-flag)">-u</span> origin release/X.Y.Z</code></pre></div>
 <p class="ps-p">L'image Docker est publiée sur GHCR exclusivement par <code class="ps-ic">release.yml</code> au push d'un tag <code class="ps-ic">v*</code>, pas par <code class="ps-ic">ci.yml</code>. Deux options pour obtenir une image dans le cluster lab :</p>
 <ul>
-<li><strong>Option A (recommandée pour une validation propre)</strong> : builder l'image localement depuis le checkout de la branche release et l'importer dans le cluster k3d : ```bash docker build -t perf-sentinel:vX.Y.Z-rc . k3d image import perf-sentinel:vX.Y.Z-rc -c &lt;cluster-name&gt; ``` Puis pinner les manifests du lab sur le tag chargé localement.</li>
+<li><strong>Option A (recommandée pour une validation propre)</strong> : builder l'image localement depuis le checkout de la branche release et l'importer dans le cluster k3d : Puis pinner les manifests du lab sur le tag chargé localement.<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">docker</span> build <span style="color:var(--code-flag)">-t</span> perf-sentinel:vX.Y.Z-rc .
+<span style="color:var(--code-cmd);font-weight:600">k3d</span> image import perf-sentinel:vX.Y.Z-rc <span style="color:var(--code-flag)">-c</span> &lt;cluster-name&gt;</code></pre></div></li>
 <li><strong>Option B</strong> : pousser un pre-release tag (<code class="ps-ic">vX.Y.Z-rc.1</code>) pour déclencher <code class="ps-ic">release.yml</code> sur une image candidate. L'image devient disponible sur GHCR en environ 10 minutes. Pinner les manifests du lab sur le digest résultant (résolution via API REST GHCR, voir <code class="ps-ic">docs/TROUBLESHOOTING.md</code> du lab).</li>
 </ul>
 <p class="ps-p">Lancer le lab de bout en bout :</p>

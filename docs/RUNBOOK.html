@@ -283,22 +283,17 @@
 <p class="ps-p"><strong>Symptom.</strong> Alert fires on <code class="ps-ic">perf_sentinel_findings_total{severity="critical"}</code> rate.</p>
 <p class="ps-p"><strong>Triage workflow.</strong></p>
 <ol>
-<li><strong>Group by service and type.</strong></li>
+<li><strong>Group by service and type.</strong><div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200'</span> \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '[.[].finding | {finding_type, service}]
+       | <span style="color:var(--code-cmd);font-weight:600">group_by(.service,</span> .finding_type)
+       | <span style="color:var(--code-cmd);font-weight:600">map({key:</span> "\(.[0].service)/\(.[0].finding_type)", count: length})
+       | <span style="color:var(--code-cmd);font-weight:600">sort_by(-.count)'</span></code></pre></div></li>
+<li><strong>Grab an exemplar <code class="ps-ic">trace_id</code></strong> for each top pattern. In Grafana, the ◆ on the metric is clickable; from the command line:<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics \
+  | <span style="color:var(--code-cmd);font-weight:600">grep</span> <span style="color:var(--code-flag)">-E</span> <span style="color:var(--code-num)">'findings_total|io_waste_ratio'</span>
+<span style="color:var(--term-comment)"># Lines end with "# {trace_id=\"...\"}", copy that id</span></code></pre></div></li>
+<li><strong>Explain the trace</strong> while it's still in the 30-second live window: If evicted, pivot to <a href="/docs/RUNBOOK#analyzing-a-trace-older-than-the-live-window">the post-mortem workflow</a>.<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/explain/&lt;trace_id&gt; | jq .</code></pre></div></li>
+<li><strong>Correlate across services</strong> if the incident spans multiple teams:<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/correlations | jq <span style="color:var(--code-num)">'sort_by(-.confidence)[:10]'</span></code></pre></div></li>
 </ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s 'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200' \      | jq '[.[].finding | {finding_type, service}]           | group_by(.service, .finding_type)           | map({key: "\(.[0].service)/\(.[0].finding_type)", count: length})           | sort_by(-.count)'    </code>``</p>
-<ol>
-<li><strong>Grab an exemplar <code class="ps-ic">trace_id</code></strong> for each top pattern. In Grafana, the ◆ on the metric is clickable; from the command line:</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/metrics \      | grep -E 'findings_total|io_waste_ratio'    # Lines end with "# {trace_id=\"...\"}", copy that id    </code>``</p>
-<ol>
-<li><strong>Explain the trace</strong> while it's still in the 30-second live window:</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/api/explain/&lt;trace_id&gt; | jq .    </code>``</p>
-<p class="ps-p">   If evicted, pivot to <a href="/docs/RUNBOOK#analyzing-a-trace-older-than-the-live-window">the post-mortem workflow</a>.</p>
-<ol>
-<li><strong>Correlate across services</strong> if the incident spans multiple teams:</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/api/correlations | jq 'sort_by(-.confidence)[:10]'    </code>``</p>
 <p class="ps-p"><strong>Common root causes.</strong></p>
 <ul>
 <li><strong>N+1 SQL:</strong> ORM lazy loading; a recent feature iterating a collection without <code class="ps-ic">JOIN FETCH</code> / <code class="ps-ic">selectinload</code> / <code class="ps-ic">Include</code>.</li>
@@ -446,11 +441,8 @@
 <ul>
 <li><code class="ps-ic">min_co_occurrences = 5</code>: need 5 joint incidents before a pair is considered</li>
 <li><code class="ps-ic">min_confidence = 0.7</code>: 70 % correlation confidence</li>
-<li><code class="ps-ic">lag_threshold_ms = 5000</code>: 5-second window between cause and effect</li>
+<li><code class="ps-ic">lag_threshold_ms = 5000</code>: 5-second window between cause and effect Short bursts of traffic rarely accumulate 5 co-occurrences. Lower for dev/staging, keep conservative in prod.</li>
 </ul>
-</ol>
-<p class="ps-p">   Short bursts of traffic rarely accumulate 5 co-occurrences. Lower for dev/staging, keep conservative in prod.</p>
-<ol>
 <li><strong>Services legitimately independent.</strong> Healthy decoupled services produce no correlations. Absence is not always a bug.</li>
 </ol>
 <p class="ps-p"><strong>Fix.</strong></p>
@@ -533,17 +525,13 @@
 <h2 id="diagnosing-otlp-drops" class="ps-h2">Diagnosing OTLP drops</h2>
 <p class="ps-p">Symptom: spans sent by clients are not visible in <code class="ps-ic">/api/export/report</code> or in the dashboard, and the client SDK reports no errors.</p>
 <ol>
-<li>Pull <code class="ps-ic">perf_sentinel_otlp_rejected_total</code> from <code class="ps-ic">/metrics</code> and read it by <code class="ps-ic">reason</code>:</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://daemon:4318/metrics | grep '^perf_sentinel_otlp_rejected_total'    </code>``</p>
+<li>Pull <code class="ps-ic">perf_sentinel_otlp_rejected_total</code> from <code class="ps-ic">/metrics</code> and read it by <code class="ps-ic">reason</code>:<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://daemon:4318/metrics | grep <span style="color:var(--code-num)">'^perf_sentinel_otlp_rejected_total'</span></code></pre></div></li>
 <ul>
 <li>High <code class="ps-ic">channel_full</code>: the daemon is CPU-bound or backpressured. Check <code class="ps-ic">process_cpu_seconds_total</code> (rate) and <code class="ps-ic">process_resident_memory_bytes</code> against the pod limits. Increase CPU or memory limits, or scale horizontally.</li>
 <li>High <code class="ps-ic">parse_error</code>: clients send malformed OTLP. Check the client SDK version and protobuf compatibility against the OTLP spec.</li>
 <li>High <code class="ps-ic">unsupported_media_type</code>: clients use the JSON-encoded OTLP variant or a wrong <code class="ps-ic">Content-Type</code>. perf-sentinel only accepts <code class="ps-ic">application/x-protobuf</code>.</li>
-<li><code class="ps-ic">Report.warning_details</code> surfaces an <code class="ps-ic">ingestion_drops</code> entry as soon as the <code class="ps-ic">channel_full</code> counter is positive. A consumer reading <code class="ps-ic">/api/export/report</code> without scraping Prometheus still sees the signal:</li>
 </ul>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://daemon:4318/api/export/report | jq '.warning_details'    </code>``</p>
-<ol>
+<li><code class="ps-ic">Report.warning_details</code> surfaces an <code class="ps-ic">ingestion_drops</code> entry as soon as the <code class="ps-ic">channel_full</code> counter is positive. A consumer reading <code class="ps-ic">/api/export/report</code> without scraping Prometheus still sees the signal:<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://daemon:4318/api/export/report | jq <span style="color:var(--code-num)">'.warning_details'</span></code></pre></div></li>
 <li>The 413 (HTTP) and <code class="ps-ic">RESOURCE_EXHAUSTED</code> (gRPC) responses for oversized payloads are intercepted upstream by tower-http (<code class="ps-ic">RequestBodyLimitLayer</code>) and tonic (<code class="ps-ic">max_decoding_message_size</code>) respectively, before the application handler runs. They are <strong>not</strong> counted by <code class="ps-ic">perf_sentinel_otlp_rejected_total</code>. Check the proxy or gateway access logs for those.</li>
 </ol>
 <p class="ps-p">See <a href="/docs/METRICS">Metrics</a> for the full reason catalog and the rest of the metrics surface.</p>

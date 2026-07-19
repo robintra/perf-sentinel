@@ -195,7 +195,8 @@
 <h2 id="workflow" class="ps-h2">Workflow</h2>
 <ol>
 <li>Lancez perf-sentinel et identifiez le finding à acquitter.</li>
-<li>Capturez sa signature : ```bash perf-sentinel analyze --input traces.json --format json \ | jq -r '.findings[] | select(.service == "order-service") | .signature' ```</li>
+<li>Capturez sa signature :<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--format</span> json \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> <span style="color:var(--code-flag)">-r</span> '.findings[] | select(.service == "order-service") | .signature'</code></pre></div></li>
 <li>Ouvrez une PR qui ajoute un bloc <code class="ps-ic">[[acknowledged]]</code> à <code class="ps-ic">.perf-sentinel-acknowledgments.toml</code>. Discutez le <code class="ps-ic">reason</code> en review PR.</li>
 <li>Mergez. Le run CI suivant lit le fichier mis à jour et le finding cesse d'apparaître.</li>
 </ol>

@@ -193,7 +193,13 @@
   }
   function inline(text, ctx) {
     var codes = [];
-    text = text.replace(/`([^`]+)`/g, function (m, c) { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+    // CommonMark code spans: a run of N backticks opens, the next run of
+    // exactly N closes, so `` `x` `` embeds a literal backtick. One leading
+    // and trailing space is stripped when both are present.
+    text = text.replace(/(`+)([\s\S]*?)\1/g, function (m, ticks, c) {
+      if (c.length > 1 && c.charAt(0) === ' ' && c.charAt(c.length - 1) === ' ' && c.trim() !== '') c = c.slice(1, -1);
+      codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000';
+    });
     text = esc(text);
     text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function (m, a, u) { return '<em>[' + esc(a) + ']</em>'; });
     text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (m, t, href) {
@@ -290,17 +296,39 @@
     var stack = [];
     var startIndent = -1;
     var j = i;
+    // Current open item, rebuilt on each continuation: `itemRaw` is its
+    // text (re-inlined in full so a span wrapping across a soft line break
+    // still matches, like paragraphs do), `itemBlocks` its block children
+    // (indented code fences), appended after the text.
+    var itemIdx = -1, itemRaw = '', itemBlocks = [];
+    function renderItem() { return '<li>' + inline(itemRaw, ctx) + itemBlocks.join('') + '</li>'; }
     function close(toLen) { while (stack.length > toLen) { var s = stack.pop(); out.push(s.ordered ? '</ol>' : '</ul>'); } }
     for (; j < lines.length; j++) {
       var line = lines[j];
       if (line.trim() === '') {
-        if (j + 1 < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[j + 1])) continue;
+        // Stay in the list across a blank line when the next line is
+        // another marker, or indented content of the open item (a loose
+        // list, e.g. a fenced code block set off by a blank line).
+        var nx = lines[j + 1];
+        if (nx !== undefined && (/^\s*([-*+]|\d+\.)\s+/.test(nx) || (itemIdx >= 0 && /^\s+\S/.test(nx)))) continue;
         break;
       }
       var m = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
       if (!m) {
-        // continuation line of previous item
-        if (stack.length) { out[out.length - 1] = out[out.length - 1].replace(/<\/li>$/, ' ' + inline(line.trim(), ctx) + '</li>'); continue; }
+        // Indented code fence belonging to the current item: consume the
+        // whole block and render it as a real <pre>, not continuation text
+        // (the top-level fence handler only matches column-0 fences).
+        var fm = line.match(/^(\s*)```\s*([\w-]+)?\s*$/);
+        if (fm && stack.length && itemIdx >= 0) {
+          var strip = fm[1].length, lang = fm[2] || '', buf = [];
+          j++;
+          while (j < lines.length && !/^\s*```\s*$/.test(lines[j])) { buf.push(lines[j].slice(strip)); j++; }
+          itemBlocks.push(codeBlock(lang, buf.join('\n')));
+          out[itemIdx] = renderItem();
+          continue;
+        }
+        // Plain continuation line: append to the item's text and re-render.
+        if (stack.length && itemIdx >= 0) { itemRaw += ' ' + line.trim(); out[itemIdx] = renderItem(); continue; }
         break;
       }
       var indent = m[1].length;
@@ -310,7 +338,9 @@
       if (depth < 0) depth = 0;
       if (depth + 1 > stack.length) { stack.push({ ordered: ordered }); out.push(ordered ? '<ol>' : '<ul>'); }
       else if (depth + 1 < stack.length) { close(depth + 1); }
-      out.push('<li>' + inline(m[3], ctx) + '</li>');
+      itemRaw = m[3]; itemBlocks = [];
+      out.push(renderItem());
+      itemIdx = out.length - 1;
     }
     close(0);
     return j;

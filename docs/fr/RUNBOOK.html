@@ -285,22 +285,17 @@
 <p class="ps-p"><strong>Symptôme.</strong> Alerte sur le rate de <code class="ps-ic">perf_sentinel_findings_total{severity="critical"}</code>.</p>
 <p class="ps-p"><strong>Workflow de triage.</strong></p>
 <ol>
-<li><strong>Grouper par service et type.</strong></li>
+<li><strong>Grouper par service et type.</strong><div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200'</span> \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '[.[].finding | {finding_type, service}]
+       | <span style="color:var(--code-cmd);font-weight:600">group_by(.service,</span> .finding_type)
+       | <span style="color:var(--code-cmd);font-weight:600">map({key:</span> "\(.[0].service)/\(.[0].finding_type)", count: length})
+       | <span style="color:var(--code-cmd);font-weight:600">sort_by(-.count)'</span></code></pre></div></li>
+<li><strong>Récupérer un <code class="ps-ic">trace_id</code> d'exemplar</strong> pour chaque top pattern. Dans Grafana, le ◆ sur la métrique est cliquable ; en ligne de commande :<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics \
+  | <span style="color:var(--code-cmd);font-weight:600">grep</span> <span style="color:var(--code-flag)">-E</span> <span style="color:var(--code-num)">'findings_total|io_waste_ratio'</span>
+<span style="color:var(--term-comment)"># Les lignes se terminent par "# {trace_id=\"...\"}", copiez cet id</span></code></pre></div></li>
+<li><strong>Expliquer la trace</strong> tant qu'elle est dans la fenêtre live de 30 secondes : Si évincée, basculez sur <a href="/docs/fr/RUNBOOK#analyser-une-trace-plus-ancienne-que-la-fenêtre-live">le workflow post-mortem</a>.<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/explain/&lt;trace_id&gt; | jq .</code></pre></div></li>
+<li><strong>Corréler entre services</strong> si l'incident traverse plusieurs équipes :<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/correlations | jq <span style="color:var(--code-num)">'sort_by(-.confidence)[:10]'</span></code></pre></div></li>
 </ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s 'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200' \      | jq '[.[].finding | {finding_type, service}]           | group_by(.service, .finding_type)           | map({key: "\(.[0].service)/\(.[0].finding_type)", count: length})           | sort_by(-.count)'    </code>``</p>
-<ol>
-<li><strong>Récupérer un <code class="ps-ic">trace_id</code> d'exemplar</strong> pour chaque top pattern. Dans Grafana, le ◆ sur la métrique est cliquable ; en ligne de commande :</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/metrics \      | grep -E 'findings_total|io_waste_ratio'    # Les lignes se terminent par "# {trace_id=\"...\"}", copiez cet id    </code>``</p>
-<ol>
-<li><strong>Expliquer la trace</strong> tant qu'elle est dans la fenêtre live de 30 secondes :</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/api/explain/&lt;trace_id&gt; | jq .    </code>``</p>
-<p class="ps-p">   Si évincée, basculez sur <a href="/docs/fr/RUNBOOK#analyser-une-trace-plus-ancienne-que-la-fenêtre-live">le workflow post-mortem</a>.</p>
-<ol>
-<li><strong>Corréler entre services</strong> si l'incident traverse plusieurs équipes :</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/api/correlations | jq 'sort_by(-.confidence)[:10]'    </code>``</p>
 <p class="ps-p"><strong>Causes racines courantes.</strong></p>
 <ul>
 <li><strong>N+1 SQL :</strong> lazy loading de l'ORM ; une feature récente qui itère sur une collection sans <code class="ps-ic">JOIN FETCH</code> / <code class="ps-ic">selectinload</code> / <code class="ps-ic">Include</code>.</li>
@@ -449,11 +444,8 @@
 <ul>
 <li><code class="ps-ic">min_co_occurrences = 5</code> : il faut 5 incidents conjoints avant qu'une paire soit considérée</li>
 <li><code class="ps-ic">min_confidence = 0.7</code> : 70 % de confiance sur la corrélation</li>
-<li><code class="ps-ic">lag_threshold_ms = 5000</code> : fenêtre de 5 secondes entre cause et effet</li>
+<li><code class="ps-ic">lag_threshold_ms = 5000</code> : fenêtre de 5 secondes entre cause et effet Des pics de trafic courts accumulent rarement 5 co-occurrences. Baissez pour dev/staging, gardez conservateur en prod.</li>
 </ul>
-</ol>
-<p class="ps-p">   Des pics de trafic courts accumulent rarement 5 co-occurrences. Baissez pour dev/staging, gardez conservateur en prod.</p>
-<ol>
 <li><strong>Services légitimement indépendants.</strong> Des services découplés sains ne produisent aucune corrélation. L'absence n'est pas toujours un bug.</li>
 </ol>
 <p class="ps-p"><strong>Correctif.</strong></p>
@@ -536,17 +528,13 @@
 <h2 id="diagnostiquer-les-drops-otlp" class="ps-h2">Diagnostiquer les drops OTLP</h2>
 <p class="ps-p">Symptôme : les spans envoyés par les clients ne sont pas visibles dans <code class="ps-ic">/api/export/report</code> ni dans le dashboard, et le SDK client ne signale aucune erreur.</p>
 <ol>
-<li>Récupérer <code class="ps-ic">perf_sentinel_otlp_rejected_total</code> depuis <code class="ps-ic">/metrics</code> et lire la valeur par <code class="ps-ic">reason</code> :</li>
-</ol>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://daemon:4318/metrics | grep '^perf_sentinel_otlp_rejected_total'    </code>``</p>
+<li>Récupérer <code class="ps-ic">perf_sentinel_otlp_rejected_total</code> depuis <code class="ps-ic">/metrics</code> et lire la valeur par <code class="ps-ic">reason</code> :<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://daemon:4318/metrics | grep <span style="color:var(--code-num)">'^perf_sentinel_otlp_rejected_total'</span></code></pre></div></li>
 <ul>
 <li><code class="ps-ic">channel_full</code> élevé : le daemon est CPU-bound ou en backpressure. Vérifier <code class="ps-ic">process_cpu_seconds_total</code> (rate) et <code class="ps-ic">process_resident_memory_bytes</code> contre les limites du pod. Augmenter les limites CPU ou mémoire, ou scaler horizontalement.</li>
 <li><code class="ps-ic">parse_error</code> élevé : les clients envoient de l'OTLP malformé. Vérifier la version du SDK client et la compatibilité protobuf contre la spec OTLP.</li>
 <li><code class="ps-ic">unsupported_media_type</code> élevé : les clients utilisent la variante OTLP encodée en JSON ou un mauvais <code class="ps-ic">Content-Type</code>. perf-sentinel n'accepte que <code class="ps-ic">application/x-protobuf</code>.</li>
-<li><code class="ps-ic">Report.warning_details</code> surface une entrée <code class="ps-ic">ingestion_drops</code> dès que le compteur <code class="ps-ic">channel_full</code> est positif. Un consumer qui lit <code class="ps-ic">/api/export/report</code> sans scraper Prometheus voit quand même le signal :</li>
 </ul>
-<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://daemon:4318/api/export/report | jq '.warning_details'    </code>``</p>
-<ol>
+<li><code class="ps-ic">Report.warning_details</code> surface une entrée <code class="ps-ic">ingestion_drops</code> dès que le compteur <code class="ps-ic">channel_full</code> est positif. Un consumer qui lit <code class="ps-ic">/api/export/report</code> sans scraper Prometheus voit quand même le signal :<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://daemon:4318/api/export/report | jq <span style="color:var(--code-num)">'.warning_details'</span></code></pre></div></li>
 <li>Les réponses 413 (HTTP) et <code class="ps-ic">RESOURCE_EXHAUSTED</code> (gRPC) pour les payloads trop gros sont interceptées en amont par tower-http (<code class="ps-ic">RequestBodyLimitLayer</code>) et tonic (<code class="ps-ic">max_decoding_message_size</code>) avant que le handler applicatif ne tourne. Elles ne sont <strong>pas</strong> comptabilisées par <code class="ps-ic">perf_sentinel_otlp_rejected_total</code>. Vérifier les access logs du proxy ou de la gateway.</li>
 </ol>
 <p class="ps-p">Voir <a href="/docs/fr/METRICS">Métriques</a> pour le catalogue complet des reasons et le reste de la surface metrics.</p>
@@ -555,8 +543,8 @@
 <h3 id="kinds-et-cycle-de-vie" class="ps-h3">Kinds et cycle de vie</h3>
 <ul>
 <li><code class="ps-ic">cold_start</code> (<strong>transitoire</strong>) : le daemon n'a pas encore traité d'événements, renvoyé par <code class="ps-ic">GET /api/export/report</code> jusqu'au premier batch. Pré-0.5.16 ce signal était un statut 503, qui faisait échouer les probes Kubernetes. Attendre le premier tick d'éviction (par défaut 15s, moitié de <code class="ps-ic">trace_ttl_ms</code>). Si le warning persiste au-delà de 60-120 secondes en environnement déployé, vérifier que l'application émet réellement des traces OTLP et que l'adresse de listen est accessible. Le warning disparaît automatiquement au premier batch, aucune action opérateur n'est requise.</li>
-<li><code class="ps-ic">ingestion_drops</code> (<strong>collant</strong>) : au moins une requête OTLP a été rejetée depuis le démarrage à cause de la saturation du canal ou du garde-fou mémoire (une entrée de warning par cause, chaque message nomme sa cause et son count). Cross-checker avec <code class="ps-ic">perf_sentinel_otlp_rejected_total{reason="channel_full"}</code> ou <code class="ps-ic">{reason="memory_pressure"}</code> pour la même valeur, puis envisager d'augmenter l'allocation CPU du daemon ou `[daemon] max_active_traces` pour la saturation, ou la limite mémoire du conteneur pour la pression mémoire. Le warning persiste jusqu'au redémarrage du daemon même après que la backpressure soit retombée, le compteur sous-jacent est cumulatif depuis le démarrage du process.</li>
-<li><code class="ps-ic">tuning</code> (<strong>mixte</strong>, depuis 0.8.7) : le conseiller de réglages du daemon. Chaque entrée nomme un réglage de config dont la valeur actuelle paraît sous-dimensionnée pour la charge observée, avec l'ajustement suggéré dans le message (par exemple "raise `[daemon] analysis_queue_capacity` (currently 1024) or give the daemon more CPU"). Les hints pilotés par compteurs (sheds de la file d'analyse, rejets d'ingestion, débordement du plafond de services, évictions de paires de corrélation, rétention nulle de spans analysables) sont collants comme <code class="ps-ic">ingestion_drops</code>. Le hint de fenêtre de traces lit la gauge <code class="ps-ic">active_traces</code> en direct contre <code class="ps-ic">[daemon] max_active_traces</code>, il s'efface donc de lui-même quand la charge retombe. La table complète des règles est dans <a href="/docs/fr/METRICS">Métriques</a>. Appliquer la suggestion, redémarrer le daemon, puis confirmer que le hint ne revient pas sous la même charge.</li>
+<li><code class="ps-ic">ingestion_drops</code> (<strong>collant</strong>) : au moins une requête OTLP a été rejetée depuis le démarrage à cause de la saturation du canal ou du garde-fou mémoire (une entrée de warning par cause, chaque message nomme sa cause et son count). Cross-checker avec <code class="ps-ic">perf_sentinel_otlp_rejected_total{reason="channel_full"}</code> ou <code class="ps-ic">{reason="memory_pressure"}</code> pour la même valeur, puis envisager d'augmenter l'allocation CPU du daemon ou <code class="ps-ic">[daemon] max_active_traces</code> pour la saturation, ou la limite mémoire du conteneur pour la pression mémoire. Le warning persiste jusqu'au redémarrage du daemon même après que la backpressure soit retombée, le compteur sous-jacent est cumulatif depuis le démarrage du process.</li>
+<li><code class="ps-ic">tuning</code> (<strong>mixte</strong>, depuis 0.8.7) : le conseiller de réglages du daemon. Chaque entrée nomme un réglage de config dont la valeur actuelle paraît sous-dimensionnée pour la charge observée, avec l'ajustement suggéré dans le message (par exemple "raise <code class="ps-ic">[daemon] analysis_queue_capacity</code> (currently 1024) or give the daemon more CPU"). Les hints pilotés par compteurs (sheds de la file d'analyse, rejets d'ingestion, débordement du plafond de services, évictions de paires de corrélation, rétention nulle de spans analysables) sont collants comme <code class="ps-ic">ingestion_drops</code>. Le hint de fenêtre de traces lit la gauge <code class="ps-ic">active_traces</code> en direct contre <code class="ps-ic">[daemon] max_active_traces</code>, il s'efface donc de lui-même quand la charge retombe. La table complète des règles est dans <a href="/docs/fr/METRICS">Métriques</a>. Appliquer la suggestion, redémarrer le daemon, puis confirmer que le hint ne revient pas sous la même charge.</li>
 </ul>
 <p class="ps-p">Le champ legacy <code class="ps-ic">Report.warnings: Vec&lt;String&gt;</code> (0.5.16+) reste émis pour la backward compat. Les renderers CLI et HTML préfèrent <code class="ps-ic">warning_details</code> quand non vide, fallback sur <code class="ps-ic">warnings</code> sinon. Le dashboard HTML expose <code class="ps-ic">warning_details</code> dans le payload JSON embarqué (<code class="ps-ic">payload.report.warning_details</code>), un banner dédié dans l'UI dashboard est dans la roadmap.</p>
 <p class="ps-p">Quand on acquitte des findings via l'API ack du daemon (depuis 0.5.20), aucun kind de warning n'est affecté par les acks, ils reflètent l'état du daemon, pas la sortie de détection.</p>
