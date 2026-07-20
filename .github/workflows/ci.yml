@@ -70,12 +70,18 @@ jobs:
           # checkout behavior (github.ref) for push and pull_request.
           ref: ${{ inputs.ref || github.ref }}
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares (passing one makes it ignore the file). RUSTFLAGS is already
+      # set above, so `rustflags: ""` is inert here, kept for parity.
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: stable
           components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+          rustflags: ""
+          # Both restore the pre-migration behavior: this action defaults
+          # cache-on-failure to true and installs a problem matcher that would
+          # double-report the lints already uploaded as SARIF below.
+          cache-on-failure: false
+          matcher: false
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -156,23 +162,18 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: musl-smoke
+          rustflags: ""
+          cache-key: musl-smoke
+          cache-on-failure: false
 
       - name: Install musl-tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      # `rust-toolchain.toml` pins 1.97.1, which is auto-installed by rustup
-      # on the first cargo invocation. Passing `targets:` to the toolchain
-      # action would install the target on `stable` (a different version),
-      # leaving the pinned toolchain without musl support and causing
-      # `error[E0463]: can't find crate for core` at build time. Trigger
-      # the pinned toolchain install explicitly and add the target to it.
+      # The target must land on the toolchain `rust-toolchain.toml` pins
+      # (1.97.1), otherwise the build fails with `error[E0463]: can't find
+      # crate for core`. `rustup target add` applies to the active toolchain.
       - name: Add musl target to the pinned toolchain
         run: |
           cargo --version
@@ -232,13 +233,11 @@ jobs:
       - name: Install build toolchain
         run: apt-get update && apt-get install -y --no-install-recommends build-essential perl
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: browser-tests
+          rustflags: ""
+          cache-key: browser-tests
+          cache-on-failure: false
 
       - name: Build release binary
         run: cargo build --release --bin perf-sentinel

@@ -110,7 +110,7 @@ updates:
     open-pull-requests-limit: 5
     groups:
       ci-actions:
-        patterns: ["actions/*", "dtolnay/*", "Swatinem/*", "taiki-e/*", "actions-rust-lang/*"]
+        patterns: ["actions/*", "taiki-e/*", "actions-rust-lang/*"]
       docker-actions:
         patterns: ["docker/*"]
       security-actions:

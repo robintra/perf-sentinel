@@ -48,13 +48,15 @@ jobs:
           python3 scripts/refresh-carbon-data.py 2>&1 | tee "$RUNNER_TEMP/diff.md"
           python3 scripts/refresh-instance-power.py 2>&1 | tee -a "$RUNNER_TEMP/diff.md"
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares (passing one makes it ignore the file). Empty rustflags keeps
+      # its RUSTFLAGS=-D warnings default from applying.
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         if: steps.guard.outputs.skip != 'true'
         with:
-          toolchain: stable
           components: rustfmt
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        if: steps.guard.outputs.skip != 'true'
+          rustflags: ""
+          cache-on-failure: false
 
       # The generators emit plain rows; rustfmt owns the final layout
       # (it aligns trailing comments). Must run before change detection

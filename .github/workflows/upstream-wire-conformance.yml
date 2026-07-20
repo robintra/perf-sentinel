@@ -68,13 +68,16 @@ jobs:
         if: steps.checkout-2.outcome == 'failure'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares. Empty rustflags keeps its RUSTFLAGS=-D warnings default off.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1.17.0
         with:
-          shared-key: upstream-wire-conformance
+          rustflags: ""
+          cache-shared-key: upstream-wire-conformance
+          # Four jobs share this key, and this action defaults cache-on-failure
+          # to true, so one failing job would overwrite the cache for all four.
+          cache-on-failure: false
 
       - name: Build perf-sentinel
         run: cargo build --release -p perf-sentinel
@@ -379,13 +382,16 @@ jobs:
         if: steps.checkout-2.outcome == 'failure'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares. Empty rustflags keeps its RUSTFLAGS=-D warnings default off.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1.17.0
         with:
-          shared-key: upstream-wire-conformance
+          rustflags: ""
+          cache-shared-key: upstream-wire-conformance
+          # Four jobs share this key, and this action defaults cache-on-failure
+          # to true, so one failing job would overwrite the cache for all four.
+          cache-on-failure: false
 
       - name: Build perf-sentinel
         run: cargo build --release -p perf-sentinel
@@ -581,13 +587,16 @@ jobs:
         if: steps.checkout-2.outcome == 'failure'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares. Empty rustflags keeps its RUSTFLAGS=-D warnings default off.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1.17.0
         with:
-          shared-key: upstream-wire-conformance
+          rustflags: ""
+          cache-shared-key: upstream-wire-conformance
+          # Four jobs share this key, and this action defaults cache-on-failure
+          # to true, so one failing job would overwrite the cache for all four.
+          cache-on-failure: false
 
       - name: Build perf-sentinel
         run: cargo build --release -p perf-sentinel
@@ -908,13 +917,16 @@ jobs:
         if: steps.checkout-2.outcome == 'failure'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares. Empty rustflags keeps its RUSTFLAGS=-D warnings default off.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1.17.0
         with:
-          shared-key: upstream-wire-conformance
+          rustflags: ""
+          cache-shared-key: upstream-wire-conformance
+          # Four jobs share this key, and this action defaults cache-on-failure
+          # to true, so one failing job would overwrite the cache for all four.
+          cache-on-failure: false
 
       - name: Build perf-sentinel
         run: cargo build --release -p perf-sentinel

@@ -27,12 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      # No `toolchain:` input so the action installs what `rust-toolchain.toml`
+      # declares (passing one makes it ignore the file). Empty rustflags keeps
+      # its RUSTFLAGS=-D warnings default from applying.
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: stable
           components: clippy
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+          rustflags: ""
+          # Both restore the pre-migration behavior: this action defaults
+          # cache-on-failure to true and installs a problem matcher that would
+          # double-report the lints already uploaded as SARIF below.
+          cache-on-failure: false
+          matcher: false
 
       - name: Install clippy-sarif and sarif-fmt
         uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
