@@ -137,6 +137,12 @@ jobs:
 
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
+        # The 40-hex value below is the action's git SHA pin (Dependabot-managed),
+        # not a credential. The real secret, SONAR_TOKEN, comes from secrets. The
+        # SAST "SonarQube Docs API key" hit is a false positive on the SHA pin.
+        # Standalone suppression on the line above the match so the Dependabot
+        # version comment stays clean and the marker survives the next bump.
+        # nosemgrep: generic.secrets.security.detected-sonarqube-docs-api-key
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
