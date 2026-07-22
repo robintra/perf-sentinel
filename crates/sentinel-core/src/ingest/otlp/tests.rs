@@ -891,6 +891,35 @@ fn parent_span_url_full_used_when_neither_route_nor_url_present() {
 }
 
 #[test]
+fn parent_url_query_string_and_userinfo_stripped_from_source_endpoint() {
+    // When the parent carries a raw URL (no http.route), the query string can
+    // hold a secret. The ingest-boundary sanitizer must drop query + userinfo
+    // before the value lands in source_endpoint (API, archive, ack signature).
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "HandleRequest".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv(
+            "http.url",
+            "https://user:pass@order-svc/oauth/callback?code=SECRET",
+        )],
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("order-svc", vec![parent, child]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql child event present");
+    assert_eq!(sql.source.endpoint, "https://order-svc/oauth/callback");
+}
+
+#[test]
 fn missing_parent_falls_back() {
     let child = make_sql_span(
         &[1; 16],
