@@ -100,6 +100,36 @@ release bumps the two in lockstep, so a pinned `--version` already gives
 you a known `appVersion`. Override `image.tag` only to run a specific
 daemon build against a different chart.
 
+### Use as a subchart or from Argo CD
+
+`oci://ghcr.io/robintra/charts/perf-sentinel` is the full chart URL, the
+form `helm install` takes. A `dependencies:` entry wants the parent
+namespace instead, because Helm appends `name` to `repository`:
+
+```yaml
+dependencies:
+  - name: perf-sentinel
+    version: 0.9.14
+    repository: oci://ghcr.io/robintra/charts   # namespace, not the chart URL
+```
+
+Same split for an Argo CD `Application`: `repoURL: ghcr.io/robintra/charts`
+plus `chart: perf-sentinel`.
+
+Repeating the chart name in `repository` resolves to
+`charts/perf-sentinel/perf-sentinel`, which does not exist. ghcr.io
+answers `403 denied` rather than `404` for a missing path when
+unauthenticated, so the failure reads like a private-registry problem
+when it is a path problem. To confirm the artifact is public, pull an
+anonymous token and fetch the manifest:
+
+```bash
+token=$(curl -s "https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&service=ghcr.io" | jq -r .token)
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
+  -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.14
+```
+
 ## Artifact Hub
 
 The chart is indexed on [Artifact Hub](https://artifacthub.io), where
