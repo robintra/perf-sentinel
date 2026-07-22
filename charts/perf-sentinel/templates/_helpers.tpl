@@ -114,6 +114,7 @@ within the DNS-1123 label limit even for long release names.
 {{- printf "%s-config" (include "perf-sentinel.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+
 {{/*
 helm test Pod name. Same 63-char guard as the ConfigMap.
 */}}
