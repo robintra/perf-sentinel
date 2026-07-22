@@ -5,8 +5,31 @@ use std::collections::HashMap;
 use super::apply::{apply_chassis_scrape, build_chassis_services};
 use super::config::RedfishSchema;
 use super::parser::{ParseOutcome, parse_redfish_power};
-use super::scraper::{ScraperError, scraper_error_reason};
+use super::scraper::{ScraperError, credentials_travel_cleartext, scraper_error_reason};
 use super::state::ServiceEnergy;
+
+// --- cleartext credential detection ----------------------------------
+
+fn chassis(url: &str) -> (String, hyper::Uri, RedfishSchema) {
+    (
+        "c0".to_string(),
+        url.parse().unwrap(),
+        RedfishSchema::LegacyPower,
+    )
+}
+
+#[test]
+fn cleartext_detected_only_with_auth_and_http_uri() {
+    let http = [chassis("http://bmc.local/redfish/v1")];
+    let https = [chassis("https://bmc.local/redfish/v1")];
+
+    // Auth + http:// = credentials in cleartext.
+    assert!(credentials_travel_cleartext(true, &http));
+    // Auth + https:// = safe.
+    assert!(!credentials_travel_cleartext(true, &https));
+    // No auth = nothing to leak, even over http://.
+    assert!(!credentials_travel_cleartext(false, &http));
+}
 
 // --- attribution tests -----------------------------------------------
 
