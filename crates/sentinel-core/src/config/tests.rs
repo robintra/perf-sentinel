@@ -1634,6 +1634,47 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
     assert!(msg.contains("hourly_profiles_file") || msg.contains("failed to load"));
 }
 
+// --- ack api_key env: indirection ---
+
+#[test]
+fn resolve_ack_api_key_env_overrides_config() {
+    use crate::config::raw::resolve_ack_api_key;
+    // Env var takes precedence, trailing newline trimmed.
+    assert_eq!(
+        resolve_ack_api_key(Some("cfg".to_string()), || Some("from-env\n".to_string())),
+        Some("from-env".to_string())
+    );
+    // No env var: config value, trimmed. A literal "env:..." stays literal.
+    assert_eq!(
+        resolve_ack_api_key(Some(" env:PRODUCTION ".to_string()), || None),
+        Some("env:PRODUCTION".to_string())
+    );
+    // Env var set but empty resolves to empty (validation rejects it).
+    assert_eq!(
+        resolve_ack_api_key(None, || Some("  ".to_string())),
+        Some(String::new())
+    );
+    // Neither configured: no key.
+    assert_eq!(resolve_ack_api_key(None, || None), None);
+}
+
+#[test]
+fn unresolved_env_ack_key_fails_validation() {
+    // An env: indirection whose var is unset resolves to empty and must fail
+    // config load, not run with auth silently off.
+    let cfg = Config {
+        daemon: DaemonConfig {
+            ack: crate::config::DaemonAckConfig {
+                api_key: Some(String::new()),
+                ..crate::config::DaemonAckConfig::default()
+            },
+            ..DaemonConfig::default()
+        },
+        ..Config::default()
+    };
+    assert!(cfg.validate().is_err());
+}
+
 // --- convert_electricity_maps_section branches ---
 
 use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};

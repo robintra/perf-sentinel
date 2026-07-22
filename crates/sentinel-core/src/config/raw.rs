@@ -495,7 +495,9 @@ impl From<RawConfig> for Config {
                 ack: DaemonAckConfig {
                     enabled: raw.daemon.ack.enabled.unwrap_or(ack_defaults.enabled),
                     storage_path: raw.daemon.ack.storage_path,
-                    api_key: raw.daemon.ack.api_key,
+                    api_key: resolve_ack_api_key(raw.daemon.ack.api_key, || {
+                        std::env::var("PERF_SENTINEL_ACK_API_KEY").ok()
+                    }),
                     toml_path: raw.daemon.ack.toml_path,
                 },
                 cors: DaemonCorsConfig {
@@ -994,4 +996,23 @@ pub(super) fn convert_electricity_maps_section_with_env(
         emission_factor_type,
         temporal_granularity,
     })
+}
+
+/// Resolve an `env:VAR` indirection on the daemon ack `api_key`.
+///
+/// A plain string passes through; `env:VAR` is replaced by the named env
+/// var's value, or `None` when it is unset (fail-closed: the auth gate then
+/// refuses a non-loopback bind). Lets operators feed the key from a
+/// Kubernetes Secret instead of the committed config. The env lookup is a
+/// closure so tests avoid mutating the global process env.
+pub(super) fn resolve_ack_api_key(
+    config_value: Option<String>,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    // `PERF_SENTINEL_ACK_API_KEY` overrides the config value (same convention as
+    // `PERF_SENTINEL_EMAPS_TOKEN`), so the key can come from a Secret, not the
+    // committed config. Trimmed for trailing-newline Secrets; a set-but-empty
+    // var stays `Some("")` so validate rejects a mounted-but-empty Secret. The
+    // closure keeps the env lookup out of the global process env in tests.
+    env_lookup().or(config_value).map(|s| s.trim().to_string())
 }

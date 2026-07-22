@@ -249,7 +249,7 @@ impl Config {
     /// and must be emitted exactly once, at load time, to avoid making
     /// an operator believe the daemon validates the same config twice.
     pub fn warn_listen_addr_if_non_loopback(&self) {
-        if self.daemon.listen_addr != "127.0.0.1" && self.daemon.listen_addr != "::1" {
+        if !self.daemon_is_loopback() {
             tracing::warn!(
                 "Daemon configured to listen on non-loopback address: {}. \
                  Endpoints have no authentication, use a reverse proxy or \
@@ -257,6 +257,19 @@ impl Config {
                 self.daemon.listen_addr
             );
         }
+    }
+
+    fn daemon_is_loopback(&self) -> bool {
+        // Parse the whole 127.0.0.0/8 and ::1 range, not just the two canonical
+        // spellings, so the advisory does not fire on 127.0.0.2. Strip IPv6
+        // brackets first ("[::1]" is the spelling the listeners bind). A non-IP
+        // host (e.g. "localhost") counts as non-loopback.
+        self.daemon
+            .listen_addr
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
     }
 
     /// Validate `[reporting]` settings. Rejects unknown intent /
