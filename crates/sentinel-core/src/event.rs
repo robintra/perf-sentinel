@@ -87,6 +87,40 @@ pub(crate) fn truncate_field(s: &mut String, max_len: usize) {
     s.truncate(end);
 }
 
+/// Strip URL query string, fragment, and userinfo from an endpoint in place.
+///
+/// `source.endpoint` falls back to the raw request URL when `http.route` is
+/// absent, so a `?token=...`, `#...`, or `user:pass@` can carry a secret into
+/// stored findings, the query API, the NDJSON archive, and the ack signature.
+/// Drop them at the ingestion boundary. Route templates and query-less URLs
+/// (the common case) are left untouched.
+fn strip_endpoint_secrets(endpoint: &mut String) {
+    // Drop query/fragment first, so a '?', '#', '://' or '@' living inside them
+    // cannot be mistaken for authority structure below.
+    if let Some(cut) = endpoint.find(['?', '#']) {
+        endpoint.truncate(cut);
+    }
+    // Authority begins after a scheme `://` (only when that `://` precedes the
+    // first path '/'), after a leading `//`, or at 0 for a scheme-less
+    // `user:pass@host`. Strip its userinfo up to the last '@' before the path.
+    let authority_start = if endpoint.starts_with("//") {
+        2
+    } else if let Some(i) = endpoint
+        .find("://")
+        .filter(|&i| !endpoint[..i].contains('/'))
+    {
+        i + 3
+    } else {
+        0
+    };
+    let authority_end = endpoint[authority_start..]
+        .find('/')
+        .map_or(endpoint.len(), |i| authority_start + i);
+    if let Some(at) = endpoint[authority_start..authority_end].rfind('@') {
+        endpoint.replace_range(authority_start..=authority_start + at, "");
+    }
+}
+
 /// Drop the field if it contains any ASCII control character, otherwise truncate.
 ///
 /// Mirrors the silent-drop posture used for `cloud.region` invalid values.
@@ -167,6 +201,7 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
+    strip_endpoint_secrets(&mut event.source.endpoint);
     truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
     truncate_field(&mut event.source.method, MAX_SOURCE_LENGTH);
     sanitize_optional_arc_str(&mut event.code_function, MAX_CODE_FUNCTION_LENGTH);
@@ -583,6 +618,38 @@ mod tests {
         let mut event = make_event_with_field("method", &"x".repeat(1000));
         sanitize_span_event(&mut event);
         assert!(event.source.method.len() <= MAX_SOURCE_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_strips_endpoint_query_and_userinfo() {
+        for (raw, expected) in [
+            (
+                "https://svc/api/users?token=SECRET",
+                "https://svc/api/users",
+            ),
+            ("http://user:pass@host/cb?code=abc#frag", "http://host/cb"),
+            ("/api/reset?token=SECRET", "/api/reset"),
+            // '@' or '://' in the query is not userinfo (path-less URLs).
+            ("http://svc?filter=a@b&token=SECRET", "http://svc"),
+            ("http://host?a=x@y", "http://host"),
+            ("//user:tok@bmc/cb?redirect=https://app", "//bmc/cb"),
+            ("user:pass@host/cb?next=https://x", "host/cb"),
+            // Scheme-less and protocol-relative userinfo still stripped.
+            ("user:pass@host/path", "host/path"),
+            ("//svc-user:tok@order-svc/cb", "//order-svc/cb"),
+            // '@' outside an authority (path) is not userinfo.
+            ("/users/a@b.example/orders", "/users/a@b.example/orders"),
+            // Common cases: route templates and query-less URLs are untouched.
+            ("POST /api/orders/{id}", "POST /api/orders/{id}"),
+            (
+                "http://order-svc/api/orders/42",
+                "http://order-svc/api/orders/42",
+            ),
+        ] {
+            let mut event = make_event_with_field("endpoint", raw);
+            sanitize_span_event(&mut event);
+            assert_eq!(event.source.endpoint, expected, "input: {raw}");
+        }
     }
 
     #[test]
