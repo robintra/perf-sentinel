@@ -25,7 +25,7 @@ use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{self, DetectConfig};
 use crate::explain;
 use crate::report::metrics::{AckFailureReason, MetricsState};
-use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+use crate::report::{Analysis, GreenSummary, Report};
 
 /// Upper bound for `?limit=` on `/api/findings`, caps response size
 /// under the loopback API. Exposed `pub` so the CLI can reuse it for
@@ -94,6 +94,10 @@ pub struct QueryApiState {
     /// config), read by the tuning advisor so its hints can name the
     /// current value of each knob.
     pub daemon_config: crate::config::DaemonConfig,
+    /// Quality-gate thresholds, frozen at startup. `/api/export/report`
+    /// evaluates the live gate against these so the exported
+    /// `quality_gate` mirrors the batch pipeline instead of a hardcoded pass.
+    pub thresholds: crate::config::ThresholdsConfig,
     /// Which measured-energy backends are configured, frozen at startup.
     /// Lets `/api/energy` report `configured` truthfully instead of
     /// inferring it from zero-valued metrics (the gauges are
@@ -641,11 +645,8 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
                 traces_analyzed: 0,
             },
             findings: Vec::new(),
+            quality_gate: crate::quality_gate::evaluate(&[], &green_summary, &state.thresholds),
             green_summary,
-            quality_gate: QualityGate {
-                passed: true,
-                rules: Vec::new(),
-            },
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
             warnings: vec!["daemon has not yet processed any events".to_string()],
@@ -696,10 +697,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     green_summary
         .scoring_config
         .clone_from(&state.scoring_config);
-    let quality_gate = QualityGate {
-        passed: true,
-        rules: vec![],
-    };
+    let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, &state.thresholds);
 
     // usize::try_from guards 32-bit targets where a 5-billion-event
     // counter would overflow a usize. On 64-bit the fallback branch is
@@ -907,13 +905,24 @@ async fn handle_unack(
     }
 }
 
-async fn handle_list_acks(State(state): State<Arc<QueryApiState>>) -> Json<Vec<AckEntry>> {
+async fn handle_list_acks(
+    State(state): State<Arc<QueryApiState>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AckEntry>>, ErrorResponse> {
+    // Gate reads with the same key as the ack write handlers. The ack audit
+    // trail exposes reviewer identities, reasons, and finding signatures, so
+    // when a key is configured it must govern this endpoint too, not just
+    // POST/DELETE. Auth-only (not `check_ack_preconditions`): a disabled
+    // store still returns an empty list rather than 503. No metric is recorded
+    // on failure: a read denial is not an ack mutation, and AckAction has no
+    // List variant to record it under without polluting the write counter.
+    check_ack_auth(&headers, state.ack_api_key.as_deref())?;
     let mut all = match &state.ack_store {
         Some(s) => s.list_active().await,
         None => Vec::new(),
     };
     all.truncate(MAX_ACKS_RESPONSE);
-    Json(all)
+    Ok(Json(all))
 }
 
 /// Resolve the audit `by` field: `X-User-Id` header (priority), JSON

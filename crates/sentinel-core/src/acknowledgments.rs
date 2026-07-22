@@ -244,7 +244,8 @@ pub fn apply_to_report(
         report.findings = kept;
     }
 
-    report.quality_gate = quality_gate::evaluate(&report.findings, &report.green_summary, config);
+    report.quality_gate =
+        quality_gate::evaluate(&report.findings, &report.green_summary, &config.thresholds);
 }
 
 pub(crate) fn is_ack_active(ack: &Acknowledgment, now: DateTime<Utc>) -> bool {
@@ -676,7 +677,8 @@ expires_at = "not-a-date"
         enrich_with_signatures(&mut findings);
         let target_sig = findings[0].signature.clone();
         let config = Config::default();
-        let pre_gate = quality_gate::evaluate(&findings, &GreenSummary::disabled(0), &config);
+        let pre_gate =
+            quality_gate::evaluate(&findings, &GreenSummary::disabled(0), &config.thresholds);
         assert!(!pre_gate.passed, "baseline gate must fail before ack");
 
         let mut report = empty_report(findings);

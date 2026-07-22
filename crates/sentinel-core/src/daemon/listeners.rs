@@ -365,6 +365,7 @@ fn build_http_router(
             toml_acks,
             ack_api_key: config.daemon.ack.api_key.clone(),
             daemon_config: config.daemon.clone(),
+            thresholds: config.thresholds.clone(),
             energy_backends: query_api::EnergyBackendsConfigured {
                 alumet: config.green.alumet.is_some(),
                 scaphandre: config.green.scaphandre.is_some(),
