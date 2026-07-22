@@ -723,6 +723,12 @@ enum Commands {
         /// signature verification is skipped.
         #[arg(long, value_name = "PATH")]
         bundle: Option<PathBuf>,
+        /// Path to the perf-sentinel binary whose SLSA build provenance to
+        /// verify via `gh attestation verify` (requires the `gh` CLI and
+        /// network access). When omitted, binary attestation metadata is
+        /// reported but not verified, and the report cannot reach TRUSTED.
+        #[arg(long, value_name = "PATH")]
+        verify_binary: Option<PathBuf>,
         /// Output format. Defaults to human-readable text.
         #[arg(long, value_enum, default_value = "text")]
         format: verify_hash::VerifyHashFormat,
@@ -1336,6 +1342,7 @@ async fn dispatch_command(command: Commands) {
             url,
             attestation,
             bundle,
+            verify_binary,
             format,
             expected_identity,
             expected_issuer,
@@ -1351,6 +1358,7 @@ async fn dispatch_command(command: Commands) {
                 url.as_deref(),
                 attestation.as_deref(),
                 bundle.as_deref(),
+                verify_binary.as_deref(),
                 format,
                 &identity,
             );
