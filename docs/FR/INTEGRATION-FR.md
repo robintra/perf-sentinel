@@ -366,6 +366,8 @@ Par défaut, il écoute sur `127.0.0.1:4317` (gRPC) et `127.0.0.1:4318` (HTTP). 
 listen_address = "0.0.0.0"
 ```
 
+Un bind non-loopback logue un avertissement au démarrage : les endpoints n'ont pas d'auth applicative, mettez donc un reverse-proxy ou une network policy en frontal, ou posez `[daemon.ack] api_key` pour garder les écritures d'ack (voir `docs/FR/CONFIGURATION-FR.md`).
+
 ### Étape 2 : Instrumenter votre service
 
 Définissez l'endpoint OTLP dans votre service (voir les [guides par langage](./INSTRUMENTATION-FR.md#devstaging--instrumentation-par-langage) ci-dessous) :

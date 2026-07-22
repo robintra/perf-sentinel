@@ -380,12 +380,11 @@ extraEnvFrom:
       name: perf-sentinel-secrets
 ```
 
-perf-sentinel itself does not read environment variables for
-configuration directly, so the pattern is: the Secret goes into the pod
-env, and the config file references it via `env:VAR_NAME` for the
-handful of fields that support that form (Electricity Maps `api_key`,
-etc.). See the "Environment variables" section of
-`docs/CONFIGURATION.md`.
+Secret-backed config values follow one pattern: the Secret goes into the
+pod env, and a dedicated environment variable overrides the matching config
+field when set (`PERF_SENTINEL_EMAPS_TOKEN` for Electricity Maps,
+`PERF_SENTINEL_ACK_API_KEY` for the ack key, and the scraper auth headers).
+See the "Environment variables" section of `docs/CONFIGURATION.md`.
 
 ### Calibration files and TLS certs
 
@@ -418,29 +417,35 @@ posture of `/api/findings`, but they mutate state, so the deployment
 shape needs three operator decisions when the chart is rolled out on a
 non-loopback `listen_address`.
 
-**Authenticate writes when the daemon is bound to the pod network.**
-The chart's example `values.yaml` snippets above use
-`listen_address = "0.0.0.0"` for cluster-wide reachability. Without
-mTLS in front, set `[daemon.ack] api_key` to a 16+ character secret
-fed by a Kubernetes Secret so the new `POST` and `DELETE` verbs are
-not exposed:
+**Who may acknowledge findings.** The chart binds `0.0.0.0` so the Service
+can route to the pod and keeps the ack store on so acks (and the committed
+TOML acks the daemon loads with them) work. By default the daemon has no
+app-layer auth (a non-loopback bind just logs a startup advisory): it expects
+to run inside a non-exposed cluster network, where the Service and
+NetworkPolicy are the boundary. Choose one of two ways to restrict who may
+ack:
+
+*Per-group (the faithful answer: only your architects / SRE, with a real
+audit `by`).* perf-sentinel has no embedded IAM, so per-identity control
+lives in a fronting SSO proxy. Deploy the oauth2-proxy + nginx setup in
+[`docs/QUERY-API.md`](./QUERY-API.md#oauth2-proxy--nginx), which authorizes
+ack writes by SSO group, and add a `networkPolicy` peer selector so only the
+proxy reaches the daemon. Reads (`GET /api/findings`) stay open by design.
+
+*Coarse shared key (anyone holding the key may ack).* Create a Kubernetes
+Secret whose `PERF_SENTINEL_ACK_API_KEY` entry is your key and expose it via
+`extraEnvFrom`:
 
 ```yaml
 extraEnvFrom:
   - secretRef:
-      name: perf-sentinel-secrets
-
-config:
-  toml: |
-    [daemon]
-    listen_address = "0.0.0.0"
-    [daemon.ack]
-    api_key = "env:PERF_SENTINEL_ACK_API_KEY"
+      name: perf-sentinel-ack   # your Secret, key PERF_SENTINEL_ACK_API_KEY
 ```
 
-The daemon hard-rejects keys shorter than 12 characters at config
-load. Reads (`GET /api/findings`, `GET /api/acks`) stay
-unauthenticated by design, the API key only protects writes.
+The `PERF_SENTINEL_ACK_API_KEY` env var overrides the config `[daemon.ack]
+api_key`, so the key comes from the Secret, never the ConfigMap; a Secret
+mounted empty is rejected at config load. The key also gates `GET /api/acks`
+(the audit trail), not only the writes. The 16+ character floor still applies.
 
 **Persist acks across pod restarts.** Default storage path is
 `~/.local/share/perf-sentinel/acks.jsonl`, inside the pod filesystem,

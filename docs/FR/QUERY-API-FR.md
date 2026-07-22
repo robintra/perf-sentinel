@@ -22,25 +22,29 @@ surface produit de premier plan, avec un contrat de stabilité.
 
 ## Vue d'ensemble des endpoints
 
-| Méthode | Chemin                          | Rôle                                                                            |
-|---------|---------------------------------|---------------------------------------------------------------------------------|
-| GET     | `/api/status`                   | Liveness du daemon, version, uptime, compteurs en cours                         |
+| Méthode | Chemin                          | Rôle                                                                              |
+|---------|---------------------------------|-----------------------------------------------------------------------------------|
+| GET     | `/api/status`                   | Liveness du daemon, version, uptime, compteurs en cours                           |
 | GET     | `/api/config`                   | Configuration `[daemon]` effective, lecture seule, secrets résumés (depuis 0.8.8) |
-| GET     | `/api/energy`                   | Santé live des backends énergie/intensité (depuis 0.8.8)                       |
-| GET     | `/api/findings`                 | Findings récents depuis le ring buffer, avec filtres service, type et severity  |
-| GET     | `/api/findings/{trace_id}`      | Tous les findings d'une trace                                                   |
-| GET     | `/api/explain/{trace_id}`       | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne  |
-| GET     | `/api/correlations`             | Corrélations temporelles cross-trace actives                                    |
-| GET     | `/api/export/report`            | Snapshot de l'état live en JSON Report, pipe-compatible avec `report --input -` |
-| POST    | `/api/findings/{signature}/ack` | Acquitter un finding au runtime (depuis 0.5.20)                                 |
-| DELETE  | `/api/findings/{signature}/ack` | Révoquer un ack runtime                                                         |
-| GET     | `/api/acks`                     | Lister les acks runtime actifs                                                  |
+| GET     | `/api/energy`                   | Santé live des backends énergie/intensité (depuis 0.8.8)                          |
+| GET     | `/api/findings`                 | Findings récents depuis le ring buffer, avec filtres service, type et severity    |
+| GET     | `/api/findings/{trace_id}`      | Tous les findings d'une trace                                                     |
+| GET     | `/api/explain/{trace_id}`       | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne    |
+| GET     | `/api/correlations`             | Corrélations temporelles cross-trace actives                                      |
+| GET     | `/api/export/report`            | Snapshot de l'état live en JSON Report, pipe-compatible avec `report --input -`   |
+| POST    | `/api/findings/{signature}/ack` | Acquitter un finding au runtime (depuis 0.5.20)                                   |
+| DELETE  | `/api/findings/{signature}/ack` | Révoquer un ack runtime                                                           |
+| GET     | `/api/acks`                     | Lister les acks runtime actifs                                                    |
 
 Tous les endpoints retournent du `application/json`. Pas
 d'authentification intégrée. Le daemon écoute sur `127.0.0.1` par défaut
 (voir `[daemon] listen_address` dans `docs/FR/CONFIGURATION-FR.md`), donc
 l'API n'est joignable que depuis l'hôte qui exécute le daemon, sauf si
-vous élargissez explicitement l'adresse de bind. Pour laisser les devs
+vous élargissez explicitement l'adresse de bind. Élargir vers une adresse
+non-loopback logue un avertissement au démarrage (les endpoints n'ont pas
+d'auth applicative, le daemon attend donc un reverse-proxy ou une network
+policy en frontal, le modèle Kubernetes où le pod bind `0.0.0.0` derrière
+un Service et une NetworkPolicy). Pour laisser les devs
 lire les findings tout en réservant les écritures (acks) et l'export du
 rapport officiel aux architectes ou au DevOps, voir
 [Restreindre les écritures en production](#restreindre-les-écritures-en-production-reverse-proxy).
@@ -85,17 +89,24 @@ surface réseau implicite, pas d'IAM embarqué).
 
 La règle appliquée par le proxy :
 
-| Chemin                                                                               | GET                          | POST / DELETE                |
-|--------------------------------------------------------------------------------------|------------------------------|------------------------------|
-| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`, `/api/acks` | tout utilisateur authentifié | sans objet                   |
-| `/api/findings/{signature}/ack`                                                      | sans objet                   | groupe privilégié uniquement |
-| `/api/export/report`                                                                 | groupe privilégié uniquement | sans objet                   |
+| Chemin                                                                                                  | GET                          | POST / DELETE                |
+|---------------------------------------------------------------------------------------------------------|------------------------------|------------------------------|
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`   | tout utilisateur authentifié | sans objet                   |
+| `/api/acks`                                                                                             | groupe privilégié uniquement | sans objet                   |
+| `/api/findings/{signature}/ack`                                                                         | sans objet                   | groupe privilégié uniquement |
+| `/api/export/report`                                                                                    | groupe privilégié uniquement | sans objet                   |
 
 `/api/export/report` est dans la colonne privilégiée parce qu'il
 matérialise le snapshot Report complet qui alimente le dashboard HTML
 officiel. Produire un rapport officiel est en soi une action
 privilégiée, voir [`docs/FR/REPORTING-FR.md`](./REPORTING-FR.md#restreindre-qui-peut-publier-un-rapport-officiel)
 pour le pendant côté CI (qui peut lancer `disclose --intent official`).
+
+`/api/acks` y figure car il expose la piste d'audit des acks (identités
+des relecteurs, raisons, signatures de findings). Il est aussi protégé
+par le daemon lui-même quand `[daemon.ack] api_key` est défini, donc un
+proxy en amont doit transmettre `X-API-Key` pour les utilisateurs
+authentifiés, sinon le daemon renvoie 401.
 
 ### oauth2-proxy + nginx
 
@@ -197,11 +208,14 @@ server {
   quelqu'un atteint le port du daemon en direct, en contournant le proxy,
   il ne peut toujours pas écrire sans la clé.
 - **Le daemon fait confiance à `X-User-Id`** pour le champ d'audit `by`.
-  Le bloc nginx le pose depuis la sous-requête authentifiée
-  (`$auth_user`) et écrase donc toute valeur fournie par le client, ce
-  qui ferme la faille de spoofing. L'identité authentifiée atterrit alors
-  dans le store JSONL d'acks, vous donnant une piste d'audit de qui a
-  acquitté quoi.
+  Il est auto-déclaré, ce n'est pas un principal authentifié : sans proxy,
+  n'importe quel appelant peut lui donner la valeur de son choix, traitez
+  donc `by` comme une étiquette indicative, pas comme un enregistrement
+  non-répudiable. Le bloc nginx le pose depuis la sous-requête
+  authentifiée (`$auth_user`) et écrase donc toute valeur fournie par le
+  client, ce qui ferme la faille de spoofing. L'identité authentifiée
+  atterrit alors dans le store JSONL d'acks, vous donnant une piste
+  d'audit de qui a acquitté quoi.
 - `perf-sentinel-admins` est illustratif. Utilisez le groupe que votre
   IdP expose dans le claim `groups`.
 
@@ -323,13 +337,13 @@ entrées dans un ordre fixe suivant la chaîne de précédence de l'énergie
 mesurée (`alumet`, `scaphandre`, `kepler`, `redfish`, `cloud_energy`,
 `electricity_maps`), chacune :
 
-| Champ                     | Type    | Description                                                                                                            |
-|---------------------------|---------|--------------------------------------------------------------------------------------------------------------------------|
-| `backend`                 | string  | Nom stable du backend                                                                                                  |
-| `configured`              | boolean | Si le backend est configuré, d'après la config `[green]` figée au démarrage du daemon                                  |
+| Champ                     | Type    | Description                                                                                                                                                                                      |
+|---------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `backend`                 | string  | Nom stable du backend                                                                                                                                                                            |
+| `configured`              | boolean | Si le backend est configuré, d'après la config `[green]` figée au démarrage du daemon                                                                                                            |
 | `last_scrape_age_seconds` | number  | Secondes depuis le dernier scrape réussi, à la date du dernier tick du scraper (mêmes sémantiques que la gauge `/metrics`). Omis si non configuré ou si le backend n'a pas de gauge de fraîcheur |
-| `scrapes_ok`              | number  | Scrapes réussis depuis le démarrage. Omis si non configuré ou non scrappé (`cloud_energy`, `electricity_maps`)          |
-| `scrapes_failed`          | number  | Scrapes échoués depuis le démarrage. Mêmes règles d'omission que `scrapes_ok`                                          |
+| `scrapes_ok`              | number  | Scrapes réussis depuis le démarrage. Omis si non configuré ou non scrappé (`cloud_energy`, `electricity_maps`)                                                                                   |
+| `scrapes_failed`          | number  | Scrapes échoués depuis le démarrage. Mêmes règles d'omission que `scrapes_ok`                                                                                                                    |
 
 Les champs optionnels sont omis plutôt que mis à zéro pour les backends
 non configurés : les gauges Prometheus sous-jacentes sont
@@ -758,9 +772,12 @@ fichier `.perf-sentinel-acknowledgments.toml` pour être supprimés.
 ### GET /api/acks
 
 Retourne le tableau des acks runtime actifs (post-replay, post-filtre
-d'expiration). Lecture seule, pas d'auth requise (les lectures sur une
-API loopback sont considérées sûres même quand le daemon impose une
-clé d'API en écriture).
+d'expiration). Lecture seule, mais protégée par la même clé que les
+écritures d'acks : quand `[daemon.ack] api_key` est défini, cet endpoint
+exige un en-tête `X-API-Key` correspondant et renvoie `401` sans lui. La
+piste d'audit des acks expose les identités des relecteurs, les raisons
+et les signatures de findings, donc la clé configurée gouverne aussi les
+lectures, pas seulement les `POST`/`DELETE`.
 
 **Réponse :** tableau d'objets, un par ack actif :
 
@@ -793,10 +810,10 @@ métadonnée TOML (`source: "toml"`). Cela garde la baseline CI
 immutable côté daemon, un SRE ne peut pas accidentellement override ce
 que l'équipe a validé en review PR.
 
-| Source | Persistance            | Audit              | Mutable au runtime |
-|--------|------------------------|--------------------|--------------------|
-| TOML   | Fichier du repo        | `git log`          | Non (PR-only)      |
-| Daemon | `acks.jsonl` sur disque | JSONL append + compaction | Oui (POST/DELETE) |
+| Source | Persistance             | Audit                     | Mutable au runtime |
+|--------|-------------------------|---------------------------|--------------------|
+| TOML   | Fichier du repo         | `git log`                 | Non (PR-only)      |
+| Daemon | `acks.jsonl` sur disque | JSONL append + compaction | Oui (POST/DELETE)  |
 
 ### Behavior change en 0.5.20 : filtre par défaut sur `/api/findings`
 
@@ -815,15 +832,15 @@ remonter les findings acquittés même dans le chemin par défaut.
 
 ## Réponses d'erreur
 
-| Condition                                         | Status | Corps                                                  |
-|---------------------------------------------------|--------|--------------------------------------------------------|
-| `trace_id` inconnu sur `/api/findings/{trace_id}` | 200    | `[]`                                                   |
-| `trace_id` inconnu sur `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`        |
-| Corrélations désactivées ou correlator inactif    | 200    | `[]`                                                   |
+| Condition                                         | Status | Corps                                                                                                   |
+|---------------------------------------------------|--------|---------------------------------------------------------------------------------------------------------|
+| `trace_id` inconnu sur `/api/findings/{trace_id}` | 200    | `[]`                                                                                                    |
+| `trace_id` inconnu sur `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`                                                         |
+| Corrélations désactivées ou correlator inactif    | 200    | `[]`                                                                                                    |
 | `/api/export/report` sur daemon cold-start        | 200    | enveloppe Report vide avec `warnings: ["daemon has not yet processed any events"]` (avant 0.5.16 : 503) |
-| Paramètre de requête malformé (ex. `limit=abc`)   | 400    | erreur en texte brut générée par axum           |
-| Chemin inconnu (ex. `/api/does-not-exist`)        | 404    | corps vide                                      |
-| Méthode autre que GET                             | 405    | erreur en texte brut générée par axum           |
+| Paramètre de requête malformé (ex. `limit=abc`)   | 400    | erreur en texte brut générée par axum                                                                   |
+| Chemin inconnu (ex. `/api/does-not-exist`)        | 404    | corps vide                                                                                              |
+| Méthode autre que GET                             | 405    | erreur en texte brut générée par axum                                                                   |
 
 L'API n'émet pas de 5xx en fonctionnement normal. Un crash du processus
 retourne ce que la pile TCP émet (connection reset).

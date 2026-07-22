@@ -271,7 +271,7 @@ Local development on your host machine.
 perf-sentinel watch
 ```
 
-Default bind is `127.0.0.1` on 4317 (gRPC) and 4318 (HTTP). For Docker containers to reach the host, set `[daemon] listen_address = "0.0.0.0"` in `.perf-sentinel.toml`.
+Default bind is `127.0.0.1` on 4317 (gRPC) and 4318 (HTTP). For Docker containers to reach the host, set `[daemon] listen_address = "0.0.0.0"` in `.perf-sentinel.toml`. A non-loopback bind logs a startup advisory: the endpoints have no app-layer auth, so front the daemon with a reverse proxy or network policy, or set `[daemon.ack] api_key` to gate ack writes (see `docs/CONFIGURATION.md`).
 
 App config:
 
