@@ -201,7 +201,7 @@ networkPolicy:
     # Example: `[ { matchLabels: { app.kubernetes.io/name: otel-collector } } ]`.
     fromPodSelectors: []
 
-# The full .perf-sentinel.toml content. Surfaced as a ConfigMap and mounted
+# The daemon config, rendered into a ConfigMap and mounted
 # read-only at /etc/perf-sentinel/.perf-sentinel.toml. Edits roll the pods
 # via a checksum/config annotation on the podTemplate.
 #
@@ -236,6 +236,19 @@ config:
     listen_port_grpc = 4317
     environment = "staging"
     api_enabled = true
+    # The daemon runs inside a non-exposed cluster network and has no embedded
+    # IAM (see docs/QUERY-API.md): access control is the Service and, when you
+    # want it, the NetworkPolicy. The ack store stays on so acks (and the
+    # committed TOML acks the daemon loads with them) work out of the box; a
+    # non-loopback bind just logs an advisory, it does not require a key.
+    #
+    # To restrict who may acknowledge findings:
+    #   - only-this-group (architects / SRE): front the API with an SSO proxy
+    #     that authorizes ack writes by group (docs/QUERY-API.md), and add a
+    #     networkPolicy peer selector so only the proxy reaches the daemon.
+    #   - coarse shared key: create a Secret whose PERF_SENTINEL_ACK_API_KEY
+    #     entry is your key and expose it via extraEnvFrom (it overrides the
+    #     config api_key). See docs/HELM-DEPLOYMENT.md.
     # Reject OTLP ingest when cgroup v2 memory crosses this percent of the
     # container limit, bounding RSS against OOM. 0 disables (default), 6 is the
     # minimum non-zero value (5-point hysteresis band). Set

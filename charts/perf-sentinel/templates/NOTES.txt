@@ -27,6 +27,11 @@ Point your OpenTelemetry Collector (or app) at the gRPC endpoint:
       tls:
         insecure: true
 
+Anyone who can reach this daemon can acknowledge findings (the default
+posture has no app-layer auth). To restrict acks to your architects / SRE,
+front the API with an SSO proxy or set an ack api_key, see
+docs/HELM-DEPLOYMENT.md ("Who may acknowledge findings").
+
 Full integration guide: docs/HELM-DEPLOYMENT.md
 {{- if and (ne .Values.workload.kind "DaemonSet") (gt (int .Values.workload.replicas) 1) }}
 
