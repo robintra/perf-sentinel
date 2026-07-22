@@ -315,7 +315,7 @@ extraEnvFrom:
       name: perf-sentinel-secrets
 ```
 
-perf-sentinel ne lit pas directement les variables d'environnement pour sa configuration. Le pattern est donc : le Secret entre dans l'environnement du pod, et le fichier de configuration référence les variables via `env:VAR_NAME` pour les quelques champs qui supportent cette forme (par exemple `api_key` pour Electricity Maps). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
+Les valeurs de config adossées à un Secret suivent un seul pattern : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY` pour la clé ack, et les en-têtes d'auth des scrapers). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
 
 ### Fichiers de calibration et certificats TLS
 
@@ -344,22 +344,15 @@ config:
 Le daemon 0.5.20 ajoute trois endpoints d'ack runtime
 (`POST` / `DELETE /api/findings/{signature}/ack` et `GET /api/acks`) sur le port existant de l'API de requêtage. Ils partagent la posture loopback par défaut de `/api/findings`, mais ils mutent l'état, donc trois décisions opérateur s'imposent quand le chart est déployé sur un `listen_address` non-loopback.
 
-**Authentifier les écritures quand le daemon est exposé sur le réseau du pod.** Les snippets `values.yaml` plus haut utilisent `listen_address = "0.0.0.0"` pour la joignabilité cluster-wide. Sans mTLS en frontal, configurez `[daemon.ack] api_key` avec un secret de 16+ caractères injecté par un Secret Kubernetes, sans quoi les nouveaux verbes `POST` et `DELETE` sont exposés :
+**Authentifier les écritures quand le daemon est exposé sur le réseau du pod.** Les snippets `values.yaml` plus haut utilisent `listen_address = "0.0.0.0"` pour la joignabilité cluster-wide. Sans mTLS en frontal, posez une clé ack de 16+ caractères via un Secret Kubernetes dont l'entrée `PERF_SENTINEL_ACK_API_KEY` est votre clé, exposé par `extraEnvFrom`, sans quoi les verbes `POST` et `DELETE` sont exposés :
 
 ```yaml
 extraEnvFrom:
   - secretRef:
-      name: perf-sentinel-secrets
-
-config:
-  toml: |
-    [daemon]
-    listen_address = "0.0.0.0"
-    [daemon.ack]
-    api_key = "env:PERF_SENTINEL_ACK_API_KEY"
+      name: perf-sentinel-secrets   # entrée PERF_SENTINEL_ACK_API_KEY
 ```
 
-Le daemon hard-rejette au config load les clés de moins de 12 caractères. Les lectures (`GET /api/findings`, `GET /api/acks`) restent non authentifiées par design, l'api_key ne protège que les écritures.
+La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais du ConfigMap ; un Secret monté vide est rejeté au config load. Le daemon hard-rejette aussi les clés de moins de 12 caractères. Quand une clé est définie, elle garde les écritures (`POST` / `DELETE`) **et** `GET /api/acks` (la piste d'audit) ; `GET /api/findings` reste non authentifié.
 
 **Faire survivre les acks aux redémarrages de pod.** Chemin de stockage par défaut : `~/.local/share/perf-sentinel/acks.jsonl`, dans le système de fichiers du pod, perdu au restart. Bascule en mode `StatefulSet` (cf. ci-dessus) et remappage de `[daemon.ack] storage_path` sur un mount PVC.
 

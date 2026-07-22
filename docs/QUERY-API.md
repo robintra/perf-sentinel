@@ -37,9 +37,12 @@ first-class product surface with a stability contract.
 All endpoints return `application/json`. No built-in authentication. The
 daemon listens on `127.0.0.1` by default (see `[daemon] listen_address`
 in `docs/CONFIGURATION.md`), so the API is reachable only from the host
-running the daemon unless you explicitly widen the bind address. To let
-developers read findings while reserving writes (acks) and the official
-report export to architects or DevOps, see
+running the daemon unless you explicitly widen the bind address. Widening
+it to a non-loopback address logs a startup advisory (the endpoints have
+no app-layer auth, so the daemon expects a reverse proxy or network policy
+in front, the Kubernetes model where the pod binds `0.0.0.0` behind a
+Service and NetworkPolicy). To let developers read findings while reserving
+writes (acks) and the official report export to architects or DevOps, see
 [Restricting writes in production](#restricting-writes-in-production-reverse-proxy).
 
 ### Deployment notes
@@ -81,17 +84,23 @@ embedded IAM).
 
 The rule the proxy enforces:
 
-| Path                                                                                 | GET                    | POST / DELETE         |
-|--------------------------------------------------------------------------------------|------------------------|-----------------------|
-| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`, `/api/acks` | any authenticated user | not applicable        |
-| `/api/findings/{signature}/ack`                                                      | not applicable         | privileged group only |
-| `/api/export/report`                                                                 | privileged group only  | not applicable        |
+| Path                                                                                                    | GET                    | POST / DELETE         |
+|---------------------------------------------------------------------------------------------------------|------------------------|-----------------------|
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`   | any authenticated user | not applicable        |
+| `/api/acks`                                                                                             | privileged group only  | not applicable        |
+| `/api/findings/{signature}/ack`                                                                         | not applicable         | privileged group only |
+| `/api/export/report`                                                                                    | privileged group only  | not applicable        |
 
 `/api/export/report` sits in the privileged column because it
 materializes the full report snapshot that feeds the official
 HTML dashboard. Producing an official report is itself a privileged
 action, see [`docs/REPORTING.md`](./REPORTING.md#restricting-who-can-publish-an-official-disclosure)
 for the CI-side counterpart (who may run `disclose --intent official`).
+
+`/api/acks` sits there because it exposes the ack audit trail (reviewer
+identities, reasons, finding signatures). It is also gated by the daemon
+itself when `[daemon.ack] api_key` is set, so a proxy in front must
+forward `X-API-Key` for authenticated users, or the daemon returns 401.
 
 ### oauth2-proxy + nginx
 
@@ -190,11 +199,14 @@ server {
 - **Keep `[daemon.ack] api_key` set** as a second factor. If someone
   reaches the daemon port directly, bypassing the proxy, they still
   cannot write without the key.
-- **The daemon trusts `X-User-Id`** for the audit `by` field. The nginx
-  block sets it from the authenticated subrequest (`$auth_user`) and so
-  overwrites any value a client supplies, which closes the spoofing gap.
-  The authenticated identity then lands in the JSONL ack store, giving
-  you an audit trail of who acked what.
+- **The daemon trusts `X-User-Id`** for the audit `by` field. It is
+  self-attested, not an authenticated principal: without a proxy, any
+  caller can set it to any value, so treat `by` as an advisory label
+  rather than a non-repudiable record. The nginx block sets it from the
+  authenticated subrequest (`$auth_user`) and so overwrites any value a
+  client supplies, which closes the spoofing gap. The authenticated
+  identity then lands in the JSONL ack store, giving you an audit trail
+  of who acked what.
 - `perf-sentinel-admins` is illustrative. Use whatever group your IdP
   exposes in the `groups` claim.
 
@@ -315,13 +327,13 @@ a fixed order following the measured-energy precedence chain (`alumet`,
 `scaphandre`, `kepler`, `redfish`, `cloud_energy`, `electricity_maps`),
 each:
 
-| Field                     | Type    | Description                                                                                                      |
-|---------------------------|---------|------------------------------------------------------------------------------------------------------------------|
-| `backend`                 | string  | Stable backend name                                                                                              |
-| `configured`              | boolean | Whether the backend is configured, from the `[green]` config frozen at daemon startup                            |
+| Field                     | Type    | Description                                                                                                                                                                                            |
+|---------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `backend`                 | string  | Stable backend name                                                                                                                                                                                    |
+| `configured`              | boolean | Whether the backend is configured, from the `[green]` config frozen at daemon startup                                                                                                                  |
 | `last_scrape_age_seconds` | number  | Seconds since the last successful scrape, as of the backend's most recent scrape tick (same semantics as the `/metrics` gauge). Omitted when not configured or when the backend has no freshness gauge |
-| `scrapes_ok`              | number  | Successful scrapes since daemon start. Omitted when not configured or not scraped (`cloud_energy`, `electricity_maps`) |
-| `scrapes_failed`          | number  | Failed scrapes since daemon start. Same omission rules as `scrapes_ok`                                           |
+| `scrapes_ok`              | number  | Successful scrapes since daemon start. Omitted when not configured or not scraped (`cloud_energy`, `electricity_maps`)                                                                                 |
+| `scrapes_failed`          | number  | Failed scrapes since daemon start. Same omission rules as `scrapes_ok`                                                                                                                                 |
 
 The optional fields are omitted rather than zeroed for unconfigured
 backends: the underlying Prometheus gauges are pre-registered at 0, and
@@ -741,8 +753,11 @@ read-only at runtime and require a PR against the
 ### GET /api/acks
 
 Returns the array of active runtime acks (post-replay, post-expiry
-filter). Read-only, no auth required (reads on a loopback API are
-considered safe even when the daemon enforces an API key on writes).
+filter). Read-only, but gated by the same key as the ack writes: when
+`[daemon.ack] api_key` is set, this endpoint requires a matching
+`X-API-Key` header and returns `401` without it. The ack audit trail
+exposes reviewer identities, reasons, and finding signatures, so the
+configured key governs reads too, not only `POST`/`DELETE`.
 
 **Response:** array of objects, one per active ack:
 
@@ -774,10 +789,10 @@ metadata (`source: "toml"`). This keeps the CI baseline immutable from
 the daemon side, an SRE cannot accidentally override what the team
 agreed to in PR review.
 
-| Source | Persistence            | Audit              | Mutable at runtime |
-|--------|------------------------|--------------------|--------------------|
-| TOML   | Repo file              | `git log`          | No (PR-only)       |
-| Daemon | `acks.jsonl` on disk   | JSONL append + compaction | Yes (POST/DELETE) |
+| Source | Persistence          | Audit                     | Mutable at runtime |
+|--------|----------------------|---------------------------|--------------------|
+| TOML   | Repo file            | `git log`                 | No (PR-only)       |
+| Daemon | `acks.jsonl` on disk | JSONL append + compaction | Yes (POST/DELETE)  |
 
 ### Behavior change in 0.5.20: `/api/findings` default filter
 
@@ -795,15 +810,15 @@ the default path.
 
 ## Error responses
 
-| Condition                                        | Status | Body                                                   |
-|--------------------------------------------------|--------|--------------------------------------------------------|
-| Unknown `trace_id` on `/api/findings/{trace_id}` | 200    | `[]`                                                   |
-| Unknown `trace_id` on `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`        |
-| Correlations disabled or correlator idle         | 200    | `[]`                                                   |
+| Condition                                        | Status | Body                                                                                                 |
+|--------------------------------------------------|--------|------------------------------------------------------------------------------------------------------|
+| Unknown `trace_id` on `/api/findings/{trace_id}` | 200    | `[]`                                                                                                 |
+| Unknown `trace_id` on `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`                                                      |
+| Correlations disabled or correlator idle         | 200    | `[]`                                                                                                 |
 | `/api/export/report` on cold-start daemon        | 200    | empty Report envelope with `warnings: ["daemon has not yet processed any events"]` (pre-0.5.16: 503) |
-| Malformed query parameter (e.g. `limit=abc`)     | 400    | axum-generated plain-text error                        |
-| Unknown path (e.g. `/api/does-not-exist`)        | 404    | empty body                                      |
-| Method other than GET                            | 405    | axum-generated plain-text error                 |
+| Malformed query parameter (e.g. `limit=abc`)     | 400    | axum-generated plain-text error                                                                      |
+| Unknown path (e.g. `/api/does-not-exist`)        | 404    | empty body                                                                                           |
+| Method other than GET                            | 405    | axum-generated plain-text error                                                                      |
 
 The API does not emit 5xx on normal operation. A process crash returns
 whatever the TCP stack emits (connection reset).

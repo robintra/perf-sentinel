@@ -535,7 +535,7 @@ Exit codes:
 
 | Code | Meaning                                                                                                                                          |
 |------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `0`  | TRUSTED (content hash matched AND signature verified ok)                                                                                         |
+| `0`  | TRUSTED (content hash matched AND signature verified ok, and binary attestation not left unverified when the report carries attestation metadata) |
 | `1`  | UNTRUSTED (a check returned a hard failure: hash mismatch, signature invalid, attestation invalid, identity mismatch)                            |
 | `2`  | PARTIAL (no hard failure but at least one check could not complete: cosign absent, `gh` CLI absent, signature metadata absent, sidecars missing) |
 | `3`  | INPUT_ERROR (report file unreadable, JSON invalid, missing `--report` or `--url`)                                                                |
@@ -545,6 +545,13 @@ A scripted `verify-hash && deploy` gate blocks on any non-zero code
 and so still rejects PARTIAL, but a wrapper that distinguishes
 PARTIAL (2) from UNTRUSTED (1) can tell a missing tool from a tamper
 attempt.
+
+When a report carries binary attestation metadata, that block is no
+longer verified silently: without `--verify-binary <path>` the
+attestation stays unverified and the result caps at PARTIAL rather than
+TRUSTED. Pass `--verify-binary <path>` to run `gh attestation verify`
+against the producing binary (needs the `gh` CLI and network) so the
+provenance is actually checked and exit `0` reflects it.
 
 ### Sidecar URL convention in `--url` mode
 

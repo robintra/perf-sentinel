@@ -547,7 +547,7 @@ Codes de sortie :
 
 | Code | Signification                                                                                                                                                       |
 |------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `0`  | TRUSTED (content hash matché ET signature vérifiée ok)                                                                                                              |
+| `0`  | TRUSTED (content hash matché ET signature vérifiée ok, et l'attestation binaire pas laissée non vérifiée quand le rapport porte des métadonnées d'attestation)      |
 | `1`  | UNTRUSTED (un check a retourné un échec dur : mismatch de hash, signature invalide, attestation invalide, identité non-conforme)                                    |
 | `2`  | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, `gh` CLI absent, métadonnée de signature absente, sidecars manquants)      |
 | `3`  | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant)                                                                            |
@@ -557,6 +557,14 @@ Un gate scripté `verify-hash && deploy` bloque sur tout code
 non-zéro et rejette donc PARTIAL aussi. Une enveloppe qui
 distingue PARTIAL (2) de UNTRUSTED (1) peut différencier un
 outil manquant d'une tentative de tamper.
+
+Quand un rapport porte des métadonnées d'attestation binaire, ce bloc
+n'est plus vérifié en silence : sans `--verify-binary <chemin>`
+l'attestation reste non vérifiée et le résultat plafonne à PARTIAL au
+lieu de TRUSTED. Passez `--verify-binary <chemin>` pour lancer
+`gh attestation verify` sur le binaire producteur (nécessite le CLI `gh`
+et le réseau), afin que la provenance soit réellement contrôlée et que le
+code `0` le reflète.
 
 ### Convention URL des sidecars en mode `--url`
 
