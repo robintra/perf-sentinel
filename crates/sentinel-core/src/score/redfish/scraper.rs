@@ -111,6 +111,18 @@ async fn scrape_chassis(
 /// triples once at startup. Invalid URIs are surfaced via an
 /// error-level log and the chassis is dropped from the rotation, so a
 /// single malformed entry does not silently kill the whole scraper.
+/// Whether a configured auth header would travel to any chassis over
+/// cleartext `http://`. Extracted for testing: the caller only logs.
+pub(super) fn credentials_travel_cleartext(
+    has_auth: bool,
+    uris: &[(String, hyper::Uri, RedfishSchema)],
+) -> bool {
+    has_auth
+        && uris
+            .iter()
+            .any(|(_, uri, _)| uri.scheme_str() == Some("http"))
+}
+
 fn parse_chassis_uris(cfg: &RedfishConfig) -> Vec<(String, hyper::Uri, RedfishSchema)> {
     use std::str::FromStr;
     let mut out = Vec::with_capacity(cfg.endpoints.len());
@@ -253,6 +265,17 @@ async fn run_scraper_loop(
              scraper will not start"
         );
         return;
+    }
+
+    // parse_scraper_auth_header keys its cleartext-credential warning off the
+    // endpoint string, but we pass a synthetic label below, so it can never
+    // see a real http:// BMC URL. Warn here on the actual chassis URIs when
+    // credentials would travel over cleartext.
+    if credentials_travel_cleartext(cfg.auth_header.is_some(), &uris) {
+        tracing::warn!(
+            "[green.redfish] sending auth header over cleartext HTTP to one or more \
+             BMC chassis, prefer https:// to avoid credential leak"
+        );
     }
 
     // The auth header is shared across every chassis. Pass a synthetic
