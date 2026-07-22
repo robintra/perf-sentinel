@@ -4,9 +4,12 @@
 //! deterministic content hash recompute (pure Rust, always run),
 //! Sigstore cosign attestation (delegated to the `cosign` binary), and
 //! SLSA build provenance for the producing binary (verified via the
-//! `gh attestation verify` GitHub CLI command). Exit codes:
+//! `gh attestation verify` GitHub CLI command, opt-in with
+//! `--verify-binary <path>`). Exit codes:
 //!
-//! - `0` `TRUSTED` (content hash matched AND signature verified ok)
+//! - `0` `TRUSTED` (content hash matched AND signature verified ok, and
+//!   binary attestation not left unverified when the report carries
+//!   attestation metadata)
 //! - `1` `UNTRUSTED` (at least one check returned a hard failure: hash
 //!   mismatch, signature invalid, attestation invalid, identity
 //!   mismatch)
@@ -101,6 +104,7 @@ pub fn cmd_verify_hash(
     url: Option<&str>,
     attestation_path: Option<&Path>,
     bundle_path: Option<&Path>,
+    verify_binary: Option<&Path>,
     format: VerifyHashFormat,
     identity: &IdentityOptions,
 ) -> i32 {
@@ -117,7 +121,7 @@ pub fn cmd_verify_hash(
         fetched_paths.bundle.as_deref().or(bundle_path),
         identity,
     );
-    let binary_attestation = verify_binary_attestation(&report);
+    let binary_attestation = verify_binary_attestation(&report, verify_binary);
 
     let outcome = Outcome {
         report_path: display_path,
@@ -492,27 +496,107 @@ fn run_cosign_verify(
                 sanitise_for_terminal(&sig.signer_issuer)
             )),
         },
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            Status::Fail(format!(
-                "cosign rejected: {}",
-                stderr.lines().last().unwrap_or("(no stderr)")
-            ))
-        }
+        Ok(out) => Status::Fail(format!(
+            "cosign rejected: {}",
+            last_stderr_line(&out.stderr)
+        )),
         Err(e) => Status::Fail(format!("cosign spawn failed: {e}")),
     }
 }
 
-fn verify_binary_attestation(report: &PeriodicReport) -> Status {
+fn verify_binary_attestation(report: &PeriodicReport, verify_binary: Option<&Path>) -> Status {
+    // An explicit --verify-binary always runs the check: gh verifies the
+    // binary's own GitHub provenance. When the report records a commit, it is
+    // cross-checked so a genuine-but-different build cannot pass as this report's.
+    if let Some(binary) = verify_binary {
+        let expected_commit = report
+            .integrity
+            .binary_attestation
+            .as_ref()
+            .map(|a| a.git_commit.as_str());
+        return run_gh_attestation_verify(binary, expected_commit);
+    }
     match report.integrity.binary_attestation.as_ref() {
         None => Status::NotProvided,
+        // Metadata present but no binary to check against: report the hint
+        // without claiming verification, so overall_label stays below TRUSTED.
         Some(att) => Status::Skip(format!(
-            "binary attestation metadata present (built from {} at {}, builder {}, attestation indexed at {}). Verify the binary with `gh attestation verify <binary> --repo robintra/perf-sentinel`.",
+            "binary attestation metadata present (built from {} at {}, builder {}, attestation indexed at {}). Pass --verify-binary <path> to verify with `gh attestation verify`.",
             sanitise_for_terminal(&att.git_tag),
             sanitise_for_terminal(&att.git_commit),
             sanitise_for_terminal(&att.builder_id),
             sanitise_for_terminal(&att.attestation_url),
         )),
+    }
+}
+
+/// Last line of a subprocess's stderr, terminal-sanitised. The bytes can echo
+/// remote-derived content (attestation subjects, registry errors), so ANSI and
+/// control chars must be stripped before they reach the operator's terminal.
+fn last_stderr_line(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    sanitise_for_terminal(text.lines().last().unwrap_or("(no stderr)"))
+}
+
+/// Verify a binary's GitHub build provenance via `gh attestation verify`.
+///
+/// The `--repo` slug is a compile-time constant and `binary` is an
+/// operator-supplied path (never report-derived), so no argument
+/// sanitisation is needed on the command itself. When `expected_commit` is set
+/// (the report records one), the verified attestation must reference that commit
+/// so a genuine build of a different version cannot pass as this report's.
+/// Whether `commit` appears in `output` at the start of a hex run, so a short
+/// (7-char) commit cannot false-match inside an unrelated longer SHA/digest.
+fn output_references_commit(output: &str, commit: &str) -> bool {
+    output
+        .match_indices(commit)
+        .any(|(i, _)| i == 0 || !output.as_bytes()[i - 1].is_ascii_hexdigit())
+}
+
+fn run_gh_attestation_verify(binary: &Path, expected_commit: Option<&str>) -> Status {
+    if !command_exists("gh") {
+        return Status::Skip(
+            "gh CLI not found on PATH, cannot verify binary attestation".to_string(),
+        );
+    }
+    let mut cmd = Command::new("gh");
+    cmd.arg("attestation")
+        .arg("verify")
+        .arg(binary)
+        .arg("--repo")
+        .arg("robintra/perf-sentinel")
+        .arg("--format")
+        .arg("json");
+    match cmd.output() {
+        Ok(out) if out.status.success() => {
+            if let Some(commit) = expected_commit {
+                let commit = commit.trim();
+                // A cross-check is only meaningful against a real git SHA. An
+                // empty or 1-2 char commit would make `.contains` vacuously
+                // true, so refuse rather than award a false provenance match.
+                if commit.len() < 7 || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Status::Fail(format!(
+                        "cannot cross-check binary: report records no usable git_commit ({})",
+                        sanitise_for_terminal(commit)
+                    ));
+                }
+                if !output_references_commit(&String::from_utf8_lossy(&out.stdout), commit) {
+                    return Status::Fail(format!(
+                        "binary attestation verified, but it does not reference the report's recorded commit {}",
+                        sanitise_for_terminal(commit)
+                    ));
+                }
+            }
+            Status::Ok(format!(
+                "verified via gh attestation verify ({})",
+                sanitise_for_terminal(&binary.display().to_string())
+            ))
+        }
+        Ok(out) => Status::Fail(format!(
+            "gh attestation verify rejected: {}",
+            last_stderr_line(&out.stderr)
+        )),
+        Err(e) => Status::Fail(format!("gh spawn failed: {e}")),
     }
 }
 
@@ -658,7 +742,12 @@ fn overall_label(outcome: &Outcome) -> &'static str {
         "UNTRUSTED"
     } else if matches!(outcome.content_hash, Status::Ok(_))
         && matches!(outcome.signature, Status::Ok(_))
+        && !matches!(outcome.binary_attestation, Status::Skip(_))
     {
+        // A Skip on binary_attestation means the report carries attestation
+        // metadata that was not verified (no --verify-binary, or gh absent).
+        // Do not award TRUSTED on that: it would be a false provenance
+        // signal. NotProvided (no metadata at all) still allows TRUSTED.
         "TRUSTED"
     } else {
         "PARTIAL"
@@ -895,7 +984,9 @@ mod tests {
             git_commit: "a47be9d".to_string(),
             slsa_level: "L3".to_string(),
         });
-        let s = verify_binary_attestation(&report);
+        // No --verify-binary: metadata present is reported as an unverified
+        // Skip with the hint, never Ok.
+        let s = verify_binary_attestation(&report, None);
         match s {
             Status::Skip(d) => assert!(d.contains("gh attestation")),
             other => panic!(
@@ -908,6 +999,69 @@ mod tests {
                 }
             ),
         }
+    }
+
+    #[test]
+    fn verify_binary_flag_runs_even_without_report_metadata() {
+        // An explicit --verify-binary must not be silently ignored when the
+        // report has no attestation block: the check runs (Skip if gh is
+        // absent, Fail on a bogus binary), never the NotProvided short-circuit.
+        let report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        assert!(report.integrity.binary_attestation.is_none());
+        let s = verify_binary_attestation(&report, Some(Path::new("/nonexistent/binary")));
+        assert!(
+            !matches!(s, Status::NotProvided),
+            "explicit --verify-binary must trigger a real check, got NotProvided"
+        );
+    }
+
+    #[test]
+    fn unverified_attestation_metadata_blocks_trusted() {
+        // hash + signature Ok but attestation metadata present-yet-unverified
+        // (Skip) must not reach TRUSTED, it would be a false provenance signal.
+        let report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        let outcome = Outcome {
+            report_path: "test".to_string(),
+            report,
+            content_hash: Status::Ok("match".to_string()),
+            core_patterns: Status::Ok("match".to_string()),
+            signature: Status::Ok("valid".to_string()),
+            binary_attestation: Status::Skip("metadata present, unverified".to_string()),
+        };
+        assert_eq!(overall_label(&outcome), "PARTIAL");
+    }
+
+    #[test]
+    fn no_attestation_metadata_still_reaches_trusted() {
+        // NotProvided (no metadata at all) must not block TRUSTED, that is
+        // the common case for reports without SLSA provenance.
+        let report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        let outcome = Outcome {
+            report_path: "test".to_string(),
+            report,
+            content_hash: Status::Ok("match".to_string()),
+            core_patterns: Status::Ok("match".to_string()),
+            signature: Status::Ok("valid".to_string()),
+            binary_attestation: Status::NotProvided,
+        };
+        assert_eq!(overall_label(&outcome), "TRUSTED");
+    }
+
+    #[test]
+    fn output_references_commit_requires_hex_boundary() {
+        // Genuine prefix of a 40-hex SHA at a boundary matches.
+        assert!(output_references_commit(
+            "\"digest\": \"a47be9d1122334455667788990011223344556677\"",
+            "a47be9d"
+        ));
+        // The same 7 hex sitting inside a longer SHA must not match.
+        assert!(!output_references_commit(
+            "\"digest\": \"ffffa47be9d0000000000000000000000000000000\"",
+            "a47be9d"
+        ));
     }
 
     #[test]
