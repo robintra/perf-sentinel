@@ -1,6 +1,6 @@
 //! Quality gate evaluation: checks findings and `GreenOps` metrics against thresholds.
 
-use crate::config::Config;
+use crate::config::ThresholdsConfig;
 use crate::detect::{Finding, FindingType, Severity};
 use crate::report::{GreenSummary, QualityGate, QualityRule};
 
@@ -9,7 +9,7 @@ use crate::report::{GreenSummary, QualityGate, QualityRule};
 pub fn evaluate(
     findings: &[Finding],
     green_summary: &GreenSummary,
-    config: &Config,
+    thresholds: &ThresholdsConfig,
 ) -> QualityGate {
     let mut rules = Vec::with_capacity(3);
 
@@ -18,7 +18,7 @@ pub fn evaluate(
         .iter()
         .filter(|f| f.finding_type == FindingType::NPlusOneSql && f.severity == Severity::Critical)
         .count();
-    let threshold_sql = config.thresholds.n_plus_one_sql_critical_max;
+    let threshold_sql = thresholds.n_plus_one_sql_critical_max;
     rules.push(QualityRule {
         rule: "n_plus_one_sql_critical_max".to_string(),
         threshold: f64::from(threshold_sql),
@@ -34,7 +34,7 @@ pub fn evaluate(
                 && matches!(f.severity, Severity::Warning | Severity::Critical)
         })
         .count();
-    let threshold_http = config.thresholds.n_plus_one_http_warning_max;
+    let threshold_http = thresholds.n_plus_one_http_warning_max;
     rules.push(QualityRule {
         rule: "n_plus_one_http_warning_max".to_string(),
         threshold: f64::from(threshold_http),
@@ -45,9 +45,9 @@ pub fn evaluate(
     // Rule 3: io_waste_ratio_max
     rules.push(QualityRule {
         rule: "io_waste_ratio_max".to_string(),
-        threshold: config.thresholds.io_waste_ratio_max,
+        threshold: thresholds.io_waste_ratio_max,
         actual: green_summary.io_waste_ratio,
-        passed: green_summary.io_waste_ratio <= config.thresholds.io_waste_ratio_max,
+        passed: green_summary.io_waste_ratio <= thresholds.io_waste_ratio_max,
     });
 
     let passed = rules.iter().all(|r| r.passed);
@@ -57,6 +57,7 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::test_helpers::{make_finding, make_test_green_summary};
 
     fn empty_green_summary() -> GreenSummary {
@@ -67,7 +68,7 @@ mod tests {
     fn all_rules_pass_with_no_findings() {
         let config = Config::default();
         let summary = empty_green_summary();
-        let gate = evaluate(&[], &summary, &config);
+        let gate = evaluate(&[], &summary, &config.thresholds);
 
         assert!(gate.passed);
         assert_eq!(gate.rules.len(), 3);
@@ -79,7 +80,7 @@ mod tests {
         let config = Config::default(); // n_plus_one_sql_critical_max = 0
         let findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Critical)];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config);
+        let gate = evaluate(&findings, &summary, &config.thresholds);
 
         assert!(!gate.passed);
         let rule = gate
@@ -97,7 +98,7 @@ mod tests {
         let config = Config::default();
         let findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config);
+        let gate = evaluate(&findings, &summary, &config.thresholds);
 
         let rule = gate
             .rules
@@ -124,7 +125,7 @@ mod tests {
             make_finding(FindingType::NPlusOneHttp, Severity::Warning),
         ];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config);
+        let gate = evaluate(&findings, &summary, &config.thresholds);
 
         let rule = gate
             .rules
@@ -150,7 +151,7 @@ mod tests {
             make_finding(FindingType::NPlusOneHttp, Severity::Warning),
         ];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config);
+        let gate = evaluate(&findings, &summary, &config.thresholds);
 
         assert!(!gate.passed);
         let rule = gate
@@ -166,7 +167,7 @@ mod tests {
     fn io_waste_ratio_fails_gate() {
         let config = Config::default(); // io_waste_ratio_max = 0.30
         let summary = make_test_green_summary(10, 5, 0.5);
-        let gate = evaluate(&[], &summary, &config);
+        let gate = evaluate(&[], &summary, &config.thresholds);
 
         assert!(!gate.passed);
         let rule = gate
@@ -193,7 +194,7 @@ mod tests {
             make_finding(FindingType::NPlusOneSql, Severity::Critical),
         ];
         let summary = make_test_green_summary(10, 8, 0.8);
-        let gate = evaluate(&findings, &summary, &config);
+        let gate = evaluate(&findings, &summary, &config.thresholds);
 
         assert!(gate.passed, "2 critical SQL <= 5, 0.8 <= 0.90");
     }
@@ -209,7 +210,7 @@ mod tests {
         };
         let findings = vec![make_finding(FindingType::NPlusOneHttp, Severity::Critical)];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config);
+        let gate = evaluate(&findings, &summary, &config.thresholds);
 
         let rule = gate
             .rules

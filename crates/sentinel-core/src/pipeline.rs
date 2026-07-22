@@ -70,7 +70,7 @@ pub fn analyze_with_traces(
     // into `.perf-sentinel-acknowledgments.toml` without having to recompute.
     crate::acknowledgments::enrich_with_signatures(&mut findings);
 
-    let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
+    let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, &config.thresholds);
 
     let report = Report {
         analysis: Analysis {

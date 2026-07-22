@@ -37,6 +37,7 @@ fn make_state_with_correlator(
         toml_acks: Arc::new(HashMap::new()),
         ack_api_key: None,
         daemon_config: crate::config::DaemonConfig::default(),
+        thresholds: crate::config::ThresholdsConfig::default(),
         energy_backends: EnergyBackendsConfigured::default(),
     })
 }
@@ -432,6 +433,45 @@ async fn handle_export_report_returns_report_shape_when_events_ingested() {
     assert_eq!(report.correlations.len(), 1);
     assert_eq!(report.correlations[0].source.service, "order-svc");
     assert_eq!(report.correlations[0].target.service, "payment-svc");
+}
+
+#[tokio::test]
+async fn handle_export_report_evaluates_real_quality_gate() {
+    // The export endpoint must run the live gate, not a hardcoded pass.
+    // A critical N+1 SQL finding fails the default rule (max = 0).
+    let state = make_state();
+    state.metrics.events_processed_total.inc_by(10.0);
+    state.metrics.traces_analyzed_total.inc_by(2.0);
+    let finding = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Critical,
+    );
+    state.findings_store.push_batch(&[finding], 1000).await;
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+
+    assert!(
+        !report.quality_gate.passed,
+        "critical N+1 SQL must fail gate"
+    );
+    assert_eq!(report.quality_gate.rules.len(), 3, "all rules evaluated");
+    let sql_rule = report
+        .quality_gate
+        .rules
+        .iter()
+        .find(|r| r.rule == "n_plus_one_sql_critical_max")
+        .expect("sql rule present");
+    assert!(!sql_rule.passed);
 }
 
 #[tokio::test]
@@ -1334,6 +1374,38 @@ async fn list_acks_endpoint_returns_active() {
     assert_eq!(list[0]["signature"], sig);
 }
 
+#[tokio::test]
+async fn list_acks_endpoint_requires_key_when_configured() {
+    // Read symmetry with POST/DELETE: when an ack api_key is set, GET
+    // /api/acks must reject an unauthenticated request instead of leaking
+    // the ack audit trail.
+    let (_dir, store) = fresh_ack_store().await;
+    let state = make_state_with_acks(
+        Some(store),
+        HashMap::new(),
+        Some("a-long-enough-secret".into()),
+    )
+    .await;
+    let app = query_api_router(state);
+
+    // No key: 401.
+    let resp = app.clone().oneshot(get_request("/api/acks")).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Correct key: 200.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/acks")
+                .header("X-API-Key", "a-long-enough-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
 #[test]
 fn finding_response_does_not_collide_with_stored_finding_fields() {
     // Pin the JSON shape: `acknowledged_by` lives at the top level
@@ -1389,6 +1461,7 @@ impl QueryApiState {
             toml_acks: Arc::clone(&self.toml_acks),
             ack_api_key: self.ack_api_key.clone(),
             daemon_config: self.daemon_config.clone(),
+            thresholds: self.thresholds.clone(),
             energy_backends: self.energy_backends,
         }
     }
