@@ -1,0 +1,4 @@
+# The build context only needs the prebuilt binary under build/.
+*
+!build/
+!Dockerfile
