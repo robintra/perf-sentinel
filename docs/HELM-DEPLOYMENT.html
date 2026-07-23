@@ -188,14 +188,14 @@
 <p class="ps-p"><code class="ps-ic">oci://ghcr.io/robintra/charts/perf-sentinel</code> is the full chart URL, the form <code class="ps-ic">helm install</code> takes. A <code class="ps-ic">dependencies:</code> entry wants the parent namespace instead, because Helm appends <code class="ps-ic">name</code> to <code class="ps-ic">repository</code>:</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">dependencies</span>:
   - name: perf-sentinel
-<span style="color:var(--code-sub)">    version</span>: 0.9.14
+<span style="color:var(--code-sub)">    version</span>: 0.9.15
 <span style="color:var(--code-sub)">    repository</span>: oci://ghcr.io/robintra/charts   # namespace, not the chart URL</code></pre></div>
 <p class="ps-p">Same split for an Argo CD <code class="ps-ic">Application</code>: <code class="ps-ic">repoURL: ghcr.io/robintra/charts</code> plus <code class="ps-ic">chart: perf-sentinel</code>.</p>
 <p class="ps-p">Repeating the chart name in <code class="ps-ic">repository</code> resolves to <code class="ps-ic">charts/perf-sentinel/perf-sentinel</code>, which does not exist. ghcr.io answers <code class="ps-ic">403 denied</code> rather than <code class="ps-ic">404</code> for a missing path when unauthenticated, so the failure reads like a private-registry problem when it is a path problem. To confirm the artifact is public, pull an anonymous token and fetch the manifest:</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">token=$(curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">"https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&amp;service=ghcr.io"</span> | jq <span style="color:var(--code-flag)">-r</span> .token)
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-flag)">-o</span> /dev/null <span style="color:var(--code-flag)">-w</span> <span style="color:var(--code-num)">'%{http_code}\n'</span> <span style="color:var(--code-flag)">-H</span> "Authorization: Bearer $token" \
   <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">'Accept:</span> application/vnd.oci.image.manifest.v1+json' \
-  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.14</span></code></pre></div>
+  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.15</span></code></pre></div>
 <h2 id="artifact-hub" class="ps-h2">Artifact Hub</h2>
 <p class="ps-p">The chart is indexed on <a href="https://artifacthub.io" target="_blank" rel="noopener" class="ps-ext">Artifact Hub</a>, where users can discover it, browse its values schema, and read the changelog.</p>
 <p class="ps-p">Registration flow (done by the maintainer once per chart):</p>
@@ -307,7 +307,7 @@
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">extraEnvFrom</span>:
   - secretRef:
 <span style="color:var(--code-sub)">      name</span>: perf-sentinel-secrets</code></pre></div>
-<p class="ps-p">perf-sentinel itself does not read environment variables for configuration directly, so the pattern is: the Secret goes into the pod env, and the config file references it via <code class="ps-ic">env:VAR_NAME</code> for the handful of fields that support that form (Electricity Maps <code class="ps-ic">api_key</code>, etc.). See the "Environment variables" section of <a href="/docs/CONFIGURATION">Configuration</a>.</p>
+<p class="ps-p">Secret-backed config values follow one pattern: the Secret goes into the pod env, and a dedicated environment variable overrides the matching config field when set (<code class="ps-ic">PERF_SENTINEL_EMAPS_TOKEN</code> for Electricity Maps, <code class="ps-ic">PERF_SENTINEL_ACK_API_KEY</code> for the ack key, and the scraper auth headers). See the "Environment variables" section of <a href="/docs/CONFIGURATION">Configuration</a>.</p>
 <h3 id="calibration-files-and-tls-certs" class="ps-h3">Calibration files and TLS certs</h3>
 <p class="ps-p">Both go through <code class="ps-ic">extraVolumes</code> plus <code class="ps-ic">extraVolumeMounts</code>:</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">extraVolumes</span>:
@@ -327,18 +327,13 @@
     tls_key_path = "/etc/tls/tls.key"</code></pre></div>
 <h3 id="daemon-ack-runtime-store" class="ps-h3">Daemon ack runtime store</h3>
 <p class="ps-p">The 0.5.20 daemon adds three runtime ack endpoints (<code class="ps-ic">POST</code> / <code class="ps-ic">DELETE /api/findings/{signature}/ack</code> and <code class="ps-ic">GET /api/acks</code>) on the existing query API port. They share the loopback-by-default posture of <code class="ps-ic">/api/findings</code>, but they mutate state, so the deployment shape needs three operator decisions when the chart is rolled out on a non-loopback <code class="ps-ic">listen_address</code>.</p>
-<p class="ps-p"><strong>Authenticate writes when the daemon is bound to the pod network.</strong> The chart's example <code class="ps-ic">values.yaml</code> snippets above use <code class="ps-ic">listen_address = "0.0.0.0"</code> for cluster-wide reachability. Without mTLS in front, set <code class="ps-ic">[daemon.ack] api_key</code> to a 16+ character secret fed by a Kubernetes Secret so the new <code class="ps-ic">POST</code> and <code class="ps-ic">DELETE</code> verbs are not exposed:</p>
+<p class="ps-p"><strong>Who may acknowledge findings.</strong> The chart binds <code class="ps-ic">0.0.0.0</code> so the Service can route to the pod and keeps the ack store on so acks (and the committed TOML acks the daemon loads with them) work. By default the daemon has no app-layer auth (a non-loopback bind just logs a startup advisory): it expects to run inside a non-exposed cluster network, where the Service and NetworkPolicy are the boundary. Choose one of two ways to restrict who may ack:</p>
+<p class="ps-p"><em>Per-group (the faithful answer: only your architects / SRE, with a real audit <code class="ps-ic">by</code>).</em> perf-sentinel has no embedded IAM, so per-identity control lives in a fronting SSO proxy. Deploy the oauth2-proxy + nginx setup in <a href="/docs/QUERY-API#oauth2-proxy--nginx">Query API</a>, which authorizes ack writes by SSO group, and add a <code class="ps-ic">networkPolicy</code> peer selector so only the proxy reaches the daemon. Reads (<code class="ps-ic">GET /api/findings</code>) stay open by design.</p>
+<p class="ps-p"><em>Coarse shared key (anyone holding the key may ack).</em> Create a Kubernetes Secret whose <code class="ps-ic">PERF_SENTINEL_ACK_API_KEY</code> entry is your key and expose it via <code class="ps-ic">extraEnvFrom</code>:</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">extraEnvFrom</span>:
   - secretRef:
-<span style="color:var(--code-sub)">      name</span>: perf-sentinel-secrets
-
-<span style="color:var(--code-sub)">config</span>:
-<span style="color:var(--code-sub)">  toml</span>: |
-    [daemon]
-    listen_address = "0.0.0.0"
-    [daemon.ack]
-    api_key = "env:PERF_SENTINEL_ACK_API_KEY"</code></pre></div>
-<p class="ps-p">The daemon hard-rejects keys shorter than 12 characters at config load. Reads (<code class="ps-ic">GET /api/findings</code>, <code class="ps-ic">GET /api/acks</code>) stay unauthenticated by design, the API key only protects writes.</p>
+<span style="color:var(--code-sub)">      name</span>: perf-sentinel-ack   # your Secret, key PERF_SENTINEL_ACK_API_KEY</code></pre></div>
+<p class="ps-p">The <code class="ps-ic">PERF_SENTINEL_ACK_API_KEY</code> env var overrides the config <code class="ps-ic">[daemon.ack] api_key</code>, so the key comes from the Secret, never the ConfigMap; a Secret mounted empty is rejected at config load. The key also gates <code class="ps-ic">GET /api/acks</code> (the audit trail), not only the writes. The 16+ character floor still applies.</p>
 <p class="ps-p"><strong>Persist acks across pod restarts.</strong> Default storage path is <code class="ps-ic">~/.local/share/perf-sentinel/acks.jsonl</code>, inside the pod filesystem, lost on restart. Switch to <code class="ps-ic">StatefulSet</code> mode (see above) and remap <code class="ps-ic">[daemon.ack] storage_path</code> to a PVC mount.</p>
 <p class="ps-p"><strong>Mind the <code class="ps-ic">securityContext</code> floor.</strong> The daemon opens the JSONL with <code class="ps-ic">O_NOFOLLOW</code> and rejects pre-existing files whose mode permits group/other access (<code class="ps-ic">mode &amp; 0o077 != 0</code>). Setting <code class="ps-ic">runAsUser</code> and <code class="ps-ic">fsGroup</code> such that the daemon UID does not own the PVC mount, or adopting a default-restrictive <code class="ps-ic">PodSecurityPolicy</code> that forces a wider umask on volume mounts, will surface as <code class="ps-ic">InsecurePermissions</code> at startup and the ack store will be unavailable. The daemon stays up without it (the three ack endpoints return 503), so this is a soft failure, but check the WARN log line on first rollout.</p>
 <p class="ps-p"><strong>Load the CI TOML baseline from a ConfigMap.</strong> Mount <code class="ps-ic">.perf-sentinel-acknowledgments.toml</code> via <code class="ps-ic">extraVolumes</code> and point <code class="ps-ic">[daemon.ack] toml_path</code> at it so the daemon has a unified view of permanent (TOML) and runtime (JSONL) acks. The runtime POST returns <code class="ps-ic">409 Conflict</code> on signatures already covered by an active TOML ack, which prevents the daemon from silently shadowing the team-agreed baseline.</p>

@@ -359,6 +359,7 @@
 <div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--term-comment)"># .perf-sentinel.toml</span>
 <span style="color:var(--code-cmd);font-weight:600">[daemon]</span>
 <span style="color:var(--code-sub)">listen_address </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> "0.0.0.0"</span></code></pre></div>
+<p class="ps-p">Un bind non-loopback logue un avertissement au démarrage : les endpoints n'ont pas d'auth applicative, mettez donc un reverse-proxy ou une network policy en frontal, ou posez <code class="ps-ic">[daemon.ack] api_key</code> pour garder les écritures d'ack (voir <a href="/docs/fr/CONFIGURATION">Configuration</a>).</p>
 <h3 id="étape-2--instrumenter-votre-service" class="ps-h3">Étape 2 : Instrumenter votre service</h3>
 <p class="ps-p">Définissez l'endpoint OTLP dans votre service (voir les <a href="/docs/fr/INSTRUMENTATION#devstaging--instrumentation-par-langage">guides par langage</a> ci-dessous) :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Pour les services sur l'hôte</span>

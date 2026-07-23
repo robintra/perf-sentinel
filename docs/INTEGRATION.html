@@ -289,7 +289,7 @@
 <h2 id="quick-start-direct-daemon" class="ps-h2">Quick start: direct daemon</h2>
 <p class="ps-p">Local development on your host machine.</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span></code></pre></div>
-<p class="ps-p">Default bind is <code class="ps-ic">127.0.0.1</code> on 4317 (gRPC) and 4318 (HTTP). For Docker containers to reach the host, set <code class="ps-ic">[daemon] listen_address = "0.0.0.0"</code> in <code class="ps-ic">.perf-sentinel.toml</code>.</p>
+<p class="ps-p">Default bind is <code class="ps-ic">127.0.0.1</code> on 4317 (gRPC) and 4318 (HTTP). For Docker containers to reach the host, set <code class="ps-ic">[daemon] listen_address = "0.0.0.0"</code> in <code class="ps-ic">.perf-sentinel.toml</code>. A non-loopback bind logs a startup advisory: the endpoints have no app-layer auth, so front the daemon with a reverse proxy or network policy, or set <code class="ps-ic">[daemon.ack] api_key</code> to gate ack writes (see <a href="/docs/CONFIGURATION">Configuration</a>).</p>
 <p class="ps-p">App config:</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Host-resident services</span>
 <span style="color:var(--code-cmd);font-weight:600">OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317</span>
