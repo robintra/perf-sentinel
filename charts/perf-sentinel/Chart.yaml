@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.14
-appVersion: "0.9.14"
+version: 0.9.15
+appVersion: "0.9.15"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.9.15: application security hardening. source_endpoint is stripped of URL query strings, fragments and userinfo at ingestion, so secrets in request URLs no longer reach stored findings, the query API, the archive or the ack signature. GET /api/acks is gated by [daemon.ack] api_key when set. /api/export/report evaluates the real quality gate instead of hardcoding passed:true. verify-hash verifies binary provenance via gh attestation verify and its TRUSTED label now requires binary attestation to be verified when the report carries attestation metadata. Migration: acks on endpoints that carried a query string must be re-captured after upgrade, and verify-hash on an attested report caps at PARTIAL without --verify-binary. No chart template change."
+    - kind: added
+      description: "appVersion 0.9.15: the chart documents how to restrict who may acknowledge findings on the pod-network bind. Front the API with an SSO proxy for per-group control, or set a shared [daemon.ack] api_key sourced from a Secret via the PERF_SENTINEL_ACK_API_KEY environment variable. A non-loopback bind logs a startup advisory and the daemon has no embedded IAM by design. Values comments and post-install notes only, no template change."
     - kind: added
       description: "appVersion 0.9.14: green_summary.database_waste now exists on every run. When no Alumet measurement of the database cgroup is available (batch runs, managed databases, no [green.alumet.database]), the figure is estimated from the modeled energy of the window's SQL spans and tagged model=estimated, so the database-side waste is surfaced even without a measured backend. A declared database with no delivered reading emits nothing (its energy carries over, no double count). The figure now shows on the batch text report and the HTML dashboard Green panel, not only the daemon. No chart template change, this bump tracks the new appVersion."
     - kind: added
@@ -129,7 +133,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.14
+      image: ghcr.io/robintra/perf-sentinel:0.9.15
       platforms:
         - linux/amd64
         - linux/arm64
