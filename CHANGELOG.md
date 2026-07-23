@@ -2,6 +2,29 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.15]
+
+### Security
+
+- `source_endpoint` is now stripped of any URL query string, fragment, and userinfo at the ingestion boundary. On the raw-URL fallback path (a span carrying `http.url` or `url.full` but no `http.route`) it could previously carry secrets embedded in the request URL into stored findings, the query API, the NDJSON archive, and the ack signature. Route-template endpoints, the common case, are unaffected. See the migration note below.
+- `GET /api/acks` is now gated by `[daemon.ack] api_key` when one is set, matching the `POST` and `DELETE` ack endpoints. The ack audit trail (reviewer identities, reasons, finding signatures) no longer reads back without the key.
+- The Redfish scraper emits its cleartext-credential warning when a BMC endpoint uses `http://` with an auth header configured. The check was previously unreachable because a synthetic label was passed to it instead of the real chassis URIs.
+
+### Added
+
+- `verify-hash --verify-binary <path>` verifies the producing binary's GitHub build provenance via `gh attestation verify` and cross-checks the commit the report records, so a genuine build of a different version cannot pass as this report's. The `TRUSTED` label now requires binary attestation to be verified when the report carries attestation metadata, instead of being awarded on content hash and signature alone.
+- `[daemon.ack] api_key` can be sourced from the `PERF_SENTINEL_ACK_API_KEY` environment variable, which takes precedence over the config value, so the key can come from a Kubernetes Secret rather than the committed config.
+
+### Changed
+
+- `GET /api/export/report` evaluates the real quality gate over the live findings snapshot instead of hardcoding `passed: true`. A daemon export now reflects the configured thresholds.
+
+### Migration
+
+- The `source_endpoint` redaction changes the ack signature of any finding whose endpoint carried a query string, fragment, or userinfo. An existing acknowledgment on such an endpoint (committed TOML or daemon JSONL) no longer matches and must be re-captured after the upgrade. Endpoints that use a route template are unchanged. See `docs/ACKNOWLEDGMENTS.md`.
+- A consumer gating on `verify-hash` exit `0` for a report that carries binary attestation metadata now gets exit `2` (`PARTIAL`) unless it passes `--verify-binary`. Reports without attestation metadata are unchanged.
+- Read-only consumers of `GET /api/acks` on a daemon with `[daemon.ack] api_key` set must now send the `X-API-Key` header.
+
 ## [0.9.14]
 
 ### Added

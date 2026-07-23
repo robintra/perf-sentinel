@@ -6,6 +6,27 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.15]
+
+### Changed
+
+- `appVersion` bumped to `0.9.15`. This release is an application security
+  hardening pass. `source_endpoint` is stripped of URL query strings, fragments
+  and userinfo at ingestion, so secrets in request URLs no longer reach stored
+  findings, the query API, the archive or the ack signature. `GET /api/acks` is
+  gated by `[daemon.ack] api_key` when set, `/api/export/report` evaluates the
+  real quality gate instead of hardcoding a pass, and `verify-hash` verifies
+  binary provenance via `gh attestation verify`. See the application CHANGELOG
+  for the full list and the migration notes (ack signatures change for
+  query-bearing endpoints, verify-hash caps attested reports at PARTIAL without
+  `--verify-binary`).
+- The chart documents how to restrict who may acknowledge findings on the
+  pod-network bind. Front the API with an SSO proxy for per-group control, or
+  set a shared `[daemon.ack] api_key` sourced from a Secret via
+  `PERF_SENTINEL_ACK_API_KEY`. A non-loopback bind logs a startup advisory and
+  the daemon has no embedded IAM by design. No chart template change beyond
+  values comments and post-install notes.
+
 ## [0.9.14]
 
 ### Changed
