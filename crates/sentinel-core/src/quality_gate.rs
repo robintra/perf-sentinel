@@ -114,9 +114,9 @@ mod tests {
     #[test]
     fn warning_http_under_threshold() {
         let config = Config {
-            thresholds: crate::config::ThresholdsConfig {
+            thresholds: ThresholdsConfig {
                 n_plus_one_http_warning_max: 3,
-                ..crate::config::ThresholdsConfig::default()
+                ..ThresholdsConfig::default()
             },
             ..Config::default()
         };
@@ -138,9 +138,9 @@ mod tests {
     #[test]
     fn warning_http_over_threshold() {
         let config = Config {
-            thresholds: crate::config::ThresholdsConfig {
+            thresholds: ThresholdsConfig {
                 n_plus_one_http_warning_max: 3,
-                ..crate::config::ThresholdsConfig::default()
+                ..ThresholdsConfig::default()
             },
             ..Config::default()
         };
@@ -182,10 +182,10 @@ mod tests {
     #[test]
     fn custom_thresholds() {
         let config = Config {
-            thresholds: crate::config::ThresholdsConfig {
+            thresholds: ThresholdsConfig {
                 n_plus_one_sql_critical_max: 5,
                 io_waste_ratio_max: 0.90,
-                ..crate::config::ThresholdsConfig::default()
+                ..ThresholdsConfig::default()
             },
             ..Config::default()
         };
@@ -202,9 +202,9 @@ mod tests {
     #[test]
     fn critical_http_counts_as_warning_plus() {
         let config = Config {
-            thresholds: crate::config::ThresholdsConfig {
+            thresholds: ThresholdsConfig {
                 n_plus_one_http_warning_max: 0,
-                ..crate::config::ThresholdsConfig::default()
+                ..ThresholdsConfig::default()
             },
             ..Config::default()
         };

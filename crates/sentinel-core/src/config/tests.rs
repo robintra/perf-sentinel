@@ -1664,9 +1664,9 @@ fn unresolved_env_ack_key_fails_validation() {
     // config load, not run with auth silently off.
     let cfg = Config {
         daemon: DaemonConfig {
-            ack: crate::config::DaemonAckConfig {
+            ack: DaemonAckConfig {
                 api_key: Some(String::new()),
-                ..crate::config::DaemonAckConfig::default()
+                ..DaemonAckConfig::default()
             },
             ..DaemonConfig::default()
         },
