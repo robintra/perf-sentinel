@@ -23,6 +23,10 @@
     },
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
+    "global": {
+      "type": "object",
+      "description": "Reserved by Helm convention for cross-chart values. This chart has no subcharts and reads nothing from it, but the key must be allowed or any values file/tool that sets it (umbrella charts, ArgoCD, Helmfile) fails schema validation."
+    },
     "workload": {
       "type": "object",
       "additionalProperties": false,
