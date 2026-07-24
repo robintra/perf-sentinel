@@ -14,7 +14,13 @@ spec:
   replicas: {{ .Values.workload.replicas }}
   {{- with .Values.workload.strategy }}
   strategy:
+    {{- if eq (.type | default "RollingUpdate") "Recreate" }}
+    {{- /* rollingUpdate is Forbidden by the API when type is Recreate, and the
+           default values merge would otherwise leave it in place. */}}
+    type: Recreate
+    {{- else }}
     {{- toYaml . | nindent 4 }}
+    {{- end }}
   {{- end }}
   selector:
     matchLabels:
