@@ -25,6 +25,24 @@ n_plus_one_http_warning_max = 3
 io_waste_ratio_max = 0.30
 ```
 
+### Exit codes
+
+The batch subcommands (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, `pg-stat`, `mysql-stat`, `calibrate`, `explain`, `bench`, `demo`) share a stable exit-code contract since 0.9.17:
+
+- `0`: success. Under `--ci`, this also means the quality gate passed.
+- `1`: quality gate FAILED. Only emitted by `analyze --ci` (or `tempo
+  --ci` / `jaeger-query --ci`, which share the same gate path via
+  `emit_report_and_gate`) when a threshold in `[thresholds]` was
+  exceeded. The analysis itself succeeded, this is a genuine regression.
+  A gate breach takes precedence over a simultaneous report-write failure,
+  so a real regression on a broken pipe or a full disk still exits `1`,
+  never the tolerable `75`. Every other batch command has no `--ci` flag
+  and no quality gate at all, none of them ever emit `1`.
+- `2`: a CLI usage error. Emitted both by `clap` for parse-level mistakes (a missing required flag, e.g. `mysql-stat` with no `--input`) and by perf-sentinel's own post-parse validation for unsupported flag combinations `clap` cannot express (e.g. `report --pg-stat-top` without `--pg-stat`, or `bench --iterations 0`). A usage error is a permanent invocation mistake and always blocks, deliberately kept out of the tolerable `75` bucket.
+- `75`: tooling/internal error (aligned with `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), the sentinel value the GitLab CI template already uses at the shell level). Covers every runtime failure that reaches perf-sentinel's own code and is neither a usage error nor a quality-gate breach: a missing or unreadable `--input`/`--config`/acknowledgments/baseline file, malformed trace/config/acknowledgments data, a `tempo`/`jaeger-query` fetch failure, an `explain` trace-not-found, or a failure writing the SARIF/JSON/HTML output. Never emitted for a threshold breach, and never means the analysis ran and disagreed with your config.
+
+The two failure codes above the `clap` floor are deliberately distinct so a CI pipeline can branch on the exact code instead of inferring the cause from file existence or step outcome, see [Tooling failures vs quality-gate breaches](#tooling-failures-vs-quality-gate-breaches) below for how each of the three official templates uses this. Before 0.9.17, tooling failures exited `1` too. Pipelines that only check for a non-zero exit code are unaffected.
+
 ---
 
 ## CI integration recipes
