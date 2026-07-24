@@ -456,6 +456,51 @@
   <span style="color:var(--code-cmd);font-weight:600">exec</span> java <span style="color:var(--code-flag)">-XX:AOTCache=/app/app.aot</span> <span style="color:var(--code-flag)">-jar</span> /app/my-app.jar
 <span style="color:var(--code-cmd);font-weight:600">fi</span></code></pre></div>
 <p class="ps-p"><strong>Le starter Spring Boot ne suffit pas.</strong> Le <code class="ps-ic">spring-boot-starter-opentelemetry</code> (Spring Boot 4) n'instrumente pas les appels sortants <code class="ps-ic">WebClient</code> ou <code class="ps-ic">RestTemplate</code> avec propagation du trace context. Utilisez le Java Agent pour une détection N+1 HTTP complète.</p>
+<h4 id="tests-dintégration-en-ci-maven-failsafe-exporteur-fichier" class="ps-h4">Tests d'intégration en CI (Maven Failsafe, exporteur fichier)</h4>
+<p class="ps-p">La configuration ci-dessus suppose un processus qui tourne en continu et parle à un endpoint OTLP live. Les tests d'intégration sont différents : ils tournent dans la JVM du test runner lui-même, et il n'y a pas de daemon vers qui envoyer des traces en CI. Voir <a href="/docs/fr/CI#ci-mode-batch-analysis">CI</a> (anglais) pour le mode batch que cette configuration alimente.</p>
+<p class="ps-p"><strong>Attachez l'agent au fork de test, pas seulement à l'image buildée.</strong> Si les tests d'intégration tournent en process contre <code class="ps-ic">@SpringBootTest</code> (Maven Failsafe, <code class="ps-ic">integrationTest</code> Gradle) plutôt que contre le conteneur buildé, l'agent embarqué dans votre Dockerfile ne les voit jamais. Attachez une seconde copie de l'agent directement au fork Failsafe, avec la même version que celle du Dockerfile pour que les deux environnements instrumentent de la même façon :</p>
+<div class="ps-code"><div class="ps-code-lang">xml</div><pre><code><span style="color:var(--term-comment)">&lt;!-- Copie le jar de l'agent dans target/ avant la phase integration-test. --&gt;</span>
+&lt;<span style="color:var(--code-cmd)">plugin</span>&gt;
+  &lt;<span style="color:var(--code-cmd)">groupId</span>&gt;org.apache.maven.plugins&lt;/<span style="color:var(--code-cmd)">groupId</span>&gt;
+  &lt;<span style="color:var(--code-cmd)">artifactId</span>&gt;maven-dependency-plugin&lt;/<span style="color:var(--code-cmd)">artifactId</span>&gt;
+  &lt;<span style="color:var(--code-cmd)">executions</span>&gt;
+    &lt;<span style="color:var(--code-cmd)">execution</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">id</span>&gt;copy-otel-agent&lt;/<span style="color:var(--code-cmd)">id</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">phase</span>&gt;pre-integration-test&lt;/<span style="color:var(--code-cmd)">phase</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">goals</span>&gt;&lt;<span style="color:var(--code-cmd)">goal</span>&gt;copy&lt;/<span style="color:var(--code-cmd)">goal</span>&gt;&lt;/<span style="color:var(--code-cmd)">goals</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">configuration</span>&gt;
+        &lt;<span style="color:var(--code-cmd)">artifactItems</span>&gt;
+          &lt;<span style="color:var(--code-cmd)">artifactItem</span>&gt;
+            &lt;<span style="color:var(--code-cmd)">groupId</span>&gt;io.opentelemetry.javaagent&lt;/<span style="color:var(--code-cmd)">groupId</span>&gt;
+            &lt;<span style="color:var(--code-cmd)">artifactId</span>&gt;opentelemetry-javaagent&lt;/<span style="color:var(--code-cmd)">artifactId</span>&gt;
+            &lt;<span style="color:var(--code-cmd)">version</span>&gt;2.27.0&lt;/<span style="color:var(--code-cmd)">version</span>&gt; <span style="color:var(--term-comment)">&lt;!-- même version que celle du Dockerfile --&gt;</span>
+            &lt;<span style="color:var(--code-cmd)">destFileName</span>&gt;opentelemetry-javaagent.jar&lt;/<span style="color:var(--code-cmd)">destFileName</span>&gt;
+          &lt;/<span style="color:var(--code-cmd)">artifactItem</span>&gt;
+        &lt;/<span style="color:var(--code-cmd)">artifactItems</span>&gt;
+        &lt;<span style="color:var(--code-cmd)">outputDirectory</span>&gt;${project.build.directory}&lt;/<span style="color:var(--code-cmd)">outputDirectory</span>&gt;
+      &lt;/<span style="color:var(--code-cmd)">configuration</span>&gt;
+    &lt;/<span style="color:var(--code-cmd)">execution</span>&gt;
+  &lt;/<span style="color:var(--code-cmd)">executions</span>&gt;
+&lt;/<span style="color:var(--code-cmd)">plugin</span>&gt;
+
+<span style="color:var(--term-comment)">&lt;!-- Ajoute -javaagent à l'argLine EXISTANT de failsafe, ne le remplace pas. --&gt;</span>
+&lt;<span style="color:var(--code-cmd)">plugin</span>&gt;
+  &lt;<span style="color:var(--code-cmd)">groupId</span>&gt;org.apache.maven.plugins&lt;/<span style="color:var(--code-cmd)">groupId</span>&gt;
+  &lt;<span style="color:var(--code-cmd)">artifactId</span>&gt;maven-failsafe-plugin&lt;/<span style="color:var(--code-cmd)">artifactId</span>&gt;
+  &lt;<span style="color:var(--code-cmd)">configuration</span>&gt;
+    &lt;<span style="color:var(--code-cmd)">argLine</span>&gt;@{argLine} -javaagent:${project.build.directory}/opentelemetry-javaagent.jar&lt;/<span style="color:var(--code-cmd)">argLine</span>&gt;
+    &lt;<span style="color:var(--code-cmd)">environmentVariables</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">OTEL_TRACES_EXPORTER</span>&gt;otlp_file&lt;/<span style="color:var(--code-cmd)">OTEL_TRACES_EXPORTER</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">OTEL_EXPORTER_OTLP_FILE_PATH</span>&gt;${project.build.directory}/traces.json&lt;/<span style="color:var(--code-cmd)">OTEL_EXPORTER_OTLP_FILE_PATH</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">OTEL_SERVICE_NAME</span>&gt;mon-service&lt;/<span style="color:var(--code-cmd)">OTEL_SERVICE_NAME</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">OTEL_TRACES_SAMPLER</span>&gt;always_on&lt;/<span style="color:var(--code-cmd)">OTEL_TRACES_SAMPLER</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">OTEL_METRICS_EXPORTER</span>&gt;none&lt;/<span style="color:var(--code-cmd)">OTEL_METRICS_EXPORTER</span>&gt;
+      &lt;<span style="color:var(--code-cmd)">OTEL_LOGS_EXPORTER</span>&gt;none&lt;/<span style="color:var(--code-cmd)">OTEL_LOGS_EXPORTER</span>&gt;
+    &lt;/<span style="color:var(--code-cmd)">environmentVariables</span>&gt;
+  &lt;/<span style="color:var(--code-cmd)">configuration</span>&gt;
+&lt;/<span style="color:var(--code-cmd)">plugin</span>&gt;</code></pre></div>
+<p class="ps-p">Conservez le contenu existant de votre <code class="ps-ic">&lt;argLine&gt;</code> (flags de heap, placeholder JaCoCo <code class="ps-ic">@{argLine}</code>) et ajoutez <code class="ps-ic">-javaagent:...</code> à la fin. L'écraser est une erreur fréquente qui fait silencieusement disparaître l'instrumentation de couverture JaCoCo. <code class="ps-ic">OTEL_TRACES_SAMPLER=always_on</code> compte plus ici qu'en production : le sampling supprimerait justement les appels répétés dont dépend la détection N+1. L'exporteur <code class="ps-ic">otlp_file</code> écrit un seul fichier JSON sans collector, consommé directement par <code class="ps-ic">analyze --input target/traces.json</code> en CI.</p>
+<p class="ps-p">Cette config suppose le fork unique par défaut de Failsafe, qui produit un seul <code class="ps-ic">target/traces.json</code>. Si votre POM définit déjà <code class="ps-ic">&lt;forkCount&gt;</code> au-dessus de 1, chaque fork partage ce même chemin statique et écrase la sortie des autres, corrompant le fichier de traces que la CI passe ensuite à <code class="ps-ic">analyze</code>. Ajoutez <code class="ps-ic">&lt;forkCount&gt;1&lt;/forkCount&gt;</code> à la config Failsafe ci-dessus pour que cette recette reste correcte, ou donnez vous-même à chaque fork son propre <code class="ps-ic">OTEL_EXPORTER_OTLP_FILE_PATH</code> si vous devez garder les tests d'intégration en parallèle.</p>
 <hr class="ps-hr">
 <h3 id="java-quarkus-333-lts--quarkus-opentelemetry--otel-agent-v227" class="ps-h3">Java (Quarkus 3.33 LTS + quarkus-opentelemetry + OTel Agent v2.27)</h3>
 <p class="ps-p">Pour les applications Quarkus (y compris les images natives GraalVM où le Java Agent ne peut pas être utilisé), ajoutez l'extension <code class="ps-ic">quarkus-opentelemetry</code> :</p>
