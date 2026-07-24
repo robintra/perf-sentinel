@@ -25,6 +25,25 @@ n_plus_one_http_warning_max = 3
 io_waste_ratio_max = 0.30
 ```
 
+### Codes de sortie
+
+Les sous-commandes batch (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, `pg-stat`, `mysql-stat`, `calibrate`, `explain`, `bench`, `demo`) partagent un contrat de codes de sortie stable depuis la 0.9.17 :
+
+- `0` : succès. Sous `--ci`, ça veut aussi dire que le quality gate est passé.
+- `1` : quality gate FAILED. Émis uniquement par `analyze --ci` (ou
+  `tempo --ci` / `jaeger-query --ci`, qui partagent le même chemin de
+  gate via `emit_report_and_gate`) quand un seuil de `[thresholds]` est
+  dépassé. L'analyse elle-même a réussi, c'est une vraie régression.
+  Un dépassement du gate a la priorité sur un échec d'écriture du rapport
+  simultané, donc une vraie régression sur un pipe cassé ou un disque
+  plein sort quand même en `1`, jamais le `75` tolérable. Toute autre
+  commande batch n'a pas de flag `--ci` ni de quality gate du tout, aucune
+  n'émet jamais `1`.
+- `2` : une erreur d'usage CLI. Émise à la fois par `clap` pour les erreurs au niveau du parsing (un flag requis manquant, ex. `mysql-stat` sans `--input`) et par la validation post-parse de perf-sentinel pour les combinaisons de flags que `clap` ne peut pas exprimer (ex. `report --pg-stat-top` sans `--pg-stat`, ou `bench --iterations 0`). Une erreur d'usage est une faute d'invocation permanente qui bloque toujours, volontairement gardée hors du panier tolérable `75`.
+- `75` : erreur d'outillage/interne (alignée sur `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), la valeur sentinelle que le template GitLab CI utilise déjà au niveau shell). Couvre tout échec runtime qui atteint le code propre de perf-sentinel et n'est ni une erreur d'usage ni un dépassement du quality gate : un fichier `--input`/`--config`/acquittements/baseline manquant ou illisible, des données de traces/config/acquittements malformées, un échec de récupération pour `tempo`/`jaeger-query`, un trace-not-found d'`explain`, ou un échec d'écriture du rapport SARIF/JSON/HTML. Jamais émis pour un dépassement de seuil, et ne signifie jamais que l'analyse a tourné et a été en désaccord avec votre config.
+
+Les deux codes d'échec au-dessus du plancher `clap` sont volontairement distincts pour qu'un pipeline CI puisse brancher sur le code exact plutôt que d'inférer la cause depuis l'existence d'un fichier ou l'outcome d'un step, voir [Échecs d'outillage vs dépassements du quality gate](#échecs-doutillage-vs-dépassements-du-quality-gate) plus bas pour la façon dont chacun des trois templates officiels utilise ça. Avant la 0.9.17, les échecs d'outillage sortaient aussi en `1`. Les pipelines qui vérifient seulement un code de sortie non-zéro ne sont pas affectés.
+
 ---
 
 ## Recettes d'intégration CI
