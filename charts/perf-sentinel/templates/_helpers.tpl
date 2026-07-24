@@ -229,6 +229,9 @@ Pod template labels merge commonLabels / selectorLabels / podLabels.
 */}}
 {{- define "perf-sentinel.podLabels" -}}
 {{ include "perf-sentinel.selectorLabels" . }}
+{{- with .Values.commonLabels }}
+{{ toYaml . }}
+{{- end }}
 {{- with .Values.podLabels }}
 {{ toYaml . }}
 {{- end }}
