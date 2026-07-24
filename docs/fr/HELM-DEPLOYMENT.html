@@ -188,14 +188,14 @@
 <p class="ps-p"><code class="ps-ic">oci://ghcr.io/robintra/charts/perf-sentinel</code> est l'URL complète du chart, la forme attendue par <code class="ps-ic">helm install</code>. Une entrée <code class="ps-ic">dependencies:</code> attend au contraire le namespace parent, car Helm concatène <code class="ps-ic">name</code> à <code class="ps-ic">repository</code> :</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">dependencies</span>:
   - name: perf-sentinel
-<span style="color:var(--code-sub)">    version</span>: 0.9.15
+<span style="color:var(--code-sub)">    version</span>: 0.9.16
 <span style="color:var(--code-sub)">    repository</span>: oci://ghcr.io/robintra/charts   # le namespace, pas l'URL du chart</code></pre></div>
 <p class="ps-p">Même découpage pour une <code class="ps-ic">Application</code> Argo CD : <code class="ps-ic">repoURL: ghcr.io/robintra/charts</code> plus <code class="ps-ic">chart: perf-sentinel</code>.</p>
 <p class="ps-p">Répéter le nom du chart dans <code class="ps-ic">repository</code> résout vers <code class="ps-ic">charts/perf-sentinel/perf-sentinel</code>, qui n'existe pas. En anonyme, ghcr.io répond <code class="ps-ic">403 denied</code> plutôt que <code class="ps-ic">404</code> sur un chemin manquant : l'échec ressemble donc à un problème de registre privé alors que c'est un problème de chemin. Pour confirmer que l'artifact est bien public, récupérez un token anonyme et tirez le manifest :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">token=$(curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">"https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&amp;service=ghcr.io"</span> | jq <span style="color:var(--code-flag)">-r</span> .token)
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-flag)">-o</span> /dev/null <span style="color:var(--code-flag)">-w</span> <span style="color:var(--code-num)">'%{http_code}\n'</span> <span style="color:var(--code-flag)">-H</span> "Authorization: Bearer $token" \
   <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">'Accept:</span> application/vnd.oci.image.manifest.v1+json' \
-  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.15</span></code></pre></div>
+  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.16</span></code></pre></div>
 <h2 id="artifact-hub" class="ps-h2">Artifact Hub</h2>
 <p class="ps-p">Le chart est indexé sur <a href="https://artifacthub.io" target="_blank" rel="noopener" class="ps-ext">Artifact Hub</a>, où les utilisateurs peuvent le découvrir, explorer son values schema et consulter le changelog.</p>
 <p class="ps-p">Flow d'enregistrement (réalisé une fois par le mainteneur du chart) :</p>

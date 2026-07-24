@@ -188,14 +188,14 @@
 <p class="ps-p"><code class="ps-ic">oci://ghcr.io/robintra/charts/perf-sentinel</code> is the full chart URL, the form <code class="ps-ic">helm install</code> takes. A <code class="ps-ic">dependencies:</code> entry wants the parent namespace instead, because Helm appends <code class="ps-ic">name</code> to <code class="ps-ic">repository</code>:</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">dependencies</span>:
   - name: perf-sentinel
-<span style="color:var(--code-sub)">    version</span>: 0.9.15
+<span style="color:var(--code-sub)">    version</span>: 0.9.16
 <span style="color:var(--code-sub)">    repository</span>: oci://ghcr.io/robintra/charts   # namespace, not the chart URL</code></pre></div>
 <p class="ps-p">Same split for an Argo CD <code class="ps-ic">Application</code>: <code class="ps-ic">repoURL: ghcr.io/robintra/charts</code> plus <code class="ps-ic">chart: perf-sentinel</code>.</p>
 <p class="ps-p">Repeating the chart name in <code class="ps-ic">repository</code> resolves to <code class="ps-ic">charts/perf-sentinel/perf-sentinel</code>, which does not exist. ghcr.io answers <code class="ps-ic">403 denied</code> rather than <code class="ps-ic">404</code> for a missing path when unauthenticated, so the failure reads like a private-registry problem when it is a path problem. To confirm the artifact is public, pull an anonymous token and fetch the manifest:</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">token=$(curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">"https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&amp;service=ghcr.io"</span> | jq <span style="color:var(--code-flag)">-r</span> .token)
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-flag)">-o</span> /dev/null <span style="color:var(--code-flag)">-w</span> <span style="color:var(--code-num)">'%{http_code}\n'</span> <span style="color:var(--code-flag)">-H</span> "Authorization: Bearer $token" \
   <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">'Accept:</span> application/vnd.oci.image.manifest.v1+json' \
-  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.15</span></code></pre></div>
+  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.16</span></code></pre></div>
 <h2 id="artifact-hub" class="ps-h2">Artifact Hub</h2>
 <p class="ps-p">The chart is indexed on <a href="https://artifacthub.io" target="_blank" rel="noopener" class="ps-ext">Artifact Hub</a>, where users can discover it, browse its values schema, and read the changelog.</p>
 <p class="ps-p">Registration flow (done by the maintainer once per chart):</p>
