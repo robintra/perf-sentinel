@@ -1,5 +1,7 @@
 # perf-sentinel Helm chart
 
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/perf-sentinel)](https://artifacthub.io/packages/helm/perf-sentinel/perf-sentinel)
+
 Deploy [perf-sentinel](https://github.com/robintra/perf-sentinel) in a
 Kubernetes cluster as a `Deployment`, `DaemonSet` or `StatefulSet`, behind
 a `ClusterIP` Service exposing OTLP gRPC (4317) and OTLP HTTP + `/metrics`
@@ -28,7 +30,8 @@ calls and excessive fanout. It also scores I/O intensity per endpoint
 
 Installing from a local checkout is useful when iterating on a values
 file or on the chart templates. For the OCI install path (the default
-for most users), see [`docs/HELM-DEPLOYMENT.md`](../../docs/HELM-DEPLOYMENT.md)
+for most users), see
+[`docs/HELM-DEPLOYMENT.md`](https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md)
 or the Artifact Hub badge at the top of this page.
 
 ```bash
@@ -39,11 +42,12 @@ helm install perf-sentinel ./charts/perf-sentinel \
 ```
 
 For the end-to-end topology (services -> OTel Collector -> perf-sentinel +
-Tempo), see [`examples/helm/`](../../examples/helm/).
+Tempo), see
+[`examples/helm/`](https://github.com/robintra/perf-sentinel/tree/main/examples/helm).
 
 ## Documentation
 
 Full guide lives in
-[`docs/HELM-DEPLOYMENT.md`](../../docs/HELM-DEPLOYMENT.md). Configuration
-reference for the embedded `.perf-sentinel.toml` is in
-[`docs/CONFIGURATION.md`](../../docs/CONFIGURATION.md).
+[`docs/HELM-DEPLOYMENT.md`](https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md).
+Configuration reference for the embedded `.perf-sentinel.toml` is in
+[`docs/CONFIGURATION.md`](https://github.com/robintra/perf-sentinel/blob/main/docs/CONFIGURATION.md).
