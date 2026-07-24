@@ -29,7 +29,7 @@ For a non-Helm alternative, see the raw manifests in
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.2.0 \
+  --version 0.9.17 \
   --namespace observability --create-namespace
 kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
 ```
@@ -89,7 +89,7 @@ asset and as a signed attestation.
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.2.0 \
+  --version 0.9.17 \
   --namespace observability --create-namespace \
   -f my-values.yaml
 ```
@@ -172,7 +172,7 @@ published release workflow, the OIDC issuer must be GitHub Actions:
 cosign verify \
   --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/\.github/workflows/helm-release\.yml@refs/tags/chart-v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/robintra/charts/perf-sentinel:0.2.0
+  ghcr.io/robintra/charts/perf-sentinel:0.9.17
 ```
 
 A successful run prints the Rekor log entry and the certificate
@@ -186,11 +186,11 @@ on the repository's attestation store (not on the OCI registry). The
 attestation is queryable via `gh`:
 
 ```bash
-gh release download chart-v0.2.0 \
+gh release download chart-v0.9.17 \
   --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz'
 
-gh attestation verify perf-sentinel-0.2.0.tgz \
+gh attestation verify perf-sentinel-0.9.17.tgz \
   --repo robintra/perf-sentinel
 ```
 
@@ -200,7 +200,7 @@ reference:
 
 ```bash
 docker login ghcr.io
-gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.2.0 \
+gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.17 \
   --repo robintra/perf-sentinel
 ```
 
@@ -220,16 +220,16 @@ verify it against the tarball, exactly like the provenance check above. The
 build-provenance one:
 
 ```bash
-gh release download chart-v0.2.0 --repo robintra/perf-sentinel \
+gh release download chart-v0.9.17 --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz' \
   --pattern 'perf-sentinel-chart-*.spdx.json'
 
-gh attestation verify perf-sentinel-0.2.0.tgz \
+gh attestation verify perf-sentinel-0.9.17.tgz \
   --repo robintra/perf-sentinel \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
-The downloaded `perf-sentinel-chart-0.2.0.spdx.json` is the human-readable
+The downloaded `perf-sentinel-chart-0.9.17.spdx.json` is the human-readable
 copy of that attested SBOM. It captures the chart's declared dependencies at
 release time.
 
