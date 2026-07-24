@@ -1245,3 +1245,45 @@ fn cli_report_rejects_invalid_input_with_clear_error() {
         "malformed --input must exit EXIT_TOOLING_ERROR (75), report has no gate to breach"
     );
 }
+
+// ---------------------------------------------------------------------
+// `report --mysql-stat`: the embedded ranking source honors the same
+// exit-code contract. A malformed digest export is a tooling failure,
+// never a gate breach. See docs/CI.md "Exit codes".
+// ---------------------------------------------------------------------
+
+#[test]
+fn cli_report_malformed_mysql_stat_exits_tooling_error() {
+    let valid_input = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bad_mysql = dir.path().join("bad.csv");
+    fs::write(&bad_mysql, "DIGEST_TEXT,COUNT_STAR\nSELECT ?,10").expect("write bad csv");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &valid_input,
+            "--mysql-stat",
+            bad_mysql.to_str().unwrap(),
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("spawn");
+
+    assert!(
+        !output.status.success(),
+        "malformed --mysql-stat must fail the report"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "a malformed mysql_stat source is a tooling failure (75), not a gate breach"
+    );
+}
