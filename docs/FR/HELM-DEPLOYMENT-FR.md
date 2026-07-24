@@ -24,7 +24,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.9.17 \
+  --version 0.9.18 \
   --namespace observability --create-namespace
 kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
 ```
@@ -68,12 +68,12 @@ Le chart est publié en tant qu'artifact OCI sous `oci://ghcr.io/robintra/charts
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.9.17 \
+  --version 0.9.18 \
   --namespace observability --create-namespace \
   -f my-values.yaml
 ```
 
-Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la release du chart, `appVersion` désigne le tag de l'image daemon livrée avec. Chaque release bumpe les deux en lockstep, donc un `--version` pinné donne déjà un `appVersion` connu. N'overridez `image.tag` que pour faire tourner un build daemon précis avec un autre chart.
+Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la release du chart, `appVersion` désigne le tag de l'image daemon livrée avec. Une release applicative bumpe les deux ensemble, un correctif chart seul ne bumpe que `version` et laisse l'`appVersion` en arrière (cas des `0.9.16` et `0.9.18`), donc un `--version` pinné donne toujours un `appVersion` connu. N'overridez `image.tag` que pour faire tourner un build daemon précis avec un autre chart.
 
 ### Utilisation en subchart ou depuis Argo CD
 
@@ -82,7 +82,7 @@ Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la
 ```yaml
 dependencies:
   - name: perf-sentinel
-    version: 0.9.16
+    version: 0.9.18
     repository: oci://ghcr.io/robintra/charts   # le namespace, pas l'URL du chart
 ```
 
@@ -94,7 +94,7 @@ Répéter le nom du chart dans `repository` résout vers `charts/perf-sentinel/p
 token=$(curl -s "https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&service=ghcr.io" | jq -r .token)
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
   -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.16
+  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.18
 ```
 
 ## Artifact Hub
@@ -138,7 +138,7 @@ La vérification Cosign keyless relie chaque release à un run spécifique du wo
 cosign verify \
   --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/\.github/workflows/helm-release\.yml@refs/tags/chart-v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/robintra/charts/perf-sentinel:0.9.17
+  ghcr.io/robintra/charts/perf-sentinel:0.9.18
 ```
 
 Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Un mismatch ou une absence de signature retourne un code non nul.
@@ -148,11 +148,11 @@ Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Un 
 Chaque tarball de chart publié porte une attestation de provenance de build SLSA v1.0 produite par `actions/attest-build-provenance` et stockée sur l'attestation store du repo (pas sur le registry OCI). L'attestation est interrogeable via `gh` :
 
 ```bash
-gh release download chart-v0.9.17 \
+gh release download chart-v0.9.18 \
   --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz'
 
-gh attestation verify perf-sentinel-0.9.17.tgz \
+gh attestation verify perf-sentinel-0.9.18.tgz \
   --repo robintra/perf-sentinel
 ```
 
@@ -162,7 +162,7 @@ référence OCI :
 
 ```bash
 docker login ghcr.io
-gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.17 \
+gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.18 \
   --repo robintra/perf-sentinel
 ```
 
@@ -182,16 +182,16 @@ ci-dessus. Le filtre `--predicate-type` sélectionne l'attestation SBOM SPDX
 plutôt que celle de provenance de build :
 
 ```bash
-gh release download chart-v0.9.17 --repo robintra/perf-sentinel \
+gh release download chart-v0.9.18 --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz' \
   --pattern 'perf-sentinel-chart-*.spdx.json'
 
-gh attestation verify perf-sentinel-0.9.17.tgz \
+gh attestation verify perf-sentinel-0.9.18.tgz \
   --repo robintra/perf-sentinel \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
-Le `perf-sentinel-chart-0.9.17.spdx.json` téléchargé est la copie lisible de ce
+Le `perf-sentinel-chart-0.9.18.spdx.json` téléchargé est la copie lisible de ce
 SBOM attesté. Il capture les dépendances déclarées du chart au moment de la
 release.
 

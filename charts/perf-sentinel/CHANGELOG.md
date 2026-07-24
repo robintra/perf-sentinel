@@ -6,6 +6,43 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.18]
+
+### Fixed
+
+- `workload.strategy.type=Recreate` no longer renders an invalid
+  `Deployment`. Overriding only the type left the default
+  `rollingUpdate` block in the merged values, and the API rejects it
+  (`spec.strategy.rollingUpdate: Forbidden: may not be specified when
+  strategy type is 'Recreate'`), so the install failed outright. The
+  template now renders `type: Recreate` alone in that case.
+- `service.type` no longer accepts `ExternalName` in
+  `values.schema.json`. The chart always renders a selector and ports
+  and never `spec.externalName`, so the value could only ever produce a
+  Service the API rejects.
+- `commonLabels` now reach the pod template. They were applied to every
+  rendered object except the podTemplate, so pod-level selectors built
+  on a common label (chargeback, policy, log routing) matched nothing.
+  Selector labels are unchanged, so upgrading is a pod-template rollout,
+  not a selector migration.
+- `artifacthub-repo.yml` drops a stale comment describing the
+  `repositoryID` as an unregistered placeholder.
+- The chart `README.md` carries the Artifact Hub badge it referred to,
+  and its cross-links to `docs/` and `examples/` are absolute so they
+  resolve when the README is rendered on artifacthub.io.
+
+### Changed
+
+- The default liveness probe budget moves to `timeoutSeconds: 5` and
+  `failureThreshold: 5`, the value `docs/RUNBOOK.md` has recommended
+  since appVersion `0.8.7`. Under sustained saturation the cgroup is
+  throttled in quanta, and the previous 2s / 3-failure budget restarted
+  a functional daemon that was merely backpressuring. The readiness
+  probe stays tight on purpose, dropping the pod from the Service
+  endpoints is the wanted response to saturation, a restart is not.
+
+`appVersion` stays `0.9.17`, no application change.
+
 ## [0.9.17]
 
 ### Changed

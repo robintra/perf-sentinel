@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.17
+version: 0.9.18
 appVersion: "0.9.17"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -37,6 +37,12 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: fixed
+      description: "Chart 0.9.18: setting workload.strategy.type=Recreate no longer renders an invalid Deployment. The default values merge left the rollingUpdate block in place, and the API rejects it outright when the type is Recreate, so the install failed. service.type is also no longer allowed to be ExternalName in values.schema.json, since the chart always renders a selector and ports and never spec.externalName, which the API rejects as well. Chart-only fix, appVersion unchanged (still 0.9.17)."
+    - kind: fixed
+      description: "Chart 0.9.18: commonLabels now reach the pod template. They were applied to every rendered object except the podTemplate, so pod-level selectors (chargeback, policy, log routing) built on a common label matched nothing. Selector labels are untouched, so the change is a pod-template-only rollout on upgrade. Chart-only fix, appVersion unchanged."
+    - kind: changed
+      description: "Chart 0.9.18: the default liveness probe budget moves to timeoutSeconds 5 and failureThreshold 5, the value docs/RUNBOOK.md has recommended since appVersion 0.8.7. Under sustained saturation the cgroup is throttled in quanta and the previous 2s/3-failure budget restarted a functional daemon that was merely backpressuring. The readiness probe stays tight on purpose, dropping the pod from the Service endpoints is the wanted response to saturation. Chart-only change, appVersion unchanged."
     - kind: changed
       description: "appVersion 0.9.17: the chart version and appVersion realign at 0.9.17 after the chart-only 0.9.16 fix, so 0.9.16 is skipped for the application. The batch subcommands now exit 75 for a runtime tooling failure (missing or malformed input, config, acknowledgments or baseline file, a tempo/jaeger-query fetch failure, an explain trace-not-found, or a report-write failure) instead of the 1 reserved for a genuine quality-gate breach on analyze --ci / tempo --ci / jaeger-query --ci. Usage errors exit 2. No chart template change, this bump tracks the new appVersion."
     - kind: fixed
