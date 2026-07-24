@@ -149,7 +149,7 @@
 </ul>
 <h2 id="tldr" class="ps-h2">TL;DR</h2>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">helm</span> install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  <span style="color:var(--code-flag)">--version</span> <span style="color:var(--code-cmd);font-weight:600">0.9.17</span> \
+  <span style="color:var(--code-flag)">--version</span> <span style="color:var(--code-cmd);font-weight:600">0.9.18</span> \
   <span style="color:var(--code-flag)">--namespace</span> <span style="color:var(--code-cmd);font-weight:600">observability</span> <span style="color:var(--code-flag)">--create-namespace</span>
 <span style="color:var(--code-cmd);font-weight:600">kubectl</span> <span style="color:var(--code-flag)">--namespace</span> observability get pods <span style="color:var(--code-flag)">-l</span> app.kubernetes.io/name=perf-sentinel</code></pre></div>
 <p class="ps-p">Chaque release publiée est signée Cosign en mode keyless, livrée avec une attestation de provenance de build SLSA v1.0, et livrée avec un SBOM SPDX. Voir <a href="/docs/fr/HELM-DEPLOYMENT#chaîne-dapprovisionnement-logicielle">Chaîne d'approvisionnement logicielle</a> ci-dessous pour les contrôles avant installation.</p>
@@ -180,22 +180,22 @@
 <p class="ps-p">Le chart est publié en tant qu'artifact OCI sous <code class="ps-ic">oci://ghcr.io/robintra/charts/perf-sentinel</code>. Chaque version reçoit une signature Cosign keyless (GitHub OIDC, log de transparence Rekor), une attestation de provenance de build SLSA v1.0 stockée sur l'attestation store du repo, et un SBOM SPDX livré à la fois en asset de GitHub Release et en tant qu'attestation signée.</p>
 <h3 id="pinner-une-version" class="ps-h3">Pinner une version</h3>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">helm</span> install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  <span style="color:var(--code-flag)">--version</span> <span style="color:var(--code-cmd);font-weight:600">0.9.17</span> \
+  <span style="color:var(--code-flag)">--version</span> <span style="color:var(--code-cmd);font-weight:600">0.9.18</span> \
   <span style="color:var(--code-flag)">--namespace</span> <span style="color:var(--code-cmd);font-weight:600">observability</span> <span style="color:var(--code-flag)">--create-namespace</span> \
   <span style="color:var(--code-flag)">-f</span> <span style="color:var(--code-cmd);font-weight:600">my-values.yaml</span></code></pre></div>
-<p class="ps-p">Le <code class="ps-ic">version</code> du chart et l'<code class="ps-ic">appVersion</code> sont découplés : <code class="ps-ic">version</code> désigne la release du chart, <code class="ps-ic">appVersion</code> désigne le tag de l'image daemon livrée avec. Chaque release bumpe les deux en lockstep, donc un <code class="ps-ic">--version</code> pinné donne déjà un <code class="ps-ic">appVersion</code> connu. N'overridez <code class="ps-ic">image.tag</code> que pour faire tourner un build daemon précis avec un autre chart.</p>
+<p class="ps-p">Le <code class="ps-ic">version</code> du chart et l'<code class="ps-ic">appVersion</code> sont découplés : <code class="ps-ic">version</code> désigne la release du chart, <code class="ps-ic">appVersion</code> désigne le tag de l'image daemon livrée avec. Une release applicative bumpe les deux ensemble, un correctif chart seul ne bumpe que <code class="ps-ic">version</code> et laisse l'<code class="ps-ic">appVersion</code> en arrière (cas des <code class="ps-ic">0.9.16</code> et <code class="ps-ic">0.9.18</code>), donc un <code class="ps-ic">--version</code> pinné donne toujours un <code class="ps-ic">appVersion</code> connu. N'overridez <code class="ps-ic">image.tag</code> que pour faire tourner un build daemon précis avec un autre chart.</p>
 <h3 id="utilisation-en-subchart-ou-depuis-argo-cd" class="ps-h3">Utilisation en subchart ou depuis Argo CD</h3>
 <p class="ps-p"><code class="ps-ic">oci://ghcr.io/robintra/charts/perf-sentinel</code> est l'URL complète du chart, la forme attendue par <code class="ps-ic">helm install</code>. Une entrée <code class="ps-ic">dependencies:</code> attend au contraire le namespace parent, car Helm concatène <code class="ps-ic">name</code> à <code class="ps-ic">repository</code> :</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">dependencies</span>:
   - name: perf-sentinel
-<span style="color:var(--code-sub)">    version</span>: 0.9.16
+<span style="color:var(--code-sub)">    version</span>: 0.9.18
 <span style="color:var(--code-sub)">    repository</span>: oci://ghcr.io/robintra/charts   # le namespace, pas l'URL du chart</code></pre></div>
 <p class="ps-p">Même découpage pour une <code class="ps-ic">Application</code> Argo CD : <code class="ps-ic">repoURL: ghcr.io/robintra/charts</code> plus <code class="ps-ic">chart: perf-sentinel</code>.</p>
 <p class="ps-p">Répéter le nom du chart dans <code class="ps-ic">repository</code> résout vers <code class="ps-ic">charts/perf-sentinel/perf-sentinel</code>, qui n'existe pas. En anonyme, ghcr.io répond <code class="ps-ic">403 denied</code> plutôt que <code class="ps-ic">404</code> sur un chemin manquant : l'échec ressemble donc à un problème de registre privé alors que c'est un problème de chemin. Pour confirmer que l'artifact est bien public, récupérez un token anonyme et tirez le manifest :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">token=$(curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">"https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&amp;service=ghcr.io"</span> | jq <span style="color:var(--code-flag)">-r</span> .token)
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-flag)">-o</span> /dev/null <span style="color:var(--code-flag)">-w</span> <span style="color:var(--code-num)">'%{http_code}\n'</span> <span style="color:var(--code-flag)">-H</span> "Authorization: Bearer $token" \
   <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">'Accept:</span> application/vnd.oci.image.manifest.v1+json' \
-  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.16</span></code></pre></div>
+  <span style="color:var(--code-cmd);font-weight:600">https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.18</span></code></pre></div>
 <h2 id="artifact-hub" class="ps-h2">Artifact Hub</h2>
 <p class="ps-p">Le chart est indexé sur <a href="https://artifacthub.io" target="_blank" rel="noopener" class="ps-ext">Artifact Hub</a>, où les utilisateurs peuvent le découvrir, explorer son values schema et consulter le changelog.</p>
 <p class="ps-p">Flow d'enregistrement (réalisé une fois par le mainteneur du chart) :</p>
@@ -215,32 +215,32 @@
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">cosign</span> verify \
   <span style="color:var(--code-flag)">--certificate-identity-regexp</span> <span style="color:var(--code-cmd);font-weight:600">'^https://github.com/robintra/perf-sentinel/\.github/workflows/helm-release\.yml@refs/tags/chart-v'</span> \
   <span style="color:var(--code-flag)">--certificate-oidc-issuer</span> <span style="color:var(--code-cmd);font-weight:600">https://token.actions.githubusercontent.com</span> \
-  <span style="color:var(--code-cmd);font-weight:600">ghcr.io/robintra/charts/perf-sentinel:0.9.17</span></code></pre></div>
+  <span style="color:var(--code-cmd);font-weight:600">ghcr.io/robintra/charts/perf-sentinel:0.9.18</span></code></pre></div>
 <p class="ps-p">Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Un mismatch ou une absence de signature retourne un code non nul.</p>
 <h3 id="vérifier-la-provenance-de-build-slsa" class="ps-h3">Vérifier la provenance de build SLSA</h3>
 <p class="ps-p">Chaque tarball de chart publié porte une attestation de provenance de build SLSA v1.0 produite par <code class="ps-ic">actions/attest-build-provenance</code> et stockée sur l'attestation store du repo (pas sur le registry OCI). L'attestation est interrogeable via <code class="ps-ic">gh</code> :</p>
-<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">gh</span> release download chart-v0.9.17 \
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">gh</span> release download chart-v0.9.18 \
   <span style="color:var(--code-flag)">--repo</span> <span style="color:var(--code-cmd);font-weight:600">robintra/perf-sentinel</span> \
   <span style="color:var(--code-flag)">--pattern</span> <span style="color:var(--code-cmd);font-weight:600">'perf-sentinel-*.tgz'</span>
 
-<span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify perf-sentinel-0.9.17.tgz \
+<span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify perf-sentinel-0.9.18.tgz \
   <span style="color:var(--code-flag)">--repo</span> <span style="color:var(--code-cmd);font-weight:600">robintra/perf-sentinel</span></code></pre></div>
 <p class="ps-p">Si vous avez déjà récupéré l'artifact OCI et préférez ne pas fetcher le tarball, vérifiez la provenance de build directement contre la référence OCI :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">docker</span> login ghcr.io
-<span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.17 \
+<span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.18 \
   <span style="color:var(--code-flag)">--repo</span> <span style="color:var(--code-cmd);font-weight:600">robintra/perf-sentinel</span></code></pre></div>
 <p class="ps-p">Les deux recettes produisent la même assurance. Associez celle que vous choisissez au contrôle de signature Cosign ci-dessus pour confirmer à la fois l'identité du signataire sur l'artifact OCI et la provenance de build sur le tarball.</p>
 <h3 id="vérifier-le-sbom" class="ps-h3">Vérifier le SBOM</h3>
 <p class="ps-p">Chaque release livre un SBOM SPDX en tant qu'asset de GitHub Release et en tant qu'attestation signée sur l'attestation store du repo.</p>
 <p class="ps-p">Le sujet de l'attestation SBOM est le tarball du chart, pas le fichier SBOM, donc vérifiez-la contre le tarball, exactement comme le contrôle de provenance ci-dessus. Le filtre <code class="ps-ic">--predicate-type</code> sélectionne l'attestation SBOM SPDX plutôt que celle de provenance de build :</p>
-<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">gh</span> release download chart-v0.9.17 <span style="color:var(--code-flag)">--repo</span> robintra/perf-sentinel \
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">gh</span> release download chart-v0.9.18 <span style="color:var(--code-flag)">--repo</span> robintra/perf-sentinel \
   <span style="color:var(--code-flag)">--pattern</span> <span style="color:var(--code-cmd);font-weight:600">'perf-sentinel-*.tgz'</span> \
   <span style="color:var(--code-flag)">--pattern</span> <span style="color:var(--code-cmd);font-weight:600">'perf-sentinel-chart-*.spdx.json'</span>
 
-<span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify perf-sentinel-0.9.17.tgz \
+<span style="color:var(--code-cmd);font-weight:600">gh</span> attestation verify perf-sentinel-0.9.18.tgz \
   <span style="color:var(--code-flag)">--repo</span> <span style="color:var(--code-cmd);font-weight:600">robintra/perf-sentinel</span> \
   <span style="color:var(--code-flag)">--predicate-type</span> <span style="color:var(--code-cmd);font-weight:600">https://spdx.dev/Document/v2.3</span></code></pre></div>
-<p class="ps-p">Le <code class="ps-ic">perf-sentinel-chart-0.9.17.spdx.json</code> téléchargé est la copie lisible de ce SBOM attesté. Il capture les dépendances déclarées du chart au moment de la release.</p>
+<p class="ps-p">Le <code class="ps-ic">perf-sentinel-chart-0.9.18.spdx.json</code> téléchargé est la copie lisible de ce SBOM attesté. Il capture les dépendances déclarées du chart au moment de la release.</p>
 <h2 id="installation-depuis-un-checkout-local" class="ps-h2">Installation depuis un checkout local</h2>
 <p class="ps-p">Pour les contributeurs et les utilisateurs qui veulent inspecter, patcher ou bisect le chart avant de l'installer, un clone local fonctionne toujours :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">git</span> clone https://github.com/robintra/perf-sentinel.git
