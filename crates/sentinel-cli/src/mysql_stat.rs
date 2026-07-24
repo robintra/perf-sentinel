@@ -95,13 +95,15 @@ fn run_mysql_stat_pipeline(
     let report = mysql_stat::rank_mysql_stat(&entries, top_n);
 
     match format {
-        MySqlStatOutputFormat::Json => match serde_json::to_string_pretty(&report) {
-            Ok(json) => println!("{json}"),
-            Err(e) => {
-                eprintln!("Error serializing mysql_stat report: {e}");
-                std::process::exit(crate::EXIT_TOOLING_ERROR);
-            }
-        },
+        MySqlStatOutputFormat::Json => {
+            // A derive-`Serialize` report over owned scalars never fails to
+            // serialize, so fall back to an empty string rather than a
+            // dead error branch (matches query.rs / verify_hash.rs).
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).unwrap_or_default()
+            );
+        }
         MySqlStatOutputFormat::Text => print_mysql_stat_report(&report),
     }
 }
