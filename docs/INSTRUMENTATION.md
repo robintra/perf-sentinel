@@ -473,6 +473,59 @@ fi
 
 **Spring Boot starter is not sufficient.** The `spring-boot-starter-opentelemetry` (Spring Boot 4) does not instrument outbound `WebClient` or `RestTemplate` calls with trace context propagation. Use the Java Agent for full N+1 HTTP detection.
 
+#### CI integration tests (Maven Failsafe, file exporter)
+
+The setup above assumes a long-running process talking to a live OTLP endpoint. Integration tests are different: they run inside the test runner's own JVM and there is no daemon to send traces to in CI. See [CI.md](./CI.md#ci-mode-batch-analysis) for the batch-mode path this feeds.
+
+**Attach the agent to the test fork, not just the built image.** If integration tests run in-process against `@SpringBootTest` (Maven Failsafe, Gradle `integrationTest`) rather than against the built container, the agent baked into your Dockerfile never sees them. Attach a second copy of the agent to the Failsafe fork itself, matching the version baked into your Dockerfile so both environments instrument the same way:
+
+```xml
+<!-- Copy the agent jar into target/ before the integration-test phase. -->
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-dependency-plugin</artifactId>
+  <executions>
+    <execution>
+      <id>copy-otel-agent</id>
+      <phase>pre-integration-test</phase>
+      <goals><goal>copy</goal></goals>
+      <configuration>
+        <artifactItems>
+          <artifactItem>
+            <groupId>io.opentelemetry.javaagent</groupId>
+            <artifactId>opentelemetry-javaagent</artifactId>
+            <version>2.27.0</version> <!-- match the version baked into your Dockerfile -->
+            <destFileName>opentelemetry-javaagent.jar</destFileName>
+          </artifactItem>
+        </artifactItems>
+        <outputDirectory>${project.build.directory}</outputDirectory>
+      </configuration>
+    </execution>
+  </executions>
+</plugin>
+
+<!-- Add -javaagent to the EXISTING failsafe argLine, do not replace it. -->
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-failsafe-plugin</artifactId>
+  <configuration>
+    <argLine>@{argLine} -javaagent:${project.build.directory}/opentelemetry-javaagent.jar</argLine>
+    <environmentVariables>
+      <OTEL_TRACES_EXPORTER>otlp_file</OTEL_TRACES_EXPORTER>
+      <OTEL_EXPORTER_OTLP_FILE_PATH>${project.build.directory}/traces.json</OTEL_EXPORTER_OTLP_FILE_PATH>
+      <OTEL_SERVICE_NAME>my-service</OTEL_SERVICE_NAME>
+      <OTEL_TRACES_SAMPLER>always_on</OTEL_TRACES_SAMPLER>
+      <OTEL_METRICS_EXPORTER>none</OTEL_METRICS_EXPORTER>
+      <OTEL_LOGS_EXPORTER>none</OTEL_LOGS_EXPORTER>
+    </environmentVariables>
+  </configuration>
+</plugin>
+```
+
+Keep any existing `<argLine>` content (heap flags, a JaCoCo `@{argLine}` placeholder) and append `-javaagent:...` to it. Overwriting it is a common mistake that silently drops JaCoCo coverage instrumentation. `OTEL_TRACES_SAMPLER=always_on` matters more here than in production: sampling would drop exactly the repeated calls N+1 detection relies on. The `otlp_file` exporter writes one JSON file with no collector involved, consumed directly by `analyze --input target/traces.json` in CI.
+
+This config assumes Failsafe's default single fork, producing one `target/traces.json`. If your POM already sets `<forkCount>` above 1, every fork shares this same static path and overwrites the others' output, corrupting the trace file that CI then feeds to `analyze`. Add `<forkCount>1</forkCount>` to the Failsafe configuration above so this recipe stays correct, or give each fork its own `OTEL_EXPORTER_OTLP_FILE_PATH` yourself if you need to keep the integration tests running in parallel.
+
 ---
 
 ### Java (Quarkus 3.33 LTS + quarkus-opentelemetry + OTel Agent v2.27)
