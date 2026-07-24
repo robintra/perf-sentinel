@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.16
-appVersion: "0.9.15"
+version: 0.9.17
+appVersion: "0.9.17"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,6 +37,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.9.17: the chart version and appVersion realign at 0.9.17 after the chart-only 0.9.16 fix, so 0.9.16 is skipped for the application. The batch subcommands now exit 75 for a runtime tooling failure (missing or malformed input, config, acknowledgments or baseline file, a tempo/jaeger-query fetch failure, an explain trace-not-found, or a report-write failure) instead of the 1 reserved for a genuine quality-gate breach on analyze --ci / tempo --ci / jaeger-query --ci. Usage errors exit 2. No chart template change, this bump tracks the new appVersion."
     - kind: fixed
       description: "Chart 0.9.16: values.schema.json allows a top-level `global` object. Helm's own convention injects `global` into every subchart's values when this chart is installed as a dependency of an umbrella chart, and the schema's additionalProperties: false at the root rejected it outright with 'additional properties global not allowed', a hard install failure any values file or wrapper chart setting global tripped. The chart has no subcharts and reads nothing from global itself. Chart-only fix, appVersion unchanged (still 0.9.15). The next appVersion bump jumps to 0.9.17 to restore the chart/appVersion lockstep, so 0.9.16 is deliberately skipped for the application."
     - kind: changed
@@ -135,7 +137,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.15
+      image: ghcr.io/robintra/perf-sentinel:0.9.17
       platforms:
         - linux/amd64
         - linux/arm64

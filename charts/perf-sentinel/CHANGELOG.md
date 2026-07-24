@@ -6,6 +6,21 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.17]
+
+### Changed
+
+- `appVersion` bumped to `0.9.17`, realigning the chart `version` and
+  `appVersion` after the chart-only `0.9.16` fix (so `0.9.16` is skipped
+  for the application). The batch subcommands now exit `75` for a runtime
+  tooling failure (missing or malformed input, config, acknowledgments or
+  baseline file, a `tempo`/`jaeger-query` fetch failure, an `explain`
+  trace-not-found, or a report-write failure) instead of the `1` reserved
+  for a genuine quality-gate breach on `analyze --ci` / `tempo --ci` /
+  `jaeger-query --ci`. Usage errors exit `2`. No chart template change,
+  this bump tracks the new appVersion. See the application CHANGELOG and
+  `docs/CI.md` "Exit codes".
+
 ## [0.9.16]
 
 ### Fixed
