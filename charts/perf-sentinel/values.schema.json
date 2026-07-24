@@ -93,7 +93,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"]
+          "enum": ["ClusterIP", "NodePort", "LoadBalancer"],
+          "description": "ExternalName is deliberately excluded: the chart renders a selector and ports, never spec.externalName, so the Service would be rejected by the API."
         },
         "annotations": { "type": "object" },
         "ports": {
