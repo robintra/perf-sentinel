@@ -1,13 +1,12 @@
 # Artifact Hub repository metadata.
 # See https://artifacthub.io/docs/topics/repositories/
 #
-# repositoryID is issued by artifacthub.io after the repository has been
-# registered there. The initial release ships with the placeholder
-# below and will be updated in a follow-up release once Robin has
-# completed the registration step documented in
-# docs/HELM-DEPLOYMENT.md.
+# repositoryID is issued by artifacthub.io when the repository is
+# registered. The owners email must match an Artifact Hub account for the
+# repository to keep its verified-publisher badge, so this block is
+# functional metadata, not documentation.
 repositoryID: 70c507ff-c75e-4808-9c3b-87fb5696dce8
 
 owners:
-  - name: Robin Trassard
+  - name: robintra
     email: robin.trassard@gmail.com
