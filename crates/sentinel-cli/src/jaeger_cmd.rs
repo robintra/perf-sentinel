@@ -26,18 +26,18 @@ pub(crate) async fn cmd_jaeger_query(
 ) {
     if trace_id.is_none() && service.is_none() {
         eprintln!("Error: either --trace-id or --service is required");
-        std::process::exit(1);
+        std::process::exit(crate::EXIT_TOOLING_ERROR);
     }
     if trace_id.is_some() && service.is_some() {
         eprintln!("Error: --trace-id and --service are mutually exclusive");
-        std::process::exit(1);
+        std::process::exit(crate::EXIT_TOOLING_ERROR);
     }
 
     let lookback_duration = match sentinel_core::ingest::jaeger_query::parse_lookback(lookback) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("Error parsing lookback: {e}");
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     };
 
@@ -56,7 +56,7 @@ pub(crate) async fn cmd_jaeger_query(
         Ok(events) => events,
         Err(e) => {
             eprintln!("Error fetching traces from Jaeger query API: {e}");
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     };
 

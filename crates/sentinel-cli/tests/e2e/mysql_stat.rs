@@ -115,7 +115,7 @@ fn cli_mysql_stat_traces_cross_reference_sets_marker() {
 }
 
 #[test]
-fn cli_mysql_stat_malformed_input_exits_one() {
+fn cli_mysql_stat_malformed_input_exits_tooling_error() {
     let dir = tempfile::tempdir().expect("tempdir");
     let bad_path = dir.path().join("bad.csv");
     fs::write(&bad_path, "DIGEST_TEXT,COUNT_STAR\nSELECT ?,10").expect("write bad csv");
@@ -128,10 +128,17 @@ fn cli_mysql_stat_malformed_input_exits_one() {
         .output()
         .expect("failed to execute perf-sentinel");
 
-    assert!(!output.status.success(), "missing column must exit 1");
+    assert!(!output.status.success(), "missing column must fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("missing required column"),
         "stderr should name the missing column, got: {stderr}"
+    );
+    // mysql-stat has no quality gate, every failure is a tooling error.
+    // See docs/CI.md "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "malformed input must exit EXIT_TOOLING_ERROR (75), not 1"
     );
 }

@@ -730,6 +730,46 @@ fn cli_report_pg_stat_top_requires_pg_stat_source() {
         stderr.contains("--pg-stat-top requires --pg-stat"),
         "stderr must point at the required companion flag, got:\n{stderr}"
     );
+    // An unsupported flag combination is a usage error and exits 2,
+    // matching clap's own usage-error code, never the tolerable 75.
+    // See docs/CI.md "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "post-parse usage validation must exit 2, not 75 or 1"
+    );
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_report_malformed_daemon_url_exits_tooling_error() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--output",
+            out_path.to_str().unwrap(),
+            "--daemon-url",
+            "not-a-url",
+        ])
+        .output()
+        .expect("spawn");
+
+    assert!(!output.status.success(), "malformed --daemon-url must fail");
+    // report has no quality gate. See docs/CI.md "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "malformed --daemon-url must exit EXIT_TOOLING_ERROR (75), not 1"
+    );
 }
 
 #[test]
@@ -1198,5 +1238,10 @@ fn cli_report_rejects_invalid_input_with_clear_error() {
     assert!(
         stderr.contains("Report JSON") && stderr.contains("Jaeger"),
         "stderr must disambiguate accepted top-level object shapes: {stderr}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "malformed --input must exit EXIT_TOOLING_ERROR (75), report has no gate to breach"
     );
 }

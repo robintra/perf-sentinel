@@ -98,6 +98,14 @@ fn cli_explain_unknown_trace_id_fails() {
         stderr.contains("not found"),
         "should mention trace not found"
     );
+    // explain has no quality gate: a missing trace is a tooling error, so
+    // its exit code must match the rest of explain's failure paths (input
+    // read/parse) rather than the gate code 1. See docs/CI.md "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "unknown trace must exit EXIT_TOOLING_ERROR (75), not 1"
+    );
 }
 
 #[test]

@@ -83,6 +83,11 @@ fn cli_analyze_rejects_missing_file() {
         .expect("failed to execute perf-sentinel");
 
     assert!(!output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "missing input file must exit EXIT_TOOLING_ERROR (75), not 1"
+    );
 }
 
 #[test]
@@ -209,6 +214,15 @@ fn cli_analyze_rejects_invalid_json() {
     assert!(
         stderr.contains("Error ingesting"),
         "stderr should mention ingestion error, got: {stderr}"
+    );
+    // Distinct from a quality-gate breach (exit 1, see
+    // cli_analyze_ci_fails_on_violations below): a tooling/parsing
+    // failure must never be mistaken for a threshold breach by a CI
+    // pipeline branching on exit code. See docs/CI.md "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "malformed input must exit EXIT_TOOLING_ERROR (75), not 1"
     );
 }
 
@@ -428,6 +442,15 @@ fn cli_analyze_ci_fails_on_violations() {
     assert!(
         stderr.contains("Quality gate FAILED"),
         "stderr should mention gate failure, got: {stderr}"
+    );
+    // Exit code 1 specifically, distinct from EXIT_TOOLING_ERROR (75, see
+    // cli_analyze_rejects_invalid_json above): CI pipelines branch on this
+    // exact code to recognize a genuine threshold breach. See docs/CI.md
+    // "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "quality-gate breach must exit 1, not EXIT_TOOLING_ERROR"
     );
 }
 

@@ -54,7 +54,7 @@ pub(crate) fn cmd_demo(
         let (html_out, _stats) = sentinel_core::report::html::render(&report, &traces, &options);
         if let Err(e) = write_file_no_follow(path, html_out.as_bytes()) {
             eprintln!("Error writing HTML report to {}: {e}", path.display());
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
         info!("HTML report written to {}", path.display());
         return;
