@@ -79,6 +79,8 @@ appVersion: "X.Y.Z"   # suit la release perf-sentinel
 
 `scripts/check-chart-version-bumped.sh` tourne dans la CI des PR et rejette tout changement de chart sans bump de version et sans entrée `CHANGELOG.md` sous `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` validera le tag du chart au moment de la release.
 
+**Fix chart-only isolé (exception au lockstep) :** un bug du chart qui doit être corrigé sans aucun changement du binaire (par exemple `values.schema.json` 0.9.16, voir `charts/perf-sentinel/CHANGELOG.md`) peut être releasé seul via un tag `chart-vA.B.C`, qui déclenche directement `helm-release.yml`, sans tag d'application `v*` et sans gate de validation lab. `appVersion` reste sur la dernière version applicative publiée, donc il traîne temporairement derrière le `version` du chart. **La prochaine release applicative doit faire avancer `appVersion`/`version` du chart du nombre de releases chart-only prises entre-temps.** Une release sautée de 0.9.15 vers un chart-only 0.9.16 veut dire que la prochaine release applicative est en 0.9.17, pas 0.9.16, pour que les deux numéros retombent sur la même valeur au lieu de rester décalés en permanence.
+
 ### 4. Valider sur le simulation lab
 
 Pousser la branche release pour préservation :
