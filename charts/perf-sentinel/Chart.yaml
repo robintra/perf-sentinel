@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.15
+version: 0.9.16
 appVersion: "0.9.15"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -37,6 +37,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: fixed
+      description: "Chart 0.9.16: values.schema.json allows a top-level `global` object. Helm's own convention injects `global` into every subchart's values when this chart is installed as a dependency of an umbrella chart, and the schema's additionalProperties: false at the root rejected it outright with 'additional properties global not allowed', a hard install failure any values file or wrapper chart setting global tripped. The chart has no subcharts and reads nothing from global itself. Chart-only fix, appVersion unchanged (still 0.9.15). The next appVersion bump jumps to 0.9.17 to restore the chart/appVersion lockstep, so 0.9.16 is deliberately skipped for the application."
     - kind: changed
       description: "appVersion 0.9.15: application security hardening. source_endpoint is stripped of URL query strings, fragments and userinfo at ingestion, so secrets in request URLs no longer reach stored findings, the query API, the archive or the ack signature. GET /api/acks is gated by [daemon.ack] api_key when set. /api/export/report evaluates the real quality gate instead of hardcoding passed:true. verify-hash verifies binary provenance via gh attestation verify and its TRUSTED label now requires binary attestation to be verified when the report carries attestation metadata. Migration: acks on endpoints that carried a query string must be re-captured after upgrade, and verify-hash on an attested report caps at PARTIAL without --verify-binary. No chart template change."
     - kind: added

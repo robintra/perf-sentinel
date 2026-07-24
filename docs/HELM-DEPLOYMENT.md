@@ -109,7 +109,7 @@ namespace instead, because Helm appends `name` to `repository`:
 ```yaml
 dependencies:
   - name: perf-sentinel
-    version: 0.9.15
+    version: 0.9.16
     repository: oci://ghcr.io/robintra/charts   # namespace, not the chart URL
 ```
 
@@ -127,7 +127,7 @@ anonymous token and fetch the manifest:
 token=$(curl -s "https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&service=ghcr.io" | jq -r .token)
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
   -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.15
+  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.16
 ```
 
 ## Artifact Hub

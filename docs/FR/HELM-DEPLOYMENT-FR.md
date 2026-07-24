@@ -82,7 +82,7 @@ Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la
 ```yaml
 dependencies:
   - name: perf-sentinel
-    version: 0.9.15
+    version: 0.9.16
     repository: oci://ghcr.io/robintra/charts   # le namespace, pas l'URL du chart
 ```
 
@@ -94,7 +94,7 @@ Répéter le nom du chart dans `repository` résout vers `charts/perf-sentinel/p
 token=$(curl -s "https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&service=ghcr.io" | jq -r .token)
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
   -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.15
+  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.16
 ```
 
 ## Artifact Hub

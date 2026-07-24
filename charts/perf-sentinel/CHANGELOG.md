@@ -6,6 +6,24 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.16]
+
+### Fixed
+
+- `values.schema.json` now declares a top-level `global` object. Helm
+  injects `global` into every subchart's values when a chart is used
+  as a dependency of an umbrella chart, and the schema's root
+  `additionalProperties: false` rejected it outright with `additional
+  properties 'global' not allowed`, failing the install for anyone
+  composing this chart into a parent chart (or any values file that
+  sets `global` by habit). This chart has no subcharts and reads
+  nothing from `global`. The key is now merely allowed, not consumed.
+- Chart-only fix, `appVersion` intentionally unchanged (still
+  `0.9.15`) because the underlying binary did not change. This breaks
+  the chart/appVersion lockstep for one release. The next `appVersion`
+  bump jumps straight to `0.9.17` (skipping `0.9.16`) to realign the
+  two version numbers going forward.
+
 ## [0.9.15]
 
 ### Changed
