@@ -14,16 +14,19 @@ pub(crate) fn cmd_bench(
     services: usize,
     seed: u64,
 ) {
+    // Invalid argument values are usage errors: exit 2, matching clap's
+    // usage-error code, not the runtime tooling code 75 used for the input
+    // and serialization failures below. See docs/CI.md "Exit codes".
     if iterations == 0 {
         eprintln!("Error: iterations must be >= 1");
-        std::process::exit(1);
+        std::process::exit(2);
     }
 
     let config = Config::default();
     let events = if let Some(target) = synthetic_events {
         if target == 0 {
             eprintln!("Error: --synthetic-events must be >= 1");
-            std::process::exit(1);
+            std::process::exit(2);
         }
         sentinel_core::synth::generate_target_events(
             target,
@@ -41,7 +44,7 @@ pub(crate) fn cmd_bench(
     let event_count = events.len();
     if event_count == 0 {
         eprintln!("Error: no events to benchmark");
-        std::process::exit(1);
+        std::process::exit(crate::EXIT_TOOLING_ERROR);
     }
 
     let rss_before = current_rss_bytes();
@@ -103,7 +106,7 @@ pub(crate) fn cmd_bench(
         Ok(json) => println!("{json}"),
         Err(e) => {
             eprintln!("Error serializing bench report: {e}");
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     }
 }

@@ -10,8 +10,9 @@ use sentinel_core::pipeline;
 use crate::{MySqlStatOutputFormat, limits, load_config, read_events, read_file_capped};
 
 /// Ingest an `events_statements_summary_by_digest` CSV or JSON file and
-/// produce the ranking report the HTML dashboard embeds. Exits 1 on
-/// parse failure.
+/// produce the ranking report the HTML dashboard embeds. Exits
+/// `EXIT_TOOLING_ERROR` on parse failure: `mysql-stat` has no quality
+/// gate, so this is never a threshold breach.
 pub(crate) fn load_mysql_stat_from_file(
     path: &std::path::Path,
     top_n: usize,
@@ -28,7 +29,7 @@ pub(crate) fn load_mysql_stat_from_file(
                 path.display(),
                 sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
             );
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     }
 }
@@ -55,7 +56,7 @@ pub(crate) fn cmd_mysql_stat(
                 "Error parsing performance_schema digest export: {}",
                 sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
             );
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     };
 
@@ -98,7 +99,7 @@ fn run_mysql_stat_pipeline(
             Ok(json) => println!("{json}"),
             Err(e) => {
                 eprintln!("Error serializing mysql_stat report: {e}");
-                std::process::exit(1);
+                std::process::exit(crate::EXIT_TOOLING_ERROR);
             }
         },
         MySqlStatOutputFormat::Text => print_mysql_stat_report(&report),

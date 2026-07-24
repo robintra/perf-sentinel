@@ -14,8 +14,15 @@ use sentinel_core::text_safety::{safe_url, sanitize_for_terminal, strip_code_tic
 use crate::OutputFormat;
 
 /// Emit the final report in the requested format and enforce the quality
-/// gate in CI mode. Exits with status 1 on any write failure or a failed
-/// gate when `ci` is true.
+/// gate in CI mode. A failed gate when `ci` is true exits with status `1`;
+/// a report write failure exits with `crate::EXIT_TOOLING_ERROR`. The two
+/// are deliberately distinct: only the gate-failure exit means a genuine
+/// threshold breach, see docs/CI.md "Exit codes".
+///
+/// The gate check runs *after* the write but takes precedence over a write
+/// failure: if a real regression coincides with a broken pipe or a full
+/// disk, the process still exits `1`, never the tolerable `75`, so the
+/// regression is never masked as a tooling blip. See `exit_code_after_gate`.
 ///
 /// `show_acknowledged` controls whether the structured sinks (JSON, SARIF)
 /// surface `acknowledged_findings`. The text sink always prints a one-line
@@ -39,41 +46,73 @@ pub(crate) fn emit_report_and_gate(
         OutputFormat::Text
     });
 
-    match effective_format {
+    // Capture the write outcome instead of exiting on it inline: the gate
+    // check below must be able to override a write failure.
+    let write_result: Result<(), String> = match effective_format {
         OutputFormat::Text => {
             // The text sink always sees the live report so the count
             // footer can surface acked entries even when their full
-            // detail is suppressed.
+            // detail is suppressed. `println!` cannot report a write
+            // error here (it panics on EPIPE), so Text is always Ok.
             format_colored_report_with_acks(report, label, false, show_acknowledged);
+            Ok(())
         }
-        OutputFormat::Json => {
-            with_optional_acks_hidden(report, show_acknowledged, |r| {
-                let sink = JsonReportSink;
-                sink.emit(r)
-                    .map_err(|e| format!("Error writing report: {e}"))
-            });
+        OutputFormat::Json => with_optional_acks_hidden(report, show_acknowledged, |r| {
+            let sink = JsonReportSink;
+            sink.emit(r)
+                .map_err(|e| format!("Error writing report: {e}"))
+        }),
+        OutputFormat::Sarif => with_optional_acks_hidden(report, show_acknowledged, |r| {
+            sentinel_core::report::sarif::emit_sarif(r)
+                .map_err(|e| format!("Error writing SARIF report: {e}"))
+        }),
+    };
+
+    let gate_failed = ci && !report.quality_gate.passed;
+    match exit_code_after_gate(gate_failed, write_result.is_err()) {
+        None => {}
+        Some(1) => {
+            eprintln!("Quality gate FAILED");
+            std::process::exit(1);
         }
-        OutputFormat::Sarif => {
-            with_optional_acks_hidden(report, show_acknowledged, |r| {
-                sentinel_core::report::sarif::emit_sarif(r)
-                    .map_err(|e| format!("Error writing SARIF report: {e}"))
-            });
+        Some(code) => {
+            if let Err(msg) = write_result {
+                eprintln!("{msg}");
+            }
+            std::process::exit(code);
         }
     }
+}
 
-    if ci && !report.quality_gate.passed {
-        eprintln!("Quality gate FAILED");
-        std::process::exit(1);
+/// Decide the process exit code after a report emit under the CI gate.
+/// A gate breach (`Some(1)`) takes precedence over a report write failure
+/// (`Some(EXIT_TOOLING_ERROR)`): a genuine regression must block even when
+/// the write also failed, so it is never masked as a tolerable tooling
+/// blip on a broken pipe or a full disk. `None` means clean success.
+fn exit_code_after_gate(gate_failed: bool, write_failed: bool) -> Option<i32> {
+    if gate_failed {
+        Some(1)
+    } else if write_failed {
+        Some(crate::EXIT_TOOLING_ERROR)
+    } else {
+        None
     }
 }
 
 /// Hide `report.acknowledged_findings` for the duration of `emit`, then
 /// restore it. Avoids cloning the full Report when the operator chose
-/// not to surface the ack details. Exits 1 on emit failure with the
-/// caller-supplied error message, after restoring the field so the
-/// process exits with a consistent Report state (matters less on exit
-/// but keeps the helper pure).
-fn with_optional_acks_hidden<F>(report: &mut Report, show_acknowledged: bool, emit: F)
+/// not to surface the ack details. Returns the emit result (mapped to a
+/// caller-supplied error message) rather than exiting, so the caller can
+/// let a quality-gate breach take precedence over a write failure. A
+/// write failure here (disk full, permission denied) happens after the
+/// report was already computed successfully, so it is never itself a
+/// quality-gate breach. Restores the field before returning so the report
+/// is left in a consistent state.
+fn with_optional_acks_hidden<F>(
+    report: &mut Report,
+    show_acknowledged: bool,
+    emit: F,
+) -> Result<(), String>
 where
     F: FnOnce(&Report) -> Result<(), String>,
 {
@@ -86,10 +125,7 @@ where
     if !stash.is_empty() {
         report.acknowledged_findings = stash;
     }
-    if let Err(msg) = result {
-        eprintln!("{msg}");
-        std::process::exit(1);
-    }
+    result
 }
 
 pub(crate) fn print_colored_report(report: &Report, title: &str) {
@@ -1126,6 +1162,27 @@ mod tests {
     use sentinel_core::diff::DiffReport;
     use sentinel_core::event::CodeLocation;
     use sentinel_core::report::interpret::InterpretationLevel;
+
+    /// A gate breach must win over a concurrent write failure so a real
+    /// regression is never masked as the tolerable `EXIT_TOOLING_ERROR`.
+    #[test]
+    fn gate_breach_takes_precedence_over_write_failure() {
+        assert_eq!(exit_code_after_gate(true, true), Some(1));
+        assert_eq!(exit_code_after_gate(true, false), Some(1));
+    }
+
+    #[test]
+    fn write_failure_without_gate_breach_is_tooling_error() {
+        assert_eq!(
+            exit_code_after_gate(false, true),
+            Some(crate::EXIT_TOOLING_ERROR)
+        );
+    }
+
+    #[test]
+    fn clean_run_has_no_exit_code() {
+        assert_eq!(exit_code_after_gate(false, false), None);
+    }
 
     fn empty_diff() -> DiffReport {
         DiffReport {

@@ -47,6 +47,23 @@ use std::io::Read;
 use std::path::PathBuf;
 use tracing::info;
 
+/// Exit code for a runtime tooling/internal failure while producing a
+/// report: a missing or unreadable input file, malformed
+/// trace/config/acknowledgments data, or a failure writing the
+/// SARIF/JSON output. Distinct from `1` (a genuine quality-gate breach,
+/// `analyze --ci` exceeding a `[thresholds]` limit) and from `2` (a CLI
+/// usage error). CI pipelines can branch on this exit code directly
+/// instead of inferring the distinction from file existence or step
+/// outcome, see docs/CI.md "Exit codes" and "Tooling failures vs
+/// quality-gate breaches".
+///
+/// The value `75` is a fixed sentinel, chosen to match the `|| exit 75`
+/// the GitLab CI template already uses at the shell level (its numeric
+/// origin is sysexits.h's `EX_TEMPFAIL`). perf-sentinel emits it for
+/// permanent failures too, so it is NOT a request to retry: treat it as
+/// "perf-sentinel could not run", not "try again later".
+pub(crate) const EXIT_TOOLING_ERROR: i32 = 75;
+
 #[derive(Parser)]
 #[command(name = "perf-sentinel")]
 #[command(about = "Lightweight polyglot performance anti-pattern detector")]
@@ -1298,7 +1315,7 @@ async fn dispatch_command(command: Commands) {
         Commands::Man => {
             if let Err(err) = render_man(&mut std::io::stdout()) {
                 eprintln!("Error: failed to render man page: {err}");
-                std::process::exit(1);
+                std::process::exit(EXIT_TOOLING_ERROR);
             }
         }
         Commands::Disclose {
@@ -1406,15 +1423,20 @@ fn resolve_auth_header(
 
 /// Resolve the auth header or exit on error. Used by Tempo and
 /// Jaeger-Query dispatch arms which both share the same fail-fast
-/// shape (`Err(e)` -> `eprintln!("Error: {e}")` -> exit 1).
+/// shape (`Err(e)` -> `eprintln!("Error: {e}")` -> `EXIT_TOOLING_ERROR`):
+/// a malformed `--auth-header`/`--auth-header-env` value is an
+/// invocation error, never a quality-gate breach.
 #[cfg(any(feature = "tempo", feature = "jaeger-query"))]
 fn resolve_auth_header_or_exit(direct: Option<String>, env_var: Option<String>) -> Option<String> {
     resolve_auth_header(direct, env_var).unwrap_or_else(|e| {
         eprintln!("Error: {e}");
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     })
 }
 
+/// Validates `report --daemon-url`. Exits `EXIT_TOOLING_ERROR` on a
+/// malformed URL: `report` has no quality gate, so an invocation error
+/// here is never a threshold breach.
 #[cfg(feature = "daemon")]
 fn validate_daemon_url_or_exit(raw: Option<String>) -> Option<String> {
     match raw {
@@ -1422,7 +1444,7 @@ fn validate_daemon_url_or_exit(raw: Option<String>) -> Option<String> {
             Ok(normalized) => Some(normalized),
             Err(e) => {
                 eprintln!("{e}");
-                std::process::exit(1);
+                std::process::exit(EXIT_TOOLING_ERROR);
             }
         },
         None => None,
@@ -1441,7 +1463,7 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
             Err(e) => {
                 if path.is_some() {
                     eprintln!("Error parsing config {}: {e}", config_path.display());
-                    std::process::exit(1);
+                    std::process::exit(EXIT_TOOLING_ERROR);
                 }
                 eprintln!("Warning: failed to parse {}: {e}", config_path.display());
             }
@@ -1449,7 +1471,7 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
         Err(e) => {
             if path.is_some() {
                 eprintln!("Error reading config {}: {e}", config_path.display());
-                std::process::exit(1);
+                std::process::exit(EXIT_TOOLING_ERROR);
             }
             // .perf-sentinel.toml not found in cwd, use defaults silently
         }
@@ -1458,7 +1480,8 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
 }
 
 /// Read a file into memory, capping the byte count at `max_size`.
-/// Exits with code 1 on any IO error or if the file exceeds the cap.
+/// Exits with `EXIT_TOOLING_ERROR` on any IO error or if the file exceeds
+/// the cap: a missing or oversized file is never a quality-gate breach.
 ///
 /// Uses the `.take(max + 1).read_to_end(&mut buf)` pattern to close the
 /// TOCTOU window between `metadata().len()` and `fs::read()`, and to
@@ -1471,7 +1494,7 @@ fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
         Ok(f) => f,
         Err(e) => {
             eprintln!("Error reading {}: {e}", path.display());
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     };
     // Metadata pre-check: reject oversized regular files without reading
@@ -1485,19 +1508,19 @@ fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
             "Error: file {} exceeds maximum of {max_size} bytes",
             path.display()
         );
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     }
     let mut buf = Vec::new();
     if let Err(e) = file.take(max_size + 1).read_to_end(&mut buf) {
         eprintln!("Error reading {}: {e}", path.display());
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     }
     if buf.len() as u64 > max_size {
         eprintln!(
             "Error: file {} exceeds maximum of {max_size} bytes",
             path.display()
         );
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     }
     buf
 }
@@ -1515,26 +1538,27 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
             .read_to_end(&mut buf)
         {
             eprintln!("Error reading stdin: {e}");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
         if buf.len() > max_size {
             eprintln!("Error: stdin payload exceeds maximum of {max_size} bytes");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
         buf
     }
 }
 
 /// Parse raw bytes as JSON trace events, printing a clear error and
-/// exiting with code 1 on failure. Shared across all CLI subcommands
-/// that ingest trace files.
+/// exiting with `EXIT_TOOLING_ERROR` on failure: malformed or corrupted
+/// trace input is a tooling problem, not a quality-gate breach. Shared
+/// across all CLI subcommands that ingest trace files.
 fn ingest_json_or_exit(raw: &[u8], max_size: usize) -> Vec<sentinel_core::event::SpanEvent> {
     let ingest = JsonIngest::new(max_size);
     match ingest.ingest(raw) {
         Ok(events) => events,
         Err(e) => {
             eprintln!("Error ingesting events: {e}");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     }
 }
@@ -1552,8 +1576,10 @@ fn resolve_acknowledgments_path(override_path: Option<&std::path::Path>) -> Path
 }
 
 /// Load the acknowledgments file and apply it to the report. No-op when
-/// `no_acknowledgments` is set or when the file is absent. Exits 1 with
-/// a clean stderr message on parse failure.
+/// `no_acknowledgments` is set or when the file is absent. Exits with
+/// `EXIT_TOOLING_ERROR` and a clean stderr message on parse failure: a
+/// malformed acknowledgments file is a tooling problem, not a
+/// quality-gate breach.
 fn apply_acknowledgments_or_exit(
     report: &mut sentinel_core::report::Report,
     config: &Config,
@@ -1566,7 +1592,7 @@ fn apply_acknowledgments_or_exit(
     let path = resolve_acknowledgments_path(override_path);
     let acks = sentinel_core::acknowledgments::load_from_file(&path).unwrap_or_else(|e| {
         eprintln!("Error loading acknowledgments {}: {e}", path.display());
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     });
     sentinel_core::acknowledgments::apply_to_report(report, &acks, config, chrono::Utc::now());
 }
@@ -1639,7 +1665,7 @@ fn cmd_diff(
     let diff = sentinel_core::diff::diff_runs(&before_report, &after_report);
     if let Err(e) = render::emit_diff(&diff, format, output) {
         eprintln!("Error writing diff: {e}");
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     }
 }
 
@@ -1670,21 +1696,25 @@ fn strip_bom(raw: &[u8]) -> &[u8] {
     raw.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(raw)
 }
 
-/// Parse a pre-computed `Report` JSON from stdin or a file. Enforces the
-/// same 32-level nesting cap the trace-event ingest applies. Exits 1 on
-/// a depth overflow or a serde error, both with a user-readable message.
+/// Parse a pre-computed `Report` JSON from stdin or a file, used by
+/// `report --before <baseline>` to load the baseline for the Diff tab.
+/// Enforces the same 32-level nesting cap the trace-event ingest
+/// applies. Exits `EXIT_TOOLING_ERROR` on a depth overflow or a serde
+/// error, both with a user-readable message: a corrupted or truncated
+/// baseline artifact (a flaky download from a previous CI job, say) is
+/// a tooling problem, never a quality-gate breach.
 fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::report::Report {
     if sentinel_core::ingest::json::exceeds_max_depth(raw) {
         eprintln!(
             "Error: {source_label} JSON exceeds maximum nesting depth of {}",
             sentinel_core::ingest::json::MAX_JSON_DEPTH
         );
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     }
     let mut report =
         serde_json::from_slice::<sentinel_core::report::Report>(raw).unwrap_or_else(|e| {
             eprintln!("Error parsing {source_label} as Report JSON: {e}");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         });
     // Pre-0.5.17 baselines have no signature, fill them in so ack
     // matching and copy-paste workflows behave the same as on a fresh run.
@@ -1703,8 +1733,10 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
 /// inputs (rare through this CLI); an OTLP request can never parse as a
 /// Report (its required fields are absent). The depth cap is enforced
 /// before the Report parse so an over-deep Report does not silently
-/// fall through to the ingest fallback. Empty input and scalar roots
-/// exit 1 with distinct messages.
+/// fall through to the ingest fallback. `report` accepts a wider set of
+/// shapes than `analyze` and has no quality-gate concept, so every
+/// failure branch (including empty input and scalar roots, each with a
+/// distinct message) exits with `EXIT_TOOLING_ERROR`, never `1`.
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,
@@ -1724,7 +1756,7 @@ fn load_report_from_input(
                     "Error: --input JSON exceeds maximum nesting depth of {}",
                     sentinel_core::ingest::json::MAX_JSON_DEPTH
                 );
-                std::process::exit(1);
+                std::process::exit(EXIT_TOOLING_ERROR);
             }
             if let Ok(mut report) = serde_json::from_slice::<sentinel_core::report::Report>(raw) {
                 sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
@@ -1737,13 +1769,13 @@ fn load_report_from_input(
                     eprintln!(
                         "Error: --input top-level object is neither a pre-computed Report JSON, an OTLP/JSON export, nor a Jaeger export. Underlying error: {e}"
                     );
-                    std::process::exit(1);
+                    std::process::exit(EXIT_TOOLING_ERROR);
                 }
             }
         }
         None => {
             eprintln!("Error: --input is empty or whitespace-only");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
         Some(_) => {
             eprintln!(
@@ -1751,7 +1783,7 @@ fn load_report_from_input(
                  export ({{\"data\": [...]}}) or a pre-computed Report \
                  object (got a scalar or unexpected token at the root)"
             );
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     }
 }
@@ -1762,10 +1794,11 @@ const DEFAULT_PG_STAT_TOP: usize = 10;
 
 /// Parse a saved baseline report and diff it against the current run.
 /// Applies the same BOM strip and depth cap as `--input` in Report
-/// mode. Exits 1 on failure. The same acknowledgments file is applied to
-/// the baseline so a finding acked on both sides drops out of the diff
-/// entirely (the alternative would surface every ack as a fake "resolved
-/// in PR", a noisy false positive).
+/// mode. Exits `EXIT_TOOLING_ERROR` on failure, never a quality-gate
+/// breach. The same acknowledgments file is applied to the baseline so
+/// a finding acked on both sides drops out of the diff entirely (the
+/// alternative would surface every ack as a fake "resolved in PR", a
+/// noisy false positive).
 fn load_diff_against_baseline(
     before_path: &std::path::Path,
     current: &sentinel_core::report::Report,
@@ -1850,6 +1883,11 @@ async fn cmd_report(
         eprintln!("Error: --pg-stat-top requires --pg-stat or --pg-stat-prometheus");
         #[cfg(not(feature = "daemon"))]
         eprintln!("Error: --pg-stat-top requires --pg-stat");
+        // Exit 2, matching clap's own usage-error code: this is an
+        // unsupported flag combination clap's `requires` cannot express,
+        // not a runtime tooling failure. A usage error is a permanent
+        // invocation mistake and must always block, never fall into the
+        // `75` bucket a pipeline may tolerate. See docs/CI.md "Exit codes".
         std::process::exit(2);
     }
     let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
@@ -1917,7 +1955,7 @@ async fn cmd_report(
     let (html, stats) = sentinel_core::report::html::render(&report, &traces, &options);
     if let Err(e) = write_file_no_follow(output, html.as_bytes()) {
         eprintln!("Error writing HTML report to {}: {e}", output.display());
-        std::process::exit(1);
+        std::process::exit(EXIT_TOOLING_ERROR);
     }
     info!("HTML report written to {}", output.display());
     if stats.kept < stats.total {
@@ -1957,7 +1995,7 @@ fn cmd_calibrate(
                 "Error: energy CSV {} is not valid UTF-8: {e}",
                 energy_path.display()
             );
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     };
 
@@ -1965,7 +2003,7 @@ fn cmd_calibrate(
         Ok(r) => r,
         Err(e) => {
             eprintln!("Error parsing energy CSV: {e}");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     };
 
@@ -1973,7 +2011,7 @@ fn cmd_calibrate(
         Ok(r) => r,
         Err(e) => {
             eprintln!("Error during calibration: {e}");
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     };
 
@@ -2018,14 +2056,16 @@ fn cmd_calibrate(
         }
         Err(e) => {
             eprintln!("Error writing {}: {e}", output_path.display());
-            std::process::exit(1);
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     }
 }
 
 /// Print `trace not found` plus up to 20 available trace IDs (with an
-/// `... and N more` tail), then exit 1. Shared by `explain` and
-/// `explain --tui` so both give the operator the same recovery hint.
+/// `... and N more` tail), then exit `EXIT_TOOLING_ERROR`. Shared by
+/// `explain` and `explain --tui` so both give the operator the same
+/// recovery hint. `explain` has no quality gate, so a missing trace is a
+/// tooling error, never a threshold breach.
 fn trace_not_found_exit<'a>(trace_id: &str, available: impl Iterator<Item = &'a str>) -> ! {
     eprintln!("Error: trace ID '{trace_id}' not found");
     let ids: Vec<&str> = available.collect();
@@ -2036,7 +2076,7 @@ fn trace_not_found_exit<'a>(trace_id: &str, available: impl Iterator<Item = &'a 
     } else {
         eprintln!("Available trace IDs: {shown}");
     }
-    std::process::exit(1);
+    std::process::exit(EXIT_TOOLING_ERROR);
 }
 
 fn cmd_explain(
@@ -2075,7 +2115,7 @@ fn cmd_explain(
             Ok(json) => println!("{json}"),
             Err(e) => {
                 eprintln!("Error serializing explain tree: {e}");
-                std::process::exit(1);
+                std::process::exit(EXIT_TOOLING_ERROR);
             }
         },
     }

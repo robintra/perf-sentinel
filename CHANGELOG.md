@@ -2,6 +2,16 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The batch subcommands (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, `pg-stat`, `mysql-stat`, `calibrate`, `explain`, `bench`, `demo`) now exit `75` for a runtime tooling or internal failure that reaches perf-sentinel's own code: a missing or unreadable input/config/acknowledgments/baseline file, malformed trace/config/acknowledgments data, a `tempo`/`jaeger-query` fetch failure, an `explain` trace-not-found, or a failure writing the SARIF/JSON/HTML output, instead of the same `1` used for a genuine quality-gate breach on `analyze --ci` / `tempo --ci` / `jaeger-query --ci`. Only those three gated invocations ever emit `1`, and a gate breach now takes precedence over a simultaneous report-write failure so a real regression on a broken pipe or a full disk still exits `1` rather than the tolerable `75`. Invalid arguments or unsupported flag combinations (whether caught by `clap` or by post-parse validation like `report --pg-stat-top` without `--pg-stat`) exit `2`. CI pipelines can branch on the exact exit code instead of inferring the cause from file existence or step outcome. See `docs/CI.md` "Exit codes".
+
+### Migration
+
+- A CI pipeline that specifically checks `exit code == 1` to mean "quality gate breached" now also needs to treat `75` as a distinct, non-gate failure. Pipelines that only check for a non-zero exit code are unaffected, `75` is still an error.
+
 ## [0.9.15]
 
 ### Security

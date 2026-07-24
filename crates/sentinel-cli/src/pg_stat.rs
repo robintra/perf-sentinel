@@ -39,7 +39,7 @@ pub(crate) async fn dispatch_pg_stat(
                 "Prometheus fetch failed: {}",
                 sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
             );
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         });
         cmd_pg_stat_from_entries(entries, top_n, traces, config, format);
         return;
@@ -49,7 +49,7 @@ pub(crate) async fn dispatch_pg_stat(
         eprintln!("Either --input or --prometheus is required");
         #[cfg(not(feature = "daemon"))]
         eprintln!("--input is required");
-        std::process::exit(1);
+        std::process::exit(crate::EXIT_TOOLING_ERROR);
     };
     cmd_pg_stat(path, top_n, traces, config, format);
 }
@@ -64,7 +64,9 @@ pub(crate) async fn dispatch_pg_stat(
 const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
 
 /// Ingest a `pg_stat_statements` CSV or JSON file and produce the
-/// ranking report the HTML dashboard embeds. Exits 1 on parse failure.
+/// ranking report the HTML dashboard embeds. Exits `EXIT_TOOLING_ERROR`
+/// on parse failure: `pg-stat` has no quality gate, so this is never a
+/// threshold breach.
 pub(crate) fn load_pg_stat_from_file(
     path: &std::path::Path,
     top_n: usize,
@@ -81,13 +83,14 @@ pub(crate) fn load_pg_stat_from_file(
                 path.display(),
                 sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
             );
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     }
 }
 
 /// Scrape a `postgres_exporter` endpoint one-shot and produce the
-/// ranking report. Exits 1 on transport/parse failure.
+/// ranking report. Exits `EXIT_TOOLING_ERROR` on transport/parse
+/// failure, `pg-stat` has no quality gate to breach.
 #[cfg(feature = "daemon")]
 pub(crate) async fn load_pg_stat_from_prometheus(
     url: &str,
@@ -105,7 +108,7 @@ pub(crate) async fn load_pg_stat_from_prometheus(
                 "Error scraping --pg-stat-prometheus {url}: {}",
                 sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
             );
-            std::process::exit(1);
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
         }
     }
 }
@@ -161,7 +164,7 @@ fn cmd_pg_stat(
                     "Error parsing pg_stat_statements: {}",
                     sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
                 );
-                std::process::exit(1);
+                std::process::exit(crate::EXIT_TOOLING_ERROR);
             }
         };
 
@@ -219,7 +222,7 @@ fn run_pg_stat_pipeline(
             Ok(json) => println!("{json}"),
             Err(e) => {
                 eprintln!("Error serializing pg_stat report: {e}");
-                std::process::exit(1);
+                std::process::exit(crate::EXIT_TOOLING_ERROR);
             }
         },
         PgStatOutputFormat::Text => print_pg_stat_report(&report),
