@@ -12,8 +12,9 @@
 #      test stage. The trace file must be present in the workspace at the
 #      moment perf-sentinel runs. Common patterns:
 #        - emit traces from your test runner via OTel JSON exporter to
-#          target/traces.json (Java/Maven, see ENTERPRISE-JAVA-INTEGRATION-FR.md
-#          for a worked example).
+#          target/traces.json (Java/Maven, see docs/INSTRUMENTATION.md
+#          "CI integration tests (Maven Failsafe, file exporter)" for a
+#          worked example).
 #        - capture traces via tcpdump or sidecar collector during a docker
 #          compose integration run.
 #   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
@@ -80,14 +81,29 @@ jobs:
       #     OTEL_TRACES_EXPORTER: otlp_file
       #     OTEL_EXPORTER_OTLP_FILE_PATH: ${{ env.PERF_SENTINEL_TRACES }}
 
-      - name: Install perf-sentinel from GitHub Releases
+      - name: Download perf-sentinel from GitHub Releases
+        id: download
+        # A broken download or blocked egress is a tooling problem, not a
+        # performance regression. It must not fail the job the same way a
+        # real threshold breach would. The "Report tooling failure" step
+        # at the end of this job surfaces it as a warning instead.
+        # Checksum verification is a separate step below and is deliberately
+        # NOT given the same tolerance, see its comment.
+        continue-on-error: true
         run: |
           set -euo pipefail
           BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
           curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
           curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
-          # Verify integrity before executing. Fails the build if the binary
-          # was tampered with or the release is corrupted.
+
+      - name: Verify and install perf-sentinel
+        id: install
+        if: steps.download.outcome == 'success'
+        # No continue-on-error here: a checksum mismatch means a tampered
+        # or corrupted release, not a transient tooling blip. It must
+        # always fail the job hard, on trunk and on PRs alike.
+        run: |
+          set -euo pipefail
           grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
           # Install under the workspace bin/ instead of /usr/local/bin so
           # the template works on hardened self-hosted runners that don't
@@ -132,22 +148,36 @@ jobs:
 
       - name: Run perf-sentinel analyze
         id: analyze
-        # Continue on error so we can still upload SARIF and comment on PRs
-        # even when the quality gate fails. The final step re-asserts the
-        # exit code below.
+        # Report-only (no --ci): produces the SARIF and JSON artifacts used
+        # below and by the sticky PR comment, without deciding pass/fail.
+        # Kept separate from the gate steps further down so a tooling
+        # problem here (missing binary from a failed install, a crash on
+        # malformed traces) never gets misreported as a quality-gate
+        # breach. Every downstream step keys off `steps.analyze.outcome`,
+        # not file existence: shell `>` redirection creates its target file
+        # before the command runs, so a crashed analyze would still leave
+        # an (empty) findings.sarif behind and defeat a hashFiles() check.
+        # The `.tmp` + `mv` pattern below is a second, independent guard
+        # against that same trap for any step that reads the files directly.
+        if: always() && steps.install.outcome == 'success'
         continue-on-error: true
         run: |
           set -euo pipefail
           perf-sentinel analyze \
-            --ci \
             --input "${PERF_SENTINEL_TRACES}" \
             --config "${PERF_SENTINEL_CONFIG}" \
             --format sarif \
-            > findings.sarif
-          echo "exit_code=$?" >> "${GITHUB_OUTPUT}"
+            > findings.sarif.tmp
+          mv -f findings.sarif.tmp findings.sarif
+          perf-sentinel analyze \
+            --input "${PERF_SENTINEL_TRACES}" \
+            --config "${PERF_SENTINEL_CONFIG}" \
+            --format json \
+            > report.json.tmp
+          mv -f report.json.tmp report.json
 
       - name: Upload SARIF to GitHub Code Scanning
-        if: always() && hashFiles('findings.sarif') != ''
+        if: always() && steps.analyze.outcome == 'success'
         uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         with:
           sarif_file: findings.sarif
@@ -217,15 +247,12 @@ jobs:
       #     fi
 
       - name: Generate PR comment summary
-        if: github.event_name == 'pull_request' && hashFiles('findings.sarif') != ''
+        # Reuses report.json from the analyze step above instead of
+        # re-running perf-sentinel: that step already produced both
+        # formats in one pass.
+        if: github.event_name == 'pull_request' && steps.analyze.outcome == 'success'
         run: |
           set -euo pipefail
-          # Re-run analyze with JSON output to extract finding counts.
-          perf-sentinel analyze \
-            --input "${PERF_SENTINEL_TRACES}" \
-            --config "${PERF_SENTINEL_CONFIG}" \
-            --format json \
-            > report.json || true
           {
             # Prepend the interactive report link when the HTML was
             # produced (i.e. the Pages blocks above are uncommented).
@@ -279,16 +306,40 @@ jobs:
         # carry the signal. Exit 1 on trunk would only keep main
         # red, demotivate the team, and eventually push them to
         # disable the workflow.
-        if: steps.analyze.outcome == 'failure' && github.event_name == 'pull_request'
+        #
+        # Reads quality_gate.passed from the analyze step's report.json
+        # instead of re-running perf-sentinel: the report already carries
+        # the gate result regardless of the --ci flag, --ci only changes
+        # perf-sentinel's own exit code. Only reached when analyze already
+        # succeeded, so a failing gate here is a genuine threshold breach,
+        # not a tooling problem.
+        if: github.event_name == 'pull_request' && steps.analyze.outcome == 'success'
         run: |
-          echo "::error::perf-sentinel quality gate failed. See SARIF findings in the Security tab and the PR comment above."
-          exit 1
+          set -euo pipefail
+          if [ "$(jq -r '.quality_gate.passed' report.json)" != "true" ]; then
+            echo "::error::perf-sentinel quality gate failed. See SARIF findings in the Security tab and the PR comment above."
+            exit 1
+          fi
 
       - name: Report quality gate outcome (trunk)
         # Surface the gate outcome on trunk as a warning, without
         # failing the run. The workflow stays green. The SARIF
         # upload still feeds Code Scanning for dashboarding and
-        # trend analysis.
-        if: steps.analyze.outcome == 'failure' && github.event_name == 'push'
+        # trend analysis. Same report.json reuse as the PR step above.
+        if: github.event_name == 'push' && steps.analyze.outcome == 'success'
         run: |
-          echo "::warning::perf-sentinel quality gate would have failed on trunk. This is informational only and the workflow stays green. See SARIF findings in the Security tab."
+          set -euo pipefail
+          if [ "$(jq -r '.quality_gate.passed' report.json)" != "true" ]; then
+            echo "::warning::perf-sentinel quality gate would have failed on trunk. This is informational only and the workflow stays green. See SARIF findings in the Security tab."
+          fi
+
+      - name: Report tooling failure
+        # Reached when the download, install, or analyze step above failed
+        # or was skipped. The gate steps above were skipped too rather than
+        # silently passed, this warning is the visible signal that
+        # perf-sentinel did not actually run this build. See the
+        # "Download perf-sentinel" / "Verify and install perf-sentinel" /
+        # "Run perf-sentinel analyze" step logs to fix the underlying issue.
+        if: always() && steps.analyze.outcome != 'success'
+        run: |
+          echo "::warning::perf-sentinel did not produce a report this run (download, install, or analyze failed above). The quality gate was skipped, not silently passed."

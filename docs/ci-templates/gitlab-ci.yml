@@ -3,7 +3,9 @@
 # Runs perf-sentinel in batch mode against an integration-test trace fixture
 # and publishes a Code Quality artifact so findings appear in the GitLab MR
 # Code Quality widget. Uses --ci so the job fails when the quality gate is
-# breached.
+# breached. A tooling failure (install, network) exits 75 and is excluded
+# from blocking merge requests via `allow_failure.exit_codes`, see the
+# `rules:` block near the end of this file.
 #
 # What you must adapt before using this template:
 #   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
@@ -46,14 +48,23 @@ perf-sentinel:
   # dependencies:
   #   - integration-tests   # uncomment once your test job exists
   before_script:
-    - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates jq
+    - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates jq || exit 75
     - |
+      # Exit code 75 (EX_TEMPFAIL, sysexits.h) marks a tooling problem here
+      # (broken download, blocked egress), not a quality-gate breach. The
+      # `rules:` block below allows only this exact code to skip blocking a
+      # merge request. The --ci gate re-run near the end of `script:` keeps
+      # its own natural exit code (usually 1 on a real breach) and still
+      # blocks normally. Checksum verification below is a separate script
+      # item and deliberately does NOT get this same exit-75 tolerance: a
+      # mismatch means a tampered or corrupted release, not a tooling blip,
+      # and must always block, on trunk and on merge requests alike.
       set -euo pipefail
       BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
-      curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
-      curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
-      # Verify integrity before executing. Fails the job if the binary was
-      # tampered with or the release is corrupted.
+      curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64" || exit 75
+      curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"            || exit 75
+    - |
+      set -euo pipefail
       grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
       # Install under the project bin/ rather than /usr/local/bin so the
       # template works without elevated privileges on hardened runners.
@@ -65,25 +76,32 @@ perf-sentinel:
     # All commands invoke perf-sentinel via its absolute install path
     # so this template stays correct under GitLab executors that don't
     # propagate `before_script` PATH exports to the `script` block.
-    # SARIF artifact for archive and inspection.
+    # SARIF artifact for archive and inspection. Exits 75 on failure, same
+    # tooling-vs-breach distinction as before_script above -- a crash here
+    # (missing binary, malformed traces) is not a quality-gate breach.
     - |
       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \
         --format sarif \
-        > findings.sarif
+        > findings.sarif || exit 75
     # JSON report for downstream tooling and the Code Quality conversion.
     - |
       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \
         --format json \
-        > perf-sentinel-report.json || true
+        > perf-sentinel-report.json || exit 75
     # Convert findings to GitLab Code Quality format. GitLab expects an array
     # of {description, fingerprint, severity, location.path, location.lines}.
     # Note: code_location field names match the v0.4.1 stable contract
-    # (filepath, lineno, function, namespace -- no `code_` prefix).
+    # (filepath, lineno, function, namespace -- no `code_` prefix). No
+    # exit-75 fallback here: a jq failure means a bug in this filter (e.g. a
+    # future perf-sentinel release renaming a field it reads), not a
+    # tooling blip, and should surface as a real, blocking failure rather
+    # than get folded into the tooling-tolerant bucket above.
     - |
+      set -euo pipefail
       jq '[
         .findings[] | {
           description: ("[" + .type + "] " + .suggestion),
@@ -100,7 +118,9 @@ perf-sentinel:
         }
       ]' perf-sentinel-report.json > gl-code-quality-report.json
     # Re-run with --ci to enforce the quality gate. Exit code 1 if any
-    # threshold is breached.
+    # threshold is breached -- the only command in this job allowed to
+    # fail with its natural exit code, since it only runs after every
+    # report-only step above already succeeded.
     - |
       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --ci \
@@ -121,9 +141,17 @@ perf-sentinel:
   # artifact carry the signal for trunk runs. A red pipeline on
   # main would only keep the default branch red, demotivate the
   # team, and eventually push them to disable this job.
+  #
+  # `allow_failure.exit_codes: [75]` (GitLab >= 15.0) lets the MR rule
+  # distinguish the two ways this job can fail: a tooling exit (75, see
+  # before_script/script above) doesn't block the merge, any other
+  # nonzero exit (the --ci gate's own exit code on a real breach) still
+  # does. Without this, a broken binary download would block a merge
+  # request exactly like a genuine regression.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      allow_failure: false
+      allow_failure:
+        exit_codes: [75]
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       allow_failure: true
 

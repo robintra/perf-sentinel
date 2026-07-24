@@ -54,13 +54,23 @@ All three templates run `perf-sentinel analyze --ci` as the gating step. The `--
 
 This split avoids the common failure mode where PR-gates that also enforce on trunk leave main red, the team works around it, and the tool gets disabled.
 
-The recommended setup runs perf-sentinel twice in the same job: once without `--ci` (always produces a SARIF artifact for reviewer inspection) and once with `--ci` (enforces the gate). The Jenkins and GitLab templates do this explicitly, the GitHub template uses `continue-on-error` for the same effect in one invocation.
+The recommended setup produces the report once per job, without `--ci` (SARIF + JSON, always available for reviewer inspection), then decides pass/fail separately. Jenkins and GitLab CI do that by re-running `perf-sentinel analyze --ci` a second time and reading its exit code. GitHub Actions instead reads `quality_gate.passed` straight from the JSON report already on disk, since the gate result is computed on every run regardless of `--ci`, only the exit code differs. Either way, the gate decision only ever runs once the report-only pass has already succeeded.
 
 Per-provider PR-vs-trunk wiring:
 
 - **GitHub Actions**: PR step runs when `github.event_name == 'pull_request'` and calls `exit 1` on breach, trunk step emits a `::warning::` annotation without failing.
 - **GitLab CI**: `allow_failure: true` on the `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` rule. The job still returns exit 1 on breach, the pipeline badge stays green, the job shows a yellow warning icon.
 - **Jenkins**: `when { expression { env.CHANGE_ID != null } }` on the `Quality gate (PR only)` stage. `CHANGE_ID` is populated by MultiBranch Pipeline only on PRs, so branch builds skip the stage. The Warnings NG `qualityGates` follows the same guard so the post block does not reintroduce blocking on trunk.
+
+### Tooling failures vs quality-gate breaches
+
+A `--ci` exit code of `1` is ambiguous on its own: it can mean a genuine threshold breach, or it can mean perf-sentinel never actually ran (a blocked download, a corrupted release, a crash on malformed traces). Treating both the same way is worse than it sounds: a flaky network blip on a Friday afternoon should not block every PR in the repo until someone notices and re-runs CI. All three templates isolate the two failure modes so only a genuine breach can turn a PR red:
+
+- **GitHub Actions**: the download step tolerates failure (`continue-on-error: true`), but the checksum-verification step right after it does not, a tampered or corrupted release must always fail the job, never get folded into the tooling-tolerant bucket. The report-only analyze step also carries `continue-on-error: true`. Every downstream step (SARIF upload, PR comment, the two gate steps) checks `steps.analyze.outcome == 'success'` rather than file existence: shell `>` redirection creates its target file before the command runs, so a crashed analyze would still leave an empty `findings.sarif` behind and defeat a `hashFiles()` check. The analyze step also writes through a `.tmp` path and renames on success, a second, independent guard against that same trap. A final `Report tooling failure` step emits a `::warning::` when analyze did not succeed, so a tooling problem stays visible instead of being silently swallowed.
+- **GitLab CI**: every download command explicitly exits `75` (`EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits)) instead of propagating whatever exit code the underlying tool produced. `allow_failure: exit_codes: [75]` on the merge-request rule excludes only that specific code from blocking the merge. Checksum verification and the Code Quality `jq` conversion are deliberately excluded from that exit-75 convention: a checksum mismatch means a tampered release, and a `jq` failure means a bug in the conversion filter, neither is a tooling blip that should be tolerated. The final `--ci` re-run keeps its own exit code (normally `1` on a real breach), which still blocks as before.
+- **Jenkins**: the download half of the `Install perf-sentinel` stage is wrapped in `catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE')`. Checksum verification and install run unwrapped right after it, so a bad checksum always fails the build. The `perf-sentinel analyze` stage writes its SARIF/JSON through a `.tmp` path and renames on success for the same reason as GitHub Actions above, otherwise `fileExists()` could not tell a crash from a real report. The `Quality gate (PR only)` stage adds a `fileExists('perf-sentinel-results.sarif')` condition alongside the existing `CHANGE_ID` check, so it only runs a real threshold check once the report-only stage has actually produced a SARIF.
+
+In all three cases, a tooling failure now surfaces as a visible warning or an unstable/yellow build, clearly distinct from the red build a real breach produces, and it never blocks a merge or a push to trunk on its own. A checksum or conversion-logic failure, in contrast, always blocks, in every trigger context, because it is not the kind of failure this isolation is meant to tolerate.
 
 ### Interactive report via GitHub Pages
 
@@ -372,16 +382,26 @@ A future perf-sentinel release may produce a CSP-friendly report
 (CSS and JavaScript split into sibling files) that works on the
 default Jenkins CSP. No date committed.
 
-**Diff tab absent by default**. Unlike GitHub Actions and GitLab CI
-where a companion baseline workflow refreshes `baseline.json` on
-every push to the default branch, this template does not wire a
-Jenkins baseline. The Diff tab of the report is therefore empty.
-Users who want the Diff tab can extend the template with the
-[Copy Artifact plugin](https://plugins.jenkins.io/copyartifact/) to
-pull a `baseline.json` from the last successful build of the
-default-branch job, then pass it to
-`perf-sentinel report --before baseline.json`. This enhancement is
-out of scope for this template.
+**Diff tab via the Copy Artifact plugin**. Unlike GitHub Actions and
+GitLab CI where a companion baseline workflow refreshes `baseline.json`
+on every push to the default branch, Jenkins has no built-in artifact
+store to publish a trunk baseline to. The template's `baseBranchJob()`
+and `fetchBaseline()` helper functions (top of
+[`docs/ci-templates/jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy))
+use the [Copy Artifact plugin](https://plugins.jenkins.io/copyartifact/)
+instead, pulling `perf-sentinel-report.json` straight from a previous
+build rather than from a separate published artifact. Following the
+same "compare against what you are merging into" model as SonarQube's
+new-code period. On a PR build (`env.CHANGE_TARGET` set by MultiBranch
+Pipeline) the baseline is the last successful build of the **target
+branch's** job. Outside a PR (no `CHANGE_TARGET` to resolve, and this
+stage runs without a git checkout so the base cannot be inferred any
+other way) it falls back to this job's own last successful build. Both
+lookups are best-effort (`optional: true`): a job that has never built
+successfully, or a first-ever build with no history at all, simply
+renders without the Diff tab, same as leaving the enhancement disabled.
+Enable it by uncommenting the `Generate interactive HTML report` stage,
+the helper functions are already wired in.
 
 **No PR comment posting**. Jenkins does not have a native
 pull-request comment mechanism equivalent to GitHub's sticky

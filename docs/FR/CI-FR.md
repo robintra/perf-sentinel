@@ -62,13 +62,15 @@ Ce split évite le mode d'échec classique des gates PR qui enforcent
 aussi sur trunk : main reste rouge plus longtemps que prévu,
 l'équipe contourne, et l'outil finit par être désactivé.
 
-La configuration recommandée exécute perf-sentinel **deux fois** dans
-le même job : une fois sans `--ci` pour toujours produire un artifact
-SARIF (les reviewers peuvent inspecter les findings même quand le
-gate échoue), et une fois avec `--ci` pour appliquer le gate. Les
-templates Jenkins et GitLab font cela explicitement. Le template
-GitHub utilise `continue-on-error` pour obtenir le même effet en une
-seule invocation.
+La configuration recommandée produit le rapport une seule fois par
+job, sans `--ci` (SARIF + JSON, toujours disponibles pour inspection),
+puis décide du pass/fail séparément. Jenkins et GitLab CI le font en
+relançant `perf-sentinel analyze --ci` une seconde fois et en lisant
+son code de sortie. GitHub Actions lit directement `quality_gate.passed`
+dans le rapport JSON déjà sur disque, puisque le résultat du gate est
+calculé à chaque run quel que soit `--ci`, seul le code de sortie
+diffère. Dans les deux cas, la décision du gate ne s'exécute qu'une
+fois le run report-only déjà réussi.
 
 Mécaniques par fournisseur pour le split PR vs trunk :
 
@@ -88,6 +90,66 @@ Mécaniques par fournisseur pour le split PR vs trunk :
   entièrement. Le `qualityGates` de Warnings NG est aussi rendu
   conditionnel sur `CHANGE_ID` pour que le bloc post ne réintroduise
   pas le blocage sur trunk.
+
+### Échecs d'outillage vs dépassements du quality gate
+
+Un exit code `1` de `--ci` est ambigu à lui seul : il peut signifier
+un vrai dépassement de seuil, ou il peut signifier que perf-sentinel
+n'a tout simplement pas tourné (téléchargement bloqué, release
+corrompue, crash sur des traces malformées). Traiter les deux cas de
+la même façon est pire que ça n'en a l'air. Un simple accroc réseau
+un vendredi après-midi ne devrait pas bloquer toutes les PR du repo
+jusqu'à ce que quelqu'un s'en aperçoive et relance la CI. Les trois
+templates isolent maintenant les deux modes d'échec pour que seul un
+vrai dépassement puisse faire rougir une PR :
+
+- **GitHub Actions** : le step de téléchargement tolère l'échec
+  (`continue-on-error: true`), mais le step de vérification du
+  checksum juste après ne le tolère pas. Une release corrompue ou
+  altérée doit toujours faire échouer le job, jamais rejoindre le
+  panier tolérant à l'outillage. Le step d'analyse report-only porte
+  lui aussi `continue-on-error: true`. Chaque step en aval (upload
+  SARIF, commentaire de PR, les deux steps de gate) vérifie
+  `steps.analyze.outcome == 'success'` plutôt que l'existence d'un
+  fichier : la redirection shell `>` crée son fichier cible avant même
+  que la commande tourne, donc un analyze qui crashe laisserait quand
+  même un `findings.sarif` vide derrière lui et mettrait en défaut un
+  test `hashFiles()`. Le step d'analyse écrit aussi dans un chemin
+  `.tmp` puis renomme au succès, un second garde-fou indépendant
+  contre ce même piège. Un dernier step `Report tooling failure` émet
+  un `::warning::` quand analyze n'a pas réussi, pour qu'un souci
+  d'outillage reste visible plutôt que d'être avalé silencieusement.
+- **GitLab CI** : chaque commande de téléchargement sort
+  explicitement avec le code `75` (`EX_TEMPFAIL`,
+  [sysexits.h](https://man.openbsd.org/sysexits)) au lieu de
+  propager le code de sortie brut de l'outil qui a échoué.
+  `allow_failure: exit_codes: [75]` sur la règle merge request
+  exclut uniquement ce code précis du blocage de la merge. La
+  vérification du checksum et la conversion `jq` vers Code Quality
+  sont volontairement exclues de cette convention exit-75 : un
+  mauvais checksum signifie une release altérée, et un échec `jq`
+  signifie un bug dans le filtre de conversion, ni l'un ni l'autre
+  n'est un accroc d'outillage à tolérer. Le re-run final `--ci` garde
+  son propre code de sortie (normalement `1` sur un vrai dépassement),
+  qui bloque toujours comme avant.
+- **Jenkins** : la moitié téléchargement du stage
+  `Install perf-sentinel` est enrobée dans un
+  `catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE')`. La
+  vérification du checksum et l'installation tournent juste après,
+  sans enrobage, donc un mauvais checksum fait toujours échouer le
+  build. Le stage `perf-sentinel analyze` écrit son SARIF/JSON dans un
+  chemin `.tmp` puis renomme au succès, pour la même raison que
+  GitHub Actions ci-dessus : sans ça, `fileExists()` ne pourrait pas
+  distinguer un crash d'un vrai rapport. Le stage
+  `Quality gate (PR only)` ajoute une condition
+  `fileExists('perf-sentinel-results.sarif')` en plus du garde
+  `CHANGE_ID` existant, pour ne lancer un vrai contrôle de seuil
+  qu'une fois le stage report-only ayant réellement produit un SARIF.
+
+Dans les trois cas, un souci d'outillage se manifeste maintenant par
+un avertissement visible ou un build unstable/jaune, clairement
+distinct du build rouge produit par un vrai dépassement, et il ne
+bloque jamais une merge ni un push sur trunk à lui seul.
 
 ### Rapport interactif via GitHub Pages
 
@@ -420,17 +482,30 @@ CSP-friendly (CSS et JavaScript dans des fichiers voisins) qui
 fonctionnerait avec le CSP Jenkins par défaut. Pas de date
 engagée.
 
-**Tab Diff absente par défaut**. Contrairement à GitHub Actions et
-GitLab CI où un workflow baseline companion rafraîchit
-`baseline.json` à chaque push sur la branche par défaut, ce
-template ne branche pas de baseline Jenkins. La tab Diff du rapport
-est donc vide. Les utilisateurs qui veulent la tab Diff peuvent
-étendre le template avec le
-[plugin Copy Artifact](https://plugins.jenkins.io/copyartifact/)
-pour tirer un `baseline.json` depuis le dernier build réussi du
-job sur la branche par défaut, puis le passer à
-`perf-sentinel report --before baseline.json`. Cette évolution est
-hors scope pour ce template.
+**Tab Diff via le plugin Copy Artifact**. Contrairement à GitHub
+Actions et GitLab CI où un workflow baseline companion rafraîchit
+`baseline.json` à chaque push sur la branche par défaut, Jenkins n'a
+pas de dépôt d'artefacts intégré vers lequel publier une baseline de
+trunk. Les fonctions helper `baseBranchJob()` et `fetchBaseline()` du
+template (en tête de
+[`docs/ci-templates/jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy))
+utilisent à la place le
+[plugin Copy Artifact](https://plugins.jenkins.io/copyartifact/) pour
+tirer `perf-sentinel-report.json` directement depuis un build
+précédent plutôt que depuis un artefact publié séparément. Même
+modèle que la "new code period" de SonarQube ("comparer vis-à-vis de
+ce dans quoi on merge"). Sur un build de PR (`env.CHANGE_TARGET`
+posé par MultiBranch Pipeline), la baseline est le dernier build
+réussi du job de la **branche cible**. Hors PR (pas de
+`CHANGE_TARGET` à résoudre, et ce stage tourne sans checkout git donc
+la base ne peut pas être déduite autrement), on retombe sur le
+dernier build réussi du job lui-même. Les deux recherches sont
+best-effort (`optional: true`) : un job qui n'a jamais buildé avec
+succès, ou un tout premier build sans historique, se contente de
+rendre le rapport sans tab Diff, comme si l'évolution était
+désactivée. À activer en décommentant le stage
+`Generate interactive HTML report`, les fonctions helper y sont déjà
+branchées.
 
 **Pas de posting automatique de PR comment**. Jenkins n'a pas de
 mécanisme natif de commentaire de pull request équivalent au sticky

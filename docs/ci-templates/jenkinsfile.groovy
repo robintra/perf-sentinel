@@ -36,9 +36,53 @@
 //                               version 1.10+ is CSP-compatible, earlier
 //                               versions break in modern Jenkins instances.
 //                               Pre-installed on most enterprise Jenkins.)
+//   - Copy Artifact plugin     (optional, only needed if you enable the
+//                               Diff-tab baseline wiring in the HTML
+//                               report stage below)
 //
 // See docs/CI.md (English) or docs/FR/CI-FR.md (French) for the full CI
 // integration guide and the quality-gate philosophy.
+
+// Job whose last successful build supplies the Diff-tab baseline. On a PR
+// build (env.CHANGE_TARGET set by MultiBranch Pipeline) that is the target
+// branch's job. Outside a PR there is no target to infer here (this stage
+// runs without a git checkout), so callers fall back to the current job's
+// own history instead. Folder is derived from JOB_NAME, branch re-encoded
+// %2F the way Jenkins names MultiBranch jobs (release/2.0 -> release%2F2.0).
+def baseBranchJob() {
+    if (!env.CHANGE_TARGET) {
+        return ''
+    }
+    def jobName = env.JOB_NAME ?: ''
+    def folder  = jobName.contains('/') ? jobName.substring(0, jobName.lastIndexOf('/')) : ''
+    def branch  = env.CHANGE_TARGET.replace('/', '%2F')
+    return folder ? "${folder}/${branch}" : branch
+}
+
+// Best-effort copy of perf-sentinel-report.json from jobName's last
+// successful-or-unstable build into baseline/. Returns true if a baseline
+// was found. selector: lastSuccessful(stable: false) deliberately includes
+// UNSTABLE builds, not just SUCCESS ones: the Install/analyze stages above
+// mark a build UNSTABLE on a tooling hiccup while still archiving a valid
+// report, and the plugin's own default selector only matches SUCCESS,
+// which would silently skip those and fall back further than intended. A
+// missing job, missing artifact, or missing Copy Artifact plugin all
+// resolve to false rather than failing the build (optional: true), since
+// the Diff tab is a nice-to-have, not a build requirement.
+def fetchBaseline(String jobName) {
+    if (!jobName) {
+        return false
+    }
+    copyArtifacts(
+        projectName: jobName,
+        filter: 'perf-sentinel-report.json',
+        target: 'baseline',
+        optional: true,
+        fingerprintArtifacts: false,
+        selector: lastSuccessful(stable: false)
+    )
+    return fileExists('baseline/perf-sentinel-report.json')
+}
 
 pipeline {
     // The template uses Linux shell commands (curl, sha256sum, chmod, sh).
@@ -83,60 +127,106 @@ pipeline {
 
         stage('Install perf-sentinel') {
             steps {
-                sh '''
-                    set -euo pipefail
-                    BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
-                    curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
-                    curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
-                    # Verify integrity before executing. Fails the build if
-                    # the binary was tampered with or the release is corrupted.
-                    grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
-                    mv perf-sentinel-linux-amd64 perf-sentinel
-                    chmod +x perf-sentinel
-                    ./perf-sentinel --version
-                '''
+                // Download only, wrapped in catchError: a broken download or
+                // blocked egress is a tooling problem, not a performance
+                // regression. It must never redden a branch build the same
+                // way a real threshold breach would (the 'Quality gate (PR
+                // only)' stage below is guarded to skip rather than
+                // misreport a tooling failure as a breach).
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE',
+                           message: 'perf-sentinel: download failed, stage marked unstable') {
+                    sh '''
+                        set -euo pipefail
+                        BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+                        curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+                        curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+                    '''
+                }
+                // Verify and install, NOT wrapped in catchError: a checksum
+                // mismatch means a tampered or corrupted release, not a
+                // transient tooling blip. It must always fail the build
+                // hard, on trunk and on PR builds alike. Skipped (not
+                // failed) rather than run against missing files when the
+                // download above did not produce both of them.
+                script {
+                    if (fileExists('perf-sentinel-linux-amd64') && fileExists('SHA256SUMS.txt')) {
+                        sh '''
+                            set -euo pipefail
+                            grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+                            mv perf-sentinel-linux-amd64 perf-sentinel
+                            chmod +x perf-sentinel
+                            ./perf-sentinel --version
+                        '''
+                    }
+                }
             }
         }
 
         stage('perf-sentinel analyze') {
             steps {
-                // SARIF artifact for Warnings NG and downstream archival.
-                // Always produced (no --ci) so the report exists even when
-                // the gate would fail.
-                sh '''
-                    set -euo pipefail
-                    ./perf-sentinel analyze \\
-                        --input ${PERF_SENTINEL_TRACES} \\
-                        --config ${PERF_SENTINEL_CONFIG} \\
-                        --format sarif > perf-sentinel-results.sarif
+                // Same tooling-failure isolation as the install stage above:
+                // a crash here (missing binary, malformed traces file) marks
+                // the build unstable instead of failing it outright.
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE',
+                           message: 'perf-sentinel: analyze failed, stage marked unstable') {
+                    // SARIF/JSON artifacts for Warnings NG and downstream
+                    // archival. Always produced (no --ci) so the report
+                    // exists even when the gate would fail. Written to a
+                    // .tmp path first and renamed only on success: shell '>'
+                    // redirection creates its target file before the
+                    // command even runs, so without the rename a crashed
+                    // analyze would still leave an empty
+                    // perf-sentinel-results.sarif behind and defeat the
+                    // fileExists() guard on the 'Quality gate' stage below.
+                    sh '''
+                        set -euo pipefail
+                        ./perf-sentinel analyze \\
+                            --input ${PERF_SENTINEL_TRACES} \\
+                            --config ${PERF_SENTINEL_CONFIG} \\
+                            --format sarif > perf-sentinel-results.sarif.tmp
+                        mv -f perf-sentinel-results.sarif.tmp perf-sentinel-results.sarif
 
-                    ./perf-sentinel analyze \\
-                        --input ${PERF_SENTINEL_TRACES} \\
-                        --config ${PERF_SENTINEL_CONFIG} \\
-                        --format json > perf-sentinel-report.json
-                '''
+                        ./perf-sentinel analyze \\
+                            --input ${PERF_SENTINEL_TRACES} \\
+                            --config ${PERF_SENTINEL_CONFIG} \\
+                            --format json > perf-sentinel-report.json.tmp
+                        mv -f perf-sentinel-report.json.tmp perf-sentinel-report.json
+                    '''
+                }
             }
         }
 
         // Optional: produce the interactive HTML dashboard that the
         // HTML Publisher plugin exposes under `${BUILD_URL}perf-sentinel/`.
-        // Works on both branch and pull-request builds. The Diff tab
-        // of the report is absent on Jenkins by default because this
-        // template does not wire a baseline; the other tabs (Findings,
-        // Explain, pg_stat, Correlations, GreenOps) render normally.
-        // See docs/CI.md "Interactive report via Jenkins HTML
-        // Publisher" for the full setup and the baseline enhancement
-        // path via the Copy Artifact plugin.
+        // Works on both branch and pull-request builds. The Diff tab is
+        // populated when a baseline is found via the two helper functions
+        // above (requires the Copy Artifact plugin): on a PR build it tries
+        // the target branch's last successful build first, falling back to
+        // this job's own last successful build otherwise. Without a
+        // baseline the other tabs (Findings, Explain, pg_stat,
+        // Correlations, GreenOps) still render normally.
+        // See docs/CI.md "Interactive report via Jenkins HTML Publisher"
+        // for the full setup.
         //
         // stage('Generate interactive HTML report') {
         //     steps {
-        //         sh '''
-        //             set -euo pipefail
-        //             ./perf-sentinel report \\
-        //                 --input ${PERF_SENTINEL_TRACES} \\
-        //                 --config ${PERF_SENTINEL_CONFIG} \\
-        //                 --output report.html
-        //         '''
+        //         script {
+        //             def baseJob = baseBranchJob()
+        //             def hasBaseline = fetchBaseline(baseJob)
+        //             if (!hasBaseline && env.JOB_NAME != baseJob) {
+        //                 hasBaseline = fetchBaseline(env.JOB_NAME)
+        //             }
+        //             withEnv(["BEFORE_OPT=${hasBaseline ? '--before baseline/perf-sentinel-report.json' : ''}"]) {
+        //                 sh '''
+        //                     set -euo pipefail
+        //                     ./perf-sentinel report \\
+        //                         --input ${PERF_SENTINEL_TRACES} \\
+        //                         --config ${PERF_SENTINEL_CONFIG} \\
+        //                         $BEFORE_OPT \\
+        //                         --output report.html
+        //                 '''
+        //             }
+        //         }
         //     }
         // }
 
@@ -150,7 +240,18 @@ pipeline {
             // demotivate the team, and eventually push them to
             // disable this stage. `env.CHANGE_ID` is set by
             // MultiBranch Pipeline only for pull-request builds.
-            when { expression { env.CHANGE_ID != null } }
+            //
+            // The fileExists check ensures this stage only runs a real
+            // threshold check: if the earlier analyze stage never produced
+            // a SARIF (install/tooling failure, already caught above and
+            // left the build UNSTABLE), skipping here avoids reporting a
+            // tooling problem as a false quality-gate breach on the PR.
+            when {
+                allOf {
+                    expression { env.CHANGE_ID != null }
+                    expression { fileExists('perf-sentinel-results.sarif') }
+                }
+            }
             steps {
                 // Re-run with --ci to enforce thresholds. Exit code
                 // 1 fails the stage and the build goes red. On branch
