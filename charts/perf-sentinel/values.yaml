@@ -109,14 +109,21 @@ topologySpreadConstraints: []
 # Liveness and readiness probes. Both hit /health, which is always on,
 # lock-free, and independent of [daemon] api_enabled. The port is named so
 # changing service.ports.otlpHttp.port does not break the probes.
+#
+# The liveness budget is deliberately looser than the readiness one
+# (docs/RUNBOOK.md "Sizing reference"): under sustained saturation the whole
+# cgroup is throttled in quanta, and a tight liveness budget restarts a
+# functional daemon that is merely backpressuring. Readiness stays tight on
+# purpose, dropping the pod from the Service endpoints is the wanted response
+# to saturation, a restart is not.
 livenessProbe:
   httpGet:
     path: /health
     port: otlp-http
   initialDelaySeconds: 5
   periodSeconds: 10
-  timeoutSeconds: 2
-  failureThreshold: 3
+  timeoutSeconds: 5
+  failureThreshold: 5
 readinessProbe:
   httpGet:
     path: /health
