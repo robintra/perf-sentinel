@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.19
+version: 0.9.20
 appVersion: "0.9.17"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -36,6 +36,14 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: fixed
+      description: "Chart 0.9.20: three render-time guards replace three silent failures. [daemon.archive] is no longer injected when config.toml sets [green] enabled = false, a pairing the daemon rejects at startup, which turned detection-without-GreenOps plus persistence into a CrashLoopBackOff, and declaring that archive yourself now fails the render in every workload mode since the daemon refuses it either way. A service.ports.*.port moved without the matching [daemon] listen_port_* now fails the render instead of producing a pod that binds one port while the containerPort, the probes, the Service and the NetworkPolicy all point at another, with an omitted key checked against the daemon's own 4318 and 4317 defaults rather than skipped. And workload.statefulset.persistence.enabled on a Deployment or DaemonSet fails the render instead of rendering no volume at all and leaving the ack routes on 503 with no explanation."
+    - kind: fixed
+      description: "Chart 0.9.20: the helm test pod's app.kubernetes.io/name label is truncated to 63 characters. perf-sentinel.name is already truncated at 63 and the -test suffix pushed the label past the DNS label limit under a long nameOverride, which the API server rejects."
+    - kind: changed
+      description: "Chart 0.9.20: values.schema.json accepts resources.claims, a standard Kubernetes field since 1.26 that the schema rejected while the chart advertises kubeVersion >=1.24.0-0. serviceMonitor.interval and scrapeTimeout accept the full Prometheus Operator duration grammar, the previous pattern rejected composed durations such as 1m30s plus 1d, 1w and 1y."
+    - kind: fixed
+      description: "Chart 0.9.20: a config.toml that declares [daemon.ack] or [daemon.archive] no longer produces a ConfigMap the daemon cannot parse. With persistence enabled the chart appended both tables unconditionally, so an operator setting [daemon.ack] api_key or toml_path, or [daemon.archive] max_size_mb, ended up with the same table twice in the rendered TOML, which the parser rejects and the daemon crash-loops on. Ownership is now explicit through the new workload.statefulset.persistence.manageDaemonPaths value, true by default: the chart writes both durable paths and refuses to render as soon as config.toml mentions either table, whether opened by a header, a dotted key such as ack.storage_path under [daemon], or an inline table. Set it to false to own both tables yourself. Deployment and DaemonSet installs are unaffected, no table is injected there."
     - kind: added
       description: "Chart 0.9.19: workload.kind=StatefulSet now renders the headless Service it needs. The StatefulSet's spec.serviceName pointed at the regular ClusterIP Service, which gives no per-pod DNS identity, so the mode only ever delivered the PVC. The chart renders <fullname>-headless (clusterIP None, publishNotReadyAddresses true) and points spec.serviceName at it, and renders nothing when workload.statefulset.serviceName names a Service you manage. Migration: spec.serviceName is immutable, so an existing StatefulSet release must be deleted before upgrading (kubectl delete statefulset --cascade=orphan keeps the pods and PVCs). Deployment and DaemonSet are unaffected."
     - kind: fixed

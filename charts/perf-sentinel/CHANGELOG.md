@@ -6,6 +6,61 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.20]
+
+### Fixed
+
+- `[daemon.archive]` is no longer injected when `config.toml` sets
+  `[green] enabled = false`. The daemon refuses to start on that pairing
+  (an archive of windows with no energy or carbon would make `disclose`
+  meaningless), and since the chart always passes `--config` explicitly,
+  the rejection was fatal rather than a fallback to defaults. Asking for
+  detection without GreenOps plus persistence gave a CrashLoopBackOff.
+  Declaring the archive yourself alongside `[green] enabled = false` now
+  fails the render in every workload mode, since the daemon refuses that
+  config whether or not a PVC is mounted.
+- A `service.ports.*.port` moved without moving the matching `[daemon]
+  listen_port_*` in `config.toml` now fails the render. The
+  `containerPort`, the probes, the Service, the NetworkPolicy and the
+  `helm test` pod all follow the Service value while the daemon binds
+  the config value, so the pod listened where nothing looked and the
+  probes killed it. An omitted `listen_port_*` is checked against the
+  daemon's own default (4318 and 4317) rather than skipped, since that
+  default is what the process will bind.
+- `workload.statefulset.persistence.enabled` on a `Deployment` or
+  `DaemonSet` fails the render instead of doing nothing. Persistence
+  renders a `volumeClaimTemplate`, which only a StatefulSet has, so the
+  operator got no volume, no durable ack path, and a 503 from the ack
+  routes with no indication why.
+- The `helm test` pod's `app.kubernetes.io/name` label is truncated to
+  63 characters. `perf-sentinel.name` is already truncated at 63 and the
+  `-test` suffix pushed past the DNS label limit under a long
+  `nameOverride`, which the API server rejects.
+- A `config.toml` that declares `[daemon.ack]` or `[daemon.archive]` no
+  longer renders a ConfigMap the daemon cannot parse. With persistence
+  enabled the chart appended both tables unconditionally, so an operator
+  setting `[daemon.ack] api_key` or `toml_path`, or `[daemon.archive]
+  max_size_mb`, got the same table twice in the rendered TOML. The
+  parser rejects a table defined twice and the daemon crash-loops on it.
+  Ownership is now explicit through the new
+  `workload.statefulset.persistence.manageDaemonPaths` value, `true` by
+  default: the chart writes both paths and refuses to render as soon as
+  `config.toml` mentions either table, whether it is opened by a header,
+  a dotted key (`ack.storage_path` under `[daemon]`) or an inline table.
+  Set it to `false` to own both tables yourself. The guard errs on the
+  side of refusing, since the alternative is an unparseable config found
+  only at CrashLoopBackOff. Deployment and DaemonSet installs are
+  unaffected, neither table is injected there.
+
+### Changed
+
+- `values.schema.json` accepts `resources.claims`, a standard Kubernetes
+  field since 1.26 that the schema rejected while the chart advertises
+  `kubeVersion: ">=1.24.0-0"`.
+- `serviceMonitor.interval` and `scrapeTimeout` accept the full
+  Prometheus Operator duration grammar. The previous pattern rejected
+  composed durations such as `1m30s`, plus `1d`, `1w` and `1y`.
+
 ## [0.9.19]
 
 ### Added

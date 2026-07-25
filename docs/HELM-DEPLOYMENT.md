@@ -29,7 +29,7 @@ For a non-Helm alternative, see the raw manifests in
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.9.19 \
+  --version 0.9.20 \
   --namespace observability --create-namespace
 kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
 ```
@@ -89,7 +89,7 @@ asset and as a signed attestation.
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.9.19 \
+  --version 0.9.20 \
   --namespace observability --create-namespace \
   -f my-values.yaml
 ```
@@ -97,8 +97,8 @@ helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
 Chart version and app version are decoupled: `version` is the chart
 release, `appVersion` is the daemon image tag that ships with it. An
 application release bumps the two together, and a chart-only fix bumps
-`version` alone (leaving `appVersion` behind, as in `0.9.16`, `0.9.18`
-and `0.9.19`), so a pinned `--version` always gives you a known
+`version` alone (leaving `appVersion` behind, as in `0.9.16`, `0.9.18`,
+`0.9.19` and `0.9.20`), so a pinned `--version` always gives you a known
 `appVersion`. Override `image.tag` only to run a specific daemon build
 against a different chart.
 
@@ -111,7 +111,7 @@ namespace instead, because Helm appends `name` to `repository`:
 ```yaml
 dependencies:
   - name: perf-sentinel
-    version: 0.9.19
+    version: 0.9.20
     repository: oci://ghcr.io/robintra/charts   # namespace, not the chart URL
 ```
 
@@ -129,7 +129,7 @@ anonymous token and fetch the manifest:
 token=$(curl -s "https://ghcr.io/token?scope=repository%3Arobintra%2Fcharts%2Fperf-sentinel%3Apull&service=ghcr.io" | jq -r .token)
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" \
   -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.19
+  https://ghcr.io/v2/robintra/charts/perf-sentinel/manifests/0.9.20
 ```
 
 ## Artifact Hub
@@ -180,7 +180,7 @@ published release workflow, the OIDC issuer must be GitHub Actions:
 cosign verify \
   --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/\.github/workflows/helm-release\.yml@refs/tags/chart-v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/robintra/charts/perf-sentinel:0.9.19
+  ghcr.io/robintra/charts/perf-sentinel:0.9.20
 ```
 
 A successful run prints the Rekor log entry and the certificate
@@ -203,11 +203,11 @@ on the repository's attestation store (not on the OCI registry). The
 attestation is queryable via `gh`:
 
 ```bash
-gh release download chart-v0.9.19 \
+gh release download chart-v0.9.20 \
   --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz'
 
-gh attestation verify perf-sentinel-0.9.19.tgz \
+gh attestation verify perf-sentinel-0.9.20.tgz \
   --repo robintra/perf-sentinel
 ```
 
@@ -217,7 +217,7 @@ reference:
 
 ```bash
 docker login ghcr.io
-gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.19 \
+gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.9.20 \
   --repo robintra/perf-sentinel
 ```
 
@@ -237,16 +237,16 @@ verify it against the tarball, exactly like the provenance check above. The
 build-provenance one:
 
 ```bash
-gh release download chart-v0.9.19 --repo robintra/perf-sentinel \
+gh release download chart-v0.9.20 --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz' \
   --pattern 'perf-sentinel-chart-*.spdx.json'
 
-gh attestation verify perf-sentinel-0.9.19.tgz \
+gh attestation verify perf-sentinel-0.9.20.tgz \
   --repo robintra/perf-sentinel \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
-The downloaded `perf-sentinel-chart-0.9.19.spdx.json` is the human-readable
+The downloaded `perf-sentinel-chart-0.9.20.spdx.json` is the human-readable
 copy of that attested SBOM. It captures the chart's declared dependencies at
 release time.
 
