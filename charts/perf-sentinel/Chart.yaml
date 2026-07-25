@@ -28,7 +28,6 @@ annotations:
 
   artifacthub.io/category: monitoring-logging
   artifacthub.io/license: AGPL-3.0-only
-  artifacthub.io/official: "true"
   artifacthub.io/links: |
     - name: Source
       url: https://github.com/robintra/perf-sentinel
