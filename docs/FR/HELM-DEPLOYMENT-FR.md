@@ -262,9 +262,7 @@ workload:
 
 ### `StatefulSet`
 
-Utilisez ce mode quand vous voulez que les acks runtime
-(`POST /api/findings/{sig}/ack`, depuis 0.5.20) survivent aux redémarrages de pod. Le daemon écrit le store JSONL des acks à
-`~/.local/share/perf-sentinel/acks.jsonl` par défaut, ce qui résout vers un chemin du système de fichiers du pod, perdu au restart. Montez un PersistentVolume et pointez `[daemon.ack] storage_path` dessus pour conserver l'audit trail. Les acks TOML CI
+Le seul mode où les acks runtime (`POST /api/findings/{sig}/ack`, depuis 0.5.20) fonctionnent. Activer la persistance monte un PVC sur `/var/lib/perf-sentinel`, et le chart pointe lui-même `[daemon.ack] storage_path` et `[daemon.archive] path` dessus, de sorte que l'audit trail des acks et l'archive de divulgation survivent aux redémarrages et aux replanifications de pod. Les acks TOML CI
 (`.perf-sentinel-acknowledgments.toml`) sont en lecture seule au runtime et n'ont pas besoin de PVC, seul le JSONL côté daemon en a besoin.
 
 ```yaml
@@ -276,15 +274,15 @@ workload:
       enabled: true
       size: 5Gi
       storageClass: gp3
-      mountPath: /var/lib/perf-sentinel
-
-config:
-  toml: |
-    [daemon.ack]
-    storage_path = "/var/lib/perf-sentinel/acks.jsonl"
 ```
 
-En mode `Deployment` (par défaut), le JSONL est créé au premier ack et perdu au redémarrage suivant du pod. Acceptable pour des acks à courte durée de vie (différés au prochain sprint), pas pour des acks permanents qui doivent de toute façon vivre dans la baseline TOML CI.
+Pour posséder ces tables vous-même, par exemple pour `[daemon.ack] toml_path` ou `[daemon.archive] max_size_mb`, posez `persistence.manageDaemonPaths: false` et écrivez les deux chemins durables sous `/var/lib/perf-sentinel` dans `config.toml`. TOML ne peut pas ouvrir deux fois la même table, et une table s'ouvre aussi bien par un en-tête que par une clé pointée (`ack.storage_path = ...` sous `[daemon]`) ou une table inline, donc tant que `manageDaemonPaths` vaut true le chart refuse de rendre dès que `config.toml` mentionne l'une de ces tables sous l'une de ces formes. Le message nomme le drapeau à basculer. Il refuse par excès, parce que l'alternative est une configuration que le daemon ne sait pas parser et un pod en CrashLoop.
+
+`[daemon.archive]` est entièrement sautée quand `config.toml` pose `[green] enabled = false` : le daemon rejette cette combinaison au démarrage, une archive de fenêtres sans énergie ni carbone rendrait la sortie de `disclose` dénuée de sens. Déclarer l'archive vous-même avec le scoring green désactivé fait échouer le rendu dans tous les modes de workload, pas seulement sous persistance, puisque le daemon la refuse de toute façon.
+
+Le chemin de montage est figé à `/var/lib/perf-sentinel`, `persistence` n'accepte aucune clé `mountPath`, et l'activer sur un `Deployment` ou un `DaemonSet` fait échouer le rendu au lieu de ne monter silencieusement rien.
+
+En mode `Deployment` et `DaemonSet`, les acks runtime sont indisponibles, pas seulement éphémères. Le chemin de stockage par défaut est résolu via `dirs::data_local_dir()`, et l'image du conteneur est `FROM scratch` sans `HOME` ni `/etc/passwd`, donc le chemin ne peut pas être résolu du tout. Le daemon logge un WARN au démarrage, reste debout, et les trois routes d'ack renvoient `503 Service Unavailable`. Les acks permanents doivent de toute façon vivre dans la baseline TOML CI, qui n'a besoin d'aucun PVC.
 
 ## Surface de configuration
 
@@ -362,7 +360,7 @@ extraEnvFrom:
 
 La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais du ConfigMap ; un Secret monté vide est rejeté au config load. Le daemon hard-rejette aussi les clés de moins de 12 caractères. Quand une clé est définie, elle garde les écritures (`POST` / `DELETE`) **et** `GET /api/acks` (la piste d'audit) ; `GET /api/findings` reste non authentifié.
 
-**Faire survivre les acks aux redémarrages de pod.** Chemin de stockage par défaut : `~/.local/share/perf-sentinel/acks.jsonl`, dans le système de fichiers du pod, perdu au restart. Bascule en mode `StatefulSet` (cf. ci-dessus) et remappage de `[daemon.ack] storage_path` sur un mount PVC.
+**Les acks runtime ont besoin d'un PVC pour exister tout court.** Sans lui, le chemin de stockage par défaut ne peut pas être résolu dans l'image scratch et les routes d'ack renvoient 503. Basculez en mode `StatefulSet` avec `persistence.enabled: true` (cf. ci-dessus), ce qui câble `[daemon.ack] storage_path` sur le PVC pour vous.
 
 **Attention au plancher du `securityContext`.** Le daemon ouvre le JSONL avec `O_NOFOLLOW` et rejette les fichiers pré-existants dont le mode autorise des accès group/other (`mode & 0o077 != 0`). Définir `runAsUser` et `fsGroup` de telle sorte que l'UID du daemon n'est pas propriétaire du mount PVC, ou tourner sous une politique d'admission mutante (Kyverno, OPA Gatekeeper) qui réécrit `fsGroup` ou `runAsUser` sur le pod, fera apparaître `InsecurePermissions` au démarrage et le store d'acks sera indisponible. Le daemon reste up sans lui (les trois endpoints ack renvoient 503), donc c'est une défaillance soft, vérifiez quand même la ligne de log WARN au premier rollout.
 
@@ -378,10 +376,21 @@ extraVolumeMounts:
     mountPath: /etc/perf-sentinel/acks
     readOnly: true
 
+# Sous persistance StatefulSet, déclarer la table vous-même implique de
+# reprendre les deux chemins. Sans persistance, ce drapeau est sans objet.
+workload:
+  statefulset:
+    persistence:
+      manageDaemonPaths: false
+
 config:
   toml: |
     [daemon.ack]
     toml_path = "/etc/perf-sentinel/acks/.perf-sentinel-acknowledgments.toml"
+    storage_path = "/var/lib/perf-sentinel/acks.jsonl"
+
+    [daemon.archive]
+    path = "/var/lib/perf-sentinel/archive.ndjson"
 ```
 
 Voir `docs/FR/QUERY-API-FR.md` et `docs/FR/CONFIGURATION-FR.md` pour la référence complète des endpoints et le catalogue des champs `[daemon.ack]`.

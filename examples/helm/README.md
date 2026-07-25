@@ -71,7 +71,7 @@ kubectl --namespace observability port-forward \
   svc/otel-collector 4318:4318
 curl -sS -X POST http://127.0.0.1:4318/v1/traces \
   -H 'Content-Type: application/json' \
-  -d @sample-trace.json
+  -d @../../tests/fixtures/otlp_export.json
 
 # 3. Watch perf-sentinel findings stream out.
 kubectl --namespace observability logs -f \

@@ -325,14 +325,13 @@ workload:
 
 ### `StatefulSet`
 
-Use this mode when you want runtime acks (`POST /api/findings/{sig}/ack`,
-since 0.5.20) to survive pod restarts. The daemon writes the JSONL ack
-store at `~/.local/share/perf-sentinel/acks.jsonl` by default, which
-resolves to a path inside the pod filesystem, lost on restart. Mount a
-PersistentVolume and point `[daemon.ack] storage_path` at it so the
-audit trail survives. CI TOML acks
-(`.perf-sentinel-acknowledgments.toml`) are read-only at runtime and do
-not need a PVC, only the daemon-side JSONL does.
+The only mode where runtime acks (`POST /api/findings/{sig}/ack`, since
+0.5.20) work at all. Enabling persistence mounts a PVC at
+`/var/lib/perf-sentinel` and the chart itself points `[daemon.ack]
+storage_path` and `[daemon.archive] path` at it, so the ack audit trail
+and the disclosure archive survive pod restarts and rescheduling. CI
+TOML acks (`.perf-sentinel-acknowledgments.toml`) are read-only at
+runtime and do not need a PVC, only the daemon-side JSONL does.
 
 ```yaml
 workload:
@@ -343,18 +342,38 @@ workload:
       enabled: true
       size: 5Gi
       storageClass: gp3
-      mountPath: /var/lib/perf-sentinel
-
-config:
-  toml: |
-    [daemon.ack]
-    storage_path = "/var/lib/perf-sentinel/acks.jsonl"
 ```
 
-In `Deployment` mode (the default), the JSONL is created on first ack
-and lost on the next pod restart. That is acceptable for short-lived
-acks (deferred to next sprint) but not for permanent ones, those should
-go in the CI TOML baseline anyway.
+To own those tables yourself, for `[daemon.ack] toml_path` or
+`[daemon.archive] max_size_mb`, set
+`persistence.manageDaemonPaths: false` and write both durable paths
+under `/var/lib/perf-sentinel` in `config.toml`. TOML cannot open the
+same table twice, and a table is opened by a header, a dotted key
+(`ack.storage_path = ...` under `[daemon]`) or an inline table alike, so
+while `manageDaemonPaths` is true the chart refuses to render as soon as
+`config.toml` mentions either table in any of those spellings. The
+message names the flag to flip. It errs on the side of refusing, because
+the alternative is a config the daemon cannot parse and a pod that
+crash-loops.
+
+`[daemon.archive]` is skipped entirely when `config.toml` sets `[green]
+enabled = false`: the daemon rejects that pairing at startup, an archive
+of windows with no energy or carbon would make `disclose` output
+meaningless. Declaring the archive yourself alongside green scoring off
+fails the render in every workload mode, not only under persistence,
+since the daemon refuses it either way.
+
+The mount path is fixed at `/var/lib/perf-sentinel`, `persistence` takes
+no `mountPath` key, and enabling it on a `Deployment` or `DaemonSet`
+fails the render instead of silently mounting nothing.
+
+In `Deployment` and `DaemonSet` mode, runtime acks are unavailable, not
+merely ephemeral. The default store path resolves through
+`dirs::data_local_dir()`, and the container image is `FROM scratch` with
+no `HOME` and no `/etc/passwd`, so the path cannot be resolved at all.
+The daemon logs a WARN at startup, stays up, and the three ack routes
+return `503 Service Unavailable`. Permanent acks belong in the CI TOML
+baseline anyway, which needs no PVC.
 
 ## Config surface
 
@@ -464,10 +483,11 @@ api_key`, so the key comes from the Secret, never the ConfigMap; a Secret
 mounted empty is rejected at config load. The key also gates `GET /api/acks`
 (the audit trail), not only the writes. The 16+ character floor still applies.
 
-**Persist acks across pod restarts.** Default storage path is
-`~/.local/share/perf-sentinel/acks.jsonl`, inside the pod filesystem,
-lost on restart. Switch to `StatefulSet` mode (see above) and remap
-`[daemon.ack] storage_path` to a PVC mount.
+**Runtime acks need a PVC to exist at all.** Without one the default
+storage path cannot be resolved inside the scratch image and the ack
+routes return 503. Switch to `StatefulSet` mode with
+`persistence.enabled: true` (see above), which wires `[daemon.ack]
+storage_path` to the PVC for you.
 
 **Mind the `securityContext` floor.** The daemon opens the JSONL with
 `O_NOFOLLOW` and rejects pre-existing files whose mode permits
@@ -498,10 +518,21 @@ extraVolumeMounts:
     mountPath: /etc/perf-sentinel/acks
     readOnly: true
 
+# Under StatefulSet persistence, declaring the table yourself means
+# taking both paths over. Without persistence this flag is irrelevant.
+workload:
+  statefulset:
+    persistence:
+      manageDaemonPaths: false
+
 config:
   toml: |
     [daemon.ack]
     toml_path = "/etc/perf-sentinel/acks/.perf-sentinel-acknowledgments.toml"
+    storage_path = "/var/lib/perf-sentinel/acks.jsonl"
+
+    [daemon.archive]
+    path = "/var/lib/perf-sentinel/archive.ndjson"
 ```
 
 See `docs/QUERY-API.md` and `docs/CONFIGURATION.md` for the full

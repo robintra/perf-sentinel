@@ -549,8 +549,8 @@ curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --inp
 
 - Kubernetes `restartPolicy: Always` + memory limit headroom above observed peak RSS.
 - Alert on `perf_sentinel_active_traces` approaching `max_active_traces`. Rising pressure often precedes OOM.
-- For HA, run multiple replicas behind a load balancer. Each replica has independent state (no cross-replica correlation), but ingestion becomes redundant against single-instance failure.
-- Collection continuity matters for `disclose`: every restart leaves a gap in the archived windows that feed the carbon disclosure. Run multiple replicas and persist the archive (StatefulSet mode) so downtime does not punch holes in the disclosure history.
+- For HA, run multiple replicas only behind trace-aware routing (consistent hashing by `trace_id` in the OTel Collector `loadbalancingexporter`). A round-robin Service splits one trace's spans across pods, which silently degrades N+1 detection. Each replica keeps independent state and there is no cross-replica correlation, so the gain is redundancy against a single-instance failure, not shared analysis.
+- Collection continuity matters for `disclose`: every restart leaves a gap in the archived windows that feed the carbon disclosure. Persist the archive (StatefulSet mode with `persistence.enabled`) so downtime does not punch holes in the disclosure history. With more than one replica each pod writes its own archive to its own PVC, so `disclose` must be run per pod and the outputs reconciled.
 
 ---
 
@@ -582,11 +582,11 @@ Once it starts cleanly, roll it out to production.
 
 ## Inspecting the daemon's HTTP endpoints
 
-The daemon image is distroless and does not include `curl`, `wget`, or a shell. `kubectl exec ... -- curl http://localhost:14318/...` fails with `executable file not found`. Use `kubectl port-forward` plus your local `curl` for ad-hoc HTTP inspection:
+The daemon image is built `FROM scratch` and holds nothing but the binary, so it has no `curl`, no `wget`, no shell, and no CA bundle. `kubectl exec ... -- curl http://localhost:4318/...` fails with `executable file not found`. Use `kubectl port-forward` plus your local `curl` for ad-hoc HTTP inspection. The chart names the Deployment after the release, `perf-sentinel` for a release of that name, and the container listens on 4318:
 
 ```bash
 # In one terminal: forward the daemon's HTTP port locally.
-kubectl port-forward -n <namespace> deploy/perf-sentinel-daemon 14318:14318
+kubectl port-forward -n <namespace> deploy/perf-sentinel 14318:4318
 
 # In another terminal: inspect the endpoints from the host.
 curl -sH "Accept: application/openmetrics-text;version=1.0.0" \
@@ -595,7 +595,7 @@ curl -s http://localhost:14318/api/status | jq
 curl -s http://localhost:14318/api/export/report | jq '.warnings, .green_summary'
 ```
 
-The kubelet liveness probe uses a TCP check on the HTTP port, not a `curl` HTTP call, so the distroless image does not affect liveness or readiness.
+The chart's liveness and readiness probes are `httpGet` on `/health`, which the kubelet performs itself without any binary inside the container, so the empty image affects neither. `/health` answers regardless of `[daemon] api_enabled`.
 
 The `/metrics` endpoint negotiates content type from the client's `Accept` header. Sending `application/openmetrics-text` forces OpenMetrics 1.0 with the `# EOF` terminator and exemplar annotations. A missing or `*/*` Accept (curl default, vmagent default) falls back to the legacy 0.5.15 behavior (OpenMetrics when exemplars are present, plain Prometheus otherwise). A strict `Accept: text/plain` (no `*/*`) forces plain Prometheus 0.0.4 without exemplars, defending pre-OpenMetrics scrapers.
 
