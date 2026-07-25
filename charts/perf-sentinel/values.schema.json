@@ -79,7 +79,8 @@
       "additionalProperties": false,
       "properties": {
         "requests": { "type": "object" },
-        "limits": { "type": "object" }
+        "limits": { "type": "object" },
+        "claims": { "type": "array" }
       }
     },
     "nodeSelector": { "type": "object" },
@@ -134,13 +135,15 @@
         "namespace": { "type": "string" },
         "interval": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h)$",
-          "description": "Prometheus duration, e.g. 15s, 30s, 1m."
+          "minLength": 1,
+          "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$",
+          "description": "Prometheus duration, e.g. 15s, 1m, 1m30s. Same grammar as the Prometheus Operator Duration type."
         },
         "scrapeTimeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h)$",
-          "description": "Prometheus duration, e.g. 10s."
+          "minLength": 1,
+          "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$",
+          "description": "Prometheus duration, e.g. 10s, 1m30s. Same grammar as the Prometheus Operator Duration type."
         },
         "labels": { "type": "object" },
         "relabelings": { "type": "array" },
