@@ -282,7 +282,9 @@ Pour posséder ces tables vous-même, par exemple pour `[daemon.ack] toml_path` 
 
 Le chemin de montage est figé à `/var/lib/perf-sentinel`, `persistence` n'accepte aucune clé `mountPath`, et l'activer sur un `Deployment` ou un `DaemonSet` fait échouer le rendu au lieu de ne monter silencieusement rien.
 
-En mode `Deployment` et `DaemonSet`, les acks runtime sont indisponibles, pas seulement éphémères. Le chemin de stockage par défaut est résolu via `dirs::data_local_dir()`, et l'image du conteneur est `FROM scratch` sans `HOME` ni `/etc/passwd`, donc le chemin ne peut pas être résolu du tout. Le daemon logge un WARN au démarrage, reste debout, et les trois routes d'ack renvoient `503 Service Unavailable`. Les acks permanents doivent de toute façon vivre dans la baseline TOML CI, qui n'a besoin d'aucun PVC.
+En mode `Deployment` et `DaemonSet`, les acks runtime sont indisponibles, pas seulement éphémères. Le chemin de stockage par défaut est résolu via `dirs::data_local_dir()`, et l'image du conteneur est `FROM scratch` sans `HOME` ni `/etc/passwd`, donc le chemin ne peut pas être résolu du tout. Le daemon logge un WARN au démarrage, reste debout, et les trois routes d'ack renvoient `503 Service Unavailable`.
+
+Cet arbitrage se fait délibérément. Si vos opérateurs doivent acquitter des findings au runtime, depuis le dashboard, la CLI `ack` ou une alerte à 3h du matin, la topologie par défaut en est incapable et c'est `StatefulSet` avec `persistence.enabled` qu'il vous faut installer. La baseline TOML CI ne s'y substitue pas : elle porte les décisions permanentes de l'équipe, revues en pull request et partagées par tous les environnements, pas le report d'astreinte pendant un incident. Elle couvre en revanche le cas où chaque acquittement est une décision durable d'équipe, et elle n'a besoin d'aucun PVC puisqu'elle est en lecture seule au runtime. Voir [`docs/FR/ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md#choisir-entre-toml-et-daemon) pour savoir quel acquittement va où.
 
 ## Surface de configuration
 

@@ -372,8 +372,18 @@ merely ephemeral. The default store path resolves through
 `dirs::data_local_dir()`, and the container image is `FROM scratch` with
 no `HOME` and no `/etc/passwd`, so the path cannot be resolved at all.
 The daemon logs a WARN at startup, stays up, and the three ack routes
-return `503 Service Unavailable`. Permanent acks belong in the CI TOML
-baseline anyway, which needs no PVC.
+return `503 Service Unavailable`.
+
+Make that trade-off deliberately. If operators are expected to
+acknowledge findings at runtime, from the dashboard, the `ack` CLI or an
+alert at 3am, the default topology cannot do it and `StatefulSet` with
+`persistence.enabled` is the install you want. The CI TOML baseline is
+not a substitute: it carries the team's permanent decisions, reviewed in
+a pull request and shared by every environment, not an oncall defer
+during an incident. It does cover the case where every acknowledgment is
+a durable team-level decision, and it needs no PVC, being read-only at
+runtime. See [`docs/ACK-WORKFLOW.md`](./ACK-WORKFLOW.md#choosing-between-toml-and-daemon)
+for which acknowledgment belongs where.
 
 ## Config surface
 
