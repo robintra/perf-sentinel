@@ -50,8 +50,17 @@ workload:
       # -- When true (StatefulSet only), render a volumeClaimTemplate mounted
       # at /var/lib/perf-sentinel and point [daemon.ack] storage_path plus
       # [daemon.archive] path at it (see templates/configmap.yaml). Acks and
-      # the disclosure archive then persist across restarts. Off by default.
+      # the disclosure archive then persist across restarts. Off by default,
+      # and runtime acks do not work without it.
       enabled: false
+      # -- When true (the default), the chart writes [daemon.ack] storage_path
+      # and [daemon.archive] path itself. It then refuses to render if
+      # config.toml touches either table, in any TOML spelling, because a
+      # table cannot be opened twice. Set this to false to own both tables in
+      # config.toml, for instance to pass [daemon.ack] toml_path or
+      # [daemon.archive] max_size_mb, and write the durable paths yourself
+      # under /var/lib/perf-sentinel.
+      manageDaemonPaths: true
       size: 1Gi
       accessModes:
         - ReadWriteOnce

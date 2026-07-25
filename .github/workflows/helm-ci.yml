@@ -9,6 +9,7 @@ on:
       - 'scripts/check-chart-version-bumped.sh'
       - 'scripts/check-chart-appversion-annotation.sh'
       - 'scripts/test/check-chart-version-bumped-test.sh'
+      - 'scripts/test/chart-render-guards-test.sh'
   workflow_dispatch:
     inputs:
       ref:
@@ -56,6 +57,8 @@ jobs:
             args: "--set workload.kind=DaemonSet"
           - leg: statefulset
             args: "--set workload.kind=StatefulSet"
+          - leg: statefulset-persistence
+            args: "--set workload.kind=StatefulSet --set workload.statefulset.persistence.enabled=true"
           - leg: flags-on
             args: "--set serviceMonitor.enabled=true --set networkPolicy.enabled=true --set prometheusRule.enabled=true --set prometheusRule.energyScrapers=true --set podDisruptionBudget.enabled=true"
     steps:
@@ -168,6 +171,24 @@ jobs:
 
       - name: Run self-test harness
         run: scripts/test/check-chart-version-bumped-test.sh
+
+  # Pins the render-time guards in templates/configmap.yaml: no duplicate
+  # TOML table, no archive without green scoring, no port bound where the
+  # probes do not look, no persistence outside a StatefulSet.
+  render-guards:
+    name: Chart render guards
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Run self-test harness
+        run: scripts/test/chart-render-guards-test.sh
 
   # Misconfiguration scan of the rendered manifests. helm lint and kubeconform
   # above cover style and schema, this covers Kubernetes security posture

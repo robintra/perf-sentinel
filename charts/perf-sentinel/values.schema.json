@@ -48,6 +48,7 @@
               "additionalProperties": false,
               "properties": {
                 "enabled": { "type": "boolean" },
+                "manageDaemonPaths": { "type": "boolean" },
                 "size": { "type": "string" },
                 "accessModes": {
                   "type": "array",

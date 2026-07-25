@@ -1,3 +1,44 @@
+{{- $toml := .Values.config.toml }}
+{{- $dataDir := include "perf-sentinel.dataDir" . }}
+{{- $persist := eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
+
+{{- /* Persistence only exists on the StatefulSet path. Asking for it anywhere
+       else used to render a pod with no volume and no durable ack path, and
+       the operator only found out when the ack routes answered 503. */}}
+{{- if and .Values.workload.statefulset.persistence.enabled (ne .Values.workload.kind "StatefulSet") }}
+{{- fail (printf "configmap.yaml: workload.statefulset.persistence.enabled is true but workload.kind is %s. Persistence renders a volumeClaimTemplate, which only a StatefulSet has, so nothing would be mounted and runtime acks would return 503. Set workload.kind=StatefulSet or turn persistence off." .Values.workload.kind) }}
+{{- end }}
+
+{{- /* The daemon binds what [daemon] listen_port_* says in config.toml, while
+       containerPort, the probes, the Service and the NetworkPolicy all derive
+       from service.ports.*.port. Diverge and the pod listens where nothing
+       looks. An absent key is not a free pass: the daemon then binds its own
+       default (4318 / 4317, see config/mod.rs), which must still agree. */}}
+{{- $httpBind := default "4318" (regexFind "[0-9]+" (regexFind "(?m)^[ \t]*(daemon\\.)?listen_port_http[ \t]*=[ \t]*[0-9]+" $toml)) }}
+{{- if ne $httpBind (printf "%v" (int .Values.service.ports.otlpHttp.port)) }}
+{{- fail (printf "configmap.yaml: the daemon binds HTTP port %s (config.toml [daemon] listen_port_http, or its 4318 default when the key is absent) but service.ports.otlpHttp.port is %v. containerPort and the probes follow the Service value, so the daemon would listen where nothing looks. Set both to the same port." $httpBind .Values.service.ports.otlpHttp.port) }}
+{{- end }}
+{{- $grpcBind := default "4317" (regexFind "[0-9]+" (regexFind "(?m)^[ \t]*(daemon\\.)?listen_port_grpc[ \t]*=[ \t]*[0-9]+" $toml)) }}
+{{- if ne $grpcBind (printf "%v" (int .Values.service.ports.otlpGrpc.port)) }}
+{{- fail (printf "configmap.yaml: the daemon binds gRPC port %s (config.toml [daemon] listen_port_grpc, or its 4317 default when the key is absent) but service.ports.otlpGrpc.port is %v. Set both to the same port." $grpcBind .Values.service.ports.otlpGrpc.port) }}
+{{- end }}
+
+{{- /* [daemon.archive] with green scoring off is rejected by the daemon at
+       startup (validate.rs), whatever the workload kind, so this check sits
+       outside the persistence branch. Split the document on table headers and
+       read only the [green] chunk: matching "enabled = false" across the whole
+       file would catch [daemon.ack] enabled = false instead, and stopping at
+       the first bracket would miss a bracket written inside a comment. */}}
+{{- $greenOff := regexMatch "(?m)^[ \t]*green\\.enabled[ \t]*=[ \t]*false" $toml }}
+{{- range regexSplit "(?m)^[ \t]*\\[" $toml -1 }}
+{{- if and (hasPrefix "green]" .) (regexMatch "(?m)^[ \t]*enabled[ \t]*=[ \t]*false" .) }}
+{{- $greenOff = true }}
+{{- end }}
+{{- end }}
+{{- $archiveDeclared := regexMatch "(?m)^[ \t]*(\\[daemon\\.archive\\]|(daemon\\.)?archive([\\. \t]|[ \t]*=))" $toml }}
+{{- if and $archiveDeclared $greenOff }}
+{{- fail "configmap.yaml: config.toml sets [green] enabled = false and declares [daemon.archive]. The daemon refuses to start on that combination, the archive would record windows with no energy or carbon. Enable green scoring or drop the archive table." }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,16 +52,32 @@ metadata:
   {{- end }}
 data:
   perf-sentinel.toml: |
-    {{- .Values.config.toml | nindent 4 }}
-    {{- if eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
+    {{- $toml | nindent 4 }}
+    {{- if $persist }}
+    {{- if .Values.workload.statefulset.persistence.manageDaemonPaths }}
+    {{- /* TOML rejects a table defined twice, and a table can be opened by a
+           header, a dotted key or an inline table. Rather than guess which
+           spelling the operator used and get it wrong, refuse to append when
+           config.toml mentions either table at all, and point at the opt-out
+           that hands the whole job over. Over-firing here costs one values
+           flag, under-firing costs a CrashLoopBackOff. */}}
+    {{- if regexMatch "(?m)^[ \t]*(\\[daemon\\.(ack|archive)\\]|(daemon\\.)?(ack|archive)([\\. \t]|[ \t]*=))" $toml }}
+    {{- fail (printf "configmap.yaml: config.toml already touches [daemon.ack] or [daemon.archive], and the chart cannot append a table TOML has already opened. Set workload.statefulset.persistence.manageDaemonPaths=false and write both paths yourself (storage_path = \"%s/acks.jsonl\", path = \"%s/archive.ndjson\"), or drop those keys and let the chart write them." $dataDir $dataDir) }}
+    {{- end }}
 
     # Appended by the chart because persistence is enabled: point the runtime
-    # ack store and the disclose archive at the mounted PVC so they survive
-    # restarts. Do not also set [daemon.ack] or [daemon.archive] in config.toml
-    # above, TOML rejects duplicate tables.
+    # ack store at the mounted PVC so acks survive restarts.
     [daemon.ack]
-    storage_path = "{{ include "perf-sentinel.dataDir" . }}/acks.jsonl"
+    storage_path = "{{ $dataDir }}/acks.jsonl"
+    {{- if $greenOff }}
 
+    # No [daemon.archive]: [green] enabled = false, so an archive would hold
+    # windows with no energy or carbon and the daemon rejects that pairing.
+    {{- else }}
+
+    # Same for the public-disclosure archive.
     [daemon.archive]
-    path = "{{ include "perf-sentinel.dataDir" . }}/archive.ndjson"
+    path = "{{ $dataDir }}/archive.ndjson"
+    {{- end }}
+    {{- end }}
     {{- end }}

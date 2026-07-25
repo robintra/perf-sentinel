@@ -68,6 +68,8 @@ jobs:
             args: "--set workload.kind=DaemonSet"
           - leg: statefulset
             args: "--set workload.kind=StatefulSet"
+          - leg: statefulset-persistence
+            args: "--set workload.kind=StatefulSet --set workload.statefulset.persistence.enabled=true"
           - leg: flags-on
             args: "--set serviceMonitor.enabled=true --set networkPolicy.enabled=true"
     steps:
