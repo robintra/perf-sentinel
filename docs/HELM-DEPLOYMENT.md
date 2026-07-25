@@ -138,21 +138,27 @@ The chart is indexed on [Artifact Hub](https://artifacthub.io), where
 users can discover it, browse its values schema, and read the
 changelog.
 
-Registration flow (done by the maintainer once per chart):
+Registration is done, `charts/perf-sentinel/artifacthub-repo.yml`
+carries the issued `repositoryID` and every chart release pushes it to
+the OCI registry under the reserved `artifacthub.io` tag. The flow, for
+reference or to redo it on another registry:
 
 1. Sign in to artifacthub.io with a GitHub account.
 2. In the control panel, add a repository of kind "Helm charts (OCI)"
    pointing to `oci://ghcr.io/robintra/charts/perf-sentinel`.
 3. Artifact Hub issues a `repositoryID` (UUID).
-4. Edit `charts/perf-sentinel/artifacthub-repo.yml`, replace the
-   `REPLACE_AFTER_ARTIFACTHUB_REGISTRATION` placeholder with the
-   UUID, commit and push.
+4. Put that UUID in `charts/perf-sentinel/artifacthub-repo.yml`, commit
+   and push.
 5. Tag a new chart release (patch bump) so the release workflow
    pushes the updated `artifacthub-repo.yml` to the OCI registry
    under the special `artifacthub.io` tag.
 6. Artifact Hub polls the registry and picks up the new metadata
    within 30 minutes. The "Verified publisher" badge appears on the
    next processing cycle.
+
+The `official` status is separate: it is requested through a GitHub
+issue on the artifacthub/hub repository, once the repository already
+holds the verified-publisher badge. No chart annotation grants it.
 
 ## Software supply chain
 
@@ -458,8 +464,9 @@ lost on restart. Switch to `StatefulSet` mode (see above) and remap
 `O_NOFOLLOW` and rejects pre-existing files whose mode permits
 group/other access (`mode & 0o077 != 0`). Setting `runAsUser` and
 `fsGroup` such that the daemon UID does not own the PVC mount, or
-adopting a default-restrictive `PodSecurityPolicy` that forces a wider
-umask on volume mounts, will surface as `InsecurePermissions` at
+running under a mutating admission policy (Kyverno, OPA Gatekeeper) that
+rewrites `fsGroup` or `runAsUser` on the pod, will surface as
+`InsecurePermissions` at
 startup and the ack store will be unavailable. The daemon stays up
 without it (the three ack endpoints return 503), so this is a soft
 failure, but check the WARN log line on first rollout.

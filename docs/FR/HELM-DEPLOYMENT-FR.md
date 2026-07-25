@@ -103,15 +103,17 @@ Le chart est indexé sur [Artifact Hub](https://artifacthub.io), où
 les utilisateurs peuvent le découvrir, explorer son values schema
 et consulter le changelog.
 
-Flow d'enregistrement (réalisé une fois par le mainteneur du chart) :
+L'enregistrement est fait, `charts/perf-sentinel/artifacthub-repo.yml`
+porte le `repositoryID` délivré et chaque release de chart le pousse
+sur le registry OCI sous le tag réservé `artifacthub.io`. Le flow, pour
+référence ou pour le refaire sur un autre registry :
 
 1. Connectez-vous sur artifacthub.io avec un compte GitHub.
 2. Dans le panel de contrôle, ajoutez un repository de kind "Helm
    charts (OCI)" pointant vers
    `oci://ghcr.io/robintra/charts/perf-sentinel`.
 3. Artifact Hub délivre un `repositoryID` (UUID).
-4. Éditez `charts/perf-sentinel/artifacthub-repo.yml`, remplacez le
-   placeholder `REPLACE_AFTER_ARTIFACTHUB_REGISTRATION` par l'UUID,
+4. Placez cet UUID dans `charts/perf-sentinel/artifacthub-repo.yml`,
    committez et poussez.
 5. Taggez une nouvelle release de chart (patch bump) pour que le
    workflow de release pousse le `artifacthub-repo.yml` mis à jour
@@ -119,6 +121,10 @@ Flow d'enregistrement (réalisé une fois par le mainteneur du chart) :
 6. Artifact Hub scrute le registry et récupère les nouvelles
    métadonnées en moins de 30 minutes. Le badge "Verified
    publisher" apparaît au prochain cycle de traitement.
+
+Le statut `official` est un sujet distinct : il se demande par une issue
+sur le dépôt artifacthub/hub, une fois que le repository porte déjà le
+badge verified publisher. Aucune annotation de chart ne le confère.
 
 ## Chaîne d'approvisionnement logicielle
 
@@ -356,7 +362,7 @@ La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de co
 
 **Faire survivre les acks aux redémarrages de pod.** Chemin de stockage par défaut : `~/.local/share/perf-sentinel/acks.jsonl`, dans le système de fichiers du pod, perdu au restart. Bascule en mode `StatefulSet` (cf. ci-dessus) et remappage de `[daemon.ack] storage_path` sur un mount PVC.
 
-**Attention au plancher du `securityContext`.** Le daemon ouvre le JSONL avec `O_NOFOLLOW` et rejette les fichiers pré-existants dont le mode autorise des accès group/other (`mode & 0o077 != 0`). Définir `runAsUser` et `fsGroup` de telle sorte que l'UID du daemon n'est pas propriétaire du mount PVC, ou adopter une `PodSecurityPolicy` restrictive qui force un umask plus large sur les volume mounts, fera apparaître `InsecurePermissions` au démarrage et le store d'acks sera indisponible. Le daemon reste up sans lui (les trois endpoints ack renvoient 503), donc c'est une défaillance soft, vérifiez quand même la ligne de log WARN au premier rollout.
+**Attention au plancher du `securityContext`.** Le daemon ouvre le JSONL avec `O_NOFOLLOW` et rejette les fichiers pré-existants dont le mode autorise des accès group/other (`mode & 0o077 != 0`). Définir `runAsUser` et `fsGroup` de telle sorte que l'UID du daemon n'est pas propriétaire du mount PVC, ou tourner sous une politique d'admission mutante (Kyverno, OPA Gatekeeper) qui réécrit `fsGroup` ou `runAsUser` sur le pod, fera apparaître `InsecurePermissions` au démarrage et le store d'acks sera indisponible. Le daemon reste up sans lui (les trois endpoints ack renvoient 503), donc c'est une défaillance soft, vérifiez quand même la ligne de log WARN au premier rollout.
 
 **Charger la baseline TOML CI depuis une ConfigMap.** Montez `.perf-sentinel-acknowledgments.toml` via `extraVolumes` et pointez `[daemon.ack] toml_path` dessus pour que le daemon ait une vue unifiée des acks permanents (TOML) et runtime (JSONL). Le POST runtime renvoie `409 Conflict` sur les signatures déjà couvertes par un ack TOML actif, ce qui empêche le daemon de masquer silencieusement la baseline validée par l'équipe.
 
