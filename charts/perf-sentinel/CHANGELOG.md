@@ -6,6 +6,27 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.21]
+
+### Added
+
+- A post-install note fires whenever the install cannot persist runtime
+  acknowledgments, which is every mode except `StatefulSet` with
+  `persistence.enabled`. The daemon resolves its ack store under a home
+  directory the scratch image does not provide, so it logs a WARN at
+  startup and `POST` / `DELETE /api/findings/{sig}/ack` plus
+  `GET /api/acks` answer 503. Ingestion, detection, `/metrics` and the
+  rest of the query API are unaffected, and the committed CI ack
+  baseline is still honoured, the daemon reads it independently of the
+  JSONL store. The mismatch previously surfaced only as an unexplained
+  503 hours later, since `[daemon.ack] enabled` defaults to `true` in
+  the daemon while the chart's default topology cannot serve it. The
+  note names the two values to set and warns that the mode needs a
+  usable StorageClass. `Deployment` stays the default so the chart still
+  installs on a cluster with no default StorageClass, and so that
+  changing `workload.kind` is never forced on an existing release, which
+  `helm upgrade` cannot do in place.
+
 ## [0.9.20]
 
 ### Fixed

@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.20
+version: 0.9.21
 appVersion: "0.9.17"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -36,6 +36,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "Chart 0.9.21: a post-install note fires whenever the install cannot persist runtime acknowledgments, which is every mode except StatefulSet with persistence enabled. The daemon resolves its ack store under a home directory the scratch image does not provide, so it logs a WARN at startup and the three ack routes answer 503, while ingestion, detection, metrics and the rest of the query API keep working and the committed CI ack baseline is still honoured. That mismatch previously surfaced only as an unexplained 503 hours later, because [daemon.ack] enabled defaults to true in the daemon while the chart's default topology cannot serve it. The note names the two values to set and warns that the mode needs a usable StorageClass. Deployment stays the default so the chart still installs on a cluster with no default StorageClass."
     - kind: fixed
       description: "Chart 0.9.20: three render-time guards replace three silent failures. [daemon.archive] is no longer injected when config.toml sets [green] enabled = false, a pairing the daemon rejects at startup, which turned detection-without-GreenOps plus persistence into a CrashLoopBackOff, and declaring that archive yourself now fails the render in every workload mode since the daemon refuses it either way. A service.ports.*.port moved without the matching [daemon] listen_port_* now fails the render instead of producing a pod that binds one port while the containerPort, the probes, the Service and the NetworkPolicy all point at another, with an omitted key checked against the daemon's own 4318 and 4317 defaults rather than skipped. And workload.statefulset.persistence.enabled on a Deployment or DaemonSet fails the render instead of rendering no volume at all and leaving the ack routes on 503 with no explanation."
     - kind: fixed
