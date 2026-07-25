@@ -62,7 +62,12 @@ lockstep, replacing the earlier independent `0.2.x` chart line.
 - A post-install note now fires when `networkPolicy.enabled` is set with
   no ingress selector. That fail-closed case also blocks the
   ServiceMonitor scrape and `helm test`, while rendering and validating
-  cleanly, so nothing else would surface it before the cluster does.
+  cleanly, so nothing else would surface it before the cluster does. The
+  note and `values.yaml` both spell out the failure mode: the pod keeps
+  reporting Ready, because Kubernetes always allows traffic from the node
+  a pod runs on and the kubelet probes therefore cross any policy, so a
+  misconfigured selector leaves a green pod that receives nothing.
+  Verified on k3s/kube-router 1.35 with a deny-all policy in place.
 - `docs/HELM-DEPLOYMENT.md` no longer advises around `PodSecurityPolicy`,
   removed in Kubernetes 1.25 while the chart floor is 1.24. The passage
   now names a mutating admission policy, which is what can actually

@@ -204,6 +204,12 @@ podDisruptionBudget:
 # Add namespace or pod selectors below to allow-list the collector, Prometheus,
 # or application namespaces.
 #
+# The probes keep passing either way. Kubernetes guarantees that "traffic to
+# and from the node where a Pod is running is always allowed, regardless of the
+# IP address of the Pod or the node", so the kubelet reaches /health through any
+# policy (verified on k3s/kube-router 1.35). The failure mode is therefore a
+# green pod that receives nothing, not a CrashLoop.
+#
 # Egress is deliberately out of scope. The daemon's outbound destinations
 # (Tempo, Jaeger, Electricity Maps, the energy scrapers) are declared in your
 # config.toml, not in the chart, so a generic egress block would either be too

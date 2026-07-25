@@ -51,10 +51,12 @@ add ingress selectors before exposing this to untrusted workloads.
 {{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.ingress.fromNamespaceSelectors) (not .Values.networkPolicy.ingress.fromPodSelectors) }}
 
 Heads up: NetworkPolicy is enabled with no ingress selector, so the rendered
-policy denies every ingress. Nothing reaches the daemon: not your collector,
+policy denies every ingress. No pod reaches the daemon: not your collector,
 {{- if .Values.serviceMonitor.enabled }}
 not the ServiceMonitor scrape of /metrics on port {{ .Values.service.ports.otlpHttp.port }},
 {{- end }}
-and not `helm test`. Add peers under networkPolicy.ingress.fromNamespaceSelectors
-or .fromPodSelectors. This renders and validates fine, it only fails in cluster.
+and not `helm test`. The pod still reports Ready, because kubelet probes come
+from the node the pod runs on and a NetworkPolicy never blocks that, so nothing
+flags the mistake: you get a healthy pod that receives no traces. Add peers
+under networkPolicy.ingress.fromNamespaceSelectors or .fromPodSelectors.
 {{- end }}
