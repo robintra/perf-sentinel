@@ -200,8 +200,15 @@ podDisruptionBudget:
   minAvailable: ""
 
 # NetworkPolicy. Fail-closed: when enabled without selectors the rendered
-# policy blocks every ingress. Add namespace or pod selectors below to
-# allow-list the collector, Prometheus, or application namespaces.
+# policy blocks every ingress, including the Prometheus scrape and `helm test`.
+# Add namespace or pod selectors below to allow-list the collector, Prometheus,
+# or application namespaces.
+#
+# Egress is deliberately out of scope. The daemon's outbound destinations
+# (Tempo, Jaeger, Electricity Maps, the energy scrapers) are declared in your
+# config.toml, not in the chart, so a generic egress block would either be too
+# permissive to protect anything or strict enough to break the install.
+# NetworkPolicies are additive, write your own egress policy alongside.
 networkPolicy:
   enabled: false
   ingress:
