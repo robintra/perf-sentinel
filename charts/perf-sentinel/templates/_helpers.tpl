@@ -225,13 +225,11 @@ checksum/config: {{ include "perf-sentinel.configChecksum" . }}
 {{- end -}}
 
 {{/*
-Pod template labels merge commonLabels / selectorLabels / podLabels.
+Pod template labels: the same set every other object carries, plus podLabels.
+Never feed this to spec.selector.matchLabels, which is immutable.
 */}}
 {{- define "perf-sentinel.podLabels" -}}
-{{ include "perf-sentinel.selectorLabels" . }}
-{{- with .Values.commonLabels }}
-{{ toYaml . }}
-{{- end }}
+{{ include "perf-sentinel.labels" . }}
 {{- with .Values.podLabels }}
 {{ toYaml . }}
 {{- end }}
