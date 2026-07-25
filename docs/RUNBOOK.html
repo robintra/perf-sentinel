@@ -491,8 +491,8 @@
 <ul>
 <li>Kubernetes <code class="ps-ic">restartPolicy: Always</code> + memory limit headroom above observed peak RSS.</li>
 <li>Alert on <code class="ps-ic">perf_sentinel_active_traces</code> approaching <code class="ps-ic">max_active_traces</code>. Rising pressure often precedes OOM.</li>
-<li>For HA, run multiple replicas behind a load balancer. Each replica has independent state (no cross-replica correlation), but ingestion becomes redundant against single-instance failure.</li>
-<li>Collection continuity matters for <code class="ps-ic">disclose</code>: every restart leaves a gap in the archived windows that feed the carbon disclosure. Run multiple replicas and persist the archive (StatefulSet mode) so downtime does not punch holes in the disclosure history.</li>
+<li>For HA, run multiple replicas only behind trace-aware routing (consistent hashing by <code class="ps-ic">trace_id</code> in the OTel Collector <code class="ps-ic">loadbalancingexporter</code>). A round-robin Service splits one trace's spans across pods, which silently degrades N+1 detection. Each replica keeps independent state and there is no cross-replica correlation, so the gain is redundancy against a single-instance failure, not shared analysis.</li>
+<li>Collection continuity matters for <code class="ps-ic">disclose</code>: every restart leaves a gap in the archived windows that feed the carbon disclosure. Persist the archive (StatefulSet mode with <code class="ps-ic">persistence.enabled</code>) so downtime does not punch holes in the disclosure history. With more than one replica each pod writes its own archive to its own PVC, so <code class="ps-ic">disclose</code> must be run per pod and the outputs reconciled.</li>
 </ul>
 <hr class="ps-hr">
 <h2 id="applying-config-changes" class="ps-h2">Applying config changes</h2>
@@ -511,16 +511,16 @@
 <span style="color:var(--term-comment)"># Exits immediately on parse error and prints the offending line.</span></code></pre></div>
 <p class="ps-p">Once it starts cleanly, roll it out to production.</p>
 <h2 id="inspecting-the-daemons-http-endpoints" class="ps-h2">Inspecting the daemon's HTTP endpoints</h2>
-<p class="ps-p">The daemon image is distroless and does not include <code class="ps-ic">curl</code>, <code class="ps-ic">wget</code>, or a shell. <code class="ps-ic">kubectl exec ... -- curl http://localhost:14318/...</code> fails with <code class="ps-ic">executable file not found</code>. Use <code class="ps-ic">kubectl port-forward</code> plus your local <code class="ps-ic">curl</code> for ad-hoc HTTP inspection:</p>
+<p class="ps-p">The daemon image is built <code class="ps-ic">FROM scratch</code> and holds nothing but the binary, so it has no <code class="ps-ic">curl</code>, no <code class="ps-ic">wget</code>, no shell, and no CA bundle. <code class="ps-ic">kubectl exec ... -- curl http://localhost:4318/...</code> fails with <code class="ps-ic">executable file not found</code>. Use <code class="ps-ic">kubectl port-forward</code> plus your local <code class="ps-ic">curl</code> for ad-hoc HTTP inspection. The chart names the Deployment after the release, <code class="ps-ic">perf-sentinel</code> for a release of that name, and the container listens on 4318:</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># In one terminal: forward the daemon's HTTP port locally.</span>
-<span style="color:var(--code-cmd);font-weight:600">kubectl</span> port-forward <span style="color:var(--code-flag)">-n</span> &lt;namespace&gt; deploy/perf-sentinel-daemon <span style="color:var(--code-num)">14318:14318</span>
+<span style="color:var(--code-cmd);font-weight:600">kubectl</span> port-forward <span style="color:var(--code-flag)">-n</span> &lt;namespace&gt; deploy/perf-sentinel <span style="color:var(--code-num)">14318:4318</span>
 
 <span style="color:var(--term-comment)"># In another terminal: inspect the endpoints from the host.</span>
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sH</span> "Accept: application/openmetrics-text;version=1.0.0" \
   <span style="color:var(--code-cmd);font-weight:600">http://localhost:14318/metrics</span> | tail <span style="color:var(--code-flag)">-5</span>
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://localhost:14318/api/status | jq
 <span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://localhost:14318/api/export/report | jq '.warnings, .green_summary'</code></pre></div>
-<p class="ps-p">The kubelet liveness probe uses a TCP check on the HTTP port, not a <code class="ps-ic">curl</code> HTTP call, so the distroless image does not affect liveness or readiness.</p>
+<p class="ps-p">The chart's liveness and readiness probes are <code class="ps-ic">httpGet</code> on <code class="ps-ic">/health</code>, which the kubelet performs itself without any binary inside the container, so the empty image affects neither. <code class="ps-ic">/health</code> answers regardless of <code class="ps-ic">[daemon] api_enabled</code>.</p>
 <p class="ps-p">The <code class="ps-ic">/metrics</code> endpoint negotiates content type from the client's <code class="ps-ic">Accept</code> header. Sending <code class="ps-ic">application/openmetrics-text</code> forces OpenMetrics 1.0 with the <code class="ps-ic"># EOF</code> terminator and exemplar annotations. A missing or <code class="ps-ic">*/*</code> Accept (curl default, vmagent default) falls back to the legacy 0.5.15 behavior (OpenMetrics when exemplars are present, plain Prometheus otherwise). A strict <code class="ps-ic">Accept: text/plain</code> (no <code class="ps-ic">*/*</code>) forces plain Prometheus 0.0.4 without exemplars, defending pre-OpenMetrics scrapers.</p>
 <h2 id="diagnosing-otlp-drops" class="ps-h2">Diagnosing OTLP drops</h2>
 <p class="ps-p">Symptom: spans sent by clients are not visible in <code class="ps-ic">/api/export/report</code> or in the dashboard, and the client SDK reports no errors.</p>
