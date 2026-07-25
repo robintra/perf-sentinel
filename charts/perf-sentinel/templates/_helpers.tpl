@@ -82,10 +82,12 @@ Hash of the rendered ConfigMap, used as a podTemplate annotation so that
 
 {{/*
 Headless Service name used by the StatefulSet when workload.kind=StatefulSet.
-Defaults to the full release name.
+Defaults to <fullname>-headless, the Service the chart renders itself. It cannot
+default to the fullname, that name belongs to the regular ClusterIP Service.
 */}}
 {{- define "perf-sentinel.statefulset.serviceName" -}}
-{{- default (include "perf-sentinel.fullname" .) .Values.workload.statefulset.serviceName -}}
+{{- $default := printf "%s-headless" (include "perf-sentinel.fullname" . | trunc 54 | trimSuffix "-") -}}
+{{- default $default .Values.workload.statefulset.serviceName -}}
 {{- end -}}
 
 {{/*

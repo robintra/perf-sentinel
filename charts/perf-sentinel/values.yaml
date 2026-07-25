@@ -39,8 +39,12 @@ workload:
   # durable PVC and points the runtime ack store and the public-disclosure
   # archive at it, so both survive restarts and pod rescheduling.
   statefulset:
-    # -- Headless Service name used by the StatefulSet. Defaults to the
-    # release fullname when empty.
+    # -- Headless Service name used by the StatefulSet. Leave empty and the
+    # chart renders `<fullname>-headless` itself. Set it to point the
+    # StatefulSet at a headless Service you manage, and the chart renders
+    # none. spec.serviceName is immutable, so changing this on a live
+    # StatefulSet requires deleting it first (--cascade=orphan keeps the
+    # pods and PVCs).
     serviceName: ""
     persistence:
       # -- When true (StatefulSet only), render a volumeClaimTemplate mounted

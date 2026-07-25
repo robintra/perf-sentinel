@@ -1,0 +1,33 @@
+{{- if and (eq .Values.workload.kind "StatefulSet") (not .Values.workload.statefulset.serviceName) -}}
+{{/*
+A StatefulSet needs a headless Service to give each pod a stable DNS identity.
+Skipped when workload.statefulset.serviceName names one the operator manages.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "perf-sentinel.statefulset.serviceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "perf-sentinel.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  clusterIP: None
+  # Pod DNS names must resolve before readiness passes, a peer lookup during
+  # startup depends on it.
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "perf-sentinel.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.service.ports.otlpGrpc.port }}
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: {{ .Values.service.ports.otlpHttp.port }}
+      targetPort: otlp-http
+      protocol: TCP
+{{- end }}
