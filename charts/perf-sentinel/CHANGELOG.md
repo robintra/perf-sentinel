@@ -6,6 +6,72 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.19]
+
+### Added
+
+- `workload.kind=StatefulSet` renders the headless Service it requires.
+  `spec.serviceName` pointed at the regular ClusterIP Service, which
+  provides no per-pod DNS identity, so the StatefulSet mode only ever
+  delivered its PVC. The chart now renders `<fullname>-headless`
+  (`clusterIP: None`, `publishNotReadyAddresses: true`) and points
+  `spec.serviceName` at it, and renders none when
+  `workload.statefulset.serviceName` names a Service you manage.
+  **Migration:** `spec.serviceName` is immutable, so an existing
+  StatefulSet release must be deleted before upgrading
+  (`kubectl delete statefulset <name> --cascade=orphan` keeps the pods
+  and the PVCs). Deployment and DaemonSet installs are unaffected.
+
+### Fixed
+
+- The `helm test` pod no longer carries the workload selector labels, so
+  the PodDisruptionBudget stops counting it and the Service stops
+  selecting it for the duration of a test run. It now carries
+  `app.kubernetes.io/name: <name>-test` and
+  `app.kubernetes.io/component: test`. The Service never actually routed
+  traffic to it, a named `targetPort` cannot resolve against a pod that
+  declares no ports, but the overlap was accidental rather than intended.
+- The pod template carries the standard labels every other rendered
+  object already had (`helm.sh/chart`, `app.kubernetes.io/version`,
+  `app.kubernetes.io/managed-by`), matching the Helm chart best practices
+  and the `helm create` scaffold. Selector labels are untouched, so
+  `spec.selector` stays immutable and no migration is needed, but the pod
+  template hash changes and `helm upgrade` rolls the pod.
+
+### Removed
+
+- The `artifacthub.io/official` annotation. It is not among the 16 Helm
+  annotations Artifact Hub documents and reads, so it never did anything,
+  and an inert self-declaration of official status is misleading. That
+  status is requested through a GitHub issue once the repository holds
+  the verified-publisher badge.
+
+### Changed
+
+- Two deliberate scope decisions are now documented, neither changes a
+  template. The NetworkPolicy stays ingress-only: the daemon's outbound
+  destinations (Tempo, Jaeger, Electricity Maps, the energy scrapers) are
+  declared in the operator's `config.toml` and are not knowable by the
+  chart, so a generic egress block would either be too permissive to
+  protect anything or strict enough to break the default install, and
+  NetworkPolicies are additive so an egress policy belongs alongside.
+  The chart ships no Helm `.prov` file, so `helm install --verify` is
+  unavailable by design: Helm's native provenance requires a long-lived
+  PGP key held as a CI secret, while cosign keyless signing plus the SLSA
+  attestation answer the same question with no static signing key.
+- A post-install note now fires when `networkPolicy.enabled` is set with
+  no ingress selector. That fail-closed case also blocks the
+  ServiceMonitor scrape and `helm test`, while rendering and validating
+  cleanly, so nothing else would surface it before the cluster does.
+- `docs/HELM-DEPLOYMENT.md` no longer advises around `PodSecurityPolicy`,
+  removed in Kubernetes 1.25 while the chart floor is 1.24. The passage
+  now names a mutating admission policy, which is what can actually
+  rewrite `fsGroup` or `runAsUser` on the pod (Pod Security Admission
+  validates, it never mutates).
+
+`appVersion` stays `0.9.17`, no application change. This moves the target
+announced in `0.9.18`: the next application release will be `0.9.20`.
+
 ## [0.9.18]
 
 ### Fixed

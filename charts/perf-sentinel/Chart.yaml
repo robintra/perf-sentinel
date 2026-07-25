@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.18
+version: 0.9.19
 appVersion: "0.9.17"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -36,6 +36,16 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "Chart 0.9.19: workload.kind=StatefulSet now renders the headless Service it needs. The StatefulSet's spec.serviceName pointed at the regular ClusterIP Service, which gives no per-pod DNS identity, so the mode only ever delivered the PVC. The chart renders <fullname>-headless (clusterIP None, publishNotReadyAddresses true) and points spec.serviceName at it, and renders nothing when workload.statefulset.serviceName names a Service you manage. Migration: spec.serviceName is immutable, so an existing StatefulSet release must be deleted before upgrading (kubectl delete statefulset --cascade=orphan keeps the pods and PVCs). Deployment and DaemonSet are unaffected."
+    - kind: fixed
+      description: "Chart 0.9.19: the helm test pod no longer carries the workload selector labels, so the PodDisruptionBudget stops counting it and the Service stops selecting it during a test run. It now carries app.kubernetes.io/name <name>-test plus component test. The Service never actually routed to it, the named targetPort could not resolve against a pod that declares no ports, but the overlap was accidental rather than intended."
+    - kind: fixed
+      description: "Chart 0.9.19: the pod template carries the standard labels every other rendered object already had (helm.sh/chart, app.kubernetes.io/version, app.kubernetes.io/managed-by), aligning with the Helm chart best practices and with what helm create scaffolds. Selector labels are untouched, so spec.selector stays immutable and no migration is needed, but the pod template hash changes and helm upgrade rolls the pod."
+    - kind: removed
+      description: "Chart 0.9.19: the artifacthub.io/official annotation is dropped. It is not one of the 16 Helm annotations Artifact Hub documents and reads, so it was inert, and an inert self-declaration of official status is misleading. The official status is requested through a GitHub issue after the repository holds the verified-publisher badge."
+    - kind: changed
+      description: "Chart 0.9.19: documentation of two deliberate scope decisions, no template change for either. The NetworkPolicy stays ingress-only because the daemon's outbound destinations (Tempo, Jaeger, Electricity Maps, the energy scrapers) are declared in the operator's config.toml and not knowable by the chart, and NetworkPolicies are additive so an egress policy belongs alongside. The chart ships no Helm .prov file, so helm install --verify is unavailable by design: Helm's native provenance needs a long-lived PGP key in CI, while cosign keyless plus the SLSA attestation answer the same question with no static signing key. A post-install note now fires when networkPolicy.enabled is set with no ingress selector, the fail-closed case that also blocks the ServiceMonitor scrape and helm test while rendering and validating cleanly."
     - kind: fixed
       description: "Chart 0.9.18: setting workload.strategy.type=Recreate no longer renders an invalid Deployment. The default values merge left the rollingUpdate block in place, and the API rejects it outright when the type is Recreate, so the install failed. service.type is also no longer allowed to be ExternalName in values.schema.json, since the chart always renders a selector and ports and never spec.externalName, which the API rejects as well. Chart-only fix, appVersion unchanged (still 0.9.17)."
     - kind: fixed
