@@ -42,6 +42,20 @@ and correlation detection. Either run replicas=1, or route trace-aware: consiste
 hashing by trace_id via the OTel Collector loadbalancingexporter. See
 docs/HELM-DEPLOYMENT.md ("Scaling and state").
 {{- end }}
+{{- if ne (include "perf-sentinel.persistenceEnabled" .) "true" }}
+
+Heads up: runtime acknowledgments are unavailable in this install. The daemon
+resolves its ack store under a home directory the scratch image does not have,
+so it logs a WARN at startup and POST/DELETE /api/findings/{sig}/ack plus
+GET /api/acks answer 503. Nothing else is affected: ingestion, detection,
+/metrics and the rest of the query API work normally, and the CI ack baseline
+(.perf-sentinel-acknowledgments.toml, mounted read-only) is still honoured.
+To acknowledge findings at runtime and keep those acks across pod restarts,
+install with workload.kind=StatefulSet and
+workload.statefulset.persistence.enabled=true, which mounts a PVC and points
+the ack store at it. That mode needs a usable StorageClass. See
+docs/HELM-DEPLOYMENT.md ("StatefulSet").
+{{- end }}
 {{- if not .Values.networkPolicy.enabled }}
 
 Heads up: NetworkPolicy is disabled. Every pod in the cluster can POST
