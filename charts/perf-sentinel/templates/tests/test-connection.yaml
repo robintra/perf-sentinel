@@ -13,8 +13,12 @@ spec:
   ttlSecondsAfterFinished: 30
   template:
     metadata:
+      # Deliberately not the workload selector labels: a pod carrying those
+      # would be counted by the PodDisruptionBudget and picked by the Service.
       labels:
-        {{- include "perf-sentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: {{ include "perf-sentinel.name" . }}-test
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: test
     spec:
       restartPolicy: Never
       securityContext:
