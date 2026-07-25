@@ -16,7 +16,9 @@ spec:
       # Deliberately not the workload selector labels: a pod carrying those
       # would be counted by the PodDisruptionBudget and picked by the Service.
       labels:
-        app.kubernetes.io/name: {{ include "perf-sentinel.name" . }}-test
+        {{- /* Truncate the name, not the suffix: trimming the whole string at
+               63 could eat "-test" and hand the pod the workload selector. */}}
+        app.kubernetes.io/name: {{ printf "%s-test" (include "perf-sentinel.name" . | trunc 58 | trimSuffix "-") }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: test
     spec:
