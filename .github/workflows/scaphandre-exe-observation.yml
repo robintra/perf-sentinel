@@ -81,6 +81,11 @@ jobs:
         # Same pinned .deb as the wire-conformance job. The 'deb12'
         # variant is the latest Debian flavour produced by upstream as
         # of v1.0.2 (2025-02-11) and runs on ubuntu-latest.
+        # v1.0.2 is also the last release that ships any .deb at all:
+        # v1.0.3 (2026-07-17) publishes no release asset, only the
+        # hubblo/scaphandre container image. Bumping this pin therefore
+        # means switching the whole job to the image, not editing the
+        # version, so check the upstream assets before raising it.
         run: |
           curl -fsSL -o /tmp/scaphandre.deb \
             "https://github.com/hubblo-org/scaphandre/releases/download/${SCAPHANDRE_VERSION}/scaphandre_${SCAPHANDRE_VERSION}-deb12_amd64.deb"
