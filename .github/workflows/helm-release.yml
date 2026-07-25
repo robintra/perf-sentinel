@@ -82,7 +82,7 @@ jobs:
       - name: Install kubeconform
         run: |
           curl -fsSL -o /tmp/kubeconform.tgz \
-            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz
+            https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
           tar -xzf /tmp/kubeconform.tgz -C /tmp kubeconform
           sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
           kubeconform -v
@@ -128,7 +128,7 @@ jobs:
       - name: Install crane
         run: |
           curl -fsSL -o /tmp/gcr.tgz \
-            https://github.com/google/go-containerregistry/releases/download/v0.21.5/go-containerregistry_Linux_x86_64.tar.gz
+            https://github.com/google/go-containerregistry/releases/download/v0.21.7/go-containerregistry_Linux_x86_64.tar.gz
           tar -xzf /tmp/gcr.tgz -C /tmp crane
           sudo install -m 0755 /tmp/crane /usr/local/bin/crane
           crane version
@@ -167,7 +167,7 @@ jobs:
       - name: Install oras
         run: |
           curl -fsSL -o /tmp/oras.tgz \
-            https://github.com/oras-project/oras/releases/download/v1.3.2/oras_1.3.2_linux_amd64.tar.gz
+            https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_linux_amd64.tar.gz
           tar -xzf /tmp/oras.tgz -C /tmp oras
           sudo install -m 0755 /tmp/oras /usr/local/bin/oras
           oras version
