@@ -45,17 +45,17 @@ jobs:
       - name: Checkout
         id: checkout-1
         continue-on-error: true
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Checkout (retry 2/3)
         id: checkout-2
         if: steps.checkout-1.outcome == 'failure'
         continue-on-error: true
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Checkout (retry 3/3)
         if: steps.checkout-2.outcome == 'failure'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # No `toolchain:` input so the action installs what `rust-toolchain.toml`
       # declares. Empty rustflags keeps its RUSTFLAGS=-D warnings default off.

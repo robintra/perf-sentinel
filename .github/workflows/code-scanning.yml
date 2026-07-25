@@ -25,7 +25,7 @@ jobs:
     name: Clippy (SARIF upload)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # No `toolchain:` input so the action installs what `rust-toolchain.toml`
       # declares (passing one makes it ignore the file). Empty rustflags keeps
@@ -41,7 +41,7 @@ jobs:
           matcher: false
 
       - name: Install clippy-sarif and sarif-fmt
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2.85.1
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -59,7 +59,7 @@ jobs:
           echo "Clippy SARIF generated at clippy.sarif"
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: clippy.sarif
           category: clippy
