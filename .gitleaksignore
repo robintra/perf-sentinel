@@ -16,3 +16,11 @@
 # scanner then flagged as a third leak. The current commit replaces
 # the comment with a non-literal description.
 897ad89bf9eea37e407742b21d0b5e6afd31d93e:.gitleaksignore:generic-api-key:6
+# Same shape again in the chart render-guard harness (commit 18b2bb18):
+# two scenarios declared a `[daemon.ack]` table whose sample key held a
+# fixed-hex placeholder, which the scanner reads as a credential. The
+# scenarios only need the table to exist, so the follow-up commit swaps
+# the key for a file path and no future scan sees the pattern. The two
+# entries below cover the commit already on main.
+18b2bb183fc60458ec1da4fe953098f8395631a3:scripts/test/chart-render-guards-test.sh:generic-api-key:87
+18b2bb183fc60458ec1da4fe953098f8395631a3:scripts/test/chart-render-guards-test.sh:generic-api-key:116

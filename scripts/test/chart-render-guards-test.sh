@@ -84,7 +84,7 @@ expect_render "injects both tables when config.toml declares neither" \
 #    opt-out. Guard removed, the chart would append a second table.
 expect_fail "refuses to append when a table header is present" "manageDaemonPaths" \
   "${PERSIST[@]}" --set-string 'config.toml=[daemon.ack]
-api_key = "0123456789abcdef"'
+toml_path = "/etc/perf-sentinel/acks.toml"'
 
 # 3. Same for the dotted-key spelling, which opens the table just as much and
 #    which a header-only regex misses.
@@ -113,7 +113,7 @@ expect_render "injects nothing without persistence" \
   '[ "$(grep -c "^\s*\[daemon\.ack\]" <<<"$out")" = 1 ] &&
    ! grep -q "^\s*\[daemon\.archive\]" <<<"$out"' \
   --set-string 'config.toml=[daemon.ack]
-api_key = "0123456789abcdef"'
+toml_path = "/etc/perf-sentinel/acks.toml"'
 
 # --- Archive against green scoring ------------------------------------------
 
