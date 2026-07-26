@@ -3,26 +3,38 @@
 All notable changes to the perf-sentinel Helm chart are documented in
 this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 From version 0.9.0 the chart `version` tracks the perf-sentinel
-application version. Both the chart `version` and `appVersion` move in
-lockstep, replacing the earlier independent `0.2.x` chart line.
+application version, replacing the earlier independent `0.2.x` chart
+line. The two are not locked together: an application release bumps
+both, while a chart-only release bumps `version` alone and leaves
+`appVersion` on the last application release, as `0.9.16` and `0.9.18`
+through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
+version, to know which daemon image ships.
 
 ## [0.9.21]
 
 ### Added
 
-- A post-install note fires whenever the install cannot persist runtime
-  acknowledgments, which is every mode except `StatefulSet` with
-  `persistence.enabled`. The daemon resolves its ack store under a home
+- A post-install note fires on every install that is not `StatefulSet`
+  with `persistence.enabled`, the only topology that can persist runtime
+  acknowledgments. The daemon resolves its ack store under a home
   directory the scratch image does not provide, so it logs a WARN at
-  startup and `POST` / `DELETE /api/findings/{sig}/ack` plus
-  `GET /api/acks` answer 503. Ingestion, detection, `/metrics` and the
-  rest of the query API are unaffected, and the committed CI ack
-  baseline is still honoured, the daemon reads it independently of the
-  JSONL store. The mismatch previously surfaced only as an unexplained
-  503 hours later, since `[daemon.ack] enabled` defaults to `true` in
-  the daemon while the chart's default topology cannot serve it. The
+  startup and `POST` / `DELETE /api/findings/{sig}/ack` answer 503,
+  while `GET /api/acks` stays `200` with an empty list (it is auth-only
+  by design, so it is not a probe for this condition). Ingestion,
+  detection, `/metrics` and the rest of the query API are unaffected.
+  The committed CI ack baseline is read independently of the JSONL
+  store, but the chart does not mount it: pass it in through
+  `extraVolumes` / `extraVolumeMounts` and point `[daemon.ack]
+  toml_path` at it, otherwise the daemon falls back to a default path
+  the scratch image does not have and the baseline stays empty. The
+  mismatch previously surfaced only as an unexplained 503 hours later,
+  since `[daemon.ack] enabled` defaults to `true` in the daemon while
+  the chart's default topology cannot serve it. The
   note names the two values to set and warns that the mode needs a
-  usable StorageClass. `Deployment` stays the default so the chart still
+  usable StorageClass. It keys on the workload topology rather than on
+  the rendered `[daemon.ack]` table, so it stays silent when
+  `persistence.manageDaemonPaths` is `false` and `storage_path` was
+  never written. `Deployment` stays the default so the chart still
   installs on a cluster with no default StorageClass, and so that
   changing `workload.kind` is never forced on an existing release, which
   `helm upgrade` cannot do in place.
@@ -150,8 +162,9 @@ lockstep, replacing the earlier independent `0.2.x` chart line.
   rewrite `fsGroup` or `runAsUser` on the pod (Pod Security Admission
   validates, it never mutates).
 
-`appVersion` stays `0.9.17`, no application change. This moves the target
-announced in `0.9.18`: the next application release will be `0.9.20`.
+`appVersion` stays `0.9.17`, no application change. Chart-only `0.9.20`
+and `0.9.21` have since taken those numbers, so the next application
+release is `0.9.22`.
 
 ## [0.9.18]
 

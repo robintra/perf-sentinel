@@ -371,8 +371,10 @@ In `Deployment` and `DaemonSet` mode, runtime acks are unavailable, not
 merely ephemeral. The default store path resolves through
 `dirs::data_local_dir()`, and the container image is `FROM scratch` with
 no `HOME` and no `/etc/passwd`, so the path cannot be resolved at all.
-The daemon logs a WARN at startup, stays up, and the three ack routes
-return `503 Service Unavailable`.
+The daemon logs a WARN at startup, stays up, and the two ack write
+routes return `503 Service Unavailable`. `GET /api/acks` is auth-only by
+design and still answers `200` with an empty list, so it is not a probe
+for this condition.
 
 Make that trade-off deliberately. If operators are expected to
 acknowledge findings at runtime, from the dashboard, the `ack` CLI or an
@@ -495,7 +497,7 @@ mounted empty is rejected at config load. The key also gates `GET /api/acks`
 
 **Runtime acks need a PVC to exist at all.** Without one the default
 storage path cannot be resolved inside the scratch image and the ack
-routes return 503. Switch to `StatefulSet` mode with
+write routes return 503. Switch to `StatefulSet` mode with
 `persistence.enabled: true` (see above), which wires `[daemon.ack]
 storage_path` to the PVC for you.
 
@@ -507,8 +509,9 @@ running under a mutating admission policy (Kyverno, OPA Gatekeeper) that
 rewrites `fsGroup` or `runAsUser` on the pod, will surface as
 `InsecurePermissions` at
 startup and the ack store will be unavailable. The daemon stays up
-without it (the three ack endpoints return 503), so this is a soft
-failure, but check the WARN log line on first rollout.
+without it (the ack write routes return 503, `GET /api/acks` an empty
+list), so this is a soft failure, but check the WARN log line on first
+rollout.
 
 **Load the CI TOML baseline from a ConfigMap.** Mount
 `.perf-sentinel-acknowledgments.toml` via `extraVolumes` and point
