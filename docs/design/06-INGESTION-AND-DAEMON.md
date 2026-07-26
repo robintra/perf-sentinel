@@ -28,7 +28,9 @@ for span in &scope.spans {
 }
 ```
 
-**Why two passes?** In OTLP, a parent span may appear after its child in the protobuf message. The first pass builds a lookup table so that the second pass can resolve `source.endpoint` from the parent span's `http.route` attribute. A single-pass approach would miss parent spans defined later in the message.
+**Why two passes?** In OTLP, a parent span may appear after its child in the protobuf message. The first pass builds a lookup table so that the second pass can resolve `source.endpoint` by walking up the ancestor chain. A single-pass approach would miss parent spans defined later in the message.
+
+`source.endpoint` resolves in three steps, each falling through to the next: the nearest inbound HTTP route up the chain (`http.route`, then `http.url`, then `url.full`), then the `code.*` frame for entry points that carry no HTTP attribute at all (scheduled jobs, message consumers), then the literal `"unknown"`. The walk is bounded by the same depth limit as the `code.*` walk. Resolving only the direct parent left every layered stack on `"unknown"`, since the route sits on the SERVER span two or more levels above a leaf JDBC span.
 
 The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. The span index is capped at 100,000 spans per resource to prevent memory exhaustion from pathological OTLP payloads. A `tracing::warn!` is emitted when the cap is reached to help operators diagnose degraded parent resolution.
 
