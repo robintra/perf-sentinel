@@ -4,6 +4,11 @@
 //! ```json
 //! { "data": [{ "traceID": "...", "spans": [...], "processes": {...} }] }
 //! ```
+//!
+//! `source.endpoint` is resolved from the span's own tags only. Unlike the
+//! OTLP path, this one does not walk `references` for a route or a code frame,
+//! so a leaf whose entry point sits on an ancestor lands on a different
+//! endpoint here than the same trace ingested over OTLP.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -225,6 +230,7 @@ fn convert_jaeger_span(
     // Source endpoint and method from tags (best effort)
     let endpoint = find_tag(tags, "http.route")
         .or_else(|| find_tag(tags, "http.target"))
+        .filter(|s| !s.trim().is_empty())
         .or_else(|| {
             crate::ingest::code_frame_endpoint(code_namespace.as_deref(), code_function.as_deref())
         })

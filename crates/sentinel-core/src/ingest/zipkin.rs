@@ -4,6 +4,11 @@
 //! ```json
 //! [{ "traceId": "...", "id": "...", "parentId": "...", ... }]
 //! ```
+//!
+//! `source.endpoint` is resolved from the span's own tags only. Unlike the
+//! OTLP path, this one does not walk `parentId` for a route or a code frame,
+//! so a leaf whose entry point sits on an ancestor lands on a different
+//! endpoint here than the same trace ingested over OTLP.
 
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::ingest::IngestSource;
@@ -168,6 +173,7 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
 
     let endpoint = get_tag("http.route")
         .or_else(|| get_tag("http.target"))
+        .filter(|s| !s.trim().is_empty())
         .map(ToString::to_string)
         .or_else(|| {
             crate::ingest::code_frame_endpoint(code_namespace.as_deref(), code_function.as_deref())
@@ -481,9 +487,9 @@ mod tests {
 
     #[test]
     fn code_frame_used_when_no_http_tag() {
-        // Same scheduled-job trace over Zipkin must land on the same endpoint
-        // as over OTLP, or an ack captured from one path misses the other and
-        // a diff across paths reports every job finding twice.
+        // A job span carrying its own frame lands on the same endpoint as over
+        // OTLP. Parity stops there: this path has no parent walk, so a frame or
+        // a route on an ancestor is out of reach (see the module docs).
         let json = r#"[
             {
                 "traceId": "t1",
