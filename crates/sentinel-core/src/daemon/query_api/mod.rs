@@ -1037,18 +1037,26 @@ fn collect_warning_details(
 
     let mut details = Vec::new();
 
-    // Config-only rule, first so it frames the aggregates below. The drop
-    // is a uniform hash over trace ids, so 1/rate is a sound correction.
+    // Config-only rule, first so it frames the counts below. Ratios are left
+    // out on purpose: uniform per-trace sampling hits numerator and
+    // denominator alike, so the waste ratio stays readable.
     let rate = daemon.sampling_rate;
-    if rate < 1.0 {
+    if rate <= 0.0 {
+        details.push(crate::report::Warning::new(
+            TUNING,
+            "[daemon] sampling_rate is 0: no trace is analyzed, so this \
+             report can only ever be empty. Raise it above 0 to get findings"
+                .to_string(),
+        ));
+    } else if rate < 1.0 {
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
-                "[daemon] sampling_rate is {rate}: finding counts, the I/O \
-                 waste ratio and every GreenOps figure in this report cover \
-                 that fraction of traces, not the whole traffic. Set it to \
-                 1.0 to measure everything, or scale these aggregates by \
-                 1/{rate} before reporting them"
+                "[daemon] sampling_rate is {rate}: only that fraction of \
+                 traces is analyzed, so absolute counts (findings, \
+                 occurrences, the perf_sentinel_* totals) describe a sample \
+                 and a rare pattern can be missed entirely. Set it to 1.0 \
+                 for whole-traffic counts"
             ),
         ));
     }

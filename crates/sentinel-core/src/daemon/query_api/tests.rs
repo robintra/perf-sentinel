@@ -734,7 +734,7 @@ fn tuning_advisor_stays_silent_on_healthy_counters() {
 #[test]
 fn tuning_advisor_flags_sampling_rate_below_one() {
     // Config-only rule: it fires on an idle daemon, because a sampled
-    // report understates every aggregate whether or not the load is high.
+    // report understates its counts whether or not the load is high.
     let metrics = MetricsState::new();
     let daemon = crate::config::DaemonConfig {
         sampling_rate: 0.1,
@@ -743,9 +743,28 @@ fn tuning_advisor_flags_sampling_rate_below_one() {
     let msgs = tuning_messages(&metrics, &daemon);
     assert_eq!(msgs.len(), 1);
     assert!(
-        msgs[0].contains("sampling_rate is 0.1")
-            && msgs[0].contains("waste ratio")
-            && msgs[0].contains("1/0.1"),
+        msgs[0].contains("sampling_rate is 0.1") && msgs[0].contains("absolute counts"),
+        "got: {}",
+        msgs[0]
+    );
+    // A ratio samples numerator and denominator alike, so telling the reader
+    // to rescale it would produce a wrong number, not a corrected one.
+    assert!(!msgs[0].contains("1/0.1"), "got: {}", msgs[0]);
+}
+
+#[test]
+fn tuning_advisor_flags_sampling_rate_zero_separately() {
+    // Config validation accepts 0.0. The generic message would tell the
+    // reader to divide by zero and call an empty report a fraction.
+    let metrics = MetricsState::new();
+    let daemon = crate::config::DaemonConfig {
+        sampling_rate: 0.0,
+        ..crate::config::DaemonConfig::default()
+    };
+    let msgs = tuning_messages(&metrics, &daemon);
+    assert_eq!(msgs.len(), 1);
+    assert!(
+        msgs[0].contains("no trace is analyzed") && !msgs[0].contains("1/0"),
         "got: {}",
         msgs[0]
     );
