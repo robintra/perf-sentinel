@@ -613,6 +613,10 @@ jobs:
         # with --pid=host plus bind mounts. The binary needs glibc 2.34
         # and OpenSSL 3, both on ubuntu-latest. /usr/bin is where the
         # .deb installed it, which keeps it on sudo's secure_path.
+        # Expect `scaphandre --version` to print 1.0.2: upstream tagged
+        # v1.0.3 without bumping Cargo.toml. The code does differ, the
+        # edition moved from 2021 to 2024, so trust the digest, not the
+        # version string.
         run: |
           for attempt in 1 2 3; do
             docker pull "${SCAPHANDRE_IMAGE}" && break

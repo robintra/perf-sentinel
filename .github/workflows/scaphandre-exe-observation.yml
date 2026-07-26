@@ -83,6 +83,8 @@ jobs:
         # container because the sensor must see the runner's own toy
         # processes and the fake powercap tree. /usr/bin is where the
         # old .deb installed it, which keeps it on sudo's secure_path.
+        # `scaphandre --version` prints 1.0.2 from this 1.0.3 image,
+        # upstream never bumped Cargo.toml. Trust the digest.
         run: |
           for attempt in 1 2 3; do
             docker pull "${SCAPHANDRE_IMAGE}" && break
