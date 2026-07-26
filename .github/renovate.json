@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "description": "Renovate runs for one thing only: the cosign version pinned in helm-release.yml. Dependabot (.github/dependabot.yml) still owns every `uses:` reference, so enabledManagers is restricted to the custom manager to avoid duplicate PRs.",
+  "enabledManagers": ["custom.regex"],
+  "labels": ["dependencies", "github-actions"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [".github/workflows/helm-release.yml"],
+      "matchStrings": ["cosign-release: (?<currentValue>v\\S+)"],
+      "depNameTemplate": "sigstore/cosign",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}

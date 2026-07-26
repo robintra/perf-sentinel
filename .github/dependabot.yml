@@ -8,6 +8,10 @@ version: 2
 # crates generate review noise that does not pay off for a solo project.
 # Crate updates are handled manually via `cargo update` when needed.
 #
+# Renovate runs alongside this file, restricted to a single custom manager
+# (the pinned cosign release in helm-release.yml, which Dependabot cannot
+# see because it lives in a `with:` input). See `.github/renovate.json`.
+#
 # See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 updates:
