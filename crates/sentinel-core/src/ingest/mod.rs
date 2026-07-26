@@ -117,6 +117,34 @@ pub(crate) fn canonical_db_system(system: &str) -> &str {
     system
 }
 
+/// Endpoint fallback for entry points carrying no HTTP attribute: scheduled
+/// jobs, message consumers. Without it they all report `"unknown"`, which
+/// names no origin and collides in the ack signature.
+///
+/// Separator is `.` and not `#`: `strip_endpoint_secrets` truncates at the
+/// first `#`.
+#[must_use]
+pub(crate) fn code_frame_endpoint(
+    namespace: Option<&str>,
+    function: Option<&str>,
+) -> Option<String> {
+    match (namespace, function) {
+        // Stable `code.function.name` is already qualified and the namespace
+        // was derived from it, so concatenating would repeat the prefix.
+        (Some(ns), Some(f))
+            if f.len() > ns.len()
+                && f.starts_with(ns)
+                && f[ns.len()..].starts_with(['.', '\\']) =>
+        {
+            Some(f.to_string())
+        }
+        (Some(ns), Some(f)) => Some(format!("{ns}.{f}")),
+        (Some(ns), None) => Some(ns.to_string()),
+        (None, Some(f)) => Some(f.to_string()),
+        (None, None) => None,
+    }
+}
+
 /// Trait for event ingestion sources.
 pub trait IngestSource {
     /// Error type for this source.

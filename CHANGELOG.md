@@ -2,6 +2,16 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.22]
+
+### Changed
+
+- `source_endpoint` falls back to the code frame (`code.namespace` + `code.function`, or the fully-qualified `code.function.name`) when no HTTP attribute is found on the parent span, instead of reporting the literal `"unknown"`. Entry points reached outside an inbound HTTP request, scheduled jobs and message consumers, previously produced findings that named no origin: a `n_plus_one_sql` in a Quartz job reported `unknown` and gave a developer nothing to search for. Worse, since the ack signature is `type : service : endpoint : hash(template)`, two distinct jobs in one service issuing the same statement shared a signature, so acknowledging one silently hid the other. The fallback reuses the `code.*` ancestor walk already performed at ingestion (up to `CODE_ATTRS_MAX_DEPTH`), which resolves the frame on the common `jdbc -> hibernate -> spring-data` layout. HTTP entry points are untouched: `http.route`, `http.url` and `url.full` keep priority in that order, so their endpoints and signatures are unchanged. Applies to the OTLP and Jaeger ingestion paths. The separator is `.` rather than the Java-idiomatic `#`, because `#` is truncated by the endpoint secret-stripping applied at the ingestion boundary.
+
+### Migration
+
+- Findings on non-HTTP entry points change signature, since their endpoint segment moves from `unknown` to the code frame. Any entry in `.perf-sentinel-acknowledgments.toml` recorded against such a finding stops matching and must be re-recorded against the new signature. Acknowledgments on HTTP findings are unaffected. Run `analyze` once and copy the new signatures from the report.
+
 ## [0.9.17]
 
 ### Added
