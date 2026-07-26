@@ -486,7 +486,7 @@ v0.4.1 :
 | `severity`        | string (enum)      | `critical`, `warning`, `info`                                                                                                                                                |
 | `trace_id`        | string             | Trace ID où le pattern a été détecté                                                                                                                                         |
 | `service`         | string             | Service qui a émis l'anti-pattern                                                                                                                                            |
-| `source_endpoint` | string             | Endpoint entrant normalisé qui héberge le pattern                                                                                                                            |
+| `source_endpoint` | string             | Endpoint entrant normalisé qui héberge le pattern, ou le cadre de code (`com.foo.PurgeJob.execute`) quand le point d'entrée ne porte aucun attribut HTTP                     |
 | `pattern`         | object             | `{ template, occurrences, window_ms, distinct_params }`                                                                                                                      |
 | `suggestion`      | string             | Indication de remédiation lisible                                                                                                                                            |
 | `first_timestamp` | string (ISO 8601)  | Premier span du groupe détecté                                                                                                                                               |

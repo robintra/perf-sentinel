@@ -1821,6 +1821,101 @@ fn endpoint_code_frame_separates_two_jobs_sharing_a_statement() {
     assert_ne!(purge, "unknown");
 }
 
+#[test]
+fn endpoint_http_route_resolves_through_ancestors() {
+    // The standard Spring shape: the route sits on the SERVER span, two
+    // levels above the jdbc leaf. A single-level lookup reported "unknown"
+    // here, and the code frame would claim an HTTP finding for a class name.
+    let server = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /api/orders".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv("http.route", "POST /api/orders")],
+        ..Default::default()
+    };
+    let repository = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        name: "OrderRepository.findItems".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 900_000_000,
+        attributes: vec![
+            make_kv("code.function", "findItems"),
+            make_kv("code.namespace", "com.foo.OrderRepository"),
+        ],
+        ..Default::default()
+    };
+    let jdbc = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("order-svc", vec![server, repository, jdbc]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    assert_eq!(sql.source.endpoint, "POST /api/orders");
+}
+
+#[test]
+fn endpoint_code_frame_resolves_past_a_nameless_leaf_frame() {
+    // A leaf carrying only `code.filepath` satisfies `has_any`, which stops
+    // the code walk with a frame that names nothing. The endpoint must keep
+    // looking, or sibling spans of one job split across two signatures.
+    let job = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "job".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![
+            make_kv("code.function", "execute"),
+            make_kv("code.namespace", "com.foo.PurgeJob"),
+        ],
+        ..Default::default()
+    };
+    let mut jdbc = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    jdbc.attributes
+        .push(make_kv("code.filepath", "Driver.java"));
+    let req = make_request("svc", vec![job, jdbc]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    assert_eq!(sql.source.endpoint, "com.foo.PurgeJob.execute");
+}
+
+#[test]
+fn endpoint_stays_unknown_without_a_usable_frame() {
+    // No HTTP attribute and no name anywhere: "unknown" is the honest answer,
+    // and the pre-existing behaviour.
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "job".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv("code.filepath", "Job.java")],
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("svc", vec![parent, child]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql child event present");
+    assert_eq!(sql.source.endpoint, "unknown");
+}
+
 // ── OTLP/HTTP handler with gzip decompression ───────────────────
 
 #[cfg(feature = "daemon")]

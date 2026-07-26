@@ -20,6 +20,7 @@ calls and excessive fanout. It also scores I/O intensity per endpoint
 | `image.repository`       | `ghcr.io/robintra/perf-sentinel`  | Published on GHCR.                                                                              |
 | `image.tag`              | `""` (falls back to `appVersion`) | Pin explicitly in production.                                                                   |
 | `workload.kind`          | `Deployment`                      | `DaemonSet` and `StatefulSet` are opt-in.                                                       |
+| `workload.daemonset.spanRoutingByTraceId` | `false`          | Required to be `true` for `kind: DaemonSet`, else the render fails. Asserts an upstream collector routes by trace ID; a plain Service splits traces and silently degrades detection. |
 | `workload.replicas`      | `1`                               | Per-trace state lives in memory, prefer vertical scaling first.                                 |
 | `service.type`           | `ClusterIP`                       | Do not switch to `NodePort` or `LoadBalancer` without a gateway.                                |
 | `serviceMonitor.enabled` | `false`                           | Flip on when the Prometheus Operator is installed.                                              |
