@@ -184,6 +184,14 @@ impl CodeAttrs<'_> {
             || self.lineno.is_some()
             || self.namespace.is_some()
     }
+
+    /// Carries a name, not just a location. The endpoint fallback needs this
+    /// stricter test: a frame holding only `code.filepath` stops `has_any`
+    /// without naming an origin.
+    #[inline]
+    fn has_name(&self) -> bool {
+        self.function_name.is_some() || self.namespace.is_some()
+    }
 }
 
 /// All span attributes consumed by `convert_span`, classified in a single
@@ -359,8 +367,9 @@ fn walk_parents_for_code_attrs<'a>(
     leaf: CodeAttrs<'a>,
     parent_span_id: &[u8],
     span_index: &HashMap<&[u8], &'a Span>,
+    accept: fn(&CodeAttrs<'a>) -> bool,
 ) -> CodeAttrs<'a> {
-    if leaf.has_any() || parent_span_id.is_empty() {
+    if accept(&leaf) || parent_span_id.is_empty() {
         return leaf;
     }
     let mut current_parent_id = parent_span_id;
@@ -370,11 +379,40 @@ fn walk_parents_for_code_attrs<'a>(
             return CodeAttrs::default();
         };
         let attrs = read_code_attrs(&parent.attributes);
-        if attrs.has_any() {
+        if accept(&attrs) {
             return attrs;
         }
         if parent.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
             return CodeAttrs::default();
+        }
+        current_parent_id = parent.parent_span_id.as_slice();
+        depth += 1;
+    }
+}
+
+/// Walk the parent chain for the nearest inbound HTTP endpoint.
+///
+/// A single-level lookup misses the common Spring shape, where the route sits
+/// on the SERVER span two or more levels above the leaf. That left those
+/// findings on `"unknown"`, and once the code-frame fallback existed it sent
+/// them to a class name instead of the route they belong to. Same depth bound
+/// as the `code.*` walk.
+fn walk_parents_for_http_endpoint<'a>(
+    parent_span_id: &[u8],
+    span_index: &HashMap<&[u8], &'a Span>,
+) -> Option<&'a str> {
+    let mut current_parent_id = parent_span_id;
+    let mut depth = 0;
+    loop {
+        let parent = *span_index.get(current_parent_id)?;
+        let endpoint = get_str_attribute(&parent.attributes, "http.route")
+            .or_else(|| get_str_attribute(&parent.attributes, "http.url"))
+            .or_else(|| get_str_attribute(&parent.attributes, "url.full"));
+        if endpoint.is_some() {
+            return endpoint;
+        }
+        if parent.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
+            return None;
         }
         current_parent_id = parent.parent_span_id.as_slice();
         depth += 1;
@@ -988,8 +1026,10 @@ fn compute_stitch_decisions<'a>(
 /// `db.query.text`, or the dd-trace `dd.span.Resource` fallback), an
 /// outbound URL (legacy `http.url`, stable `url.full`), or an RPC callee
 /// (`rpc.system` with `rpc.service`/`rpc.method` or the span name) are
-/// skipped; see `classify_io_event`. Parent span lookup is done within the
-/// same request; if the parent is not found, `source.endpoint` defaults to
+/// skipped; see `classify_io_event`. Parent lookup is done within the same
+/// request. `source.endpoint` resolves to the nearest inbound HTTP route up
+/// the parent chain, then to the `code.*` frame for entry points that have
+/// none (scheduled jobs, message consumers), and only otherwise to
 /// `"unknown"`.
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
@@ -1251,29 +1291,43 @@ fn convert_span<'a>(
 
     // code.* attributes: leaf attrs first, walk parents only when empty.
     // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
-    // user frame sits on a parent. Resolved before the endpoint below,
-    // which falls back to this frame on non-HTTP entry points.
-    let code =
-        walk_parents_for_code_attrs(classified.code_attrs(), &span.parent_span_id, span_index);
+    // user frame sits on a parent.
+    let code = walk_parents_for_code_attrs(
+        classified.code_attrs(),
+        &span.parent_span_id,
+        span_index,
+        CodeAttrs::has_any,
+    );
 
-    // Parent span lookup for source endpoint/method (single-level only,
-    // independent from the code.* parent walk above).
-    let (http_endpoint, source_method) = if span.parent_span_id.is_empty() {
-        (None, span.name.clone())
+    // Source method comes from the direct parent, unchanged: it is display
+    // metadata and does not enter the ack signature.
+    let source_method = if span.parent_span_id.is_empty() {
+        span.name.clone()
     } else if let Some(parent) = span_index.get(span.parent_span_id.as_slice()) {
-        let endpoint = get_str_attribute(&parent.attributes, "http.route")
-            .or_else(|| get_str_attribute(&parent.attributes, "http.url"))
-            .or_else(|| get_str_attribute(&parent.attributes, "url.full"))
-            .map(ToString::to_string);
-        let method = get_str_attribute(&parent.attributes, "code.function")
-            .map_or_else(|| parent.name.clone(), ToString::to_string);
-        (endpoint, method)
+        get_str_attribute(&parent.attributes, "code.function")
+            .map_or_else(|| parent.name.clone(), ToString::to_string)
     } else {
-        (None, span.name.clone())
+        span.name.clone()
     };
 
-    let source_endpoint = http_endpoint
-        .or_else(|| crate::ingest::code_frame_endpoint(code.namespace, code.function_name))
+    // Endpoint: nearest inbound HTTP route up the chain, then the code frame
+    // for entry points that have none. `code` can hold a filepath and no name,
+    // which is useless here, so that case re-walks for a named frame.
+    let named_frame = if code.has_name() {
+        code
+    } else {
+        walk_parents_for_code_attrs(
+            classified.code_attrs(),
+            &span.parent_span_id,
+            span_index,
+            CodeAttrs::has_name,
+        )
+    };
+    let source_endpoint = walk_parents_for_http_endpoint(&span.parent_span_id, span_index)
+        .map(ToString::to_string)
+        .or_else(|| {
+            crate::ingest::code_frame_endpoint(named_frame.namespace, named_frame.function_name)
+        })
         .unwrap_or_else(|| "unknown".to_string());
 
     let parent_span_id = if span.parent_span_id.is_empty() {

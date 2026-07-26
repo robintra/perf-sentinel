@@ -117,32 +117,55 @@ pub(crate) fn canonical_db_system(system: &str) -> &str {
     system
 }
 
+/// Qualification separators across the languages `code.*` covers: `.` (Java,
+/// Python), `\` (PHP), `::` (Rust, C++), `#` (Ruby, javadoc).
+const CODE_FRAME_SEPARATORS: [char; 4] = ['.', '\\', ':', '#'];
+
+/// Reject what must not become an endpoint: blanks, and control characters,
+/// which `sanitize_span_event` already drops from the `code_*` fields and
+/// which `source.endpoint` does not filter on its own.
+fn usable_code_frame_part(s: &str) -> Option<&str> {
+    let s = s.trim();
+    (!s.is_empty() && !s.contains(char::is_control)).then_some(s)
+}
+
 /// Endpoint fallback for entry points carrying no HTTP attribute: scheduled
 /// jobs, message consumers. Without it they all report `"unknown"`, which
 /// names no origin and collides in the ack signature.
 ///
-/// Separator is `.` and not `#`: `strip_endpoint_secrets` truncates at the
-/// first `#`.
+/// `None` rather than a misleading origin when the frame is unusable or is a
+/// bare function name like `execute`, which collides exactly as `"unknown"`
+/// did. `#` becomes `.` because `strip_endpoint_secrets` truncates there; it
+/// also truncates at `?` and strips userinfo before the first `/`, so a frame
+/// holding `?` or `@` still loses that part.
 #[must_use]
 pub(crate) fn code_frame_endpoint(
     namespace: Option<&str>,
     function: Option<&str>,
 ) -> Option<String> {
-    match (namespace, function) {
+    let frame = match (
+        namespace.and_then(usable_code_frame_part),
+        function.and_then(usable_code_frame_part),
+    ) {
         // Stable `code.function.name` is already qualified and the namespace
         // was derived from it, so concatenating would repeat the prefix.
         (Some(ns), Some(f))
             if f.len() > ns.len()
                 && f.starts_with(ns)
-                && f[ns.len()..].starts_with(['.', '\\']) =>
+                && f[ns.len()..].starts_with(CODE_FRAME_SEPARATORS) =>
         {
-            Some(f.to_string())
+            f.to_string()
         }
-        (Some(ns), Some(f)) => Some(format!("{ns}.{f}")),
-        (Some(ns), None) => Some(ns.to_string()),
-        (None, Some(f)) => Some(f.to_string()),
-        (None, None) => None,
-    }
+        (Some(ns), Some(f)) => format!("{ns}.{f}"),
+        (Some(ns), None) => ns.to_string(),
+        (None, Some(f)) if f.contains(CODE_FRAME_SEPARATORS) => f.to_string(),
+        _ => return None,
+    };
+    Some(if frame.contains('#') {
+        frame.replace('#', ".")
+    } else {
+        frame
+    })
 }
 
 /// Trait for event ingestion sources.
@@ -161,9 +184,66 @@ pub trait IngestSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, is_non_sql_db_system,
-        is_sql_db_system,
+        NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, code_frame_endpoint,
+        is_non_sql_db_system, is_sql_db_system,
     };
+
+    #[test]
+    fn code_frame_endpoint_joins_legacy_pair() {
+        assert_eq!(
+            code_frame_endpoint(Some("com.foo.PurgeJob"), Some("execute")).as_deref(),
+            Some("com.foo.PurgeJob.execute")
+        );
+    }
+
+    #[test]
+    fn code_frame_endpoint_does_not_repeat_a_qualified_name() {
+        // The namespace is derived from the stable `code.function.name`, so it
+        // is a prefix of it. Concatenating would print it twice. Covers every
+        // separator, not just the dot: `::` and `#` reach here too.
+        for (ns, f) in [
+            ("com.foo.OrderService", "com.foo.OrderService.findItems"),
+            (
+                "Doctrine\\DBAL\\Driver",
+                "Doctrine\\DBAL\\Driver\\Connection",
+            ),
+            ("myapp::worker", "myapp::worker::run"),
+        ] {
+            assert_eq!(code_frame_endpoint(Some(ns), Some(f)).as_deref(), Some(f));
+        }
+    }
+
+    #[test]
+    fn code_frame_endpoint_rewrites_hash_to_dot() {
+        // `strip_endpoint_secrets` truncates at '#', which would drop the
+        // method half of a Ruby-style or javadoc-style name.
+        assert_eq!(
+            code_frame_endpoint(None, Some("MyClass#method")).as_deref(),
+            Some("MyClass.method")
+        );
+    }
+
+    #[test]
+    fn code_frame_endpoint_rejects_unusable_input() {
+        // Each of these used to yield a misleading endpoint that collided in
+        // the ack signature exactly as `"unknown"` did, or a malformed one.
+        let cases = [
+            (None, None, "nothing at all"),
+            (Some(""), None, "blank namespace"),
+            (Some(""), Some("execute"), "blank namespace, leading dot"),
+            (Some("  "), Some(""), "whitespace only"),
+            (None, Some("execute"), "bare function name, too generic"),
+            (None, Some("run\u{1b}[2J"), "control characters"),
+            (
+                Some("com.foo\u{7}"),
+                Some("run"),
+                "control char in namespace",
+            ),
+        ];
+        for (ns, f, desc) in cases {
+            assert_eq!(code_frame_endpoint(ns, f), None, "{desc}");
+        }
+    }
 
     #[test]
     fn sql_and_non_sql_lists_are_disjoint() {

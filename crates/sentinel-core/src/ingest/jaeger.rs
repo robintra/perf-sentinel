@@ -196,12 +196,31 @@ fn convert_jaeger_span(
         EventType::Sql => None,
     };
 
-    // code.* attributes from span tags. Jaeger has no parent walk, so these
-    // only resolve when the span carries them itself.
-    let code_function: Option<Arc<str>> = find_tag(tags, "code.function").map(Arc::from);
-    let code_filepath: Option<Arc<str>> = find_tag(tags, "code.filepath").map(Arc::from);
-    let code_lineno = find_tag(tags, "code.lineno").and_then(|s| s.parse::<u32>().ok());
-    let code_namespace: Option<Arc<str>> = find_tag(tags, "code.namespace").map(Arc::from);
+    // code.* attributes from span tags, stable semconv names first, same
+    // precedence as the OTLP path. Jaeger has no parent walk, so these only
+    // resolve when the span carries them itself.
+    let code_function_name = find_tag(tags, "code.function.name");
+    let code_function: Option<Arc<str>> = code_function_name
+        .clone()
+        .or_else(|| find_tag(tags, "code.function"))
+        .map(Arc::from);
+    let code_filepath: Option<Arc<str>> = find_tag(tags, "code.file.path")
+        .or_else(|| find_tag(tags, "code.filepath"))
+        .map(Arc::from);
+    let code_lineno = find_tag(tags, "code.line.number")
+        .or_else(|| find_tag(tags, "code.lineno"))
+        .and_then(|s| s.parse::<u32>().ok());
+    let code_namespace: Option<Arc<str>> = find_tag(tags, "code.namespace")
+        .or_else(|| {
+            // Derived from the FQ name like the OTLP path: last `.`, then `\`
+            // for PHP namespaces, which carry no dot.
+            code_function_name.as_deref().and_then(|fq| {
+                fq.rsplit_once('.')
+                    .or_else(|| fq.rsplit_once('\\'))
+                    .map(|(ns, _)| ns.to_string())
+            })
+        })
+        .map(Arc::from);
 
     // Source endpoint and method from tags (best effort)
     let endpoint = find_tag(tags, "http.route")
@@ -589,6 +608,41 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
+    }
+
+    #[test]
+    fn code_frame_endpoint_reads_stable_semconv() {
+        // An OTel 1.27+ agent emits only `code.function.name`. Reading the
+        // legacy spelling alone left the endpoint empty here while the same
+        // trace over OTLP resolved, so one ack could not cover both paths.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "query",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "db.statement", "value": "SELECT 1" },
+                        { "key": "db.system", "value": "postgresql" },
+                        { "key": "code.function.name", "value": "com.foo.PurgeJob.execute" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
+        assert_eq!(
+            events[0].code_namespace.as_deref(),
+            Some("com.foo.PurgeJob"),
+            "namespace must be derived from the FQ name, as the OTLP path does"
+        );
     }
 
     #[test]

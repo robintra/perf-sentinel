@@ -144,20 +144,39 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         EventType::Sql => None,
     };
 
+    // code.* attributes from span tags, stable semconv names first, same
+    // precedence as the OTLP path.
+    let code_function_name = get_tag("code.function.name");
+    let code_function: Option<Arc<str>> = code_function_name
+        .or_else(|| get_tag("code.function"))
+        .map(Arc::from);
+    let code_filepath: Option<Arc<str>> = get_tag("code.file.path")
+        .or_else(|| get_tag("code.filepath"))
+        .map(Arc::from);
+    let code_lineno = get_tag("code.line.number")
+        .or_else(|| get_tag("code.lineno"))
+        .and_then(|s| s.parse::<u32>().ok());
+    let code_namespace: Option<Arc<str>> = get_tag("code.namespace").map(Arc::from).or_else(|| {
+        // Derived from the FQ name like the OTLP path: last `.`, then `\`
+        // for PHP namespaces, which carry no dot.
+        code_function_name.and_then(|fq| {
+            fq.rsplit_once('.')
+                .or_else(|| fq.rsplit_once('\\'))
+                .map(|(ns, _)| Arc::from(ns))
+        })
+    });
+
     let endpoint = get_tag("http.route")
         .or_else(|| get_tag("http.target"))
-        .unwrap_or_default()
-        .to_string();
+        .map(ToString::to_string)
+        .or_else(|| {
+            crate::ingest::code_frame_endpoint(code_namespace.as_deref(), code_function.as_deref())
+        })
+        .unwrap_or_default();
     let method = get_tag("code.function")
         .map(String::from)
         .or_else(|| span.name.clone())
         .unwrap_or_default();
-
-    // code.* attributes from span tags.
-    let code_function: Option<Arc<str>> = get_tag("code.function").map(Arc::from);
-    let code_filepath: Option<Arc<str>> = get_tag("code.filepath").map(Arc::from);
-    let code_lineno = get_tag("code.lineno").and_then(|s| s.parse::<u32>().ok());
-    let code_namespace: Option<Arc<str>> = get_tag("code.namespace").map(Arc::from);
 
     let mut event = SpanEvent {
         timestamp: micros_to_iso8601(timestamp),
@@ -458,6 +477,32 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "/api/orders/42");
+    }
+
+    #[test]
+    fn code_frame_used_when_no_http_tag() {
+        // Same scheduled-job trace over Zipkin must land on the same endpoint
+        // as over OTLP, or an ack captured from one path misses the other and
+        // a diff across paths reports every job finding twice.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "query",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql",
+                    "code.function.name": "com.foo.PurgeJob.execute"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
     }
 
     #[test]

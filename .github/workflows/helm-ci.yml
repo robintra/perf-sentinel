@@ -54,7 +54,7 @@ jobs:
           - leg: deployment
             args: "--set workload.kind=Deployment"
           - leg: daemonset
-            args: "--set workload.kind=DaemonSet"
+            args: "--set workload.kind=DaemonSet --set workload.daemonset.spanRoutingByTraceId=true"
           - leg: statefulset
             args: "--set workload.kind=StatefulSet"
           - leg: statefulset-persistence

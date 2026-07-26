@@ -259,9 +259,17 @@ workload:
 
 Rare. Utile uniquement si vous avez une exigence dure d'avoir un daemon sur chaque noeud (par exemple pour remplacer un forwarder de traces node-local existant). Un DaemonSet répartit les traces sur plusieurs noeuds, ce qui casse la détection N+1 sauf si un collector en amont garantit que toutes les spans d'une trace rejoignent le même daemon. La plupart des utilisateurs n'ont pas besoin de ce mode.
 
+Comme cette casse est silencieuse (les groupes passent sous leur seuil et les findings n'apparaissent tout simplement pas, sans erreur ni métrique), le mode exige une affirmation explicite que ce routage est en place. Le rendu échoue sans elle :
+
 ```yaml
 workload:
   kind: DaemonSet
+  daemonset:
+    # Vrai uniquement si un collector en amont route par trace ID vers ces
+    # pods, par exemple l'exporter `loadbalancing` d'OTel avec
+    # `routing_key: traceID`. Un Service ordinaire fait du tourniquet et
+    # découpe les traces, ce que ce garde-fou attrape précisément.
+    spanRoutingByTraceId: true
 ```
 
 ### `StatefulSet`
