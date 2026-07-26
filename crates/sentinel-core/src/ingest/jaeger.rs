@@ -5,10 +5,9 @@
 //! { "data": [{ "traceID": "...", "spans": [...], "processes": {...} }] }
 //! ```
 //!
-//! `source.endpoint` is resolved from the span's own tags only. Unlike the
-//! OTLP path, this one does not walk `references` for a route or a code frame,
-//! so a leaf whose entry point sits on an ancestor lands on a different
-//! endpoint here than the same trace ingested over OTLP.
+//! `source.endpoint` walks the `CHILD_OF` chain with the same rules as the
+//! OTLP path: nearest inbound HTTP route first, otherwise the outermost
+//! application `code.*` frame, otherwise `"unknown"`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -131,8 +130,17 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
             .iter()
             .map(|(pid, p)| (pid.as_str(), Arc::from(p.service_name.as_str())))
             .collect();
+        // Span index for the ancestor walk, per trace.
+        let span_index: HashMap<&str, &JaegerSpan> = trace
+            .spans
+            .iter()
+            .filter(|s| !s.span_id.is_empty())
+            .map(|s| (s.span_id.as_str(), s))
+            .collect();
         for span in &trace.spans {
-            if let Some(event) = convert_jaeger_span(span, &trace.trace_id, &service_arcs) {
+            if let Some(event) =
+                convert_jaeger_span(span, &trace.trace_id, &service_arcs, &span_index)
+            {
                 events.push(event);
             }
         }
@@ -140,10 +148,83 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
     events
 }
 
+/// Parent span id from the `CHILD_OF` reference, if any.
+fn child_of(span: &JaegerSpan) -> Option<&str> {
+    span.references
+        .iter()
+        .find(|r| r.ref_type == "CHILD_OF")
+        .map(|r| r.span_id.as_str())
+}
+
+/// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
+/// kind, `http.url`/`url.full` on any kind except CLIENT (an outbound call's
+/// URL names the callee, not the route being served).
+fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
+    let usable = |s: &String| !s.trim().is_empty();
+    find_tag(&span.tags, "http.route")
+        .filter(usable)
+        .or_else(|| {
+            if find_tag(&span.tags, "span.kind").as_deref() == Some("client") {
+                return None;
+            }
+            find_tag(&span.tags, "http.url")
+                .or_else(|| find_tag(&span.tags, "url.full"))
+                .filter(usable)
+        })
+}
+
+/// Code-frame endpoint carried by this span's own tags, stable spellings
+/// first, namespace derived from the qualified name as the OTLP path does.
+fn tag_code_frame(tags: &[JaegerTag]) -> Option<String> {
+    let function_name = find_tag(tags, "code.function.name");
+    let function = function_name
+        .clone()
+        .or_else(|| find_tag(tags, "code.function"));
+    let namespace = find_tag(tags, "code.namespace").or_else(|| {
+        function_name.as_deref().and_then(|fq| {
+            fq.rsplit_once('.')
+                .or_else(|| fq.rsplit_once('\\'))
+                .map(|(ns, _)| ns.to_string())
+        })
+    });
+    crate::ingest::code_frame_endpoint(namespace.as_deref(), function.as_deref())
+}
+
+/// Walk the `CHILD_OF` chain: nearest inbound HTTP route wins, otherwise the
+/// outermost usable code frame (starting from the leaf's own), otherwise
+/// `"unknown"`. Same rules and depth bound as the OTLP path.
+fn resolve_source_endpoint(
+    leaf_frame: Option<String>,
+    parent_id: Option<&str>,
+    span_index: &HashMap<&str, &JaegerSpan>,
+) -> String {
+    let mut outermost_frame = leaf_frame;
+    let mut current = parent_id;
+    let mut depth = 0;
+    while let Some(pid) = current {
+        let Some(parent) = span_index.get(pid) else {
+            break;
+        };
+        if let Some(route) = inbound_http_endpoint(parent) {
+            return route;
+        }
+        if let Some(frame) = tag_code_frame(&parent.tags) {
+            outermost_frame = Some(frame);
+        }
+        if depth >= crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
+            break;
+        }
+        current = child_of(parent);
+        depth += 1;
+    }
+    outermost_frame.unwrap_or_else(|| "unknown".to_string())
+}
+
 fn convert_jaeger_span(
     span: &JaegerSpan,
     trace_id: &str,
     service_arcs: &HashMap<&str, Arc<str>>,
+    span_index: &HashMap<&str, &JaegerSpan>,
 ) -> Option<SpanEvent> {
     let tags = &span.tags;
 
@@ -187,11 +268,7 @@ fn convert_jaeger_span(
         .map_or_else(|| Arc::from(""), Arc::clone);
 
     // Parent span ID from CHILD_OF reference
-    let parent_span_id = span
-        .references
-        .iter()
-        .find(|r| r.ref_type == "CHILD_OF")
-        .map(|r| r.span_id.clone());
+    let parent_span_id = child_of(span).map(ToString::to_string);
 
     // Status code (HTTP only)
     let status_code = match event_type {
@@ -202,8 +279,7 @@ fn convert_jaeger_span(
     };
 
     // code.* attributes from span tags, stable semconv names first, same
-    // precedence as the OTLP path. Jaeger has no parent walk, so these only
-    // resolve when the span carries them itself.
+    // precedence as the OTLP path.
     let code_function_name = find_tag(tags, "code.function.name");
     let code_function: Option<Arc<str>> = code_function_name
         .clone()
@@ -227,14 +303,13 @@ fn convert_jaeger_span(
         })
         .map(Arc::from);
 
-    // Source endpoint and method from tags (best effort)
+    // Source endpoint: own route tag first, then the ancestor walk.
     let endpoint = find_tag(tags, "http.route")
         .or_else(|| find_tag(tags, "http.target"))
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            crate::ingest::code_frame_endpoint(code_namespace.as_deref(), code_function.as_deref())
-        })
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index)
+        });
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
     let mut event = SpanEvent {
@@ -614,6 +689,91 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
+    }
+
+    #[test]
+    fn endpoint_resolves_through_ancestors() {
+        // The Spring shape the lab measured 0/43 on: the route sits on the
+        // SERVER span two levels above the JDBC leaf, and the intermediate
+        // CLIENT span's URL must not win over it.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [
+                    {
+                        "spanID": "s1",
+                        "operationName": "POST /api/orders",
+                        "references": [],
+                        "startTime": 1720621921123000,
+                        "duration": 5000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "http.route", "value": "POST /api/orders" }
+                        ]
+                    },
+                    {
+                        "spanID": "s2",
+                        "operationName": "GET",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "s1" }],
+                        "startTime": 1720621921123100,
+                        "duration": 3000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "client" },
+                            { "key": "http.url", "value": "https://partner.example/v1/pay" }
+                        ]
+                    },
+                    {
+                        "spanID": "s3",
+                        "operationName": "query",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "s2" }],
+                        "startTime": 1720621921123200,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "db.statement", "value": "SELECT 1" },
+                            { "key": "db.system", "value": "postgresql" }
+                        ]
+                    }
+                ],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql leaf present");
+        assert_eq!(sql.source.endpoint, "POST /api/orders");
+    }
+
+    #[test]
+    fn endpoint_falls_back_to_unknown_not_empty() {
+        // The empty string put an empty component in the ack signature; the
+        // documented fallback is "unknown" on every ingestion path.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "query",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "db.statement", "value": "SELECT 1" },
+                        { "key": "db.system", "value": "postgresql" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events[0].source.endpoint, "unknown");
     }
 
     #[test]

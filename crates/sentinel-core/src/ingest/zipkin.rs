@@ -5,10 +5,9 @@
 //! [{ "traceId": "...", "id": "...", "parentId": "...", ... }]
 //! ```
 //!
-//! `source.endpoint` is resolved from the span's own tags only. Unlike the
-//! OTLP path, this one does not walk `parentId` for a route or a code frame,
-//! so a leaf whose entry point sits on an ancestor lands on a different
-//! endpoint here than the same trace ingested over OTLP.
+//! `source.endpoint` walks the `parentId` chain with the same rules as the
+//! OTLP path: nearest inbound HTTP route first, otherwise the outermost
+//! application `code.*` frame, otherwise `"unknown"`.
 
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::ingest::IngestSource;
@@ -76,6 +75,8 @@ struct ZipkinSpan {
     #[serde(default)]
     duration: Option<u64>,
     #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
     local_endpoint: Option<ZipkinEndpoint>,
     #[serde(default)]
     tags: Option<HashMap<String, String>>,
@@ -91,10 +92,90 @@ struct ZipkinEndpoint {
 // ── Conversion ─────────────────────────────────────────────────────
 
 fn convert_zipkin_spans(spans: &[ZipkinSpan]) -> Vec<SpanEvent> {
-    spans.iter().filter_map(convert_zipkin_span).collect()
+    // Span index for the ancestor walk, keyed by (trace, id) since one
+    // payload can interleave spans of many traces.
+    let span_index: HashMap<(&str, &str), &ZipkinSpan> = spans
+        .iter()
+        .filter(|s| !s.id.is_empty())
+        .map(|s| ((s.trace_id.as_str(), s.id.as_str()), s))
+        .collect();
+    spans
+        .iter()
+        .filter_map(|s| convert_zipkin_span(s, &span_index))
+        .collect()
 }
 
-fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
+/// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
+/// kind, `http.url`/`url.full` on any kind except CLIENT (an outbound call's
+/// URL names the callee, not the route being served).
+fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<&str> {
+    let tag = |key: &str| {
+        span.tags
+            .as_ref()
+            .and_then(|t| t.get(key).map(String::as_str))
+            .filter(|s| !s.trim().is_empty())
+    };
+    tag("http.route").or_else(|| {
+        if span.kind.as_deref() == Some("CLIENT") {
+            return None;
+        }
+        tag("http.url").or_else(|| tag("url.full"))
+    })
+}
+
+/// Code-frame endpoint carried by this span's own tags, stable spellings
+/// first, namespace derived from the qualified name as the OTLP path does.
+fn tag_code_frame(span: &ZipkinSpan) -> Option<String> {
+    let tag = |key: &str| {
+        span.tags
+            .as_ref()
+            .and_then(|t| t.get(key).map(String::as_str))
+    };
+    let function_name = tag("code.function.name");
+    let function = function_name.or_else(|| tag("code.function"));
+    let namespace = tag("code.namespace").map(ToString::to_string).or_else(|| {
+        function_name.and_then(|fq| {
+            fq.rsplit_once('.')
+                .or_else(|| fq.rsplit_once('\\'))
+                .map(|(ns, _)| ns.to_string())
+        })
+    });
+    crate::ingest::code_frame_endpoint(namespace.as_deref(), function)
+}
+
+/// Walk the `parentId` chain: nearest inbound HTTP route wins, otherwise the
+/// outermost usable code frame (starting from the leaf's own), otherwise
+/// `"unknown"`. Same rules and depth bound as the OTLP path.
+fn resolve_source_endpoint(
+    leaf: &ZipkinSpan,
+    span_index: &HashMap<(&str, &str), &ZipkinSpan>,
+) -> String {
+    let mut outermost_frame = tag_code_frame(leaf);
+    let mut current = leaf.parent_id.as_deref();
+    let mut depth = 0;
+    while let Some(pid) = current {
+        let Some(parent) = span_index.get(&(leaf.trace_id.as_str(), pid)) else {
+            break;
+        };
+        if let Some(route) = inbound_http_endpoint(parent) {
+            return route.to_string();
+        }
+        if let Some(frame) = tag_code_frame(parent) {
+            outermost_frame = Some(frame);
+        }
+        if depth >= crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
+            break;
+        }
+        current = parent.parent_id.as_deref();
+        depth += 1;
+    }
+    outermost_frame.unwrap_or_else(|| "unknown".to_string())
+}
+
+fn convert_zipkin_span(
+    span: &ZipkinSpan,
+    span_index: &HashMap<(&str, &str), &ZipkinSpan>,
+) -> Option<SpanEvent> {
     let tags = span.tags.as_ref();
 
     let get_tag = |key: &str| -> Option<&str> { tags.and_then(|t| t.get(key).map(String::as_str)) };
@@ -171,14 +252,14 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         })
     });
 
+    // Source endpoint: own route tag first, then the ancestor walk.
     let endpoint = get_tag("http.route")
         .or_else(|| get_tag("http.target"))
         .filter(|s| !s.trim().is_empty())
-        .map(ToString::to_string)
-        .or_else(|| {
-            crate::ingest::code_frame_endpoint(code_namespace.as_deref(), code_function.as_deref())
-        })
-        .unwrap_or_default();
+        .map_or_else(
+            || resolve_source_endpoint(span, span_index),
+            ToString::to_string,
+        );
     let method = get_tag("code.function")
         .map(String::from)
         .or_else(|| span.name.clone())
@@ -487,9 +568,8 @@ mod tests {
 
     #[test]
     fn code_frame_used_when_no_http_tag() {
-        // A job span carrying its own frame lands on the same endpoint as over
-        // OTLP. Parity stops there: this path has no parent walk, so a frame or
-        // a route on an ancestor is out of reach (see the module docs).
+        // A job span carrying its own frame lands on the same endpoint as
+        // over OTLP.
         let json = r#"[
             {
                 "traceId": "t1",
@@ -509,6 +589,78 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
+    }
+
+    #[test]
+    fn endpoint_resolves_through_ancestors() {
+        // Route on the SERVER span two levels up, an outbound CLIENT span in
+        // between whose URL must not win, SQL leaf at the bottom.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "post /api/orders",
+                "kind": "SERVER",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.route": "POST /api/orders" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s2",
+                "parentId": "s1",
+                "name": "get",
+                "kind": "CLIENT",
+                "timestamp": 1720621921123100,
+                "duration": 3000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.url": "https://partner.example/v1/pay" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s3",
+                "parentId": "s2",
+                "name": "query",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql leaf present");
+        assert_eq!(sql.source.endpoint, "POST /api/orders");
+    }
+
+    #[test]
+    fn endpoint_falls_back_to_unknown_not_empty() {
+        // The empty string put an empty component in the ack signature; the
+        // documented fallback is "unknown" on every ingestion path.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "query",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events[0].source.endpoint, "unknown");
     }
 
     #[test]

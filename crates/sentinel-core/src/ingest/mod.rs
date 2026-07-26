@@ -117,6 +117,12 @@ pub(crate) fn canonical_db_system(system: &str) -> &str {
     system
 }
 
+/// Maximum parent hops for any ancestor walk, shared by the OTLP, Jaeger and
+/// Zipkin paths. Java auto-instrumented stacks chain up to 8 layers (HTTP
+/// server, Filter, `DispatcherServlet`, Controller, Service, Repository,
+/// Hibernate, JDBC).
+pub(crate) const ANCESTOR_WALK_MAX_DEPTH: usize = 8;
+
 /// Qualification separators across the languages `code.*` covers: `.` (Java,
 /// Python), `\` (PHP), `::` (Rust, C++), `#` (Ruby, javadoc).
 const CODE_FRAME_SEPARATORS: [char; 4] = ['.', '\\', ':', '#'];
