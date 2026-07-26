@@ -129,17 +129,47 @@ fn usable_code_frame_part(s: &str) -> Option<&str> {
     (!s.is_empty() && !s.contains(char::is_control)).then_some(s)
 }
 
+/// Framework namespaces that never name an origin: on PHP the outermost
+/// `code.*` frame is the framework's HTTP kernel, which collides in the ack
+/// signature exactly as `"unknown"` did while looking resolved. Prefix match.
+const FRAMEWORK_FRAME_PREFIXES: &[&str] = &[
+    // PHP (lab-observed on symfony-svc, laravel-svc and the OTel demo)
+    "Symfony\\",
+    "Illuminate\\",
+    "Laravel\\",
+    "Doctrine\\",
+    "Slim\\",
+    "DI\\",
+    "PDO::",
+    "PDOStatement::",
+    // Java servlet containers and DI/ORM infrastructure
+    "org.springframework.",
+    "org.apache.",
+    "org.hibernate.",
+    "org.eclipse.",
+    "jakarta.",
+    "javax.",
+    "java.",
+    "io.quarkus.",
+    "io.vertx.",
+    "io.helidon.",
+    "io.netty.",
+    "com.zaxxer.",
+    // Ruby framework internals
+    "ActiveRecord::",
+    "ActionController::",
+    "ActiveSupport::",
+    "Rack::",
+];
+
 /// Endpoint fallback for entry points carrying no HTTP attribute: scheduled
 /// jobs, message consumers. Without it they all report `"unknown"`, which
 /// names no origin and collides in the ack signature.
 ///
-/// `None` rather than a misleading origin when the frame is unusable or is a
-/// bare function name like `execute`, which collides exactly as `"unknown"`
-/// did. `#` becomes `.` because `strip_endpoint_secrets` truncates there.
-/// A frame holding `?` or `@` is rejected for the same reason: that function
-/// truncates at `?` and strips userinfo before the first `/`, so `Order.valid?`
-/// would reach the ack signature as `Order.valid` and silently share it with
-/// the real `Order.valid`.
+/// `None` when the frame is unusable, is a bare function name, or belongs to
+/// a framework kernel ([`FRAMEWORK_FRAME_PREFIXES`]): all collide like
+/// `"unknown"`. `#` becomes `.` and `?`/`@` frames are rejected, because
+/// `strip_endpoint_secrets` would truncate them into a colliding spelling.
 #[must_use]
 pub(crate) fn code_frame_endpoint(
     namespace: Option<&str>,
@@ -158,13 +188,19 @@ pub(crate) fn code_frame_endpoint(
         {
             f.to_string()
         }
-        // Join with the separator the namespace already uses, so the legacy
-        // pair and the stable qualified name spell one origin the same way.
+        // Join with the separator that attaches a function to this namespace,
+        // so the legacy pair and the stable name spell one origin the same way.
         (Some(ns), Some(f)) => format!("{ns}{}{f}", frame_separator(ns)),
         (Some(ns), None) => ns.to_string(),
         (None, Some(f)) if f.contains(CODE_FRAME_SEPARATORS) => f.to_string(),
         _ => return None,
     };
+    if FRAMEWORK_FRAME_PREFIXES
+        .iter()
+        .any(|p| frame.starts_with(p))
+    {
+        return None;
+    }
     let frame = if frame.contains('#') {
         frame.replace('#', ".")
     } else {
@@ -244,6 +280,33 @@ mod tests {
                 Some(expected)
             );
         }
+    }
+
+    #[test]
+    fn code_frame_endpoint_rejects_framework_kernel_frames() {
+        // Real frames from the lab run: the outermost PHP frame is the HTTP
+        // kernel, which collides like "unknown" while looking resolved.
+        let cases = [
+            (
+                None,
+                Some("Symfony\\Component\\HttpKernel\\HttpKernel::handle"),
+            ),
+            (None, Some("Illuminate\\Foundation\\Http\\Kernel::handle")),
+            (None, Some("PDOStatement::execute")),
+            (Some("Slim\\App"), Some("handle")),
+            (
+                Some("org.apache.catalina.core.StandardWrapper"),
+                Some("invoke"),
+            ),
+        ];
+        for (ns, f) in cases {
+            assert_eq!(code_frame_endpoint(ns, f), None, "{ns:?} {f:?}");
+        }
+        // An application frame in the same languages still resolves.
+        assert_eq!(
+            code_frame_endpoint(Some("App\\Jobs\\PurgeJob"), Some("handle")).as_deref(),
+            Some("App\\Jobs\\PurgeJob::handle")
+        );
     }
 
     #[test]
