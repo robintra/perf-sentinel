@@ -12,6 +12,22 @@ version, to know which daemon image ships.
 
 ## [0.9.22]
 
+### Changed
+
+- The embedded `config.toml` documents why `sampling_rate` stays at its
+  `1.0` default, and where collector sampling belongs relative to the
+  daemon. Below 1.0 the waste ratio, the GreenOps figures and the
+  finding counts describe a sample of the traffic rather than a measure
+  of it. The same holds for a collector running `tail_sampling` in
+  front of the daemon, except perf-sentinel cannot detect that one at
+  all, since a kept trace is indistinguishable from a complete one.
+  Sampling exists to bound what a trace store retains and the daemon
+  retains nothing beyond an in-memory per-trace window, so the
+  recommended layout is a second collector pipeline exporting to
+  perf-sentinel without the sampler, described in
+  `docs/HELM-DEPLOYMENT.md`. Comment-only change to the rendered
+  ConfigMap, no behavior change.
+
 ### Added
 
 - `workload.kind: DaemonSet` now fails the render unless
