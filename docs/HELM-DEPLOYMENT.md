@@ -331,9 +331,20 @@ that a DaemonSet splits traces across nodes, which breaks N+1 detection
 unless an upstream collector ensures all spans of a trace reach the same
 daemon. Most users do not need this mode.
 
+Because that breakage is silent (groups fall under their threshold and
+the findings simply never appear, with no error and no metric), the mode
+requires an explicit assertion that the routing is in place. Rendering
+fails without it:
+
 ```yaml
 workload:
   kind: DaemonSet
+  daemonset:
+    # Only true when an upstream collector routes by trace ID to these
+    # pods, e.g. the OTel `loadbalancing` exporter with
+    # `routing_key: traceID`. A plain Service round-robins and splits
+    # traces, which is exactly the case this guard catches.
+    spanRoutingByTraceId: true
 ```
 
 ### `StatefulSet`

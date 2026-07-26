@@ -8,8 +8,10 @@
 # Called by .github/workflows/helm-ci.yml, also runnable locally.
 #
 # Every guard here exists because the rendered config would otherwise be
-# one the daemon refuses at startup, or a silent no-op the operator only
-# discovers through a 503. All of them live in templates/configmap.yaml.
+# one the daemon refuses at startup, a silent no-op the operator only
+# discovers through a 503, or a topology that degrades detection without
+# saying so. Most live in templates/configmap.yaml, the DaemonSet one in
+# templates/daemonset.yaml.
 #
 # Each scenario must fail against a chart without the guard it covers,
 # otherwise it pins nothing. Renders are captured with `if ! out=$(...)`
@@ -172,6 +174,20 @@ listen_port_http = 8080'
 # 14. Persistence asked for on a Deployment: nothing would be mounted.
 expect_fail "fails on persistence outside StatefulSet" "workload.kind" \
   --set workload.statefulset.persistence.enabled=true
+
+# --- DaemonSet trace splitting ----------------------------------------------
+# The guard lives in templates/daemonset.yaml, but `fail` aborts the whole
+# render, so --show-only templates/configmap.yaml still observes it.
+
+# 15. DaemonSet without an upstream trace-ID router: a Service round-robins,
+#     each pod sees a slice of every trace, and N+1 groups drop under their
+#     threshold with nothing to notice it by.
+expect_fail "fails on DaemonSet without trace-ID routing" "spanRoutingByTraceId" \
+  --set workload.kind=DaemonSet
+
+# 16. Opt-in accepted: the operator asserts the collector routes by trace ID.
+expect_render "accepts DaemonSet when trace-ID routing is asserted" 'true' \
+  --set workload.kind=DaemonSet --set workload.daemonset.spanRoutingByTraceId=true
 
 if [ "$failures" -eq 0 ]; then
   echo "All scenarios passed."

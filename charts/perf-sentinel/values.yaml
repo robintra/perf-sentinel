@@ -35,6 +35,17 @@ workload:
   # -- updateStrategy for DaemonSet/StatefulSet. Ignored for Deployment.
   updateStrategy:
     type: RollingUpdate
+  # DaemonSet-specific settings.
+  daemonset:
+    # -- Assert that every span of a trace reaches the same pod. Correlation is
+    # per-trace and in-memory, so a trace split across pods is detected in
+    # pieces: N+1 groups fall under their threshold and go missing, silently.
+    # A plain Service in front of a DaemonSet round-robins and does split them.
+    # Set to true only when an upstream collector routes by trace ID (for
+    # example the OTel `loadbalancing` exporter with `routing_key: traceID`
+    # pointing at this DaemonSet, not at a ClusterIP). Rendering fails
+    # otherwise.
+    spanRoutingByTraceId: false
   # StatefulSet-specific settings. Enabling persistence gives the daemon a
   # durable PVC and points the runtime ack store and the public-disclosure
   # archive at it, so both survive restarts and pod rescheduling.
