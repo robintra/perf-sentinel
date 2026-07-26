@@ -564,7 +564,7 @@ l'empreinte.
 
 La sous-commande `diff` compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est un check PR qui compare les traces de la branche PR à celles de la branche de base.
 
-Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). Une baseline capturée avant 0.9.22 rapporte donc chacun de ces findings une fois comme résolu et une fois comme nouveau lors du premier run après la montée de version, sans aucun changement applicatif derrière. Re-capturez la baseline contre 0.9.22 avant de faire confiance au premier diff.
+Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.
 
 ```yaml
 # .github/workflows/perf-sentinel-diff.yml
