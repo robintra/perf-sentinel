@@ -638,6 +638,13 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         green_summary
             .scoring_config
             .clone_from(&state.scoring_config);
+        // Config-only rule appended: at sampling_rate 0.0 the daemon never
+        // leaves cold start, and cold_start alone points at the wrong cause.
+        let mut warning_details = vec![crate::report::Warning::new(
+            crate::report::warnings::COLD_START,
+            "daemon has not yet processed any events",
+        )];
+        warning_details.extend(sampling_rate_warning(&state.daemon_config));
         return Json(Report {
             analysis: Analysis {
                 duration_ms: 0,
@@ -650,10 +657,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
             warnings: vec!["daemon has not yet processed any events".to_string()],
-            warning_details: vec![crate::report::Warning::new(
-                crate::report::warnings::COLD_START,
-                "daemon has not yet processed any events",
-            )],
+            warning_details,
             acknowledged_findings: Vec::new(),
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
             disclosure_waste: None,
@@ -1024,8 +1028,37 @@ fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
 /// config), so `Warning::new` applies.
 ///
 /// Note: the cold-start branch in `handle_export_report` returns before
-/// reaching this helper, so `cold_start` never appears together with
-/// these kinds in a single response by design.
+/// reaching this helper. It appends [`sampling_rate_warning`] itself, since
+/// at rate 0.0 the daemon never leaves cold start and the cause would
+/// otherwise be invisible; the metric-driven kinds stay cold-start-exclusive.
+/// Config-only advisor rule on `[daemon] sampling_rate`. Ratios are left out
+/// on purpose: uniform per-trace sampling hits numerator and denominator
+/// alike, so the waste ratio stays readable.
+fn sampling_rate_warning(daemon: &crate::config::DaemonConfig) -> Option<crate::report::Warning> {
+    use crate::report::warnings::TUNING;
+    let rate = daemon.sampling_rate;
+    if rate <= 0.0 {
+        Some(crate::report::Warning::new(
+            TUNING,
+            "[daemon] sampling_rate is 0: no trace is analyzed, so this \
+             report can only ever be empty. Raise it above 0 to get findings",
+        ))
+    } else if rate < 1.0 {
+        Some(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "[daemon] sampling_rate is {rate}: only that fraction of \
+                 traces is analyzed, so absolute counts (findings, \
+                 occurrences, the perf_sentinel_* totals) describe a sample \
+                 and a rare pattern can be missed entirely. Set it to 1.0 \
+                 for whole-traffic counts"
+            ),
+        ))
+    } else {
+        None
+    }
+}
+
 // Linear warning collector: one independent rule per tuning/ingestion
 // signal. Splitting scatters the rules without clarity gain.
 #[allow(clippy::too_many_lines)]
@@ -1037,28 +1070,9 @@ fn collect_warning_details(
 
     let mut details = Vec::new();
 
-    // Config-only rule, first so it frames the counts below. Ratios are left
-    // out on purpose: uniform per-trace sampling hits numerator and
-    // denominator alike, so the waste ratio stays readable.
-    let rate = daemon.sampling_rate;
-    if rate <= 0.0 {
-        details.push(crate::report::Warning::new(
-            TUNING,
-            "[daemon] sampling_rate is 0: no trace is analyzed, so this \
-             report can only ever be empty. Raise it above 0 to get findings"
-                .to_string(),
-        ));
-    } else if rate < 1.0 {
-        details.push(crate::report::Warning::new(
-            TUNING,
-            format!(
-                "[daemon] sampling_rate is {rate}: only that fraction of \
-                 traces is analyzed, so absolute counts (findings, \
-                 occurrences, the perf_sentinel_* totals) describe a sample \
-                 and a rare pattern can be missed entirely. Set it to 1.0 \
-                 for whole-traffic counts"
-            ),
-        ));
+    // Config-only rule, first so it frames the counts below.
+    if let Some(w) = sampling_rate_warning(daemon) {
+        details.push(w);
     }
 
     let dropped = metrics.otlp_rejected_channel_full.get();
