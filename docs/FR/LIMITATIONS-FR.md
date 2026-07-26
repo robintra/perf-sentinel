@@ -230,7 +230,7 @@ Ceci est le knob d'échantillonnage propre à perf-sentinel, appliqué après l'
 
 Pour une détection précise, utilisez `sampling_rate = 1.0` (le défaut) ou échantillonnez au niveau du collecteur où vous avez plus de contrôle.
 
-Contrairement à l'échantillonnage amont, celui-ci, le daemon le voit. Sous 1.0 il émet une entrée `tuning` dans `Report.warning_details` à chaque appel `/api/export/report`, qui nomme le taux et indique que les agrégats couvrent cette fraction du trafic. La suppression est un hachage uniforme sur les trace ids, sans biais de politique, donc remettre un agrégat à l'échelle par `1/sampling_rate` est statistiquement fondé ici, ce qui n'est pas le cas face à un tail sampler amont biaisé.
+Contrairement à l'échantillonnage amont, celui-ci, le daemon le voit. Sous 1.0 il émet une entrée `tuning` dans `Report.warning_details` à chaque appel `/api/export/report`, qui nomme le taux et indique quels nombres décrivent un échantillon. Le périmètre est plus étroit qu'il n'y paraît : la suppression est un hachage uniforme sur les trace ids, sans biais de politique, donc un ratio construit des deux côtés sur des traces échantillonnées, le ratio de gaspillage I/O en particulier, reste un estimateur non biaisé, et le gaspillage BDD qui multiplie l'énergie de l'hôte par ce ratio aussi. Ce qui rétrécit, ce sont les comptes absolus, et la couverture. Un taux agressif reste le mauvais réglage pour un rapport destiné à être publié, parce qu'un pattern jamais échantillonné ne contribue ni à l'un ni à l'autre.
 
 ## Nombre maximum d'événements par trace
 

@@ -90,7 +90,8 @@ What survives sampling and what does not:
 |---|---|
 | Per-trace detectors (`n_plus_one`, `chatty_service`, `excessive_fanout`, `serialized_calls`, `pool_saturation`) | **Unaffected on the traces that arrive.** Both head and tail policies keep or drop whole traces, so a kept trace still contains its full N+1 loop. |
 | Coverage | Degraded. A pattern living in a small share of the traffic can be sampled out entirely and never surface. |
-| Aggregates (I/O waste ratio, IIS, GreenOps and carbon figures, Prometheus counters) | Understated, silently. They describe the sample, and nothing scales them back up. |
+| Absolute counts (findings, occurrences, Prometheus totals) | Understated, silently. They describe the sample, and nothing scales them back up. |
+| Ratios (I/O waste ratio, and the GreenOps figures derived from it) | Unbiased under a uniform sampler, which hits numerator and denominator alike. A tail sampler's `errors` and `slow` policies bias retention toward heavy traces, and the ratio drifts with them. |
 | Cross-trace correlation | Effectively off. `[daemon.correlation] min_co_occurrences` needs a pair to recur inside the window, which rarely survives a 10% sample. |
 
 **Give perf-sentinel its own unsampled pipeline.** Sampling exists to
@@ -134,10 +135,11 @@ Two constraints if you cannot avoid sampling in front of the daemon:
   traces arrive complete, and its usual policies (keep errors, keep
   slow traces) bias retention toward where structural waste lives.
   Head-based sampling at 1-10% is the worst case for detection.
-- Read the aggregates as a sample, and do not publish them as
-  whole-traffic figures. This matters for `disclose`: a public
-  disclosure report built on a sampled window understates the waste it
-  claims to measure. The daemon's own `[daemon] sampling_rate` knob
+- Read the counts as a sample, and do not publish them as whole-traffic
+  figures. A tail sampler also biases the ratios, since keeping errors
+  and slow traces over-represents heavy ones. This matters for
+  `disclose`: a public disclosure report built on a sampled window
+  misstates the waste it claims to measure. The daemon's own `[daemon] sampling_rate` knob
   raises a `tuning` warning in `Report.warning_details` for exactly this
   reason, but it cannot see what a collector dropped before the spans
   arrived.

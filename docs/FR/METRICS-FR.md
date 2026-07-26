@@ -420,7 +420,7 @@ Huit règles tournent à chaque appel `/api/export/report` :
 
 | Déclencheur                                                                 | Réglage suggéré                                                                        |
 |-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| `[daemon] sampling_rate < 1.0` (aucune métrique en jeu)                     | `[daemon] sampling_rate`, ou lire les agrégats comme un échantillon                    |
+| `[daemon] sampling_rate < 1.0` (aucune métrique en jeu)                     | `[daemon] sampling_rate`, ou lire les comptes comme un échantillon                     |
 | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                                       |
 | `perf_sentinel_otlp_rejected_total{reason="memory_pressure"} > 0`           | Limite mémoire du conteneur (le garde-fou borne la RSS)                                |
 | `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` ou plus de CPU                                      |
@@ -434,17 +434,26 @@ réinitialisent qu'au redémarrage). La règle de fenêtre de traces lit
 une gauge, elle apparaît et disparaît donc avec la charge. La règle
 `sampling_rate` ne lit aucune métrique : elle se déclenche sur le
 réglage seul, sur un daemon au repos comme sur un daemon chargé, parce
-qu'un rapport samplé sous-estime tous ses agrégats quelle que soit la
-charge. C'est la seule règle qui avertit sur la façon de lire le
-rapport plutôt que sur un réglage que la charge a dépassé. Le
+qu'un rapport samplé sous-estime ses comptes quelle que soit la charge.
+Le message nomme les comptes et laisse les ratios de côté, puisqu'un
+échantillonnage uniforme par trace touche numérateur et dénominateur de
+la même façon et que le ratio de gaspillage I/O reste lisible, si bien
+que le remettre à l'échelle produirait un nombre faux et non un nombre
+corrigé. Un taux exactement égal à `0.0`, que la validation de config
+accepte, reçoit son propre message. C'est la seule règle qui avertit sur
+la façon de lire le rapport plutôt que sur un réglage que la charge a
+dépassé. Le
 conseiller lit le snapshot de config pris au démarrage du daemon, un
 hint reflète donc toujours les valeurs réellement utilisées par le
 process en cours.
 
 Un sampling appliqué **avant** le daemon (un collector qui fait tourner
-`tail_sampling` en amont) produit les mêmes agrégats sous-estimés et ne
-lève aucun avertissement, parce qu'une trace conservée est indiscernable
-d'une trace complète. Voir
+`tail_sampling` en amont) rétrécit les mêmes comptes et ne lève aucun
+avertissement, parce qu'une trace conservée est indiscernable d'une
+trace complète. Il est aussi pire pour les ratios : les politiques
+`errors` et `slow` biaisent la rétention vers les traces lourdes, donc
+l'échantillon survivant n'est pas représentatif comme l'est un hachage
+uniforme. Voir
 [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#sampling-du-collector-et-ce-qui-atteint-le-daemon)
 pour la disposition de pipeline qui l'évite.
 
