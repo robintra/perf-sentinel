@@ -1012,20 +1012,22 @@ fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
 /// do not always scrape Prometheus, so a count of dropped requests
 /// visible here gives a fast "is the daemon backpressured?" signal.
 ///
-/// The `tuning` entries are the daemon's settings advisor: each rule
-/// compares a metric (lifetime counters, plus the point-in-time
+/// The `tuning` entries are the daemon's settings advisor. Most rules
+/// compare a metric (lifetime counters, plus the point-in-time
 /// `active_traces` gauge for the trace-window rule, which therefore
 /// appears and disappears with the load) against the daemon config
 /// frozen at startup and, when a knob looks undersized for the
-/// observed load, emits a hint naming the knob, its current value and
-/// the suggested adjustment. All inputs are trusted (Prometheus
-/// counters and parsed config), so `Warning::new` applies.
+/// observed load, emit a hint naming the knob, its current value and
+/// the suggested adjustment. The `sampling_rate` rule reads the config
+/// alone: it warns about how to read the report, not about a knob the
+/// load outgrew. All inputs are trusted (Prometheus counters and parsed
+/// config), so `Warning::new` applies.
 ///
 /// Note: the cold-start branch in `handle_export_report` returns before
 /// reaching this helper, so `cold_start` never appears together with
 /// these kinds in a single response by design.
-// Linear warning collector: one independent `if counter > 0` rule per
-// tuning/ingestion signal. Splitting scatters the rules without clarity gain.
+// Linear warning collector: one independent rule per tuning/ingestion
+// signal. Splitting scatters the rules without clarity gain.
 #[allow(clippy::too_many_lines)]
 fn collect_warning_details(
     metrics: &MetricsState,
@@ -1034,6 +1036,23 @@ fn collect_warning_details(
     use crate::report::warnings::{INGESTION_DROPS, TUNING};
 
     let mut details = Vec::new();
+
+    // Config-only rule, first so it frames the aggregates below. The drop
+    // is a uniform hash over trace ids, so 1/rate is a sound correction.
+    let rate = daemon.sampling_rate;
+    if rate < 1.0 {
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "[daemon] sampling_rate is {rate}: finding counts, the I/O \
+                 waste ratio and every GreenOps figure in this report cover \
+                 that fraction of traces, not the whole traffic. Set it to \
+                 1.0 to measure everything, or scale these aggregates by \
+                 1/{rate} before reporting them"
+            ),
+        ));
+    }
+
     let dropped = metrics.otlp_rejected_channel_full.get();
     if dropped > 0 {
         details.push(crate::report::Warning::new(

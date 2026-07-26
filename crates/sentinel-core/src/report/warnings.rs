@@ -29,7 +29,9 @@ pub const INGESTION_DROPS: &str = "ingestion_drops";
 
 /// Stable kind for configuration tuning hints. Emitted by the daemon
 /// when its metrics show the current settings are undersized for the
-/// observed load (queue sheds, cap evictions, near-full trace window).
+/// observed load (queue sheds, cap evictions, near-full trace window),
+/// and once on the configuration alone when `sampling_rate` is below
+/// 1.0, since that makes every aggregate in the report a sample.
 /// Messages name the relevant config knob and its current value where
 /// one exists; two rules point at fixed caps or instrumentation instead.
 pub const TUNING: &str = "tuning";
