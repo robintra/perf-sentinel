@@ -12,7 +12,7 @@ For a non-Helm alternative, see the raw manifests in
 ## Contents
 
 - [TL;DR](#tldr): one-block install command.
-- [Topology](#topology): why the chart is sentinel-only by design.
+- [Topology](#topology): why the chart is sentinel-only by design, and [where collector sampling belongs](#collector-sampling-and-what-reaches-the-daemon) relative to the daemon.
 - [Install from OCI registry](#install-from-oci-registry): production install path with Cosign verification.
 - [Artifact Hub](#artifact-hub): listing and metadata.
 - [Software supply chain](#software-supply-chain): Cosign keyless signatures, SLSA provenance, SBOM, public-good attestation.
@@ -75,6 +75,77 @@ flowchart LR
     OC -->|OTLP gRPC 4317| T
     OC -->|OTLP gRPC 4317| PS
 ```
+
+### Collector sampling and what reaches the daemon
+
+Most production collectors sample. If the processor doing it sits
+between the applications and perf-sentinel, the daemon analyzes a
+fraction of the traffic and **has no way to know it**: a sampled trace
+that was kept looks exactly like a complete one, and the report gives
+no hint that its numbers cover a tenth of the requests.
+
+What survives sampling and what does not:
+
+| | Effect of upstream sampling |
+|---|---|
+| Per-trace detectors (`n_plus_one`, `chatty_service`, `excessive_fanout`, `serialized_calls`, `pool_saturation`) | **Unaffected on the traces that arrive.** Both head and tail policies keep or drop whole traces, so a kept trace still contains its full N+1 loop. |
+| Coverage | Degraded. A pattern living in a small share of the traffic can be sampled out entirely and never surface. |
+| Aggregates (I/O waste ratio, IIS, GreenOps and carbon figures, Prometheus counters) | Understated, silently. They describe the sample, and nothing scales them back up. |
+| Cross-trace correlation | Effectively off. `[daemon.correlation] min_co_occurrences` needs a pair to recur inside the window, which rarely survives a 10% sample. |
+
+**Give perf-sentinel its own unsampled pipeline.** Sampling exists to
+bound storage cost, and perf-sentinel stores nothing: it holds a
+per-trace window in memory for `trace_ttl_ms` and drops it. So fan out
+from the same receiver and apply `tail_sampling` only on the branch
+feeding the trace store:
+
+```yaml
+service:
+  pipelines:
+    # Storage: sampled, because Tempo pays per byte retained.
+    traces/tempo:
+      receivers: [otlp]
+      processors: [k8sattributes, filter/drop_noise, tail_sampling, batch]
+      exporters: [otlp/tempo]
+    # Analysis: unsampled, because detection quality pays for it instead.
+    traces/perf-sentinel:
+      receivers: [otlp]
+      processors: [k8sattributes, filter/drop_noise, batch]
+      exporters: [otlp/perf-sentinel]
+```
+
+Keep the noise filter on both branches. Dropping health checks,
+Liquibase migrations and the collector's own export spans removes
+findings nobody will act on. Watch out for over-broad regexes there,
+an unanchored DDL pattern such as `.*DROP\s+.*` also drops application
+queries that merely contain the word.
+
+If the extra volume is the problem, narrow the analysis branch by
+**scope rather than by chance**: route only the namespaces or services
+you are actively working on, which keeps their figures whole, instead
+of a probabilistic sample that makes every service's figures partial.
+`filter/drop_noise` already removes the spans perf-sentinel would
+discard anyway (no `db.statement`, no `http.url`), so the branch
+carries less than the storage one to begin with.
+
+Two constraints if you cannot avoid sampling in front of the daemon:
+
+- Prefer **tail-based**. It decides per whole trace after the fact, so
+  traces arrive complete, and its usual policies (keep errors, keep
+  slow traces) bias retention toward where structural waste lives.
+  Head-based sampling at 1-10% is the worst case for detection.
+- Read the aggregates as a sample, and do not publish them as
+  whole-traffic figures. This matters for `disclose`: a public
+  disclosure report built on a sampled window understates the waste it
+  claims to measure. The daemon's own `[daemon] sampling_rate` knob
+  raises a `tuning` warning in `Report.warning_details` for exactly this
+  reason, but it cannot see what a collector dropped before the spans
+  arrived.
+
+When more than one daemon replica sits behind the pipeline, trace
+integrity depends on trace-ID routing, see
+[`DaemonSet`](#daemonset) and
+[`workload.replicas`](#deployment-default).
 
 ## Install from OCI registry
 

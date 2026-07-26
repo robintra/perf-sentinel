@@ -385,7 +385,7 @@ persists until the daemon restarts.
 |-------------------|-----------|--------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
 | `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon                            | First successful batch (both counters strictly positive)                     |
 | `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full" or "memory_pressure"} > 0` since daemon start | Daemon restart (counter reset)                                               |
-| `tuning`          | Mixed     | A lifetime counter shows a config knob undersized for the observed load (see below)                    | Daemon restart for counter-driven rules, load drop for the trace-window rule |
+| `tuning`          | Mixed     | A lifetime counter shows a config knob undersized for the observed load, or `sampling_rate` is below 1.0 (see below) | Daemon restart for counter-driven rules, load drop for the trace-window rule, a config change for the `sampling_rate` rule |
 
 `cold_start` is a state warning: "the snapshot is not meaningful right
 now". `ingestion_drops` is an audit warning: "at some point since
@@ -397,11 +397,12 @@ output.
 ### The `tuning` advisor (since 0.8.7)
 
 `tuning` entries are configuration advice: each message names the
-config knob, its current value, and the suggested adjustment. Seven
+config knob, its current value, and the suggested adjustment. Eight
 rules run on every `/api/export/report` call:
 
 | Trigger                                                                     | Suggested knob                                                      |
 |-----------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `[daemon] sampling_rate < 1.0` (no metric involved)                         | `[daemon] sampling_rate`, or read the aggregates as a sample        |
 | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                    |
 | `perf_sentinel_otlp_rejected_total{reason="memory_pressure"} > 0`           | Container memory limit (guard is bounding RSS)                      |
 | `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` or more CPU                      |
@@ -412,9 +413,20 @@ rules run on every `/api/export/report` call:
 
 Counter-driven rules are sticky (lifetime counters only reset on
 restart). The trace-window rule reads a gauge, so it appears and
-disappears with the load. The advisor reads the config snapshot taken
-at daemon startup, so a hint always reflects the values the running
-process actually uses.
+disappears with the load. The `sampling_rate` rule reads no metric at
+all: it fires on the setting alone, on an idle daemon as much as a busy
+one, because a sampled report understates every aggregate regardless of
+load. It is the only rule that warns about how to read the report
+rather than about a knob the load outgrew. The advisor reads the config
+snapshot taken at daemon startup, so a hint always reflects the values
+the running process actually uses.
+
+Sampling applied **before** the daemon (a collector running
+`tail_sampling` upstream) produces the same understated aggregates and
+raises no warning at all, because a kept trace is indistinguishable
+from a complete one. See
+[HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon)
+for the pipeline layout that avoids it.
 
 Lab tooling that asserts on `warning_details[].kind == "cold_start"`
 should account for the transient nature: any background traffic, even
