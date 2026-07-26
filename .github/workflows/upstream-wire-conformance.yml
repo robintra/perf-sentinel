@@ -568,8 +568,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SCAPHANDRE_VERSION: v1.0.2
-      SCAPHANDRE_DEB_SHA256: 5c15c38e1d2f9380248a265213b4e04ef3816920210023f2f289a7dd6b5bd244
+      # hubblo/scaphandre:1.0.3, pinned by digest.
+      SCAPHANDRE_IMAGE: hubblo/scaphandre@sha256:9f1aa7017c56c6628f6f232ddab336cb1c64c165be179b3d4d3589cf5110dd8e
       SCAPHANDRE_POWERCAP_PATH: /tmp/scaph-powercap
     steps:
       - name: Checkout
@@ -601,24 +601,28 @@ jobs:
       - name: Build perf-sentinel
         run: cargo build --release -p perf-sentinel
 
-      - name: Install Scaphandre from upstream .deb
-        # Pinned by SHA256 since hubblo-org publishes no OCI image. The
-        # .deb is the closest equivalent to a digest pin: if upstream
-        # rebuilds and republishes the same tag with a different SHA,
-        # this step fails with a clear message and the pin must be
-        # refreshed deliberately. The 'deb12' variant is the latest
-        # Debian flavour produced by upstream as of v1.0.2 (2025-02-11)
-        # and runs on ubuntu-latest.
-        # v1.0.2 is also the last release that ships any .deb at all:
-        # v1.0.3 (2026-07-17) publishes no release asset, only the
-        # hubblo/scaphandre container image. Bumping this pin therefore
-        # means switching the whole job to the image, not editing the
-        # version, so check the upstream assets before raising it.
+      - name: Install Scaphandre from the upstream container image
+        # The container image is the only channel upstream still
+        # publishes: v1.0.3 (2026-07-17) ships no release asset at all,
+        # v1.0.2 was the last tag carrying a .deb. Pinned by digest,
+        # which replaces the old .deb SHA256 pin, a retagged image
+        # cannot slip in unnoticed.
+        # We extract the binary instead of running the container: the
+        # sensor must see the runner's own processes and the fake
+        # powercap tree under /tmp, which a container would only reach
+        # with --pid=host plus bind mounts. The binary needs glibc 2.34
+        # and OpenSSL 3, both on ubuntu-latest. /usr/bin is where the
+        # .deb installed it, which keeps it on sudo's secure_path.
         run: |
-          curl -fsSL -o /tmp/scaphandre.deb \
-            "https://github.com/hubblo-org/scaphandre/releases/download/${SCAPHANDRE_VERSION}/scaphandre_${SCAPHANDRE_VERSION}-deb12_amd64.deb"
-          echo "${SCAPHANDRE_DEB_SHA256}  /tmp/scaphandre.deb" | sha256sum --check
-          sudo dpkg -i /tmp/scaphandre.deb
+          for attempt in 1 2 3; do
+            docker pull "${SCAPHANDRE_IMAGE}" && break
+            echo "scaphandre image pull attempt ${attempt} failed, retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          cid=$(docker create "${SCAPHANDRE_IMAGE}")
+          docker cp "${cid}:/usr/local/bin/scaphandre" /tmp/scaphandre
+          docker rm "${cid}"
+          sudo install -m 0755 /tmp/scaphandre /usr/bin/scaphandre
           scaphandre --version
 
       - name: Generate fake powercap tree
@@ -894,7 +898,7 @@ jobs:
           sudo pkill -f 'scaphandre --vm' 2>/dev/null || true
           pkill -f 'java -jar /tmp/svc-' 2>/dev/null || true
           # Hygiene: root-owned log + powercap tree need sudo to remove.
-          sudo rm -rf /tmp/scaph-powercap /tmp/scaphandre.log /tmp/scaphandre.deb \
+          sudo rm -rf /tmp/scaph-powercap /tmp/scaphandre.log /tmp/scaphandre \
             /tmp/scaph-metrics.txt /tmp/scaph-ticker.pid /tmp/scaph-target.pid \
             /tmp/scaph-daemon.pid /tmp/perf-sentinel.toml /tmp/perf-sentinel.log \
             /tmp/svc-a.jar /tmp/svc-b.jar /tmp/svc-a.pid /tmp/svc-b.pid /tmp/jbuild 2>/dev/null || true
