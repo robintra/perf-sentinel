@@ -456,7 +456,7 @@ configuration (e.g. keep last N builds) to cap the footprint.
 
 The `diff` subcommand compares two trace sets and emits a delta report listing new findings, resolved findings, severity changes and per-endpoint I/O op count deltas. The natural fit is a PR check that compares the PR branch's traces against the base branch's traces.
 
-Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). A baseline captured before 0.9.22 therefore reports each of those findings once as resolved and once as new on the first run after the upgrade, with no application change behind it. Re-capture the baseline against 0.9.22 before trusting the first diff.
+Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
 
 ```yaml
 # .github/workflows/perf-sentinel-diff.yml
