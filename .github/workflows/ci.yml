@@ -10,6 +10,7 @@ on:
       - 'tapes/**'
       - 'LICENSE'
       - '.github/dependabot.yml'
+      - '.github/renovate.json'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -19,6 +20,7 @@ on:
       - 'tapes/**'
       - 'LICENSE'
       - '.github/dependabot.yml'
+      - '.github/renovate.json'
   # Manual trigger so CI can be rerun against an arbitrary ref (tag,
   # commit, branch). Useful for re-validating an old release after a
   # toolchain update or recovering an audit trace on a past tag.

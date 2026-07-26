@@ -10,11 +10,23 @@ name: CodeQL
 # uses build-mode `none`: the extractor reads source directly, so no Rust
 # toolchain or `cargo build` step is needed.
 
+# Prose and asset changes cannot introduce a taint path, so they are filtered
+# out. The weekly cron below still analyzes the tree regardless of what moved.
+# Kept in sync with the `paths-ignore` in ci.yml.
 on:
   push:
     branches: [main]
+    paths-ignore: &prose
+      - '**/*.md'
+      - 'docs/**'
+      - 'logo/**'
+      - 'tapes/**'
+      - 'LICENSE'
+      - '.github/dependabot.yml'
+      - '.github/renovate.json'
   pull_request:
     branches: [main]
+    paths-ignore: *prose
   schedule:
     # Weekly on Wednesday 04:23 UTC. Off-peak and offset from the daily
     # security-audit (06:17) and the weekly clippy drift scan (Mon 06:00)
