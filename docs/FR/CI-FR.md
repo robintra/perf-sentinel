@@ -564,6 +564,8 @@ l'empreinte.
 
 La sous-commande `diff` compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est un check PR qui compare les traces de la branche PR à celles de la branche de base.
 
+Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). Une baseline capturée avant 0.9.22 rapporte donc chacun de ces findings une fois comme résolu et une fois comme nouveau lors du premier run après la montée de version, sans aucun changement applicatif derrière. Re-capturez la baseline contre 0.9.22 avant de faire confiance au premier diff.
+
 ```yaml
 # .github/workflows/perf-sentinel-diff.yml
 name: perf-sentinel diff
