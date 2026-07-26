@@ -1916,6 +1916,185 @@ fn endpoint_stays_unknown_without_a_usable_frame() {
     assert_eq!(sql.source.endpoint, "unknown");
 }
 
+#[test]
+fn endpoint_ignores_a_span_carrying_no_span_id() {
+    // A span with an empty id would be indexed under the empty key, which is
+    // what every root span carries as its parent id, so its URL would become
+    // the endpoint of every root-level span in the batch.
+    let nameless = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![],
+        parent_span_id: vec![],
+        name: "malformed".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv("http.url", "https://attacker.example/x")],
+        ..Default::default()
+    };
+    let root_sql = make_sql_span(&[1; 16], &[20; 8], &[], "SELECT 1", 0, 1_000_000);
+    let req = make_request("svc", vec![nameless, root_sql]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql event present");
+    assert_eq!(sql.source.endpoint, "unknown");
+}
+
+#[test]
+fn endpoint_skips_an_outbound_client_url() {
+    // A DB call inside a retry callback nested under an HTTP client span must
+    // stay attributed to the route being served, not to the third party the
+    // caller reached.
+    let server = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /checkout".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv("http.route", "POST /checkout")],
+        ..Default::default()
+    };
+    let client = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        name: "POST /v1/pay".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 900_000_000,
+        kind: SPAN_KIND_CLIENT,
+        attributes: vec![make_kv("url.full", "https://api.partner.com/v1/pay")],
+        ..Default::default()
+    };
+    let jdbc = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("checkout-svc", vec![server, client, jdbc]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    assert_eq!(sql.source.endpoint, "POST /checkout");
+}
+
+#[test]
+fn endpoint_walks_past_a_blank_http_route() {
+    // A framework emitting an empty route for an unmatched path must not
+    // short-circuit the walk and collapse every such finding under "".
+    let server = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /api/orders".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv("http.route", "POST /api/orders")],
+        ..Default::default()
+    };
+    let filter = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        name: "filter".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 900_000_000,
+        attributes: vec![make_kv("http.route", "  ")],
+        ..Default::default()
+    };
+    let jdbc = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("order-svc", vec![server, filter, jdbc]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    assert_eq!(sql.source.endpoint, "POST /api/orders");
+}
+
+#[test]
+fn endpoint_code_frame_keeps_the_outermost_named_frame() {
+    // Two jobs calling one repository: stopping at the nearest named frame
+    // gives both the repository, which is the signature collision the
+    // fallback exists to remove.
+    let job_endpoint = |job_ns: &str, seed: u8| {
+        let job = Span {
+            trace_id: vec![seed; 16],
+            span_id: vec![10; 8],
+            parent_span_id: vec![],
+            name: "job".to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 1_000_000_000,
+            attributes: vec![
+                make_kv("code.function", "execute"),
+                make_kv("code.namespace", job_ns),
+            ],
+            ..Default::default()
+        };
+        let repository = Span {
+            trace_id: vec![seed; 16],
+            span_id: vec![20; 8],
+            parent_span_id: vec![10; 8],
+            name: "repo".to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 900_000_000,
+            attributes: vec![make_kv(
+                "code.function.name",
+                "com.foo.repository.NotificationRepository.findByHash",
+            )],
+            ..Default::default()
+        };
+        let jdbc = make_sql_span(&[seed; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+        convert_otlp_request(&make_request(
+            "web-notification",
+            vec![job, repository, jdbc],
+        ))
+        .into_iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present")
+        .source
+        .endpoint
+    };
+
+    let purge = job_endpoint("com.foo.scheduler.PurgeJob", 1);
+    let resend = job_endpoint("com.foo.scheduler.ResendJob", 2);
+    assert_eq!(purge, "com.foo.scheduler.PurgeJob.execute");
+    assert_ne!(purge, resend);
+}
+
+#[test]
+fn endpoint_walks_past_an_unusable_leaf_frame() {
+    // Driver-level instrumentation stamps a bare function name on the leaf.
+    // It names no origin on its own, so the walk must keep going instead of
+    // accepting it and falling back to "unknown".
+    let job = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "job".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![
+            make_kv("code.function", "execute"),
+            make_kv("code.namespace", "com.foo.PurgeJob"),
+        ],
+        ..Default::default()
+    };
+    let mut jdbc = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    jdbc.attributes
+        .push(make_kv("code.function", "executeQuery"));
+    let req = make_request("svc", vec![job, jdbc]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    assert_eq!(sql.source.endpoint, "com.foo.PurgeJob.execute");
+}
+
 // ── OTLP/HTTP handler with gzip decompression ───────────────────
 
 #[cfg(feature = "daemon")]

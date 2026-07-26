@@ -184,14 +184,6 @@ impl CodeAttrs<'_> {
             || self.lineno.is_some()
             || self.namespace.is_some()
     }
-
-    /// Carries a name, not just a location. The endpoint fallback needs this
-    /// stricter test: a frame holding only `code.filepath` stops `has_any`
-    /// without naming an origin.
-    #[inline]
-    fn has_name(&self) -> bool {
-        self.function_name.is_some() || self.namespace.is_some()
-    }
 }
 
 /// All span attributes consumed by `convert_span`, classified in a single
@@ -367,9 +359,8 @@ fn walk_parents_for_code_attrs<'a>(
     leaf: CodeAttrs<'a>,
     parent_span_id: &[u8],
     span_index: &HashMap<&[u8], &'a Span>,
-    accept: fn(&CodeAttrs<'a>) -> bool,
 ) -> CodeAttrs<'a> {
-    if accept(&leaf) || parent_span_id.is_empty() {
+    if leaf.has_any() || parent_span_id.is_empty() {
         return leaf;
     }
     let mut current_parent_id = parent_span_id;
@@ -379,7 +370,7 @@ fn walk_parents_for_code_attrs<'a>(
             return CodeAttrs::default();
         };
         let attrs = read_code_attrs(&parent.attributes);
-        if accept(&attrs) {
+        if attrs.has_any() {
             return attrs;
         }
         if parent.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
@@ -390,63 +381,65 @@ fn walk_parents_for_code_attrs<'a>(
     }
 }
 
-/// Walk the parent chain for the nearest inbound HTTP endpoint.
+/// Inbound HTTP endpoint carried by a single ancestor span, or `None`.
 ///
-/// A single-level lookup misses the common Spring shape, where the route sits
-/// on the SERVER span two or more levels above the leaf. That left those
-/// findings on `"unknown"`, and once the code-frame fallback existed it sent
-/// them to a class name instead of the route they belong to. Same depth bound
-/// as the `code.*` walk.
-fn walk_parents_for_http_endpoint<'a>(
+/// `http.route` is a server-side route template by semconv, so it counts on
+/// any kind. `http.url` and `url.full` are also what an instrumented HTTP
+/// *client* records, so a CLIENT span is skipped: otherwise a DB span nested
+/// under an outbound call would be attributed to the third party the caller
+/// reached rather than to the route being served. Kinds left unspecified stay
+/// eligible, which is what manual and legacy instrumentation emits.
+fn inbound_http_endpoint(span: &Span) -> Option<&str> {
+    let usable = |s: &&str| !s.trim().is_empty();
+    get_str_attribute(&span.attributes, "http.route")
+        .filter(usable)
+        .or_else(|| {
+            if span.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32 {
+                return None;
+            }
+            get_str_attribute(&span.attributes, "http.url")
+                .or_else(|| get_str_attribute(&span.attributes, "url.full"))
+                .filter(usable)
+        })
+}
+
+/// Resolve `source.endpoint`: nearest inbound HTTP route up the parent
+/// chain, then the outermost `code.*` frame for entry points that have
+/// none (scheduled jobs, message consumers), then `"unknown"`.
+///
+/// One walk serves both. The frame kept is the outermost usable one, not
+/// the nearest: on a layered stack the nearest is the DAO every caller
+/// shares, which collides in the ack signature exactly as `"unknown"` did.
+/// A route always wins, since only an entry point carries one.
+fn resolve_source_endpoint<'a>(
+    leaf: CodeAttrs<'a>,
     parent_span_id: &[u8],
     span_index: &HashMap<&[u8], &'a Span>,
-) -> Option<&'a str> {
+) -> String {
+    let mut outermost_frame =
+        crate::ingest::code_frame_endpoint(leaf.namespace, leaf.function_name);
     let mut current_parent_id = parent_span_id;
     let mut depth = 0;
-    loop {
-        let parent = *span_index.get(current_parent_id)?;
-        let endpoint = get_str_attribute(&parent.attributes, "http.route")
-            .or_else(|| get_str_attribute(&parent.attributes, "http.url"))
-            .or_else(|| get_str_attribute(&parent.attributes, "url.full"));
-        if endpoint.is_some() {
-            return endpoint;
+    while !current_parent_id.is_empty() {
+        let Some(parent) = span_index.get(current_parent_id) else {
+            break;
+        };
+        if let Some(route) = inbound_http_endpoint(parent) {
+            return route.to_string();
         }
-        if parent.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
-            return None;
+        let attrs = read_code_attrs(&parent.attributes);
+        if let Some(frame) =
+            crate::ingest::code_frame_endpoint(attrs.namespace, attrs.function_name)
+        {
+            outermost_frame = Some(frame);
+        }
+        if depth >= CODE_ATTRS_MAX_DEPTH {
+            break;
         }
         current_parent_id = parent.parent_span_id.as_slice();
         depth += 1;
     }
-}
-
-/// Resolve `source.endpoint`: nearest inbound HTTP route up the parent
-/// chain, then the `code.*` frame for entry points that have none
-/// (scheduled jobs, message consumers), then `"unknown"`.
-///
-/// `code` is the frame already resolved for the `code_*` fields. A frame
-/// holding only a filepath names no origin, so that case re-walks.
-fn resolve_source_endpoint<'a>(
-    code: CodeAttrs<'a>,
-    classified: &ClassifiedAttrs<'a>,
-    parent_span_id: &[u8],
-    span_index: &HashMap<&[u8], &'a Span>,
-) -> String {
-    let named_frame = if code.has_name() {
-        code
-    } else {
-        walk_parents_for_code_attrs(
-            classified.code_attrs(),
-            parent_span_id,
-            span_index,
-            CodeAttrs::has_name,
-        )
-    };
-    walk_parents_for_http_endpoint(parent_span_id, span_index)
-        .map(ToString::to_string)
-        .or_else(|| {
-            crate::ingest::code_frame_endpoint(named_frame.namespace, named_frame.function_name)
-        })
-        .unwrap_or_else(|| "unknown".to_string())
+    outermost_frame.unwrap_or_else(|| "unknown".to_string())
 }
 
 // ── Main conversion function ────────────────────────────────────────
@@ -460,6 +453,11 @@ fn build_span_index(
     let mut count = 0usize;
     'outer: for scope_spans in &resource_spans.scope_spans {
         for span in &scope_spans.spans {
+            // A span with no id would be indexed under the empty key, which is
+            // exactly the `parent_span_id` every root span carries.
+            if span.span_id.is_empty() {
+                continue;
+            }
             index.insert(&span.span_id, span);
             count += 1;
             if count >= MAX_SPANS_PER_RESOURCE {
@@ -1322,12 +1320,8 @@ fn convert_span<'a>(
     // code.* attributes: leaf attrs first, walk parents only when empty.
     // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
     // user frame sits on a parent.
-    let code = walk_parents_for_code_attrs(
-        classified.code_attrs(),
-        &span.parent_span_id,
-        span_index,
-        CodeAttrs::has_any,
-    );
+    let code =
+        walk_parents_for_code_attrs(classified.code_attrs(), &span.parent_span_id, span_index);
 
     // Source method comes from the direct parent, unchanged: it is display
     // metadata and does not enter the ack signature.
@@ -1341,7 +1335,7 @@ fn convert_span<'a>(
     };
 
     let source_endpoint =
-        resolve_source_endpoint(code, classified, &span.parent_span_id, span_index);
+        resolve_source_endpoint(classified.code_attrs(), &span.parent_span_id, span_index);
 
     let parent_span_id = if span.parent_span_id.is_empty() {
         None
