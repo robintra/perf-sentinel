@@ -11,16 +11,15 @@ on:
       - 'LICENSE'
       - '.github/dependabot.yml'
       - '.github/renovate.json'
+  # No `paths-ignore` here, unlike the push trigger above. `Check & Test`
+  # is a required status check, and a workflow filtered out by paths never
+  # reports it at all, which leaves a prose-only pull request pending for
+  # ever. So the workflow always starts and the `changes` job below applies
+  # the same filter, skipping the build jobs instead of the whole run. A
+  # skipped job reports as successful to branch protection, the same way
+  # fork pull requests already rely on.
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'logo/**'
-      - 'tapes/**'
-      - 'LICENSE'
-      - '.github/dependabot.yml'
-      - '.github/renovate.json'
   # Manual trigger so CI can be rerun against an arbitrary ref (tag,
   # commit, branch). Useful for re-validating an old release after a
   # toolchain update or recovering an audit trace on a past tag.
@@ -44,17 +43,61 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  # Path filter for pull requests, mirroring the `paths-ignore` on the push
+  # trigger above (and the one in codeql.yml, the three lists must stay in
+  # sync). Fail-safe twice over, because a skipped job satisfies the branch
+  # protection: an empty or failed listing answers `true`, and the jobs
+  # below only stand down on an explicit `false`, so a job that never
+  # reported cannot wave a change through untested.
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" \
+            --jq '.[].filename') || files=""
+          if [ -z "${files}" ]; then
+            echo "Could not list the changed files, running the full CI."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          prose='(\.md$|^docs/|^logo/|^tapes/|^LICENSE$|^\.github/(dependabot\.yml|renovate\.json)$)'
+          if printf '%s\n' "${files}" | grep -qvE "${prose}"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Prose-only pull request, the build jobs have nothing to do."
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
     name: Check & Test
     runs-on: ubuntu-latest
+    needs: changes
     # Skip CI on PRs from forks to prevent malicious code execution in runners.
     # Fork PRs don't have access to secrets (pull_request event), but can still
     # abuse compute. Maintainer can trigger CI manually after reviewing the code
     # via workflow_dispatch (which is itself maintainer-only via repo permissions).
     if: >-
-      github.event_name == 'push'
+      !cancelled()
+      && needs.changes.outputs.code != 'false'
+      && (github.event_name == 'push'
       || github.event_name == 'workflow_dispatch'
-      || github.event.pull_request.head.repo.full_name == github.repository
+      || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
       # Required to upload the Clippy SARIF report to GitHub Code Scanning.
@@ -159,10 +202,13 @@ jobs:
   musl-smoke:
     name: Musl release build
     runs-on: ubuntu-latest
+    needs: changes
     if: >-
-      github.event_name == 'push'
+      !cancelled()
+      && needs.changes.outputs.code != 'false'
+      && (github.event_name == 'push'
       || github.event_name == 'workflow_dispatch'
-      || github.event.pull_request.head.repo.full_name == github.repository
+      || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:
@@ -218,6 +264,7 @@ jobs:
   browser-tests:
     name: Browser tests
     runs-on: ubuntu-latest
+    needs: changes
     # Run inside the official Playwright image so chromium + the headless
     # shell + ffmpeg are pre-baked: no flaky CDN download (the previous
     # `playwright install` step regularly stalled after the 100% chromium
@@ -226,9 +273,11 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 25
     if: >-
-      github.event_name == 'push'
+      !cancelled()
+      && needs.changes.outputs.code != 'false'
+      && (github.event_name == 'push'
       || github.event_name == 'workflow_dispatch'
-      || github.event.pull_request.head.repo.full_name == github.repository
+      || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:
@@ -279,10 +328,13 @@ jobs:
   gitleaks:
     name: Secret scan
     runs-on: ubuntu-latest
+    needs: changes
     if: >-
-      github.event_name == 'push'
+      !cancelled()
+      && needs.changes.outputs.code != 'false'
+      && (github.event_name == 'push'
       || github.event_name == 'workflow_dispatch'
-      || github.event.pull_request.head.repo.full_name == github.repository
+      || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:
