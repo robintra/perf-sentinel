@@ -135,9 +135,11 @@ fn usable_code_frame_part(s: &str) -> Option<&str> {
 ///
 /// `None` rather than a misleading origin when the frame is unusable or is a
 /// bare function name like `execute`, which collides exactly as `"unknown"`
-/// did. `#` becomes `.` because `strip_endpoint_secrets` truncates there; it
-/// also truncates at `?` and strips userinfo before the first `/`, so a frame
-/// holding `?` or `@` still loses that part.
+/// did. `#` becomes `.` because `strip_endpoint_secrets` truncates there.
+/// A frame holding `?` or `@` is rejected for the same reason: that function
+/// truncates at `?` and strips userinfo before the first `/`, so `Order.valid?`
+/// would reach the ack signature as `Order.valid` and silently share it with
+/// the real `Order.valid`.
 #[must_use]
 pub(crate) fn code_frame_endpoint(
     namespace: Option<&str>,
@@ -156,16 +158,31 @@ pub(crate) fn code_frame_endpoint(
         {
             f.to_string()
         }
-        (Some(ns), Some(f)) => format!("{ns}.{f}"),
+        // Join with the separator the namespace already uses, so the legacy
+        // pair and the stable qualified name spell one origin the same way.
+        (Some(ns), Some(f)) => format!("{ns}{}{f}", frame_separator(ns)),
         (Some(ns), None) => ns.to_string(),
         (None, Some(f)) if f.contains(CODE_FRAME_SEPARATORS) => f.to_string(),
         _ => return None,
     };
-    Some(if frame.contains('#') {
+    let frame = if frame.contains('#') {
         frame.replace('#', ".")
     } else {
         frame
-    })
+    };
+    (!frame.contains(['?', '@'])).then_some(frame)
+}
+
+/// Separator a namespace already qualifies with: `\` for PHP, `::` for Rust
+/// and C++, `.` otherwise.
+fn frame_separator(namespace: &str) -> &'static str {
+    if namespace.contains('\\') {
+        "\\"
+    } else if namespace.contains("::") {
+        "::"
+    } else {
+        "."
+    }
 }
 
 /// Trait for event ingestion sources.
@@ -210,6 +227,40 @@ mod tests {
             ("myapp::worker", "myapp::worker::run"),
         ] {
             assert_eq!(code_frame_endpoint(Some(ns), Some(f)).as_deref(), Some(f));
+        }
+    }
+
+    #[test]
+    fn code_frame_endpoint_joins_with_the_namespace_separator() {
+        // The legacy pair and the stable qualified name describe one origin.
+        // Joining with a dot regardless of language made an agent upgrade
+        // re-key every acknowledgment for that frame.
+        for (ns, f, expected) in [
+            (
+                "App\\Jobs\\PurgeJob",
+                "handle",
+                "App\\Jobs\\PurgeJob\\handle",
+            ),
+            ("myapp::worker", "run", "myapp::worker::run"),
+            ("com.foo.PurgeJob", "execute", "com.foo.PurgeJob.execute"),
+        ] {
+            assert_eq!(
+                code_frame_endpoint(Some(ns), Some(f)).as_deref(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn code_frame_endpoint_rejects_what_the_sanitizer_would_truncate() {
+        // `strip_endpoint_secrets` truncates at '?' and strips userinfo before
+        // the first '/', so these would reach the ack signature mangled and
+        // collide with the plain spelling.
+        for (ns, f) in [
+            (Some("Order"), Some("valid?")),
+            (Some("App\\Jobs"), Some("class@anonymous")),
+        ] {
+            assert_eq!(code_frame_endpoint(ns, f), None, "{ns:?} {f:?}");
         }
     }
 
