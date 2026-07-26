@@ -173,12 +173,11 @@ pub(crate) fn code_frame_endpoint(
     (!frame.contains(['?', '@'])).then_some(frame)
 }
 
-/// Separator a namespace already qualifies with: `\` for PHP, `::` for Rust
-/// and C++, `.` otherwise.
+/// Separator that attaches a function to this namespace: `::` for PHP and
+/// Rust/C++, `.` otherwise. PHP qualifies namespaces with `\` but attaches
+/// methods with `::` (`Slim\App::handle`), so a `\` namespace joins with `::`.
 fn frame_separator(namespace: &str) -> &'static str {
-    if namespace.contains('\\') {
-        "\\"
-    } else if namespace.contains("::") {
+    if namespace.contains('\\') || namespace.contains("::") {
         "::"
     } else {
         "."
@@ -220,10 +219,7 @@ mod tests {
         // separator, not just the dot: `::` and `#` reach here too.
         for (ns, f) in [
             ("com.foo.OrderService", "com.foo.OrderService.findItems"),
-            (
-                "Doctrine\\DBAL\\Driver",
-                "Doctrine\\DBAL\\Driver\\Connection",
-            ),
+            ("App\\Jobs\\PurgeJob", "App\\Jobs\\PurgeJob::handle"),
             ("myapp::worker", "myapp::worker::run"),
         ] {
             assert_eq!(code_frame_endpoint(Some(ns), Some(f)).as_deref(), Some(f));
@@ -233,13 +229,12 @@ mod tests {
     #[test]
     fn code_frame_endpoint_joins_with_the_namespace_separator() {
         // The legacy pair and the stable qualified name describe one origin.
-        // Joining with a dot regardless of language made an agent upgrade
-        // re-key every acknowledgment for that frame.
+        // PHP attaches methods with `::`, never `\` (lab-refuted spelling).
         for (ns, f, expected) in [
             (
                 "App\\Jobs\\PurgeJob",
                 "handle",
-                "App\\Jobs\\PurgeJob\\handle",
+                "App\\Jobs\\PurgeJob::handle",
             ),
             ("myapp::worker", "run", "myapp::worker::run"),
             ("com.foo.PurgeJob", "execute", "com.foo.PurgeJob.execute"),
