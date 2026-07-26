@@ -2065,6 +2065,51 @@ fn endpoint_code_frame_keeps_the_outermost_named_frame() {
 }
 
 #[test]
+fn endpoint_walk_crosses_resource_block_boundaries() {
+    // The collector batch processor splits one trace across ResourceSpans
+    // blocks of the same service. A per-block index lost the endpoint at the
+    // boundary (lab: 362 nest-svc findings fell back to "unknown").
+    let server = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /api/fault/redundant-http".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv("http.route", "POST /api/fault/redundant-http")],
+        ..Default::default()
+    };
+    let client = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        name: "GET /api/payments/history".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 900_000_000,
+        kind: SPAN_KIND_CLIENT,
+        attributes: vec![make_kv(
+            "url.full",
+            "http://localhost:8090/api/payments/history",
+        )],
+        ..Default::default()
+    };
+    let jdbc = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+
+    // The SERVER parent sits in a different block than the leaf and its
+    // CLIENT parent.
+    let mut req = make_request("nest-svc", vec![client, jdbc]);
+    req.resource_spans
+        .extend(make_request("nest-svc", vec![server]).resource_spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    assert_eq!(sql.source.endpoint, "POST /api/fault/redundant-http");
+}
+
+#[test]
 fn endpoint_walks_past_an_unusable_leaf_frame() {
     // Driver-level instrumentation stamps a bare function name on the leaf.
     // It names no origin on its own, so the walk must keep going instead of

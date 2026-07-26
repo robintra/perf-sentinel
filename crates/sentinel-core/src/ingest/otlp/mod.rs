@@ -444,28 +444,32 @@ fn resolve_source_endpoint<'a>(
 
 // ── Main conversion function ────────────────────────────────────────
 
-/// Build a span index for parent lookup within a single resource
-/// (capped at [`MAX_SPANS_PER_RESOURCE`] spans).
-fn build_span_index(
-    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
-) -> HashMap<&[u8], &Span> {
+/// Build a span index for parent lookup across the whole request (capped at
+/// [`MAX_SPANS_PER_RESOURCE`] spans).
+///
+/// Request-wide, not per `ResourceSpans` block: the collector batch processor
+/// splits one trace across blocks of the same service, and a per-block index
+/// made the ancestor walk lose the endpoint at the boundary.
+fn build_span_index(request: &ExportTraceServiceRequest) -> HashMap<&[u8], &Span> {
     let mut index: HashMap<&[u8], &Span> = HashMap::new();
     let mut count = 0usize;
-    'outer: for scope_spans in &resource_spans.scope_spans {
-        for span in &scope_spans.spans {
-            // A span with no id would be indexed under the empty key, which is
-            // exactly the `parent_span_id` every root span carries.
-            if span.span_id.is_empty() {
-                continue;
-            }
-            index.insert(&span.span_id, span);
-            count += 1;
-            if count >= MAX_SPANS_PER_RESOURCE {
-                tracing::warn!(
-                    "OTLP span index capped at {} entries, parent lookup may be degraded for remaining spans",
-                    MAX_SPANS_PER_RESOURCE
-                );
-                break 'outer;
+    'outer: for resource_spans in &request.resource_spans {
+        for scope_spans in &resource_spans.scope_spans {
+            for span in &scope_spans.spans {
+                // A span with no id would be indexed under the empty key, which
+                // is exactly the `parent_span_id` every root span carries.
+                if span.span_id.is_empty() {
+                    continue;
+                }
+                index.insert(&span.span_id, span);
+                count += 1;
+                if count >= MAX_SPANS_PER_RESOURCE {
+                    tracing::warn!(
+                        "OTLP span index capped at {} entries, parent lookup may be degraded for remaining spans",
+                        MAX_SPANS_PER_RESOURCE
+                    );
+                    break 'outer;
+                }
             }
         }
     }
@@ -1076,6 +1080,10 @@ pub fn convert_otlp_request_counted(
     let mut events = Vec::new();
     let mut stats = SpanConversionStats::default();
 
+    // One index for the whole request: parent chains cross ResourceSpans
+    // blocks when the collector batch processor splits a trace.
+    let span_index = build_span_index(request);
+
     for resource_spans in &request.resource_spans {
         // Build the per-Resource Arc<str> once, then Arc::clone into each span.
         // A resource_spans block routinely carries hundreds of spans for the
@@ -1097,7 +1105,6 @@ pub fn convert_otlp_request_counted(
             .filter(|s| crate::score::carbon::is_valid_region_id(s))
             .map(Arc::from);
 
-        let span_index = build_span_index(resource_spans);
         let scope_index = build_scope_index(resource_spans);
         let classified = classify_resource_spans(resource_spans);
         let stitch = compute_stitch_decisions(resource_spans, &span_index, &classified);
