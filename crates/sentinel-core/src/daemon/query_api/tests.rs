@@ -660,6 +660,41 @@ async fn export_report_warning_details_includes_cold_start_kind() {
 }
 
 #[tokio::test]
+async fn export_report_cold_start_still_names_a_zero_sampling_rate() {
+    // At rate 0.0 the daemon never leaves cold start, so the dedicated
+    // message must ride the cold-start envelope or it is unreachable
+    // (lab defect D2: cold_start alone points at the wrong cause).
+    let mut state = make_state();
+    Arc::get_mut(&mut state)
+        .unwrap()
+        .daemon_config
+        .sampling_rate = 0.0;
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).expect("parses");
+    let kinds: Vec<&str> = report
+        .warning_details
+        .iter()
+        .map(|w| w.kind.as_str())
+        .collect();
+    assert_eq!(kinds, ["cold_start", "tuning"]);
+    assert!(
+        report.warning_details[1]
+            .message
+            .contains("no trace is analyzed"),
+        "got: {}",
+        report.warning_details[1].message
+    );
+}
+
+#[tokio::test]
 async fn export_report_warning_details_includes_ingestion_drops_when_counter_positive() {
     let state = make_state();
     // Make the cold-start guard pass so the normal path runs.
