@@ -75,7 +75,8 @@ Ce qui survit au sampling et ce qui n'y survit pas :
 |---|---|
 | Détecteurs par trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `serialized_calls`, `pool_saturation`) | **Intacts sur les traces qui arrivent.** Les politiques head comme tail gardent ou jettent des traces entières, donc une trace conservée contient toujours sa boucle N+1 complète. |
 | Couverture | Dégradée. Un pattern présent sur une petite part du trafic peut être entièrement écarté et ne jamais remonter. |
-| Agrégats (ratio de gaspillage I/O, IIS, chiffres GreenOps et carbone, compteurs Prometheus) | Sous-estimés, silencieusement. Ils décrivent l'échantillon, et rien ne les remet à l'échelle. |
+| Comptes absolus (findings, occurrences, totaux Prometheus) | Sous-estimés, silencieusement. Ils décrivent l'échantillon, et rien ne les remet à l'échelle. |
+| Ratios (ratio de gaspillage I/O, et les chiffres GreenOps qui en dérivent) | Non biaisés sous un sampler uniforme, qui touche numérateur et dénominateur de la même façon. Les politiques `errors` et `slow` d'un tail sampler biaisent la rétention vers les traces lourdes, et le ratio dérive avec elles. |
 | Corrélation cross-trace | De fait inactive. `[daemon.correlation] min_co_occurrences` exige qu'une paire se répète dans la fenêtre, ce qui survit rarement à un échantillon de 10%. |
 
 **Donnez à perf-sentinel son propre pipeline non samplé.** Le sampling
@@ -123,10 +124,12 @@ daemon :
   (garder les erreurs, garder les traces lentes) biaisent la rétention
   vers l'endroit où vit le gaspillage structurel. Un head-sampling à
   1-10% est le pire cas pour la détection.
-- Lisez les agrégats comme un échantillon, et ne les publiez pas comme
-  des chiffres de trafic complet. Cela compte pour `disclose` : un
-  rapport de divulgation publique bâti sur une fenêtre samplée
-  sous-estime le gaspillage qu'il prétend mesurer. Le knob
+- Lisez les comptes comme un échantillon, et ne les publiez pas comme
+  des chiffres de trafic complet. Un tail sampler biaise aussi les
+  ratios, puisque garder les erreurs et les traces lentes
+  sur-représente les traces lourdes. Cela compte pour `disclose` : un
+  rapport de divulgation publique bâti sur une fenêtre samplée dit faux
+  sur le gaspillage qu'il prétend mesurer. Le knob
   `[daemon] sampling_rate` du daemon lève un avertissement `tuning` dans
   `Report.warning_details` exactement pour cette raison, mais il ne peut
   pas voir ce qu'un collector a écarté avant l'arrivée des spans.

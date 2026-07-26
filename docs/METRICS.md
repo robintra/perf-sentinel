@@ -415,16 +415,22 @@ Counter-driven rules are sticky (lifetime counters only reset on
 restart). The trace-window rule reads a gauge, so it appears and
 disappears with the load. The `sampling_rate` rule reads no metric at
 all: it fires on the setting alone, on an idle daemon as much as a busy
-one, because a sampled report understates every aggregate regardless of
-load. It is the only rule that warns about how to read the report
-rather than about a knob the load outgrew. The advisor reads the config
-snapshot taken at daemon startup, so a hint always reflects the values
-the running process actually uses.
+one, because a sampled report understates its counts regardless of load.
+The message names the counts and leaves ratios out, since uniform
+per-trace sampling hits numerator and denominator alike and the I/O
+waste ratio stays readable, so rescaling it would produce a wrong number
+rather than a corrected one. A rate of exactly `0.0`, which config
+validation accepts, gets its own message. It is the only rule that warns
+about how to read the report rather than about a knob the load outgrew.
+The advisor reads the config snapshot taken at daemon startup, so a hint
+always reflects the values the running process actually uses.
 
 Sampling applied **before** the daemon (a collector running
-`tail_sampling` upstream) produces the same understated aggregates and
-raises no warning at all, because a kept trace is indistinguishable
-from a complete one. See
+`tail_sampling` upstream) shrinks the same counts and raises no warning
+at all, because a kept trace is indistinguishable from a complete one.
+It is also worse for ratios: `errors` and `slow` policies bias retention
+toward heavy traces, so the surviving sample is not representative the
+way a uniform hash is. See
 [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon)
 for the pipeline layout that avoids it.
 

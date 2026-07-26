@@ -166,7 +166,7 @@ This is perf-sentinel's own sampling knob, applied after ingestion, distinct fro
 
 For accurate detection, use `sampling_rate = 1.0` (the default) or sample at the collector level where you have more control.
 
-Unlike upstream sampling, this one the daemon can see. Below 1.0 it emits a `tuning` entry in `Report.warning_details` on every `/api/export/report` call, naming the rate and stating that the aggregates cover that fraction of the traffic. The drop is a uniform hash over trace ids with no policy bias, so scaling an aggregate by `1/sampling_rate` is statistically sound here, which is not true of a biased upstream tail sampler.
+Unlike upstream sampling, this one the daemon can see. Below 1.0 it emits a `tuning` entry in `Report.warning_details` on every `/api/export/report` call, naming the rate and stating which numbers describe a sample. What that covers is narrower than it first looks: the drop is a uniform hash over trace ids with no policy bias, so a ratio built from sampled traces on both sides, the I/O waste ratio in particular, stays an unbiased estimate, and so does the database waste it multiplies host energy by. The absolute counts are what shrink, along with coverage. An aggressive rate is still the wrong setting for a report you intend to publish, because a pattern that never gets sampled contributes nothing to either.
 
 ## Maximum events per trace
 
