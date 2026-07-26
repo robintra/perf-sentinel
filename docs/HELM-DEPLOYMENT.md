@@ -183,6 +183,19 @@ cosign verify \
   ghcr.io/robintra/charts/perf-sentinel:0.9.21
 ```
 
+**Requires cosign 3.0 or newer.** The signature is a Sigstore bundle
+attached to the chart digest as an OCI 1.1 referrer, not a legacy
+`sha256-<digest>.sig` tag. cosign 2.x does not read referrers and
+answers `Error: no signatures found` on a chart that is correctly
+signed, so check `cosign version` before concluding anything from that
+message. Verified on chart `0.9.21` with cosign `v3.1.2`.
+
+On Windows, run this from PowerShell or WSL rather than Git Bash: MSYS
+rewrites the backslash escapes inside the regex (`\.` arrives as `/.`)
+and verification then fails with a misleading `no matching
+CertificateIdentity`. Writing the escapes as `[.]` instead is
+equivalent and survives every shell.
+
 A successful run prints the Rekor log entry and the certificate
 details. A mismatched or absent signature exits non-zero.
 

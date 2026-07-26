@@ -147,6 +147,10 @@ cosign verify \
   ghcr.io/robintra/charts/perf-sentinel:0.9.21
 ```
 
+**Nécessite cosign 3.0 ou plus récent.** La signature est un bundle Sigstore attaché au digest du chart comme referrer OCI 1.1, et non un tag `sha256-<digest>.sig` de l'ancien format. cosign 2.x ne lit pas les referrers et répond `Error: no signatures found` sur un chart pourtant correctement signé : vérifiez `cosign version` avant de tirer une conclusion de ce message. Testé sur le chart `0.9.21` avec cosign `v3.1.2`.
+
+Sous Windows, lancez cette commande depuis PowerShell ou WSL plutôt que depuis Git Bash : MSYS réécrit les échappements antislash de la regex (`\.` arrive en `/.`) et la vérification échoue alors sur un trompeur `no matching CertificateIdentity`. Écrire les échappements sous la forme `[.]` est équivalent et résiste à tous les shells.
+
 Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Un mismatch ou une absence de signature retourne un code non nul.
 
 **Il n'y a pas de fichier `.prov`, donc `helm install --verify` n'est pas disponible.** C'est un choix délibéré, pas un oubli. Le mécanisme de provenance natif de Helm suppose une clé PGP de longue durée conservée en secret de CI, avec la charge de rotation, de révocation et de publication d'empreinte qui va avec. La signature Cosign keyless et l'attestation SLSA répondent à la même question, cet artefact vient-il bien du workflow de release de ce dépôt, sans qu'aucune clé de signature statique existe nulle part. Vérifiez avec la commande `cosign verify` ci-dessus plutôt qu'avec `helm --verify`.
