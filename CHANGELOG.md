@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [0.9.22]
 
+### Added
+
+- The daemon's `tuning` advisor gains a rule on `[daemon] sampling_rate`. Below 1.0 the daemon drops whole traces, so finding counts, the I/O waste ratio and every GreenOps figure describe that fraction of the traffic and are never scaled back up, and nothing in `/api/export/report` said so. The rule reads the configuration alone rather than a metric, so it fires on an idle daemon as much as a busy one, and it is the only advisor entry that warns about how to read the report instead of about a knob the load outgrew. Sampling applied upstream has the same effect and raises no warning, because a kept trace is indistinguishable from a complete one, so `docs/HELM-DEPLOYMENT.md` now describes the collector pipeline layout that keeps the analysis branch unsampled.
+
 ### Changed
 
 - `source_endpoint` now resolves the inbound HTTP route by walking the parent chain instead of inspecting the direct parent only. The single-level lookup missed the common layout where the route sits on the SERVER span two or more levels above the leaf (`tomcat -> hibernate -> jdbc`, or any controller/repository stack), so a `n_plus_one_sql` triggered by a real endpoint reported `"unknown"` and named no origin. Bounded by the same depth limit as the `code.*` walk.
