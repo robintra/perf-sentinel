@@ -38,6 +38,13 @@
         "replicas": { "type": "integer", "minimum": 0 },
         "strategy": { "type": "object" },
         "updateStrategy": { "type": "object" },
+        "daemonset": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spanRoutingByTraceId": { "type": "boolean" }
+          }
+        },
         "statefulset": {
           "type": "object",
           "additionalProperties": false,

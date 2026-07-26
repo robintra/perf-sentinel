@@ -10,6 +10,27 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.22]
+
+### Added
+
+- `workload.kind: DaemonSet` now fails the render unless
+  `workload.daemonset.spanRoutingByTraceId` is set to `true`.
+  Correlation is per-trace and in-memory, so spans of one trace landing
+  on different pods are analyzed in pieces: N+1 groups fall under their
+  threshold and the findings never appear. Nothing reports it, there is
+  no error and no metric that moves, so the mode reads as working while
+  detection is degraded. A plain Service in front of a DaemonSet
+  round-robins and does split traces, which makes the naive setup the
+  broken one. The values file already carried the warning as a comment
+  and `docs/HELM-DEPLOYMENT.md` spelled it out, but neither stops a
+  render, and a comment is not read by whoever copies a values file.
+  The opt-in is the operator asserting that an upstream collector routes
+  by trace ID to these pods, for example the OTel `loadbalancing`
+  exporter with `routing_key: traceID` pointing at the DaemonSet rather
+  than at a ClusterIP. `Deployment` with `replicas: 1` stays the
+  default and recommended topology, and is unaffected.
+
 ## [0.9.21]
 
 ### Added
