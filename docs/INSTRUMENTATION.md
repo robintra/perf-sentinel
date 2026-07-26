@@ -330,16 +330,35 @@ processors:
         - 'attributes["service.name"] == "health-check"'
 ```
 
-Add the processor to the pipeline:
+**Where to put the sampler.** Sampling exists to bound what a trace
+store retains, and perf-sentinel retains nothing: it holds a per-trace
+window in memory for `trace_ttl_ms` and drops it. So the cheapest
+correct layout is to fan out from the same receiver and sample only the
+branch that feeds storage:
 
 ```yaml
 service:
   pipelines:
-    traces:
+    # Storage: sampled, because Tempo pays per byte retained.
+    traces/tempo:
       receivers: [otlp]
       processors: [tail_sampling, batch]
+      exporters: [otlp/tempo]
+    # Analysis: unsampled, because detection quality pays for it instead.
+    traces/perf-sentinel:
+      receivers: [otlp]
+      processors: [filter, batch]
       exporters: [otlp/perf-sentinel]
 ```
+
+Sampling in front of perf-sentinel is supported, it is just lossy in
+ways the daemon cannot report: a kept trace is indistinguishable from a
+complete one, so nothing in the output says the numbers cover a tenth
+of the traffic. If volume forces you to narrow the analysis branch,
+narrow it by **scope rather than by chance**: route the namespaces or
+services you are actively working on and keep their figures whole,
+instead of a probabilistic sample that makes every service's figures
+partial.
 
 **Sampling and detection accuracy**.
 
@@ -348,6 +367,8 @@ Anti-pattern detection relies on counting events. Sampling that drops events dir
 - **Within a kept trace, all spans are preserved**. OTel and Jaeger sample per-trace, not per-span, so an N+1 loop, a chatty service hop or a fanout pattern that lives inside one request still detects cleanly as long as the parent trace is kept.
 - **Head-based sampling breaks count-based detections**. A 1% head-based policy drops 99% of traces before they reach the collector, so a 50-call N+1 loop is observed as 3 calls, well below any reasonable threshold. Same for chatty services, fanout, serialized parallelizable calls, pool saturation. Anything threshold-driven gets silently underreported.
 - **Tail-based sampling stays compatible with detection** because the policies you would write for incident review (keep errors, keep slow traces, keep specific services) are exactly the ones that surface anti-patterns. The [`tail_sampling` processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) example above keeps everything under those policies plus a 10% probabilistic sample of the rest.
+- **Aggregates are understated by any sampling, silently.** The I/O waste ratio, the IIS, the GreenOps and carbon figures and the Prometheus counters describe the traces that arrived, and nothing scales them back up. perf-sentinel cannot detect upstream sampling, so it cannot warn about it either. Treat those numbers as a sample whenever the collector in front is sampling, and do not publish them as whole-traffic figures. This matters most for `disclose`, whose whole purpose is publishing a measured figure. The daemon's own `[daemon] sampling_rate` is the one case it can see, and it does emit a `tuning` warning for it.
+- **Cross-trace correlation goes quiet.** `[daemon.correlation] min_co_occurrences` needs a finding pair to recur inside the window. At a 10% sample the repeated co-occurrences rarely survive, so the correlator reports nothing even when the coupling is real. That silence is not evidence of a healthy topology.
 - **CI runs should keep 100% of traces**. Volume is low (one integration-test run), the cost of full instrumentation is negligible, and missing a regression because of sampling defeats the purpose of the CI gate. The Quick start sections above assume 100% sampling.
 - **`pg-stat` mode is sampling-immune**. `pg_stat_statements` aggregates query counters server-side in PostgreSQL, regardless of what the application tracer captured. A query that runs 10 000 times shows up as 10 000 calls even if 99% of the parent traces were dropped at the head. Run `perf-sentinel pg-stat ...` (or pass `--pg-stat` to `analyze` and `report`) as a fallback when you cannot trust the trace volume, or as a primary signal for code paths the tracer does not even cover.
 

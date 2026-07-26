@@ -403,7 +403,7 @@ collant persiste jusqu'au redémarrage du daemon.
 |-------------------|--------------|---------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
 | `cold_start`      | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon                             | Premier batch réussi (les deux compteurs strictement positifs)                     |
 | `ingestion_drops` | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full" ou "memory_pressure"} > 0` depuis le démarrage | Redémarrage du daemon (reset du compteur)                                          |
-| `tuning`          | Mixte        | Un compteur lifetime montre un réglage sous-dimensionné pour la charge (voir dessous)                   | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre |
+| `tuning`          | Mixte        | Un compteur lifetime montre un réglage sous-dimensionné pour la charge, ou `sampling_rate` est sous 1.0 (voir dessous) | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre, un changement de config pour la règle `sampling_rate` |
 
 `cold_start` est un warning d'état : "le snapshot n'est pas
 significatif maintenant". `ingestion_drops` est un warning d'audit :
@@ -416,10 +416,11 @@ détection.
 
 Les entrées `tuning` sont des conseils de configuration : chaque
 message nomme le réglage, sa valeur actuelle et l'ajustement suggéré.
-Sept règles tournent à chaque appel `/api/export/report` :
+Huit règles tournent à chaque appel `/api/export/report` :
 
 | Déclencheur                                                                 | Réglage suggéré                                                                        |
 |-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| `[daemon] sampling_rate < 1.0` (aucune métrique en jeu)                     | `[daemon] sampling_rate`, ou lire les agrégats comme un échantillon                    |
 | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                                       |
 | `perf_sentinel_otlp_rejected_total{reason="memory_pressure"} > 0`           | Limite mémoire du conteneur (le garde-fou borne la RSS)                                |
 | `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` ou plus de CPU                                      |
@@ -430,10 +431,22 @@ Sept règles tournent à chaque appel `/api/export/report` :
 
 Les règles à compteurs sont collantes (les compteurs lifetime ne se
 réinitialisent qu'au redémarrage). La règle de fenêtre de traces lit
-une gauge, elle apparaît et disparaît donc avec la charge. Le
+une gauge, elle apparaît et disparaît donc avec la charge. La règle
+`sampling_rate` ne lit aucune métrique : elle se déclenche sur le
+réglage seul, sur un daemon au repos comme sur un daemon chargé, parce
+qu'un rapport samplé sous-estime tous ses agrégats quelle que soit la
+charge. C'est la seule règle qui avertit sur la façon de lire le
+rapport plutôt que sur un réglage que la charge a dépassé. Le
 conseiller lit le snapshot de config pris au démarrage du daemon, un
 hint reflète donc toujours les valeurs réellement utilisées par le
 process en cours.
+
+Un sampling appliqué **avant** le daemon (un collector qui fait tourner
+`tail_sampling` en amont) produit les mêmes agrégats sous-estimés et ne
+lève aucun avertissement, parce qu'une trace conservée est indiscernable
+d'une trace complète. Voir
+[HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#sampling-du-collector-et-ce-qui-atteint-le-daemon)
+pour la disposition de pipeline qui l'évite.
 
 ## Références croisées
 

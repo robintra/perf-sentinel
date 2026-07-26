@@ -7,7 +7,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 ## Sommaire
 
 - [TL;DR](#tldr) : commande d'installation en un bloc.
-- [Topologie](#topologie) : pourquoi le chart est sentinel-only par design.
+- [Topologie](#topologie) : pourquoi le chart est sentinel-only par design, et [où placer le sampling du collector](#sampling-du-collector-et-ce-qui-atteint-le-daemon) par rapport au daemon.
 - [Installation depuis le registre OCI](#installation-depuis-le-registre-oci) : chemin d'installation production avec vérification Cosign.
 - [Artifact Hub](#artifact-hub) : référencement et métadonnées.
 - [Chaîne d'approvisionnement logicielle](#chaîne-dapprovisionnement-logicielle) : signatures Cosign keyless, provenance SLSA, SBOM, attestation public-good.
@@ -59,6 +59,82 @@ flowchart LR
     OC -->|OTLP gRPC 4317| T
     OC -->|OTLP gRPC 4317| PS
 ```
+
+### Sampling du collector et ce qui atteint le daemon
+
+La plupart des collectors de production samplent. Si le processeur qui
+s'en charge se trouve entre les applications et perf-sentinel, le daemon
+analyse une fraction du trafic et **n'a aucun moyen de le savoir** : une
+trace samplée qui a été conservée ressemble exactement à une trace
+complète, et le rapport ne laisse rien deviner du fait que ses chiffres
+couvrent un dixième des requêtes.
+
+Ce qui survit au sampling et ce qui n'y survit pas :
+
+| | Effet d'un sampling amont |
+|---|---|
+| Détecteurs par trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `serialized_calls`, `pool_saturation`) | **Intacts sur les traces qui arrivent.** Les politiques head comme tail gardent ou jettent des traces entières, donc une trace conservée contient toujours sa boucle N+1 complète. |
+| Couverture | Dégradée. Un pattern présent sur une petite part du trafic peut être entièrement écarté et ne jamais remonter. |
+| Agrégats (ratio de gaspillage I/O, IIS, chiffres GreenOps et carbone, compteurs Prometheus) | Sous-estimés, silencieusement. Ils décrivent l'échantillon, et rien ne les remet à l'échelle. |
+| Corrélation cross-trace | De fait inactive. `[daemon.correlation] min_co_occurrences` exige qu'une paire se répète dans la fenêtre, ce qui survit rarement à un échantillon de 10%. |
+
+**Donnez à perf-sentinel son propre pipeline non samplé.** Le sampling
+existe pour borner un coût de stockage, et perf-sentinel ne stocke
+rien : il tient une fenêtre par trace en mémoire pendant `trace_ttl_ms`
+puis la jette. Répartissez donc depuis le même receiver et n'appliquez
+`tail_sampling` que sur la branche qui alimente le magasin de traces :
+
+```yaml
+service:
+  pipelines:
+    # Stockage : samplé, parce que Tempo se paie à l'octet retenu.
+    traces/tempo:
+      receivers: [otlp]
+      processors: [k8sattributes, filter/drop_noise, tail_sampling, batch]
+      exporters: [otlp/tempo]
+    # Analyse : non samplé, parce que c'est la qualité de détection qui paie.
+    traces/perf-sentinel:
+      receivers: [otlp]
+      processors: [k8sattributes, filter/drop_noise, batch]
+      exporters: [otlp/perf-sentinel]
+```
+
+Gardez le filtre de bruit sur les deux branches. Écarter les
+health checks, les migrations Liquibase et les spans d'export du
+collector lui-même retire des findings sur lesquels personne n'agira.
+Attention aux expressions régulières trop larges à cet endroit : un
+motif DDL non ancré comme `.*DROP\s+.*` écarte aussi des requêtes
+applicatives qui contiennent seulement le mot.
+
+Si le volume supplémentaire pose problème, restreignez la branche
+d'analyse **par périmètre plutôt que par hasard** : ne routez que les
+namespaces ou les services sur lesquels vous travaillez, ce qui garde
+leurs chiffres entiers, au lieu d'un échantillon probabiliste qui rend
+partiels les chiffres de tous les services. `filter/drop_noise` retire
+déjà les spans que perf-sentinel écarterait de toute façon (pas de
+`db.statement`, pas de `http.url`), donc cette branche porte d'emblée
+moins que celle du stockage.
+
+Deux contraintes si vous ne pouvez pas éviter un sampling devant le
+daemon :
+
+- Préférez le **tail-based**. Il décide par trace entière après coup,
+  donc les traces arrivent complètes, et ses politiques habituelles
+  (garder les erreurs, garder les traces lentes) biaisent la rétention
+  vers l'endroit où vit le gaspillage structurel. Un head-sampling à
+  1-10% est le pire cas pour la détection.
+- Lisez les agrégats comme un échantillon, et ne les publiez pas comme
+  des chiffres de trafic complet. Cela compte pour `disclose` : un
+  rapport de divulgation publique bâti sur une fenêtre samplée
+  sous-estime le gaspillage qu'il prétend mesurer. Le knob
+  `[daemon] sampling_rate` du daemon lève un avertissement `tuning` dans
+  `Report.warning_details` exactement pour cette raison, mais il ne peut
+  pas voir ce qu'un collector a écarté avant l'arrivée des spans.
+
+Quand plusieurs réplicas du daemon se trouvent derrière le pipeline,
+l'intégrité des traces dépend du routage par trace ID, voir
+[`DaemonSet`](#daemonset) et
+[`workload.replicas`](#deployment-par-défaut).
 
 ## Installation depuis le registre OCI
 

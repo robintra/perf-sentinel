@@ -217,6 +217,8 @@ Recommandations :
 
 - Pour les quality gates CI, utilisez le mode batch (`perf-sentinel analyze`) sur des traces intégralement capturées. Un gate qui décide sur 1% du trafic n'est pas un gate.
 - Dans le daemon, si vous devez échantillonner pour le coût, préférez un échantillonnage **tail-based** au niveau du collecteur. Le tail-based garde lui aussi des traces entières, mais permet de biaiser la rétention vers les traces lentes ou en erreur, là où le gaspillage structurel se concentre.
+- Mieux encore, n'échantillonnez pas du tout la branche qui alimente perf-sentinel. L'échantillonnage borne ce qu'un magasin de traces conserve, et perf-sentinel ne conserve rien au-delà d'une fenêtre par trace en mémoire, donc un second pipeline de collector exportant vers le daemon sans le sampler ne coûte rien en stockage. Voir [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#sampling-du-collector-et-ce-qui-atteint-le-daemon) pour la disposition.
+- Le tail-based ne répare pas les agrégats, seulement la structure par trace. Pire pour l'interprétation, les politiques `errors` et `slow` biaisent la rétention vers les traces lourdes, donc l'échantillon survivant n'est pas représentatif et aucun facteur unique ne le corrige. Ne publiez pas comme chiffre de trafic complet un ratio de gaspillage ou une empreinte carbone calculés derrière un sampler, et traitez une sortie `disclose` issue d'une fenêtre samplée comme une sous-estimation.
 
 ## Échantillonnage en mode daemon
 
@@ -227,6 +229,8 @@ Ceci est le knob d'échantillonnage propre à perf-sentinel, appliqué après l'
 - Les métriques Prometheus (`perf_sentinel_traces_analyzed_total`) ne reflètent que les traces échantillonnées
 
 Pour une détection précise, utilisez `sampling_rate = 1.0` (le défaut) ou échantillonnez au niveau du collecteur où vous avez plus de contrôle.
+
+Contrairement à l'échantillonnage amont, celui-ci, le daemon le voit. Sous 1.0 il émet une entrée `tuning` dans `Report.warning_details` à chaque appel `/api/export/report`, qui nomme le taux et indique que les agrégats couvrent cette fraction du trafic. La suppression est un hachage uniforme sur les trace ids, sans biais de politique, donc remettre un agrégat à l'échelle par `1/sampling_rate` est statistiquement fondé ici, ce qui n'est pas le cas face à un tail sampler amont biaisé.
 
 ## Nombre maximum d'événements par trace
 

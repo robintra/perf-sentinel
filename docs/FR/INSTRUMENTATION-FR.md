@@ -330,16 +330,37 @@ processors:
         - 'attributes["service.name"] == "health-check"'
 ```
 
-Ajouter le processeur au pipeline :
+**Où placer le sampler.** Le sampling existe pour borner ce qu'un
+magasin de traces conserve, et perf-sentinel ne conserve rien : il tient
+une fenêtre par trace en mémoire pendant `trace_ttl_ms` puis la jette.
+La disposition correcte la moins chère consiste donc à répartir depuis
+le même receiver et à ne sampler que la branche qui alimente le
+stockage :
 
 ```yaml
 service:
   pipelines:
-    traces:
+    # Stockage : samplé, parce que Tempo se paie à l'octet retenu.
+    traces/tempo:
       receivers: [otlp]
       processors: [tail_sampling, batch]
+      exporters: [otlp/tempo]
+    # Analyse : non samplé, parce que c'est la qualité de détection qui paie.
+    traces/perf-sentinel:
+      receivers: [otlp]
+      processors: [filter, batch]
       exporters: [otlp/perf-sentinel]
 ```
+
+Sampler devant perf-sentinel reste possible, c'est simplement une perte
+que le daemon ne peut pas signaler : une trace conservée est
+indiscernable d'une trace complète, donc rien dans la sortie ne dit que
+les chiffres couvrent un dixième du trafic. Si le volume impose de
+restreindre la branche d'analyse, restreignez-la **par périmètre plutôt
+que par hasard** : routez les namespaces ou les services sur lesquels
+vous travaillez et gardez leurs chiffres entiers, au lieu d'un
+échantillon probabiliste qui rend partiels les chiffres de tous les
+services.
 
 **Sampling et précision de détection**.
 
@@ -348,6 +369,8 @@ La détection d'anti-patterns repose sur du comptage d'événements. Le sampling
 - **Dans une trace conservée, tous les spans sont préservés**. OTel et Jaeger samplent par-trace, pas par-span, donc une boucle N+1, un hop vers un service bavard ou un fanout à l'intérieur d'une seule requête se détectent proprement tant que la trace parente est conservée.
 - **Le head-sampling casse les détections count-based**. Une politique head-sampling à 1% écarte 99% des traces avant qu'elles n'arrivent au collector, donc une boucle N+1 de 50 appels est observée comme 3 appels, bien sous tout seuil raisonnable. Pareil pour les services bavards, le fanout, les parallélisables sérialisés, la saturation de pool. Tout ce qui est piloté par seuil est silencieusement sous-reporté.
 - **Le tail-sampling reste compatible avec la détection** parce que les politiques qu'on écrirait pour la revue d'incident (garder les erreurs, garder les traces lentes, garder certains services) sont exactement celles qui font remonter les anti-patterns. L'exemple [`tail_sampling`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) ci-dessus garde tout sous ces politiques plus un échantillonnage probabiliste de 10% du reste.
+- **Les agrégats sont sous-estimés par tout sampling, silencieusement.** Le ratio de gaspillage I/O, l'IIS, les chiffres GreenOps et carbone et les compteurs Prometheus décrivent les traces arrivées, et rien ne les remet à l'échelle. perf-sentinel ne peut pas détecter un sampling amont, donc il ne peut pas non plus alerter dessus. Traitez ces nombres comme un échantillon dès qu'un collector sample en amont, et ne les publiez pas comme des chiffres de trafic complet. Cela compte surtout pour `disclose`, dont l'objet même est de publier un chiffre mesuré. Le knob `[daemon] sampling_rate` du daemon est le seul cas qu'il voit, et il émet bien un avertissement `tuning` pour celui-là.
+- **La corrélation cross-trace se tait.** `[daemon.correlation] min_co_occurrences` a besoin qu'une paire de findings se répète dans la fenêtre. À 10% d'échantillon, les co-occurrences répétées survivent rarement, donc le corrélateur ne remonte rien même quand le couplage est réel. Ce silence n'est pas la preuve d'une topologie saine.
 - **Les runs CI doivent garder 100% des traces**. Le volume est bas (un run de tests d'intégration), le coût de l'instrumentation complète est négligeable, et louper une régression à cause du sampling annule l'intérêt du gate CI. Les sections Quick start ci-dessus supposent un sampling à 100%.
 - **Le mode `pg-stat` est immunisé contre le sampling**. `pg_stat_statements` agrège les compteurs de requêtes côté serveur dans PostgreSQL, indépendamment de ce que le tracer applicatif a capturé. Une requête qui s'exécute 10 000 fois apparaît comme 10 000 appels même si 99% des traces parentes ont été écartées au head. Utiliser `perf-sentinel pg-stat ...` (ou passer `--pg-stat` à `analyze` et `report`) comme fallback quand on ne peut pas faire confiance au volume de traces, ou comme signal principal pour les chemins de code que le tracer ne couvre même pas.
 

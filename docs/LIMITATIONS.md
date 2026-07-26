@@ -153,6 +153,8 @@ Recommendations:
 
 - For CI quality gates, run batch mode (`perf-sentinel analyze`) on fully captured traces. A gate that decides on 1% of traffic is not a gate.
 - In the daemon, if you must sample for cost, prefer **tail-based** sampling at the collector. Tail-based keeps whole traces too, but lets you bias retention toward slow or error traces, which is where structural waste concentrates.
+- Better still, do not sample the branch that feeds perf-sentinel at all. Sampling bounds what a trace store retains, and perf-sentinel retains nothing beyond a per-trace in-memory window, so a second collector pipeline exporting to the daemon without the sampler costs storage nothing. See [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon) for the layout.
+- Tail-based sampling does not fix the aggregates, only the per-trace structure. Worse for interpretation, the `errors` and `slow` policies bias retention toward heavy traces, so the surviving sample is not representative and no single factor corrects it. Do not publish a waste ratio or a carbon figure computed behind a sampler as a whole-traffic number, and treat `disclose` output from a sampled window as an understatement.
 
 ## Sampling in daemon mode
 
@@ -163,6 +165,8 @@ This is perf-sentinel's own sampling knob, applied after ingestion, distinct fro
 - Prometheus metrics (`perf_sentinel_traces_analyzed_total`) reflect only sampled traces
 
 For accurate detection, use `sampling_rate = 1.0` (the default) or sample at the collector level where you have more control.
+
+Unlike upstream sampling, this one the daemon can see. Below 1.0 it emits a `tuning` entry in `Report.warning_details` on every `/api/export/report` call, naming the rate and stating that the aggregates cover that fraction of the traffic. The drop is a uniform hash over trace ids with no policy bias, so scaling an aggregate by `1/sampling_rate` is statistically sound here, which is not true of a biased upstream tail sampler.
 
 ## Maximum events per trace
 
