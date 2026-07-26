@@ -419,6 +419,36 @@ fn walk_parents_for_http_endpoint<'a>(
     }
 }
 
+/// Resolve `source.endpoint`: nearest inbound HTTP route up the parent
+/// chain, then the `code.*` frame for entry points that have none
+/// (scheduled jobs, message consumers), then `"unknown"`.
+///
+/// `code` is the frame already resolved for the `code_*` fields. A frame
+/// holding only a filepath names no origin, so that case re-walks.
+fn resolve_source_endpoint<'a>(
+    code: CodeAttrs<'a>,
+    classified: &ClassifiedAttrs<'a>,
+    parent_span_id: &[u8],
+    span_index: &HashMap<&[u8], &'a Span>,
+) -> String {
+    let named_frame = if code.has_name() {
+        code
+    } else {
+        walk_parents_for_code_attrs(
+            classified.code_attrs(),
+            parent_span_id,
+            span_index,
+            CodeAttrs::has_name,
+        )
+    };
+    walk_parents_for_http_endpoint(parent_span_id, span_index)
+        .map(ToString::to_string)
+        .or_else(|| {
+            crate::ingest::code_frame_endpoint(named_frame.namespace, named_frame.function_name)
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 // ── Main conversion function ────────────────────────────────────────
 
 /// Build a span index for parent lookup within a single resource
@@ -1310,25 +1340,8 @@ fn convert_span<'a>(
         span.name.clone()
     };
 
-    // Endpoint: nearest inbound HTTP route up the chain, then the code frame
-    // for entry points that have none. `code` can hold a filepath and no name,
-    // which is useless here, so that case re-walks for a named frame.
-    let named_frame = if code.has_name() {
-        code
-    } else {
-        walk_parents_for_code_attrs(
-            classified.code_attrs(),
-            &span.parent_span_id,
-            span_index,
-            CodeAttrs::has_name,
-        )
-    };
-    let source_endpoint = walk_parents_for_http_endpoint(&span.parent_span_id, span_index)
-        .map(ToString::to_string)
-        .or_else(|| {
-            crate::ingest::code_frame_endpoint(named_frame.namespace, named_frame.function_name)
-        })
-        .unwrap_or_else(|| "unknown".to_string());
+    let source_endpoint =
+        resolve_source_endpoint(code, classified, &span.parent_span_id, span_index);
 
     let parent_span_id = if span.parent_span_id.is_empty() {
         None
