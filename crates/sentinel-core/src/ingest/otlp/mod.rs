@@ -148,13 +148,7 @@ fn get_str_attribute<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
 
 // ── code.* attribute extraction ─────────────────────────────────────
 
-/// Maximum parent-span hops when walking for `code.*` attributes.
-///
-/// Java auto-instrumented stacks can chain HTTP server, Filter,
-/// `DispatcherServlet`, Controller, Service, Repository, Hibernate, JDBC,
-/// which is 8 levels. Real OpenTelemetry SDKs typically span fewer layers
-/// (Spring AOP proxies stay invisible).
-const CODE_ATTRS_MAX_DEPTH: usize = 8;
+use super::ANCESTOR_WALK_MAX_DEPTH as CODE_ATTRS_MAX_DEPTH;
 
 /// Hard cap on the per-resource span index used for parent lookup and scope
 /// attribution. Bounds memory and avoids quadratic walks on pathological
