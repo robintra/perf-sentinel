@@ -1249,22 +1249,32 @@ fn convert_span<'a>(
         None
     };
 
+    // code.* attributes: leaf attrs first, walk parents only when empty.
+    // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
+    // user frame sits on a parent. Resolved before the endpoint below,
+    // which falls back to this frame on non-HTTP entry points.
+    let code =
+        walk_parents_for_code_attrs(classified.code_attrs(), &span.parent_span_id, span_index);
+
     // Parent span lookup for source endpoint/method (single-level only,
-    // independent from the code.* parent walk below).
-    let (source_endpoint, source_method) = if span.parent_span_id.is_empty() {
-        ("unknown".to_string(), span.name.clone())
+    // independent from the code.* parent walk above).
+    let (http_endpoint, source_method) = if span.parent_span_id.is_empty() {
+        (None, span.name.clone())
     } else if let Some(parent) = span_index.get(span.parent_span_id.as_slice()) {
         let endpoint = get_str_attribute(&parent.attributes, "http.route")
             .or_else(|| get_str_attribute(&parent.attributes, "http.url"))
             .or_else(|| get_str_attribute(&parent.attributes, "url.full"))
-            .unwrap_or("unknown")
-            .to_string();
+            .map(ToString::to_string);
         let method = get_str_attribute(&parent.attributes, "code.function")
             .map_or_else(|| parent.name.clone(), ToString::to_string);
         (endpoint, method)
     } else {
-        ("unknown".to_string(), span.name.clone())
+        (None, span.name.clone())
     };
+
+    let source_endpoint = http_endpoint
+        .or_else(|| crate::ingest::code_frame_endpoint(code.namespace, code.function_name))
+        .unwrap_or_else(|| "unknown".to_string());
 
     let parent_span_id = if span.parent_span_id.is_empty() {
         None
@@ -1282,11 +1292,6 @@ fn convert_span<'a>(
             .map(Arc::from)
     });
 
-    // code.* attributes: leaf attrs first, walk parents only when empty.
-    // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
-    // user frame sits on a parent.
-    let code =
-        walk_parents_for_code_attrs(classified.code_attrs(), &span.parent_span_id, span_index);
     let code_function: Option<Arc<str>> = code.function_name.map(Arc::from);
     let code_filepath: Option<Arc<str>> = code.filepath.map(Arc::from);
     let code_lineno = code.lineno.and_then(|v| u32::try_from(v).ok());

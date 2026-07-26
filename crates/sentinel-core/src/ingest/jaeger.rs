@@ -196,17 +196,21 @@ fn convert_jaeger_span(
         EventType::Sql => None,
     };
 
-    // Source endpoint and method from tags (best effort)
-    let endpoint = find_tag(tags, "http.route")
-        .or_else(|| find_tag(tags, "http.target"))
-        .unwrap_or_default();
-    let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
-
-    // code.* attributes from span tags.
+    // code.* attributes from span tags. Jaeger has no parent walk, so these
+    // only resolve when the span carries them itself.
     let code_function: Option<Arc<str>> = find_tag(tags, "code.function").map(Arc::from);
     let code_filepath: Option<Arc<str>> = find_tag(tags, "code.filepath").map(Arc::from);
     let code_lineno = find_tag(tags, "code.lineno").and_then(|s| s.parse::<u32>().ok());
     let code_namespace: Option<Arc<str>> = find_tag(tags, "code.namespace").map(Arc::from);
+
+    // Source endpoint and method from tags (best effort)
+    let endpoint = find_tag(tags, "http.route")
+        .or_else(|| find_tag(tags, "http.target"))
+        .or_else(|| {
+            crate::ingest::code_frame_endpoint(code_namespace.as_deref(), code_function.as_deref())
+        })
+        .unwrap_or_default();
+    let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
     let mut event = SpanEvent {
         timestamp: micros_to_iso8601(span.start_time),
@@ -555,6 +559,36 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "/api/orders/42");
+    }
+
+    #[test]
+    fn code_frame_used_when_no_http_tag() {
+        // Non-HTTP entry point: without the code frame the endpoint would be
+        // empty, which names no origin and collides in the ack signature.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "query",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "db.statement", "value": "SELECT 1" },
+                        { "key": "db.system", "value": "postgresql" },
+                        { "key": "code.function", "value": "execute" },
+                        { "key": "code.namespace", "value": "com.foo.PurgeJob" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
     }
 
     #[test]

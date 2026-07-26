@@ -1641,6 +1641,186 @@ fn java_rules_match_via_derived_namespace() {
     assert!(ns.contains("org.springframework.data.jpa"));
 }
 
+// ── Endpoint fallback on the code frame (non-HTTP entry points) ──
+
+#[test]
+fn endpoint_falls_back_to_code_frame() {
+    // Scheduled job: no HTTP attribute anywhere, so the endpoint used to be
+    // "unknown". The parent's code frame names the origin instead.
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "PurgeNotificationJob.execute".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![
+            make_kv("code.function", "execute"),
+            make_kv("code.namespace", "com.foo.scheduler.PurgeNotificationJob"),
+        ],
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("web-notification", vec![parent, child]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql child event present");
+    assert_eq!(
+        sql.source.endpoint,
+        "com.foo.scheduler.PurgeNotificationJob.execute"
+    );
+}
+
+#[test]
+fn endpoint_code_frame_resolves_through_two_ancestors() {
+    // Measured Quartz layout: jdbc -> hibernate -> spring-data, where only
+    // the spring-data span carries code.*. The endpoint must follow the same
+    // ancestor walk the code attributes already use.
+    let job = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "job".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![make_kv(
+            "code.function.name",
+            "com.foo.repository.NotificationRepository.findByHash",
+        )],
+        ..Default::default()
+    };
+    let hibernate = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        name: "SELECT com.foo.Notification".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 500_000_000,
+        attributes: vec![],
+        ..Default::default()
+    };
+    let jdbc = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("web-notification", vec![job, hibernate, jdbc]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql leaf event present");
+    // Fully qualified already: the derived namespace must not be repeated.
+    assert_eq!(
+        sql.source.endpoint,
+        "com.foo.repository.NotificationRepository.findByHash"
+    );
+}
+
+#[test]
+fn endpoint_http_route_wins_over_code_frame() {
+    // A parent carrying both must keep its HTTP route, or every existing
+    // HTTP finding changes signature.
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /api/orders".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![
+            make_kv("http.route", "POST /api/orders"),
+            make_kv("code.function", "createOrder"),
+            make_kv("code.namespace", "com.foo.OrderController"),
+        ],
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("order-svc", vec![parent, child]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql child event present");
+    assert_eq!(sql.source.endpoint, "POST /api/orders");
+}
+
+#[test]
+fn endpoint_code_frame_survives_secret_stripping() {
+    // `strip_endpoint_secrets` truncates at the first '#', so the separator
+    // must not be the Java-idiomatic `Class#method`.
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "job".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![
+            make_kv("code.function", "execute"),
+            make_kv("code.namespace", "com.foo.Job"),
+        ],
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("svc", vec![parent, child]);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql child event present");
+    assert!(
+        sql.source.endpoint.ends_with("execute"),
+        "method half was stripped: {}",
+        sql.source.endpoint
+    );
+}
+
+#[test]
+fn endpoint_code_frame_separates_two_jobs_sharing_a_statement() {
+    // The defect this fallback fixes: both jobs used to report "unknown", so
+    // the same statement gave them one ack signature and acking either hid
+    // the other.
+    let job_endpoint = |ns: &str, span_seed: u8| {
+        let parent = Span {
+            trace_id: vec![span_seed; 16],
+            span_id: vec![10; 8],
+            parent_span_id: vec![],
+            name: "job".to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 1_000_000_000,
+            attributes: vec![
+                make_kv("code.function", "execute"),
+                make_kv("code.namespace", ns),
+            ],
+            ..Default::default()
+        };
+        let child = make_sql_span(
+            &[span_seed; 16],
+            &[20; 8],
+            &[10; 8],
+            "SELECT * FROM notification WHERE id = 1",
+            0,
+            1_000_000,
+        );
+        let req = make_request("web-notification", vec![parent, child]);
+        convert_otlp_request(&req)
+            .into_iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql child event present")
+            .source
+            .endpoint
+    };
+
+    let purge = job_endpoint("com.foo.scheduler.PurgeNotificationJob", 1);
+    let resend = job_endpoint("com.foo.scheduler.ResendNotificationJob", 2);
+
+    assert_ne!(purge, resend);
+    assert_ne!(purge, "unknown");
+}
+
 // ── OTLP/HTTP handler with gzip decompression ───────────────────
 
 #[cfg(feature = "daemon")]
