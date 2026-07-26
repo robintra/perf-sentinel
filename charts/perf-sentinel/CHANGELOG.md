@@ -16,9 +16,10 @@ version, to know which daemon image ships.
 
 - The embedded `config.toml` documents why `sampling_rate` stays at its
   `1.0` default, and where collector sampling belongs relative to the
-  daemon. Below 1.0 the waste ratio, the GreenOps figures and the
-  finding counts describe a sample of the traffic rather than a measure
-  of it. The same holds for a collector running `tail_sampling` in
+  daemon. Below 1.0 the finding counts and the Prometheus totals
+  describe a sample of the traffic rather than a measure of it, and a
+  rare pattern can be missed entirely. The same holds for a collector
+  running `tail_sampling` in
   front of the daemon, except perf-sentinel cannot detect that one at
   all, since a kept trace is indistinguishable from a complete one.
   Sampling exists to bound what a trace store retains and the daemon
@@ -28,10 +29,14 @@ version, to know which daemon image ships.
   `docs/HELM-DEPLOYMENT.md`. Comment-only change to the rendered
   ConfigMap, no behavior change.
 
-### Added
+### Changed (breaking for `workload.kind: DaemonSet`)
 
-- `workload.kind: DaemonSet` now fails the render unless
-  `workload.daemonset.spanRoutingByTraceId` is set to `true`.
+- `workload.kind: DaemonSet` now **fails the render** unless
+  `workload.daemonset.spanRoutingByTraceId` is set to `true`. A values
+  file that installed under 0.9.21 stops installing under 0.9.22, so a
+  CD pipeline tracking the chart with a `~0.9` or `^0.9` constraint
+  fails its next reconcile until the value is set. Everything else is
+  unaffected.
   Correlation is per-trace and in-memory, so spans of one trace landing
   on different pods are analyzed in pieces: N+1 groups fall under their
   threshold and the findings never appear. Nothing reports it, there is
