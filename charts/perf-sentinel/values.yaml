@@ -299,6 +299,18 @@ config:
     # 80-85 when resources.limits.memory is tight.
     # memory_high_water_pct = 0
 
+    # sampling_rate is deliberately left at its 1.0 default. Below 1.0 the
+    # daemon drops whole traces, so the waste ratio, the GreenOps figures and
+    # the finding counts all become a sample of the traffic rather than a
+    # measure of it. The report says so (a `tuning` entry in warning_details),
+    # but the numbers themselves do not carry the correction.
+    # The same applies to sampling applied upstream: a collector running
+    # tail_sampling in front of this daemon feeds it a fraction of the traffic,
+    # and there is no config here that can tell. Send perf-sentinel an
+    # unsampled pipeline where you can. See
+    # docs/HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon.
+    # sampling_rate = 1.0
+
     # [daemon.correlation]
     # enabled = true
     # window_minutes = 10
