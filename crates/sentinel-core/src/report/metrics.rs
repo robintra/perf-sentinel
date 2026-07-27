@@ -415,7 +415,7 @@ pub struct MetricsState {
     /// Stays at 0 when cloud energy is not configured.
     pub cloud_energy_last_scrape_age_seconds: Gauge,
     /// Duration histogram for spans exceeding the slow threshold, labeled
-    /// by event type (`sql` or `http_out`). Enables accurate global
+    /// by event type (`sql`, `http_out` or `messaging`). Enables accurate global
     /// percentile computation via `histogram_quantile()` across sharded
     /// daemon instances where cross-trace percentiles would otherwise be
     /// computed per-instance on a subset of traces.

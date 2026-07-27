@@ -34,14 +34,17 @@ domain = "example.fr"
 sci_specification = "ISO/IEC 21031:2024"
 # Patterns activated for this organisation. Must include the four
 # core-required patterns for an `intent = "official"` disclosure:
-# n_plus_one_sql, n_plus_one_http, redundant_sql, redundant_http.
+# n_plus_one_sql, n_plus_one_http, redundant_sql, redundant_http. The two
+# messaging patterns are optional, list them if the fleet runs a broker.
 enabled_patterns = [
     "n_plus_one_sql",
     "n_plus_one_http",
+    "n_plus_one_messaging",
     "redundant_sql",
     "redundant_http",
     "slow_sql",
     "slow_http",
+    "slow_messaging",
     "excessive_fanout",
     "chatty_service",
     "pool_saturation",

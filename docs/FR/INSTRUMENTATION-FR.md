@@ -390,10 +390,13 @@ perf-sentinel détecte les anti-patterns I/O en examinant des attributs de span 
 | Méthode HTTP      | `http.method`                             | `http.request.method`       | `GET`, `POST`                             |
 | Statut HTTP       | `http.status_code`                        | `http.response.status_code` | `200`, `404`                              |
 | Appelé RPC        | `rpc.system` + `rpc.service`/`rpc.method` | (idem)                      | `grpc`, `order.v1.OrderService/GetOrder`  |
+| Système de broker | `messaging.system`                        | (idem)                      | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
+| Destination broker | `messaging.destination`                  | `messaging.destination.name` | `orders`, `signature.jobs`               |
+| Taille du message | `messaging.message.body.size`             | (idem)                      | `4096`                                    |
 | Endpoint source   | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
 | Nom du service    | `service.name` (ressource)                | `service.name` (ressource)  | `game`, `account-svc`                     |
 
-Les spans qui ne portent aucun attribut SQL, HTTP ou RPC sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
+Les spans qui ne portent aucun attribut SQL, HTTP, RPC ou messaging sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
 
 Les spans RPC (gRPC, Dubbo et frameworks similaires) ne portent ni statement ni URL, ils sont donc identifiés par `rpc.system` et modélisés comme des appels sortants : la cible est `rpc.service/rpc.method` (avec repli sur le nom du span quand l'un des deux manque), et les findings apparaissent sous les types `_http`. Cela garde les détecteurs topologiques (fanout, bavard, sérialisé) et d'occurrence (n+1, redondant) opérationnels sur les flottes à dominante RPC. Les spans RPC ne portent pas de texte de requête, donc `n_plus_one_sql` et le normalizer SQL ne s'y appliquent jamais.
 

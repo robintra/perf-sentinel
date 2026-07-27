@@ -24,7 +24,7 @@ acknowledgments workflow, see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
 
 ## Tool
 
-`runs[].tool.driver` is always `{ name: "perf-sentinel", version: <CARGO_PKG_VERSION>, informationUri: "https://github.com/robintra/perf-sentinel" }`. The `rules` array pre-declares all 10 finding types regardless of how many results are emitted, so SARIF consumers can show rule descriptions even on a clean run.
+`runs[].tool.driver` is always `{ name: "perf-sentinel", version: <CARGO_PKG_VERSION>, informationUri: "https://github.com/robintra/perf-sentinel" }`. The `rules` array pre-declares all 12 finding types regardless of how many results are emitted, so SARIF consumers can show rule descriptions even on a clean run.
 
 ## Schema
 

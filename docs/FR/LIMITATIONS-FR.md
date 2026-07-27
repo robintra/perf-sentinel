@@ -5,6 +5,8 @@
 - [Fiabilité de la capture OTLP](#fiabilité-de-la-capture-otlp) : pourquoi perf-sentinel peut manquer des spans en tant qu'écouteur passif.
 - [La qualité de l'instrumentation borne les findings](#la-qualité-de-linstrumentation-borne-les-findings) : pourquoi un rapport maigre peut signaler une instrumentation manquante, pas un service sain.
 - [Les datastores non-SQL ne sont pas analysés](#les-datastores-non-sql-ne-sont-pas-analysés) : pourquoi les spans Redis, MongoDB et similaires sont écartés à l'ingestion.
+- [Messaging : côté producteur seulement, pas d'analyse des consommateurs](#messaging--côté-producteur-seulement-pas-danalyse-des-consommateurs) : pourquoi les spans consommateur sont écartés et les boucles de publication signalées largement.
+- [Messaging : traces producteur et consommateur reliées, pas fusionnées](#messaging--traces-producteur-et-consommateur-reliées-pas-fusionnées) : pourquoi le saut par le broker est navigable mais les deux traces restent distinctes.
 - [Tokenizer SQL](#tokenizer-sql) : compromis du normaliseur regex vs un parseur SQL complet.
 - [Paramètres bindés des ORM et classification N+1 vs redundant](#paramètres-bindés-des-orm-et-classification-n1-vs-redundant) : impact des placeholders nommés sur la classification.
 - [Redaction de la query string HTTP et visibilité des N+1](#redaction-de-la-query-string-http-et-visibilité-des-n1) : pourquoi les boucles N+1 sur paramètre de query sont invisibles avec les instrumentations qui redactent la query string.
