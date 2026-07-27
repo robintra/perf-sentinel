@@ -556,6 +556,7 @@ fn sanitizer_aware_heuristic_reclassifies_jpa_n_plus_one_end_to_end() {
             trace_id: "trace-jpa-sanitized".to_string(),
             span_id: format!("span-{i}"),
             parent_span_id: None,
+            link_trace_id: None,
             service: Arc::from("order-svc"),
             cloud_region: None,
             event_type: EventType::Sql,
@@ -633,6 +634,7 @@ fn sanitizer_aware_strict_reclassifies_vertx_reactive_n_plus_one_end_to_end() {
             trace_id: "trace-vertx-sanitized".to_string(),
             span_id: format!("span-{i}"),
             parent_span_id: Some("reactive-root-span".to_string()),
+            link_trace_id: None,
             service: Arc::from("mutiny-svc"),
             cloud_region: None,
             event_type: EventType::Sql,
@@ -856,4 +858,40 @@ fn mysql_stat_csv_and_json_fixtures_produce_same_entries() {
         assert_eq!(csv.schema_name, json.schema_name);
         assert!((csv.total_exec_time_ms - json.total_exec_time_ms).abs() < f64::EPSILON);
     }
+}
+
+/// A publish loop is detected on the producer side, and the broker hop stays
+/// navigable without the two traces being merged.
+#[test]
+fn messaging_chain_detects_publish_loop_and_keeps_traces_separate() {
+    let events = load_fixture("messaging_chain.json");
+    let traces = sentinel_core::correlate::correlate(sentinel_core::normalize::normalize_all(
+        events.clone(),
+    ));
+    assert_eq!(
+        traces.len(),
+        2,
+        "the producer and consumer traces stay apart"
+    );
+
+    let consumer = traces
+        .iter()
+        .find(|t| t.trace_id == "trace-consumer")
+        .expect("consumer trace");
+    assert_eq!(
+        consumer.spans[0].event.link_trace_id.as_deref(),
+        Some("trace-producer"),
+        "the link survives serde, normalize and correlate"
+    );
+
+    let report = pipeline::analyze(events, &Config::default());
+    let kinds: Vec<&str> = report
+        .findings
+        .iter()
+        .map(|f| f.finding_type.as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"n_plus_one_messaging"),
+        "five publishes to one topic are an N+1: {kinds:?}"
+    );
 }

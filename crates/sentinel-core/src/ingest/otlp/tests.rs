@@ -1056,6 +1056,136 @@ fn blank_destination_name_falls_back_to_the_legacy_key() {
     assert_eq!(events[0].target, "orders");
 }
 
+/// Producer trace id used by the span-link tests, distinct from the
+/// `vec![1; 16]` trace `make_bare_span` builds.
+const PRODUCER_TRACE: [u8; 16] = [0xab; 16];
+
+/// Consumer span carrying one link, with a SQL child underneath it.
+fn make_linked_consumer_pair(link_trace: Vec<u8>, consumer_kind: i32) -> Vec<Span> {
+    let mut consumer = make_bare_span(
+        &[31; 8],
+        vec![
+            make_kv("messaging.system", "kafka"),
+            make_kv("messaging.destination.name", "orders"),
+        ],
+    );
+    consumer.kind = consumer_kind;
+    consumer.links = vec![opentelemetry_proto::tonic::trace::v1::span::Link {
+        trace_id: link_trace,
+        span_id: vec![7; 8],
+        ..Default::default()
+    }];
+    let mut child = make_bare_span(
+        &[32; 8],
+        vec![
+            make_kv("db.system", "postgresql"),
+            make_kv("db.statement", "SELECT id FROM orders WHERE id = 1"),
+        ],
+    );
+    child.parent_span_id = vec![31; 8];
+    vec![consumer, child]
+}
+
+#[test]
+fn consumer_link_propagates_to_child_io_span() {
+    // The consumer span itself is not admitted, so the link has to reach the
+    // I/O spans of the handler for the chain to stay navigable.
+    let req = make_request(
+        "order-svc",
+        make_linked_consumer_pair(PRODUCER_TRACE.to_vec(), SPAN_KIND_CONSUMER),
+    );
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Sql);
+    assert_eq!(events[0].link_trace_id.as_deref(), Some(&*"ab".repeat(16)));
+}
+
+#[test]
+fn link_on_a_non_consumer_ancestor_is_ignored() {
+    // Batch span processors and follows-from relations emit links too.
+    // Reading those would invent edges between unrelated traces. A real
+    // CONSUMER rides along in another trace so the per-request gate is on
+    // and the walk actually runs, otherwise this test would pin nothing.
+    let mut spans = make_linked_consumer_pair(PRODUCER_TRACE.to_vec(), SPAN_KIND_CLIENT);
+    let mut decoy = make_bare_span(&[41; 8], vec![]);
+    decoy.trace_id = vec![9; 16];
+    decoy.kind = SPAN_KIND_CONSUMER;
+    decoy.links = vec![opentelemetry_proto::tonic::trace::v1::span::Link {
+        trace_id: PRODUCER_TRACE.to_vec(),
+        span_id: vec![7; 8],
+        ..Default::default()
+    }];
+    spans.push(decoy);
+    let req = make_request("order-svc", spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL child is admitted");
+    assert_eq!(sql.link_trace_id, None);
+}
+
+#[test]
+fn link_less_consumer_does_not_mask_a_linked_one_above() {
+    // Agents emit a link-less `process` span under the `receive` span that
+    // carries the links. Stopping at the first CONSUMER would lose the edge.
+    let mut receive = make_bare_span(&[51; 8], vec![]);
+    receive.kind = SPAN_KIND_CONSUMER;
+    receive.links = vec![opentelemetry_proto::tonic::trace::v1::span::Link {
+        trace_id: PRODUCER_TRACE.to_vec(),
+        span_id: vec![7; 8],
+        ..Default::default()
+    }];
+    let mut process = make_bare_span(&[52; 8], vec![]);
+    process.kind = SPAN_KIND_CONSUMER;
+    process.parent_span_id = vec![51; 8];
+    let mut child = make_bare_span(
+        &[53; 8],
+        vec![
+            make_kv("db.system", "postgresql"),
+            make_kv("db.statement", "SELECT 1"),
+        ],
+    );
+    child.parent_span_id = vec![52; 8];
+    let req = make_request("order-svc", vec![receive, process, child]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].link_trace_id.as_deref(),
+        Some(&*"ab".repeat(16)),
+        "the walk must pass the link-less process span"
+    );
+}
+
+#[test]
+fn same_trace_link_is_dropped() {
+    // A link that stays inside the trace adds nothing: the field means a
+    // broker boundary was crossed.
+    let req = make_request(
+        "order-svc",
+        make_linked_consumer_pair(vec![1; 16], SPAN_KIND_CONSUMER),
+    );
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].link_trace_id, None);
+}
+
+#[test]
+fn all_zero_link_trace_id_is_dropped() {
+    let req = make_request(
+        "order-svc",
+        make_linked_consumer_pair(vec![0; 16], SPAN_KIND_CONSUMER),
+    );
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].link_trace_id, None);
+}
+
 #[test]
 fn parent_span_url_full_used_when_neither_route_nor_url_present() {
     // OTel stable v1.21+ replaces http.url with url.full. Last-resort

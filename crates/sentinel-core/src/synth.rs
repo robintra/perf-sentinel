@@ -231,6 +231,7 @@ impl TraceCtx {
             trace_id: self.trace_id.clone(),
             span_id: format!("{}-s{idx}", self.trace_id),
             parent_span_id: None,
+            link_trace_id: None,
             service: Arc::clone(&self.service),
             cloud_region: Some(Arc::clone(&self.region)),
             event_type,

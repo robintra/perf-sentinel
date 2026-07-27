@@ -276,6 +276,8 @@ fn convert_zipkin_span(
         trace_id: span.trace_id.clone(),
         span_id: span.id.clone(),
         parent_span_id: span.parent_id.clone(),
+        // Zipkin v2 has no span links.
+        link_trace_id: None,
         service,
         // Zipkin endpoint metadata does not carry cloud region. Users
         // wanting multi-region scoring with Zipkin ingestion should set
