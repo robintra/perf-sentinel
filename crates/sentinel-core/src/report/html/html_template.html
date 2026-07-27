@@ -1270,10 +1270,12 @@
   var TYPE_LABEL = {
     n_plus_one_sql: "N+1 SQL",
     n_plus_one_http: "N+1 HTTP",
+    n_plus_one_messaging: "N+1 messaging",
     redundant_sql: "Redundant SQL",
     redundant_http: "Redundant HTTP",
     slow_sql: "Slow SQL",
     slow_http: "Slow HTTP",
+    slow_messaging: "Slow messaging",
     excessive_fanout: "Excessive fanout",
     chatty_service: "Chatty service",
     pool_saturation: "Pool saturation",
@@ -2164,10 +2166,12 @@
     switch (f.type || f.finding_type) {
       case "n_plus_one_sql": return n + " near-identical queries fired within a single trace.";
       case "n_plus_one_http": return n + " near-identical HTTP calls fired within a single trace.";
+      case "n_plus_one_messaging": return n + " messages published to one destination within a single trace.";
       case "redundant_sql": return n + " duplicate queries with identical parameters.";
       case "redundant_http": return n + " duplicate HTTP calls with identical parameters.";
       case "slow_sql": return "A query exceeding the latency budget.";
       case "slow_http": return "An HTTP call exceeding the latency budget.";
+      case "slow_messaging": return "A message publish exceeding the latency budget.";
       case "excessive_fanout": return n + " child calls fanned out from one parent span.";
       case "chatty_service": return n + " calls to the same downstream within a single trace.";
       case "pool_saturation": return "Connection pool saturated during the trace.";
@@ -2480,7 +2484,9 @@
       if (span.template) return span.template;
       return (span.operation || "GET").toUpperCase() + " " + (span.target || "");
     }
-    return span.operation || span.target || "(span)";
+    // Messaging: operation alone is just the broker name, the template
+    // carries the destination.
+    return span.template || span.operation || span.target || "(span)";
   }
 
   // Display label for a framework id: drop the "_generic" suffix (so

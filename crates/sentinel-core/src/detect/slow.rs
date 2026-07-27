@@ -69,6 +69,9 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
         let suggestion = match event_type {
             EventType::Sql => "Consider adding an index or optimizing query".to_string(),
             EventType::HttpOut => "Consider caching or optimizing endpoint".to_string(),
+            EventType::Messaging => {
+                "Consider batching messages or reducing payload size".to_string()
+            }
         };
 
         findings.push(super::build_per_trace_finding(super::PerTraceFindingArgs {
@@ -210,6 +213,7 @@ fn build_cross_trace_finding(
     let label = match event_type {
         EventType::Sql => "adding an index or optimizing query",
         EventType::HttpOut => "caching or optimizing endpoint",
+        EventType::Messaging => "batching messages or reducing payload size",
     };
     let suggestion = format!(
         "Cross-trace analysis: p50={:.1}ms, p95={:.1}ms, p99={:.1}ms across {n} occurrences. Consider {label}",
@@ -288,6 +292,30 @@ mod tests {
         assert_eq!(findings[0].severity, Severity::Warning);
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert!(findings[0].suggestion.contains("index"));
+    }
+
+    #[test]
+    fn detects_slow_messaging() {
+        let events: Vec<crate::event::SpanEvent> = (1..=3)
+            .map(|i| {
+                let mut e = make_http_event_with_duration(
+                    "t1",
+                    &format!("s{i}"),
+                    "orders",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                    600_000,
+                );
+                e.event_type = crate::event::EventType::Messaging;
+                e.operation = "kafka".to_string();
+                e
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect_slow(&trace, 500, 3);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::SlowMessaging);
+        assert!(findings[0].suggestion.contains("batching messages"));
     }
 
     #[test]

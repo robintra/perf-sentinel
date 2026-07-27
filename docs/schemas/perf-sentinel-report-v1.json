@@ -25,7 +25,8 @@
         "perf-sentinel-report/v1.1",
         "perf-sentinel-report/v1.2",
         "perf-sentinel-report/v1.3",
-        "perf-sentinel-report/v1.4"
+        "perf-sentinel-report/v1.4",
+        "perf-sentinel-report/v1.5"
       ]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
@@ -91,10 +92,12 @@
       "enum": [
         "n_plus_one_sql",
         "n_plus_one_http",
+        "n_plus_one_messaging",
         "redundant_sql",
         "redundant_http",
         "slow_sql",
         "slow_http",
+        "slow_messaging",
         "excessive_fanout",
         "chatty_service",
         "pool_saturation",

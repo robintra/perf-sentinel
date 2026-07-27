@@ -19,10 +19,12 @@ use super::schema::{
 const KNOWN_PATTERNS: &[&str] = &[
     "n_plus_one_sql",
     "n_plus_one_http",
+    "n_plus_one_messaging",
     "redundant_sql",
     "redundant_http",
     "slow_sql",
     "slow_http",
+    "slow_messaging",
     "excessive_fanout",
     "chatty_service",
     "pool_saturation",
@@ -1158,14 +1160,16 @@ mod tests {
         let count = match FindingType::NPlusOneSql {
             FindingType::NPlusOneSql
             | FindingType::NPlusOneHttp
+            | FindingType::NPlusOneMessaging
             | FindingType::RedundantSql
             | FindingType::RedundantHttp
             | FindingType::SlowSql
             | FindingType::SlowHttp
+            | FindingType::SlowMessaging
             | FindingType::ExcessiveFanout
             | FindingType::ChattyService
             | FindingType::PoolSaturation
-            | FindingType::SerializedCalls => 10,
+            | FindingType::SerializedCalls => 12,
         };
         assert_eq!(count, KNOWN_PATTERNS.len());
     }

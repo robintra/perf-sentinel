@@ -254,10 +254,11 @@ fn convert_jaeger_span(
         )
     };
 
-    // Operation
+    // Operation. This path never yields Messaging, its gate admits SQL and
+    // HTTP only, so messaging rides along with the outbound-call arm.
     let operation = match event_type {
         EventType::Sql => db_system.unwrap_or("sql").to_string(),
-        EventType::HttpOut => find_tag(tags, "http.method")
+        EventType::HttpOut | EventType::Messaging => find_tag(tags, "http.method")
             .or_else(|| find_tag(tags, "http.request.method"))
             .unwrap_or_else(|| "GET".to_string()),
     };
@@ -272,7 +273,7 @@ fn convert_jaeger_span(
 
     // Status code (HTTP only)
     let status_code = match event_type {
-        EventType::HttpOut => find_tag(tags, "http.status_code")
+        EventType::HttpOut | EventType::Messaging => find_tag(tags, "http.status_code")
             .or_else(|| find_tag(tags, "http.response.status_code"))
             .and_then(|s| s.parse().ok()),
         EventType::Sql => None,
@@ -306,7 +307,7 @@ fn convert_jaeger_span(
         EventType::Sql => find_tag(tags, "http.route")
             .or_else(|| find_tag(tags, "http.target"))
             .filter(|s| !s.trim().is_empty()),
-        EventType::HttpOut => None,
+        EventType::HttpOut | EventType::Messaging => None,
     }
     .unwrap_or_else(|| resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index));
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());

@@ -91,9 +91,10 @@ pub fn detect_n_plus_one(
 /// under which classification method.
 ///
 /// Returns `Some((distinct_params, classification_method))` to emit a
-/// finding, `None` to skip the group. Three emit paths:
+/// finding, `None` to skip the group. Four emit paths:
 /// - direct rule (`distinct_params >= threshold`): returns
 ///   `(distinct_params, None)`.
+/// - messaging (span count alone): returns `(1, None)`, one empty param set.
 /// - SQL sanitizer heuristic (gated on `mode` + `looks_sanitized`):
 ///   returns `(1, Some(ClassificationMethod::SanitizerHeuristic))`.
 /// - HTTP heuristic (gated on `mode` + timing variance): returns
@@ -107,6 +108,12 @@ fn classify_group(
 ) -> Option<(usize, Option<ClassificationMethod>)> {
     if indices.len() < threshold {
         return None;
+    }
+    // Messaging carries no params, so the rules below can never fire. N
+    // publishes to one destination are themselves the N+1, over a single
+    // (empty) param set.
+    if matches!(event_type, EventType::Messaging) {
+        return Some((1, None));
     }
     let distinct_params: HashSet<&[String]> = indices
         .iter()
@@ -156,6 +163,8 @@ fn classify_group(
                 Some(ClassificationMethod::SanitizerHeuristic),
             ))
         }
+        // Returned above, before the params are even collected.
+        EventType::Messaging => None,
     }
 }
 
@@ -249,6 +258,10 @@ fn build_finding(
         ),
         EventType::HttpOut => format!(
             "Use batch endpoint with ?ids=... to batch {} calls into one",
+            indices.len()
+        ),
+        EventType::Messaging => format!(
+            "Send {} messages as one batch instead of one publish per item",
             indices.len()
         ),
     };
