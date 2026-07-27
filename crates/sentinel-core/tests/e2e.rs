@@ -171,6 +171,7 @@ fn full_pipeline_runs_on_all_fixtures() {
         "n_plus_one_http.json",
         "clean_traces.json",
         "mixed.json",
+        "messaging_chain.json",
     ] {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);
