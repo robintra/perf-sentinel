@@ -7,7 +7,7 @@ description: |
   intensity per endpoint (GreenOps).
 type: application
 version: 0.9.22
-appVersion: "0.9.17"
+appVersion: "0.9.22"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,6 +36,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.9.22: source_endpoint resolves the inbound HTTP route by walking the parent chain instead of the direct parent only, then falls back to the code frame for entry points that carry no HTTP attribute (scheduled jobs, message consumers), on the OTLP, Jaeger and Zipkin paths alike. The daemon also warns when [daemon] sampling_rate makes its counts a sample. Breaking: findings whose endpoint was unknown change acknowledgment signature and must be re-recorded, see the application CHANGELOG migration notes. appVersion realigns with the chart version after the chart-only 0.9.18 through 0.9.21 releases."
     - kind: changed
       description: "Chart 0.9.22 (breaking for workload.kind=DaemonSet): the render now fails unless workload.daemonset.spanRoutingByTraceId is set to true, so a values file that installed under 0.9.21 stops installing here and a CD pipeline tracking the chart fails its next reconcile until the value is set. Correlation is per-trace and in-memory, so spans of one trace landing on different pods are analyzed in pieces: N+1 groups fall under their threshold and the findings never appear, with no error and no metric that moves. A plain Service in front of a DaemonSet round-robins and does split traces, which makes the naive setup the broken one. The opt-in is the operator asserting that an upstream collector routes by trace ID to these pods, for example the OTel loadbalancing exporter with routing_key traceID. Deployment with replicas 1 stays the default and recommended topology, and is unaffected."
     - kind: changed
@@ -166,7 +168,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.17
+      image: ghcr.io/robintra/perf-sentinel:0.9.22
       platforms:
         - linux/amd64
         - linux/arm64
