@@ -1011,29 +1011,12 @@ fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
         .sum()
 }
 
-/// Surface aggregated soft conditions in `Report.warning_details`, on
-/// top of the /metrics counters. Operators reading `/api/export/report`
-/// do not always scrape Prometheus, so a count of dropped requests
-/// visible here gives a fast "is the daemon backpressured?" signal.
-///
-/// The `tuning` entries are the daemon's settings advisor. Most rules
-/// compare a metric (lifetime counters, plus the point-in-time
-/// `active_traces` gauge for the trace-window rule, which therefore
-/// appears and disappears with the load) against the daemon config
-/// frozen at startup and, when a knob looks undersized for the
-/// observed load, emit a hint naming the knob, its current value and
-/// the suggested adjustment. The `sampling_rate` rule reads the config
-/// alone: it warns about how to read the report, not about a knob the
-/// load outgrew. All inputs are trusted (Prometheus counters and parsed
-/// config), so `Warning::new` applies.
-///
-/// Note: the cold-start branch in `handle_export_report` returns before
-/// reaching this helper. It appends [`sampling_rate_warning`] itself, since
-/// at rate 0.0 the daemon never leaves cold start and the cause would
-/// otherwise be invisible; the metric-driven kinds stay cold-start-exclusive.
 /// Config-only advisor rule on `[daemon] sampling_rate`. Ratios are left out
 /// on purpose: uniform per-trace sampling hits numerator and denominator
 /// alike, so the waste ratio stays readable.
+///
+/// Called from `collect_warning_details` and from the cold-start branch too:
+/// at rate 0.0 the daemon never leaves cold start.
 fn sampling_rate_warning(daemon: &crate::config::DaemonConfig) -> Option<crate::report::Warning> {
     use crate::report::warnings::TUNING;
     let rate = daemon.sampling_rate;
@@ -1059,6 +1042,24 @@ fn sampling_rate_warning(daemon: &crate::config::DaemonConfig) -> Option<crate::
     }
 }
 
+/// Surface aggregated soft conditions in `Report.warning_details`, on
+/// top of the /metrics counters. Operators reading `/api/export/report`
+/// do not always scrape Prometheus, so a count of dropped requests
+/// visible here gives a fast "is the daemon backpressured?" signal.
+///
+/// The `tuning` entries are the daemon's settings advisor. Most rules
+/// compare a metric (lifetime counters, plus the point-in-time
+/// `active_traces` gauge for the trace-window rule, which therefore
+/// appears and disappears with the load) against the daemon config
+/// frozen at startup and, when a knob looks undersized for the
+/// observed load, emit a hint naming the knob, its current value and
+/// the suggested adjustment. All inputs are trusted (Prometheus counters
+/// and parsed config), so `Warning::new` applies.
+///
+/// Note: the cold-start branch in `handle_export_report` returns before
+/// reaching this helper, so the metric-driven kinds never appear next to
+/// `cold_start`. Only [`sampling_rate_warning`], which reads no metric,
+/// is emitted on both paths.
 // Linear warning collector: one independent rule per tuning/ingestion
 // signal. Splitting scatters the rules without clarity gain.
 #[allow(clippy::too_many_lines)]
