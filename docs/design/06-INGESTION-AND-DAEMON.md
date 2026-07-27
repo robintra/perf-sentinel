@@ -32,7 +32,7 @@ for span in &scope.spans {
 
 `source.endpoint` resolves in three steps, each falling through to the next: the nearest inbound HTTP route up the chain (`http.route`, then `http.url`, then `url.full`), then the `code.*` frame for entry points that carry no HTTP attribute at all (scheduled jobs, message consumers), then the literal `"unknown"`. The walk is bounded by the same depth limit as the `code.*` walk. Resolving only the direct parent left every layered stack on `"unknown"`, since the route sits on the SERVER span two or more levels above a leaf JDBC span.
 
-The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. The span index is capped at 100,000 spans per resource to prevent memory exhaustion from pathological OTLP payloads. A `tracing::warn!` is emitted when the cap is reached to help operators diagnose degraded parent resolution.
+The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. One index is built per `service.name`, spanning every `ResourceSpans` block that service owns: the collector batch processor splits a single trace across blocks, and a per-block index lost the endpoint at the boundary. Services stay separate so a leaf cannot adopt a caller's route or `code.*` frame in a fan-in request, which would name a file in another repository. Each service's index is capped at 100,000 spans to prevent memory exhaustion from pathological OTLP payloads, so one noisy service cannot starve the others of parent lookup. A `tracing::warn!` is emitted when a cap is reached to help operators diagnose degraded parent resolution.
 
 ### `bytes_to_hex` lookup table
 

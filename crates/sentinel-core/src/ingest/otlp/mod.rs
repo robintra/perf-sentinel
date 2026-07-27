@@ -150,11 +150,14 @@ fn get_str_attribute<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
 
 use super::ANCESTOR_WALK_MAX_DEPTH as CODE_ATTRS_MAX_DEPTH;
 
-/// Hard cap on the per-resource span index used for parent lookup and scope
-/// attribution. Bounds memory and avoids quadratic walks on pathological
-/// payloads. Spans beyond the cap lose parent/scope attribution but are still
-/// converted into events.
-const MAX_SPANS_PER_RESOURCE: usize = 100_000;
+/// Hard cap on one service's span index, and on the per-block scope index.
+/// Bounds memory and avoids quadratic walks on pathological payloads. Spans
+/// beyond the cap lose parent/scope attribution but are still converted into
+/// events.
+const MAX_SPANS_PER_SERVICE: usize = 100_000;
+
+/// Parent-lookup index per `service.name`, built once for a whole request.
+type ServiceSpanIndexes<'a> = HashMap<&'a str, HashMap<&'a [u8], &'a Span>>;
 
 /// Code-frame attributes read from a single span's attribute set.
 ///
@@ -439,15 +442,19 @@ fn resolve_source_endpoint<'a>(
 // ── Main conversion function ────────────────────────────────────────
 
 /// Build a span index for parent lookup across the whole request (capped at
-/// [`MAX_SPANS_PER_RESOURCE`] spans).
+/// [`MAX_SPANS_PER_SERVICE`] spans).
 ///
-/// Request-wide, not per `ResourceSpans` block: the collector batch processor
-/// splits one trace across blocks of the same service, and a per-block index
-/// made the ancestor walk lose the endpoint at the boundary.
-fn build_span_index(request: &ExportTraceServiceRequest) -> HashMap<&[u8], &Span> {
-    let mut index: HashMap<&[u8], &Span> = HashMap::new();
-    let mut count = 0usize;
-    'outer: for resource_spans in &request.resource_spans {
+/// One index per service, spanning every `ResourceSpans` block that service
+/// owns: the batch processor splits one trace across blocks, and a per-block
+/// index lost the endpoint at the boundary. Services stay apart so a leaf
+/// cannot adopt a caller's frame or route, and each gets its own
+/// [`MAX_SPANS_PER_SERVICE`] budget.
+fn build_span_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes<'_> {
+    let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
+    for resource_spans in &request.resource_spans {
+        let index = per_service
+            .entry(resource_service_name(resource_spans))
+            .or_default();
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
                 // A span with no id would be indexed under the empty key, which
@@ -455,24 +462,35 @@ fn build_span_index(request: &ExportTraceServiceRequest) -> HashMap<&[u8], &Span
                 if span.span_id.is_empty() {
                     continue;
                 }
-                index.insert(&span.span_id, span);
-                count += 1;
-                if count >= MAX_SPANS_PER_RESOURCE {
+                if index.len() >= MAX_SPANS_PER_SERVICE {
                     tracing::warn!(
-                        "OTLP span index capped at {} entries, parent lookup may be degraded for remaining spans",
-                        MAX_SPANS_PER_RESOURCE
+                        "OTLP span index capped at {} entries for one service, parent lookup may be degraded for its remaining spans",
+                        MAX_SPANS_PER_SERVICE
                     );
-                    break 'outer;
+                    break;
                 }
+                index.insert(&span.span_id, span);
             }
         }
     }
-    index
+    per_service
+}
+
+/// `service.name` from the resource attributes, or `"unknown"`. Shared by the
+/// span index and the emitted events so both agree.
+fn resource_service_name(
+    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+) -> &str {
+    resource_spans
+        .resource
+        .as_ref()
+        .and_then(|r| get_str_attribute(&r.attributes, "service.name"))
+        .unwrap_or("unknown")
 }
 
 /// Build a `span_id -> instrumentation scope name` index alongside the
-/// span index. Same [`MAX_SPANS_PER_RESOURCE`] cap as `build_span_index`,
-/// entries beyond the cap simply lose scope attribution.
+/// span index. Same [`MAX_SPANS_PER_SERVICE`] cap, entries beyond it simply
+/// lose scope attribution.
 fn build_scope_index(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
 ) -> HashMap<&[u8], &str> {
@@ -486,7 +504,7 @@ fn build_scope_index(
         for span in &scope_spans.spans {
             index.insert(&span.span_id, scope_name);
             count += 1;
-            if count >= MAX_SPANS_PER_RESOURCE {
+            if count >= MAX_SPANS_PER_SERVICE {
                 break 'outer;
             }
         }
@@ -614,7 +632,7 @@ fn looks_like_query_execution(name: &str) -> bool {
 }
 
 /// One [`ClassifiedAttrs`] per span in iteration order, capped at
-/// [`MAX_SPANS_PER_RESOURCE`] (spans beyond the cap classify inline at
+/// [`MAX_SPANS_PER_SERVICE`] (spans beyond the cap classify inline at
 /// conversion). Shared by the stitch pre-pass and `convert_span` so each
 /// attribute list is scanned once per request.
 fn classify_resource_spans(
@@ -625,10 +643,10 @@ fn classify_resource_spans(
         .iter()
         .map(|s| s.spans.len())
         .sum();
-    let mut out = Vec::with_capacity(total.min(MAX_SPANS_PER_RESOURCE));
+    let mut out = Vec::with_capacity(total.min(MAX_SPANS_PER_SERVICE));
     'outer: for scope_spans in &resource_spans.scope_spans {
         for span in &scope_spans.spans {
-            if out.len() >= MAX_SPANS_PER_RESOURCE {
+            if out.len() >= MAX_SPANS_PER_SERVICE {
                 break 'outer;
             }
             out.push(classify_span_attrs(&span.attributes));
@@ -1074,21 +1092,18 @@ pub fn convert_otlp_request_counted(
     let mut events = Vec::new();
     let mut stats = SpanConversionStats::default();
 
-    // One index for the whole request: parent chains cross ResourceSpans
-    // blocks when the collector batch processor splits a trace.
-    let span_index = build_span_index(request);
+    // Parent chains cross ResourceSpans blocks when the batch processor
+    // splits a trace, but never cross services.
+    let span_indexes = build_span_indexes(request);
+    let empty_index = HashMap::new();
 
     for resource_spans in &request.resource_spans {
         // Build the per-Resource Arc<str> once, then Arc::clone into each span.
         // A resource_spans block routinely carries hundreds of spans for the
         // same service.name, so this collapses N allocations to one.
-        let service_arc: Arc<str> = Arc::from(
-            resource_spans
-                .resource
-                .as_ref()
-                .and_then(|r| get_str_attribute(&r.attributes, "service.name"))
-                .unwrap_or("unknown"),
-        );
+        let service_name = resource_service_name(resource_spans);
+        let service_arc: Arc<str> = Arc::from(service_name);
+        let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
 
         // cloud.region: resource-level with span-level fallback in convert_span.
         // Invalid values silently dropped (sanitization at ingest boundary).
@@ -1101,7 +1116,7 @@ pub fn convert_otlp_request_counted(
 
         let scope_index = build_scope_index(resource_spans);
         let classified = classify_resource_spans(resource_spans);
-        let stitch = compute_stitch_decisions(resource_spans, &span_index, &classified);
+        let stitch = compute_stitch_decisions(resource_spans, span_index, &classified);
 
         let mut span_idx = 0usize;
         for scope_spans in &resource_spans.scope_spans {
@@ -1121,7 +1136,7 @@ pub fn convert_otlp_request_counted(
                     span,
                     &service_arc,
                     resource_cloud_region.as_ref(),
-                    &span_index,
+                    span_index,
                     &scope_index,
                     stitched_statement,
                     cached_attrs,
@@ -1234,7 +1249,7 @@ fn classify_io_event(
 /// Owned attribute rebuild for the spans that cannot borrow the
 /// per-resource cache: stitched spans (statement adopted from a donor
 /// span, injected so the whole SQL tail runs unchanged) and spans beyond
-/// `MAX_SPANS_PER_RESOURCE`. `None` on the borrow-the-cache hot path.
+/// `MAX_SPANS_PER_SERVICE`. `None` on the borrow-the-cache hot path.
 fn rebuilt_classified<'a>(
     span: &'a Span,
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
