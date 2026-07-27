@@ -2110,6 +2110,47 @@ fn endpoint_walk_crosses_resource_block_boundaries() {
 }
 
 #[test]
+fn ancestor_walk_stops_at_the_service_boundary() {
+    // A collector fans several services into one request. The walk must not
+    // climb into the caller's block: its route names another service's entry
+    // point and its code frame lives in another repository.
+    let caller = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "GET /checkout".to_string(),
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes: vec![
+            make_kv("http.route", "GET /checkout"),
+            make_kv("code.function", "checkout"),
+            make_kv("code.namespace", "com.foo.frontend.CheckoutController"),
+        ],
+        ..Default::default()
+    };
+    // Same trace, child of the caller's span, but owned by another service.
+    let jdbc = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+
+    let mut req = make_request("frontend", vec![caller]);
+    req.resource_spans
+        .extend(make_request("orders", vec![jdbc]).resource_spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql event present");
+    assert_eq!(sql.service.as_ref(), "orders");
+    assert_eq!(sql.source.endpoint, "unknown");
+    assert!(
+        sql.code_function.is_none() && sql.code_namespace.is_none(),
+        "code frame must not come from another service, got {:?} / {:?}",
+        sql.code_function,
+        sql.code_namespace
+    );
+}
+
+#[test]
 fn endpoint_walks_past_an_unusable_leaf_frame() {
     // Driver-level instrumentation stamps a bare function name on the leaf.
     // It names no origin on its own, so the walk must keep going instead of
