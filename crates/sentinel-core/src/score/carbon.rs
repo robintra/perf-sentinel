@@ -973,6 +973,10 @@ pub(crate) fn energy_coefficient(event: &SpanEvent) -> f64 {
             Some(_) => HTTP_SMALL_COEFF,
             None => 1.0,
         },
+        // Unweighted on purpose: the HTTP size tiers encode a web payload
+        // distribution (1 MB is Kafka's default ceiling, not a large message),
+        // so reusing them would assert a discount nothing measures.
+        crate::event::EventType::Messaging => 1.0,
     }
 }
 

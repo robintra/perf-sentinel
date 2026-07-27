@@ -141,10 +141,12 @@ pub struct Finding {
 pub enum FindingType {
     NPlusOneSql,
     NPlusOneHttp,
+    NPlusOneMessaging,
     RedundantSql,
     RedundantHttp,
     SlowSql,
     SlowHttp,
+    SlowMessaging,
     ExcessiveFanout,
     ChattyService,
     PoolSaturation,
@@ -309,14 +311,18 @@ impl FindingType {
         match event_type {
             EventType::Sql => Self::NPlusOneSql,
             EventType::HttpOut => Self::NPlusOneHttp,
+            EventType::Messaging => Self::NPlusOneMessaging,
         }
     }
 
     #[must_use]
-    pub const fn from_event_type_redundant(event_type: &EventType) -> Self {
+    /// `None` for messaging: a publish carries no params, so redundancy is
+    /// not observable and `detect_redundant` skips those spans.
+    pub const fn from_event_type_redundant(event_type: &EventType) -> Option<Self> {
         match event_type {
-            EventType::Sql => Self::RedundantSql,
-            EventType::HttpOut => Self::RedundantHttp,
+            EventType::Sql => Some(Self::RedundantSql),
+            EventType::HttpOut => Some(Self::RedundantHttp),
+            EventType::Messaging => None,
         }
     }
 
@@ -325,6 +331,7 @@ impl FindingType {
         match event_type {
             EventType::Sql => Self::SlowSql,
             EventType::HttpOut => Self::SlowHttp,
+            EventType::Messaging => Self::SlowMessaging,
         }
     }
 
@@ -334,10 +341,12 @@ impl FindingType {
         match self {
             Self::NPlusOneSql => "n_plus_one_sql",
             Self::NPlusOneHttp => "n_plus_one_http",
+            Self::NPlusOneMessaging => "n_plus_one_messaging",
             Self::RedundantSql => "redundant_sql",
             Self::RedundantHttp => "redundant_http",
             Self::SlowSql => "slow_sql",
             Self::SlowHttp => "slow_http",
+            Self::SlowMessaging => "slow_messaging",
             Self::ExcessiveFanout => "excessive_fanout",
             Self::ChattyService => "chatty_service",
             Self::PoolSaturation => "pool_saturation",
@@ -356,12 +365,12 @@ impl FindingType {
     #[must_use]
     pub const fn rgesn_criteria(&self) -> &'static [&'static str] {
         match self {
-            Self::NPlusOneSql | Self::NPlusOneHttp => &["7.1", "6.1"],
+            Self::NPlusOneSql | Self::NPlusOneHttp | Self::NPlusOneMessaging => &["7.1", "6.1"],
             Self::RedundantSql | Self::RedundantHttp => &["7.1", "6.5"],
             Self::ChattyService => &["4.9", "4.10", "6.1"],
             Self::ExcessiveFanout | Self::PoolSaturation => &["3.2"],
             Self::SerializedCalls => &["8.10"],
-            Self::SlowSql | Self::SlowHttp => &[],
+            Self::SlowSql | Self::SlowHttp | Self::SlowMessaging => &[],
         }
     }
 
@@ -372,10 +381,12 @@ impl FindingType {
         match s {
             "n_plus_one_sql" => Some(Self::NPlusOneSql),
             "n_plus_one_http" => Some(Self::NPlusOneHttp),
+            "n_plus_one_messaging" => Some(Self::NPlusOneMessaging),
             "redundant_sql" => Some(Self::RedundantSql),
             "redundant_http" => Some(Self::RedundantHttp),
             "slow_sql" => Some(Self::SlowSql),
             "slow_http" => Some(Self::SlowHttp),
+            "slow_messaging" => Some(Self::SlowMessaging),
             "excessive_fanout" => Some(Self::ExcessiveFanout),
             "chatty_service" => Some(Self::ChattyService),
             "pool_saturation" => Some(Self::PoolSaturation),
@@ -390,10 +401,12 @@ impl FindingType {
         match self {
             Self::NPlusOneSql => "N+1 SQL",
             Self::NPlusOneHttp => "N+1 HTTP",
+            Self::NPlusOneMessaging => "N+1 messaging",
             Self::RedundantSql => "Redundant SQL",
             Self::RedundantHttp => "Redundant HTTP",
             Self::SlowSql => "Slow SQL",
             Self::SlowHttp => "Slow HTTP",
+            Self::SlowMessaging => "Slow messaging",
             Self::ExcessiveFanout => "Excessive fanout",
             Self::ChattyService => "Chatty service",
             Self::PoolSaturation => "Pool saturation",
@@ -411,7 +424,11 @@ impl FindingType {
     pub const fn is_avoidable_io(&self) -> bool {
         matches!(
             self,
-            Self::NPlusOneSql | Self::NPlusOneHttp | Self::RedundantSql | Self::RedundantHttp
+            Self::NPlusOneSql
+                | Self::NPlusOneHttp
+                | Self::NPlusOneMessaging
+                | Self::RedundantSql
+                | Self::RedundantHttp
         )
     }
 }
@@ -996,11 +1013,16 @@ mod tests {
         use crate::event::EventType;
         assert_eq!(
             FindingType::from_event_type_redundant(&EventType::Sql),
-            FindingType::RedundantSql
+            Some(FindingType::RedundantSql)
         );
         assert_eq!(
             FindingType::from_event_type_redundant(&EventType::HttpOut),
-            FindingType::RedundantHttp
+            Some(FindingType::RedundantHttp)
+        );
+        // A publish carries no params, so redundancy is not observable.
+        assert_eq!(
+            FindingType::from_event_type_redundant(&EventType::Messaging),
+            None
         );
     }
 

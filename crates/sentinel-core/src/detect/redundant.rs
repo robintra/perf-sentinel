@@ -26,6 +26,11 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
         HashMap::with_capacity(trace.spans.len().min(64));
 
     for (i, span) in trace.spans.iter().enumerate() {
+        // Messaging carries no params, so every publish to one destination
+        // would group as a duplicate. Two messages are never the same message.
+        if span.event.event_type == EventType::Messaging {
+            continue;
+        }
         groups
             .entry((&span.event.event_type, &span.template, &span.params))
             .or_default()
@@ -50,6 +55,9 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
         if n_plus_one_index.contains(&(&n_plus_one_type, *template)) {
             continue;
         }
+        let Some(finding_type) = FindingType::from_event_type_redundant(event_type) else {
+            continue;
+        };
 
         let first = &trace.spans[indices[0]];
         let severity = if indices.len() >= 5 {
@@ -66,7 +74,7 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
         );
 
         findings.push(Finding {
-            finding_type: FindingType::from_event_type_redundant(event_type),
+            finding_type,
             severity,
             trace_id: trace.trace_id.clone(),
             service: first.event.service.to_string(),

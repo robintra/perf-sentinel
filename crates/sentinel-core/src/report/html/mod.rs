@@ -761,6 +761,7 @@ fn embed_span(e: &NormalizedEvent) -> EmbeddedSpan<'_> {
         event_type: match e.event.event_type {
             EventType::Sql => "sql",
             EventType::HttpOut => "http_out",
+            EventType::Messaging => "messaging",
         },
         operation: e.event.operation.as_str(),
         // Only the masked template is embedded. The raw event.target (the

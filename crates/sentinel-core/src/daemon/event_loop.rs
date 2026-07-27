@@ -629,12 +629,16 @@ fn record_slow_durations(traces: &[Trace], detect_config: &DetectConfig, metrics
     let hist_http = metrics
         .slow_duration_seconds
         .with_label_values(&["http_out"]);
+    let hist_messaging = metrics
+        .slow_duration_seconds
+        .with_label_values(&["messaging"]);
     for trace in traces {
         for span in &trace.spans {
             if span.event.duration_us > slow_threshold_us {
                 let hist = match span.event.event_type {
                     crate::event::EventType::Sql => &hist_sql,
                     crate::event::EventType::HttpOut => &hist_http,
+                    crate::event::EventType::Messaging => &hist_messaging,
                 };
                 hist.observe(span.event.duration_us as f64 / 1_000_000.0);
             }

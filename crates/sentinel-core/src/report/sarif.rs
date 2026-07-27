@@ -199,10 +199,12 @@ fn finding_type_description(ft: &FindingType) -> &'static str {
     match ft {
         FindingType::NPlusOneSql => "N+1 SQL query pattern detected",
         FindingType::NPlusOneHttp => "N+1 HTTP call pattern detected",
+        FindingType::NPlusOneMessaging => "N+1 message publish pattern detected",
         FindingType::RedundantSql => "Redundant SQL query detected",
         FindingType::RedundantHttp => "Redundant HTTP call detected",
         FindingType::SlowSql => "Slow SQL query pattern detected",
         FindingType::SlowHttp => "Slow HTTP call pattern detected",
+        FindingType::SlowMessaging => "Slow message publish pattern detected",
         FindingType::ExcessiveFanout => "Excessive span fanout detected",
         FindingType::ChattyService => "Chatty service pattern detected",
         FindingType::PoolSaturation => "Connection pool saturation risk detected",
@@ -214,10 +216,12 @@ fn build_rules() -> Vec<SarifRule> {
     let variants = [
         FindingType::NPlusOneSql,
         FindingType::NPlusOneHttp,
+        FindingType::NPlusOneMessaging,
         FindingType::RedundantSql,
         FindingType::RedundantHttp,
         FindingType::SlowSql,
         FindingType::SlowHttp,
+        FindingType::SlowMessaging,
         FindingType::ExcessiveFanout,
         FindingType::ChattyService,
         FindingType::PoolSaturation,
@@ -578,12 +582,14 @@ mod tests {
         let report = make_report(vec![]);
         let sarif = report_to_sarif(&report);
         let rules = &sarif.runs[0].tool.driver.rules;
-        assert_eq!(rules.len(), 10);
+        assert_eq!(rules.len(), 12);
         assert_eq!(rules[0].id, "n_plus_one_sql");
-        assert_eq!(rules[6].id, "excessive_fanout");
-        assert_eq!(rules[7].id, "chatty_service");
-        assert_eq!(rules[8].id, "pool_saturation");
-        assert_eq!(rules[9].id, "serialized_calls");
+        assert_eq!(rules[2].id, "n_plus_one_messaging");
+        assert_eq!(rules[7].id, "slow_messaging");
+        assert_eq!(rules[8].id, "excessive_fanout");
+        assert_eq!(rules[9].id, "chatty_service");
+        assert_eq!(rules[10].id, "pool_saturation");
+        assert_eq!(rules[11].id, "serialized_calls");
     }
 
     #[test]

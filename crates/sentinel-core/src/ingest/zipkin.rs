@@ -212,9 +212,11 @@ fn convert_zipkin_span(
             )
         };
 
+    // This path never yields Messaging, its gate admits SQL and HTTP only,
+    // so messaging rides along with the outbound-call arm.
     let operation = match event_type {
         EventType::Sql => db_system.unwrap_or("sql").to_string(),
-        EventType::HttpOut => get_tag("http.method")
+        EventType::HttpOut | EventType::Messaging => get_tag("http.method")
             .or_else(|| get_tag("http.request.method"))
             .unwrap_or("GET")
             .to_string(),
@@ -230,7 +232,7 @@ fn convert_zipkin_span(
     let duration_us = span.duration.unwrap_or(0);
 
     let status_code = match event_type {
-        EventType::HttpOut => get_tag("http.status_code")
+        EventType::HttpOut | EventType::Messaging => get_tag("http.status_code")
             .or_else(|| get_tag("http.response.status_code"))
             .and_then(|s| s.parse().ok()),
         EventType::Sql => None,
@@ -261,7 +263,7 @@ fn convert_zipkin_span(
             .or_else(|| get_tag("http.target"))
             .filter(|s| !s.trim().is_empty())
             .map(ToString::to_string),
-        EventType::HttpOut => None,
+        EventType::HttpOut | EventType::Messaging => None,
     }
     .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
     let method = get_tag("code.function")

@@ -54,6 +54,17 @@ pub fn normalize(mut event: SpanEvent) -> NormalizedEvent {
                 params: result.params,
             }
         }
+        // A topic or queue name is already a template, it has no variable part
+        // to extract. Deliberately not routed through normalize_http, which
+        // would mask numeric segments as {id} and strip an SQS account id.
+        EventType::Messaging => {
+            let template = Arc::from(format!("{} {}", event.operation, event.target));
+            NormalizedEvent {
+                event,
+                template,
+                params: Vec::new(),
+            }
+        }
     }
 }
 

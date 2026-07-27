@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 pub enum EventType {
     Sql,
     HttpOut,
+    /// Message published to a broker (Kafka, `RabbitMQ`, Pulsar, SQS, ...).
+    /// Producer side only, see `ingest::otlp::classify_io_event`.
+    Messaging,
 }
 
 /// Source context for the span (which endpoint/method triggered it).
@@ -307,12 +310,11 @@ pub struct SpanEvent {
     pub source: EventSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_code: Option<u16>,
-    /// HTTP response body size in bytes, sourced from the `OTel`
-    /// `http.response.body.size` attribute (or legacy
-    /// `http.response_content_length`). Used by the carbon scoring stage
-    /// for HTTP payload size tier classification and network transport
-    /// energy estimation. `None` for SQL spans or when the attribute is
-    /// absent.
+    /// Payload size in bytes: the HTTP response body
+    /// (`http.response.body.size`, legacy `http.response_content_length`) or
+    /// the published message body (`messaging.message.body.size`). Drives the
+    /// HTTP carbon size tiers and network transport estimation. `None` for SQL
+    /// spans or when the attribute is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_size_bytes: Option<u64>,
     /// `OTel` `code.function` attribute.
