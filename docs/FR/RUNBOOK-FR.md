@@ -68,6 +68,55 @@ Pour les probes Kubernetes, utilisez l'endpoint dédié `GET /health` (toujours 
 
 Pour tout ce qui est plus ancien, la source de vérité est votre backend de traces (typiquement Grafana Tempo).
 
+### Ce qui survit à la fenêtre
+
+Trois durées de vie différentes coexistent, et le TTL de 30 s, le plus visible, est le plus court des trois. Aller chercher Tempo alors que l'archive contient déjà la réponse est l'erreur la plus fréquente.
+
+| Quoi                                      | Vit dans                                                         | Expire quand                                                                                                                                                                      |
+|-------------------------------------------|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Les spans (nécessaires à un explain tree) | La `TraceWindow` en mémoire                                      | `trace_ttl_ms` s'écoule, 30 s par défaut, ou éviction LRU au-delà de `max_active_traces`                                                                                          |
+| Les findings                              | Le ring buffer de findings                                       | Le ring dépasse `max_retained_findings` (10000). **Aucun TTL** : sur une flotte calme ils sont encore servis le lendemain, sur une flotte bavarde ils partent en quelques minutes |
+| Les findings, par fenêtre, sur disque     | L'archive NDJSON (`[daemon.archive]`)                            | Jamais, jusqu'à rotation ou purge                                                                                                                                                 |
+| Les corrélations cross-trace              | `/api/correlations` et `/api/export/report`, en direct seulement | Immédiatement. **Ni archivées, ni reproductibles hors ligne**, voir plus bas                                                                                                      |
+
+"Est-ce encore là après 3 heures" n'a donc pas de réponse temporelle pour les findings, seulement une réponse en volume. Les deux gauges qui disent à quelle distance du plafond vous êtes sont `perf_sentinel_stored_findings` et `perf_sentinel_max_retained_findings`, à lire comme un ratio :
+
+```bash
+curl -s http://perf-sentinel:4318/metrics \
+  | grep -E '^perf_sentinel_(stored|max_retained)_findings'
+```
+
+Si le ratio est proche de 1 en trafic normal, les findings sont évincés en quelques minutes et seule l'archive répondra à un post-mortem. Relever le plafond, c'est la recette "élargir la fenêtre live" plus bas dans cette section, et `max_retained_findings` est documenté dans [CONFIGURATION-FR.md](CONFIGURATION-FR.md) avec sa plage acceptée et son compromis de réglage.
+
+**Privilégiez l'archive quand elle est activée.** Si `[daemon.archive]` est configurée, le daemon écrit un `Report` par fenêtre d'analyse sous forme d'une ligne NDJSON, et ce fichier répond directement à "qu'a-t-on trouvé à 14h05", indépendamment de ce que le daemon garde encore en mémoire. Ce sont les mêmes données que `perf-sentinel disclose` agrège.
+
+```bash
+# Findings d'une fenêtre donnée, directement depuis l'archive
+jq -c 'select(.ts >= "2026-07-27T14:00:00Z" and .ts < "2026-07-27T15:00:00Z") | .report.findings[]' \
+  /var/lib/perf-sentinel/archive/*.ndjson
+```
+
+L'archivage est **désactivé par défaut** (`archive` non défini). S'il n'a jamais été configuré, rien n'a été écrit et le rejeu Tempo est la seule voie restante.
+
+**Les corrélations cross-trace ne sont pas récupérables après coup.** Le `Report` archivé porte un tableau `correlations` vide par construction, et l'`analyze` batch ne produit jamais de corrélations, donc un rejeu Tempo ne les reconstruira pas non plus. Si une corrélation compte pour un incident, elle doit être capturée pendant que le daemon la détient encore. Une fois la fenêtre glissante du corrélateur passée, cette sortie est définitivement perdue.
+
+**Capturer les corrélations périodiquement.** C'est la fenêtre glissante qui rend un scrape périodique fiable : une corrélation reste active pendant `[daemon.correlation] window_ms` (600000, soit 10 minutes par défaut), donc interroger l'API à la moitié de cet intervalle ne peut structurellement pas en manquer une.
+
+```bash
+# CronJob ou sidecar, toutes les 5 minutes
+curl -sf http://perf-sentinel:4318/api/correlations \
+  | jq -c --arg ts "$(date -u +%FT%TZ)" '{ts: $ts, correlations: .}' \
+  >> "$CORRELATIONS_LOG"
+```
+
+Utilisez plutôt `GET /api/export/report` si vous voulez findings et corrélations dans un même instantané cohérent.
+
+Deux points à connaître avant de s'appuyer dessus. `[daemon.correlation] enabled` vaut **`false` par défaut**, sans quoi il n'y a jamais rien à capturer. Et `/api/correlations` tronque sa réponse à 1000 entrées alors que le corrélateur en suit jusqu'à `max_tracked_pairs` (10000) : la troncature garde les paires de plus forte confiance, mais une flotte très corrélée ne sera pas capturée exhaustivement. Surveillez `perf_sentinel_correlator_pairs_evicted_total` pour savoir si vous touchez aussi le plafond interne.
+
+Archiver nativement les corrélations ne serait pas le changement de quatre lignes que la structure du code laisse croire. Le corrélateur porte un état glissant alors que l'archive écrit une ligne par fenêtre d'analyse : chaque ligne répéterait le même ensemble, soit environ 2 Mo par ligne au plafond de 10000 paires, de quoi remplir les 100 Mo par défaut de `max_size_mb` en une cinquantaine de lignes, presque uniquement de la duplication. Une implémentation correcte archiverait les corrélations nouvellement qualifiées en delta, pas l'instantané courant.
+
+**Un rejeu n'est pas identique à l'observation live.** Le champ `confidence` est estampillé par l'appelant du pipeline : les findings produits par le daemon en production portent `daemon_production`, alors que les mêmes traces rejouées via `tempo` ou `analyze` reviennent en `ci_batch` ou `local_batch`. Les consommateurs qui pondèrent la sévérité sur ce champ (perf-lint le fait) liront le rejeu comme un signal plus faible pour un trafic identique. Les signatures d'acquittement, elles, ne bougent pas : elles n'incluent pas le `trace_id`, donc un ack enregistré sur un finding live correspond toujours à son jumeau rejoué.
+
 **Workflow en quatre étapes.**
 
 ```
@@ -103,12 +152,13 @@ perf-sentinel analyze --input traces-dump.json
 
 **Ce qui ne marchera PAS.**
 
-| Tentative                                              | Pourquoi                                    |
-|--------------------------------------------------------|---------------------------------------------|
-| `curl /api/explain/<trace_id>` sur le daemon live      | Trace évincée après 30 s                    |
-| `curl /api/findings` pour reconstruire un explain tree | Le store garde les findings, pas les spans  |
-| Attendre que le daemon "refasse remonter" la trace     | Pas de persistance, pas d'endpoint de rejeu |
-| Redémarrer le daemon pour retrouver l'état             | Rien n'est persisté sur disque              |
+| Tentative                                              | Pourquoi                                                                                                                             |
+|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `curl /api/explain/<trace_id>` sur le daemon live      | Trace évincée après 30 s                                                                                                             |
+| `curl /api/findings` pour reconstruire un explain tree | Le store garde les findings, pas les spans                                                                                           |
+| Attendre que le daemon "refasse remonter" la trace     | Pas d'endpoint de rejeu, les spans ne sont écrits nulle part                                                                         |
+| Redémarrer le daemon pour retrouver les spans          | Les spans vivent en mémoire seulement. L'archive NDJSON persiste les findings quand `[daemon.archive]` est définie, jamais les spans |
+| Rejouer depuis Tempo pour retrouver une corrélation    | Les corrélations sont propres au daemon et ne sont pas archivées, l'analyse batch n'en produit aucune                                |
 
 **Prérequis.**
 
