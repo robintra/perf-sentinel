@@ -242,15 +242,8 @@ impl<'a> ClassifiedAttrs<'a> {
         let filepath = self.code_file_path.or(self.code_filepath);
         let lineno = self.code_line_number.or(self.code_lineno);
         let namespace = self.code_namespace.or_else(|| {
-            self.code_function_name.and_then(|fq| {
-                // PHP `\` fallback fires only when no `.` is present: PHP
-                // namespaces (`Doctrine\DBAL\Driver\Connection::query`) have no
-                // dots, dot-based languages always do, and Rust `::`-only names
-                // have neither, so other languages are unchanged.
-                fq.rsplit_once('.')
-                    .or_else(|| fq.rsplit_once('\\'))
-                    .map(|(ns, _)| ns)
-            })
+            self.code_function_name
+                .and_then(super::namespace_from_qualified_name)
         });
         CodeAttrs {
             function_name,
@@ -330,14 +323,8 @@ fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
             _ => {}
         }
     }
-    let namespace = namespace_explicit.or_else(|| {
-        function_name_stable.and_then(|fq| {
-            // PHP `\` fallback: see `code_attrs` for the precedence rationale.
-            fq.rsplit_once('.')
-                .or_else(|| fq.rsplit_once('\\'))
-                .map(|(ns, _)| ns)
-        })
-    });
+    let namespace = namespace_explicit
+        .or_else(|| function_name_stable.and_then(super::namespace_from_qualified_name));
     CodeAttrs {
         function_name: function_name_stable.or(function_name_legacy),
         filepath: filepath_stable.or(filepath_legacy),

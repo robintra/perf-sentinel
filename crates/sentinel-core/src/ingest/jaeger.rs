@@ -182,11 +182,10 @@ fn tag_code_frame(tags: &[JaegerTag]) -> Option<String> {
         .clone()
         .or_else(|| find_tag(tags, "code.function"));
     let namespace = find_tag(tags, "code.namespace").or_else(|| {
-        function_name.as_deref().and_then(|fq| {
-            fq.rsplit_once('.')
-                .or_else(|| fq.rsplit_once('\\'))
-                .map(|(ns, _)| ns.to_string())
-        })
+        function_name
+            .as_deref()
+            .and_then(crate::ingest::namespace_from_qualified_name)
+            .map(ToString::to_string)
     });
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function.as_deref())
 }
@@ -294,13 +293,10 @@ fn convert_jaeger_span(
         .and_then(|s| s.parse::<u32>().ok());
     let code_namespace: Option<Arc<str>> = find_tag(tags, "code.namespace")
         .or_else(|| {
-            // Derived from the FQ name like the OTLP path: last `.`, then `\`
-            // for PHP namespaces, which carry no dot.
-            code_function_name.as_deref().and_then(|fq| {
-                fq.rsplit_once('.')
-                    .or_else(|| fq.rsplit_once('\\'))
-                    .map(|(ns, _)| ns.to_string())
-            })
+            code_function_name
+                .as_deref()
+                .and_then(crate::ingest::namespace_from_qualified_name)
+                .map(ToString::to_string)
         })
         .map(Arc::from);
 

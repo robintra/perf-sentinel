@@ -142,11 +142,9 @@ fn tag_code_frame(span: &ZipkinSpan) -> Option<String> {
     let function_name = tag("code.function.name");
     let function = function_name.or_else(|| tag("code.function"));
     let namespace = tag("code.namespace").map(ToString::to_string).or_else(|| {
-        function_name.and_then(|fq| {
-            fq.rsplit_once('.')
-                .or_else(|| fq.rsplit_once('\\'))
-                .map(|(ns, _)| ns.to_string())
-        })
+        function_name
+            .and_then(crate::ingest::namespace_from_qualified_name)
+            .map(ToString::to_string)
     });
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function)
 }
@@ -251,13 +249,9 @@ fn convert_zipkin_span(
         .or_else(|| get_tag("code.lineno"))
         .and_then(|s| s.parse::<u32>().ok());
     let code_namespace: Option<Arc<str>> = get_tag("code.namespace").map(Arc::from).or_else(|| {
-        // Derived from the FQ name like the OTLP path: last `.`, then `\`
-        // for PHP namespaces, which carry no dot.
-        code_function_name.and_then(|fq| {
-            fq.rsplit_once('.')
-                .or_else(|| fq.rsplit_once('\\'))
-                .map(|(ns, _)| Arc::from(ns))
-        })
+        code_function_name
+            .and_then(crate::ingest::namespace_from_qualified_name)
+            .map(Arc::from)
     });
 
     // On a DB span an HTTP tag is the inbound route propagated onto it, so it
