@@ -14,6 +14,7 @@
 - [Détection des services bavards (chatty service)](#détection-des-services-bavards-chatty-service) : portée par-trace, HTTP uniquement.
 - [Détection de saturation du pool de connexions](#détection-de-saturation-du-pool-de-connexions) : heuristique basée sur le chevauchement des spans SQL, pas sur les métriques du pool.
 - [Détection des appels sérialisés](#détection-des-appels-sérialisés) : heuristique de niveau info sur les spans frères séquentiels.
+- [La résolution d'endpoint s'arrête à la requête d'export](#la-résolution-dendpoint-sarrête-à-la-requête-dexport) : pourquoi une trace découpée entre deux exports OTLP peut rapporter `unknown`.
 - [`rss_peak_bytes` sous Windows](#rss_peak_bytes-sous-windows) : pourquoi le RSS du bench est null sous Windows.
 - [Échantillonnage en amont et précision de la détection](#échantillonnage-en-amont-et-précision-de-la-détection) : pourquoi un échantillonnage head-based à 1-10% masque les patterns rares et fait taire la corrélation cross-trace.
 - [Échantillonnage en mode daemon](#échantillonnage-en-mode-daemon) : conséquences de `sampling_rate < 1.0`.
@@ -196,6 +197,33 @@ Considérations sur les faux positifs :
 Le détecteur remonte au maximum un finding par span parent : la plus longue sous-séquence non chevauchante (trouvée par programmation dynamique). Si un parent contient deux groupes distincts d'appels sérialisables séparés par des spans chevauchants, seul le groupe le plus long est rapporté.
 
 Les findings d'appels sérialisés ne sont PAS comptées comme I/O évitables. Elles représentent une opportunité d'optimisation de latence, pas une réduction d'I/O.
+
+## La résolution d'endpoint s'arrête à la requête d'export
+
+`source.endpoint` est résolu au moment de la conversion d'un span, en remontant
+sa chaîne d'ancêtres à l'intérieur de la requête d'export OTLP qui l'a porté. Un
+index est construit par `service.name`, couvrant tous les blocs `ResourceSpans`
+que ce service possède, si bien qu'un collector qui découpe une trace entre
+plusieurs blocs résout normalement, et qu'une remontée ne franchit jamais la
+frontière d'un autre service (la route d'un appelant nomme le point d'entrée
+d'un autre service, et son cadre de code vit dans un autre dépôt).
+
+La requête est la frontière extérieure, et le processeur `batch` du collector
+peut vider une même trace en deux exports. Un span dont la route ou le cadre de
+code a voyagé dans l'autre export se résout en `"unknown"`, ce qui est honnête
+mais entre en collision, dans la signature d'ack, avec tous les autres findings
+sans endpoint de ce service. C'est inhérent à une résolution faite au moment de
+la conversion : la corrélation a lieu plus tard, dans la fenêtre de traces, mais
+l'endpoint est déjà estampillé sur l'événement à ce moment-là.
+
+Mesure du lab sur une capture de 245 Mo couvrant 12 écosystèmes : 414 findings
+ont perdu leur endpoint de cette façon, tous sur une trace découpée entre
+plusieurs requêtes d'export, aucun sur une trace contenue dans une seule
+requête. Le phénomène se concentre sur les services qui instrumentent les deux
+côtés de leurs propres appels HTTP. Augmenter `send_batch_size` (ou baisser
+`timeout`) sur le processeur `batch` du collector, de sorte qu'une trace entière
+tienne dans un export, réduit le phénomène ; un processeur `groupbytrace` placé
+avant l'exporter le supprime, au prix d'une bufferisation.
 
 ## `rss_peak_bytes` sous Windows
 

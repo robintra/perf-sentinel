@@ -11,6 +11,7 @@
 - [Slow findings and waste ratio](#slow-findings-and-waste-ratio): why slow findings do not contribute to the I/O waste ratio.
 - [Score interpretation](#score-interpretation): the healthy / moderate / high / critical bands for `io_intensity_score` and `io_waste_ratio`.
 - [Fanout detection requires `parent_span_id`](#fanout-detection-requires-parent_span_id): instrumentation prerequisite.
+- [Endpoint resolution stops at the export request](#endpoint-resolution-stops-at-the-export-request): why a trace split across two OTLP exports can report `unknown`.
 - [`rss_peak_bytes` on Windows](#rss_peak_bytes-on-windows): why bench RSS is null on Windows.
 - [Upstream sampling and detection accuracy](#upstream-sampling-and-detection-accuracy): why 1-10% head-based sampling hides rare patterns and quiets cross-trace correlation.
 - [Sampling in daemon mode](#sampling-in-daemon-mode): consequences of `sampling_rate < 1.0`.
@@ -132,6 +133,31 @@ Enum values (`healthy`, `moderate`, `high`, `critical`) are stable across versio
 Fanout detection (`excessive_fanout`) relies on the `parent_span_id` field to build parent-child relationships between spans. If the tracing instrumentation does not propagate parent span IDs (some older OTel SDKs or custom instrumentations), fanout detection will not produce findings.
 
 Fanout findings, like slow findings, are **not** counted as avoidable I/O in the waste ratio. They represent a structural concern (too many child operations per parent) rather than eliminable I/O.
+
+## Endpoint resolution stops at the export request
+
+`source.endpoint` is resolved when a span is converted, by walking its ancestor
+chain inside the OTLP export request that carried it. One index is built per
+`service.name`, spanning every `ResourceSpans` block that service owns, so a
+collector that splits one trace across blocks resolves normally, and a walk
+never crosses into another service (a caller's route names another service's
+entry point, and its code frame lives in another repository).
+
+The request is the outer boundary, and the collector's `batch` processor can
+flush one trace as two exports. A span whose route or code frame travelled in
+the other export resolves to `"unknown"`, which is honest but collides in the
+ack signature with every other unknown-endpoint finding of that service. This
+is inherent to resolving at conversion time: correlation happens later, in the
+trace window, but the endpoint is already stamped on the event by then.
+
+Lab measurement on a 245 MB capture across 12 ecosystems: 414 findings lost
+their endpoint this way, every one of them on a trace split across more than
+one export request, and none on a trace contained in a single request. It
+concentrates on services that instrument both sides of their own HTTP calls.
+Raising `send_batch_size` (or lowering `timeout`) on the collector's `batch`
+processor so a whole trace tends to fit in one export reduces it; a
+`groupbytrace` processor ahead of the exporter removes it outright, at the cost
+of buffering.
 
 ## `rss_peak_bytes` on Windows
 
