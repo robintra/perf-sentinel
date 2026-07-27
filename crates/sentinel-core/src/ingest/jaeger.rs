@@ -167,7 +167,8 @@ fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
             if find_tag(&span.tags, "span.kind").as_deref() == Some("client") {
                 return None;
             }
-            find_tag(&span.tags, "http.url")
+            find_tag(&span.tags, "http.target")
+                .or_else(|| find_tag(&span.tags, "http.url"))
                 .or_else(|| find_tag(&span.tags, "url.full"))
                 .filter(usable)
         })
@@ -303,13 +304,15 @@ fn convert_jaeger_span(
         })
         .map(Arc::from);
 
-    // Source endpoint: own route tag first, then the ancestor walk.
-    let endpoint = find_tag(tags, "http.route")
-        .or_else(|| find_tag(tags, "http.target"))
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| {
-            resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index)
-        });
+    // On a DB span an HTTP tag is the inbound route propagated onto it, so it
+    // wins. On an outbound span it is the callee's path, so only the walk answers.
+    let endpoint = match event_type {
+        EventType::Sql => find_tag(tags, "http.route")
+            .or_else(|| find_tag(tags, "http.target"))
+            .filter(|s| !s.trim().is_empty()),
+        EventType::HttpOut => None,
+    }
+    .unwrap_or_else(|| resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index));
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
     let mut event = SpanEvent {
@@ -747,6 +750,51 @@ mod tests {
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
         assert_eq!(sql.source.endpoint, "POST /api/orders");
+    }
+
+    #[test]
+    fn walk_accepts_http_target_on_an_ancestor() {
+        // An SDK older than semconv 1.23 records http.target and no
+        // http.route. The leaf check accepted it, the walk must too.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [
+                    {
+                        "spanID": "s1",
+                        "operationName": "POST /api/orders",
+                        "references": [],
+                        "startTime": 1720621921123000,
+                        "duration": 5000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "http.target", "value": "/api/orders/42" }
+                        ]
+                    },
+                    {
+                        "spanID": "s2",
+                        "operationName": "query",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "s1" }],
+                        "startTime": 1720621921123200,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "db.statement", "value": "SELECT 1" },
+                            { "key": "db.system", "value": "postgresql" }
+                        ]
+                    }
+                ],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql leaf present");
+        assert_eq!(sql.source.endpoint, "/api/orders/42");
     }
 
     #[test]
