@@ -266,6 +266,7 @@
 <hr class="ps-hr">
 <h2 id="détection-de-régressions-sur-pr-sous-commande-diff" class="ps-h2">Détection de régressions sur PR (sous-commande <code class="ps-ic">diff</code>)</h2>
 <p class="ps-p">La sous-commande <code class="ps-ic">diff</code> compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est un check PR qui compare les traces de la branche PR à celles de la branche de base.</p>
+<p class="ps-p">Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur <code class="ps-ic">(type, service, source_endpoint, template)</code>, et <code class="ps-ic">source_endpoint</code> résout désormais des points d'entrée qui rapportaient auparavant <code class="ps-ic">unknown</code> (voir <a href="/docs/fr/ACKNOWLEDGMENTS#format-de-signature">Acquittements</a>). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages <code class="ps-ic">report --before baseline.json</code> ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à <code class="ps-ic">diff --before</code> ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--term-comment)"># .github/workflows/perf-sentinel-diff.yml</span>
 <span style="color:var(--code-sub)">name</span>: perf-sentinel diff
 
@@ -281,7 +282,7 @@
 <span style="color:var(--code-sub)">  diff</span>:
 <span style="color:var(--code-sub)">    runs-on</span>: ubuntu-latest
 <span style="color:var(--code-sub)">    env</span>:
-<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.9.17"
+<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.9.22"
 <span style="color:var(--code-sub)">    steps</span>:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 <span style="color:var(--code-sub)">        with</span>:

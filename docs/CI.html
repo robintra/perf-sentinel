@@ -266,6 +266,7 @@
 <hr class="ps-hr">
 <h2 id="pr-regression-detection-diff-subcommand" class="ps-h2">PR regression detection (<code class="ps-ic">diff</code> subcommand)</h2>
 <p class="ps-p">The <code class="ps-ic">diff</code> subcommand compares two trace sets and emits a delta report listing new findings, resolved findings, severity changes and per-endpoint I/O op count deltas. The natural fit is a PR check that compares the PR branch's traces against the base branch's traces.</p>
+<p class="ps-p">Upgrade note (0.9.22): finding identity is keyed on <code class="ps-ic">(type, service, source_endpoint, template)</code>, and <code class="ps-ic">source_endpoint</code> now resolves entry points that previously reported <code class="ps-ic">unknown</code> (see <a href="/docs/ACKNOWLEDGMENTS#signature-format">Acknowledgments</a>). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the <code class="ps-ic">report --before baseline.json</code> gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to <code class="ps-ic">diff --before</code> sees no churn at all, both sides are re-analyzed by the current binary.</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--term-comment)"># .github/workflows/perf-sentinel-diff.yml</span>
 <span style="color:var(--code-sub)">name</span>: perf-sentinel diff
 
@@ -281,7 +282,7 @@
 <span style="color:var(--code-sub)">  diff</span>:
 <span style="color:var(--code-sub)">    runs-on</span>: ubuntu-latest
 <span style="color:var(--code-sub)">    env</span>:
-<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.9.17"
+<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.9.22"
 <span style="color:var(--code-sub)">    steps</span>:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 <span style="color:var(--code-sub)">        with</span>:

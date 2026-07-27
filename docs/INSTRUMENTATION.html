@@ -391,19 +391,28 @@
 <span style="color:var(--code-sub)">    traces</span>:
 <span style="color:var(--code-sub)">      span</span>:
         - 'attributes["service.name"] == "health-check"'</code></pre></div>
-<p class="ps-p">Add the processor to the pipeline:</p>
+<p class="ps-p"><strong>Where to put the sampler.</strong> Sampling exists to bound what a trace store retains, and perf-sentinel retains nothing: it holds a per-trace window in memory for <code class="ps-ic">trace_ttl_ms</code> and drops it. So the cheapest correct layout is to fan out from the same receiver and sample only the branch that feeds storage:</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">service</span>:
 <span style="color:var(--code-sub)">  pipelines</span>:
-<span style="color:var(--code-sub)">    traces</span>:
+<span style="color:var(--term-comment)">    # Storage: sampled, because Tempo pays per byte retained.</span>
+    traces/tempo:
 <span style="color:var(--code-sub)">      receivers</span>: [otlp]
 <span style="color:var(--code-sub)">      processors</span>: [tail_sampling, batch]
+<span style="color:var(--code-sub)">      exporters</span>: [otlp/tempo]
+<span style="color:var(--term-comment)">    # Analysis: unsampled, because detection quality pays for it instead.</span>
+    traces/perf-sentinel:
+<span style="color:var(--code-sub)">      receivers</span>: [otlp]
+<span style="color:var(--code-sub)">      processors</span>: [filter, batch]
 <span style="color:var(--code-sub)">      exporters</span>: [otlp/perf-sentinel]</code></pre></div>
+<p class="ps-p">Sampling in front of perf-sentinel is supported, it is just lossy in ways the daemon cannot report: a kept trace is indistinguishable from a complete one, so nothing in the output says the numbers cover a tenth of the traffic. If volume forces you to narrow the analysis branch, narrow it by <strong>scope rather than by chance</strong>: route the namespaces or services you are actively working on and keep their figures whole, instead of a probabilistic sample that makes every service's figures partial.</p>
 <p class="ps-p"><strong>Sampling and detection accuracy</strong>.</p>
 <p class="ps-p">Anti-pattern detection relies on counting events. Sampling that drops events directly affects which patterns perf-sentinel can flag.</p>
 <ul>
 <li><strong>Within a kept trace, all spans are preserved</strong>. OTel and Jaeger sample per-trace, not per-span, so an N+1 loop, a chatty service hop or a fanout pattern that lives inside one request still detects cleanly as long as the parent trace is kept.</li>
 <li><strong>Head-based sampling breaks count-based detections</strong>. A 1% head-based policy drops 99% of traces before they reach the collector, so a 50-call N+1 loop is observed as 3 calls, well below any reasonable threshold. Same for chatty services, fanout, serialized parallelizable calls, pool saturation. Anything threshold-driven gets silently underreported.</li>
 <li><strong>Tail-based sampling stays compatible with detection</strong> because the policies you would write for incident review (keep errors, keep slow traces, keep specific services) are exactly the ones that surface anti-patterns. The <a href="https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">tail_sampling</code> processor</a> example above keeps everything under those policies plus a 10% probabilistic sample of the rest.</li>
+<li><strong>Counts are understated by any sampling, silently.</strong> Finding counts, occurrence counts and the Prometheus totals describe the traces that arrived, and nothing scales them back up. Ratios are more subtle: a uniform sampler hits numerator and denominator alike, so the I/O waste ratio survives it, but the <code class="ps-ic">errors</code> and <code class="ps-ic">slow</code> policies of a tail sampler bias retention toward heavy traces and the ratio drifts with them. perf-sentinel cannot detect upstream sampling, so it cannot warn about either. Do not publish those numbers as whole-traffic figures, which matters most for <code class="ps-ic">disclose</code>, whose whole purpose is publishing a measured figure. The daemon's own <code class="ps-ic">[daemon] sampling_rate</code> is the one case it can see, and it does emit a <code class="ps-ic">tuning</code> warning for it.</li>
+<li><strong>Cross-trace correlation goes quiet.</strong> <code class="ps-ic">[daemon.correlation] min_co_occurrences</code> needs a finding pair to recur inside the window. At a 10% sample the repeated co-occurrences rarely survive, so the correlator reports nothing even when the coupling is real. That silence is not evidence of a healthy topology.</li>
 <li><strong>CI runs should keep 100% of traces</strong>. Volume is low (one integration-test run), the cost of full instrumentation is negligible, and missing a regression because of sampling defeats the purpose of the CI gate. The Quick start sections above assume 100% sampling.</li>
 <li><strong><code class="ps-ic">pg-stat</code> mode is sampling-immune</strong>. <code class="ps-ic">pg_stat_statements</code> aggregates query counters server-side in PostgreSQL, regardless of what the application tracer captured. A query that runs 10 000 times shows up as 10 000 calls even if 99% of the parent traces were dropped at the head. Run <code class="ps-ic">perf-sentinel pg-stat ...</code> (or pass <code class="ps-ic">--pg-stat</code> to <code class="ps-ic">analyze</code> and <code class="ps-ic">report</code>) as a fallback when you cannot trust the trace volume, or as a primary signal for code paths the tracer does not even cover.</li>
 </ul>
