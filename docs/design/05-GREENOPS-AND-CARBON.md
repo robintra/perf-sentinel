@@ -126,7 +126,7 @@ The scoring pipeline resolves two dimensions independently for every span: **ene
 
 ### SCI v1.0 alignment
 
-perf-sentinel aligns its carbon model with the [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) specification (adopted as [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html); GSF current revision v1.1), matching the "SCI-aligned, directional" wording used everywhere else in the project: the I/O proxy covers a partial software boundary and the report publishes the numerator on its own schema rather than the per-R SCI reporting format. The formula is:
+perf-sentinel aligns its carbon model with the [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) specification (adopted as [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)), matching the "SCI-aligned, directional" wording used everywhere else in the project: the I/O proxy covers a partial software boundary and the report publishes the numerator on its own schema rather than the per-R SCI reporting format. The formula is:
 
 ```
 SCI = ((E × I) + M) per R
@@ -137,6 +137,12 @@ Where:
 - **`I`** = location-based carbon intensity of the grid (gCO₂eq/kWh)
 - **`M`** = embodied emissions from hardware manufacturing, amortized
 - **`R`** = functional unit (the "per X" denominator)
+
+**Which SCI revision, and why it does not change the model.** Two revisions exist. **v1.0** is the text adopted as ISO/IEC 21031:2024, and it is the one this document aligns with. **v1.1** is a later GSF editorial revision: per its release notes it renames "location-based marginal carbon intensity" to "region-specific carbon intensity", adds a definition of "carbon" as a broad term for all warming-relevant emissions, and restates operational emissions as "multiply the electricity consumption of the hardware the software is running on by the region-specific carbon intensity". The `((E x I) + M) per R` formula is untouched, so nothing in perf-sentinel's scoring depends on the choice.
+
+One v1.1 clarification is worth keeping in mind: it expands region-specific carbon intensity to distinguish grid from off-grid, and stresses that location-based information is what matters for eliminating emissions, to the exclusion of market-based measures. That is the position perf-sentinel already takes, it scores location-based only, which is also why `docs/SCHEMA.md` warns that the disclosed figure is not the market-based Scope 2 value ESRS separately requires.
+
+Elsewhere this document quotes the GSF text at **v1.1.0** on what modelled data the specification permits. That is deliberate: the quotation is checked against the freely readable GSF text, whereas the ISO publication is paywalled and was not consulted. Statements sourced that way are attributed to the GSF text, never to ISO/IEC 21031:2024.
 
 In perf-sentinel:
 - **`R = 1 trace`**: one user-facing request. Each correlated trace is one functional unit.

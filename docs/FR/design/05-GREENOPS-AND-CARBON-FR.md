@@ -126,7 +126,7 @@ Le pipeline de scoring résout deux dimensions indépendantes pour chaque span :
 
 ### Alignement SCI v1.0
 
-perf-sentinel aligne son modèle carbone sur la spécification [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) (adoptée comme [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html), révision GSF courante v1.1), en cohérence avec la formulation "aligné SCI, directionnel" utilisée partout ailleurs dans le projet : le proxy I/O couvre une frontière logicielle partielle et le rapport publie le numérateur sur son propre schéma plutôt que le format de rapport SCI par R. La formule est :
+perf-sentinel aligne son modèle carbone sur la spécification [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) (adoptée comme [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)), en cohérence avec la formulation "aligné SCI, directionnel" utilisée partout ailleurs dans le projet : le proxy I/O couvre une frontière logicielle partielle et le rapport publie le numérateur sur son propre schéma plutôt que le format de rapport SCI par R. La formule est :
 
 ```
 SCI = ((E × I) + M) per R
@@ -137,6 +137,12 @@ Où :
 - **`I`** = intensité carbone géographique du réseau (gCO₂eq/kWh)
 - **`M`** = émissions embodiées de fabrication matérielle, amorties
 - **`R`** = unité fonctionnelle (le dénominateur "par X")
+
+**Quelle révision du SCI, et pourquoi cela ne change pas le modèle.** Il existe deux révisions. La **v1.0** est le texte adopté sous ISO/IEC 21031:2024, et c'est celle sur laquelle ce document s'aligne. La **v1.1** est une révision éditoriale GSF postérieure : d'après ses notes de version, elle renomme "location-based marginal carbon intensity" en "region-specific carbon intensity", ajoute une définition de "carbon" comme terme générique pour toutes les émissions qui contribuent au réchauffement, et reformule les émissions opérationnelles en "multiply the electricity consumption of the hardware the software is running on by the region-specific carbon intensity". La formule `((E x I) + M) per R` est inchangée, donc rien dans le scoring de perf-sentinel ne dépend de ce choix.
+
+Une clarification de la v1.1 mérite d'être gardée en tête : elle étend l'intensité carbone région-spécifique pour distinguer le réseau électrique du hors-réseau, et souligne que c'est l'information géographique qui compte pour éliminer les émissions, à l'exclusion des mécanismes market-based. C'est déjà la position de perf-sentinel, qui ne score qu'en géographique, ce qui explique aussi pourquoi [SCHEMA-FR.md](../SCHEMA-FR.md) avertit que le chiffre publié n'est pas la valeur Scope 2 market-based qu'ESRS exige par ailleurs.
+
+Plus loin, ce document cite le texte GSF en **v1.1.0** sur les données modélisées que la spécification autorise. C'est délibéré : la citation est vérifiée contre le texte GSF librement lisible, alors que la publication ISO est payante et n'a pas été consultée. Les affirmations issues de cette source sont attribuées au texte GSF, jamais à ISO/IEC 21031:2024.
 
 Dans perf-sentinel :
 - **`R = 1 trace`** : une requête utilisateur. Chaque trace corrélée est une unité fonctionnelle.
