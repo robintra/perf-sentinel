@@ -115,7 +115,7 @@ Two things to know before relying on it. `[daemon.correlation] enabled` is **`fa
 
 Archiving correlations natively would not be the four-line change the code layout suggests. The correlator holds rolling state while the archive writes one line per analysis window, so every line would repeat the same set: at the 10000-pair cap that is roughly 2 MB per line, filling the default 100 MB `max_size_mb` in about fifty lines, nearly all of it duplication. A correct implementation would archive newly-qualifying correlations as a delta, not the running snapshot.
 
-**A replay is not byte-identical to the live observation.** The `confidence` field is stamped by the pipeline caller, so findings the daemon produced in production carry `daemon_production` while the same traces replayed through `tempo` or `analyze` come back as `ci_batch` or `local_batch`. Consumers that weight severity on that field (perf-lint does) will read the replay as a weaker signal for identical traffic. Acknowledgment signatures are unaffected: they do not include the `trace_id`, so an ack recorded against a live finding still matches its replayed twin.
+**A replay is not byte-identical to the live observation.** The `confidence` field is stamped by the pipeline caller, so findings the daemon produced in production carry `daemon_production` while the same traces replayed through `tempo` or `analyze` come back as `ci_batch` or `local_batch`. A consumer that weights severity on that field will read the replay as a weaker signal for identical traffic. Acknowledgment signatures are unaffected: they do not include the `trace_id`, so an ack recorded against a live finding still matches its replayed twin.
 
 **The four-step workflow.**
 
