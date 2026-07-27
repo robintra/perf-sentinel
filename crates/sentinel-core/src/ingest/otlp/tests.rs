@@ -865,6 +865,197 @@ fn rpc_span_with_blank_service_and_method_falls_back_to_span_name() {
     assert_eq!(events[0].target, "health.Check");
 }
 
+/// `SpanKind` discriminant for a message publish span.
+const SPAN_KIND_PRODUCER: i32 =
+    opentelemetry_proto::tonic::trace::v1::span::SpanKind::Producer as i32;
+/// `SpanKind` discriminant for a message processing span.
+const SPAN_KIND_CONSUMER: i32 =
+    opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32;
+
+#[test]
+fn producer_messaging_span_is_admitted_as_outbound_call() {
+    // Messaging semconv spans carry neither a statement nor a URL. One
+    // convention covers Kafka, RabbitMQ, Pulsar, SQS, NATS and JMS alike.
+    let mut span = make_bare_span(
+        &[21; 8],
+        vec![
+            make_kv("messaging.system", "kafka"),
+            make_kv("messaging.destination.name", "orders"),
+            make_kv("messaging.operation.type", "send"),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Messaging);
+    assert_eq!(events[0].target, "orders");
+    assert_eq!(events[0].operation, "kafka");
+}
+
+#[test]
+fn consumer_messaging_span_is_not_admitted() {
+    // A consumer describes work done on a delivered message, not an outbound
+    // call. Admitting it would attribute publishes the service never made,
+    // and a polling consumer would flood the occurrence detectors.
+    let mut span = make_bare_span(
+        &[22; 8],
+        vec![
+            make_kv("messaging.system", "kafka"),
+            make_kv("messaging.destination.name", "orders"),
+            make_kv("messaging.operation.type", "process"),
+        ],
+    );
+    span.kind = SPAN_KIND_CONSUMER;
+    let req = make_request("order-svc", vec![span]);
+    assert!(convert_otlp_request(&req).is_empty());
+}
+
+#[test]
+fn messaging_span_reads_the_legacy_destination_key() {
+    // Pre-1.21 agents emit messaging.destination, not .destination.name.
+    let mut span = make_bare_span(
+        &[23; 8],
+        vec![
+            make_kv("messaging.system", "rabbitmq"),
+            make_kv("messaging.destination", "signature.jobs"),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("signature-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "signature.jobs");
+    assert_eq!(events[0].operation, "rabbitmq");
+}
+
+#[test]
+fn messaging_span_without_destination_falls_back_to_span_name() {
+    // Agents name the span "<destination> publish"; use it when the
+    // destination attribute is absent or blank.
+    let mut span = make_bare_span(
+        &[24; 8],
+        vec![
+            make_kv("messaging.system", "pulsar"),
+            make_kv("messaging.destination.name", ""),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    span.name = "persistent://tenant/ns/topic publish".to_string();
+    let req = make_request("doc-worker", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "persistent://tenant/ns/topic publish");
+}
+
+#[test]
+fn messaging_span_keeps_the_message_body_size() {
+    // Feeds the carbon payload-size tiers, the same field HTTP fills from
+    // the response body size.
+    let mut span = make_bare_span(
+        &[25; 8],
+        vec![
+            make_kv("messaging.system", "kafka"),
+            make_kv("messaging.destination.name", "orders"),
+            make_int_kv("messaging.message.body.size", 4096),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].response_size_bytes, Some(4096));
+}
+
+#[test]
+fn sql_span_under_a_producer_still_reads_as_sql() {
+    // The messaging branch sits last in classify_io_event: a span carrying
+    // both a statement and messaging attributes is a SQL span, not a publish.
+    let mut span = make_bare_span(
+        &[26; 8],
+        vec![
+            make_kv("db.system", "postgresql"),
+            make_kv("db.statement", "SELECT id FROM outbox WHERE sent = false"),
+            make_kv("messaging.system", "kafka"),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Sql);
+}
+
+#[test]
+fn producer_span_with_rpc_attributes_still_reads_as_messaging() {
+    // The AWS SDK sets rpc.system on messaging spans. The RPC branch is gated
+    // on CLIENT in its condition, so a PRODUCER falls through to messaging
+    // instead of being dropped.
+    let mut span = make_bare_span(
+        &[27; 8],
+        vec![
+            make_kv("rpc.system", "aws-api"),
+            make_kv("rpc.service", "Sqs"),
+            make_kv("rpc.method", "SendMessage"),
+            make_kv("messaging.system", "aws.sqs"),
+            make_kv("messaging.destination.name", "signature-jobs"),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("signature-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::Messaging);
+    assert_eq!(events[0].target, "signature-jobs");
+}
+
+#[test]
+fn messaging_span_carrying_an_outbound_url_reads_as_http() {
+    // Pins the branch order: url.full is checked before messaging, so an
+    // emitter that sets both gets the HTTP path and its normalizer.
+    let mut span = make_bare_span(
+        &[28; 8],
+        vec![
+            make_kv(
+                "url.full",
+                "https://sqs.eu-west-3.amazonaws.com/123456789012/jobs",
+            ),
+            make_kv("messaging.system", "aws.sqs"),
+            make_kv("messaging.destination.name", "jobs"),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("signature-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
+}
+
+#[test]
+fn blank_destination_name_falls_back_to_the_legacy_key() {
+    let mut span = make_bare_span(
+        &[29; 8],
+        vec![
+            make_kv("messaging.system", "kafka"),
+            make_kv("messaging.destination.name", "  "),
+            make_kv("messaging.destination", "orders"),
+        ],
+    );
+    span.kind = SPAN_KIND_PRODUCER;
+    let req = make_request("order-svc", vec![span]);
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "orders");
+}
+
 #[test]
 fn parent_span_url_full_used_when_neither_route_nor_url_present() {
     // OTel stable v1.21+ replaces http.url with url.full. Last-resort

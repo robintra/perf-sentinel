@@ -209,6 +209,13 @@ struct ClassifiedAttrs<'a> {
     rpc_system: Option<&'a str>,
     rpc_service: Option<&'a str>,
     rpc_method: Option<&'a str>,
+    // Messaging semconv (Kafka, RabbitMQ, Pulsar, SQS, NATS, JMS): like RPC,
+    // a publish carries neither a statement nor a URL. See classify_io_event.
+    messaging_system: Option<&'a str>,
+    messaging_destination_name: Option<&'a str>,
+    // Pre-1.21 spelling, still emitted by older agents.
+    messaging_destination: Option<&'a str>,
+    messaging_body_size: Option<i64>,
     http_status_code: Option<i64>,
     http_response_status_code: Option<i64>,
     http_response_body_size: Option<i64>,
@@ -277,6 +284,12 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
             "rpc.system" => out.rpc_system = any_value_as_str(value),
             "rpc.service" => out.rpc_service = any_value_as_str(value),
             "rpc.method" => out.rpc_method = any_value_as_str(value),
+            "messaging.system" => out.messaging_system = any_value_as_str(value),
+            "messaging.destination.name" => {
+                out.messaging_destination_name = any_value_as_str(value);
+            }
+            "messaging.destination" => out.messaging_destination = any_value_as_str(value),
+            "messaging.message.body.size" => out.messaging_body_size = any_value_as_int(value),
             "http.status_code" => out.http_status_code = any_value_as_int(value),
             "http.response.status_code" => out.http_response_status_code = any_value_as_int(value),
             "http.response.body.size" => out.http_response_body_size = any_value_as_int(value),
@@ -671,6 +684,7 @@ fn classify_stitch_role<'a>(span: &Span, c: &ClassifiedAttrs<'a>) -> SpanRole<'a
         SpanRole::Donor(statement)
     } else if !has_http_signal(c)
         && c.rpc_system.is_none()
+        && c.messaging_system.is_none()
         && looks_like_query_execution(&span.name)
     {
         SpanRole::Orphan {
@@ -1170,10 +1184,11 @@ fn span_filter_reason(
     }
 }
 
-/// Classify an analyzable span as SQL or outbound HTTP, returning
-/// `(event_type, target, operation)`. `None` when it carries no statement,
-/// no URL, and no RPC client method. `kind` is the OTLP `SpanKind`, used to
-/// admit only CLIENT-side RPC spans. Supports both legacy (pre-1.21) and
+/// Classify an analyzable span as SQL, outbound HTTP or a message publish,
+/// returning `(event_type, target, operation)`. `None` when it carries no
+/// statement, no URL, no RPC client method and no messaging destination.
+/// `kind` is the OTLP `SpanKind`, used to admit only CLIENT-side RPC spans
+/// and PRODUCER-side messaging spans. Supports both legacy (pre-1.21) and
 /// stable (1.21+) `OTel` semantic conventions.
 fn classify_io_event(
     c: &ClassifiedAttrs<'_>,
@@ -1202,7 +1217,11 @@ fn classify_io_event(
             .unwrap_or("GET")
             .to_string();
         Some((EventType::HttpOut, url.to_string(), method))
-    } else if let Some(system) = c.rpc_system {
+    } else if let Some(system) = c.rpc_system.filter(|_| {
+        // Gated here, not in the body, so a non-CLIENT span carrying rpc.*
+        // still reaches the messaging branch instead of being dropped.
+        kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32
+    }) {
         // RPC (gRPC, Dubbo, ...): no statement or URL, but rpc.service +
         // rpc.method identify the callee. Only the CLIENT span is the
         // outbound call: rpc.* is set on the inbound SERVER handler span too
@@ -1213,11 +1232,6 @@ fn classify_io_event(
         // "service/method", falling back to the span name (the gRPC
         // "package.Service/Method" convention) when either key is absent or
         // blank.
-        let is_client =
-            kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32;
-        if !is_client {
-            return None;
-        }
         let svc = c.rpc_service.filter(|s| !s.is_empty());
         let method = c.rpc_method.filter(|s| !s.is_empty());
         let target = match (svc, method) {
@@ -1228,9 +1242,55 @@ fn classify_io_event(
             return None;
         }
         Some((EventType::HttpOut, target, system.to_string()))
+    } else if c.messaging_system.is_some() {
+        classify_messaging_event(c, span_name, kind)
     } else {
         None
     }
+}
+
+/// Payload size for the carbon size tiers: the HTTP response body, or the
+/// published message body. `None` for SQL.
+fn payload_size_bytes(event_type: &EventType, c: &ClassifiedAttrs<'_>) -> Option<u64> {
+    match event_type {
+        EventType::HttpOut => c.http_response_body_size.or(c.http_response_content_length),
+        EventType::Messaging => c.messaging_body_size,
+        EventType::Sql => None,
+    }
+    .and_then(|v| u64::try_from(v).ok())
+}
+
+/// Message publish, or `None` when the span is not the producer side.
+///
+/// One convention covers Kafka, `RabbitMQ`, Pulsar, SQS, NATS and JMS. PRODUCER
+/// only: a consumer describes work on a delivered message, and a polling one
+/// would flood the occurrence detectors. Target is the destination, else the
+/// span name (agents shape it `<destination> publish`).
+fn classify_messaging_event(
+    c: &ClassifiedAttrs<'_>,
+    span_name: &str,
+    kind: i32,
+) -> Option<(EventType, String, String)> {
+    let system = c.messaging_system.filter(|s| !s.trim().is_empty())?;
+    if kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Producer as i32 {
+        return None;
+    }
+    // Blank per field, so an empty destination.name does not shadow the
+    // legacy key.
+    let target = c
+        .messaging_destination_name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            c.messaging_destination
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
+        .map_or_else(|| span_name.trim().to_string(), ToString::to_string);
+    if target.is_empty() {
+        return None;
+    }
+    Some((EventType::Messaging, target, system.to_string()))
 }
 
 /// Owned attribute rebuild for the spans that cannot borrow the
@@ -1255,6 +1315,7 @@ fn rebuilt_classified<'a>(
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
 ///
 /// Non-I/O spans return the filter reason so the caller can tally them.
+#[allow(clippy::too_many_arguments)] // per-request context, each one distinct
 fn convert_span<'a>(
     span: &'a Span,
     service_arc: &Arc<str>,
@@ -1310,15 +1371,7 @@ fn convert_span<'a>(
         None
     };
 
-    // Response body size (HTTP only, for carbon scoring payload tiers).
-    let response_size_bytes = if event_type == EventType::HttpOut {
-        classified
-            .http_response_body_size
-            .or(classified.http_response_content_length)
-            .and_then(|v| u64::try_from(v).ok())
-    } else {
-        None
-    };
+    let response_size_bytes = payload_size_bytes(&event_type, classified);
 
     // code.* attributes: leaf attrs first, walk parents only when empty.
     // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
