@@ -127,6 +127,20 @@ pub(crate) const ANCESTOR_WALK_MAX_DEPTH: usize = 8;
 /// Python), `\` (PHP), `::` (Rust, C++), `#` (Ruby, javadoc).
 const CODE_FRAME_SEPARATORS: [char; 4] = ['.', '\\', ':', '#'];
 
+/// Namespace half of a fully-qualified `code.function.name`, shared by the
+/// OTLP, Jaeger and Zipkin paths so they derive it identically.
+///
+/// The `\` fallback fires only when no `.` is present: PHP namespaces
+/// (`Doctrine\DBAL\Driver\Connection::query`) carry no dot, dot-based
+/// languages always do, and Rust `::`-only names have neither, so other
+/// languages are unchanged.
+#[must_use]
+pub(crate) fn namespace_from_qualified_name(fq: &str) -> Option<&str> {
+    fq.rsplit_once('.')
+        .or_else(|| fq.rsplit_once('\\'))
+        .map(|(ns, _)| ns)
+}
+
 /// Reject what must not become an endpoint: blanks, and control characters,
 /// which `sanitize_span_event` already drops from the `code_*` fields and
 /// which `source.endpoint` does not filter on its own.
@@ -245,6 +259,24 @@ mod tests {
         NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, code_frame_endpoint,
         is_non_sql_db_system, is_sql_db_system,
     };
+
+    #[test]
+    fn namespace_derivation_matches_each_language() {
+        use super::namespace_from_qualified_name as ns;
+        // Dot wins wherever one exists, `\` only serves PHP, and a name that
+        // qualifies with neither has no namespace to derive. The PHP result is
+        // a prefix of the qualified name, which `code_frame_endpoint` then
+        // keeps whole rather than concatenating.
+        assert_eq!(ns("com.foo.PurgeJob.execute"), Some("com.foo.PurgeJob"));
+        assert_eq!(ns("Slim\\App::handle"), Some("Slim"));
+        assert_eq!(
+            code_frame_endpoint(ns("Slim\\App::handle"), Some("Slim\\App::handle")),
+            None,
+            "framework frame, denied whichever way the namespace derives"
+        );
+        assert_eq!(ns("myapp::worker::run"), None);
+        assert_eq!(ns("execute"), None);
+    }
 
     #[test]
     fn code_frame_endpoint_joins_legacy_pair() {
