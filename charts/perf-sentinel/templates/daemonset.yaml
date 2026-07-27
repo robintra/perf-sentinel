@@ -1,5 +1,5 @@
 {{- if eq .Values.workload.kind "DaemonSet" -}}
-{{- if not .Values.workload.daemonset.spanRoutingByTraceId }}
+{{- if not (.Values.workload.daemonset).spanRoutingByTraceId }}
 {{- fail "daemonset.yaml: workload.kind is DaemonSet but workload.daemonset.spanRoutingByTraceId is false. Correlation is per-trace and in-memory, so spans of one trace landing on different pods are analyzed in pieces: N+1 groups fall under their threshold and disappear, with no error and no metric to notice it by. A Service in front of a DaemonSet round-robins, so it does split them. Use workload.kind=Deployment with replicas=1 (the recommended topology), or set spanRoutingByTraceId=true if an upstream collector routes by trace ID to these pods." }}
 {{- end }}
 apiVersion: apps/v1
