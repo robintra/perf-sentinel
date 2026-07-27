@@ -92,13 +92,19 @@ struct ZipkinEndpoint {
 // ── Conversion ─────────────────────────────────────────────────────
 
 fn convert_zipkin_spans(spans: &[ZipkinSpan]) -> Vec<SpanEvent> {
-    // Span index for the ancestor walk, keyed by (trace, id) since one
-    // payload can interleave spans of many traces.
-    let span_index: HashMap<(&str, &str), &ZipkinSpan> = spans
-        .iter()
-        .filter(|s| !s.id.is_empty())
-        .map(|s| ((s.trace_id.as_str(), s.id.as_str()), s))
-        .collect();
+    // Keyed by (trace, id): one payload interleaves traces, and both halves
+    // of a shared RPC span share an id, so the CLIENT half must not displace
+    // the SERVER half that carries the route.
+    let mut span_index: HashMap<(&str, &str), &ZipkinSpan> = HashMap::new();
+    for span in spans.iter().filter(|s| !s.id.is_empty()) {
+        let key = (span.trace_id.as_str(), span.id.as_str());
+        match span_index.get(&key) {
+            Some(kept) if kept.kind.as_deref() != Some("CLIENT") => {}
+            _ => {
+                span_index.insert(key, span);
+            }
+        }
+    }
     spans
         .iter()
         .filter_map(|s| convert_zipkin_span(s, &span_index))
@@ -119,7 +125,9 @@ fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<&str> {
         if span.kind.as_deref() == Some("CLIENT") {
             return None;
         }
-        tag("http.url").or_else(|| tag("url.full"))
+        tag("http.target")
+            .or_else(|| tag("http.url"))
+            .or_else(|| tag("url.full"))
     })
 }
 
@@ -252,14 +260,16 @@ fn convert_zipkin_span(
         })
     });
 
-    // Source endpoint: own route tag first, then the ancestor walk.
-    let endpoint = get_tag("http.route")
-        .or_else(|| get_tag("http.target"))
-        .filter(|s| !s.trim().is_empty())
-        .map_or_else(
-            || resolve_source_endpoint(span, span_index),
-            ToString::to_string,
-        );
+    // On a DB span an HTTP tag is the inbound route propagated onto it, so it
+    // wins. On an outbound span it is the callee's path, so only the walk answers.
+    let endpoint = match event_type {
+        EventType::Sql => get_tag("http.route")
+            .or_else(|| get_tag("http.target"))
+            .filter(|s| !s.trim().is_empty())
+            .map(ToString::to_string),
+        EventType::HttpOut => None,
+    }
+    .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
     let method = get_tag("code.function")
         .map(String::from)
         .or_else(|| span.name.clone())
@@ -638,6 +648,96 @@ mod tests {
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
         assert_eq!(sql.source.endpoint, "POST /api/orders");
+    }
+
+    #[test]
+    fn shared_span_keeps_the_server_half() {
+        // Zipkin reports both halves of an RPC under one trace+id pair. The
+        // CLIENT half carries the callee's URL and no route, so letting it
+        // win the index would send every child finding to "unknown".
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "kind": "SERVER",
+                "name": "post /api/orders",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.route": "POST /api/orders" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "kind": "CLIENT",
+                "shared": true,
+                "name": "post /api/orders",
+                "timestamp": 1720621921122000,
+                "duration": 6000,
+                "localEndpoint": { "serviceName": "caller" },
+                "tags": { "http.url": "https://svc-b/api/orders" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s2",
+                "parentId": "s1",
+                "name": "query",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql leaf present");
+        assert_eq!(sql.source.endpoint, "POST /api/orders");
+    }
+
+    #[test]
+    fn outbound_span_does_not_take_its_own_http_target() {
+        // On an outbound span the HTTP tag is the callee's path, not the
+        // route being served, so only the walk answers.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "kind": "SERVER",
+                "name": "post /api/orders",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.route": "POST /api/orders" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s2",
+                "parentId": "s1",
+                "kind": "CLIENT",
+                "name": "get",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "http.url": "https://partner.example/v1/pay",
+                    "http.target": "/v1/pay"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        let out = events
+            .iter()
+            .find(|e| e.event_type == EventType::HttpOut)
+            .expect("outbound event present");
+        assert_eq!(out.source.endpoint, "POST /api/orders");
+        assert_eq!(out.target, "https://partner.example/v1/pay");
     }
 
     #[test]
