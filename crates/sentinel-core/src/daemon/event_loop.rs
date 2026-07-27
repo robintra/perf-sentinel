@@ -1046,6 +1046,7 @@ mod tests {
             trace_id: "t1".to_string(),
             span_id: "s1".to_string(),
             parent_span_id: None,
+            link_trace_id: None,
             service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::Sql,

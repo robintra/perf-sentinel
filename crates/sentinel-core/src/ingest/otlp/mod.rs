@@ -156,6 +156,9 @@ use super::ANCESTOR_WALK_MAX_DEPTH as CODE_ATTRS_MAX_DEPTH;
 /// events.
 const MAX_SPANS_PER_SERVICE: usize = 100_000;
 
+/// Byte length of a valid `OTel` trace id. The proto bounds nothing.
+const TRACE_ID_LEN: usize = 16;
+
 /// Parent-lookup index per `service.name`, built once for a whole request.
 type ServiceSpanIndexes<'a> = HashMap<&'a str, HashMap<&'a [u8], &'a Span>>;
 
@@ -376,6 +379,36 @@ fn walk_parents_for_code_attrs<'a>(
         current_parent_id = parent.parent_span_id.as_slice();
         depth += 1;
     }
+}
+
+/// Producer trace this span's work was triggered by, or `None`.
+///
+/// Reads the first span link of the nearest CONSUMER ancestor, the edge `OTel`
+/// uses when the consumer starts its own trace. Gated on CONSUMER because batch
+/// span processors and follows-from relations emit links too, and those are not
+/// causality. The length check is not cosmetic: the proto bounds nothing and
+/// the walk runs once per descendant span.
+fn resolve_producer_link<'a>(
+    span: &'a Span,
+    span_index: &HashMap<&'a [u8], &'a Span>,
+) -> Option<Arc<str>> {
+    let valid =
+        |id: &[u8]| id.len() == TRACE_ID_LEN && id != span.trace_id && id.iter().any(|&b| b != 0);
+    let mut found = None;
+    walk_same_trace_ancestors(span, span_index, |ancestor| {
+        if ancestor.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32 {
+            return false;
+        }
+        // Keep walking when this consumer has no usable link: agents emit a
+        // link-less `process` span under the `receive` span that holds it.
+        found = ancestor
+            .links
+            .first()
+            .filter(|l| valid(&l.trace_id))
+            .map(|l| Arc::from(bytes_to_hex(&l.trace_id).as_str()));
+        found.is_some()
+    });
+    found
 }
 
 /// Inbound HTTP endpoint carried by a single ancestor span, or `None`.
@@ -1097,6 +1130,16 @@ pub fn convert_otlp_request_counted(
     // splits a trace, but never cross services.
     let span_indexes = build_span_indexes(request);
     let empty_index = HashMap::new();
+    // One O(spans) pass, so the per-span ancestor walk is skipped entirely
+    // on a fleet with no broker.
+    let has_consumer_links = request.resource_spans.iter().any(|rs| {
+        rs.scope_spans.iter().any(|ss| {
+            ss.spans.iter().any(|s| {
+                s.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32
+                    && !s.links.is_empty()
+            })
+        })
+    });
 
     for resource_spans in &request.resource_spans {
         // Build the per-Resource Arc<str> once, then Arc::clone into each span.
@@ -1141,6 +1184,7 @@ pub fn convert_otlp_request_counted(
                     &scope_index,
                     stitched_statement,
                     cached_attrs,
+                    has_consumer_links,
                 ) {
                     Ok(event) => events.push(event),
                     Err(reason) => stats.count_filtered(reason),
@@ -1324,6 +1368,7 @@ fn convert_span<'a>(
     scope_index: &HashMap<&[u8], &str>,
     stitched_statement: Option<&'a str>,
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
+    has_consumer_links: bool,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let owned = rebuilt_classified(span, cached_attrs, stitched_statement);
     let classified = match (&owned, cached_attrs) {
@@ -1415,12 +1460,16 @@ fn convert_span<'a>(
     let code_namespace: Option<Arc<str>> = code.namespace.map(Arc::from);
 
     let instrumentation_scopes = collect_instrumentation_scopes(span, span_index, scope_index);
+    let link_trace_id = has_consumer_links
+        .then(|| resolve_producer_link(span, span_index))
+        .flatten();
 
     let mut event = SpanEvent {
         timestamp,
         trace_id,
         span_id,
         parent_span_id,
+        link_trace_id,
         service: Arc::clone(service_arc),
         cloud_region,
         event_type,

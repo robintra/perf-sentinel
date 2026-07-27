@@ -401,6 +401,14 @@ Three consequences to be aware of on RPC findings:
 - **Findings surface under the `_http` types.** An RPC N+1 is reported as `n_plus_one_http` and its remediation text mentions an HTTP batch endpoint. The finding is correct about the anti-pattern (the repeated dependency call), only the protocol label and the batch-endpoint wording are HTTP-flavored.
 - **Per-call arguments are invisible.** A gRPC request payload lives in the protobuf message body, not in a span attribute, so N distinct calls to the same method share one empty-parameter template. Like a query-redacted HTTP URL (see [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility)), those calls read as `redundant_http` rather than `n_plus_one_http`. The repeated-call signal is genuine either way, only the "cache vs batch" remediation differs.
 
+Messaging spans (Kafka, RabbitMQ, Pulsar, SQS, NATS, JMS) carry neither a statement nor a URL either, so they are keyed on `messaging.system` and modeled as outbound calls whose target is the destination, falling back to the span name when the destination attribute is absent. One convention covers the whole family. Unlike RPC, they get their own finding types: `n_plus_one_messaging` and `slow_messaging`. There is no redundant counterpart, a publish carries no parameters to compare.
+
+Three consequences to be aware of on messaging findings:
+
+- **Only PRODUCER spans are modeled.** A `CONSUMER` span describes work done on a delivered message, not a call the service made, and a `CLIENT` messaging span is a poll (`receive`) or an ack (`settle`). Admitting them would attribute publishes the service never issued. An instrumentation that never sets the span kind therefore produces no messaging findings.
+- **Destinations are compared verbatim.** A topic or queue name is already a template, so it does not go through the HTTP path normalizer. A topic named per tenant yields one template per tenant. See [LIMITATIONS.md](./LIMITATIONS.md#messaging-producer-side-only-no-consumer-analysis).
+- **The consumer side is linked, not merged.** The OTel span link on a `CONSUMER` ancestor is carried onto the I/O spans of the handler and rendered by `explain` as `triggered by trace <id>` in the CLI, the TUI and `/api/explain/{trace_id}`, though not in the HTML dashboard. The producer and consumer traces stay separate, so the structural detectors never see across the broker.
+
 > **Silent skip.** A span dropped for a missing carrying attribute
 > produces no warning and no error. A SQL span without `db.statement` /
 > `db.query.text`, or an HTTP span without `http.url` / `url.full`,

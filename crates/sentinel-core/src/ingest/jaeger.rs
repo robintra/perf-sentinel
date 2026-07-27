@@ -316,6 +316,8 @@ fn convert_jaeger_span(
         timestamp: micros_to_iso8601(span.start_time),
         trace_id: trace_id.to_string(),
         span_id: span.span_id.clone(),
+        // Jaeger models span links as references, not read here.
+        link_trace_id: None,
         parent_span_id,
         service,
         // Jaeger process tags do not carry cloud region. Users wanting

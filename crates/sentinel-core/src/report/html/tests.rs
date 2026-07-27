@@ -21,6 +21,7 @@ fn span(
             trace_id: trace_id.into(),
             span_id: span_id.into(),
             parent_span_id: parent.map(ToString::to_string),
+            link_trace_id: None,
             service: service.into(),
             cloud_region: None,
             event_type: EventType::Sql,

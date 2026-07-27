@@ -1,0 +1,88 @@
+[
+  {
+    "timestamp": "2025-07-10T14:32:01.000Z",
+    "trace_id": "trace-producer",
+    "span_id": "span-p1",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "orders",
+    "duration_us": 3000,
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::submit" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.020Z",
+    "trace_id": "trace-producer",
+    "span_id": "span-p2",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "orders",
+    "duration_us": 2800,
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::submit" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.040Z",
+    "trace_id": "trace-producer",
+    "span_id": "span-p3",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "orders",
+    "duration_us": 3100,
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::submit" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.060Z",
+    "trace_id": "trace-producer",
+    "span_id": "span-p4",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "orders",
+    "duration_us": 2900,
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::submit" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.080Z",
+    "trace_id": "trace-producer",
+    "span_id": "span-p5",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "orders",
+    "duration_us": 3050,
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::submit" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.000Z",
+    "trace_id": "trace-consumer",
+    "span_id": "span-c1",
+    "parent_span_id": "span-consume",
+    "link_trace_id": "trace-producer",
+    "service": "notification-svc",
+    "type": "sql",
+    "operation": "postgresql",
+    "target": "SELECT email FROM users WHERE id = 101",
+    "duration_us": 4000,
+    "source": { "endpoint": "OrderEventHandler::onOrderSubmitted", "method": "OrderEventHandler::onOrderSubmitted" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.010Z",
+    "trace_id": "trace-consumer",
+    "span_id": "span-c2",
+    "parent_span_id": "span-consume",
+    "link_trace_id": "trace-producer",
+    "service": "notification-svc",
+    "type": "sql",
+    "operation": "postgresql",
+    "target": "SELECT email FROM users WHERE id = 102",
+    "duration_us": 4200,
+    "source": { "endpoint": "OrderEventHandler::onOrderSubmitted", "method": "OrderEventHandler::onOrderSubmitted" }
+  }
+]

@@ -201,6 +201,7 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     // through the same control-char + truncate helper as code_* for
     // defense-in-depth on hand-crafted inputs.
     sanitize_optional_arc_str(&mut event.cloud_region, MAX_ID_LENGTH);
+    sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
@@ -290,6 +291,11 @@ pub struct SpanEvent {
     pub span_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_span_id: Option<String>,
+    /// Trace of the producer whose message triggered this span, from the `OTel`
+    /// span link of the nearest CONSUMER ancestor. The two traces stay
+    /// separate: this only makes the chain navigable across the broker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_trace_id: Option<Arc<str>>,
     pub service: Arc<str>,
     /// Cloud region this span was emitted from, sourced from the `OTel`
     /// `cloud.region` resource attribute (or span attribute as fallback).
@@ -585,6 +591,21 @@ mod tests {
             _ => panic!("unknown field: {field}"),
         }
         event
+    }
+
+    #[test]
+    fn sanitize_bounds_link_trace_id() {
+        let mut event = make_event_with_field("service", "svc");
+        event.link_trace_id = Some(Arc::from("x".repeat(500)));
+        sanitize_span_event(&mut event);
+        assert_eq!(
+            event.link_trace_id.as_deref().map(str::len),
+            Some(MAX_ID_LENGTH)
+        );
+
+        event.link_trace_id = Some(Arc::from("trace\u{7}id"));
+        sanitize_span_event(&mut event);
+        assert_eq!(event.link_trace_id, None);
     }
 
     #[test]

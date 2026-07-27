@@ -403,6 +403,14 @@ Trois conséquences à connaître sur les findings RPC :
 - **Les findings sortent sous les types `_http`.** Un N+1 RPC est rapporté comme `n_plus_one_http` et sa remédiation mentionne un endpoint batch HTTP. Le finding est correct sur l'anti-pattern (l'appel de dépendance répété), seuls le label de protocole et la formulation batch-endpoint sont teintés HTTP.
 - **Les arguments par appel sont invisibles.** La charge utile d'une requête gRPC vit dans le corps du message protobuf, pas dans un attribut de span, donc N appels distincts à la même méthode partagent un unique template à paramètres vides. Comme une URL HTTP à query redactée (voir [LIMITATIONS-FR.md](./LIMITATIONS-FR.md#redaction-de-la-query-string-http-et-visibilité-des-n1)), ces appels sont lus comme `redundant_http` plutôt que `n_plus_one_http`. Le signal d'appel répété est réel dans les deux cas, seule la remédiation "cache vs batch" diffère.
 
+Les spans messaging (Kafka, RabbitMQ, Pulsar, SQS, NATS, JMS) ne portent eux non plus ni statement ni URL, ils sont donc identifiés par `messaging.system` et modélisés comme des appels sortants dont la cible est la destination, avec repli sur le nom du span quand l'attribut de destination manque. Une seule convention couvre toute la famille. Contrairement au RPC, ils ont leurs propres types de findings : `n_plus_one_messaging` et `slow_messaging`. Il n'y a pas d'équivalent redundant, une publication ne porte aucun paramètre à comparer.
+
+Trois conséquences à connaître sur les findings messaging :
+
+- **Seuls les spans PRODUCER sont modélisés.** Un span `CONSUMER` décrit un travail effectué sur un message reçu, pas un appel émis par le service, et un span messaging `CLIENT` est un poll (`receive`) ou un acquittement (`settle`). Les admettre attribuerait au service des publications qu'il n'a jamais faites. Une instrumentation qui ne pose jamais le kind ne produit donc aucun finding messaging.
+- **Les destinations sont comparées telles quelles.** Un nom de topic ou de queue est déjà un template, il ne passe donc pas par le normaliseur de chemins HTTP. Un topic nommé par tenant donne un template par tenant. Voir [LIMITATIONS-FR.md](./LIMITATIONS-FR.md#messaging--côté-producteur-seulement-pas-danalyse-des-consommateurs).
+- **Le côté consommateur est relié, pas fusionné.** Le span link OTel porté par un ancêtre `CONSUMER` est reporté sur les spans d'I/O du handler et rendu par `explain` sous la forme `triggered by trace <id>` en CLI, dans la TUI et dans `/api/explain/{trace_id}`, mais pas dans le dashboard HTML. Les traces producteur et consommateur restent distinctes, donc les détecteurs structurels ne voient jamais au travers du broker.
+
 > **Écartement silencieux.** Un span écarté pour un attribut porteur
 > manquant ne produit ni avertissement ni erreur. Un span SQL sans
 > `db.statement` / `db.query.text`, ou un span HTTP sans `http.url` /

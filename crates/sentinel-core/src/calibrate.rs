@@ -510,6 +510,7 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
+            link_trace_id: None,
             service: Arc::from(service),
             cloud_region: None,
             event_type: EventType::Sql,

@@ -11,6 +11,10 @@ use std::collections::{HashMap, HashSet};
 pub struct SpanNode {
     pub span_id: String,
     pub parent_span_id: Option<String>,
+    /// Producer trace whose message triggered this span, when it crossed a
+    /// broker. The two traces stay separate, this only lets the reader jump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_trace_id: Option<String>,
     pub service: String,
     pub template: String,
     pub operation: String,
@@ -153,6 +157,7 @@ fn make_node(
     SpanNode {
         span_id: span.event.span_id.clone(),
         parent_span_id: span.event.parent_span_id.clone(),
+        link_trace_id: span.event.link_trace_id.as_deref().map(String::from),
         service: span.event.service.to_string(),
         template: span.template.to_string(),
         operation: span.event.operation.clone(),
@@ -178,6 +183,7 @@ fn assemble_node(
         return SpanNode {
             span_id: String::new(),
             parent_span_id: None,
+            link_trace_id: None,
             service: String::new(),
             template: "(cycle detected)".to_string(),
             operation: String::new(),
@@ -243,6 +249,23 @@ pub fn format_tree_text(tree: &ExplainTree, use_color: bool) -> String {
         colors.reset,
         cyan = colors.cyan
     );
+
+    // In the header rather than on every span, but one line per distinct
+    // producer: a trace can consume deliveries from several of them.
+    let mut seen_links: Vec<&str> = Vec::new();
+    for link in tree.roots.iter().filter_map(|n| n.link_trace_id.as_deref()) {
+        if seen_links.contains(&link) {
+            continue;
+        }
+        seen_links.push(link);
+        let _ = writeln!(
+            out,
+            "{}\u{21b3} triggered by trace {}{}",
+            colors.dim,
+            crate::text_safety::sanitize_for_terminal(link),
+            colors.reset,
+        );
+    }
 
     format_trace_level_findings(&mut out, &tree.trace_level_findings, &colors);
 
@@ -667,6 +690,29 @@ mod tests {
     }
 
     #[test]
+    fn tree_carries_and_renders_the_producer_link() {
+        let mut span = make_sql_event(
+            "trace-consumer",
+            "span-1",
+            "SELECT id FROM orders WHERE id = 1",
+            "2025-07-10T14:32:01.000Z",
+        );
+        span.link_trace_id = Some(Arc::from("abababababababababababababababab"));
+        let trace = make_trace(vec![span]);
+        let tree = build_tree(&trace, &[]);
+
+        assert_eq!(
+            tree.roots[0].link_trace_id.as_deref(),
+            Some("abababababababababababababababab")
+        );
+        let text = format_tree_text(&tree, false);
+        assert!(
+            text.contains("triggered by trace abababababababababababababababab"),
+            "the link should be navigable from the rendered tree: {text}"
+        );
+    }
+
+    #[test]
     fn cyclic_parent_reference_handled() {
         use crate::event::{EventSource, EventType, SpanEvent};
         use crate::normalize::NormalizedEvent;
@@ -678,6 +724,7 @@ mod tests {
                 trace_id: "trace-cycle".to_string(),
                 span_id: "span-a".to_string(),
                 parent_span_id: Some("span-b".to_string()),
+                link_trace_id: None,
                 service: Arc::from("svc"),
                 cloud_region: None,
                 event_type: EventType::Sql,
@@ -705,6 +752,7 @@ mod tests {
                 trace_id: "trace-cycle".to_string(),
                 span_id: "span-b".to_string(),
                 parent_span_id: Some("span-a".to_string()),
+                link_trace_id: None,
                 service: Arc::from("svc"),
                 cloud_region: None,
                 event_type: EventType::Sql,
