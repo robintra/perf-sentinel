@@ -482,7 +482,7 @@ v0.4.1 :
 
 | Champ             | Type               | Description                                                                                                                                                                  |
 |-------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `type`            | string (enum)      | `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
+| `type`            | string (enum)      | `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `slow_messaging`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
 | `severity`        | string (enum)      | `critical`, `warning`, `info`                                                                                                                                                |
 | `trace_id`        | string             | Trace ID où le pattern a été détecté                                                                                                                                         |
 | `service`         | string             | Service qui a émis l'anti-pattern                                                                                                                                            |

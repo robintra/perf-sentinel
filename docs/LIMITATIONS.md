@@ -5,6 +5,8 @@
 - [OTLP capture reliability](#otlp-capture-reliability): why perf-sentinel may miss spans as a passive listener.
 - [Instrumentation quality bounds findings](#instrumentation-quality-bounds-findings): why a thin report can mean missing instrumentation, not a clean service.
 - [Non-SQL datastores are not analyzed](#non-sql-datastores-are-not-analyzed): why Redis, MongoDB and similar spans are dropped at ingestion.
+- [Messaging: producer side only, no consumer analysis](#messaging-producer-side-only-no-consumer-analysis): why consumer spans are dropped and publish loops are flagged eagerly.
+- [Messaging: producer and consumer traces are linked, not merged](#messaging-producer-and-consumer-traces-are-linked-not-merged): why the broker hop is navigable but the two traces stay apart.
 - [SQL tokenizer](#sql-tokenizer): regex-based normalizer trade-offs.
 - [ORM bind parameters and N+1 vs redundant classification](#orm-bind-parameters-and-n1-vs-redundant-classification): how named bind placeholders affect classification.
 - [HTTP query-string redaction and N+1 visibility](#http-query-string-redaction-and-n1-visibility): why query-parameter N+1 loops are invisible under instrumentations that redact the query string.

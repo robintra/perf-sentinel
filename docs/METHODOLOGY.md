@@ -56,10 +56,10 @@ perf-sentinel is positioned inside that tradition. The pipeline ranks endpoints 
 
 ## I/O Intensity Score (IIS)
 
-The base proxy for energy is the I/O operation count per `(service, endpoint)` pair. perf-sentinel counts SQL and outbound HTTP spans as I/O operations.
+The base proxy for energy is the I/O operation count per `(service, endpoint)` pair. perf-sentinel counts SQL, outbound HTTP and message-publish spans as I/O operations.
 
 - `total_io_ops`: count of I/O spans across all traces in the analyzed window.
-- `avoidable_io_ops`: count of I/O spans attributed to avoidable anti-patterns. The four avoidable patterns are N+1 SQL, N+1 HTTP, redundant SQL, redundant HTTP, all four enumerated by `FindingType::is_avoidable_io()` and listed in `core_patterns_required` of every official disclosure.
+- `avoidable_io_ops`: count of I/O spans attributed to avoidable anti-patterns. The avoidable patterns are N+1 SQL, N+1 HTTP, N+1 messaging, redundant SQL and redundant HTTP, all enumerated by `FindingType::is_avoidable_io()`. The first two and the last two are also listed in `core_patterns_required` of every official disclosure; N+1 messaging is not, because a message bus is not universal enough to require of every disclosing organisation.
 - `io_waste_ratio = avoidable_io_ops / total_io_ops`, in `[0, 1]`.
 - `total_sql_io_ops` and `avoidable_sql_io_ops`: the SQL share of the two counters above, same dedup semantics restricted to the SQL finding types. They let an operator apply the SQL-only waste ratio to an externally measured database energy reading (for example Alumet on the database cgroup): `db_waste = measured_db_energy * avoidable_sql_io_ops / total_sql_io_ops`. Both are `0` in reports produced by versions that predate the fields.
 - `database_waste`: that same formula computed on every run, tagged by `model`. When `[green.alumet.database]` is declared and the daemon received a reading, the energy is the measured window energy of the database cgroup (`model = "alumet_rapl"`) and the optional declared region converts the waste to gCO2 with the region's grid intensity (Electricity Maps real-time when available, embedded annual otherwise) and provider PUE, hourly profiles not applied. When no database is declared at all (batch runs, or no `[green.alumet.database]`), the figure falls back to an estimate: the modeled energy of the window's SQL spans (verb multipliers, calibration and regional intensities included) multiplied by the SQL waste ratio, tagged `model = "estimated"`. A declared database with no delivered reading emits nothing, its energy carries over to the next delivered window so the period total never double-counts. Measured is a CPU-only lower bound genuinely additional to the totals. Estimated reuses the per-span energy exactly as scoring resolved it (measured per-service sources when available, the I/O proxy with its 2x bracket otherwise) and is a re-presented share of `energy_kwh`/`co2`, never additional. The disclosure carries it as a separate `aggregate.database_waste` block (v1.4) with both thresholds and the provenance models, still outside every total. See the "Alumet precision bounds" section of [docs/LIMITATIONS.md](LIMITATIONS.md).
@@ -113,12 +113,12 @@ This is an **interpretive crosswalk, not a compliance certification**. The RGESN
 
 | Detector | RGESN criteria | Criterion intent |
 |---|---|---|
-| `n_plus_one_sql`, `n_plus_one_http` | 7.1, 6.1 | Server-side cache for most-used data, request budget per screen |
+| `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging` | 7.1, 6.1 | Server-side cache for most-used data, request budget per screen |
 | `redundant_sql`, `redundant_http` | 7.1, 6.5 | Server-side cache, avoid loading unused resources |
 | `chatty_service` | 4.9, 4.10, 6.1 | Limit and avoid unnecessary server requests, request budget per screen |
 | `excessive_fanout`, `pool_saturation` | 3.2 | Architecture that scales resources to actual demand |
 | `serialized_calls` | 8.10 | Minimize the impact of asynchronous compute and data transfers |
-| `slow_sql`, `slow_http` | (none) | RGESN has no single-operation-latency criterion. Family 9 "Algorithmie" targets machine-learning workloads, not query latency. |
+| `slow_sql`, `slow_http`, `slow_messaging` | (none) | RGESN has no single-operation-latency criterion. Family 9 "Algorithmie" targets machine-learning workloads, not query latency. |
 
 ## Known limitations in schema v1.0
 

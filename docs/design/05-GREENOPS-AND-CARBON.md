@@ -613,6 +613,8 @@ The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 uWh) for ever
 | Large        | 2.0x       | > 1 MB           |
 | Unknown      | 1.0x       | attribute absent |
 
+**Messaging spans are deliberately unweighted (1.0x).** A publish is not given the HTTP tiers, even though `messaging.message.body.size` is ingested into the same `response_size_bytes` field. The tier boundaries encode a web payload distribution: 1 MB is Kafka's default `max.message.bytes`, a protocol ceiling rather than a large message, so under a default broker configuration nearly every message would land in the 0.8x tier. That would not be a size-sensitive model, it would be a near-constant 20% discount wearing one. None of the three sources below measured a broker, so borrowing their ratios would extend their authority to a domain they never covered. The size attribute is ingested so a measured coefficient can be calibrated later through `calibrate` against an Alumet run on a broker bench, the same path that produced the SQL ratios.
+
 **Sources.** The relative ratios are derived from academic DBMS energy benchmarks (Z. Xu, Y.-C. Tu, X. Wang, "Exploring Power-Performance Tradeoffs in Database Systems", IEEE ICDE 2010, pp. 485-496; Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010, pp. 231-242; Lella et al., "DBJoules: An Energy Measurement Tool for Database Management Systems", arXiv:2311.08961, 2023) and the Cloud Carbon Footprint methodology. The absolute values are order-of-magnitude estimates. The relative ordering (SELECT < DELETE < INSERT/UPDATE) is more robust across hardware generations.
 
 **Where it plugs in.** In `compute_carbon_report`'s span loop, the proxy fallback path applies the coefficient:

@@ -468,7 +468,7 @@ The `finding` object exposed by `/api/findings` and
 
 | Field             | Type              | Description                                                                                                                                                                  |
 |-------------------|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `type`            | string (enum)     | `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
+| `type`            | string (enum)     | `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `slow_messaging`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
 | `severity`        | string (enum)     | `critical`, `warning`, `info`                                                                                                                                                |
 | `trace_id`        | string            | Trace ID where the pattern was detected                                                                                                                                      |
 | `service`         | string            | Service that emitted the anti-pattern                                                                                                                                        |

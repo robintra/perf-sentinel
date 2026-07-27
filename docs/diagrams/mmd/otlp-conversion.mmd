@@ -32,9 +32,15 @@ sequenceDiagram
             P2->>Idx: lookup parent_span_id
             Idx-->>P2: parent endpoint + method
             P2->>Out: SpanEvent type=HttpOut<br/>target=rpc.service/rpc.method<br/>(else span name) + cloud_region
+        else PRODUCER span with messaging.system? (Kafka, Pulsar, SQS, ...)
+            P2->>Idx: lookup parent_span_id
+            Idx-->>P2: parent endpoint + method
+            P2->>Out: SpanEvent type=Messaging<br/>target=messaging.destination.name<br/>(else span name) + cloud_region
         else No I/O attributes
             P2->>P2: skip
         end
+        P2->>Idx: walk parents for a CONSUMER span link
+        Idx-->>P2: producer trace id (cross-trace links only)
     end
 
     Note over P2: Conventions checked: legacy (db.statement, http.url, http.method, db.system)<br/>and stable (db.query.text, url.full, http.request.method, db.system.name).<br/>dd-trace bridged via the datadogreceiver: SQL from dd.span.Resource,<br/>db system from db.type. Engine names canonicalized across all formats.
