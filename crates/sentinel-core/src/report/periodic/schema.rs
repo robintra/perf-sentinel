@@ -1,4 +1,4 @@
-//! Wire schema (v1.4) for the periodic disclosure report.
+//! Wire schema (v1.5) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
 //!
@@ -28,13 +28,18 @@
 //! models. Informational lower bound, never folded into the aggregate
 //! totals. Same `serde(default)` + `skip_serializing_if` rule, so an older
 //! report keeps its `content_hash` when re-hashed here.
+//!
+//! v1.5 adds two `PatternName` values, `n_plus_one_messaging` and
+//! `slow_messaging`, emitted once broker publish
+//! spans are ingested. No structural change, and re-hashing a v1.4 report
+//! still yields its original `content_hash`.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.4";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.5";
 
 /// Scope fields the operator declares by hand in the org config. These are
 /// unaudited inputs: the binary cannot verify the size of the portfolio they
@@ -58,8 +63,9 @@ pub const SCOPE_MACHINE_DERIVED_FIELDS: &[&str] = &[
 ];
 
 /// Patterns that an `intent = "official"` disclosure must keep enabled.
-/// Aligned with `FindingType::is_avoidable_io()`: the four patterns whose
-/// remediation directly reduces I/O and therefore energy/carbon.
+/// The four SQL and HTTP patterns whose remediation directly reduces I/O and
+/// therefore energy/carbon. A subset of `FindingType::is_avoidable_io()`,
+/// which also covers messaging: a bus is not universal enough to require.
 pub const CORE_PATTERNS_REQUIRED: &[&str] = &[
     "n_plus_one_sql",
     "n_plus_one_http",
