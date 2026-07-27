@@ -12,6 +12,9 @@ version, to know which daemon image ships.
 
 ## [0.9.22]
 
+`appVersion` moves to `0.9.22`, realigning with the chart `version` after the
+chart-only `0.9.18` through `0.9.21` releases.
+
 ### Changed
 
 - The embedded `config.toml` documents why `sampling_rate` stays at its
