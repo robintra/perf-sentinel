@@ -165,16 +165,29 @@ The `+ 8` accounts for the longest replacement (`{uuid}` = 6 chars, replacing a 
 
 ## Normalization dispatcher
 
-The `normalize()` function dispatches to the SQL or HTTP normalizer based on `event_type`:
+The `normalize()` function dispatches on `event_type`:
 
 ```rust
 pub fn normalize(event: SpanEvent) -> NormalizedEvent {
     match event.event_type {
         EventType::Sql => { /* sql::normalize_sql(...) */ }
         EventType::HttpOut => { /* http::normalize_http(...) */ }
+        EventType::Messaging => { /* "{operation} {target}", no params */ }
     }
 }
 ```
+
+The messaging arm normalizes nothing on purpose: a topic or queue name is
+already a template, with no variable part to extract. Routing it through
+`normalize_http` would mask numeric segments as `{id}` and strip the account
+id out of an SQS queue ARN, merging two AWS accounts into one template. The
+one transformation it does apply lives in `sanitize_span_event`, not here:
+a destination carrying a scheme (`amqp://user:pass@host/q`) has its userinfo
+and query stripped, because unlike SQL and HTTP this arm has no parser
+between an operator-supplied string and the finding template. A scheme-less
+destination is left byte-for-byte alone, since `@` and `#` are legal in
+queue names (`ORDERS@QM1`, `logs.#`) and rewriting them would merge distinct
+destinations.
 
 `normalize_all()` is a simple `events.into_iter().map(normalize).collect()`. The `into_iter()` consumes the input vector and each `SpanEvent` is moved (not cloned) into the normalizer.
 
