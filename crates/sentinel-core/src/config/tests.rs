@@ -3199,6 +3199,89 @@ label_value = "postgres-pod"
 }
 
 #[test]
+fn alumet_broker_is_parsed() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.broker]
+label_value = "kafka-pod"
+region = "eu-west-3"
+"#;
+    let cfg = load_from_str(toml).expect("valid broker section");
+    let broker = cfg
+        .green
+        .alumet
+        .as_ref()
+        .and_then(|a| a.broker.as_ref())
+        .expect("broker declared");
+    assert_eq!(broker.label_value, "kafka-pod");
+    assert_eq!(broker.region.as_deref(), Some("eu-west-3"));
+}
+
+#[test]
+fn alumet_broker_without_endpoint_is_rejected() {
+    let toml = r#"
+[green.alumet.broker]
+label_value = "kafka-pod"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
+fn alumet_broker_label_collision_with_service_mappings_is_rejected() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.service_mappings]
+"orders" = "kafka-pod"
+
+[green.alumet.broker]
+label_value = "kafka-pod"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
+fn alumet_broker_and_database_sharing_a_label_is_rejected() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.database]
+label_value = "shared-pod"
+
+[green.alumet.broker]
+label_value = "shared-pod"
+"#;
+    assert!(
+        load_from_str(toml).is_err(),
+        "the same joules must not feed two waste figures"
+    );
+}
+
+#[test]
+fn alumet_broker_unknown_key_is_rejected() {
+    let toml = r#"
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+
+[green.alumet.broker]
+label = "kafka-pod"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
 fn alumet_unknown_subsection_name_is_rejected() {
     let toml = r#"
 [green.alumet]

@@ -855,6 +855,44 @@ impl Config {
                 );
             }
         }
+        if let Some(broker) = &cfg.broker {
+            validate_alumet_database_fields(&broker.label_value, broker.region.as_deref())?;
+            if cfg
+                .service_mappings
+                .values()
+                .any(|v| v == &broker.label_value)
+            {
+                return Err(format!(
+                    "[green.alumet.broker] label_value '{}' also appears in \
+                     service_mappings; one cgroup cannot feed both the energy \
+                     totals and the messaging waste figure",
+                    broker.label_value
+                ));
+            }
+            // One cgroup cannot be both workloads either, that would
+            // count the same joules in two separate figures.
+            if cfg
+                .database
+                .as_ref()
+                .is_some_and(|db| db.label_value == broker.label_value)
+            {
+                return Err(format!(
+                    "[green.alumet.broker] label_value '{}' is also declared as the \
+                     database workload; one cgroup cannot feed both waste figures",
+                    broker.label_value
+                ));
+            }
+            if let Some(region) = broker.region.as_deref()
+                && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
+            {
+                tracing::warn!(
+                    region,
+                    "[green.alumet.broker] region is not in the embedded \
+                     intensity table: waste_gco2 will be absent unless \
+                     Electricity Maps real-time intensity covers it."
+                );
+            }
+        }
         #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)

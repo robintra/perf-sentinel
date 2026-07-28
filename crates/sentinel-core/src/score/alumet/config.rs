@@ -74,6 +74,25 @@ pub struct AlumetConfig {
     /// [`AlumetDatabaseConfig`]. `None` means no database waste figure
     /// is produced.
     pub database: Option<AlumetDatabaseConfig>,
+    /// Optional `[green.alumet.broker]` declaration, see
+    /// [`AlumetBrokerConfig`]. `None` means no messaging waste figure is
+    /// measured.
+    pub broker: Option<AlumetBrokerConfig>,
+}
+
+/// Operator declaration of a message broker measured by Alumet.
+///
+/// Same shape as [`AlumetDatabaseConfig`] and the same reason: a broker
+/// emits no spans of its own, so its window energy feeds
+/// `green_summary.messaging_waste` via the messaging-only waste ratio.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AlumetBrokerConfig {
+    /// Alumet label value identifying the broker workload under
+    /// `label_key`, matched verbatim like a `service_mappings` value.
+    pub label_value: String,
+    /// Declared region of the broker host, used to convert the waste
+    /// energy to gCO2. `None` reports the waste in kWh only.
+    pub region: Option<String>,
 }
 
 /// Operator declaration of a database workload measured by Alumet.
@@ -108,6 +127,7 @@ impl std::fmt::Debug for AlumetConfig {
                 &self.auth_header.as_ref().map(|_| "[REDACTED]"),
             )
             .field("database", &self.database)
+            .field("broker", &self.broker)
             .finish()
     }
 }
@@ -128,6 +148,7 @@ mod tests {
             service_mappings: mappings,
             auth_header: Some("Authorization: Bearer super-secret-do-not-log".to_string()),
             database: None,
+            broker: None,
         }
     }
 
