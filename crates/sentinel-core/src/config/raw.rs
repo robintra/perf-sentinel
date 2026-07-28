@@ -884,7 +884,11 @@ pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
                     .to_string(),
             );
         };
-        super::validate::validate_alumet_database_fields(label_value, db.region.as_deref())?;
+        super::validate::validate_workload_fields(
+            "[green.alumet.database]",
+            label_value,
+            db.region.as_deref(),
+        )?;
     }
     if let Some(broker) = raw.broker.as_ref() {
         let Some(label_value) = broker.label_value.as_deref() else {
@@ -893,7 +897,11 @@ pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
                     .to_string(),
             );
         };
-        super::validate::validate_alumet_database_fields(label_value, broker.region.as_deref())?;
+        super::validate::validate_workload_fields(
+            "[green.alumet.broker]",
+            label_value,
+            broker.region.as_deref(),
+        )?;
     }
     Ok(())
 }

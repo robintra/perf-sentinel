@@ -3505,13 +3505,25 @@ schema = "legacy_power"
 }
 
 #[test]
-fn validate_alumet_database_fields_rejects_bad_input() {
-    use super::validate::validate_alumet_database_fields as v;
+fn validate_workload_fields_rejects_bad_input() {
+    use super::validate::validate_workload_fields;
+    let v = |label: &str, region: Option<&str>| {
+        validate_workload_fields("[green.alumet.database]", label, region)
+    };
     assert!(v("ctrl\u{0007}bell", None).is_err()); // control char
     assert!(v("   ", None).is_err()); // blank after trim
     assert!(v(&"x".repeat(257), None).is_err()); // too long
     assert!(v("pg-pod", Some("bad region!")).is_err()); // invalid region charset
     assert!(v("pg-pod", Some("eu-west-3")).is_ok());
+}
+
+#[test]
+fn workload_field_errors_name_the_calling_section() {
+    // A broker misconfiguration must not send the operator to the
+    // database block.
+    let err = super::validate::validate_workload_fields("[green.alumet.broker]", "   ", None)
+        .expect_err("blank label_value");
+    assert!(err.starts_with("[green.alumet.broker]"), "got: {err}");
 }
 
 #[test]
