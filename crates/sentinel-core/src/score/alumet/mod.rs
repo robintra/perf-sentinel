@@ -26,7 +26,7 @@ pub mod scraper;
 #[cfg(feature = "daemon")]
 pub mod state;
 
-pub use config::{AlumetConfig, AlumetDatabaseConfig};
+pub use config::{AlumetBrokerConfig, AlumetConfig, AlumetDatabaseConfig};
 #[cfg(feature = "daemon")]
 pub use scraper::spawn_scraper;
 #[cfg(feature = "daemon")]

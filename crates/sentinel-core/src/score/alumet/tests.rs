@@ -30,6 +30,7 @@ fn sample_config() -> AlumetConfig {
         service_mappings: mappings,
         auth_header: None,
         database: None,
+        broker: None,
     }
 }
 

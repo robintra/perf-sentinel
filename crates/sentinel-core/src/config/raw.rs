@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use crate::score::alumet::config::DEFAULT_ENERGY_INTERVAL_SECS;
-use crate::score::alumet::{AlumetConfig, AlumetDatabaseConfig};
+use crate::score::alumet::{AlumetBrokerConfig, AlumetConfig, AlumetDatabaseConfig};
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
@@ -149,6 +149,18 @@ pub(super) struct AlumetSection {
     pub(super) service_mappings: HashMap<String, String>,
     pub(super) auth_header: Option<String>,
     pub(super) database: Option<AlumetDatabaseSection>,
+    pub(super) broker: Option<AlumetBrokerSection>,
+}
+
+/// Raw deserialization target for `[green.alumet.broker]`.
+///
+/// `deny_unknown_fields` for the same reason as the database section: a
+/// typo would silently disable the messaging waste figure.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub(super) struct AlumetBrokerSection {
+    pub(super) label_value: Option<String>,
+    pub(super) region: Option<String>,
 }
 
 /// Raw deserialization target for `[green.alumet.database]`.
@@ -791,6 +803,13 @@ pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
                     .to_string(),
             );
         }
+        if raw.broker.is_some() {
+            return Err(
+                "[green.alumet.broker] is set but [green.alumet] endpoint is missing; \
+                 without an endpoint no scraper starts and the figure never appears"
+                    .to_string(),
+            );
+        }
         return Ok(());
     }
     require_alumet_field(raw.metric_name.as_deref(), "metric_name")?;
@@ -811,6 +830,15 @@ pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
             );
         };
         super::validate::validate_alumet_database_fields(label_value, db.region.as_deref())?;
+    }
+    if let Some(broker) = raw.broker.as_ref() {
+        let Some(label_value) = broker.label_value.as_deref() else {
+            return Err(
+                "[green.alumet.broker] label_value is required when the section is present"
+                    .to_string(),
+            );
+        };
+        super::validate::validate_alumet_database_fields(label_value, broker.region.as_deref())?;
     }
     Ok(())
 }
@@ -886,6 +914,12 @@ pub(super) fn convert_alumet_section_with_env(
             db.label_value.as_ref().map(|lv| AlumetDatabaseConfig {
                 label_value: lv.clone(),
                 region: db.region.clone(),
+            })
+        }),
+        broker: raw.broker.as_ref().and_then(|b| {
+            b.label_value.as_ref().map(|lv| AlumetBrokerConfig {
+                label_value: lv.clone(),
+                region: b.region.clone(),
             })
         }),
     })
