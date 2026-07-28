@@ -45,6 +45,10 @@ struct CarbonRunState {
     sql_energy_kwh: f64,
     /// Operational gCO₂ of the region-resolved SQL spans.
     sql_gco2: f64,
+    /// Same pair for messaging spans, feeding the estimated
+    /// `messaging_waste`.
+    messaging_energy_kwh: f64,
+    messaging_gco2: f64,
 }
 
 /// Per-service energy and carbon accumulated during scoring. Feeds
@@ -136,6 +140,10 @@ pub(super) struct CarbonComputeOutputs {
     pub sql_energy_kwh: f64,
     /// Operational gCO₂ of the region-resolved SQL spans.
     pub sql_gco2: f64,
+    /// Energy of the window's region-resolved messaging spans.
+    pub messaging_energy_kwh: f64,
+    /// Operational gCO₂ of the region-resolved messaging spans.
+    pub messaging_gco2: f64,
 }
 
 /// Compute carbon report, per-region breakdown, and multi-region flag.
@@ -168,6 +176,8 @@ pub(super) fn compute_carbon_report(
             accounted_io_ops: 0,
             sql_energy_kwh: 0.0,
             sql_gco2: 0.0,
+            messaging_energy_kwh: 0.0,
+            messaging_gco2: 0.0,
         };
     }
 
@@ -200,6 +210,8 @@ pub(super) fn compute_carbon_report(
         accounted_io_ops: total_io_ops.saturating_sub(state.unknown_ops),
         sql_energy_kwh: state.sql_energy_kwh,
         sql_gco2: state.sql_gco2,
+        messaging_energy_kwh: state.messaging_energy_kwh,
+        messaging_gco2: state.messaging_gco2,
     }
 }
 
@@ -229,6 +241,10 @@ fn process_span_for_carbon(
     if span.event.event_type == crate::event::EventType::Sql {
         state.sql_energy_kwh += energy_kwh;
         state.sql_gco2 += op_co2;
+    }
+    if span.event.event_type == crate::event::EventType::Messaging {
+        state.messaging_energy_kwh += energy_kwh;
+        state.messaging_gco2 += op_co2;
     }
 
     let region_ref = region_ctx.region_ref;

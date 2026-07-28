@@ -303,12 +303,21 @@ pub struct GreenSummary {
     /// `aggregate.database_waste` block (`docs/METHODOLOGY.md`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_waste: Option<DatabaseWaste>,
+    /// Broker-side avoidable energy, same construction and same status.
+    /// `None` when no broker energy was available for the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messaging_waste: Option<MessagingWaste>,
 }
 
 /// `model` value on the estimated [`DatabaseWaste`] path: the figure is
 /// built from the modeled energy of the SQL spans, not a measurement of
 /// the database. The measured path carries `alumet_rapl` instead.
 pub const DB_WASTE_MODEL_ESTIMATED: &str = "estimated";
+
+/// Provenance tag of a broker figure built from a declared cluster and
+/// the embedded `SPECpower` table, distinct from `cloud_specpower`,
+/// which means a CPU scrape rather than a declaration.
+pub const BROKER_WASTE_MODEL_SPECPOWER: &str = "broker_specpower";
 
 /// Database window energy × the SQL-only waste ratio. Informational,
 /// never summed into the report totals.
@@ -339,6 +348,34 @@ pub struct DatabaseWaste {
     /// (`io_proxy_v3`, ...) for the estimated fallback built from the
     /// modeled energy of the window's SQL spans. Empty on baselines
     /// predating the field.
+    #[serde(default)]
+    pub model: String,
+}
+
+/// Broker-side avoidable energy for the window, the messaging twin of
+/// [`DatabaseWaste`]. Same status: informational lower bound, never
+/// folded into the report totals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MessagingWaste {
+    /// Window energy of the broker, measured or declared.
+    pub energy_kwh: f64,
+    /// `energy_kwh` × `messaging_waste_ratio`.
+    pub waste_kwh: f64,
+    /// `waste_kwh` converted with the declared region intensity × PUE.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waste_gco2: Option<f64>,
+    /// gCO₂ of the whole `energy_kwh`, the ratio-independent base the
+    /// disclosure's canonical tier rescales from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_gco2: Option<f64>,
+    /// Operator-declared region of the broker. `None` on the estimated path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// `avoidable_messaging_io_ops / total_messaging_io_ops`, in `[0, 1]`.
+    pub messaging_waste_ratio: f64,
+    /// Provenance: `alumet_rapl` measured on the declared cgroup,
+    /// `broker_specpower` for a declared cluster, `estimated` for the
+    /// fallback built from the modeled energy of the window's publishes.
     #[serde(default)]
     pub model: String,
 }
@@ -418,6 +455,7 @@ impl GreenSummary {
             per_service_energy_model: BTreeMap::new(),
             per_service_measured_ratio: BTreeMap::new(),
             database_waste: None,
+            messaging_waste: None,
         }
     }
 }

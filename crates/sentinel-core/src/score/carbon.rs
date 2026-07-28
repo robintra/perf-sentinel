@@ -397,14 +397,27 @@ pub struct CarbonContext {
     pub broker_energy: Option<DbEnergyContext>,
 }
 
-/// Window energy of the declared database cgroup, feeding
-/// [`crate::report::GreenSummary::database_waste`].
-#[derive(Debug, Clone, Default, PartialEq)]
+/// Window energy of a declared workload cgroup or cluster, feeding
+/// [`crate::report::GreenSummary::database_waste`] or its messaging twin.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DbEnergyContext {
     /// kWh since the previous scored batch, `0.0` = no reading.
     pub window_kwh: f64,
     /// Operator-declared region, `None` skips the carbon conversion.
     pub region: Option<String>,
+    /// Provenance of `window_kwh`, carried here because only the caller
+    /// that fills it knows whether it was measured or declared.
+    pub model: &'static str,
+}
+
+impl Default for DbEnergyContext {
+    fn default() -> Self {
+        Self {
+            window_kwh: 0.0,
+            region: None,
+            model: CO2_MODEL_ALUMET,
+        }
+    }
 }
 
 /// Active Electricity Maps scoring configuration. Three dimensions
