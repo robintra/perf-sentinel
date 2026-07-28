@@ -216,12 +216,12 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let (alumet, alumet_db, alumet_broker) = setup_alumet_scraper(&config, &metrics);
     // No scraper: the declared cluster only needs a start marker to bill
     // elapsed time from.
-    let static_broker_state =
-        config.green.broker_static.as_ref().map(|_| {
-            crate::score::broker_static::StaticBrokerState::new(
-                crate::score::scaphandre::monotonic_ms(),
-            )
-        });
+    let static_broker_state = config.green.broker_static.as_ref().map(|cfg| {
+        crate::score::broker_static::StaticBrokerState::new(
+            crate::score::scaphandre::monotonic_ms(),
+            cfg,
+        )
+    });
     let scaphandre = setup_scaphandre_scraper(&config, &metrics);
     let kepler = setup_kepler_scraper(&config, &metrics);
     let redfish = setup_redfish_scraper(&config, &metrics);
@@ -348,7 +348,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             analysis_queue_capacity: config.daemon.analysis_queue_capacity,
             // 2x the scraper staleness window: flap-free between scrapes,
             // aged out shortly after a dead scraper's last reading.
-            db_waste_sticky_ttl_ms: alumet.staleness_ms.saturating_mul(2),
+            waste_sticky_ttl_ms: alumet.staleness_ms.saturating_mul(2),
         },
         green_summary_cell,
         archive_handle.as_ref().map(|h| h.tx.clone()),

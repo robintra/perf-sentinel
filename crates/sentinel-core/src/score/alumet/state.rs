@@ -63,6 +63,23 @@ impl DbEnergyState {
         self.last_update_ms.store(now_ms, Ordering::SeqCst);
     }
 
+    /// Consumer side: whether a scrape landed recently enough for this
+    /// workload to own its slice of the timeline. A delta covers every
+    /// interval since the previous one, so a live scraper owns the gaps
+    /// between deltas too, not only the ticks that carry one.
+    #[must_use]
+    pub fn is_fresh(&self, now_ms: u64, staleness_ms: u64) -> bool {
+        let last = self.last_update_ms.load(Ordering::SeqCst);
+        now_ms.saturating_sub(last) <= staleness_ms
+    }
+
+    /// Consumer side: drop what accumulated without billing it, for when
+    /// another source already billed the same wall clock.
+    pub fn discard_pending(&self) {
+        let cumulative = self.cumulative_kwh_bits.load(Ordering::SeqCst);
+        self.consumed_kwh_bits.store(cumulative, Ordering::SeqCst);
+    }
+
     /// Consumer side: energy accumulated since the previous take.
     ///
     /// `None` when the last label-bearing scrape is older than
@@ -72,8 +89,7 @@ impl DbEnergyState {
     pub fn take_window_kwh(&self, now_ms: u64, staleness_ms: u64) -> Option<f64> {
         // No never-updated sentinel needed: an untouched state has a
         // zero cumulative, so the delta check below returns None.
-        let last = self.last_update_ms.load(Ordering::SeqCst);
-        if now_ms.saturating_sub(last) > staleness_ms {
+        if !self.is_fresh(now_ms, staleness_ms) {
             return None;
         }
         let cumulative_bits = self.cumulative_kwh_bits.load(Ordering::SeqCst);

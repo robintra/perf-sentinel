@@ -15,7 +15,7 @@ use crate::detect::{Confidence, DetectConfig};
 use crate::event::SpanEvent;
 use crate::normalize;
 use crate::report::metrics::MetricsState;
-use crate::report::{DatabaseWaste, GreenSummary};
+use crate::report::{DatabaseWaste, GreenSummary, MessagingWaste};
 use crate::score;
 use crate::score::alumet::{AlumetState, DbEnergyState};
 use crate::score::cloud_energy::CloudEnergyState;
@@ -38,7 +38,7 @@ pub(super) struct EventLoopConfig {
     /// How long the live cell keeps the last `database_waste` figure
     /// when newer batches carry none (`0` = never keep). Derived from
     /// the Alumet staleness window so a dead scraper's figure ages out.
-    pub(super) db_waste_sticky_ttl_ms: u64,
+    pub(super) waste_sticky_ttl_ms: u64,
     /// Capacity of the bounded analysis worker queue. From
     /// `[daemon] analysis_queue_capacity`.
     pub(super) analysis_queue_capacity: usize,
@@ -76,8 +76,8 @@ pub(super) struct EnergySources<'a> {
     pub(super) alumet_state: Option<&'a AlumetState>,
     pub(super) alumet_db_state: Option<&'a DbEnergyState>,
     pub(super) alumet_broker_state: Option<&'a DbEnergyState>,
-    /// Declared cluster fallback, used only when Alumet delivered nothing
-    /// this tick: a measurement always outranks a declaration.
+    /// Declared cluster fallback, used only while the Alumet broker
+    /// scraper is stale: a measurement always outranks a declaration.
     pub(super) static_broker: Option<(
         &'a score::broker_static::StaticBrokerConfig,
         &'a score::broker_static::StaticBrokerState,
@@ -131,7 +131,7 @@ struct AnalysisWorkerCtx {
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     green_summary_cell: Arc<RwLock<GreenSummary>>,
     archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
-    db_waste_sticky_ttl_ms: u64,
+    waste_sticky_ttl_ms: u64,
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
@@ -174,7 +174,7 @@ pub(super) async fn run_event_loop(
             correlator,
             green_summary_cell,
             archive_tx,
-            db_waste_sticky_ttl_ms: loop_cfg.db_waste_sticky_ttl_ms,
+            waste_sticky_ttl_ms: loop_cfg.waste_sticky_ttl_ms,
         },
     ));
 
@@ -276,6 +276,7 @@ async fn drive_event_loop(
 /// channel closes (shutdown), after draining every buffered batch.
 async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
     let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
+    let mut msg_waste_sticky: Option<(MessagingWaste, u64)> = None;
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -291,7 +292,8 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
                 green_summary_cell: &wctx.green_summary_cell,
                 archive_tx: wctx.archive_tx.as_ref(),
                 db_waste_sticky: &mut db_waste_sticky,
-                db_waste_sticky_ttl_ms: wctx.db_waste_sticky_ttl_ms,
+                msg_waste_sticky: &mut msg_waste_sticky,
+                waste_sticky_ttl_ms: wctx.waste_sticky_ttl_ms,
             },
         )
         .await;
@@ -573,13 +575,12 @@ fn build_tick_ctx<'s>(
     // Consuming here (once per built batch) keeps shed batches from
     // losing energy: they never build a context.
     let db_window_kwh = alumet_db_state.and_then(|db| db.take_window_kwh(now, alumet_staleness_ms));
-    let measured_broker_kwh =
-        alumet_broker_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
-    // Taken every tick, even when the measurement wins: advancing the
-    // marker is what keeps a later fallback from re-billing time Alumet
-    // already covered. A discarded take is time measured elsewhere.
-    let declared_broker_kwh =
-        static_broker.and_then(|(cfg, state)| state.take_window_kwh(cfg.cluster_watts(), now));
+    let (measured_broker_kwh, declared_broker_kwh) = take_broker_energy(
+        alumet_broker_state,
+        static_broker.map(|(_, state)| state),
+        now,
+        alumet_staleness_ms,
+    );
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
     if cloud_snap.is_empty()
@@ -641,6 +642,36 @@ fn build_tick_ctx<'s>(
     }
 
     std::borrow::Cow::Owned(ctx)
+}
+
+/// Resolve the two broker energy sources for one tick, measured first.
+///
+/// Alumet delivers retroactively: one delta covers every interval since
+/// the previous one, so a live scraper owns the gaps between its deltas
+/// too, not only the ticks that carry one. Arbitrating per tick would
+/// publish those gaps twice, once per model tag.
+fn take_broker_energy(
+    alumet_state: Option<&DbEnergyState>,
+    declared: Option<&score::broker_static::StaticBrokerState>,
+    now: u64,
+    alumet_staleness_ms: u64,
+) -> (Option<f64>, Option<f64>) {
+    let measured = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
+    let alumet_owns_the_timeline =
+        alumet_state.is_some_and(|b| b.is_fresh(now, alumet_staleness_ms));
+    // Taken even when discarded: advancing the marker is what keeps a
+    // later fallback from re-billing time the measurement covered.
+    let declared_kwh = declared
+        .and_then(|state| state.take_window_kwh(now))
+        .filter(|_| !alumet_owns_the_timeline);
+    if declared_kwh.is_some()
+        && let Some(state) = alumet_state
+    {
+        // The declaration bills this stretch, so joules Alumet banked
+        // while stale must not be delivered again once it recovers.
+        state.discard_pending();
+    }
+    (measured, declared_kwh)
 }
 
 /// The tag and region follow the source that actually filled the
@@ -751,28 +782,58 @@ struct ProcessTracesCtx<'a> {
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
     archive_tx: Option<&'a mpsc::Sender<super::archive::OwnedArchive>>,
     /// Worker-owned last `database_waste` figure with its wall-clock
-    /// timestamp, see [`sticky_db_waste`].
+    /// timestamp, see [`sticky_waste_figure`].
     db_waste_sticky: &'a mut Option<(DatabaseWaste, u64)>,
-    db_waste_sticky_ttl_ms: u64,
+    /// Same for `messaging_waste`: the broker figure has the same duty
+    /// cycle, it is filled only on batches where a scrape landed.
+    msg_waste_sticky: &'a mut Option<(MessagingWaste, u64)>,
+    waste_sticky_ttl_ms: u64,
 }
 
-/// Live-cell stickiness for `database_waste`: keep the last figure for
-/// up to `ttl_ms` so `/api/export/report` does not flap to `None`
-/// between scrapes, without pinning a dead scraper's figure forever.
+/// Copy the batch summary onto the shared cell, with both waste figures
+/// bridged over their scrape gaps. The per-window archive keeps the
+/// batch-scoped truth, only the live cell gets the TTL-bounded figures.
+async fn publish_live_summary(green_summary: &GreenSummary, ctx: &mut ProcessTracesCtx<'_>) {
+    let now_ms = current_time_ms();
+    let restored = sticky_waste_figure(
+        green_summary.database_waste.as_ref(),
+        ctx.db_waste_sticky,
+        now_ms,
+        ctx.waste_sticky_ttl_ms,
+    );
+    let restored_msg = sticky_waste_figure(
+        green_summary.messaging_waste.as_ref(),
+        ctx.msg_waste_sticky,
+        now_ms,
+        ctx.waste_sticky_ttl_ms,
+    );
+    let mut cell = ctx.green_summary_cell.write().await;
+    cell.clone_from(green_summary);
+    cell.database_waste = restored;
+    cell.messaging_waste = restored_msg;
+}
+
+/// Live-cell stickiness for a waste figure: keep the last one for up to
+/// `ttl_ms` so `/api/export/report` does not flap to `None` between
+/// scrapes, without pinning a dead scraper's figure forever. The database
+/// and broker figures share the shape because they share the cause, an
+/// Alumet scrape cadence coarser than the batch cadence.
 /// The restored ratio belongs to its own window, an accepted mismatch
 /// with the current batch's counters (informational field).
-fn sticky_db_waste(
-    fresh: Option<&DatabaseWaste>,
-    sticky: &mut Option<(DatabaseWaste, u64)>,
+fn sticky_waste_figure<T: Clone>(
+    fresh: Option<&T>,
+    sticky: &mut Option<(T, u64)>,
     now_ms: u64,
     ttl_ms: u64,
-) -> Option<DatabaseWaste> {
-    if let Some(db) = fresh {
-        *sticky = Some((db.clone(), now_ms));
-        return Some(db.clone());
+) -> Option<T> {
+    if let Some(figure) = fresh {
+        *sticky = Some((figure.clone(), now_ms));
+        return Some(figure.clone());
     }
     match sticky {
-        Some((db, at)) if now_ms.saturating_sub(*at) <= ttl_ms && ttl_ms > 0 => Some(db.clone()),
+        Some((figure, at)) if now_ms.saturating_sub(*at) <= ttl_ms && ttl_ms > 0 => {
+            Some(figure.clone())
+        }
         _ => {
             *sticky = None;
             None
@@ -787,7 +848,7 @@ fn sticky_db_waste(
 /// `Confidence::CiBatch`.
 async fn process_traces(
     traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
-    ctx: ProcessTracesCtx<'_>,
+    mut ctx: ProcessTracesCtx<'_>,
 ) {
     if traces.is_empty() {
         return;
@@ -818,19 +879,7 @@ async fn process_traces(
     // `score_green` (it travels through `CarbonContext`), but the
     // handler unconditionally re-applies it from `state.scoring_config`
     // so the audit-trail metadata cannot drift from the startup config.
-    {
-        // The per-window archive keeps the batch-scoped truth; only the
-        // live cell gets the TTL-bounded sticky figure.
-        let restored = sticky_db_waste(
-            green_summary.database_waste.as_ref(),
-            ctx.db_waste_sticky,
-            current_time_ms(),
-            ctx.db_waste_sticky_ttl_ms,
-        );
-        let mut cell = ctx.green_summary_cell.write().await;
-        cell.clone_from(&green_summary);
-        cell.database_waste = restored;
-    }
+    publish_live_summary(&green_summary, &mut ctx).await;
 
     // Stamp the daemon's confidence label. Same shared helper as
     // `pipeline::analyze`, so the two paths cannot drift on the loop.
@@ -1005,7 +1054,8 @@ mod tests {
             green_summary_cell,
             archive_tx: None,
             db_waste_sticky: Box::leak(Box::new(None)),
-            db_waste_sticky_ttl_ms: 0,
+            msg_waste_sticky: Box::leak(Box::new(None)),
+            waste_sticky_ttl_ms: 0,
         }
     }
 
@@ -1326,27 +1376,27 @@ mod tests {
     }
 
     #[test]
-    fn sticky_db_waste_bridges_gaps_then_ages_out() {
+    fn sticky_waste_figure_bridges_gaps_then_ages_out() {
         let mut sticky = None;
         let fresh = waste_fixture(0.4);
         // A fresh figure is stored and passed through.
-        let out = sticky_db_waste(Some(&fresh), &mut sticky, 1_000, 30_000);
+        let out = sticky_waste_figure(Some(&fresh), &mut sticky, 1_000, 30_000);
         assert_eq!(out.as_ref(), Some(&fresh));
         // Gap between scrapes: the last figure bridges it.
-        let out = sticky_db_waste(None, &mut sticky, 10_000, 30_000);
+        let out = sticky_waste_figure(None, &mut sticky, 10_000, 30_000);
         assert_eq!(out.as_ref(), Some(&fresh));
         // Scraper dead: the figure ages out instead of pinning forever.
-        let out = sticky_db_waste(None, &mut sticky, 40_000, 30_000);
+        let out = sticky_waste_figure(None, &mut sticky, 40_000, 30_000);
         assert!(out.is_none());
         assert!(sticky.is_none(), "aged-out figure must be dropped");
     }
 
     #[test]
-    fn sticky_db_waste_disabled_at_zero_ttl() {
+    fn sticky_waste_figure_disabled_at_zero_ttl() {
         let mut sticky = None;
         let fresh = waste_fixture(0.2);
-        assert!(sticky_db_waste(Some(&fresh), &mut sticky, 1_000, 0).is_some());
-        assert!(sticky_db_waste(None, &mut sticky, 1_001, 0).is_none());
+        assert!(sticky_waste_figure(Some(&fresh), &mut sticky, 1_000, 0).is_some());
+        assert!(sticky_waste_figure(None, &mut sticky, 1_001, 0).is_none());
     }
 
     #[test]
@@ -1412,148 +1462,142 @@ mod tests {
         assert!(matches!(ctx2, std::borrow::Cow::Borrowed(_)));
     }
 
-    #[test]
-    fn build_tick_ctx_alumet_broker_outranks_the_declared_cluster() {
-        // A measurement always wins over a declaration, so the declared
-        // cluster must not be billed on a tick Alumet already covered.
-        let base = Arc::new(score::carbon::CarbonContext {
-            broker_energy: Some(score::carbon::DbEnergyContext {
-                window_kwh: 0.0,
-                region: None,
-                ..Default::default()
-            }),
-            ..score::carbon::CarbonContext::default()
-        });
-        let measured = DbEnergyState::new();
-        let now = score::scaphandre::monotonic_ms();
-        measured.add_window_kwh(5e-6, now);
-        let declared = score::broker_static::StaticBrokerConfig {
-            nodes: 3,
-            instance_type: "m5.2xlarge".to_string(),
-            provider: "aws".to_string(),
-            region: None,
-        };
-        let declared_state = score::broker_static::StaticBrokerState::new(0);
-        let mut sources = no_scrapers(&base);
-        sources.alumet_broker_state = Some(&measured);
-        sources.static_broker = Some((&declared, &declared_state));
-        sources.alumet_staleness_ms = 60_000;
-
-        let ctx = build_tick_ctx(&sources);
-        let kwh = ctx.broker_energy.as_ref().unwrap().window_kwh;
-        assert!(
-            (kwh - 5e-6).abs() < 1e-18,
-            "the measured figure must be used verbatim, got {kwh}"
-        );
-    }
-
-    #[test]
-    fn declared_marker_advances_on_ticks_the_measurement_covers() {
-        // The marker must advance even when Alumet wins the tick, or the
-        // first Alumet gap re-bills up to an hour already measured.
-        let base = Arc::new(score::carbon::CarbonContext {
-            broker_energy: Some(score::carbon::DbEnergyContext {
-                window_kwh: 0.0,
-                region: None,
-                ..Default::default()
-            }),
-            ..score::carbon::CarbonContext::default()
-        });
-        let measured = DbEnergyState::new();
-        let declared = score::broker_static::StaticBrokerConfig {
-            nodes: 3,
-            instance_type: "m5.2xlarge".to_string(),
-            provider: "aws".to_string(),
-            region: None,
-        };
-        // Marker seeded at 0: a full hour is pending against the cap.
-        let declared_state = score::broker_static::StaticBrokerState::new(0);
-        let now = score::scaphandre::monotonic_ms();
-        measured.add_window_kwh(5e-6, now);
-        let mut sources = no_scrapers(&base);
-        sources.alumet_broker_state = Some(&measured);
-        sources.static_broker = Some((&declared, &declared_state));
-        sources.alumet_staleness_ms = 60_000;
-
-        // Tick 1: Alumet delivers, the declared take is discarded but
-        // its marker advances.
-        let ctx = build_tick_ctx(&sources);
-        assert!((ctx.broker_energy.as_ref().unwrap().window_kwh - 5e-6).abs() < 1e-18);
-
-        // Tick 2: Alumet empty, the fallback bills only the instants
-        // since tick 1, never the pending hour.
-        let ctx2 = build_tick_ctx(&sources);
-        let kwh = ctx2.broker_energy.as_ref().map_or(0.0, |b| b.window_kwh);
-        assert!(
-            kwh < 1e-4,
-            "fallback must not re-bill time the measurement covered, got {kwh} kWh"
-        );
-    }
-
-    #[test]
-    fn fallback_tick_carries_the_declared_tag_and_region() {
-        // Base built as if [green.alumet.broker] were configured: alumet
-        // tag and alumet-declared region.
-        let base = Arc::new(score::carbon::CarbonContext {
-            broker_energy: Some(score::carbon::DbEnergyContext {
-                window_kwh: 0.0,
-                region: Some("eu-west-1".to_string()),
-                model: score::carbon::CO2_MODEL_ALUMET,
-            }),
-            ..score::carbon::CarbonContext::default()
-        });
-        let declared = score::broker_static::StaticBrokerConfig {
-            nodes: 1,
+    fn declared_cfg(nodes: u32) -> score::broker_static::StaticBrokerConfig {
+        score::broker_static::StaticBrokerConfig {
+            nodes,
             instance_type: "m5.2xlarge".to_string(),
             provider: "aws".to_string(),
             region: Some("eu-west-3".to_string()),
-        };
-        let declared_state = score::broker_static::StaticBrokerState::new(0);
-        score::scaphandre::monotonic_ms();
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        let mut sources = no_scrapers(&base);
-        sources.static_broker = Some((&declared, &declared_state));
+        }
+    }
 
-        let ctx = build_tick_ctx(&sources);
-        let broker = ctx.broker_energy.as_ref().unwrap();
+    #[test]
+    fn a_measured_broker_outranks_the_declared_cluster() {
+        let measured = DbEnergyState::new();
+        measured.add_window_kwh(5e-6, 10_000);
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+
+        let (m, d) = take_broker_energy(Some(&measured), Some(&state), 10_000, 60_000);
+        assert_eq!(m, Some(5e-6));
+        assert!(
+            d.is_none(),
+            "a declaration must not be billed beside a measurement"
+        );
+    }
+
+    #[test]
+    fn a_gap_between_alumet_deltas_is_not_billed_by_the_declaration() {
+        // Alumet delivers retroactively: the next delta will cover this
+        // interval too, so billing it now publishes the same wall clock
+        // twice, once per model tag.
+        let measured = DbEnergyState::new();
+        measured.add_window_kwh(5e-6, 10_000);
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+        take_broker_energy(Some(&measured), Some(&state), 10_000, 60_000);
+
+        // Tick 2: no fresh scrape landed, but the scraper is still live.
+        let (m, d) = take_broker_energy(Some(&measured), Some(&state), 20_000, 60_000);
+        assert!(m.is_none(), "no delta accumulated");
+        assert!(
+            d.is_none(),
+            "the declaration would re-bill what the next Alumet delta covers"
+        );
+    }
+
+    #[test]
+    fn a_stale_alumet_hands_the_window_over_to_the_declaration() {
+        let measured = DbEnergyState::new();
+        measured.add_window_kwh(5e-6, 1_000);
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+
+        // Far past the staleness window: the measurement no longer owns
+        // the timeline, so the declaration takes over.
+        let (m, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
+        assert!(m.is_none());
+        assert!(d.is_some_and(|k| k > 0.0));
+    }
+
+    #[test]
+    fn recovery_after_a_fallback_stretch_drops_the_banked_energy() {
+        let measured = DbEnergyState::new();
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+        measured.add_window_kwh(5e-6, 1_000);
+
+        // The scraper goes stale and the declaration covers the outage.
+        let (_, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
+        assert!(d.is_some(), "the declaration covers the outage");
+
+        // It recovers. The joules it banked cover time already billed, so
+        // only what accumulated after the handover may be delivered.
+        measured.add_window_kwh(2e-6, 101_000);
+        let (m, _) = take_broker_energy(Some(&measured), Some(&state), 101_000, 10_000);
+        let delivered = m.expect("the measurement resumes");
+        assert!(
+            (delivered - 2e-6).abs() < 1e-18,
+            "only the joules since the handover may be billed, got {delivered}"
+        );
+    }
+
+    #[test]
+    fn the_declared_marker_advances_while_alumet_owns_the_timeline() {
+        // Otherwise the first outage bills the whole measured stretch on
+        // top of the measurement that already covered it.
+        let measured = DbEnergyState::new();
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+        for t in [10_000_u64, 20_000, 30_000] {
+            measured.add_window_kwh(1e-6, t);
+            take_broker_energy(Some(&measured), Some(&state), t, 60_000);
+        }
+
+        // Alumet stale at t=100_000: only the 70 s outage may be billed.
+        let (_, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
+        let billed = d.expect("the fallback covers the outage");
+        let outage_kwh = cfg.cluster_watts() * 70_000.0 / 3_600_000.0 / 1000.0;
+        assert!(
+            (billed - outage_kwh).abs() < 1e-12,
+            "billed {billed} kWh, expected the 70 s outage alone"
+        );
+    }
+
+    #[test]
+    fn a_fallback_window_carries_the_declared_tag_and_region() {
+        // Base built as if [green.alumet.broker] were configured: alumet
+        // tag and alumet-declared region.
+        let mut broker = score::carbon::DbEnergyContext {
+            window_kwh: 0.0,
+            region: Some("eu-west-1".to_string()),
+            model: score::carbon::CO2_MODEL_ALUMET,
+        };
+        let cfg = declared_cfg(1);
+
+        patch_broker_energy(&mut broker, None, Some((4.2e-6, &cfg)));
         assert_eq!(
             broker.model,
             crate::report::BROKER_WASTE_MODEL_SPECPOWER,
             "a fallback window must not be published as a measurement"
         );
         assert_eq!(broker.region.as_deref(), Some("eu-west-3"));
+        assert!((broker.window_kwh - 4.2e-6).abs() < 1e-18);
     }
 
     #[test]
-    fn build_tick_ctx_falls_back_to_the_declared_cluster() {
-        let base = Arc::new(score::carbon::CarbonContext {
-            broker_energy: Some(score::carbon::DbEnergyContext {
-                window_kwh: 0.0,
-                region: None,
-                ..Default::default()
-            }),
-            ..score::carbon::CarbonContext::default()
-        });
-        let declared = score::broker_static::StaticBrokerConfig {
-            nodes: 1,
-            instance_type: "m5.2xlarge".to_string(),
-            provider: "aws".to_string(),
-            region: None,
+    fn a_measured_window_keeps_its_tag_when_both_sources_deliver() {
+        let mut broker = score::carbon::DbEnergyContext {
+            window_kwh: 0.0,
+            region: Some("eu-west-1".to_string()),
+            model: crate::report::BROKER_WASTE_MODEL_SPECPOWER,
         };
-        let declared_state = score::broker_static::StaticBrokerState::new(0);
-        // monotonic_ms() counts from its first call in the process, so it
-        // reads 0 in an isolated run and nothing would have elapsed.
-        score::scaphandre::monotonic_ms();
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        let mut sources = no_scrapers(&base);
-        sources.static_broker = Some((&declared, &declared_state));
+        let cfg = declared_cfg(1);
 
-        let ctx = build_tick_ctx(&sources);
-        assert!(
-            matches!(ctx, std::borrow::Cow::Owned(_)),
-            "a declared cluster alone must leave the borrowed fast path"
-        );
-        assert!(ctx.broker_energy.as_ref().unwrap().window_kwh > 0.0);
+        patch_broker_energy(&mut broker, Some(5e-6), Some((9e-6, &cfg)));
+        assert_eq!(broker.model, score::carbon::CO2_MODEL_ALUMET);
+        assert_eq!(broker.region.as_deref(), Some("eu-west-1"));
+        assert!((broker.window_kwh - 5e-6).abs() < 1e-18);
     }
 
     #[test]
@@ -1650,7 +1694,7 @@ mod tests {
             correlator: None,
             green_summary_cell: green_summary_cell.clone(),
             archive_tx: None,
-            db_waste_sticky_ttl_ms: 0,
+            waste_sticky_ttl_ms: 0,
         }
     }
 
@@ -1933,7 +1977,7 @@ mod tests {
             evict_ms: 60_000,
             confidence: Confidence::DaemonStaging,
             analysis_queue_capacity: 1024,
-            db_waste_sticky_ttl_ms: 0,
+            waste_sticky_ttl_ms: 0,
         }
     }
 
