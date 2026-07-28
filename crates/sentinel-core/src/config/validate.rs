@@ -82,31 +82,50 @@ pub(crate) fn has_control_char(s: &str) -> bool {
     })
 }
 
-/// Shared `[green.alumet.database]` field checks, used by the raw TOML
-/// pass (fail loud at load) and the typed pass (defense in depth for
+/// Shared declared-workload field checks, used by the raw TOML pass
+/// (fail loud at load) and the typed pass (defense in depth for
 /// programmatic construction). Control chars are rejected before the
-/// value can reach an error message.
-pub(super) fn validate_alumet_database_fields(
+/// value can reach an error message. `section` names the caller's TOML
+/// block so a broker misconfiguration does not point at the database.
+pub(super) fn validate_workload_fields(
+    section: &str,
     label_value: &str,
     region: Option<&str>,
 ) -> Result<(), String> {
     if has_control_char(label_value) {
-        return Err("[green.alumet.database] label_value contains control characters".to_string());
+        return Err(format!("{section} label_value contains control characters"));
     }
     if label_value.trim().is_empty() || label_value.len() > 256 {
         return Err(format!(
-            "[green.alumet.database] label_value must be 1-256 chars and not blank, got '{label_value}'"
+            "{section} label_value must be 1-256 chars and not blank, got '{label_value}'"
         ));
     }
     if let Some(region) = region
         && !crate::score::carbon::is_valid_region_id(region)
     {
         return Err(format!(
-            "[green.alumet.database] region '{region}' contains invalid characters; \
+            "{section} region '{region}' contains invalid characters; \
              allowed: ASCII letters, digits, '-' and '_', 1-64 chars"
         ));
     }
     Ok(())
+}
+
+/// Warn when a charset-valid region is absent from the embedded table.
+/// Unknown ids are legitimate (custom on-prem ids covered by Electricity
+/// Maps), so this warns instead of rejecting.
+pub(super) fn warn_unknown_region(section: &str, region: Option<&str>) {
+    if let Some(region) = region
+        && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
+    {
+        tracing::warn!(
+            region,
+            section,
+            "declared region is not in the embedded intensity table: \
+             waste_gco2 will be absent unless Electricity Maps real-time \
+             intensity covers it. Check for a typo (e.g. eu-west-3)."
+        );
+    }
 }
 
 /// Validate `[green.broker_static]`: a declared cluster must be
@@ -123,12 +142,25 @@ pub(super) fn validate_broker_static(
             cfg.nodes
         ));
     }
-    if cfg.instance_type.is_empty() || crate::config::has_control_char(&cfg.instance_type) {
+    if cfg.instance_type.is_empty()
+        || cfg.instance_type.len() > 256
+        || crate::config::has_control_char(&cfg.instance_type)
+    {
         return Err(
-            "[green.broker_static] instance_type must be non-empty and free of \
+            "[green.broker_static] instance_type must be 1-256 chars and free of \
              control characters"
                 .to_string(),
         );
+    }
+    // Same allow-list as [green.cloud.services]: an unrecognised provider
+    // would silently resolve to the generic on-prem watts, a very
+    // different number from the AWS default, under a typo.
+    if !matches!(cfg.provider.as_str(), "aws" | "gcp" | "azure" | "generic") {
+        return Err(format!(
+            "[green.broker_static] provider must be 'aws', 'gcp', 'azure' or \
+             'generic', got '{}'",
+            cfg.provider
+        ));
     }
     if let Some(region) = cfg.region.as_deref()
         && (region.is_empty() || !crate::score::carbon::is_valid_region_id(region))
@@ -137,6 +169,7 @@ pub(super) fn validate_broker_static(
             "[green.broker_static] region '{region}' is not a valid region id"
         ));
     }
+    warn_unknown_region("[green.broker_static]", cfg.region.as_deref());
     // An unknown type still yields a provider default, so warn rather
     // than reject: the figure stays honest, just coarser.
     if !crate::score::cloud_energy::table::is_known_instance_type(&cfg.instance_type) {
@@ -924,7 +957,7 @@ impl Config {
         region: Option<&str>,
         cfg: &AlumetConfig,
     ) -> Result<(), String> {
-        validate_alumet_database_fields(label_value, region)?;
+        validate_workload_fields(section, label_value, region)?;
         if cfg.service_mappings.values().any(|v| v == label_value) {
             return Err(format!(
                 "{section} label_value '{label_value}' also appears in \
@@ -932,17 +965,7 @@ impl Config {
                  totals and the {figure} figure"
             ));
         }
-        if let Some(region) = region
-            && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
-        {
-            tracing::warn!(
-                region,
-                section,
-                "declared region is not in the embedded intensity table: \
-                 waste_gco2 will be absent unless Electricity Maps real-time \
-                 intensity covers it. Check for a typo (e.g. eu-west-3)."
-            );
-        }
+        warn_unknown_region(section, region);
         Ok(())
     }
 
