@@ -875,7 +875,10 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         return lines;
     };
     let gs = &snapshot.green_summary;
-    if gs.per_service_energy_kwh.is_empty() && gs.regions.is_empty() && gs.database_waste.is_none()
+    if gs.per_service_energy_kwh.is_empty()
+        && gs.regions.is_empty()
+        && gs.database_waste.is_none()
+        && gs.messaging_waste.is_none()
     {
         lines.push(Line::from(Span::styled(
             "No energy/carbon data (green scoring disabled, or no events analyzed yet).",
@@ -911,6 +914,33 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
                 format!(
                     "   model {model}   region {region}   {}",
                     if db.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
+                        "within the report totals"
+                    } else {
+                        "excluded from totals"
+                    }
+                ),
+                dim,
+            ),
+        ]));
+    }
+    if let Some(mw) = &gs.messaging_waste {
+        let gco2 = mw
+            .waste_gco2
+            .map_or_else(|| "-".to_string(), |g| format!("{} gCO2", fmt_tiny(g)));
+        let region = truncate_cell(mw.region.as_deref().unwrap_or("-"), 24);
+        let model = truncate_cell(if mw.model.is_empty() { "-" } else { &mw.model }, 24);
+        lines.push(Line::from(vec![
+            Span::styled("Broker waste:   ", dim),
+            Span::raw(format!(
+                "{} kWh of {} kWh ({:.0}% messaging ratio)   {gco2}",
+                fmt_tiny(mw.waste_kwh),
+                fmt_tiny(mw.energy_kwh),
+                mw.messaging_waste_ratio * 100.0,
+            )),
+            Span::styled(
+                format!(
+                    "   model {model}   region {region}   {}",
+                    if mw.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
                         "within the report totals"
                     } else {
                         "excluded from totals"
@@ -1911,7 +1941,7 @@ mod tests {
                 {"status":"known","region":"eu-west-3","grid_intensity_gco2_kwh":41.0,"pue":1.2,"io_ops":100,"co2_gco2":0.5,"intensity_source":"real_time","intensity_estimated":false},
                 {"status":"known","region":"us-east-1","grid_intensity_gco2_kwh":368.0,"pue":1.2,"io_ops":50,"co2_gco2":2.0,"intensity_source":"annual"}
               ],
-              "database_waste":{"energy_kwh":0.01,"waste_kwh":0.002,"waste_gco2":0.09,"region":"eu-west-3","sql_waste_ratio":0.2,"model":"alumet_rapl"}
+              "database_waste":{"energy_kwh":0.01,"waste_kwh":0.002,"waste_gco2":0.09,"region":"eu-west-3","sql_waste_ratio":0.2,"model":"alumet_rapl"},"messaging_waste":{"energy_kwh":0.02,"waste_kwh":0.008,"waste_gco2":0.36,"region":"eu-west-3","messaging_waste_ratio":0.4,"model":"broker_specpower"}
             }"#,
         )
         .unwrap();
@@ -2003,6 +2033,19 @@ mod tests {
         assert!(text.contains("20% SQL ratio"), "got: {text}");
         assert!(text.contains("0.090000 gCO2"), "got: {text}");
         assert!(text.contains("model alumet_rapl"), "got: {text}");
+        assert!(text.contains("excluded from totals"), "got: {text}");
+    }
+
+    #[test]
+    fn energy_renders_broker_waste_line() {
+        let snapshot = snapshot_with_energy_mix();
+        let text = line_text(&build_energy_lines(Some(&snapshot)));
+        assert!(text.contains("Broker waste:"), "got: {text}");
+        assert!(text.contains("40% messaging ratio"), "got: {text}");
+        assert!(
+            text.contains("model broker_specpower"),
+            "a declared cluster must not read as a measurement: {text}"
+        );
         assert!(text.contains("excluded from totals"), "got: {text}");
     }
 

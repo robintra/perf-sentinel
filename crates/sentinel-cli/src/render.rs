@@ -604,6 +604,33 @@ fn format_database_waste_line(db: &sentinel_core::report::DatabaseWaste) -> Stri
     )
 }
 
+/// The broker twin of [`format_database_waste_line`].
+fn format_messaging_waste_line(mw: &sentinel_core::report::MessagingWaste) -> String {
+    let gco2 = mw
+        .waste_gco2
+        .map(|g| format!(", {} gCO\u{2082}", fmt_tiny(g)))
+        .unwrap_or_default();
+    let region = mw.region.as_deref().map_or_else(String::new, |r| {
+        format!(", region {}", sanitize_for_terminal(r))
+    });
+    let model = if mw.model.is_empty() {
+        "-".into()
+    } else {
+        sanitize_for_terminal(&mw.model)
+    };
+    let scope = if mw.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
+        "[within the report totals]"
+    } else {
+        "[excluded from totals]"
+    };
+    format!(
+        "  Broker waste:      {} kWh of {} kWh ({:.0}% messaging ratio, model {model}){gco2}{region} {scope}",
+        fmt_tiny(mw.waste_kwh),
+        fmt_tiny(mw.energy_kwh),
+        mw.messaging_waste_ratio * 100.0,
+    )
+}
+
 /// The CO2 block of the `GreenOps` summary. Split out of
 /// [`print_green_summary`] to keep that function's branching shallow.
 fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport) {
@@ -660,6 +687,9 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
 
     if let Some(db) = &summary.database_waste {
         println!("{}", format_database_waste_line(db));
+    }
+    if let Some(mw) = &summary.messaging_waste {
+        println!("{}", format_messaging_waste_line(mw));
     }
 
     // Carbon scoring config header. Hidden when Electricity Maps is
@@ -1804,6 +1834,41 @@ mod tests {
             summary.scoring_config = Some(cfg);
             print_green_summary(&summary, false);
         }
+    }
+
+    #[test]
+    fn broker_waste_line_sanitizes_and_labels_its_source() {
+        use sentinel_core::report::MessagingWaste;
+        // A terminal escape in the daemon-sourced region must not reach
+        // the sink, same bar as the database line.
+        let declared = MessagingWaste {
+            energy_kwh: 0.5,
+            waste_kwh: 0.2,
+            waste_gco2: Some(3e-7),
+            energy_gco2: Some(7e-7),
+            region: Some("eu\u{1b}[2Jwest".to_string()),
+            messaging_waste_ratio: 0.4,
+            model: "broker_specpower".to_string(),
+        };
+        let line = format_messaging_waste_line(&declared);
+        assert!(!line.contains('\u{1b}'), "escape reached the sink: {line}");
+        assert!(line.contains("Broker waste"), "{line}");
+        assert!(line.contains("40% messaging ratio"), "{line}");
+        assert!(line.contains("model broker_specpower"), "{line}");
+        assert!(line.contains("excluded from totals"), "{line}");
+
+        let estimated = MessagingWaste {
+            model: sentinel_core::report::DB_WASTE_MODEL_ESTIMATED.to_string(),
+            region: None,
+            waste_gco2: None,
+            ..declared
+        };
+        let line = format_messaging_waste_line(&estimated);
+        assert!(line.contains("within the report totals"), "{line}");
+        assert!(
+            !line.contains("region"),
+            "absent region must drop out: {line}"
+        );
     }
 
     #[test]
