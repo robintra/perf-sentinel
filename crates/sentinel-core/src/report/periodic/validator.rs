@@ -1263,6 +1263,40 @@ mod tests {
     }
 
     #[test]
+    fn a_declared_only_block_satisfies_the_three_term_split() {
+        // The shape every [green.broker_static]-only deployment produces.
+        // The two-term invariant this replaced would reject it.
+        let mut block = valid_db_waste();
+        block.measured_energy_kwh = 0.0;
+        block.measured_windows = 0;
+        block.declared_energy_kwh = 1.0;
+        block.declared_windows = 3;
+        block.estimated_windows = 0;
+        block.windows_with_figure = 3;
+        block.models = ["broker_specpower".to_string()].into_iter().collect();
+        assert!(
+            db_errors(block).is_empty(),
+            "a declared-only block must validate"
+        );
+    }
+
+    #[test]
+    fn a_declared_count_outside_the_split_is_rejected() {
+        let mut block = valid_db_waste();
+        // measured 1 + declared 1 + estimated 2 = 4, one too many.
+        block.declared_windows = 1;
+        let errors = db_errors(block);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::Aggregate { field, .. }
+                    if *field == "database_waste.measured_windows"
+            )),
+            "got: {errors:?}"
+        );
+    }
+
+    #[test]
     fn database_waste_absent_is_ok() {
         let mut agg = good_report(ReportIntent::Official, Confidentiality::Public).aggregate;
         agg.database_waste = None;

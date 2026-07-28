@@ -805,10 +805,14 @@ fn convert_broker_static_section(
     Some(crate::score::broker_static::StaticBrokerConfig {
         nodes,
         instance_type,
+        // An explicitly empty value reads as "unset", the same as an
+        // absent key, rather than failing the provider allow-list.
         provider: raw
             .provider
             .as_deref()
-            .map_or_else(|| "generic".to_string(), |p| p.trim().to_ascii_lowercase()),
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| "generic".to_string()),
         region: raw.region.clone(),
     })
 }
