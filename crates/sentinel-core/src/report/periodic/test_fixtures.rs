@@ -177,6 +177,7 @@ pub(super) fn sample_report(
             runtime_windows_count: 0,
             fallback_windows_count: 0,
             database_waste: None,
+            messaging_waste: None,
             per_service_energy_models: BTreeMap::new(),
             per_service_measured_ratio: BTreeMap::new(),
             temporal_coverage: TemporalCoverage::default(),

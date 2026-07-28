@@ -136,6 +136,10 @@ pub struct DisclosureWaste {
     /// predating the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<DisclosureDbWaste>,
+    /// Broker-side waste for the window, both tiers. `None` when the
+    /// window produced no messaging figure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messaging: Option<DisclosureMsgWaste>,
 }
 
 /// Window database waste at both thresholds. The canonical figure uses
@@ -155,6 +159,22 @@ pub struct DisclosureDbWaste {
     pub canonical_waste_kwh: f64,
     /// Window `energy_gco2` scaled by the canonical SQL ratio; `None`
     /// when the window energy had no carbon conversion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_waste_gco2: Option<f64>,
+}
+
+/// Window messaging waste at both thresholds, the twin of
+/// [`DisclosureDbWaste`] with the messaging ratio.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DisclosureMsgWaste {
+    /// Window energy of the broker figure (measured, declared or estimated).
+    pub energy_kwh: f64,
+    /// Provenance tag of that energy.
+    pub model: String,
+    pub operational_waste_kwh: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_waste_gco2: Option<f64>,
+    pub canonical_waste_kwh: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_waste_gco2: Option<f64>,
 }

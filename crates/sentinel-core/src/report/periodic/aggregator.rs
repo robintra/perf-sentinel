@@ -211,6 +211,50 @@ struct WasteTierAccumulator {
     avoidable_kg: f64,
 }
 
+/// Fold one window's waste block into a running accumulator. An
+/// out-of-spec provenance tag drops the whole block: a figure whose
+/// provenance cannot be published must not reach the sums either.
+#[allow(clippy::too_many_arguments)] // one per wire field, all distinct
+fn fold_waste_block(
+    acc: &mut DbWasteAccumulator,
+    model: &str,
+    energy_kwh: f64,
+    operational_kwh: f64,
+    operational_gco2: Option<f64>,
+    canonical_kwh: f64,
+    canonical_gco2: Option<f64>,
+) {
+    if !super::schema::is_valid_model_tag(model) {
+        return;
+    }
+    let energy = sanitize_f64(energy_kwh);
+    acc.energy_kwh += energy;
+    acc.operational_kwh += sanitize_f64(operational_kwh);
+    acc.canonical_kwh += sanitize_f64(canonical_kwh);
+    // Keep None-vs-zero: sums stay None until a window actually carried
+    // a carbon conversion.
+    if let Some(g) = operational_gco2 {
+        acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + sanitize_f64(g));
+    }
+    if let Some(g) = canonical_gco2 {
+        acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
+    }
+    acc.windows = acc.windows.saturating_add(1);
+    if model == crate::report::DB_WASTE_MODEL_ESTIMATED {
+        acc.estimated_windows = acc.estimated_windows.saturating_add(1);
+    } else {
+        acc.measured_windows = acc.measured_windows.saturating_add(1);
+        acc.measured_energy_kwh += energy;
+    }
+    if operational_gco2.is_some() || canonical_gco2.is_some() {
+        acc.windows_with_carbon = acc.windows_with_carbon.saturating_add(1);
+    }
+    // Same cap as the sibling energy-model collector.
+    if acc.models.len() < MAX_BINARY_VERSIONS || acc.models.contains(model) {
+        acc.models.insert(model.to_string());
+    }
+}
+
 #[derive(Default)]
 struct DbWasteAccumulator {
     energy_kwh: f64,
@@ -244,6 +288,7 @@ struct Builder {
     /// Windows predating the block are not folded (no canonical figure),
     /// so both tiers stay consistent.
     db_waste: DbWasteAccumulator,
+    msg_waste: DbWasteAccumulator,
     /// Sum of runtime-calibrated `energy_kwh` for windows that carry it.
     runtime_energy_kwh: f64,
     /// Distinct energy model strings collected across all windows. The
@@ -427,6 +472,9 @@ impl Builder {
             if let Some(db) = &dw.database {
                 self.fold_database_block(db);
             }
+            if let Some(mw) = &dw.messaging {
+                self.fold_messaging_block(mw);
+            }
         } else {
             // accounted_io_ops is not serialized, so the legacy energy share
             // uses total_io as the denominator (clamped). Threshold stays 0.
@@ -449,36 +497,28 @@ impl Builder {
     /// block: a figure whose provenance cannot be published must not reach
     /// the sums either.
     fn fold_database_block(&mut self, db: &crate::report::DisclosureDbWaste) {
-        if !super::schema::is_valid_model_tag(&db.model) {
-            return;
-        }
-        let acc = &mut self.db_waste;
-        let energy = sanitize_f64(db.energy_kwh);
-        acc.energy_kwh += energy;
-        acc.operational_kwh += sanitize_f64(db.operational_waste_kwh);
-        acc.canonical_kwh += sanitize_f64(db.canonical_waste_kwh);
-        // Keep None-vs-zero: sums stay None until a window actually carried
-        // a carbon conversion.
-        if let Some(g) = db.operational_waste_gco2 {
-            acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + sanitize_f64(g));
-        }
-        if let Some(g) = db.canonical_waste_gco2 {
-            acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
-        }
-        acc.windows = acc.windows.saturating_add(1);
-        if db.model == crate::report::DB_WASTE_MODEL_ESTIMATED {
-            acc.estimated_windows = acc.estimated_windows.saturating_add(1);
-        } else {
-            acc.measured_windows = acc.measured_windows.saturating_add(1);
-            acc.measured_energy_kwh += energy;
-        }
-        if db.operational_waste_gco2.is_some() || db.canonical_waste_gco2.is_some() {
-            acc.windows_with_carbon = acc.windows_with_carbon.saturating_add(1);
-        }
-        // Same cap as the sibling energy-model collector.
-        if acc.models.len() < MAX_BINARY_VERSIONS || acc.models.contains(&db.model) {
-            acc.models.insert(db.model.clone());
-        }
+        fold_waste_block(
+            &mut self.db_waste,
+            &db.model,
+            db.energy_kwh,
+            db.operational_waste_kwh,
+            db.operational_waste_gco2,
+            db.canonical_waste_kwh,
+            db.canonical_waste_gco2,
+        );
+    }
+
+    /// Same fold for the window's `disclosure_waste.messaging` block.
+    fn fold_messaging_block(&mut self, mw: &crate::report::DisclosureMsgWaste) {
+        fold_waste_block(
+            &mut self.msg_waste,
+            &mw.model,
+            mw.energy_kwh,
+            mw.operational_waste_kwh,
+            mw.operational_waste_gco2,
+            mw.canonical_waste_kwh,
+            mw.canonical_waste_gco2,
+        );
     }
 
     fn fold_binary_version(&mut self, bv: &str) {
@@ -749,6 +789,21 @@ impl Builder {
                     operational_waste_kgco2eq: self.db_waste.operational_g.map(|g| g / 1000.0),
                     canonical_waste_kwh: self.db_waste.canonical_kwh,
                     canonical_waste_kgco2eq: self.db_waste.canonical_g.map(|g| g / 1000.0),
+                }),
+                messaging_waste: (self.msg_waste.windows > 0).then(|| {
+                    super::schema::MessagingWasteAggregate {
+                        energy_kwh: self.msg_waste.energy_kwh,
+                        measured_energy_kwh: self.msg_waste.measured_energy_kwh,
+                        models: self.msg_waste.models,
+                        windows_with_figure: self.msg_waste.windows,
+                        measured_windows: self.msg_waste.measured_windows,
+                        estimated_windows: self.msg_waste.estimated_windows,
+                        windows_with_carbon: self.msg_waste.windows_with_carbon,
+                        operational_waste_kwh: self.msg_waste.operational_kwh,
+                        operational_waste_kgco2eq: self.msg_waste.operational_g.map(|g| g / 1000.0),
+                        canonical_waste_kwh: self.msg_waste.canonical_kwh,
+                        canonical_waste_kgco2eq: self.msg_waste.canonical_g.map(|g| g / 1000.0),
+                    }
                 }),
                 per_service_energy_models: self.per_service_energy_models,
                 per_service_measured_ratio: self
@@ -1209,6 +1264,7 @@ mod tests {
         let mut report = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
         report.disclosure_waste = Some(crate::report::DisclosureWaste {
             database: None,
+            messaging: None,
             canonical: crate::report::AvoidableTier {
                 n_plus_one_threshold: 2,
                 avoidable_io_ops: 200,
@@ -1248,6 +1304,64 @@ mod tests {
     }
 
     #[test]
+    fn aggregator_sums_messaging_waste_and_splits_provenance() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let msg_block = |energy: f64, model: &str| crate::report::DisclosureMsgWaste {
+            energy_kwh: energy,
+            model: model.to_string(),
+            operational_waste_kwh: energy * 0.5,
+            operational_waste_gco2: Some(energy * 50.0),
+            canonical_waste_kwh: energy * 0.8,
+            canonical_waste_gco2: Some(energy * 80.0),
+        };
+        let tier = crate::report::AvoidableTier {
+            n_plus_one_threshold: 2,
+            avoidable_io_ops: 10,
+            avoidable_kwh: 0.1,
+            avoidable_gco2: 1.0,
+        };
+        let mut r1 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        r1.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: tier.clone(),
+            operational: tier.clone(),
+            database: None,
+            messaging: Some(msg_block(2.0, "broker_specpower")),
+        });
+        let mut r2 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        r2.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: tier.clone(),
+            operational: tier,
+            database: None,
+            messaging: Some(msg_block(1.0, "estimated")),
+        });
+
+        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
+        let agg = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate;
+        let mw = agg.messaging_waste.expect("messaging block emitted");
+
+        assert!((mw.energy_kwh - 3.0).abs() < 1e-12);
+        // Only the declared window counts as measured: an estimate must
+        // never inflate the measured share.
+        assert!((mw.measured_energy_kwh - 2.0).abs() < 1e-12);
+        assert_eq!(mw.windows_with_figure, 2);
+        assert_eq!(mw.measured_windows, 1);
+        assert_eq!(mw.estimated_windows, 1);
+        assert_eq!(
+            mw.measured_windows + mw.estimated_windows,
+            mw.windows_with_figure
+        );
+        assert_eq!(
+            mw.models,
+            ["broker_specpower".to_string(), "estimated".to_string()]
+                .into_iter()
+                .collect()
+        );
+    }
+
+    #[test]
     fn aggregator_sums_database_waste_across_windows() {
         let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
         let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
@@ -1270,12 +1384,14 @@ mod tests {
             canonical: tier.clone(),
             operational: tier.clone(),
             database: Some(db_block(1.0, "alumet_rapl")),
+            messaging: None,
         });
         let mut r2 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
         r2.disclosure_waste = Some(crate::report::DisclosureWaste {
             canonical: tier.clone(),
             operational: tier.clone(),
             database: Some(db_block(0.5, "estimated")),
+            messaging: None,
         });
         // Out-of-spec provenance tag: the whole block is dropped, none
         // of its figures reach the sums.
@@ -1285,6 +1401,7 @@ mod tests {
             canonical: tier.clone(),
             operational: tier,
             database: Some(db_block(9.0, "bad tag!")),
+            messaging: None,
         });
 
         let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2), (ts3, r3)]);
