@@ -345,6 +345,37 @@ region = "eu-west-3"           # optional, enables the gCO2 conversion (declared
 
 `label_value` is required, matched exactly like a `service_mappings` value. `region` is optional and uses the same region ids as `[green.service_regions]`: without it the waste is reported in kWh only. One database per config, declare the cgroup that serves your SQL traffic.
 
+##### `[green.alumet.broker]` (optional)
+
+The messaging twin of the section above. Declares one message broker measured by Alumet: a broker emits no spans of its own either, so its window energy is multiplied by the messaging-only waste ratio (`avoidable_messaging_io_ops / total_messaging_io_ops`) and reported as `green_summary.messaging_waste`.
+
+```toml
+[green.alumet.broker]
+label_value = "kafka-pod"      # value carried by label_key for the broker cgroup, verbatim
+region = "eu-west-3"           # optional, enables the gCO2 conversion
+```
+
+The same cgroup cannot feed two figures: a `label_value` that also appears in `service_mappings`, or that matches the database declaration, is rejected at config load. Requires an agent on the broker host, so it does not apply to a managed broker. For those, see `[green.broker_static]`.
+
+#### `[green.broker_static]` (optional, opt-in)
+
+Declares a **provisioned** broker cluster, with no agent and no metric. This is the only path that works for a managed broker (Confluent Cloud, MSK, SQS, managed Pulsar), where there is no host to instrument.
+
+```toml
+[green.broker_static]
+nodes = 3                      # provisioned broker nodes, required
+instance_type = "m5.2xlarge"   # looked up in the embedded SPECpower table, required
+provider = "aws"               # optional: aws, gcp, azure, else a generic default
+region = "eu-west-3"           # optional, enables the gCO2 conversion
+```
+
+The energy is `nodes × max_watts × window duration`, following `E(n) = n × P_max`, the only published shape for Kafka-class brokers. Two properties to accept before relying on it:
+
+- **It is an upper bound.** `max_watts` is the power at 100 % CPU, and the model counts provisioned infrastructure rather than consumed. A three-node cluster is immobilized whether it runs at 10 % or 60 %.
+- **It does not react to application changes.** Batching your publishes will not move this number, because nothing about it depends on traffic. If you want a figure that responds to remediation, you need the measured path.
+
+An unknown `instance_type` warns and falls back to a provider default rather than failing: the figure stays honest, just coarser. Daemon only, like every measured path, since a window duration is needed. When both this section and `[green.alumet.broker]` are configured, **the measurement wins**: a declaration is never billed on a window Alumet already covered.
+
 #### `[green.redfish]` (optional, opt-in)
 
 Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. Unlike Scaphandre and Kepler (which measure CPU + DRAM only), Redfish reads the actual power supply output via the BMC, so periphery (NIC, drives, fans, PSU overhead) is included. Bare-metal only, no cloud VMs.
