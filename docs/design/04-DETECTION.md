@@ -656,3 +656,19 @@ To add a new language:
 3. Define a new `*_RULES` slice and a generic fallback variant on `Framework`.
 
 No wiring changes elsewhere: the `detect()` orchestrator already calls `suggestions::enrich` at the end of the per-trace detection pass and the CLI / JSON / SARIF rendering already handle an optional `suggested_fix`.
+
+## Finding signatures and acknowledgments
+
+`acknowledgments.rs` is the batch/CI half of the ack workflow. It loads `.perf-sentinel-acknowledgments.toml`, computes a signature per finding, moves acked findings into `report.acknowledged_findings`, and re-evaluates the quality gate on what survives. The daemon runtime store (`daemon/ack.rs`) shares the signature format and is unioned with the TOML at query time, with the TOML winning: it is the immutable baseline that went through PR review.
+
+**The signature is the load-bearing part**, because it is what an operator's `won't fix` decision is pinned to. Its shape is `<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>`.
+
+- **Why a hash only on the template.** The `(finding_type, service, sanitized_endpoint)` triple is already in the signature, so the hash only disambiguates templates within one triple, a tiny population. Its 32 hex characters (128 bits) are therefore not collision resistance for its own sake, they are defense in depth against an ack silently masking a *different* finding after a SQL refactor or a service rename.
+- **Why `/` and space become `_`.** So `:` stays a single unambiguous separator that operators can `cut -d:` in a shell pipeline.
+- **Why BiDi and invisible characters are stripped** from `service` and `source_endpoint` (Trojan Source, CVE-2021-42574): two signatures that render identically must not map to distinct ack entries, or an ack becomes unverifiable by reading it.
+
+**Stability is a contract, not an implementation detail.** Any change to the format, the sanitization, or the hash width silently invalidates every ack file in the wild, and the failure is silent in the worst direction: findings the operator accepted reappear, or worse, a stale ack keeps matching something else. A dedicated test suite pins the format for this reason. Treat a signature change as a breaking change requiring a re-ack, and say so in the changelog.
+
+**Re-evaluating the gate is the point.** Filtering findings without re-running `quality_gate` would leave `analyze --ci` failing on findings the operator explicitly accepted, which is the entire semantics of "won't fix". The re-evaluation runs even when nothing matched, so the gate field is always consistent with the final `findings` slice rather than with a pre-filter snapshot. `apply` also clears `acknowledged_findings` first, so feeding a `Report` back through it (a baseline JSON round-trip) cannot accumulate stale pairs.
+
+**Expiry is deliberately fail-open on the finding, fail-loud on the file.** An ack whose `expires_at` has passed is inactive and its finding comes back. A malformed date, on the other hand, aborts the run: a typo must not silently widen the acked set.

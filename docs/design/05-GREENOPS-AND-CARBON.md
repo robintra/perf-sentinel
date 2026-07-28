@@ -736,3 +736,13 @@ The field surfaces in:
 - **CLI terminal output**: NOT displayed (the terminal stays clean for interactive use).
 
 The planned consumer is perf-lint, a companion IDE integration (not yet published), which will import runtime findings from perf-sentinel's JSON output and apply a severity multiplier based on the confidence. Any custom tooling consuming the same JSON or SARIF output can use the field the same way. See `docs/INTEGRATION.md` "Finding confidence field" for the integration example.
+
+## Calibrating the proxy against a real wattmeter
+
+`calibrate.rs` backs the `calibrate` subcommand, which turns a measured power CSV into per-service multipliers for the I/O proxy. It closes the gap between "a directional coefficient" and "a directional coefficient anchored on your hardware" without requiring an agent at runtime.
+
+The arithmetic is deliberately plain: for each service present in **both** the traces and the readings, `energy_per_op = total_energy / total_ops`, and the emitted factor is that divided by the default proxy coefficient. A service with zero ops in the observation window is skipped rather than assigned a factor, since dividing by it would manufacture a number out of no evidence.
+
+Two input shapes are accepted and auto-detected from the CSV header. `timestamp,service,power_watts` is integrated into energy using the interval between consecutive readings **per service**, so interleaved services do not corrupt each other's intervals. `timestamp,service,energy_kwh` is taken as-is. Comment lines starting with `#` are skipped, because wattmeter exports routinely carry a preamble.
+
+What this does not do is make the figure a measurement. The result still rides the count-based ratio and still carries a model tag (`io_proxy_*+cal`) saying it is a calibrated model rather than a reading. A calibration derived on one workload mix and applied to another inherits that mix's assumptions, which is why the factor is per service and not global.

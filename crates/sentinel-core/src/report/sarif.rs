@@ -67,7 +67,7 @@ pub struct SarifResult {
     pub message: SarifMessage,
     pub logical_locations: Vec<SarifLogicalLocation>,
     /// SARIF v2.1.0 property bag. uses it to expose the
-    /// tool-specific `confidence` field for perf-lint interop.
+    /// tool-specific `confidence` field for editor-side interop.
     /// Empty-by-default so pre-5b consumers are unaffected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<SarifProperties>,
@@ -118,7 +118,7 @@ pub struct SarifLocation {
 /// Custom properties attached to a [`SarifResult`].
 ///
 /// perf-sentinel specific fields that don't fit the SARIF v2.1.0 schema
-/// natively. perf-lint reads this bag to boost / reduce severity in the IDE
+/// natively. An IDE-side consumer would read this bag to adjust severity
 /// based on where the finding came from.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -286,7 +286,7 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
                 kind: "function".to_string(),
             },
         ],
-        // expose the confidence for perf-lint interop.
+        // expose the confidence for editor-side interop.
         properties: Some(SarifProperties {
             confidence: finding.confidence.as_str(),
             acknowledged: None,

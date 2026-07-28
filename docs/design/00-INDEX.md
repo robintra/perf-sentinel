@@ -27,6 +27,10 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `event.rs`                     | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
 | `pipeline.rs`                  | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
 | `quality_gate.rs`              | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `acknowledgments.rs`           | [04: Detection](04-DETECTION.md)                                                                 |
+| `calibrate.rs`                 | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
+| `shutdown.rs`                  | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `text_safety.rs`               | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
 | `explain.rs`                   | [06: Ingestion](06-INGESTION-AND-DAEMON.md), [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)          |
 | `diff.rs`                      | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
 | `synth.rs`                     | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
@@ -57,6 +61,7 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `score/prom_parser.rs`         | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
 | `score/ops_snapshot_diff.rs`   | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
 | `score/broker_static.rs`       | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
+| `score/canonical.rs`           | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
 | `score/alumet/`                | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
 | `score/scaphandre/`            | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
 | `score/kepler/`                | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
@@ -72,6 +77,9 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `ingest/tempo.rs`              | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `ingest/jaeger_query.rs`       | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `ingest/auth_header.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/mysql_stat.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/lookback.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/url_enc.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/mod.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/event_loop.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
 | `daemon/listeners.rs`          | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
@@ -86,6 +94,9 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `report/mod.rs`, `json.rs`     | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
 | `report/html/`                 | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
 | `report/metrics.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `report/interpret.rs`          | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
+| `report/warnings.rs`           | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
+| `report/sarif.rs`              | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
 | `report/periodic/*`            | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
 | `daemon/archive.rs`            | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
 | `sentinel-cli/src/main.rs`     | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
