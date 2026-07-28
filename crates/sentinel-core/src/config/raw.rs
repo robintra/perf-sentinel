@@ -825,6 +825,28 @@ fn convert_broker_static_section(
 /// per-service series is named after an operator-chosen
 /// `energy-attribution` formula. Guessing would scrape nothing, or
 /// worse, the wrong series.
+/// Reject a half-declared `[green.broker_static]`: `nodes` and
+/// `instance_type` are both required and have no defensible default, so
+/// one without the other must be a loud error, not a silently inert
+/// section.
+pub(super) fn validate_broker_static_raw(raw: &BrokerStaticSection) -> Result<(), String> {
+    match (raw.nodes.is_some(), raw.instance_type.is_some()) {
+        (true, false) => Err(
+            "[green.broker_static] instance_type is required when nodes is set; \
+             without it the section is silently inert and the messaging waste \
+             figure never appears"
+                .to_string(),
+        ),
+        (false, true) => Err(
+            "[green.broker_static] nodes is required when instance_type is set; \
+             without it the section is silently inert and the messaging waste \
+             figure never appears"
+                .to_string(),
+        ),
+        _ => Ok(()),
+    }
+}
+
 pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
     if raw.endpoint.is_none() {
         // A database declaration without an endpoint would be silently

@@ -3285,16 +3285,24 @@ region = "eu-west-3"
 }
 
 #[test]
-fn broker_static_without_instance_type_is_inert() {
+fn broker_static_without_instance_type_is_rejected() {
     let toml = "
 [green.broker_static]
 nodes = 3
 ";
-    let cfg = load_from_str(toml).expect("loads");
     assert!(
-        cfg.green.broker_static.is_none(),
-        "a cluster with no instance type has no watts to report"
+        load_from_str(toml).is_err(),
+        "a half-declared cluster must fail loudly, not stay silently inert"
     );
+}
+
+#[test]
+fn broker_static_without_nodes_is_rejected() {
+    let toml = r#"
+[green.broker_static]
+instance_type = "m5.2xlarge"
+"#;
+    assert!(load_from_str(toml).is_err());
 }
 
 #[test]
