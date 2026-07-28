@@ -299,14 +299,6 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
     out
 }
 
-/// Measured database energy (declared Alumet cgroup) × SQL waste ratio.
-/// The measured path emits even at ratio zero (the consumed energy must
-/// appear somewhere or the archive under-counts it) and returns `None`
-/// on windows with no delivered reading: the carry-over banks that
-/// energy for a later window, an estimate here would double-count it.
-/// Only when NO database is declared does the figure fall back to an
-/// estimate from the modeled energy of the window's SQL spans, tagged
-/// [`crate::report::DB_WASTE_MODEL_ESTIMATED`].
 /// The shared shape of a waste figure: an energy, a ratio, and the two
 /// carbon conversions. Assembled once and mapped into the database or
 /// messaging struct by the two thin wrappers below.

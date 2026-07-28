@@ -406,112 +406,79 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
     validate_messaging_waste(agg, errors);
 }
 
-/// Validate the v1.4 `database_waste` block when present: finite
-/// non-negative figures and bounded, charset-clean model tags, the same
-/// bar every sibling aggregate field meets.
+/// Field-name literals for one waste block, `&'static str` because
+/// `ValidationError::Aggregate` carries one.
+struct WasteBlockFields {
+    energy_kwh: &'static str,
+    measured_energy_kwh: &'static str,
+    operational_waste_kwh: &'static str,
+    operational_waste_kgco2eq: &'static str,
+    canonical_waste_kwh: &'static str,
+    canonical_waste_kgco2eq: &'static str,
+    models: &'static str,
+    windows_with_figure: &'static str,
+    measured_windows: &'static str,
+    windows_with_carbon: &'static str,
+}
+
+const DB_WASTE_FIELDS: WasteBlockFields = WasteBlockFields {
+    energy_kwh: "database_waste.energy_kwh",
+    measured_energy_kwh: "database_waste.measured_energy_kwh",
+    operational_waste_kwh: "database_waste.operational_waste_kwh",
+    operational_waste_kgco2eq: "database_waste.operational_waste_kgco2eq",
+    canonical_waste_kwh: "database_waste.canonical_waste_kwh",
+    canonical_waste_kgco2eq: "database_waste.canonical_waste_kgco2eq",
+    models: "database_waste.models",
+    windows_with_figure: "database_waste.windows_with_figure",
+    measured_windows: "database_waste.measured_windows",
+    windows_with_carbon: "database_waste.windows_with_carbon",
+};
+
+const MSG_WASTE_FIELDS: WasteBlockFields = WasteBlockFields {
+    energy_kwh: "messaging_waste.energy_kwh",
+    measured_energy_kwh: "messaging_waste.measured_energy_kwh",
+    operational_waste_kwh: "messaging_waste.operational_waste_kwh",
+    operational_waste_kgco2eq: "messaging_waste.operational_waste_kgco2eq",
+    canonical_waste_kwh: "messaging_waste.canonical_waste_kwh",
+    canonical_waste_kgco2eq: "messaging_waste.canonical_waste_kgco2eq",
+    models: "messaging_waste.models",
+    windows_with_figure: "messaging_waste.windows_with_figure",
+    measured_windows: "messaging_waste.measured_windows",
+    windows_with_carbon: "messaging_waste.windows_with_carbon",
+};
+
 fn validate_database_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
-    let Some(db) = &agg.database_waste else {
-        return;
-    };
-    let figures: [(&'static str, f64); 6] = [
-        ("database_waste.energy_kwh", db.energy_kwh),
-        ("database_waste.measured_energy_kwh", db.measured_energy_kwh),
-        (
-            "database_waste.operational_waste_kwh",
-            db.operational_waste_kwh,
-        ),
-        (
-            "database_waste.operational_waste_kgco2eq",
-            db.operational_waste_kgco2eq.unwrap_or(0.0),
-        ),
-        ("database_waste.canonical_waste_kwh", db.canonical_waste_kwh),
-        (
-            "database_waste.canonical_waste_kgco2eq",
-            db.canonical_waste_kgco2eq.unwrap_or(0.0),
-        ),
-    ];
-    for (field, value) in figures {
-        if !value.is_finite() {
-            errors.push(ValidationError::Aggregate {
-                field,
-                reason: format!("must be a finite number, got {value}"),
-            });
-        } else if value < 0.0 {
-            errors.push(ValidationError::Aggregate {
-                field,
-                reason: format!("must be >= 0, got {value}"),
-            });
-        }
-    }
-    for model in &db.models {
-        if !super::schema::is_valid_model_tag(model) {
-            errors.push(ValidationError::Aggregate {
-                field: "database_waste.models",
-                reason: format!(
-                    "model tag must be 1-{} chars of [A-Za-z0-9_+], got {} chars",
-                    super::schema::MODEL_TAG_MAX_LEN,
-                    model.len()
-                ),
-            });
-        }
-    }
-    if db.windows_with_figure == 0 {
-        errors.push(ValidationError::Aggregate {
-            field: "database_waste.windows_with_figure",
-            reason: "block present with zero windows".to_string(),
-        });
-    }
-    // The provenance split must re-add to the total when populated
-    // (zero split = a report predating the fields, accepted as-is).
-    let split = db.measured_windows.saturating_add(db.estimated_windows);
-    if split > 0 && split != db.windows_with_figure {
-        errors.push(ValidationError::Aggregate {
-            field: "database_waste.measured_windows",
-            reason: format!(
-                "measured + estimated windows ({split}) != windows_with_figure ({})",
-                db.windows_with_figure
-            ),
-        });
-    }
-    if db.windows_with_carbon > db.windows_with_figure {
-        errors.push(ValidationError::Aggregate {
-            field: "database_waste.windows_with_carbon",
-            reason: format!(
-                "exceeds windows_with_figure ({} > {})",
-                db.windows_with_carbon, db.windows_with_figure
-            ),
-        });
+    if let Some(db) = &agg.database_waste {
+        validate_waste_block(db, &DB_WASTE_FIELDS, errors);
     }
 }
 
-/// Validate the v1.5 `messaging_waste` block, the same bar as its
-/// database twin. Field names are literals because `ValidationError`
-/// carries a `&'static str`.
 fn validate_messaging_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
-    let Some(mw) = &agg.messaging_waste else {
-        return;
-    };
+    if let Some(mw) = &agg.messaging_waste {
+        validate_waste_block(mw, &MSG_WASTE_FIELDS, errors);
+    }
+}
+
+/// One waste block, either twin: finite non-negative figures, bounded
+/// charset-clean model tags, and the provenance-split invariants. The
+/// zero split is accepted as-is, it marks a report predating the fields.
+fn validate_waste_block(
+    block: &super::schema::DatabaseWasteAggregate,
+    f: &WasteBlockFields,
+    errors: &mut Vec<ValidationError>,
+) {
     let figures: [(&'static str, f64); 6] = [
-        ("messaging_waste.energy_kwh", mw.energy_kwh),
+        (f.energy_kwh, block.energy_kwh),
+        (f.measured_energy_kwh, block.measured_energy_kwh),
+        (f.operational_waste_kwh, block.operational_waste_kwh),
         (
-            "messaging_waste.measured_energy_kwh",
-            mw.measured_energy_kwh,
+            f.operational_waste_kgco2eq,
+            block.operational_waste_kgco2eq.unwrap_or(0.0),
         ),
+        (f.canonical_waste_kwh, block.canonical_waste_kwh),
         (
-            "messaging_waste.operational_waste_kwh",
-            mw.operational_waste_kwh,
-        ),
-        (
-            "messaging_waste.operational_waste_kgco2eq",
-            mw.operational_waste_kgco2eq.unwrap_or(0.0),
-        ),
-        (
-            "messaging_waste.canonical_waste_kwh",
-            mw.canonical_waste_kwh,
-        ),
-        (
-            "messaging_waste.canonical_waste_kgco2eq",
-            mw.canonical_waste_kgco2eq.unwrap_or(0.0),
+            f.canonical_waste_kgco2eq,
+            block.canonical_waste_kgco2eq.unwrap_or(0.0),
         ),
     ];
     for (field, value) in figures {
@@ -527,10 +494,10 @@ fn validate_messaging_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) 
             });
         }
     }
-    for model in &mw.models {
+    for model in &block.models {
         if !super::schema::is_valid_model_tag(model) {
             errors.push(ValidationError::Aggregate {
-                field: "messaging_waste.models",
+                field: f.models,
                 reason: format!(
                     "model tag must be 1-{} chars of [A-Za-z0-9_+], got {} chars",
                     super::schema::MODEL_TAG_MAX_LEN,
@@ -539,28 +506,30 @@ fn validate_messaging_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) 
             });
         }
     }
-    if mw.windows_with_figure == 0 {
+    if block.windows_with_figure == 0 {
         errors.push(ValidationError::Aggregate {
-            field: "messaging_waste.windows_with_figure",
+            field: f.windows_with_figure,
             reason: "block present with zero windows".to_string(),
         });
     }
-    let split = mw.measured_windows.saturating_add(mw.estimated_windows);
-    if split > 0 && split != mw.windows_with_figure {
+    let split = block
+        .measured_windows
+        .saturating_add(block.estimated_windows);
+    if split > 0 && split != block.windows_with_figure {
         errors.push(ValidationError::Aggregate {
-            field: "messaging_waste.measured_windows",
+            field: f.measured_windows,
             reason: format!(
                 "measured + estimated windows ({split}) != windows_with_figure ({})",
-                mw.windows_with_figure
+                block.windows_with_figure
             ),
         });
     }
-    if mw.windows_with_carbon > mw.windows_with_figure {
+    if block.windows_with_carbon > block.windows_with_figure {
         errors.push(ValidationError::Aggregate {
-            field: "messaging_waste.windows_with_carbon",
+            field: f.windows_with_carbon,
             reason: format!(
                 "exceeds windows_with_figure ({} > {})",
-                mw.windows_with_carbon, mw.windows_with_figure
+                block.windows_with_carbon, block.windows_with_figure
             ),
         });
     }
