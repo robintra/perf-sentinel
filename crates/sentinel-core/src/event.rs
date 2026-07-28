@@ -206,8 +206,11 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
     // A messaging destination reaches the finding template verbatim, and
     // it can be a full broker URI. SQL goes through the tokenizer and
-    // HTTP through normalize_http, this arm has neither.
-    if event.event_type == EventType::Messaging {
+    // HTTP through normalize_http, this arm has neither. Gated on a
+    // scheme because the helper parses URL authority: a bare queue name
+    // may legally carry '@' (IBM MQ `ORDERS@QM1`) or '#' (a RabbitMQ
+    // routing key), and rewriting those would merge distinct destinations.
+    if event.event_type == EventType::Messaging && event.target.contains("://") {
         strip_endpoint_secrets(&mut event.target);
     }
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
@@ -638,6 +641,23 @@ mod tests {
         event.event_type = EventType::Messaging;
         sanitize_span_event(&mut event);
         assert_eq!(event.target, arn);
+    }
+
+    #[test]
+    fn sanitize_keeps_scheme_less_destinations_verbatim() {
+        // These are names, not URLs. Running the authority parser over
+        // them merges distinct destinations into one finding target.
+        for name in [
+            "ORDERS@QM1",   // IBM MQ queue@qmgr
+            "logs.#",       // RabbitMQ routing key
+            "my.topic?v=2", // a literal '?' in a queue name
+            "orders",
+        ] {
+            let mut event = make_event_with_field("target", name);
+            event.event_type = EventType::Messaging;
+            sanitize_span_event(&mut event);
+            assert_eq!(event.target, name, "rewrote a legitimate destination");
+        }
     }
 
     #[test]
