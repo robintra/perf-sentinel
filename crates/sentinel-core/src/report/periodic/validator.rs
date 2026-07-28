@@ -403,6 +403,7 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
     }
     validate_waste_tiers(agg, errors);
     validate_database_waste(agg, errors);
+    validate_messaging_waste(agg, errors);
 }
 
 /// Validate the v1.4 `database_waste` block when present: finite
@@ -478,6 +479,88 @@ fn validate_database_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
             reason: format!(
                 "exceeds windows_with_figure ({} > {})",
                 db.windows_with_carbon, db.windows_with_figure
+            ),
+        });
+    }
+}
+
+/// Validate the v1.5 `messaging_waste` block, the same bar as its
+/// database twin. Field names are literals because `ValidationError`
+/// carries a `&'static str`.
+fn validate_messaging_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
+    let Some(mw) = &agg.messaging_waste else {
+        return;
+    };
+    let figures: [(&'static str, f64); 6] = [
+        ("messaging_waste.energy_kwh", mw.energy_kwh),
+        (
+            "messaging_waste.measured_energy_kwh",
+            mw.measured_energy_kwh,
+        ),
+        (
+            "messaging_waste.operational_waste_kwh",
+            mw.operational_waste_kwh,
+        ),
+        (
+            "messaging_waste.operational_waste_kgco2eq",
+            mw.operational_waste_kgco2eq.unwrap_or(0.0),
+        ),
+        (
+            "messaging_waste.canonical_waste_kwh",
+            mw.canonical_waste_kwh,
+        ),
+        (
+            "messaging_waste.canonical_waste_kgco2eq",
+            mw.canonical_waste_kgco2eq.unwrap_or(0.0),
+        ),
+    ];
+    for (field, value) in figures {
+        if !value.is_finite() {
+            errors.push(ValidationError::Aggregate {
+                field,
+                reason: format!("must be a finite number, got {value}"),
+            });
+        } else if value < 0.0 {
+            errors.push(ValidationError::Aggregate {
+                field,
+                reason: format!("must be >= 0, got {value}"),
+            });
+        }
+    }
+    for model in &mw.models {
+        if !super::schema::is_valid_model_tag(model) {
+            errors.push(ValidationError::Aggregate {
+                field: "messaging_waste.models",
+                reason: format!(
+                    "model tag must be 1-{} chars of [A-Za-z0-9_+], got {} chars",
+                    super::schema::MODEL_TAG_MAX_LEN,
+                    model.len()
+                ),
+            });
+        }
+    }
+    if mw.windows_with_figure == 0 {
+        errors.push(ValidationError::Aggregate {
+            field: "messaging_waste.windows_with_figure",
+            reason: "block present with zero windows".to_string(),
+        });
+    }
+    let split = mw.measured_windows.saturating_add(mw.estimated_windows);
+    if split > 0 && split != mw.windows_with_figure {
+        errors.push(ValidationError::Aggregate {
+            field: "messaging_waste.measured_windows",
+            reason: format!(
+                "measured + estimated windows ({split}) != windows_with_figure ({})",
+                mw.windows_with_figure
+            ),
+        });
+    }
+    if mw.windows_with_carbon > mw.windows_with_figure {
+        errors.push(ValidationError::Aggregate {
+            field: "messaging_waste.windows_with_carbon",
+            reason: format!(
+                "exceeds windows_with_figure ({} > {})",
+                mw.windows_with_carbon, mw.windows_with_figure
             ),
         });
     }

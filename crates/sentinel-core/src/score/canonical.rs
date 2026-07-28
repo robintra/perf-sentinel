@@ -73,6 +73,7 @@ pub(crate) fn compute_disclosure_waste(
             avoidable_gco2: operational_avoidable_gco2,
         },
         database: build_db_waste_tiers(operational, canonical.sql),
+        messaging: build_msg_waste_tiers(operational, canonical.messaging),
     }
 }
 
@@ -99,6 +100,30 @@ fn build_db_waste_tiers(
         operational_waste_gco2: db.waste_gco2,
         canonical_waste_kwh: db.energy_kwh * canonical_ratio,
         canonical_waste_gco2: db.energy_gco2.map(|g| g * canonical_ratio),
+    })
+}
+
+/// The messaging twin of [`build_db_waste_tiers`], same anti-gaming
+/// construction: the canonical tier rescales the ratio-independent
+/// `energy_gco2` base rather than the operational figure.
+fn build_msg_waste_tiers(
+    operational: &GreenSummary,
+    canonical_messaging_avoidable: usize,
+) -> Option<crate::report::DisclosureMsgWaste> {
+    let mw = operational.messaging_waste.as_ref()?;
+    let total = operational.total_messaging_io_ops;
+    let canonical_ratio = if total == 0 {
+        0.0
+    } else {
+        (canonical_messaging_avoidable as f64 / total as f64).min(1.0)
+    };
+    Some(crate::report::DisclosureMsgWaste {
+        energy_kwh: mw.energy_kwh,
+        model: mw.model.clone(),
+        operational_waste_kwh: mw.waste_kwh,
+        operational_waste_gco2: mw.waste_gco2,
+        canonical_waste_kwh: mw.energy_kwh * canonical_ratio,
+        canonical_waste_gco2: mw.energy_gco2.map(|g| g * canonical_ratio),
     })
 }
 

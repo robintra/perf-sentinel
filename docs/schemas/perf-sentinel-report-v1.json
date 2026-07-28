@@ -387,6 +387,29 @@
         "canonical_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." }
       }
     },
+    "MessagingWasteAggregate": {
+      "type": "object",
+      "required": ["energy_kwh", "models", "windows_with_figure", "operational_waste_kwh", "canonical_waste_kwh"],
+      "additionalProperties": false,
+      "properties": {
+        "energy_kwh": { "type": "number", "minimum": 0 },
+        "measured_energy_kwh": { "type": "number", "minimum": 0, "description": "Share of energy_kwh from windows with a measured or declared figure (any model other than estimated)." },
+        "models": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_+]+$" },
+          "description": "Distinct provenance tags observed over the period: alumet_rapl = measured on the broker cgroup, broker_specpower = declared provisioned cluster, estimated = built from the modeled energy of the publish spans."
+        },
+        "windows_with_figure": { "type": "integer", "minimum": 1 },
+        "measured_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure came from a measured or declared source." },
+        "estimated_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure was the estimated fallback." },
+        "windows_with_carbon": { "type": "integer", "minimum": 0, "description": "Windows whose figure carried a carbon conversion." },
+        "operational_waste_kwh": { "type": "number", "minimum": 0 },
+        "operational_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." },
+        "canonical_waste_kwh": { "type": "number", "minimum": 0 },
+        "canonical_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." }
+      }
+    },
     "Aggregate": {
       "type": "object",
       "required": [
@@ -457,6 +480,10 @@
         "database_waste": {
           "$ref": "#/$defs/DatabaseWasteAggregate",
           "description": "Since v1.4. Database-side avoidable energy and carbon over the period at both thresholds, with provenance models. Informational lower bound, never folded into total_energy_kwh/total_carbon_kgco2eq. Absent on pre-v1.4 reports and when no window carried the figure."
+        },
+        "messaging_waste": {
+          "$ref": "#/$defs/MessagingWasteAggregate",
+          "description": "Since v1.5. Broker-side avoidable energy and carbon over the period at both thresholds, the messaging twin of database_waste. Same informational status, never folded into the totals. Absent on pre-v1.5 reports and when no window carried the figure."
         },
         "per_service_energy_models": {
           "type": "object",
