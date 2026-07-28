@@ -373,12 +373,13 @@ provider = "aws"               # optionnel : aws, gcp, azure, sinon un défaut g
 region = "eu-west-3"           # optionnel, active la conversion gCO2
 ```
 
-L'énergie vaut `nodes × max_watts × durée de la fenêtre`, suivant `E(n) = n × P_max`, la seule forme publiée pour des brokers de classe Kafka. Deux propriétés à accepter avant de s'appuyer dessus :
+L'énergie vaut `nodes × max_watts × durée de la fenêtre`, suivant `E(n) = n × P_max` : les nœuds provisionnés multipliés par leur plafond de puissance. Trois propriétés à accepter avant de s'appuyer dessus :
 
-- **C'est un majorant.** `max_watts` est la puissance à 100 % de CPU, et le modèle compte l'infrastructure provisionnée plutôt que consommée. Un cluster de trois nœuds est immobilisé qu'il tourne à 10 % ou à 60 %.
+- **Le chiffre borne le calcul, pas la consommation murale.** `max_watts` est la puissance à 100 % de CPU, tirée d'une table SPECpower qui couvre le CPU et la carte mère et exclut le stockage, le réseau et les pertes d'alimentation. Or ce sont eux qui dominent sur un broker : c'est donc un plafond sur les vCPU déclarés, pas sur ce que le cluster tire réellement de la prise. Un nœud Kafka limité par le stockage peut consommer plus que ce que ce chiffre rapporte.
+- **Il compte l'infrastructure provisionnée, pas consommée.** Un cluster de trois nœuds est immobilisé qu'il tourne à 10 % ou à 60 %. Dans l'autre sens, une période sans trafic facture au plus une heure, donc un cluster majoritairement inactif est sous-compté.
 - **Le chiffre ne réagit à aucun changement applicatif.** Grouper vos publications ne le fera pas bouger, puisque rien dedans ne dépend du trafic. Si vous voulez un chiffre qui répond à une remédiation, il faut la voie mesurée.
 
-Un `instance_type` inconnu émet un avertissement et retombe sur un défaut fournisseur plutôt que d'échouer : le chiffre reste honnête, simplement plus grossier. Daemon uniquement, comme toute voie mesurée, puisqu'une durée de fenêtre est nécessaire. Quand cette section et `[green.alumet.broker]` sont toutes deux configurées, **la mesure gagne** : une déclaration n'est jamais facturée sur une fenêtre déjà couverte par Alumet.
+Un `instance_type` inconnu émet un avertissement et retombe sur un défaut fournisseur plutôt que d'échouer : le chiffre devient simplement plus grossier, et l'avertissement le dit. Un `provider` non reconnu est rejeté d'emblée, car il se résoudrait silencieusement aux watts génériques on-premise. Daemon uniquement, comme toute voie mesurée, puisqu'une durée de fenêtre est nécessaire. Quand cette section et `[green.alumet.broker]` sont toutes deux configurées, **la mesure gagne** : la déclaration n'est facturée que tant que le scraper Alumet est périmé, et les joules qu'Alumet met de côté pendant cette panne sont jetés plutôt que livrés une seconde fois.
 
 #### `[green.redfish]` (optionnel, opt-in)
 

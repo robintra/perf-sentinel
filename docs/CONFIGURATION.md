@@ -369,12 +369,13 @@ provider = "aws"               # optional: aws, gcp, azure, else a generic defau
 region = "eu-west-3"           # optional, enables the gCO2 conversion
 ```
 
-The energy is `nodes × max_watts × window duration`, following `E(n) = n × P_max`, the only published shape for Kafka-class brokers. Two properties to accept before relying on it:
+The energy is `nodes × max_watts × window duration`, following `E(n) = n × P_max`: provisioned nodes times their power ceiling. Three properties to accept before relying on it:
 
-- **It is an upper bound.** `max_watts` is the power at 100 % CPU, and the model counts provisioned infrastructure rather than consumed. A three-node cluster is immobilized whether it runs at 10 % or 60 %.
+- **It bounds compute, not wall power.** `max_watts` is the power at 100 % CPU, drawn from a SPECpower table that covers CPU and baseboard and excludes storage, network and PSU overhead. Those dominate on a broker, so this is a ceiling on the declared vCPUs and not on what the cluster actually pulls from the wall. A storage-bound Kafka node can draw more than this figure reports.
+- **It counts provisioned infrastructure, not consumed.** A three-node cluster is immobilized whether it runs at 10 % or 60 %. In the other direction, a stretch with no traffic bills at most one hour, so a mostly-idle cluster is under-counted.
 - **It does not react to application changes.** Batching your publishes will not move this number, because nothing about it depends on traffic. If you want a figure that responds to remediation, you need the measured path.
 
-An unknown `instance_type` warns and falls back to a provider default rather than failing: the figure stays honest, just coarser. Daemon only, like every measured path, since a window duration is needed. When both this section and `[green.alumet.broker]` are configured, **the measurement wins**: a declaration is never billed on a window Alumet already covered.
+An unknown `instance_type` warns and falls back to a provider default rather than failing: the figure stays coarser, and the warning says so. An unrecognised `provider` is rejected outright, because it would silently resolve to the generic on-prem watts. Daemon only, like every measured path, since a window duration is needed. When both this section and `[green.alumet.broker]` are configured, **the measurement wins**: the declaration is billed only while the Alumet scraper is stale, and the joules Alumet banks during that outage are dropped rather than delivered twice.
 
 #### `[green.redfish]` (optional, opt-in)
 

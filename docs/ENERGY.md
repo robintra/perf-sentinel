@@ -46,6 +46,22 @@ database waste = measured DB energy x (avoidable SQL ops / total SQL ops)
 
 The result is `green_summary.database_waste`, with a gCO2 conversion when you declare the database's region. And the figure exists even without Alumet: when no measurement is available (batch runs, managed databases, no `[green.alumet.database]`), it is estimated from the modeled energy of the SQL spans instead, and its `model` tag says which path produced it (`alumet_rapl` = measured, `estimated` = modeled). Measured is a lower bound (CPU energy only, no DRAM, no disk), estimated is only as precise as the energy model behind the report (the I/O proxy and its 2x bracket in the common case), both use a count-based ratio, so the figure stays informational: the measured variant is additional energy excluded from `energy_kwh` and `co2`, the estimated variant is a re-presented share of those totals (never add it on top), and the disclosure publishes it only as a separate labeled block outside every total. The full list of bounds is in [LIMITATIONS.md](LIMITATIONS.md#alumet-precision-bounds).
 
+## The broker figure
+
+A message broker poses the database's problem twice over: it burns the energy of an N+1 publish loop, it emits no span of its own, and it is very often managed, so there is no host to run an agent on. The same rule of three answers it, with the messaging-only ratio.
+
+```
+broker waste = broker energy x (avoidable publish ops / total publish ops)
+```
+
+The result is `green_summary.messaging_waste`. What differs from the database is the number of ways the broker energy can be obtained, and they do not have the same standing.
+
+- `[green.alumet.broker]` measures the broker cgroup. Same rung as the database, same RAPL bound: CPU and DRAM only, so it under-counts.
+- `[green.broker_static]` declares a provisioned cluster (`nodes` plus an instance type) and needs no agent, which is the only path open on Confluent Cloud, MSK, SQS or a managed Pulsar. It reads `E(n) = n x P_max` from the embedded SPECpower table. That table covers CPU and baseboard, so the result bounds the declared vCPUs at full load and not the cluster's wall power, and a storage-bound broker can draw more. It also does not move when the application starts batching, which is a real weakness for a figure meant to show remediation working.
+- With neither declared, the figure is estimated from the modeled energy of the publish spans, exactly like the database fallback.
+
+The `model` tag says which path produced it (`alumet_rapl`, `broker_specpower`, `estimated`), and the periodic disclosure keeps the three apart rather than folding a declaration into the measured sums. Deliberately absent from all of this: a joules-per-message coefficient. Broker power stops tracking throughput past roughly 20 % of capacity, so the marginal energy of one publish is not a constant, and the three things that would determine it (cluster utilisation, replication factor, topology) are all invisible from a producer span. The bounds are in [LIMITATIONS.md](LIMITATIONS.md).
+
 ## What the numbers are not
 
 The tool is a directional waste counter with increasingly good energy anchoring, not a wattmeter and not a certified carbon inventory. The proxy path carries a 2x multiplicative bracket. Idle and static server power is not redistributed to services. The count-based ratios treat a cheap indexed SELECT and a heavy write the same, which academic measurements show can differ by tens of percent in power terms. All of this is quantified, with the reasoning, in [LIMITATIONS.md](LIMITATIONS.md).

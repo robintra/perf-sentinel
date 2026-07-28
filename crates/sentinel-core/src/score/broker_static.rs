@@ -5,12 +5,16 @@
 //! available. The operator declares the cluster instead, and the embedded
 //! `SPECpower` table turns that declaration into watts.
 //!
-//! The model is `E(n) = n * P_max`, the only published shape for
-//! Kafka-class brokers. It counts **provisioned** infrastructure, not
-//! consumed: a three-node cluster is immobilized whether it runs at 10 %
-//! or 60 %. Two consequences to keep in mind, both documented in
-//! `docs/LIMITATIONS.md`: the figure is an upper bound, and it does not
-//! move when the application batches its publishes.
+//! The model is `E(n) = n * P_max`, provisioned nodes times their power
+//! ceiling. It counts **provisioned** infrastructure, not consumed: a
+//! three-node cluster bills the same at 10 % and at 60 %.
+//!
+//! What the figure bounds is narrower than it looks. `SPECpower` covers
+//! CPU and baseboard only, so this is a ceiling on the declared vCPUs'
+//! compute energy, not on the cluster's wall power: a broker's storage,
+//! network and PSU draw sit outside it. It also does not move when the
+//! application batches its publishes, and `MAX_BILLABLE_MS` truncates a
+//! long idle stretch. See `docs/LIMITATIONS.md`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
