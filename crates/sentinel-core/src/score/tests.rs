@@ -502,6 +502,7 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
         db_energy: Some(DbEnergyContext {
             window_kwh: 2.0,
             region: Some("eu-west-3".to_string()),
+            ..Default::default()
         }),
         ..CarbonContext::default()
     };
@@ -537,6 +538,7 @@ fn database_waste_emitted_at_zero_ratio_when_no_sql_ops() {
         db_energy: Some(DbEnergyContext {
             window_kwh: 0.5,
             region: None,
+            ..Default::default()
         }),
         ..CarbonContext::default()
     };
@@ -564,11 +566,85 @@ fn database_waste_declared_but_undelivered_emits_nothing() {
         db_energy: Some(DbEnergyContext {
             window_kwh: 0.0,
             region: Some("eu-west-3".to_string()),
+            ..Default::default()
         }),
         ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(summary.database_waste.is_none());
+}
+
+#[test]
+fn messaging_waste_measured_from_a_declared_broker() {
+    // A declared broker delivers window energy, so the figure carries it
+    // verbatim and multiplies by the messaging ratio only.
+    let mut publish = make_http_event("t1", "s1", "orders", "2025-07-10T14:32:01.000Z");
+    publish.event_type = crate::event::EventType::Messaging;
+    publish.operation = "kafka".to_string();
+    let trace = make_trace(vec![publish]);
+    let ctx = CarbonContext {
+        default_region: Some("eu-west-3".to_string()),
+        broker_energy: Some(DbEnergyContext {
+            window_kwh: 2.0,
+            region: Some("eu-west-3".to_string()),
+            model: crate::score::carbon::CO2_MODEL_ALUMET,
+        }),
+        ..CarbonContext::default()
+    };
+
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let mw = summary.messaging_waste.expect("measured figure emitted");
+    assert!((mw.energy_kwh - 2.0).abs() < f64::EPSILON);
+    assert_eq!(mw.model, "alumet_rapl");
+    assert_eq!(mw.region.as_deref(), Some("eu-west-3"));
+    // No avoidable finding, so the ratio is zero but the energy is still
+    // reported: consumed energy must appear somewhere.
+    assert!((mw.waste_kwh - 0.0).abs() < f64::EPSILON);
+    assert!(mw.energy_gco2.is_some());
+}
+
+#[test]
+fn messaging_waste_carries_the_declared_cluster_tag() {
+    let mut publish = make_http_event("t1", "s1", "orders", "2025-07-10T14:32:01.000Z");
+    publish.event_type = crate::event::EventType::Messaging;
+    publish.operation = "kafka".to_string();
+    let trace = make_trace(vec![publish]);
+    let ctx = CarbonContext {
+        default_region: Some("eu-west-3".to_string()),
+        broker_energy: Some(DbEnergyContext {
+            window_kwh: 1.0,
+            region: None,
+            model: crate::report::BROKER_WASTE_MODEL_SPECPOWER,
+        }),
+        ..CarbonContext::default()
+    };
+
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let mw = summary.messaging_waste.expect("declared figure emitted");
+    assert_eq!(
+        mw.model, "broker_specpower",
+        "a declaration must not be reported as a measurement"
+    );
+}
+
+#[test]
+fn messaging_waste_estimated_when_no_broker_declared() {
+    // No broker at all: the figure falls back to the modeled publish
+    // energy, tagged estimated, and stays within the report totals.
+    let mut publish = make_http_event("t1", "s1", "orders", "2025-07-10T14:32:01.000Z");
+    publish.event_type = crate::event::EventType::Messaging;
+    publish.operation = "kafka".to_string();
+    let trace = make_trace(vec![publish]);
+    let ctx = CarbonContext {
+        default_region: Some("eu-west-3".to_string()),
+        ..CarbonContext::default()
+    };
+
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let mw = summary.messaging_waste.expect("estimated fallback emitted");
+    assert!(mw.energy_kwh > 0.0);
+    assert_eq!(mw.model, "estimated");
+    assert_eq!(mw.region, None);
 }
 
 #[test]

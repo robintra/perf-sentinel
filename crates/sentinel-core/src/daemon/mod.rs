@@ -251,6 +251,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             .map(|db| crate::score::carbon::DbEnergyContext {
                 window_kwh: 0.0,
                 region: db.region.clone(),
+                model: crate::score::carbon::CO2_MODEL_ALUMET,
             });
         ctx.broker_energy =
             config
@@ -261,12 +262,14 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 .map(|b| crate::score::carbon::DbEnergyContext {
                     window_kwh: 0.0,
                     region: b.region.clone(),
+                    model: crate::score::carbon::CO2_MODEL_ALUMET,
                 })
                 .or_else(|| {
                     config.green.broker_static.as_ref().map(|b| {
                         crate::score::carbon::DbEnergyContext {
                             window_kwh: 0.0,
                             region: b.region.clone(),
+                            model: crate::report::BROKER_WASTE_MODEL_SPECPOWER,
                         }
                     })
                 });

@@ -184,6 +184,8 @@ pub fn score_green(
             accounted_io_ops: total_io_ops,
             sql_energy_kwh: 0.0,
             sql_gco2: 0.0,
+            messaging_energy_kwh: 0.0,
+            messaging_gco2: 0.0,
         },
     };
 
@@ -198,6 +200,12 @@ pub fn score_green(
     };
     let database_waste =
         build_database_waste(carbon, &carbon_outputs, total_sql_io_ops, avoidable.sql);
+    let messaging_waste = build_messaging_waste(
+        carbon,
+        &carbon_outputs,
+        total_messaging_io_ops,
+        avoidable.messaging,
+    );
     let window_model = carbon_outputs.window_model;
     let per_service = build_per_service_maps(carbon_outputs.per_service, window_model);
     let energy_model = if per_service.energy_kwh > 0.0 {
@@ -235,6 +243,7 @@ pub fn score_green(
         per_service_energy_model: per_service.energy_model,
         per_service_measured_ratio: per_service.measured_ratio,
         database_waste,
+        messaging_waste,
     };
 
     (enriched, green_summary, per_endpoint_io_ops)
@@ -298,6 +307,79 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
 /// Only when NO database is declared does the figure fall back to an
 /// estimate from the modeled energy of the window's SQL spans, tagged
 /// [`crate::report::DB_WASTE_MODEL_ESTIMATED`].
+/// The shared shape of a waste figure: an energy, a ratio, and the two
+/// carbon conversions. Assembled once and mapped into the database or
+/// messaging struct by the two thin wrappers below.
+struct WasteFigure {
+    energy_kwh: f64,
+    waste_kwh: f64,
+    waste_gco2: Option<f64>,
+    energy_gco2: Option<f64>,
+    region: Option<String>,
+    ratio: f64,
+    model: String,
+}
+
+/// Measured (or declared) workload energy × its waste ratio.
+///
+/// The measured path emits even at ratio zero (the consumed energy must
+/// appear somewhere or the archive under-counts it) and returns `None`
+/// on windows with no delivered reading: the carry-over banks that
+/// energy for a later window, an estimate here would double-count it.
+/// Only when NO workload is declared does the figure fall back to an
+/// estimate from the modeled energy of the window's own spans.
+fn build_waste_figure(
+    ctx: &CarbonContext,
+    declared: Option<&carbon::DbEnergyContext>,
+    estimated_kwh: f64,
+    estimated_gco2: f64,
+    total_ops: usize,
+    avoidable_ops: usize,
+) -> Option<WasteFigure> {
+    let ratio = if total_ops == 0 {
+        0.0
+    } else {
+        (avoidable_ops as f64 / total_ops as f64).min(1.0)
+    };
+    if let Some(declared) = declared {
+        // is_finite too: NaN slips a plain <= 0.0 check and would serialize null.
+        if !declared.window_kwh.is_finite() || declared.window_kwh <= 0.0 {
+            return None;
+        }
+        // gCO2 of the WHOLE window energy, so the disclosure's canonical
+        // tier can rescale carbon without going through the operational
+        // ratio (which an operator threshold can zero).
+        let energy_gco2 = declared
+            .region
+            .as_deref()
+            .and_then(|region| carbon::db_waste_gco2(declared.window_kwh, region, ctx));
+        return Some(WasteFigure {
+            energy_kwh: declared.window_kwh,
+            waste_kwh: declared.window_kwh * ratio,
+            waste_gco2: energy_gco2.map(|g| g * ratio),
+            energy_gco2,
+            region: declared.region.clone(),
+            ratio,
+            model: declared.model.to_string(),
+        });
+    }
+    // is_finite too: NaN slips a plain <= 0.0 check.
+    if !estimated_kwh.is_finite() || estimated_kwh <= 0.0 || total_ops == 0 {
+        return None;
+    }
+    let energy_gco2 =
+        (estimated_gco2.is_finite() && estimated_gco2 > 0.0).then_some(estimated_gco2);
+    Some(WasteFigure {
+        energy_kwh: estimated_kwh,
+        waste_kwh: estimated_kwh * ratio,
+        waste_gco2: energy_gco2.map(|g| g * ratio),
+        energy_gco2,
+        region: None,
+        ratio,
+        model: crate::report::DB_WASTE_MODEL_ESTIMATED.to_string(),
+    })
+}
+
 fn build_database_waste(
     carbon: Option<&CarbonContext>,
     outputs: &carbon_compute::CarbonComputeOutputs,
@@ -305,48 +387,50 @@ fn build_database_waste(
     avoidable_sql_io_ops: usize,
 ) -> Option<DatabaseWaste> {
     let ctx = carbon?;
-    let sql_waste_ratio = if total_sql_io_ops == 0 {
-        0.0
-    } else {
-        (avoidable_sql_io_ops as f64 / total_sql_io_ops as f64).min(1.0)
-    };
-    if let Some(db) = ctx.db_energy.as_ref() {
-        // is_finite too: NaN slips a plain <= 0.0 check and would serialize null.
-        if !db.window_kwh.is_finite() || db.window_kwh <= 0.0 {
-            return None;
-        }
-        // gCO2 of the WHOLE window energy, so the disclosure's canonical
-        // tier can rescale carbon without going through the operational
-        // ratio (which an operator threshold can zero).
-        let energy_gco2 = db
-            .region
-            .as_deref()
-            .and_then(|region| carbon::db_waste_gco2(db.window_kwh, region, ctx));
-        return Some(DatabaseWaste {
-            energy_kwh: db.window_kwh,
-            waste_kwh: db.window_kwh * sql_waste_ratio,
-            waste_gco2: energy_gco2.map(|g| g * sql_waste_ratio),
-            energy_gco2,
-            region: db.region.clone(),
-            sql_waste_ratio,
-            model: carbon::CO2_MODEL_ALUMET.to_string(),
-        });
-    }
-    // is_finite too: NaN slips a plain <= 0.0 check.
-    if !outputs.sql_energy_kwh.is_finite() || outputs.sql_energy_kwh <= 0.0 || total_sql_io_ops == 0
-    {
-        return None;
-    }
-    let energy_gco2 =
-        (outputs.sql_gco2.is_finite() && outputs.sql_gco2 > 0.0).then_some(outputs.sql_gco2);
+    let f = build_waste_figure(
+        ctx,
+        ctx.db_energy.as_ref(),
+        outputs.sql_energy_kwh,
+        outputs.sql_gco2,
+        total_sql_io_ops,
+        avoidable_sql_io_ops,
+    )?;
     Some(DatabaseWaste {
-        energy_kwh: outputs.sql_energy_kwh,
-        waste_kwh: outputs.sql_energy_kwh * sql_waste_ratio,
-        waste_gco2: energy_gco2.map(|g| g * sql_waste_ratio),
-        energy_gco2,
-        region: None,
-        sql_waste_ratio,
-        model: crate::report::DB_WASTE_MODEL_ESTIMATED.to_string(),
+        energy_kwh: f.energy_kwh,
+        waste_kwh: f.waste_kwh,
+        waste_gco2: f.waste_gco2,
+        energy_gco2: f.energy_gco2,
+        region: f.region,
+        sql_waste_ratio: f.ratio,
+        model: f.model,
+    })
+}
+
+/// The messaging twin. Its provenance tag rides on the context, since
+/// only the daemon knows whether the energy was measured or declared.
+fn build_messaging_waste(
+    carbon: Option<&CarbonContext>,
+    outputs: &carbon_compute::CarbonComputeOutputs,
+    total_messaging_io_ops: usize,
+    avoidable_messaging_io_ops: usize,
+) -> Option<crate::report::MessagingWaste> {
+    let ctx = carbon?;
+    let f = build_waste_figure(
+        ctx,
+        ctx.broker_energy.as_ref(),
+        outputs.messaging_energy_kwh,
+        outputs.messaging_gco2,
+        total_messaging_io_ops,
+        avoidable_messaging_io_ops,
+    )?;
+    Some(crate::report::MessagingWaste {
+        energy_kwh: f.energy_kwh,
+        waste_kwh: f.waste_kwh,
+        waste_gco2: f.waste_gco2,
+        energy_gco2: f.energy_gco2,
+        region: f.region,
+        messaging_waste_ratio: f.ratio,
+        model: f.model,
     })
 }
 

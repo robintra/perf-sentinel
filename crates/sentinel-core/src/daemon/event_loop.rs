@@ -1331,6 +1331,7 @@ mod tests {
             db_energy: Some(score::carbon::DbEnergyContext {
                 window_kwh: 0.0,
                 region: None,
+                ..Default::default()
             }),
             ..score::carbon::CarbonContext::default()
         });
@@ -1364,6 +1365,7 @@ mod tests {
             broker_energy: Some(score::carbon::DbEnergyContext {
                 window_kwh: 0.0,
                 region: None,
+                ..Default::default()
             }),
             ..score::carbon::CarbonContext::default()
         });
@@ -1394,6 +1396,7 @@ mod tests {
             broker_energy: Some(score::carbon::DbEnergyContext {
                 window_kwh: 0.0,
                 region: None,
+                ..Default::default()
             }),
             ..score::carbon::CarbonContext::default()
         });
@@ -1426,6 +1429,7 @@ mod tests {
             broker_energy: Some(score::carbon::DbEnergyContext {
                 window_kwh: 0.0,
                 region: None,
+                ..Default::default()
             }),
             ..score::carbon::CarbonContext::default()
         });
