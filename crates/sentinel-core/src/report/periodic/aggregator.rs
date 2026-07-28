@@ -240,9 +240,8 @@ fn fold_waste_block(
         acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
     }
     acc.windows = acc.windows.saturating_add(1);
-    // Three provenance classes, three buckets. A declared cluster is an
-    // operator statement about provisioned hardware, so folding it into
-    // `measured_*` would publish it as a reading of the workload.
+    // Three provenance classes, three buckets, see
+    // `docs/design/08-PERIODIC-DISCLOSURE.md`.
     if model == crate::report::DB_WASTE_MODEL_ESTIMATED {
         acc.estimated_windows = acc.estimated_windows.saturating_add(1);
     } else if model == crate::report::BROKER_WASTE_MODEL_SPECPOWER {
