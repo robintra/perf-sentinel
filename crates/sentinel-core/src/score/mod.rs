@@ -1,6 +1,7 @@
 //! Scoring stage: computes `GreenOps` I/O intensity scores.
 
 pub mod alumet;
+pub mod broker_static;
 pub mod carbon;
 // Generated rows (scripts/refresh-carbon-data.py), logic stays in `carbon`.
 mod carbon_data;

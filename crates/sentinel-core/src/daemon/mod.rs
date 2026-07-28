@@ -214,6 +214,14 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     .await?;
 
     let (alumet, alumet_db, alumet_broker) = setup_alumet_scraper(&config, &metrics);
+    // No scraper: the declared cluster only needs a start marker to bill
+    // elapsed time from.
+    let static_broker_state =
+        config.green.broker_static.as_ref().map(|_| {
+            crate::score::broker_static::StaticBrokerState::new(
+                crate::score::scaphandre::monotonic_ms(),
+            )
+        });
     let scaphandre = setup_scaphandre_scraper(&config, &metrics);
     let kepler = setup_kepler_scraper(&config, &metrics);
     let redfish = setup_redfish_scraper(&config, &metrics);
@@ -244,15 +252,24 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 window_kwh: 0.0,
                 region: db.region.clone(),
             });
-        ctx.broker_energy = config
-            .green
-            .alumet
-            .as_ref()
-            .and_then(|a| a.broker.as_ref())
-            .map(|b| crate::score::carbon::DbEnergyContext {
-                window_kwh: 0.0,
-                region: b.region.clone(),
-            });
+        ctx.broker_energy =
+            config
+                .green
+                .alumet
+                .as_ref()
+                .and_then(|a| a.broker.as_ref())
+                .map(|b| crate::score::carbon::DbEnergyContext {
+                    window_kwh: 0.0,
+                    region: b.region.clone(),
+                })
+                .or_else(|| {
+                    config.green.broker_static.as_ref().map(|b| {
+                        crate::score::carbon::DbEnergyContext {
+                            window_kwh: 0.0,
+                            region: b.region.clone(),
+                        }
+                    })
+                });
         ctx
     });
     let detect_config = DetectConfig::from(&config);
@@ -268,6 +285,15 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         },
         alumet_broker_state: if config.green.enabled {
             alumet_broker.as_deref()
+        } else {
+            None
+        },
+        static_broker: if config.green.enabled {
+            config
+                .green
+                .broker_static
+                .as_ref()
+                .zip(static_broker_state.as_ref())
         } else {
             None
         },

@@ -174,6 +174,9 @@ pub struct GreenConfig {
     pub redfish: Option<RedfishConfig>,
     /// Cloud CPU% + `SPECpower` config (daemon only).
     pub cloud_energy: Option<CloudEnergyConfig>,
+    /// Declared broker cluster (`[green.broker_static]`, daemon only).
+    /// Needs no agent, so it covers managed brokers.
+    pub broker_static: Option<crate::score::broker_static::StaticBrokerConfig>,
     /// Whether to use per-operation energy coefficients (SQL verb weighting,
     /// HTTP payload size tiers) in the proxy model. Default: `true`.
     pub per_operation_coefficients: bool,
@@ -374,6 +377,7 @@ impl Default for GreenConfig {
             alumet: None,
             redfish: None,
             cloud_energy: None,
+            broker_static: None,
             per_operation_coefficients: true,
             include_network_transport: false,
             network_energy_per_byte_kwh: crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,

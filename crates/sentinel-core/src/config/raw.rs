@@ -93,6 +93,7 @@ pub(super) struct GreenSection {
     pub(super) alumet: AlumetSection,
     redfish: RedfishSection,
     cloud: CloudSection,
+    pub(super) broker_static: BrokerStaticSection,
     per_operation_coefficients: Option<bool>,
     include_network_transport: Option<bool>,
     network_energy_per_byte_kwh: Option<f64>,
@@ -381,6 +382,7 @@ impl From<RawConfig> for Config {
                 alumet: convert_alumet_section(&raw.green.alumet),
                 redfish: convert_redfish_section(&raw.green.redfish),
                 cloud_energy: convert_cloud_section(&raw.green.cloud),
+                broker_static: convert_broker_static_section(&raw.green.broker_static),
                 per_operation_coefficients: raw
                     .green
                     .per_operation_coefficients
@@ -777,6 +779,37 @@ pub(super) fn convert_kepler_section_with_env(
         metric_kind,
         service_mappings: raw.service_mappings.clone(),
         auth_header,
+    })
+}
+
+/// Raw deserialization target for `[green.broker_static]`.
+///
+/// `deny_unknown_fields`: a typo would silently disable the figure.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub(super) struct BrokerStaticSection {
+    pub(super) nodes: Option<u32>,
+    pub(super) instance_type: Option<String>,
+    pub(super) provider: Option<String>,
+    pub(super) region: Option<String>,
+}
+
+/// Convert `[green.broker_static]` into a typed config. `None` unless
+/// both `nodes` and `instance_type` are set, the two fields with no
+/// defensible default.
+fn convert_broker_static_section(
+    raw: &BrokerStaticSection,
+) -> Option<crate::score::broker_static::StaticBrokerConfig> {
+    let nodes = raw.nodes?;
+    let instance_type = raw.instance_type.as_ref()?.trim().to_string();
+    Some(crate::score::broker_static::StaticBrokerConfig {
+        nodes,
+        instance_type,
+        provider: raw
+            .provider
+            .as_deref()
+            .map_or_else(|| "generic".to_string(), |p| p.trim().to_ascii_lowercase()),
+        region: raw.region.clone(),
     })
 }
 
