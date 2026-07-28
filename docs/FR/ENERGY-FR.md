@@ -46,6 +46,22 @@ gaspillage base = énergie DB mesurée x (ops SQL évitables / ops SQL totales)
 
 Le résultat est `green_summary.database_waste`, avec une conversion gCO2 quand vous déclarez la région de la base. Et le chiffre existe même sans Alumet : quand aucune mesure n'est disponible (exécutions batch, bases managées, pas de `[green.alumet.database]`), il est estimé depuis l'énergie modélisée des spans SQL, et son étiquette `model` dit quel chemin l'a produit (`alumet_rapl` = mesuré, `estimated` = modélisé). Le mesuré est une borne basse (énergie CPU seulement, ni DRAM ni disque), l'estimé n'est précis que comme le modèle d'énergie derrière le rapport (le proxy I/O et son encadrement 2x dans le cas courant), les deux utilisent un ratio par comptage, le chiffre reste donc informatif : la variante mesurée est de l'énergie additionnelle exclue de `energy_kwh` et de `co2`, la variante estimée est une part re-présentée de ces totaux (ne jamais l'additionner par-dessus), et la divulgation ne le publie que comme bloc séparé étiqueté hors de tous les totaux. La liste complète des bornes est dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
 
+## Le chiffre du broker
+
+Un broker de messages pose le problème de la base de données en double : il brûle l'énergie d'une boucle de publication N+1, il n'émet aucun span à lui, et il est très souvent managé, donc il n'existe aucun hôte où faire tourner un agent. La même règle de trois y répond, avec le ratio messaging seul.
+
+```
+gaspillage broker = énergie broker x (ops de publication évitables / ops de publication totales)
+```
+
+Le résultat est `green_summary.messaging_waste`. Ce qui change par rapport à la base, c'est le nombre de façons d'obtenir l'énergie du broker, et elles n'ont pas le même statut.
+
+- `[green.alumet.broker]` mesure le cgroup du broker. Même échelon que la base, même borne RAPL : CPU et DRAM seulement, donc il sous-compte.
+- `[green.broker_static]` déclare un cluster provisionné (`nodes` et un type d'instance) sans aucun agent, ce qui est la seule voie ouverte sur Confluent Cloud, MSK, SQS ou un Pulsar managé. Elle lit `E(n) = n x P_max` dans la table SPECpower embarquée. Cette table couvre le CPU et la carte mère : le résultat borne donc les vCPU déclarés à pleine charge et non la consommation murale du cluster, et un broker limité par le stockage peut consommer davantage. Ce chiffre ne bouge pas non plus quand l'application se met à batcher, ce qui est une vraie faiblesse pour une figure censée montrer qu'une remédiation fonctionne.
+- Sans aucune des deux, le chiffre est estimé depuis l'énergie modélisée des spans de publication, exactement comme le repli de la base.
+
+L'étiquette `model` dit quel chemin l'a produit (`alumet_rapl`, `broker_specpower`, `estimated`), et la divulgation périodique garde les trois séparés plutôt que de fondre une déclaration dans les sommes mesurées. Volontairement absent de tout cela : un coefficient de joules par message. La puissance d'un broker cesse de suivre le débit au-delà d'environ 20 % de sa capacité, donc l'énergie marginale d'une publication n'est pas une constante, et les trois éléments qui la détermineraient (taux d'utilisation du cluster, facteur de réplication, topologie) sont tous invisibles depuis un span producteur. Les bornes sont dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
+
 ## Ce que les chiffres ne sont pas
 
 L'outil est un compteur directionnel de gaspillage avec un ancrage énergétique de mieux en mieux mesuré, pas un wattmètre et pas un inventaire carbone certifié. Le chemin proxy porte un encadrement multiplicatif de 2x. La puissance idle et statique des serveurs n'est pas redistribuée aux services. Les ratios par comptage traitent pareil un SELECT indexé bon marché et une écriture lourde, alors que les mesures académiques montrent des écarts de puissance de plusieurs dizaines de pour cent. Tout cela est quantifié, avec le raisonnement, dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
