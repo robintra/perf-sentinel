@@ -573,11 +573,13 @@ fn build_tick_ctx<'s>(
     // Consuming here (once per built batch) keeps shed batches from
     // losing energy: they never build a context.
     let db_window_kwh = alumet_db_state.and_then(|db| db.take_window_kwh(now, alumet_staleness_ms));
-    let broker_window_kwh = alumet_broker_state
-        .and_then(|b| b.take_window_kwh(now, alumet_staleness_ms))
-        .or_else(|| {
-            static_broker.and_then(|(cfg, state)| state.take_window_kwh(cfg.cluster_watts(), now))
-        });
+    let measured_broker_kwh =
+        alumet_broker_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
+    // Taken every tick, even when the measurement wins: advancing the
+    // marker is what keeps a later fallback from re-billing time Alumet
+    // already covered. A discarded take is time measured elsewhere.
+    let declared_broker_kwh =
+        static_broker.and_then(|(cfg, state)| state.take_window_kwh(cfg.cluster_watts(), now));
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
     if cloud_snap.is_empty()
@@ -587,7 +589,8 @@ fn build_tick_ctx<'s>(
         && alumet_snap.is_empty()
         && emaps_snap.is_empty()
         && db_window_kwh.is_none()
-        && broker_window_kwh.is_none()
+        && measured_broker_kwh.is_none()
+        && declared_broker_kwh.is_none()
     {
         return std::borrow::Cow::Borrowed(base);
     }
@@ -629,8 +632,17 @@ fn build_tick_ctx<'s>(
     if let (Some(kwh), Some(db)) = (db_window_kwh, ctx.db_energy.as_mut()) {
         db.window_kwh = kwh;
     }
-    if let (Some(kwh), Some(broker)) = (broker_window_kwh, ctx.broker_energy.as_mut()) {
-        broker.window_kwh = kwh;
+    // The tag and region follow the source that actually filled the
+    // window, so a fallback tick is never published as a measurement.
+    if let Some(broker) = ctx.broker_energy.as_mut() {
+        if let Some(kwh) = measured_broker_kwh {
+            broker.window_kwh = kwh;
+            broker.model = score::carbon::CO2_MODEL_ALUMET;
+        } else if let (Some(kwh), Some((cfg, _))) = (declared_broker_kwh, static_broker) {
+            broker.window_kwh = kwh;
+            broker.model = crate::report::BROKER_WASTE_MODEL_SPECPOWER;
+            broker.region = cfg.region.clone();
+        }
     }
 
     std::borrow::Cow::Owned(ctx)
@@ -1421,6 +1433,83 @@ mod tests {
             (kwh - 5e-6).abs() < 1e-18,
             "the measured figure must be used verbatim, got {kwh}"
         );
+    }
+
+    #[test]
+    fn declared_marker_advances_on_ticks_the_measurement_covers() {
+        // The marker must advance even when Alumet wins the tick, or the
+        // first Alumet gap re-bills up to an hour already measured.
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: None,
+                ..Default::default()
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let measured = DbEnergyState::new();
+        let declared = score::broker_static::StaticBrokerConfig {
+            nodes: 3,
+            instance_type: "m5.2xlarge".to_string(),
+            provider: "aws".to_string(),
+            region: None,
+        };
+        // Marker seeded at 0: a full hour is pending against the cap.
+        let declared_state = score::broker_static::StaticBrokerState::new(0);
+        let now = score::scaphandre::monotonic_ms();
+        measured.add_window_kwh(5e-6, now);
+        let mut sources = no_scrapers(&base);
+        sources.alumet_broker_state = Some(&measured);
+        sources.static_broker = Some((&declared, &declared_state));
+        sources.alumet_staleness_ms = 60_000;
+
+        // Tick 1: Alumet delivers, the declared take is discarded but
+        // its marker advances.
+        let ctx = build_tick_ctx(&sources);
+        assert!((ctx.broker_energy.as_ref().unwrap().window_kwh - 5e-6).abs() < 1e-18);
+
+        // Tick 2: Alumet empty, the fallback bills only the instants
+        // since tick 1, never the pending hour.
+        let ctx2 = build_tick_ctx(&sources);
+        let kwh = ctx2.broker_energy.as_ref().map_or(0.0, |b| b.window_kwh);
+        assert!(
+            kwh < 1e-4,
+            "fallback must not re-bill time the measurement covered, got {kwh} kWh"
+        );
+    }
+
+    #[test]
+    fn fallback_tick_carries_the_declared_tag_and_region() {
+        // Base built as if [green.alumet.broker] were configured: alumet
+        // tag and alumet-declared region.
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: Some("eu-west-1".to_string()),
+                model: score::carbon::CO2_MODEL_ALUMET,
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let declared = score::broker_static::StaticBrokerConfig {
+            nodes: 1,
+            instance_type: "m5.2xlarge".to_string(),
+            provider: "aws".to_string(),
+            region: Some("eu-west-3".to_string()),
+        };
+        let declared_state = score::broker_static::StaticBrokerState::new(0);
+        score::scaphandre::monotonic_ms();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let mut sources = no_scrapers(&base);
+        sources.static_broker = Some((&declared, &declared_state));
+
+        let ctx = build_tick_ctx(&sources);
+        let broker = ctx.broker_energy.as_ref().unwrap();
+        assert_eq!(
+            broker.model,
+            crate::report::BROKER_WASTE_MODEL_SPECPOWER,
+            "a fallback window must not be published as a measurement"
+        );
+        assert_eq!(broker.region.as_deref(), Some("eu-west-3"));
     }
 
     #[test]
