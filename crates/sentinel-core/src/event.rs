@@ -204,6 +204,12 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
+    // A messaging destination reaches the finding template verbatim, and
+    // it can be a full broker URI. SQL goes through the tokenizer and
+    // HTTP through normalize_http, this arm has neither.
+    if event.event_type == EventType::Messaging {
+        strip_endpoint_secrets(&mut event.target);
+    }
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
     strip_endpoint_secrets(&mut event.source.endpoint);
     truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
@@ -606,6 +612,32 @@ mod tests {
         event.link_trace_id = Some(Arc::from("trace\u{7}id"));
         sanitize_span_event(&mut event);
         assert_eq!(event.link_trace_id, None);
+    }
+
+    #[test]
+    fn sanitize_strips_credentials_from_a_messaging_destination() {
+        // A destination lands verbatim in the finding template, which
+        // reaches the archive, the dashboard and the terminal.
+        let mut event = make_event_with_field("target", "amqp://svc:hunter2@rabbit:5672/orders");
+        event.event_type = EventType::Messaging;
+        sanitize_span_event(&mut event);
+        assert!(
+            !event.target.contains("hunter2"),
+            "credential survived: {}",
+            event.target
+        );
+        assert!(event.target.contains("rabbit"), "host must survive");
+    }
+
+    #[test]
+    fn sanitize_keeps_an_sqs_arn_intact() {
+        // The account id is deliberately preserved: it is what keeps two
+        // AWS accounts from merging into one template.
+        let arn = "arn:aws:sqs:eu-west-3:123456789012:orders";
+        let mut event = make_event_with_field("target", arn);
+        event.event_type = EventType::Messaging;
+        sanitize_span_event(&mut event);
+        assert_eq!(event.target, arn);
     }
 
     #[test]
