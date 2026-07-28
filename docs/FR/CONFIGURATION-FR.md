@@ -369,7 +369,7 @@ Déclare un cluster de brokers **provisionné**, sans agent ni métrique. C'est 
 [green.broker_static]
 nodes = 3                      # nœuds de broker provisionnés, requis
 instance_type = "m5.2xlarge"   # cherché dans la table SPECpower embarquée, requis
-provider = "aws"               # optionnel : aws, gcp, azure, sinon un défaut générique
+provider = "aws"               # optionnel : aws, gcp, azure ou generic (défaut)
 region = "eu-west-3"           # optionnel, active la conversion gCO2
 ```
 

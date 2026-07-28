@@ -56,7 +56,7 @@ broker waste = broker energy x (avoidable publish ops / total publish ops)
 
 The result is `green_summary.messaging_waste`. What differs from the database is the number of ways the broker energy can be obtained, and they do not have the same standing.
 
-- `[green.alumet.broker]` measures the broker cgroup. Same rung as the database, same RAPL bound: CPU and DRAM only, so it under-counts.
+- `[green.alumet.broker]` measures the broker cgroup. Same rung as the database, same bound: Alumet's default attribution formula covers CPU only, so it under-counts.
 - `[green.broker_static]` declares a provisioned cluster (`nodes` plus an instance type) and needs no agent, which is the only path open on Confluent Cloud, MSK, SQS or a managed Pulsar. It reads `E(n) = n x P_max` from the embedded SPECpower table. That table covers CPU and baseboard, so the result bounds the declared vCPUs at full load and not the cluster's wall power, and a storage-bound broker can draw more. It also does not move when the application starts batching, which is a real weakness for a figure meant to show remediation working.
 - With neither declared, the figure is estimated from the modeled energy of the publish spans, exactly like the database fallback.
 

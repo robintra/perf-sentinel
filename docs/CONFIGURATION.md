@@ -365,7 +365,7 @@ Declares a **provisioned** broker cluster, with no agent and no metric. This is 
 [green.broker_static]
 nodes = 3                      # provisioned broker nodes, required
 instance_type = "m5.2xlarge"   # looked up in the embedded SPECpower table, required
-provider = "aws"               # optional: aws, gcp, azure, else a generic default
+provider = "aws"               # optional: aws, gcp, azure or generic (default)
 region = "eu-west-3"           # optional, enables the gCO2 conversion
 ```
 
