@@ -21,8 +21,14 @@ const MS_PER_HOUR: f64 = 3_600_000.0;
 
 /// Longest gap one window may bill, 1 hour. A suspended host or a paused
 /// container would otherwise bill the whole outage on the tick that
-/// follows it.
+/// follows it. This truncates rather than defers, so a long idle stretch
+/// is under-counted on purpose.
 const MAX_BILLABLE_MS: u64 = 3_600_000;
+
+/// Shortest gap worth billing. Below it the marker stays put and the time
+/// accrues into the next take, which keeps a sub-second tick on the
+/// borrowed fast path in `build_tick_ctx` instead of cloning the context.
+const MIN_BILLABLE_MS: u64 = 1_000;
 
 /// Operator declaration of a provisioned broker cluster.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,38 +53,55 @@ impl StaticBrokerConfig {
     }
 }
 
-/// Last-billed timestamp, so each window bills only its own elapsed time.
+/// Last-billed timestamp plus the cluster's resolved watts, so each
+/// window bills only its own elapsed time.
 ///
 /// Mirrors `DbEnergyState` in role: the daemon takes a per-window figure
 /// once per scored batch, and a shed batch never advances the marker.
+/// The watts are resolved once here rather than per batch, they are fixed
+/// at config load.
 #[derive(Debug)]
 pub struct StaticBrokerState {
     last_ms: AtomicU64,
+    watts: f64,
 }
 
 impl StaticBrokerState {
     #[must_use]
-    pub fn new(now_ms: u64) -> Self {
+    pub fn new(now_ms: u64, cfg: &StaticBrokerConfig) -> Self {
         Self {
             last_ms: AtomicU64::new(now_ms),
+            watts: cfg.cluster_watts(),
         }
     }
 
     /// Energy since the previous take, in kWh, advancing the marker.
     ///
-    /// `None` when no time has elapsed, so an idle tick keeps the
-    /// borrowed fast path in `build_tick_ctx`.
-    pub fn take_window_kwh(&self, watts: f64, now_ms: u64) -> Option<f64> {
-        if !watts.is_finite() || watts <= 0.0 {
+    /// `None` when too little time has elapsed to bill, so an idle tick
+    /// keeps the borrowed fast path in `build_tick_ctx`.
+    pub fn take_window_kwh(&self, now_ms: u64) -> Option<f64> {
+        if !self.watts.is_finite() || self.watts <= 0.0 {
+            // Marker deliberately left alone: the cluster ran anyway, so
+            // the next valid take bills this stretch rather than losing
+            // it. Unreachable today, validation guarantees positive watts.
             return None;
         }
-        let last = self.last_ms.swap(now_ms, Ordering::SeqCst);
+        let last = self.last_ms.load(Ordering::SeqCst);
         // saturating_sub covers a clock that went backwards.
-        let elapsed = now_ms.saturating_sub(last).min(MAX_BILLABLE_MS);
-        if elapsed == 0 {
+        let elapsed = now_ms.saturating_sub(last);
+        if elapsed < MIN_BILLABLE_MS {
             return None;
         }
-        let kwh = watts * elapsed as f64 / MS_PER_HOUR / 1000.0;
+        // Only a take that bills advances the marker, so a lost race
+        // cannot drop the elapsed time on the floor.
+        if self
+            .last_ms
+            .compare_exchange(last, now_ms, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return None;
+        }
+        let kwh = self.watts * elapsed.min(MAX_BILLABLE_MS) as f64 / MS_PER_HOUR / 1000.0;
         kwh.is_finite().then_some(kwh)
     }
 }
@@ -113,39 +136,59 @@ mod tests {
         assert!(unknown.cluster_watts() > 0.0);
     }
 
+    /// A state plus the watts it resolved, so the tests can assert on
+    /// energy without hard-coding the `SPECpower` row.
+    fn state_at(now_ms: u64) -> (StaticBrokerState, f64) {
+        let c = cfg(3);
+        let watts = c.cluster_watts();
+        (StaticBrokerState::new(now_ms, &c), watts)
+    }
+
     #[test]
     fn window_energy_matches_watts_times_elapsed() {
-        let state = StaticBrokerState::new(0);
-        // 3600 W over one hour is 3.6 kWh.
-        let kwh = state.take_window_kwh(3600.0, 3_600_000).expect("energy");
-        assert!((kwh - 3.6).abs() < 1e-9);
+        let (state, watts) = state_at(0);
+        // One hour at `watts` is `watts / 1000` kWh.
+        let kwh = state.take_window_kwh(3_600_000).expect("energy");
+        assert!((kwh - watts / 1000.0).abs() < 1e-9);
     }
 
     #[test]
     fn a_second_take_bills_only_the_new_elapsed_time() {
-        let state = StaticBrokerState::new(0);
-        state.take_window_kwh(3600.0, 1_800_000).expect("first");
-        let second = state.take_window_kwh(3600.0, 3_600_000).expect("second");
-        assert!((second - 1.8).abs() < 1e-9);
+        let (state, watts) = state_at(0);
+        state.take_window_kwh(1_800_000).expect("first");
+        let second = state.take_window_kwh(3_600_000).expect("second");
+        assert!((second - watts / 2000.0).abs() < 1e-9);
     }
 
     #[test]
     fn no_elapsed_time_yields_nothing() {
-        let state = StaticBrokerState::new(1_000);
-        assert!(state.take_window_kwh(3600.0, 1_000).is_none());
+        let (state, _) = state_at(1_000);
+        assert!(state.take_window_kwh(1_000).is_none());
+    }
+
+    #[test]
+    fn a_sub_second_tick_accrues_instead_of_billing() {
+        let (state, watts) = state_at(0);
+        // Three ticks under the threshold bill nothing and lose nothing:
+        // the fourth one covers the whole elapsed stretch.
+        assert!(state.take_window_kwh(300).is_none());
+        assert!(state.take_window_kwh(600).is_none());
+        assert!(state.take_window_kwh(900).is_none());
+        let kwh = state.take_window_kwh(1_200).expect("energy");
+        assert!((kwh - watts * 1_200.0 / MS_PER_HOUR / 1000.0).abs() < 1e-12);
     }
 
     #[test]
     fn a_long_outage_is_capped() {
-        let state = StaticBrokerState::new(0);
+        let (state, watts) = state_at(0);
         // Ten hours of downtime must bill one hour, not ten.
-        let kwh = state.take_window_kwh(3600.0, 36_000_000).expect("energy");
-        assert!((kwh - 3.6).abs() < 1e-9);
+        let kwh = state.take_window_kwh(36_000_000).expect("energy");
+        assert!((kwh - watts / 1000.0).abs() < 1e-9);
     }
 
     #[test]
     fn a_backwards_clock_yields_nothing() {
-        let state = StaticBrokerState::new(5_000);
-        assert!(state.take_window_kwh(3600.0, 1_000).is_none());
+        let (state, _) = state_at(5_000);
+        assert!(state.take_window_kwh(1_000).is_none());
     }
 }
