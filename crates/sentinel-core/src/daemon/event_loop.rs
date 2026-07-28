@@ -662,6 +662,16 @@ fn take_broker_energy(
     let measured_owns_the_timeline =
         alumet_state.is_some_and(|b| b.has_recent_sample(now, alumet_staleness_ms));
     if !measured_owns_the_timeline {
+        // Joules banked while the series was still live are real, so
+        // deliver them before handing the window to the declaration. A
+        // label that was never seen has nothing banked, which is what
+        // keeps a typo from suppressing the fallback.
+        if let Some(kwh) = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms)) {
+            if let Some(state) = declared {
+                state.take_window_kwh(now);
+            }
+            return (Some(kwh), None);
+        }
         let declared_kwh = declared.and_then(|state| state.take_window_kwh(now));
         if declared_kwh.is_some()
             && let Some(state) = declared
@@ -1678,6 +1688,28 @@ mod tests {
             d.is_some_and(|k| k > 0.0),
             "the declaration must cover a workload nothing measured"
         );
+    }
+
+    #[test]
+    fn a_vanished_label_still_delivers_what_it_measured() {
+        // The cgroup is renamed away, so the series stops. Whatever it
+        // banked before that is real and must not be stranded.
+        let measured = DbEnergyState::new();
+        measured.add_window_kwh(4e-6, 10_000);
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+        // The scraper still answers, so liveness stays fresh; only the
+        // labelled sample is gone.
+        measured.mark_alive(100_000);
+
+        let (m, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
+        assert_eq!(m, Some(4e-6), "banked measured energy must be delivered");
+        assert!(d.is_none(), "the declaration does not bill the same window");
+
+        // Nothing left to deliver, so the next window is the fallback's.
+        let (m2, d2) = take_broker_energy(Some(&measured), Some(&state), 110_000, 10_000);
+        assert!(m2.is_none());
+        assert!(d2.is_some_and(|k| k > 0.0));
     }
 
     #[test]
