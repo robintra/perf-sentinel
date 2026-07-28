@@ -204,12 +204,9 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
-    // A messaging destination reaches the finding template verbatim, and
-    // it can be a full broker URI. SQL goes through the tokenizer and
-    // HTTP through normalize_http, this arm has neither. Gated on a
-    // scheme because the helper parses URL authority: a bare queue name
-    // may legally carry '@' (IBM MQ `ORDERS@QM1`) or '#' (a RabbitMQ
-    // routing key), and rewriting those would merge distinct destinations.
+    // A messaging destination reaches the finding template verbatim, with
+    // no tokenizer or URL parser in between. Scheme-gated on purpose, see
+    // `docs/design/02-NORMALIZATION.md`.
     if event.event_type == EventType::Messaging && event.target.contains("://") {
         strip_endpoint_secrets(&mut event.target);
     }

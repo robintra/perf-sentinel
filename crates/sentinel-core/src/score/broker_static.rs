@@ -6,15 +6,9 @@
 //! `SPECpower` table turns that declaration into watts.
 //!
 //! The model is `E(n) = n * P_max`, provisioned nodes times their power
-//! ceiling. It counts **provisioned** infrastructure, not consumed: a
-//! three-node cluster bills the same at 10 % and at 60 %.
-//!
-//! What the figure bounds is narrower than it looks. `SPECpower` covers
-//! CPU and baseboard only, so this is a ceiling on the declared vCPUs'
-//! compute energy, not on the cluster's wall power: a broker's storage,
-//! network and PSU draw sit outside it. It also does not move when the
-//! application batches its publishes, and `MAX_BILLABLE_MS` truncates a
-//! long idle stretch. See `docs/LIMITATIONS.md`.
+//! ceiling. What it bounds is narrower than it reads, and it errs in both
+//! directions: `docs/design/05-GREENOPS-AND-CARBON.md` has the rationale,
+//! `docs/LIMITATIONS.md` the operator-facing bounds.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -23,15 +17,12 @@ use crate::score::cloud_energy::table::lookup_instance_power;
 /// Milliseconds in an hour, the divisor from watt-milliseconds to kWh.
 const MS_PER_HOUR: f64 = 3_600_000.0;
 
-/// Longest gap one window may bill, 1 hour. A suspended host or a paused
-/// container would otherwise bill the whole outage on the tick that
-/// follows it. This truncates rather than defers, so a long idle stretch
-/// is under-counted on purpose.
+/// Longest gap one window may bill. Truncates rather than defers, so a
+/// long idle stretch is under-counted on purpose.
 const MAX_BILLABLE_MS: u64 = 3_600_000;
 
-/// Shortest gap worth billing. Below it the marker stays put and the time
-/// accrues into the next take, which keeps a sub-second tick on the
-/// borrowed fast path in `build_tick_ctx` instead of cloning the context.
+/// Shortest gap worth billing. Below it the time accrues into the next
+/// take, keeping a sub-second tick on the borrowed fast path.
 const MIN_BILLABLE_MS: u64 = 1_000;
 
 /// Operator declaration of a provisioned broker cluster.
@@ -60,19 +51,14 @@ impl StaticBrokerConfig {
 }
 
 /// Last-billed timestamp plus the cluster's resolved watts, so each
-/// window bills only its own elapsed time.
-///
-/// Mirrors `DbEnergyState` in role: the daemon takes a per-window figure
-/// once per scored batch, and a shed batch never advances the marker.
-/// The watts are resolved once here rather than per batch, they are fixed
-/// at config load.
+/// window bills only its own elapsed time. Mirrors `DbEnergyState` in
+/// role, and a shed batch never advances the marker.
 #[derive(Debug)]
 pub struct StaticBrokerState {
     last_ms: AtomicU64,
     watts: f64,
-    /// Set while this declaration is covering a measurement outage. The
-    /// delta that lands on recovery reaches back over wall clock already
-    /// billed here, so it has to be dropped exactly once.
+    /// Set while this declaration covers a measurement outage, so the
+    /// recovery delta can be dropped once. See `take_broker_energy`.
     billed_during_outage: AtomicBool,
 }
 
@@ -103,9 +89,8 @@ impl StaticBrokerState {
     /// keeps the borrowed fast path in `build_tick_ctx`.
     pub fn take_window_kwh(&self, now_ms: u64) -> Option<f64> {
         if !self.watts.is_finite() || self.watts <= 0.0 {
-            // Marker deliberately left alone: the cluster ran anyway, so
-            // the next valid take bills this stretch rather than losing
-            // it. Unreachable today, validation guarantees positive watts.
+            // Marker left alone on purpose: the next valid take bills this
+            // stretch rather than losing it.
             return None;
         }
         let last = self.last_ms.load(Ordering::SeqCst);
@@ -114,8 +99,8 @@ impl StaticBrokerState {
         if elapsed < MIN_BILLABLE_MS {
             return None;
         }
-        // Only a take that bills advances the marker, so a lost race
-        // cannot drop the elapsed time on the floor.
+        // Only a billing take advances the marker, so a lost race cannot
+        // drop the elapsed time.
         if self
             .last_ms
             .compare_exchange(last, now_ms, Ordering::SeqCst, Ordering::SeqCst)

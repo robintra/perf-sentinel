@@ -37,9 +37,8 @@ pub struct DbEnergyState {
     /// Last scrape that actually carried this workload's label, as
     /// opposed to `last_update_ms` which any successful scrape refreshes.
     last_sample_ms: AtomicU64,
-    /// Whether a labelled sample ever landed. An explicit flag rather than
-    /// a zero timestamp: `monotonic_ms()` legitimately reads 0 early in
-    /// the process, so the two cannot be told apart.
+    /// Whether a labelled sample ever landed. A flag rather than a zero
+    /// timestamp, which `monotonic_ms()` legitimately returns at startup.
     ever_sampled: AtomicBool,
 }
 
@@ -73,20 +72,15 @@ impl DbEnergyState {
     }
 
     /// Consumer side: whether this workload's own series was seen recently
-    /// enough for the measurement to own its slice of the timeline. A
-    /// delta covers every interval since the previous one, so a measured
-    /// workload owns the gaps between deltas too, not only the ticks that
-    /// carry one.
+    /// enough for the measurement to own its slice of the timeline.
     ///
-    /// Deliberately stricter than the liveness [`Self::take_window_kwh`]
-    /// uses: `mark_alive` fires on every successful scrape, label present
-    /// or not, which is right for keeping banked energy alive but would
-    /// let a mistyped label suppress a declared fallback forever.
+    /// Stricter than the liveness [`Self::take_window_kwh`] uses, and the
+    /// distinction is load-bearing: see `docs/design/05-GREENOPS-AND-CARBON.md`.
     #[must_use]
     pub fn has_recent_sample(&self, now_ms: u64, staleness_ms: u64) -> bool {
+        // Without this an unscraped state reads fresh for the first
+        // staleness window of every process.
         if !self.ever_sampled.load(Ordering::SeqCst) {
-            // Without this an unscraped state reads fresh for the whole
-            // first staleness window of every process.
             return false;
         }
         let last = self.last_sample_ms.load(Ordering::SeqCst);

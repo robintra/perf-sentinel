@@ -646,26 +646,23 @@ fn build_tick_ctx<'s>(
 
 /// Resolve the two broker energy sources for one tick, measured first.
 ///
-/// Alumet delivers retroactively: one delta covers every interval since
-/// the previous one, so a live scraper owns the gaps between its deltas
-/// too, not only the ticks that carry one. Arbitrating per tick would
-/// publish those gaps twice, once per model tag.
+/// The arbitration rules and why each is needed are in
+/// `docs/design/05-GREENOPS-AND-CARBON.md`, "Broker energy attribution".
+/// They are not obvious and three review passes were needed to settle
+/// them, so change this against that section, not against intuition.
 fn take_broker_energy(
     alumet_state: Option<&DbEnergyState>,
     declared: Option<&score::broker_static::StaticBrokerState>,
     now: u64,
     alumet_staleness_ms: u64,
 ) -> (Option<f64>, Option<f64>) {
-    // Ownership follows the workload's own series, not the endpoint: a
-    // scrape that answers without carrying the broker label measures
-    // nothing, and must not suppress the declaration.
+    // The series, not the endpoint: a scrape answering without the broker
+    // label measures nothing.
     let measured_owns_the_timeline =
         alumet_state.is_some_and(|b| b.has_recent_sample(now, alumet_staleness_ms));
     if !measured_owns_the_timeline {
-        // Joules banked while the series was still live are real, so
-        // deliver them before handing the window to the declaration. A
-        // label that was never seen has nothing banked, which is what
-        // keeps a typo from suppressing the fallback.
+        // Joules banked while the series was live are real. A label never
+        // seen has nothing banked, so a typo still falls through.
         if let Some(kwh) = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms)) {
             if let Some(state) = declared {
                 state.take_window_kwh(now);
@@ -683,15 +680,13 @@ fn take_broker_energy(
     if declared.is_some_and(score::broker_static::StaticBrokerState::clear_outage_billed)
         && let Some(state) = alumet_state
     {
-        // First delta after a fallback stretch reaches back over wall
-        // clock the declaration already billed. Drop it once, here only:
-        // discarding on every fallback tick would also wipe joules that
-        // were banked while the measurement was still live.
+        // Drop the recovery delta once, here only: it reaches back over
+        // wall clock the declaration billed.
         state.discard_pending();
     }
     let measured = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
-    // Advance the declared marker even though nothing is published from
-    // it, so a later fallback bills only time the measurement missed.
+    // Advance the declared marker without publishing it, so a later
+    // fallback bills only time the measurement missed.
     if let Some(state) = declared {
         state.take_window_kwh(now);
     }
