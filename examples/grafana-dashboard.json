@@ -9,7 +9,7 @@
   "panels": [
     {
       "title": "I/O ops rate by service",
-      "description": "Heatmap of I/O operations per service over time",
+      "description": "Database queries and outbound HTTP calls made by each instrumented service, per second. This is the raw workload perf-sentinel measures, before any judgement about whether the calls were needed. Use it to see which service dominates I/O: a service that is loud here and also appears in the findings panels is where optimisation pays most.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -37,7 +37,7 @@
     },
     {
       "title": "Top 10 finding types by severity (1h)",
-      "description": "Most frequent finding types over the last hour",
+      "description": "A finding is one detected inefficiency, for example an N+1 loop (the same query repeated once per row instead of a single batched one). This ranks the most frequent kinds over the last hour. Rising counts mean either new traffic reaching an unoptimised path, or a recent deploy that regressed.",
       "type": "bargauge",
       "gridPos": {
         "h": 8,
@@ -63,7 +63,7 @@
     },
     {
       "title": "I/O waste ratio",
-      "description": "Cumulative ratio of avoidable I/O operations since daemon start",
+      "description": "Share of I/O operations the analyzer judged avoidable, cumulative since daemon start. This is the tool's headline number and needs no energy model to be trustworthy. The default CI gate fails above 0.30, so a value drifting toward it predicts the build breaking. It only moves slowly, being cumulative: use the avoidable-ops rate panel to see today.",
       "type": "gauge",
       "gridPos": {
         "h": 8,
@@ -113,7 +113,7 @@
     },
     {
       "title": "Critical findings trend (24h)",
-      "description": "Number of critical findings over the last 24 hours. Shows 0 (not 'no data') when none have been emitted.",
+      "description": "Findings the analyzer rated critical, over 24 hours. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken.",
       "type": "stat",
       "gridPos": {
         "h": 8,
@@ -152,7 +152,7 @@
     },
     {
       "title": "Findings distribution by type (1h)",
-      "description": "Breakdown of finding types over the last hour",
+      "description": "The same findings as the ranking panel, shown as a share of the whole. Answers 'what kind of problem does this system mostly have'. A single type dominating usually points at one framework or one query pattern rather than at a broad problem.",
       "type": "piechart",
       "gridPos": {
         "h": 8,
@@ -174,7 +174,7 @@
     },
     {
       "title": "Active traces",
-      "description": "Number of traces currently held in the daemon's sliding window",
+      "description": "Distributed traces currently held in memory waiting to be completed. A trace is released for analysis once it expires (30s by default) or the window is full. A stable plateau is healthy. Continuous growth means traces arrive faster than they expire, and the cap will start dropping the oldest ones, see the headroom panel.",
       "type": "stat",
       "gridPos": {
         "h": 8,
@@ -217,7 +217,7 @@
     },
     {
       "title": "Slow query duration p95 (global)",
-      "description": "95th percentile of slow span durations across all daemon instances. Uses histogram_quantile() for accurate cross-instance aggregation.",
+      "description": "95th percentile duration of spans that crossed the slow threshold (500 ms by default, configurable). Only slow spans enter this histogram, so the value is always above that threshold by construction and is not your overall latency. Split by kind: sql, http_out and messaging. Aggregated with histogram_quantile so it stays correct across sharded daemons.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -255,7 +255,7 @@
     },
     {
       "title": "Events processed rate",
-      "description": "Rate of spans ingested by the daemon",
+      "description": "Spans accepted into the analysis pipeline per second, after non-I/O spans have been filtered out. Compare with the OTLP intake panel: a large gap between the two is normal, most spans in a trace are not I/O. A drop to zero while intake continues means the pipeline stopped consuming.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -453,7 +453,7 @@
     },
     {
       "title": "Total I/O ops processed",
-      "description": "Cumulative perf_sentinel_total_io_ops since daemon start. Sanity counter to confirm the OTLP pipeline keeps feeding the analyzer.",
+      "description": "Cumulative count of analysed I/O operations since the daemon started. A sanity counter rather than a diagnostic: if it stops climbing while traffic continues, ingestion or analysis has stalled. It resets on restart.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -479,7 +479,7 @@
     },
     {
       "title": "Traces analyzed (cumulative)",
-      "description": "perf_sentinel_traces_analyzed_total since daemon start. Trace-level cadence complements the events-processed-rate panel which is span-level.",
+      "description": "Traces that completed analysis since daemon start. Trace-level cadence, where 'events processed' is span-level. The ratio between the two gives the average trace size, which is a useful sanity check on your instrumentation coverage.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -505,7 +505,7 @@
     },
     {
       "title": "Avoidable I/O ops rate",
-      "description": "Rate of I/O ops the analyzer marked as avoidable. The GreenOps trend signal: if this number trends down, optimization PRs are landing.",
+      "description": "Operations per second that the analyzer marked as avoidable, meaning the same result could have been obtained with fewer calls. This is the GreenOps trend signal: unlike the cumulative waste ratio it reacts immediately, so it is the panel that shows an optimisation PR landing.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -532,7 +532,7 @@
     },
     {
       "title": "Energy ingestion freshness",
-      "description": "Age of the last successful Scaphandre and cloud-energy scrape. If either age trends past the scrape interval, GreenOps energy attribution is stale.",
+      "description": "Seconds since each energy backend last returned a sample. Only the backends you configured report here, the others stay flat at zero. When an age climbs past its scrape interval the readings are stale and carbon attribution silently falls back to the built-in estimate, so the numbers stay plausible while no longer being measured. Alumet is the recommended backend and leads the precedence chain.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -606,7 +606,7 @@
     },
     {
       "title": "Energy per scoring window (kWh)",
-      "description": "Workload energy of the most recent scoring window. The per-service/region breakdown stays on the query monitor (off /metrics for cardinality).",
+      "description": "Electricity attributed to the analysed workload for the most recent scoring window. Depending on configuration this is measured (an agent reading real power) or modelled from operation counts, and the report's model tag says which. Per-service and per-region detail is deliberately kept off /metrics to bound label cardinality, it lives in the query monitor.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -640,7 +640,7 @@
     },
     {
       "title": "Carbon per scoring window (gCO2e)",
-      "description": "Operational carbon of the most recent scoring window, summed across regions.",
+      "description": "Operational emissions for the same window, summed across regions: energy multiplied by the local grid intensity. It moves with the workload but also with the grid, so a drop is not necessarily an optimisation, it can just be a cleaner hour. Manufacturing emissions are excluded here, fixing code does not un-manufacture hardware.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -673,8 +673,8 @@
       }
     },
     {
-      "title": "Runtime headroom (% of configured cap)",
-      "description": "Each runtime gauge as a percentage of its configured cap. The settings advisor starts hinting at 90% (red line).",
+      "title": "Runtime headroom and shedding",
+      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -701,6 +701,11 @@
           "expr": "perf_sentinel_stored_findings / perf_sentinel_max_retained_findings * 100",
           "refId": "C",
           "legendFormat": "findings_store"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total[5m]))",
+          "refId": "D",
+          "legendFormat": "shed_batches/s"
         }
       ],
       "fieldConfig": {
@@ -731,7 +736,43 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shed_batches/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "batches/s"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
       }
     },
     {
