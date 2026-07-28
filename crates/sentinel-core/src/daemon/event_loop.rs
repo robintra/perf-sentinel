@@ -392,7 +392,7 @@ async fn evict_expired_traces(
 /// owned so it can travel to the worker. Sampling the energy sources here
 /// (on the loop side, at eviction time) preserves the previous timing.
 fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> Arc<score::carbon::CarbonContext> {
-    match build_tick_ctx(sources) {
+    match build_tick_ctx(sources, score::scaphandre::monotonic_ms()) {
         // Fast path (no scraper produced fresh data, the common case):
         // share the base context by refcount instead of deep-cloning the
         // region map and calibration table on every evicted batch.
@@ -525,6 +525,7 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
 // and gated one backend's readings by another's staleness.
 fn build_tick_ctx<'s>(
     sources: &'s EnergySources<'_>,
+    now: u64,
 ) -> std::borrow::Cow<'s, score::carbon::CarbonContext> {
     let base = &*sources.base_carbon_ctx;
     let EnergySources {
@@ -545,7 +546,6 @@ fn build_tick_ctx<'s>(
         emaps_staleness_ms,
         ..
     } = *sources;
-    let now = score::scaphandre::monotonic_ms();
 
     // Cloud entries first (lowest precedence).
     let cloud_snap = cloud_state
@@ -656,22 +656,36 @@ fn take_broker_energy(
     now: u64,
     alumet_staleness_ms: u64,
 ) -> (Option<f64>, Option<f64>) {
-    let measured = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
-    let alumet_owns_the_timeline =
-        alumet_state.is_some_and(|b| b.is_fresh(now, alumet_staleness_ms));
-    // Taken even when discarded: advancing the marker is what keeps a
-    // later fallback from re-billing time the measurement covered.
-    let declared_kwh = declared
-        .and_then(|state| state.take_window_kwh(now))
-        .filter(|_| !alumet_owns_the_timeline);
-    if declared_kwh.is_some()
+    // Ownership follows the workload's own series, not the endpoint: a
+    // scrape that answers without carrying the broker label measures
+    // nothing, and must not suppress the declaration.
+    let measured_owns_the_timeline =
+        alumet_state.is_some_and(|b| b.has_recent_sample(now, alumet_staleness_ms));
+    if !measured_owns_the_timeline {
+        let declared_kwh = declared.and_then(|state| state.take_window_kwh(now));
+        if declared_kwh.is_some()
+            && let Some(state) = declared
+        {
+            state.mark_outage_billed();
+        }
+        return (None, declared_kwh);
+    }
+    if declared.is_some_and(score::broker_static::StaticBrokerState::clear_outage_billed)
         && let Some(state) = alumet_state
     {
-        // The declaration bills this stretch, so joules Alumet banked
-        // while stale must not be delivered again once it recovers.
+        // First delta after a fallback stretch reaches back over wall
+        // clock the declaration already billed. Drop it once, here only:
+        // discarding on every fallback tick would also wipe joules that
+        // were banked while the measurement was still live.
         state.discard_pending();
     }
-    (measured, declared_kwh)
+    let measured = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
+    // Advance the declared marker even though nothing is published from
+    // it, so a later fallback bills only time the measurement missed.
+    if let Some(state) = declared {
+        state.take_window_kwh(now);
+    }
+    (measured, None)
 }
 
 /// The tag and region follow the source that actually filled the
@@ -1258,7 +1272,7 @@ mod tests {
         // Fast path: no scrapers → Cow::Borrowed, no clone.
         let base = Arc::new(score::carbon::CarbonContext::default());
         let sources = no_scrapers(&base);
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         assert_matches!(ctx, std::borrow::Cow::Borrowed(_));
         assert!(ctx.energy_snapshot.is_none());
     }
@@ -1271,7 +1285,7 @@ mod tests {
         let mut sources = no_scrapers(&base);
         sources.scaphandre_state = Some(&scaph);
         sources.scaphandre_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
@@ -1285,7 +1299,7 @@ mod tests {
         let mut sources = no_scrapers(&base);
         sources.cloud_state = Some(&cloud);
         sources.cloud_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
@@ -1299,7 +1313,7 @@ mod tests {
         let mut sources = no_scrapers(&base);
         sources.kepler_state = Some(&kepler);
         sources.kepler_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-k"].model_tag, "kepler_ebpf");
@@ -1313,7 +1327,7 @@ mod tests {
         let mut sources = no_scrapers(&base);
         sources.redfish_state = Some(&redfish);
         sources.redfish_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-r"].model_tag, "redfish_bmc");
@@ -1337,7 +1351,7 @@ mod tests {
         sources.kepler_staleness_ms = 500;
         sources.cloud_state = Some(&cloud);
         sources.cloud_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 3);
         // svc-a: Scaphandre wins (top of precedence).
@@ -1357,7 +1371,7 @@ mod tests {
         let mut sources = no_scrapers(&base);
         sources.alumet_state = Some(&alumet);
         sources.alumet_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-al"].model_tag, "alumet_rapl");
@@ -1417,7 +1431,7 @@ mod tests {
         sources.alumet_staleness_ms = 60_000;
 
         // Fresh DB energy alone must force the owned path and patch it in.
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         assert!(
             matches!(ctx, std::borrow::Cow::Owned(_)),
             "fresh db energy must not take the borrowed fast path"
@@ -1426,7 +1440,7 @@ mod tests {
         assert!((kwh - 2e-6).abs() < 1e-18);
 
         // The take consumed it: the next build borrows the base again.
-        let ctx2 = build_tick_ctx(&sources);
+        let ctx2 = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         assert!(matches!(ctx2, std::borrow::Cow::Borrowed(_)));
         assert!((ctx2.db_energy.as_ref().unwrap().window_kwh - 0.0).abs() < f64::EPSILON);
     }
@@ -1444,13 +1458,12 @@ mod tests {
             ..score::carbon::CarbonContext::default()
         });
         let broker = DbEnergyState::new();
-        let now = score::scaphandre::monotonic_ms();
-        broker.add_window_kwh(3e-6, now);
+        broker.add_window_kwh(3e-6, 10_000);
         let mut sources = no_scrapers(&base);
         sources.alumet_broker_state = Some(&broker);
         sources.alumet_staleness_ms = 60_000;
 
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, 10_000);
         assert!(
             matches!(ctx, std::borrow::Cow::Owned(_)),
             "fresh broker energy must not take the borrowed fast path"
@@ -1458,7 +1471,7 @@ mod tests {
         let kwh = ctx.broker_energy.as_ref().unwrap().window_kwh;
         assert!((kwh - 3e-6).abs() < 1e-18);
 
-        let ctx2 = build_tick_ctx(&sources);
+        let ctx2 = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         assert!(matches!(ctx2, std::borrow::Cow::Borrowed(_)));
     }
 
@@ -1531,14 +1544,20 @@ mod tests {
         let (_, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
         assert!(d.is_some(), "the declaration covers the outage");
 
-        // It recovers. The joules it banked cover time already billed, so
-        // only what accumulated after the handover may be delivered.
+        // It recovers. That first delta reaches back over the outage the
+        // declaration already billed, so it is dropped rather than added.
         measured.add_window_kwh(2e-6, 101_000);
-        let (m, _) = take_broker_energy(Some(&measured), Some(&state), 101_000, 10_000);
-        let delivered = m.expect("the measurement resumes");
+        let (m, d2) = take_broker_energy(Some(&measured), Some(&state), 101_000, 10_000);
+        assert!(m.is_none(), "the recovery delta covers billed wall clock");
+        assert!(d2.is_none(), "the measurement owns the timeline again");
+
+        // The next delta is genuinely new and is delivered in full.
+        measured.add_window_kwh(3e-6, 102_000);
+        let (m2, _) = take_broker_energy(Some(&measured), Some(&state), 102_000, 10_000);
+        let delivered = m2.expect("the measurement resumes");
         assert!(
-            (delivered - 2e-6).abs() < 1e-18,
-            "only the joules since the handover may be billed, got {delivered}"
+            (delivered - 3e-6).abs() < 1e-18,
+            "only the joules after the handover may be billed, got {delivered}"
         );
     }
 
@@ -1601,6 +1620,83 @@ mod tests {
     }
 
     #[test]
+    fn build_tick_ctx_falls_back_to_the_declared_cluster() {
+        // Covers the wiring, not the arbitration: a declared cluster alone
+        // must leave the borrowed fast path and reach patch_broker_energy.
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: None,
+                ..Default::default()
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let declared = declared_cfg(3);
+        let declared_state = score::broker_static::StaticBrokerState::new(0, &declared);
+        let mut sources = no_scrapers(&base);
+        sources.static_broker = Some((&declared, &declared_state));
+
+        let ctx = build_tick_ctx(&sources, 60_000);
+        assert!(
+            matches!(ctx, std::borrow::Cow::Owned(_)),
+            "a declared cluster alone must leave the borrowed fast path"
+        );
+        let broker = ctx.broker_energy.as_ref().expect("broker context");
+        assert!(broker.window_kwh > 0.0);
+        assert_eq!(broker.model, crate::report::BROKER_WASTE_MODEL_SPECPOWER);
+    }
+
+    #[test]
+    fn build_tick_ctx_keeps_the_fast_path_on_a_sub_second_tick() {
+        // MIN_BILLABLE_MS accrues rather than bills, which is what keeps a
+        // busy daemon off the CarbonContext clone.
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext::default()),
+            ..score::carbon::CarbonContext::default()
+        });
+        let declared = declared_cfg(3);
+        let declared_state = score::broker_static::StaticBrokerState::new(0, &declared);
+        let mut sources = no_scrapers(&base);
+        sources.static_broker = Some((&declared, &declared_state));
+
+        let ctx = build_tick_ctx(&sources, 200);
+        assert!(matches!(ctx, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn a_scrape_without_the_broker_label_hands_over_to_the_declaration() {
+        // mark_alive fires on every successful scrape, label or not. A
+        // mistyped label_value must not suppress the fallback forever.
+        let measured = DbEnergyState::new();
+        measured.mark_alive(10_000);
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+
+        let (m, d) = take_broker_energy(Some(&measured), Some(&state), 10_000, 60_000);
+        assert!(m.is_none(), "no sample ever carried the label");
+        assert!(
+            d.is_some_and(|k| k > 0.0),
+            "the declaration must cover a workload nothing measured"
+        );
+    }
+
+    #[test]
+    fn an_unscraped_state_does_not_own_the_timeline_at_boot() {
+        // last_sample_ms and monotonic_ms() both start at 0, so an elapsed
+        // check alone reads fresh for the first staleness window.
+        let measured = DbEnergyState::new();
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+
+        let (m, d) = take_broker_energy(Some(&measured), Some(&state), 5_000, 60_000);
+        assert!(m.is_none());
+        assert!(
+            d.is_some_and(|k| k > 0.0),
+            "a state that never saw a scrape must not suppress the fallback"
+        );
+    }
+
+    #[test]
     fn build_tick_ctx_alumet_overrides_scaphandre_for_same_service() {
         // The one genuinely new precedence edge: Alumet sits above
         // Scaphandre, so a service measured by both must carry Alumet's
@@ -1617,7 +1713,7 @@ mod tests {
         sources.alumet_staleness_ms = 500;
         sources.scaphandre_state = Some(&scaph);
         sources.scaphandre_staleness_ms = 500;
-        let ctx = build_tick_ctx(&sources);
+        let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 2);
         // svc-a: Alumet wins over Scaphandre.

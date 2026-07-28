@@ -347,8 +347,17 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             confidence: config.confidence(),
             analysis_queue_capacity: config.daemon.analysis_queue_capacity,
             // 2x the scraper staleness window: flap-free between scrapes,
-            // aged out shortly after a dead scraper's last reading.
-            waste_sticky_ttl_ms: alumet.staleness_ms.saturating_mul(2),
+            // aged out shortly after a dead scraper's last reading. A
+            // declared cluster has no scraper, so it falls back to the
+            // batch cadence: its figure is skipped on sub-second takes
+            // and would otherwise flap with nothing to bridge it.
+            waste_sticky_ttl_ms: alumet.staleness_ms.saturating_mul(2).max(
+                if config.green.broker_static.is_some() {
+                    config.daemon.trace_ttl_ms
+                } else {
+                    0
+                },
+            ),
         },
         green_summary_cell,
         archive_handle.as_ref().map(|h| h.tx.clone()),
