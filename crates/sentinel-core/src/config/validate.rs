@@ -874,44 +874,22 @@ impl Config {
         }
         Self::validate_alumet_service_mappings(cfg)?;
         if let Some(db) = &cfg.database {
-            validate_alumet_database_fields(&db.label_value, db.region.as_deref())?;
-            if cfg.service_mappings.values().any(|v| v == &db.label_value) {
-                return Err(format!(
-                    "[green.alumet.database] label_value '{}' also appears in \
-                     service_mappings; one cgroup cannot feed both the energy \
-                     totals and the database waste figure",
-                    db.label_value
-                ));
-            }
-            // Charset-valid but unknown regions are legitimate (custom
-            // ids covered by Electricity Maps), so warn instead of
-            // rejecting: without any intensity the gCO2 stays absent.
-            if let Some(region) = db.region.as_deref()
-                && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
-            {
-                tracing::warn!(
-                    region,
-                    "[green.alumet.database] region is not in the embedded \
-                     intensity table: waste_gco2 will be absent unless \
-                     Electricity Maps real-time intensity covers it. Check \
-                     for a typo (e.g. eu-west-3)."
-                );
-            }
+            Self::validate_workload_declaration(
+                "[green.alumet.database]",
+                "database waste",
+                &db.label_value,
+                db.region.as_deref(),
+                cfg,
+            )?;
         }
         if let Some(broker) = &cfg.broker {
-            validate_alumet_database_fields(&broker.label_value, broker.region.as_deref())?;
-            if cfg
-                .service_mappings
-                .values()
-                .any(|v| v == &broker.label_value)
-            {
-                return Err(format!(
-                    "[green.alumet.broker] label_value '{}' also appears in \
-                     service_mappings; one cgroup cannot feed both the energy \
-                     totals and the messaging waste figure",
-                    broker.label_value
-                ));
-            }
+            Self::validate_workload_declaration(
+                "[green.alumet.broker]",
+                "messaging waste",
+                &broker.label_value,
+                broker.region.as_deref(),
+                cfg,
+            )?;
             // One cgroup cannot be both workloads either, that would
             // count the same joules in two separate figures.
             if cfg
@@ -925,21 +903,45 @@ impl Config {
                     broker.label_value
                 ));
             }
-            if let Some(region) = broker.region.as_deref()
-                && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
-            {
-                tracing::warn!(
-                    region,
-                    "[green.alumet.broker] region is not in the embedded \
-                     intensity table: waste_gco2 will be absent unless \
-                     Electricity Maps real-time intensity covers it."
-                );
-            }
         }
         #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)
                 .map_err(|msg| format!("[green.alumet] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// Shared checks of one declared workload (database or broker):
+    /// field validity, no collision with `service_mappings`, and a warn
+    /// on a region absent from the embedded table. Charset-valid but
+    /// unknown regions are legitimate (custom ids covered by Electricity
+    /// Maps), so warn instead of rejecting.
+    fn validate_workload_declaration(
+        section: &str,
+        figure: &str,
+        label_value: &str,
+        region: Option<&str>,
+        cfg: &AlumetConfig,
+    ) -> Result<(), String> {
+        validate_alumet_database_fields(label_value, region)?;
+        if cfg.service_mappings.values().any(|v| v == label_value) {
+            return Err(format!(
+                "{section} label_value '{label_value}' also appears in \
+                 service_mappings; one cgroup cannot feed both the energy \
+                 totals and the {figure} figure"
+            ));
+        }
+        if let Some(region) = region
+            && crate::score::carbon::lookup_region_lower(&region.to_ascii_lowercase()).is_none()
+        {
+            tracing::warn!(
+                region,
+                section,
+                "declared region is not in the embedded intensity table: \
+                 waste_gco2 will be absent unless Electricity Maps real-time \
+                 intensity covers it. Check for a typo (e.g. eu-west-3)."
+            );
         }
         Ok(())
     }

@@ -395,7 +395,8 @@ pub struct DatabaseWasteAggregate {
     /// (any model other than `estimated`), in kWh.
     #[serde(default)]
     pub measured_energy_kwh: f64,
-    /// Distinct provenance tags observed (`alumet_rapl`, `estimated`).
+    /// Distinct provenance tags observed (`alumet_rapl`, `estimated`,
+    /// and `broker_specpower` on the messaging block).
     pub models: BTreeSet<String>,
     /// Windows that carried the figure (of the period's total).
     pub windows_with_figure: u64,
@@ -420,42 +421,10 @@ pub struct DatabaseWasteAggregate {
     pub canonical_waste_kgco2eq: Option<f64>,
 }
 
-/// Broker-side waste summed over the period, the messaging twin of
-/// [`DatabaseWasteAggregate`]. Same construction, same status: a lower
-/// bound, never folded into the aggregate totals. The energy comes from
-/// a measured broker cgroup, a declared cluster, or the modeled publish
-/// energy, per `models`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct MessagingWasteAggregate {
-    /// Energy the figure covered over the period, in kWh.
-    pub energy_kwh: f64,
-    /// Share of `energy_kwh` from windows with a measured or declared
-    /// figure (any model other than `estimated`), in kWh.
-    #[serde(default)]
-    pub measured_energy_kwh: f64,
-    /// Distinct provenance tags observed (`alumet_rapl`,
-    /// `broker_specpower`, `estimated`).
-    pub models: BTreeSet<String>,
-    /// Windows that carried the figure (of the period's total).
-    pub windows_with_figure: u64,
-    /// Windows whose figure came from a measured or declared source.
-    #[serde(default)]
-    pub measured_windows: u64,
-    /// Windows whose figure was the estimated fallback.
-    #[serde(default)]
-    pub estimated_windows: u64,
-    /// Windows whose figure carried a carbon conversion.
-    #[serde(default)]
-    pub windows_with_carbon: u64,
-    pub operational_waste_kwh: f64,
-    /// `None` when no window carried a carbon conversion, so an absent
-    /// conversion never reads as an affirmative zero-carbon claim.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operational_waste_kgco2eq: Option<f64>,
-    pub canonical_waste_kwh: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub canonical_waste_kgco2eq: Option<f64>,
-}
+/// Broker-side waste summed over the period. Wire-identical to the
+/// database block by design (one accumulator feeds both), so one struct
+/// serves both fields and the two can never drift.
+pub type MessagingWasteAggregate = DatabaseWasteAggregate;
 
 /// Avoidable energy and carbon for one N+1 threshold, summed over the period.
 ///

@@ -632,20 +632,32 @@ fn build_tick_ctx<'s>(
     if let (Some(kwh), Some(db)) = (db_window_kwh, ctx.db_energy.as_mut()) {
         db.window_kwh = kwh;
     }
-    // The tag and region follow the source that actually filled the
-    // window, so a fallback tick is never published as a measurement.
     if let Some(broker) = ctx.broker_energy.as_mut() {
-        if let Some(kwh) = measured_broker_kwh {
-            broker.window_kwh = kwh;
-            broker.model = score::carbon::CO2_MODEL_ALUMET;
-        } else if let (Some(kwh), Some((cfg, _))) = (declared_broker_kwh, static_broker) {
-            broker.window_kwh = kwh;
-            broker.model = crate::report::BROKER_WASTE_MODEL_SPECPOWER;
-            broker.region = cfg.region.clone();
-        }
+        patch_broker_energy(
+            broker,
+            measured_broker_kwh,
+            declared_broker_kwh.zip(static_broker.map(|(cfg, _)| cfg)),
+        );
     }
 
     std::borrow::Cow::Owned(ctx)
+}
+
+/// The tag and region follow the source that actually filled the
+/// window, so a fallback tick is never published as a measurement.
+fn patch_broker_energy(
+    broker: &mut score::carbon::DbEnergyContext,
+    measured_kwh: Option<f64>,
+    declared: Option<(f64, &score::broker_static::StaticBrokerConfig)>,
+) {
+    if let Some(kwh) = measured_kwh {
+        broker.window_kwh = kwh;
+        broker.model = score::carbon::CO2_MODEL_ALUMET;
+    } else if let Some((kwh, cfg)) = declared {
+        broker.window_kwh = kwh;
+        broker.model = crate::report::BROKER_WASTE_MODEL_SPECPOWER;
+        broker.region.clone_from(&cfg.region);
+    }
 }
 
 /// Record slow span durations into a Prometheus histogram.
