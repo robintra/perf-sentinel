@@ -593,6 +593,7 @@ pub(super) fn setup_alumet_scraper(
 ) -> (
     ScraperSetup<AlumetState>,
     Option<Arc<score::alumet::DbEnergyState>>,
+    Option<Arc<score::alumet::DbEnergyState>>,
 ) {
     let Some(alumet_cfg) = config.green.alumet.clone() else {
         return (
@@ -602,6 +603,7 @@ pub(super) fn setup_alumet_scraper(
                 staleness_ms: 0,
             },
             None,
+            None,
         );
     };
     let staleness_ms = alumet_cfg.scrape_interval.as_millis() as u64 * 3;
@@ -610,8 +612,17 @@ pub(super) fn setup_alumet_scraper(
         .database
         .as_ref()
         .map(|_| score::alumet::DbEnergyState::new());
-    let handle =
-        score::alumet::spawn_scraper(alumet_cfg, state.clone(), db_state.clone(), metrics.clone());
+    let broker_state = alumet_cfg
+        .broker
+        .as_ref()
+        .map(|_| score::alumet::DbEnergyState::new());
+    let handle = score::alumet::spawn_scraper(
+        alumet_cfg,
+        state.clone(),
+        db_state.clone(),
+        broker_state.clone(),
+        metrics.clone(),
+    );
     (
         ScraperSetup {
             state: Some(state),
@@ -619,6 +630,7 @@ pub(super) fn setup_alumet_scraper(
             staleness_ms,
         },
         db_state,
+        broker_state,
     )
 }
 

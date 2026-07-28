@@ -87,17 +87,22 @@ pub fn spawn_scraper(
     cfg: AlumetConfig,
     state: Arc<AlumetState>,
     db_state: Option<Arc<DbEnergyState>>,
+    broker_state: Option<Arc<DbEnergyState>>,
     metrics: Arc<MetricsState>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        run_scraper_loop(cfg, state, db_state, metrics).await;
+        run_scraper_loop(cfg, state, db_state, broker_state, metrics).await;
     })
 }
 
+// Same call as the Scaphandre and cloud scrapers: splitting the loop
+// lifecycle across helpers fragments it without clarity gain.
+#[allow(clippy::too_many_lines)]
 async fn run_scraper_loop(
     cfg: AlumetConfig,
     state: Arc<AlumetState>,
     db_state: Option<Arc<DbEnergyState>>,
+    broker_state: Option<Arc<DbEnergyState>>,
     metrics: Arc<MetricsState>,
 ) {
     use std::str::FromStr;
@@ -139,17 +144,7 @@ async fn run_scraper_loop(
     let mut failure_streak_warned = false;
     let mut consecutive_failures: u32 = 0;
     let mut unsupported_platform_warned = false;
-    // "HTTP 200, samples empty" warn-once latch, reset on HTTP error
-    // so a flapping endpoint does not falsely trip it. One independent
-    // streak per cause: a metric_name that matches nothing and a
-    // service_mappings table that matches nothing are distinct
-    // misconfigurations with distinct fixes, and sharing one counter
-    // would let a streak of the first cause fire the second cause's
-    // message (or a latched first warn suppress the second forever).
-    let mut no_samples_streak = WarnOnceStreak::default();
-    let mut no_match_streak = WarnOnceStreak::default();
-    // Latch for a database label_value never seen on the wire.
-    let mut db_missing_streak = WarnOnceStreak::default();
+    let mut latches = ScrapeLatches::default();
     // Track the last successful scrape so the `last_scrape_age_seconds`
     // gauge advances on every failure tick. Seeded to scraper-start time
     // so an Alumet endpoint broken from boot still climbs the gauge.
@@ -192,8 +187,15 @@ async fn run_scraper_loop(
                 // Mirror Scaphandre: timestamp after the fetch resolves
                 // so `last_update_ms` reflects when the data landed.
                 let now = monotonic_ms();
-                let matched =
-                    apply_scrape(&state, db_state.as_deref(), &samples, &deltas, &cfg, now);
+                let matched = apply_scrape(
+                    &state,
+                    db_state.as_deref(),
+                    broker_state.as_deref(),
+                    &samples,
+                    &deltas,
+                    &cfg,
+                    now,
+                );
                 last_success_ms = now;
                 metrics.alumet_last_scrape_age_seconds.set(0.0);
                 metrics.alumet_scrape_success.inc();
@@ -204,19 +206,16 @@ async fn run_scraper_loop(
                     &cfg,
                     &redacted,
                     db_state.as_deref(),
+                    broker_state.as_deref(),
                     now,
-                    &mut no_samples_streak,
-                    &mut no_match_streak,
-                    &mut db_missing_streak,
+                    &mut latches,
                 );
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
                 // Reset the latches on HTTP failure: the failure-side
                 // warning covers flapping endpoints.
-                no_samples_streak.reset();
-                no_match_streak.reset();
-                db_missing_streak.reset();
+                latches.reset_all();
                 handle_alumet_failure(
                     &e,
                     &metrics,
@@ -236,7 +235,33 @@ async fn run_scraper_loop(
 /// [`run_scraper_loop`] for the line-count limit. A successful scrape
 /// proves the chain is alive: banked database energy survives idle
 /// spells and label renames.
-#[allow(clippy::too_many_arguments)]
+/// The four independent warn-once latches of one scraper loop, reset on
+/// HTTP error so a flapping endpoint does not falsely trip them.
+///
+/// One streak per cause on purpose: a `metric_name` matching nothing and
+/// a `service_mappings` table matching nothing are distinct
+/// misconfigurations with distinct fixes, and sharing one counter would
+/// let one cause fire another's message, or latch it away for good.
+#[derive(Default)]
+pub(super) struct ScrapeLatches {
+    no_samples: WarnOnceStreak,
+    no_match: WarnOnceStreak,
+    db_missing: WarnOnceStreak,
+    broker_missing: WarnOnceStreak,
+}
+
+impl ScrapeLatches {
+    /// Reset every cause. Called on HTTP failure, where the
+    /// failure-side warning already covers a flapping endpoint.
+    pub(super) fn reset_all(&mut self) {
+        self.no_samples.reset();
+        self.no_match.reset();
+        self.db_missing.reset();
+        self.broker_missing.reset();
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // per-scrape context, each one distinct
 pub(super) fn post_scrape_bookkeeping(
     samples: &[crate::score::prom_parser::PromSample],
     matched: usize,
@@ -244,13 +269,15 @@ pub(super) fn post_scrape_bookkeeping(
     cfg: &AlumetConfig,
     redacted: &str,
     db_state: Option<&DbEnergyState>,
+    broker_state: Option<&DbEnergyState>,
     now_ms: u64,
-    no_samples: &mut WarnOnceStreak,
-    no_match: &mut WarnOnceStreak,
-    db_missing: &mut WarnOnceStreak,
+    latches: &mut ScrapeLatches,
 ) {
     if let Some(db) = db_state {
         db.mark_alive(now_ms);
+    }
+    if let Some(broker) = broker_state {
+        broker.mark_alive(now_ms);
     }
     track_zero_sample_streak(
         samples.len(),
@@ -260,40 +287,60 @@ pub(super) fn post_scrape_bookkeeping(
         redacted,
         &cfg.metric_name,
         &cfg.label_key,
-        no_samples,
-        no_match,
+        &mut latches.no_samples,
+        &mut latches.no_match,
     );
-    track_db_label_streak(samples, cfg, redacted, db_missing);
+    track_workload_label_streak(
+        samples,
+        cfg.database.as_ref().map(|d| d.label_value.as_str()),
+        "[green.alumet.database]",
+        cfg,
+        redacted,
+        &mut latches.db_missing,
+    );
+    track_workload_label_streak(
+        samples,
+        cfg.broker.as_ref().map(|b| b.label_value.as_str()),
+        "[green.alumet.broker]",
+        cfg,
+        redacted,
+        &mut latches.broker_missing,
+    );
 }
 
-/// Warn-once when the `[green.alumet.database]` label value never
-/// appears among non-empty samples. An empty exposition belongs to the
-/// `no_samples` cause and says nothing about the database label.
-pub(super) fn track_db_label_streak(
+/// Warn-once when a declared workload label never appears among
+/// non-empty samples. An empty exposition belongs to the `no_samples`
+/// cause and says nothing about the declared label.
+///
+/// `section` is the TOML section name, so one latch serves both the
+/// database and the broker declaration.
+pub(super) fn track_workload_label_streak(
     samples: &[crate::score::prom_parser::PromSample],
+    declared: Option<&str>,
+    section: &str,
     cfg: &AlumetConfig,
     redacted: &str,
     streak: &mut WarnOnceStreak,
 ) {
-    let Some(db_cfg) = cfg.database.as_ref() else {
+    let Some(label_value) = declared else {
         return;
     };
     if samples.is_empty() {
         return;
     }
-    if samples.iter().any(|s| s.label_value == db_cfg.label_value) {
+    if samples.iter().any(|s| s.label_value == label_value) {
         streak.reset();
     } else if streak.tick() {
         tracing::warn!(
             endpoint = %redacted,
             label = %cfg.label_key,
-            label_value = %db_cfg.label_value,
-            "Alumet samples flowed but the [green.alumet.database] \
-             label_value was absent under label_key across the last \
-             {ZERO_SAMPLE_WARN_THRESHOLD} such ticks, so no database energy is \
-             accumulating. Either the value is mistyped (it must \
-             match the wire verbatim) or the database workload is \
-             absent from the exposition."
+            label_value = %label_value,
+            section = %section,
+            "Alumet samples flowed but the declared label_value was absent \
+             under label_key across the last {ZERO_SAMPLE_WARN_THRESHOLD} such \
+             ticks, so no energy is accumulating for that section. Either the \
+             value is mistyped (it must match the wire verbatim) or the \
+             workload is absent from the exposition."
         );
     }
 }

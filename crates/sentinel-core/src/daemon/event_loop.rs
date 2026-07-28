@@ -75,6 +75,7 @@ pub(super) struct EnergySources<'a> {
     pub(super) base_carbon_ctx: Arc<score::carbon::CarbonContext>,
     pub(super) alumet_state: Option<&'a AlumetState>,
     pub(super) alumet_db_state: Option<&'a DbEnergyState>,
+    pub(super) alumet_broker_state: Option<&'a DbEnergyState>,
     pub(super) alumet_staleness_ms: u64,
     pub(super) scaphandre_state: Option<&'a ScaphandreState>,
     pub(super) scaphandre_staleness_ms: u64,
@@ -521,6 +522,7 @@ fn build_tick_ctx<'s>(
     let EnergySources {
         alumet_state,
         alumet_db_state,
+        alumet_broker_state,
         alumet_staleness_ms,
         scaphandre_state,
         scaphandre_staleness_ms,
@@ -564,6 +566,8 @@ fn build_tick_ctx<'s>(
     // Consuming here (once per built batch) keeps shed batches from
     // losing energy: they never build a context.
     let db_window_kwh = alumet_db_state.and_then(|db| db.take_window_kwh(now, alumet_staleness_ms));
+    let broker_window_kwh =
+        alumet_broker_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
     if cloud_snap.is_empty()
@@ -573,6 +577,7 @@ fn build_tick_ctx<'s>(
         && alumet_snap.is_empty()
         && emaps_snap.is_empty()
         && db_window_kwh.is_none()
+        && broker_window_kwh.is_none()
     {
         return std::borrow::Cow::Borrowed(base);
     }
@@ -613,6 +618,9 @@ fn build_tick_ctx<'s>(
     }
     if let (Some(kwh), Some(db)) = (db_window_kwh, ctx.db_energy.as_mut()) {
         db.window_kwh = kwh;
+    }
+    if let (Some(kwh), Some(broker)) = (broker_window_kwh, ctx.broker_energy.as_mut()) {
+        broker.window_kwh = kwh;
     }
 
     std::borrow::Cow::Owned(ctx)
@@ -1339,6 +1347,36 @@ mod tests {
     }
 
     #[test]
+    fn build_tick_ctx_broker_only_energy_forces_owned() {
+        // Broker energy alone must leave the borrowed fast path, otherwise
+        // a tick with no other fresh source would silently drop it.
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: None,
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let broker = DbEnergyState::new();
+        let now = score::scaphandre::monotonic_ms();
+        broker.add_window_kwh(3e-6, now);
+        let mut sources = no_scrapers(&base);
+        sources.alumet_broker_state = Some(&broker);
+        sources.alumet_staleness_ms = 60_000;
+
+        let ctx = build_tick_ctx(&sources);
+        assert!(
+            matches!(ctx, std::borrow::Cow::Owned(_)),
+            "fresh broker energy must not take the borrowed fast path"
+        );
+        let kwh = ctx.broker_energy.as_ref().unwrap().window_kwh;
+        assert!((kwh - 3e-6).abs() < 1e-18);
+
+        let ctx2 = build_tick_ctx(&sources);
+        assert!(matches!(ctx2, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
     fn build_tick_ctx_alumet_overrides_scaphandre_for_same_service() {
         // The one genuinely new precedence edge: Alumet sits above
         // Scaphandre, so a service measured by both must carry Alumet's
@@ -1390,6 +1428,7 @@ mod tests {
             base_carbon_ctx: base.clone(),
             alumet_state: None,
             alumet_db_state: None,
+            alumet_broker_state: None,
             alumet_staleness_ms: 0,
             scaphandre_state: None,
             scaphandre_staleness_ms: 0,

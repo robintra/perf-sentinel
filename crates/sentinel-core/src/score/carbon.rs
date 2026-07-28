@@ -392,6 +392,9 @@ pub struct CarbonContext {
     /// when configured, but `window_kwh` stays `0.0` there (no
     /// scraper), so no figure is ever emitted.
     pub db_energy: Option<DbEnergyContext>,
+    /// Declared broker measured by Alumet (`[green.alumet.broker]`),
+    /// same lifecycle as [`Self::db_energy`].
+    pub broker_energy: Option<DbEnergyContext>,
 }
 
 /// Window energy of the declared database cgroup, feeding
@@ -481,6 +484,7 @@ impl Default for CarbonContext {
             real_time_intensity: None,
             scoring_config: None,
             db_energy: None,
+            broker_energy: None,
         }
     }
 }

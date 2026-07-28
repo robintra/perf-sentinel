@@ -101,6 +101,7 @@ pub fn compute_window_kwh(
 pub fn apply_scrape(
     state: &AlumetState,
     db_state: Option<&DbEnergyState>,
+    broker_state: Option<&DbEnergyState>,
     samples: &[PromSample],
     op_deltas: &HashMap<String, u64>,
     cfg: &AlumetConfig,
@@ -123,6 +124,14 @@ pub fn apply_scrape(
             compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
     {
         db.add_window_kwh(kwh, now_ms);
+    }
+    // Declared broker cgroup: same reasoning as the database above.
+    if let (Some(broker_cfg), Some(broker)) = (cfg.broker.as_ref(), broker_state)
+        && let Some(&joules) = by_label.get(broker_cfg.label_value.as_str())
+        && let Some(kwh) =
+            compute_window_kwh(joules, cfg.energy_interval_secs, scrape_interval_secs)
+    {
+        broker.add_window_kwh(kwh, now_ms);
     }
     let mut next = state.current_owned();
     let mut any_change = false;
