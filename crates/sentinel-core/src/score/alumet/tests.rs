@@ -12,7 +12,7 @@ use super::apply::{apply_scrape, compute_energy_per_op_kwh, compute_window_kwh};
 use super::config::{AlumetConfig, AlumetDatabaseConfig, DEFAULT_ENERGY_INTERVAL_SECS};
 use super::scraper::{
     ScraperError, WarnOnceStreak, fetch_metrics_once, post_scrape_bookkeeping,
-    scraper_error_reason, spawn_scraper, track_db_label_streak, track_zero_sample_streak,
+    scraper_error_reason, spawn_scraper, track_workload_label_streak, track_zero_sample_streak,
 };
 use super::state::AlumetState;
 use super::state::DbEnergyState;
@@ -117,7 +117,7 @@ fn apply_scrape_updates_state_with_coefficient() {
     }];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     let snap = state.snapshot(1000, 10_000);
     assert_eq!(snap.len(), 1);
     let expected = (10.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
@@ -134,7 +134,7 @@ fn apply_scrape_keeps_prior_entry_when_ops_zero() {
         value: 10.0,
     }];
     let op_deltas = HashMap::new(); // no ops for the service
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 200);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 200);
     let snap = state.snapshot(200, 10_000);
     assert_eq!(snap.len(), 1);
     assert!((snap["checkout"] - 5e-7).abs() < f64::EPSILON);
@@ -153,7 +153,7 @@ fn apply_scrape_skips_service_with_zero_ops_explicit_entry() {
     }];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 0);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 200);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 200);
     let snap = state.snapshot(200, 10_000);
     assert_eq!(snap.len(), 1);
     assert!((snap["checkout"] - 5e-7).abs() < f64::EPSILON);
@@ -181,7 +181,7 @@ fn apply_scrape_sums_series_sharing_a_label_value() {
     ];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     let snap = state.snapshot(1000, 10_000);
     // 6 + 4 = 10 J over a 1s interval, extrapolated over the 5s window.
     let expected = (10.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
@@ -211,7 +211,7 @@ fn sum_skips_nan_rows_instead_of_poisoning_the_label() {
     ];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    let matched = apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    let matched = apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     assert_eq!(matched, 1, "a NaN row must not unmatch the label");
     let snap = state.snapshot(1000, 10_000);
     let expected = (6.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
@@ -241,7 +241,7 @@ fn sum_skips_negative_rows_instead_of_subtracting() {
     ];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     let snap = state.snapshot(1000, 10_000);
     let expected = (6.0 / 1.0 * 5.0) / 3_600_000.0 / 100.0;
     assert!(
@@ -260,7 +260,7 @@ fn apply_scrape_reports_matched_services_independently_of_ops() {
         value: 10.0,
     }];
     // Idle service: the label is on the wire, so the mapping is right.
-    let matched = apply_scrape(&state, None, &samples, &HashMap::new(), &cfg, 1000);
+    let matched = apply_scrape(&state, None, None, &samples, &HashMap::new(), &cfg, 1000);
     assert_eq!(matched, 1, "an idle mapped service still counts as matched");
 
     // Mistyped mapping: nothing on the wire carries that label value.
@@ -268,7 +268,7 @@ fn apply_scrape_reports_matched_services_independently_of_ops() {
         label_value: "typo-pod".to_string(),
         value: 10.0,
     }];
-    let matched = apply_scrape(&state, None, &wrong, &HashMap::new(), &cfg, 1000);
+    let matched = apply_scrape(&state, None, None, &wrong, &HashMap::new(), &cfg, 1000);
     assert_eq!(matched, 0, "a mapping that matches nothing must report 0");
 }
 
@@ -287,7 +287,7 @@ fn zero_joules_reading_keeps_the_previous_entry() {
     }];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 500);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 200);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 200);
     let snap = state.snapshot(200, 10_000);
     assert!(
         (snap["checkout"] - 5e-7).abs() < f64::EPSILON,
@@ -305,7 +305,7 @@ fn apply_scrape_ignores_unmapped_label() {
     }];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     assert!(state.snapshot(1000, 10_000).is_empty());
 }
 
@@ -321,9 +321,9 @@ fn apply_scrape_is_stateless_across_ticks() {
     }];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     let first = state.snapshot(1000, 10_000)["checkout"];
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 2000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 2000);
     let second = state.snapshot(2000, 10_000)["checkout"];
     assert!((first - second).abs() < f64::EPSILON);
 }
@@ -339,7 +339,7 @@ fn apply_scrape_reflects_configured_energy_interval() {
     }];
     let mut op_deltas = HashMap::new();
     op_deltas.insert("checkout".to_string(), 100);
-    apply_scrape(&state, None, &samples, &op_deltas, &cfg, 1000);
+    apply_scrape(&state, None, None, &samples, &op_deltas, &cfg, 1000);
     let snap = state.snapshot(1000, 10_000);
     // 10 J over 5s = 2 W, over a 5s window = 10 J.
     let expected = 10.0 / 3_600_000.0 / 100.0;
@@ -575,7 +575,7 @@ async fn spawn_scraper_unreachable_endpoint_keeps_running() {
     cfg.scrape_interval = Duration::from_millis(50);
     let state = AlumetState::new();
     let metrics = std::sync::Arc::new(crate::report::metrics::MetricsState::new());
-    let handle = spawn_scraper(cfg, state, None, metrics);
+    let handle = spawn_scraper(cfg, state, None, None, metrics);
 
     // Let a few scrape attempts fail.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -601,7 +601,7 @@ async fn spawn_scraper_staleness_gauge_climbs_when_never_succeeds() {
     cfg.scrape_interval = Duration::from_millis(50);
     let state = AlumetState::new();
     let metrics = std::sync::Arc::new(crate::report::metrics::MetricsState::new());
-    let handle = spawn_scraper(cfg, state, None, metrics.clone());
+    let handle = spawn_scraper(cfg, state, None, None, metrics.clone());
 
     // Poll until the gauge moves rather than waiting a fixed window: on
     // Windows, connecting to a dropped port can take until the 3s fetch
@@ -627,7 +627,7 @@ async fn spawn_scraper_aborts_cleanly_on_invalid_uri() {
     cfg.endpoint = "not a uri".to_string();
     let state = AlumetState::new();
     let metrics = std::sync::Arc::new(crate::report::metrics::MetricsState::new());
-    let handle = spawn_scraper(cfg, state, None, metrics);
+    let handle = spawn_scraper(cfg, state, None, None, metrics);
     // The task must return on its own rather than retry-spam forever.
     tokio::time::timeout(Duration::from_secs(5), handle)
         .await
@@ -688,7 +688,15 @@ fn apply_scrape_accumulates_database_energy() {
             value: 20.0,
         },
     ];
-    apply_scrape(&state, Some(&db), &samples, &HashMap::new(), &cfg, 1000);
+    apply_scrape(
+        &state,
+        Some(&db),
+        None,
+        &samples,
+        &HashMap::new(),
+        &cfg,
+        1000,
+    );
     // 20 J/s over a 5s window = 100 J.
     let kwh = db.take_window_kwh(1500, 15_000).unwrap();
     assert!((kwh - 100.0 / 3_600_000.0).abs() < 1e-15);
@@ -703,7 +711,15 @@ fn apply_scrape_without_database_config_leaves_state_untouched() {
         label_value: "postgres-pod".to_string(),
         value: 20.0,
     }];
-    apply_scrape(&state, Some(&db), &samples, &HashMap::new(), &cfg, 1000);
+    apply_scrape(
+        &state,
+        Some(&db),
+        None,
+        &samples,
+        &HashMap::new(),
+        &cfg,
+        1000,
+    );
     assert!(db.take_window_kwh(1500, 15_000).is_none());
 }
 
@@ -720,7 +736,15 @@ fn mark_alive_preserves_banked_energy_through_idle_and_label_loss() {
         label_value: "postgres-pod".to_string(),
         value: 20.0,
     }];
-    apply_scrape(&state, Some(&db), &energized, &HashMap::new(), &cfg, 1_000);
+    apply_scrape(
+        &state,
+        Some(&db),
+        None,
+        &energized,
+        &HashMap::new(),
+        &cfg,
+        1_000,
+    );
     // Long idle or label rename: scrapes keep succeeding without the
     // label, the scraper marks liveness on every one of them.
     db.mark_alive(100_000);
@@ -732,13 +756,20 @@ fn mark_alive_preserves_banked_energy_through_idle_and_label_loss() {
 // --- post-scrape diagnostics -------------------------------------------
 
 #[test]
-fn track_db_label_streak_covers_every_branch() {
+fn track_workload_label_streak_covers_every_branch() {
     let mut cfg = sample_config();
     let redacted = "http://host/metrics";
     let mut streak = WarnOnceStreak::default();
 
     // No database declared: early return, no warn.
-    track_db_label_streak(&[], &cfg, redacted, &mut streak);
+    track_workload_label_streak(
+        &[],
+        cfg.database.as_ref().map(|d| d.label_value.as_str()),
+        "[green.alumet.database]",
+        &cfg,
+        redacted,
+        &mut streak,
+    );
     assert!(!streak.has_warned());
 
     cfg.database = Some(AlumetDatabaseConfig {
@@ -747,7 +778,14 @@ fn track_db_label_streak_covers_every_branch() {
     });
 
     // Empty exposition: belongs to the no_samples cause, not this one.
-    track_db_label_streak(&[], &cfg, redacted, &mut streak);
+    track_workload_label_streak(
+        &[],
+        cfg.database.as_ref().map(|d| d.label_value.as_str()),
+        "[green.alumet.database]",
+        &cfg,
+        redacted,
+        &mut streak,
+    );
     assert!(!streak.has_warned());
 
     // Label present: reset, no warn.
@@ -755,7 +793,14 @@ fn track_db_label_streak_covers_every_branch() {
         label_value: "pg-pod".to_string(),
         value: 1.0,
     }];
-    track_db_label_streak(&present, &cfg, redacted, &mut streak);
+    track_workload_label_streak(
+        &present,
+        cfg.database.as_ref().map(|d| d.label_value.as_str()),
+        "[green.alumet.database]",
+        &cfg,
+        redacted,
+        &mut streak,
+    );
     assert!(!streak.has_warned());
 
     // Label absent across three consecutive non-empty ticks: warn fires.
@@ -764,7 +809,14 @@ fn track_db_label_streak_covers_every_branch() {
         value: 1.0,
     }];
     for _ in 0..3 {
-        track_db_label_streak(&absent, &cfg, redacted, &mut streak);
+        track_workload_label_streak(
+            &absent,
+            cfg.database.as_ref().map(|d| d.label_value.as_str()),
+            "[green.alumet.database]",
+            &cfg,
+            redacted,
+            &mut streak,
+        );
     }
     assert!(streak.has_warned());
 }
@@ -781,9 +833,7 @@ fn post_scrape_bookkeeping_marks_liveness_and_runs_diagnostics() {
         label_value: "checkout-pod".to_string(),
         value: 5.0,
     }];
-    let mut no_samples = WarnOnceStreak::default();
-    let mut no_match = WarnOnceStreak::default();
-    let mut db_missing = WarnOnceStreak::default();
+    let mut latches = super::scraper::ScrapeLatches::default();
     post_scrape_bookkeeping(
         &samples,
         1,
@@ -791,10 +841,9 @@ fn post_scrape_bookkeeping_marks_liveness_and_runs_diagnostics() {
         &cfg,
         "http://host/metrics",
         Some(&db),
+        None,
         1_234,
-        &mut no_samples,
-        &mut no_match,
-        &mut db_missing,
+        &mut latches,
     );
     // Liveness was marked, so banked energy stays deliverable.
     db.add_window_kwh(1e-6, 1_234);

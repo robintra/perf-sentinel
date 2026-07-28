@@ -469,6 +469,7 @@ impl Config {
             // The daemon injects the declaration (see `daemon::run`), it
             // is the only mode that can deliver measured window energy.
             db_energy: None,
+            broker_energy: None,
         }
     }
 }

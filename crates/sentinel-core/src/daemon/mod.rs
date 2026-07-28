@@ -213,7 +213,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     )
     .await?;
 
-    let (alumet, alumet_db) = setup_alumet_scraper(&config, &metrics);
+    let (alumet, alumet_db, alumet_broker) = setup_alumet_scraper(&config, &metrics);
     let scaphandre = setup_scaphandre_scraper(&config, &metrics);
     let kepler = setup_kepler_scraper(&config, &metrics);
     let redfish = setup_redfish_scraper(&config, &metrics);
@@ -244,6 +244,15 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 window_kwh: 0.0,
                 region: db.region.clone(),
             });
+        ctx.broker_energy = config
+            .green
+            .alumet
+            .as_ref()
+            .and_then(|a| a.broker.as_ref())
+            .map(|b| crate::score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: b.region.clone(),
+            });
         ctx
     });
     let detect_config = DetectConfig::from(&config);
@@ -254,6 +263,11 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         // not consume (and thus destroy) the accumulated database energy.
         alumet_db_state: if config.green.enabled {
             alumet_db.as_deref()
+        } else {
+            None
+        },
+        alumet_broker_state: if config.green.enabled {
+            alumet_broker.as_deref()
         } else {
             None
         },
