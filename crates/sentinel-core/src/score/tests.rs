@@ -402,6 +402,65 @@ fn sql_split_separates_sql_and_http_waste() {
 }
 
 #[test]
+fn messaging_split_excludes_the_sql_share() {
+    // Its own fixture on purpose: the SQL split test above pins literal
+    // counts on a shared one.
+    let mut events: Vec<SpanEvent> = (1..=4)
+        .map(|i| {
+            let mut e = make_http_event(
+                "trace-m",
+                &format!("span-m{i}"),
+                "orders",
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+            );
+            e.event_type = crate::event::EventType::Messaging;
+            e.operation = "kafka".to_string();
+            e
+        })
+        .collect();
+    events.push(make_sql_event(
+        "trace-m",
+        "span-s1",
+        "SELECT 1",
+        "2025-07-10T14:32:02.000Z",
+    ));
+    let trace = make_trace(events);
+
+    let finding = Finding {
+        finding_type: FindingType::NPlusOneMessaging,
+        severity: Severity::Warning,
+        trace_id: "trace-m".to_string(),
+        service: "order-svc".to_string(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: "kafka orders".to_string(),
+            occurrences: 4,
+            window_ms: 150,
+            distinct_params: 1,
+            ..Default::default()
+        },
+        suggestion: "batch".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.200Z".to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    };
+
+    let (_, summary, _) = score_green(&[trace], vec![finding], None);
+
+    assert_eq!(summary.total_io_ops, 5);
+    assert_eq!(summary.total_messaging_io_ops, 4);
+    assert_eq!(summary.total_sql_io_ops, 1);
+    assert_eq!(summary.avoidable_messaging_io_ops, 3);
+    assert_eq!(summary.avoidable_sql_io_ops, 0);
+}
+
+#[test]
 fn database_waste_multiplies_window_energy_by_sql_ratio() {
     // 6 SQL events, one N+1 finding (avoidable 5), DB consumed 2 kWh.
     let events: Vec<SpanEvent> = (1..=6)
