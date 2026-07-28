@@ -86,11 +86,10 @@ fn count_endpoint_stats(
     for (trace_idx, trace) in traces.iter().enumerate() {
         for span in &trace.spans {
             total_io_ops += 1;
-            if matches!(span.event.event_type, EventType::Sql) {
-                total_sql_io_ops += 1;
-            }
-            if matches!(span.event.event_type, EventType::Messaging) {
-                total_messaging_io_ops += 1;
+            match span.event.event_type {
+                EventType::Sql => total_sql_io_ops += 1,
+                EventType::Messaging => total_messaging_io_ops += 1,
+                EventType::HttpOut => {}
             }
             let key: EndpointKey<'_> = (
                 span.event.service.as_ref(),

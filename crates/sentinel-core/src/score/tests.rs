@@ -502,7 +502,9 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
         db_energy: Some(DbEnergyContext {
             window_kwh: 2.0,
             region: Some("eu-west-3".to_string()),
-            ..Default::default()
+            // Stated, not defaulted: only the caller that fills the
+            // window knows it was measured.
+            model: crate::score::carbon::CO2_MODEL_ALUMET,
         }),
         ..CarbonContext::default()
     };
