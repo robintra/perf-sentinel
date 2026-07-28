@@ -482,7 +482,10 @@ mod raw;
 mod toml_paths;
 mod validate;
 
-use raw::{RawConfig, parse_daemon_environment, parse_kepler_metric_kind, validate_alumet_raw};
+use raw::{
+    RawConfig, parse_daemon_environment, parse_kepler_metric_kind, validate_alumet_raw,
+    validate_broker_static_raw,
+};
 use toml_paths::normalize_toml_path_strings;
 pub(crate) use validate::has_control_char;
 
@@ -600,6 +603,7 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     // so a missing one must be a loud error rather than a silently
     // dropped section.
     validate_alumet_raw(&raw.green.alumet).map_err(ConfigError::Validation)?;
+    validate_broker_static_raw(&raw.green.broker_static).map_err(ConfigError::Validation)?;
     let config = Config::from(raw);
     config.validate().map_err(ConfigError::Validation)?;
     config.warn_listen_addr_if_non_loopback();
