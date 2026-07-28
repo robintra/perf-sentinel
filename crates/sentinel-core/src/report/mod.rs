@@ -183,6 +183,14 @@ pub struct GreenSummary {
     /// `0` on baselines from versions before this field existed.
     #[serde(default)]
     pub avoidable_sql_io_ops: usize,
+    /// Messaging share of `total_io_ops`, same construction as the SQL pair.
+    /// `0` on baselines predating the field.
+    #[serde(default)]
+    pub total_messaging_io_ops: usize,
+    /// Messaging share of `avoidable_io_ops`, restricted to
+    /// `n_plus_one_messaging`. `0` on baselines predating the field.
+    #[serde(default)]
+    pub avoidable_messaging_io_ops: usize,
     /// Region-resolved I/O ops (`total_io_ops` minus the unknown bucket): the
     /// denominator behind `co2.avoidable`. In-process only (`serde(skip)`),
     /// read by the daemon to rescale avoidable at the canonical threshold.
@@ -392,6 +400,8 @@ impl GreenSummary {
             avoidable_io_ops: 0,
             total_sql_io_ops: 0,
             avoidable_sql_io_ops: 0,
+            total_messaging_io_ops: 0,
+            avoidable_messaging_io_ops: 0,
             accounted_io_ops: total_io_ops,
             io_waste_ratio: 0.0,
             io_waste_ratio_band: InterpretationLevel::Healthy,
