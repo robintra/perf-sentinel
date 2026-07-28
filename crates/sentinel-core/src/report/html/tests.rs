@@ -182,6 +182,24 @@ fn green_panel_carries_database_waste_card() {
 }
 
 #[test]
+fn green_panel_carries_broker_waste_card() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    assert!(
+        html.contains("greenSummary.messaging_waste"),
+        "green panel must read messaging_waste"
+    );
+    assert!(
+        html.contains("Broker waste"),
+        "the broker card needs its own label, distinct from the database one"
+    );
+    assert!(
+        html.contains("% messaging ·"),
+        "the subtitle must state the messaging ratio"
+    );
+}
+
+#[test]
 fn quality_gate_rules_scaffold_and_csv_confidence_present() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));

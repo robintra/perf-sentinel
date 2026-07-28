@@ -2616,6 +2616,24 @@
       ));
     }
 
+    // Broker twin of the card above: measured cgroup, declared cluster,
+    // or estimated from the modeled publish energy.
+    var mw = greenSummary.messaging_waste;
+    if (mw) {
+      var mwValue = Number.isFinite(mw.waste_gco2) ? formatGco2(mw.waste_gco2) : formatKwh(mw.waste_kwh);
+      var mwScope = mw.model === "estimated" ? "within the report totals" : "excluded from totals";
+      var mwSub = formatKwh(mw.waste_kwh) + " of " + formatKwh(mw.energy_kwh) + " · " +
+        Math.round((mw.messaging_waste_ratio || 0) * 100) + "% messaging · " +
+        (mw.model || "-") + (mw.region ? " · " + mw.region : "") +
+        " · " + mwScope;
+      metrics.appendChild(greenCard(
+        "Broker waste",
+        mwValue,
+        mwSub,
+        mw.waste_kwh > 0 ? "accent" : "neutral"
+      ));
+    }
+
     renderCarbonFormula();
     renderScoringConfigBandeau(greenSummary.scoring_config);
 
