@@ -167,14 +167,18 @@ pub struct DisclosureDbWaste {
 /// [`DisclosureDbWaste`] with the messaging ratio.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DisclosureMsgWaste {
-    /// Window energy of the broker figure (measured, declared or estimated).
+    /// Window energy of the broker figure.
     pub energy_kwh: f64,
-    /// Provenance tag of that energy.
+    /// Provenance tag of that energy (`alumet_rapl` measured,
+    /// `broker_specpower` declared cluster, `estimated` fallback). The
+    /// three point in different directions, see `docs/LIMITATIONS.md`.
     pub model: String,
     pub operational_waste_kwh: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operational_waste_gco2: Option<f64>,
     pub canonical_waste_kwh: f64,
+    /// Window `energy_gco2` scaled by the canonical messaging ratio;
+    /// `None` when the window energy had no carbon conversion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_waste_gco2: Option<f64>,
 }
@@ -373,8 +377,11 @@ pub struct DatabaseWaste {
 }
 
 /// Broker-side avoidable energy for the window, the messaging twin of
-/// [`DatabaseWaste`]. Same status: informational lower bound, never
-/// folded into the report totals.
+/// [`DatabaseWaste`]. Informational, never folded into the report
+/// totals. Which way it errs depends on `model`, the three sources do
+/// not agree: `alumet_rapl` reads CPU only and so under-counts,
+/// `broker_specpower` bounds the declared vCPUs at full load without
+/// storage or network, `estimated` re-presents a share of the totals.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessagingWaste {
     /// Window energy of the broker, measured or declared.

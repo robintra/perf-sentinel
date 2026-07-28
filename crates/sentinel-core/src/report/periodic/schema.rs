@@ -391,10 +391,15 @@ pub struct CalibrationInputs {
 pub struct DatabaseWasteAggregate {
     /// Energy the figure covered over the period, in kWh.
     pub energy_kwh: f64,
-    /// Share of `energy_kwh` from windows with a measured figure
-    /// (any model other than `estimated`), in kWh.
+    /// Share of `energy_kwh` from windows with a genuinely measured
+    /// figure (an agent reading the workload's own power), in kWh.
     #[serde(default)]
     pub measured_energy_kwh: f64,
+    /// Share of `energy_kwh` from windows whose figure was declared
+    /// rather than measured, in kWh. Absent on a database-only report:
+    /// no declared source feeds that figure today.
+    #[serde(default, skip_serializing_if = "crate::report::periodic::is_zero_f64")]
+    pub declared_energy_kwh: f64,
     /// Distinct provenance tags observed (`alumet_rapl`, `estimated`,
     /// and `broker_specpower` on the messaging block).
     pub models: BTreeSet<String>,
@@ -403,6 +408,11 @@ pub struct DatabaseWasteAggregate {
     /// Windows whose figure came from a measured source.
     #[serde(default)]
     pub measured_windows: u64,
+    /// Windows whose figure was declared, not measured: an operator
+    /// statement of provisioned infrastructure, which bounds compute
+    /// rather than reporting it.
+    #[serde(default, skip_serializing_if = "crate::report::periodic::is_zero_u64")]
+    pub declared_windows: u64,
     /// Windows whose figure was the estimated fallback.
     #[serde(default)]
     pub estimated_windows: u64,

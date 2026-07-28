@@ -365,45 +365,25 @@
       }
     },
     "DatabaseWasteAggregate": {
+      "$comment": "Shared by database_waste and messaging_waste: one Rust type feeds both, so the two blocks cannot drift. Name kept for v1.4 consumers.",
       "type": "object",
       "required": ["energy_kwh", "models", "windows_with_figure", "operational_waste_kwh", "canonical_waste_kwh"],
       "additionalProperties": false,
       "properties": {
         "energy_kwh": { "type": "number", "minimum": 0 },
-        "measured_energy_kwh": { "type": "number", "minimum": 0, "description": "Share of energy_kwh from windows with a measured figure (any model other than estimated)." },
+        "measured_energy_kwh": { "type": "number", "minimum": 0, "description": "Share of energy_kwh from windows with a genuinely measured figure (an agent reading the workload's own power)." },
+        "declared_energy_kwh": { "type": "number", "minimum": 0, "description": "Share of energy_kwh from windows whose figure was declared rather than measured. Absent when no declared source fed the figure." },
         "models": {
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_+]+$" },
-          "description": "Distinct provenance tags observed over the period: alumet_rapl = measured on the database cgroup, estimated = built from the modeled energy of the SQL spans."
+          "description": "Distinct provenance tags observed over the period: alumet_rapl = measured on the workload cgroup, broker_specpower = declared provisioned cluster (messaging block only), estimated = built from the modeled energy of the spans themselves."
         },
         "windows_with_figure": { "type": "integer", "minimum": 1 },
         "measured_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure came from a measured source." },
+        "declared_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure was declared, not measured: an operator statement of provisioned infrastructure, which bounds compute rather than reporting it. measured_windows + declared_windows + estimated_windows equals windows_with_figure." },
         "estimated_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure was the estimated fallback." },
         "windows_with_carbon": { "type": "integer", "minimum": 0, "description": "Windows whose figure carried a carbon conversion. Fewer than windows_with_figure means the kgCO2eq sums cover a partial carbon picture." },
-        "operational_waste_kwh": { "type": "number", "minimum": 0 },
-        "operational_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." },
-        "canonical_waste_kwh": { "type": "number", "minimum": 0 },
-        "canonical_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." }
-      }
-    },
-    "MessagingWasteAggregate": {
-      "type": "object",
-      "required": ["energy_kwh", "models", "windows_with_figure", "operational_waste_kwh", "canonical_waste_kwh"],
-      "additionalProperties": false,
-      "properties": {
-        "energy_kwh": { "type": "number", "minimum": 0 },
-        "measured_energy_kwh": { "type": "number", "minimum": 0, "description": "Share of energy_kwh from windows with a measured or declared figure (any model other than estimated)." },
-        "models": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_+]+$" },
-          "description": "Distinct provenance tags observed over the period: alumet_rapl = measured on the broker cgroup, broker_specpower = declared provisioned cluster, estimated = built from the modeled energy of the publish spans."
-        },
-        "windows_with_figure": { "type": "integer", "minimum": 1 },
-        "measured_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure came from a measured or declared source." },
-        "estimated_windows": { "type": "integer", "minimum": 0, "description": "Windows whose figure was the estimated fallback." },
-        "windows_with_carbon": { "type": "integer", "minimum": 0, "description": "Windows whose figure carried a carbon conversion." },
         "operational_waste_kwh": { "type": "number", "minimum": 0 },
         "operational_waste_kgco2eq": { "type": "number", "minimum": 0, "description": "Absent when no window carried a carbon conversion." },
         "canonical_waste_kwh": { "type": "number", "minimum": 0 },
@@ -482,7 +462,7 @@
           "description": "Since v1.4. Database-side avoidable energy and carbon over the period at both thresholds, with provenance models. Informational lower bound, never folded into total_energy_kwh/total_carbon_kgco2eq. Absent on pre-v1.4 reports and when no window carried the figure."
         },
         "messaging_waste": {
-          "$ref": "#/$defs/MessagingWasteAggregate",
+          "$ref": "#/$defs/DatabaseWasteAggregate",
           "description": "Since v1.5. Broker-side avoidable energy and carbon over the period at both thresholds, the messaging twin of database_waste. Same informational status, never folded into the totals. Absent on pre-v1.5 reports and when no window carried the figure."
         },
         "per_service_energy_models": {

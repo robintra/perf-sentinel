@@ -240,8 +240,14 @@ fn fold_waste_block(
         acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
     }
     acc.windows = acc.windows.saturating_add(1);
+    // Three provenance classes, three buckets. A declared cluster is an
+    // operator statement about provisioned hardware, so folding it into
+    // `measured_*` would publish it as a reading of the workload.
     if model == crate::report::DB_WASTE_MODEL_ESTIMATED {
         acc.estimated_windows = acc.estimated_windows.saturating_add(1);
+    } else if model == crate::report::BROKER_WASTE_MODEL_SPECPOWER {
+        acc.declared_windows = acc.declared_windows.saturating_add(1);
+        acc.declared_energy_kwh += energy;
     } else {
         acc.measured_windows = acc.measured_windows.saturating_add(1);
         acc.measured_energy_kwh += energy;
@@ -268,6 +274,8 @@ struct DbWasteAccumulator {
     models: BTreeSet<String>,
     windows: u64,
     measured_windows: u64,
+    declared_energy_kwh: f64,
+    declared_windows: u64,
     estimated_windows: u64,
     windows_with_carbon: u64,
 }
@@ -780,9 +788,11 @@ impl Builder {
                 database_waste: (self.db_waste.windows > 0).then(|| DatabaseWasteAggregate {
                     energy_kwh: self.db_waste.energy_kwh,
                     measured_energy_kwh: self.db_waste.measured_energy_kwh,
+                    declared_energy_kwh: self.db_waste.declared_energy_kwh,
                     models: self.db_waste.models,
                     windows_with_figure: self.db_waste.windows,
                     measured_windows: self.db_waste.measured_windows,
+                    declared_windows: self.db_waste.declared_windows,
                     estimated_windows: self.db_waste.estimated_windows,
                     windows_with_carbon: self.db_waste.windows_with_carbon,
                     operational_waste_kwh: self.db_waste.operational_kwh,
@@ -794,9 +804,11 @@ impl Builder {
                     super::schema::MessagingWasteAggregate {
                         energy_kwh: self.msg_waste.energy_kwh,
                         measured_energy_kwh: self.msg_waste.measured_energy_kwh,
+                        declared_energy_kwh: self.msg_waste.declared_energy_kwh,
                         models: self.msg_waste.models,
                         windows_with_figure: self.msg_waste.windows,
                         measured_windows: self.msg_waste.measured_windows,
+                        declared_windows: self.msg_waste.declared_windows,
                         estimated_windows: self.msg_waste.estimated_windows,
                         windows_with_carbon: self.msg_waste.windows_with_carbon,
                         operational_waste_kwh: self.msg_waste.operational_kwh,
@@ -1343,14 +1355,20 @@ mod tests {
         let mw = agg.messaging_waste.expect("messaging block emitted");
 
         assert!((mw.energy_kwh - 3.0).abs() < 1e-12);
-        // Only the declared window counts as measured: an estimate must
-        // never inflate the measured share.
-        assert!((mw.measured_energy_kwh - 2.0).abs() < 1e-12);
+        // A declared cluster is neither measured nor estimated: it is an
+        // operator statement about provisioned hardware, and publishing
+        // it under `measured_*` would read as a reading of the broker.
+        assert!(
+            (mw.measured_energy_kwh - 0.0).abs() < 1e-12,
+            "no window was measured here"
+        );
+        assert!((mw.declared_energy_kwh - 2.0).abs() < 1e-12);
         assert_eq!(mw.windows_with_figure, 2);
-        assert_eq!(mw.measured_windows, 1);
+        assert_eq!(mw.measured_windows, 0);
+        assert_eq!(mw.declared_windows, 1);
         assert_eq!(mw.estimated_windows, 1);
         assert_eq!(
-            mw.measured_windows + mw.estimated_windows,
+            mw.measured_windows + mw.declared_windows + mw.estimated_windows,
             mw.windows_with_figure
         );
         assert_eq!(

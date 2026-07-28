@@ -411,6 +411,7 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
 struct WasteBlockFields {
     energy_kwh: &'static str,
     measured_energy_kwh: &'static str,
+    declared_energy_kwh: &'static str,
     operational_waste_kwh: &'static str,
     operational_waste_kgco2eq: &'static str,
     canonical_waste_kwh: &'static str,
@@ -424,6 +425,7 @@ struct WasteBlockFields {
 const DB_WASTE_FIELDS: WasteBlockFields = WasteBlockFields {
     energy_kwh: "database_waste.energy_kwh",
     measured_energy_kwh: "database_waste.measured_energy_kwh",
+    declared_energy_kwh: "database_waste.declared_energy_kwh",
     operational_waste_kwh: "database_waste.operational_waste_kwh",
     operational_waste_kgco2eq: "database_waste.operational_waste_kgco2eq",
     canonical_waste_kwh: "database_waste.canonical_waste_kwh",
@@ -437,6 +439,7 @@ const DB_WASTE_FIELDS: WasteBlockFields = WasteBlockFields {
 const MSG_WASTE_FIELDS: WasteBlockFields = WasteBlockFields {
     energy_kwh: "messaging_waste.energy_kwh",
     measured_energy_kwh: "messaging_waste.measured_energy_kwh",
+    declared_energy_kwh: "messaging_waste.declared_energy_kwh",
     operational_waste_kwh: "messaging_waste.operational_waste_kwh",
     operational_waste_kgco2eq: "messaging_waste.operational_waste_kgco2eq",
     canonical_waste_kwh: "messaging_waste.canonical_waste_kwh",
@@ -467,9 +470,10 @@ fn validate_waste_block(
     f: &WasteBlockFields,
     errors: &mut Vec<ValidationError>,
 ) {
-    let figures: [(&'static str, f64); 6] = [
+    let figures: [(&'static str, f64); 7] = [
         (f.energy_kwh, block.energy_kwh),
         (f.measured_energy_kwh, block.measured_energy_kwh),
+        (f.declared_energy_kwh, block.declared_energy_kwh),
         (f.operational_waste_kwh, block.operational_waste_kwh),
         (
             f.operational_waste_kgco2eq,
@@ -514,12 +518,14 @@ fn validate_waste_block(
     }
     let split = block
         .measured_windows
+        .saturating_add(block.declared_windows)
         .saturating_add(block.estimated_windows);
     if split > 0 && split != block.windows_with_figure {
         errors.push(ValidationError::Aggregate {
             field: f.measured_windows,
             reason: format!(
-                "measured + estimated windows ({split}) != windows_with_figure ({})",
+                "measured + declared + estimated windows ({split}) != \
+                 windows_with_figure ({})",
                 block.windows_with_figure
             ),
         });
@@ -1230,11 +1236,13 @@ mod tests {
         crate::report::periodic::schema::DatabaseWasteAggregate {
             energy_kwh: 1.0,
             measured_energy_kwh: 0.4,
+            declared_energy_kwh: 0.0,
             models: ["alumet_rapl".to_string(), "estimated".to_string()]
                 .into_iter()
                 .collect(),
             windows_with_figure: 3,
             measured_windows: 1,
+            declared_windows: 0,
             estimated_windows: 2,
             windows_with_carbon: 2,
             operational_waste_kwh: 0.5,

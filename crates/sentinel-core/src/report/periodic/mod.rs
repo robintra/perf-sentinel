@@ -19,6 +19,21 @@ pub mod validator;
 
 #[cfg(test)]
 mod test_fixtures;
+
+/// `skip_serializing_if` for counters that only a declared source fills,
+/// so a report without one keeps the wire shape it had before the field
+/// existed.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires the reference
+pub(crate) fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
+}
+
+/// Same, for the energy sums.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires the reference
+pub(crate) fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
+}
+
 pub use aggregator::{
     AggregateInputs, AntiPatternAccumulator, ServiceAccumulator, UNATTRIBUTED_SERVICE,
     aggregate_from_paths,
