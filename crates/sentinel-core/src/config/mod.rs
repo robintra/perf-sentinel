@@ -224,7 +224,7 @@ pub struct DaemonConfig {
     /// Maximum payload size in bytes for JSON deserialization.
     pub max_payload_size: usize,
     /// Deployment environment label used to stamp findings with a
-    /// [`Confidence`] value, so downstream consumers (perf-lint) can boost
+    /// [`Confidence`] value, so a downstream consumer can boost
     /// severity on production traffic. Ignored in `analyze` batch mode,
     /// which always emits [`Confidence::CiBatch`].
     pub environment: DaemonEnvironment,

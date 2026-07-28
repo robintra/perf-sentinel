@@ -555,3 +555,27 @@ Parsing is intentionally strict. Beyond the hyper-level checks (token-only name,
 - Raw inputs longer than 8 KiB, to bound the per-task clone in the Tempo parallel fanout and stop a pathological `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` at the door. A typical JWT is 2 to 4 KiB, 8 KiB leaves headroom for long multi-claim tokens without opening the door to arbitrary blobs.
 - Values that are empty after trimming, which would send a pointless `Authorization:` to the backend and produce a confusing 401.
 - Header names that would enable request smuggling or authority override if user-supplied: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Users wanting to tweak those should use a local proxy, not this flag.
+
+## MySQL performance_schema digest ingestion
+
+`ingest/mysql_stat.rs` is the MySQL counterpart to `pg_stat_statements`: it reads a CSV or JSON export of `events_statements_summary_by_digest` and ranks SQL hotspots. Like the Postgres path it has no `trace_id`, so it is a complementary database-side view rather than something the correlator can join.
+
+Two mechanical details are easy to get wrong. Timer columns (`SUM_TIMER_WAIT`, `AVG_TIMER_WAIT`) arrive in **picoseconds** and are converted at parse time. Rankings are emitted in a fixed order (total time, call count, mean time, rows examined) and downstream consumers index into that array, so a new ranking is appended and existing positions never move.
+
+**The digest-to-trace bridge is the interesting part.** Marking a digest as "seen in traces" requires comparing MySQL's `DIGEST_TEXT` against a template normalized from application SQL, and a literal string compare never matches: MySQL spaces every token (`` `c` . `name` ``), uppercases keywords, and forces backtick quoting, none of which survives normalization on the application side. Both sides are therefore canonicalized first, stripping backticks, dropping whitespace around punctuation, collapsing runs, and lowercasing.
+
+That last step has an accepted ceiling worth stating, because it is a deliberate trade rather than an oversight: lowercasing folds identifiers as well as keywords, so on a case-sensitive server (`lower_case_table_names=0`) two tables differing only in case share a key and the marker can over-match. Folding keywords alone would need a full MySQL keyword table. For an informational marker the over-match is the cheaper error.
+
+## Shutdown signal handling
+
+`shutdown.rs` resolves on SIGINT everywhere and additionally on SIGTERM on Unix, which is what Kubernetes sends on pod termination, what `kill` sends by default, and what systemd uses to stop a unit. Both run the same graceful cleanup. Build the future once and `tokio::pin!` it before a `select!` loop, or the listeners re-register on every iteration.
+
+One caveat is worth knowing before reusing this outside the daemon: on Unix, registering the SIGTERM handler is process-wide and permanent. Tokio never restores the default disposition, so once this future has been awaited the process no longer dies by default on SIGTERM, for the rest of its life, even after the future is dropped. That is exactly what a long-running daemon wants and exactly what a one-shot command does not.
+
+## Shared ingest helpers
+
+`ingest/lookback.rs` and `ingest/url_enc.rs` exist because `tempo` and `jaeger_query` each needed the same two things and had started to grow their own. Both keep their own error types at the call site and share only the logic.
+
+The lookback parser accepts `h`, `m`, `s` suffixes and sums composed forms (`2h30m` is 9000 s), with checked arithmetic throughout so `999999999h` surfaces as an overflow error instead of wrapping in release builds.
+
+The URL helpers hand-roll a minimal percent-encoder rather than pull in `percent-encoding` for twelve lines. The endpoint validator is intentionally narrow: it rejects a non-`http(s)` scheme and userinfo **in the authority**, and deliberately still accepts a literal `@` in the path or query, so `/api/traces?owner=foo%40example.com` works.

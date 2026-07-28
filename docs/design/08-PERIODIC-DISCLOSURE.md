@@ -220,6 +220,20 @@ v1.4 adds `aggregate.database_waste` and v1.5 its messaging twin `aggregate.mess
 
 **Invariants the fold preserves.** A provenance tag outside the `is_valid_model_tag` charset drops the whole block before any figure reaches the sums, rather than publishing a partial one. `None` and `0.0` stay distinct on the carbon legs: an absent conversion must never read as an affirmative zero-carbon claim. `windows_with_carbon <= windows_with_figure` marks a partial carbon picture. The validator tolerates an all-zero split, which is what a report predating the fields looks like.
 
+## Canonical tiers: making the public figure non-manipulable
+
+`score/canonical.rs` exists because of a conflict of interest built into the tool. The operator sets `n_plus_one_threshold`, which decides how many repetitions become a finding. Raising it is a legitimate tuning move in CI, where the goal is a signal-to-noise ratio a team will act on. But the avoidable energy and carbon a disclosure publishes derive from those same findings, so the same knob that quiets CI also shrinks the number the organisation discloses. Left alone, the honest tuning action and the dishonest reporting action are the same action.
+
+The split is the answer: every archived window carries **two** avoidable tiers. The operational tier uses the operator's configured threshold and is what the CLI, the gate and the dashboards show. The canonical tier uses `DISCLOSURE_N_PLUS_ONE_THRESHOLD`, pinned in the binary, and is what the disclosure publishes. Turning the knob moves the first and cannot move the second.
+
+Three consequences worth stating.
+
+- **The two tiers are computed together, at scoring time, in the daemon.** They cannot be recomputed later: `disclose` reads pre-computed tiers out of the archive, because rebuilding them would need the spans, which are long gone by then. A window archived without the canonical tier is not folded into the disclosure at all rather than folded at the operator's threshold, so a mixed-vintage archive cannot silently blend the two.
+- **The canonical figure is not "the right one" and the operational one "wrong".** They answer different questions: what this team decided to chase, versus what a fixed public yardstick counts. The disclosure carries the threshold that produced each tier so the difference is auditable rather than implicit.
+- **The waste figures rescale from a ratio-independent base.** `messaging_waste` and `database_waste` scale their canonical leg off the window's own `energy_gco2`, not off the operational waste, so an operator threshold that zeroes the operational figure cannot zero the canonical carbon.
+
+The anti-gaming invariants are tested under the `daemon` feature, since that is the only mode that produces both tiers.
+
 ## Future revisions
 
 - **Sigstore signature**: `integrity.signature` is reserved. Adding a real signature is a SemVer-minor schema bump (additive field becoming non-null in some files).

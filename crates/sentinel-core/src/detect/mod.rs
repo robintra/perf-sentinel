@@ -86,7 +86,7 @@ pub struct Finding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub green_impact: Option<GreenImpact>,
     /// Source context of this finding: CI batch run, staging daemon, or
-    /// production daemon. Used by downstream consumers (perf-lint) to
+    /// production daemon. Intended for downstream consumers to
     /// boost or reduce severity based on how the finding was produced.
     ///
     /// **Contract:** detectors always emit [`Confidence::default()`]
@@ -164,7 +164,7 @@ pub enum Severity {
 
 /// Source context for a [`Finding`]: where and how it was produced.
 ///
-/// perf-lint consumes this field via its runtime-findings import path and
+/// A future IDE-side consumer would read this field on import and
 /// uses it to adjust severity in the IDE. A `daemon_production` finding
 /// (observed on real production traffic) is a much stronger signal than a
 /// `ci_batch` finding (observed on a controlled integration test run with
@@ -180,7 +180,7 @@ pub enum Confidence {
     ///
     /// Marked `#[default]` so detectors that emit `Confidence::default()`
     /// get a safe batch fallback, a forgotten stamp never inflates
-    /// perf-lint's severity to a daemon level.
+    /// an editor-side severity to a daemon level.
     #[default]
     CiBatch,
     /// Daemon `watch` run on staging traffic. Medium confidence: real

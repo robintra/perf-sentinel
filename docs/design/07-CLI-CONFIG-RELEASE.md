@@ -507,3 +507,26 @@ The `DiffReport` carries four lists:
 ### No `--ci` flag
 
 The `analyze --ci` quality gate is intentionally not duplicated on `diff`: the diff itself is the signal. A non-empty `new_findings` list, a regression in `severity_changes` or a positive `endpoint_metric_deltas` entry are all signals the CI consumer can decide to fail on, depending on its policy.
+
+## Interpretation bands: what is anchored and what is a rule of thumb
+
+`report/interpret.rs` turns two raw metrics into a `healthy | moderate | high | critical` label. The labels are a rendering aid, but two of the thresholds behind them are not arbitrary, and the difference matters to anyone tempted to tune them.
+
+- `IIS_HIGH` (5.0) is anchored on the N+1 detector's default `n_plus_one_threshold`. An endpoint reaching it is arithmetically at the point where `detect_n_plus_one` starts emitting.
+- `IIS_CRITICAL` (10.0) is mechanically anchored on `detect::n_plus_one::CRITICAL_OCCURRENCE_THRESHOLD`, with a drift-guard test that fails the build if either value moves without the other.
+- `IIS_MODERATE` (2.0) is **a rule of thumb**, not empirical: the intuition that a typical CRUD endpoint makes one or two I/O ops per request. Expect many legitimate endpoints to land here.
+- `WASTE_RATIO_HIGH` (0.30) is anchored on the **default** `io_waste_ratio_max`, deliberately not on the operator's configured value. The gate is user policy, the interpretation is a fixed heuristic, and a reader comparing two reports needs the second to mean the same thing in both.
+
+**The JSON contract splits stability in two.** The enum values (`"healthy"`, `"moderate"`, `"high"`, `"critical"`) are stable across versions and downstream consumers may rely on them. The thresholds behind them are versioned with the binary and may move. A consumer wanting a version-independent classification must read the raw `io_intensity_score` and `io_waste_ratio` and apply its own bands. This mirrors how `co2.model` evolves through `io_proxy_v1..v3` without breaking a consumer that only wants to know which model ran.
+
+`NaN` classifies as `Healthy` throughout, since it compares false against every threshold. That is the intended direction: missing data must not render as a red warning.
+
+## Hardening the rendered output
+
+Three sinks put strings into somebody else's user interface, and all three treat the same class of attack as in scope: a hostile span setting `service.name`, `http.url` or `code.filepath` to something that *renders* differently than it *reads*. JSON escaping at the consumer closes injection, it does not close spoofing.
+
+**SARIF (`report/sarif.rs`)** is the strictest, because GitHub and GitLab code scanning render it. Every untrusted string reaching a message or logical location has BiDi overrides and invisible format characters stripped (Trojan Source, CVE-2021-42574): `char::is_control` does not catch these, they are format characters. `code.filepath` gets a dedicated validator that is deliberately blunt: **any** colon is rejected rather than carving out a Windows drive-letter exception, because the exception opens `javascript:`, `data:` and `A:B:C://` bypasses while legitimate instrumented source paths contain no colons. Overlong UTF-8 encodings of `.` (`%c0%ae`, `%e0%80%ae`, the classic IIS bug) are rejected wholesale. A path failing any check is dropped rather than sanitized, since a half-repaired path is a worse lie than an absent one. Ack metadata gets the same treatment on the way out: it is operator-controlled free text, and `alice<RLO>@evil.com` spoofs an identity in the reviewer's UI.
+
+**Warnings (`report/warnings.rs`)** carry an explicit contract rather than a mechanism. `Warning::new` does no sanitization because every current producer passes a hardcoded literal or a `format!` over a counter. That is a property of today's call sites, not of the type, so the module states the rule: a `Warning` built from anything touching user-controlled bytes (OTLP attributes, span names, headers, config strings) must go through `Warning::from_untrusted`. The structured `warning_details` coexists with the legacy `warnings: Vec<String>`, renderers preferring the former when non-empty, so older baselines keep parsing through `serde(default)`.
+
+**`text_safety.rs`** holds the two primitives the rest of the tree calls: `sanitize_for_terminal` and `safe_url`. Anything attacker-influenced reaching a terminal or the HTML dashboard routes through them rather than growing its own escape.

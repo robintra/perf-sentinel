@@ -105,7 +105,7 @@ mod tests {
         // (see `crates/sentinel-core/src/report/interpret.rs` stability
         // contract). Asserting their presence here guards against an
         // accidental `#[serde(skip)]` or a rename that would silently
-        // break downstream consumers (SARIF, Grafana, perf-lint).
+        // break downstream consumers (SARIF, Grafana, editor plugins).
         //
         // With `io_waste_ratio = 0.5`, the band MUST be "critical"
         // (>= WASTE_RATIO_CRITICAL = 0.50).

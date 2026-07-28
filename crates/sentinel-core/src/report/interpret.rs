@@ -1,46 +1,11 @@
 //! Interpretation helpers: classify scoring metrics into human-readable bands.
 //!
-//! These thresholds are **heuristic rendering aids** used by the CLI text
-//! output to annotate numerical metrics like `io_intensity_score` and
-//! `io_waste_ratio` with a `(healthy | moderate | high | critical)` label.
-//!
-//! # What is and isn't anchored on real data
-//!
-//! - [`IIS_HIGH`] (5.0) is anchored on the N+1 detector's
-//!   `n_plus_one_threshold` config default. An endpoint whose IIS reaches
-//!   5.0 is arithmetically at the point where `detect_n_plus_one` starts
-//!   emitting findings.
-//! - [`IIS_CRITICAL`] (10.0) is mechanically anchored on
-//!   `crate::detect::n_plus_one::CRITICAL_OCCURRENCE_THRESHOLD` via the
-//!   `iis_critical_matches_n_plus_one_detector_threshold` drift-guard
-//!   test. Changing either value without updating the other will fail
-//!   the test at build time.
-//! - [`IIS_MODERATE`] (2.0) is a **rule of thumb**, not empirical. It
-//!   encodes the intuition that a typical CRUD endpoint makes 1-2 I/O ops
-//!   per request. Aggregators and dashboards will show many "moderate"
-//!   endpoints that are legitimate.
-//! - [`WASTE_RATIO_HIGH`] (0.30) is anchored on the **default**
-//!   `io_waste_ratio_max`. Users who override the quality gate in their
-//!   `.perf-sentinel.toml` still see this fixed heuristic, the gate is a
-//!   user policy, the interpretation is a fixed heuristic. By design.
-//!
-//! # JSON stability contract
-//!
-//! The [`InterpretationLevel`] bands ship as sibling fields in the JSON
-//! output (`io_intensity_band` next to `io_intensity_score`,
-//! `io_waste_ratio_band` next to `io_waste_ratio`). The contract is:
-//!
-//! - **Enum values are stable across versions** (`"healthy"`, `"moderate"`,
-//!   `"high"`, `"critical"`). Downstream consumers can rely on these
-//!   names in SARIF, Grafana, perf-lint.
-//! - **Thresholds are versioned with the binary** and may evolve. A
-//!   consumer who wants a version-independent classification must read
-//!   the raw `io_intensity_score` / `io_waste_ratio` fields and apply
-//!   their own bands.
-//!
-//! This mirrors the existing pattern where `co2.model: "io_proxy_v1" |
-//! "io_proxy_v2" | "io_proxy_v3"` evolves across versions without breaking
-//! consumers who just want to know which model was used.
+//! These thresholds are heuristic rendering aids for the CLI text output.
+//! Two of the four are mechanically anchored on detector constants and one
+//! is an admitted rule of thumb, and the JSON output carries a split
+//! stability contract: the band names are stable across versions, the
+//! thresholds behind them are not. Both are spelled out in
+//! `docs/design/07-CLI-CONFIG-RELEASE.md`, "Interpretation bands".
 
 /// Four-level interpretation band for a numerical score.
 ///
