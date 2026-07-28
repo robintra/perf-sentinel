@@ -415,7 +415,9 @@ impl Default for DbEnergyContext {
         Self {
             window_kwh: 0.0,
             region: None,
-            model: CO2_MODEL_ALUMET,
+            // Weakest of the three tags on purpose: a caller that forgets
+            // to state its provenance must not claim a measurement.
+            model: crate::report::DB_WASTE_MODEL_ESTIMATED,
         }
     }
 }
@@ -502,7 +504,8 @@ impl Default for CarbonContext {
     }
 }
 
-/// Database waste kWh → gCO₂: real-time intensity when available,
+/// Workload waste kWh → gCO₂, for the database and broker figures alike:
+/// real-time intensity when available,
 /// embedded annual otherwise, times provider PUE. A region unknown to
 /// the embedded table still converts with [`GENERIC_PUE`] when a
 /// real-time entry covers it (custom on-prem region ids), matching the

@@ -238,13 +238,16 @@ fn process_span_for_carbon(
     // SQL share for the estimated database_waste, accumulated after the
     // region gate so it covers the same population as `energy_kwh` and
     // `co2` and stays a true subset of the report totals.
-    if span.event.event_type == crate::event::EventType::Sql {
-        state.sql_energy_kwh += energy_kwh;
-        state.sql_gco2 += op_co2;
-    }
-    if span.event.event_type == crate::event::EventType::Messaging {
-        state.messaging_energy_kwh += energy_kwh;
-        state.messaging_gco2 += op_co2;
+    match span.event.event_type {
+        crate::event::EventType::Sql => {
+            state.sql_energy_kwh += energy_kwh;
+            state.sql_gco2 += op_co2;
+        }
+        crate::event::EventType::Messaging => {
+            state.messaging_energy_kwh += energy_kwh;
+            state.messaging_gco2 += op_co2;
+        }
+        crate::event::EventType::HttpOut => {}
     }
 
     let region_ref = region_ctx.region_ref;
