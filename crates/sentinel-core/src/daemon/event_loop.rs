@@ -76,6 +76,12 @@ pub(super) struct EnergySources<'a> {
     pub(super) alumet_state: Option<&'a AlumetState>,
     pub(super) alumet_db_state: Option<&'a DbEnergyState>,
     pub(super) alumet_broker_state: Option<&'a DbEnergyState>,
+    /// Declared cluster fallback, used only when Alumet delivered nothing
+    /// this tick: a measurement always outranks a declaration.
+    pub(super) static_broker: Option<(
+        &'a score::broker_static::StaticBrokerConfig,
+        &'a score::broker_static::StaticBrokerState,
+    )>,
     pub(super) alumet_staleness_ms: u64,
     pub(super) scaphandre_state: Option<&'a ScaphandreState>,
     pub(super) scaphandre_staleness_ms: u64,
@@ -523,6 +529,7 @@ fn build_tick_ctx<'s>(
         alumet_state,
         alumet_db_state,
         alumet_broker_state,
+        static_broker,
         alumet_staleness_ms,
         scaphandre_state,
         scaphandre_staleness_ms,
@@ -566,8 +573,11 @@ fn build_tick_ctx<'s>(
     // Consuming here (once per built batch) keeps shed batches from
     // losing energy: they never build a context.
     let db_window_kwh = alumet_db_state.and_then(|db| db.take_window_kwh(now, alumet_staleness_ms));
-    let broker_window_kwh =
-        alumet_broker_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
+    let broker_window_kwh = alumet_broker_state
+        .and_then(|b| b.take_window_kwh(now, alumet_staleness_ms))
+        .or_else(|| {
+            static_broker.and_then(|(cfg, state)| state.take_window_kwh(cfg.cluster_watts(), now))
+        });
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
     if cloud_snap.is_empty()
@@ -1377,6 +1387,71 @@ mod tests {
     }
 
     #[test]
+    fn build_tick_ctx_alumet_broker_outranks_the_declared_cluster() {
+        // A measurement always wins over a declaration, so the declared
+        // cluster must not be billed on a tick Alumet already covered.
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: None,
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let measured = DbEnergyState::new();
+        let now = score::scaphandre::monotonic_ms();
+        measured.add_window_kwh(5e-6, now);
+        let declared = score::broker_static::StaticBrokerConfig {
+            nodes: 3,
+            instance_type: "m5.2xlarge".to_string(),
+            provider: "aws".to_string(),
+            region: None,
+        };
+        let declared_state = score::broker_static::StaticBrokerState::new(0);
+        let mut sources = no_scrapers(&base);
+        sources.alumet_broker_state = Some(&measured);
+        sources.static_broker = Some((&declared, &declared_state));
+        sources.alumet_staleness_ms = 60_000;
+
+        let ctx = build_tick_ctx(&sources);
+        let kwh = ctx.broker_energy.as_ref().unwrap().window_kwh;
+        assert!(
+            (kwh - 5e-6).abs() < 1e-18,
+            "the measured figure must be used verbatim, got {kwh}"
+        );
+    }
+
+    #[test]
+    fn build_tick_ctx_falls_back_to_the_declared_cluster() {
+        let base = Arc::new(score::carbon::CarbonContext {
+            broker_energy: Some(score::carbon::DbEnergyContext {
+                window_kwh: 0.0,
+                region: None,
+            }),
+            ..score::carbon::CarbonContext::default()
+        });
+        let declared = score::broker_static::StaticBrokerConfig {
+            nodes: 1,
+            instance_type: "m5.2xlarge".to_string(),
+            provider: "aws".to_string(),
+            region: None,
+        };
+        let declared_state = score::broker_static::StaticBrokerState::new(0);
+        // monotonic_ms() counts from its first call in the process, so it
+        // reads 0 in an isolated run and nothing would have elapsed.
+        score::scaphandre::monotonic_ms();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let mut sources = no_scrapers(&base);
+        sources.static_broker = Some((&declared, &declared_state));
+
+        let ctx = build_tick_ctx(&sources);
+        assert!(
+            matches!(ctx, std::borrow::Cow::Owned(_)),
+            "a declared cluster alone must leave the borrowed fast path"
+        );
+        assert!(ctx.broker_energy.as_ref().unwrap().window_kwh > 0.0);
+    }
+
+    #[test]
     fn build_tick_ctx_alumet_overrides_scaphandre_for_same_service() {
         // The one genuinely new precedence edge: Alumet sits above
         // Scaphandre, so a service measured by both must carry Alumet's
@@ -1429,6 +1504,7 @@ mod tests {
             alumet_state: None,
             alumet_db_state: None,
             alumet_broker_state: None,
+            static_broker: None,
             alumet_staleness_ms: 0,
             scaphandre_state: None,
             scaphandre_staleness_ms: 0,

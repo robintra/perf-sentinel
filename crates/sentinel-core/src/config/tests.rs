@@ -3268,6 +3268,57 @@ label_value = "shared-pod"
 }
 
 #[test]
+fn broker_static_is_parsed() {
+    let toml = r#"
+[green.broker_static]
+nodes = 3
+instance_type = "m5.2xlarge"
+provider = "AWS"
+region = "eu-west-3"
+"#;
+    let cfg = load_from_str(toml).expect("valid broker_static section");
+    let b = cfg.green.broker_static.as_ref().expect("declared");
+    assert_eq!(b.nodes, 3);
+    assert_eq!(b.instance_type, "m5.2xlarge");
+    assert_eq!(b.provider, "aws", "provider is lowercased");
+    assert!(b.cluster_watts() > 0.0);
+}
+
+#[test]
+fn broker_static_without_instance_type_is_inert() {
+    let toml = "
+[green.broker_static]
+nodes = 3
+";
+    let cfg = load_from_str(toml).expect("loads");
+    assert!(
+        cfg.green.broker_static.is_none(),
+        "a cluster with no instance type has no watts to report"
+    );
+}
+
+#[test]
+fn broker_static_zero_nodes_is_rejected() {
+    let toml = r#"
+[green.broker_static]
+nodes = 0
+instance_type = "m5.2xlarge"
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
+fn broker_static_unknown_key_is_rejected() {
+    let toml = r#"
+[green.broker_static]
+nodes = 3
+instance_type = "m5.2xlarge"
+node_count = 4
+"#;
+    assert!(load_from_str(toml).is_err());
+}
+
+#[test]
 fn alumet_broker_unknown_key_is_rejected() {
     let toml = r#"
 [green.alumet]

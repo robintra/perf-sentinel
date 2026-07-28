@@ -109,6 +109,46 @@ pub(super) fn validate_alumet_database_fields(
     Ok(())
 }
 
+/// Validate `[green.broker_static]`: a declared cluster must be
+/// countable and its instance type nameable.
+pub(super) fn validate_broker_static(
+    cfg: &crate::score::broker_static::StaticBrokerConfig,
+) -> Result<(), String> {
+    if cfg.nodes == 0 {
+        return Err("[green.broker_static] nodes must be at least 1".to_string());
+    }
+    if cfg.nodes > 10_000 {
+        return Err(format!(
+            "[green.broker_static] nodes = {} is implausible, cap is 10000",
+            cfg.nodes
+        ));
+    }
+    if cfg.instance_type.is_empty() || crate::config::has_control_char(&cfg.instance_type) {
+        return Err(
+            "[green.broker_static] instance_type must be non-empty and free of \
+             control characters"
+                .to_string(),
+        );
+    }
+    if let Some(region) = cfg.region.as_deref()
+        && (region.is_empty() || !crate::score::carbon::is_valid_region_id(region))
+    {
+        return Err(format!(
+            "[green.broker_static] region '{region}' is not a valid region id"
+        ));
+    }
+    // An unknown type still yields a provider default, so warn rather
+    // than reject: the figure stays honest, just coarser.
+    if !crate::score::cloud_energy::table::is_known_instance_type(&cfg.instance_type) {
+        tracing::warn!(
+            instance_type = %cfg.instance_type,
+            "[green.broker_static] instance_type is absent from the embedded \
+             SPECpower table, falling back to the provider default watts"
+        );
+    }
+    Ok(())
+}
+
 /// Validate the wildcard-mode interactions of `[daemon.cors] allowed_origins`.
 ///
 /// - `["*"]` mixed with explicit origins is ambiguous and silently degrades to
@@ -499,6 +539,9 @@ impl Config {
         }
         if let Some(cfg) = &self.green.cloud_energy {
             Self::validate_cloud_energy(cfg)?;
+        }
+        if let Some(cfg) = &self.green.broker_static {
+            validate_broker_static(cfg)?;
         }
         Self::validate_network_energy(self.green.network_energy_per_byte_kwh)?;
         self.validate_hourly_profiles_file()?;
