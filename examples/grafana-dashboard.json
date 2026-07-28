@@ -239,6 +239,11 @@
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{type=\"http_out\"}[5m])))",
           "legendFormat": "HTTP p95",
           "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{type=\"messaging\"}[5m])))",
+          "legendFormat": "Messaging p95",
+          "refId": "C"
         }
       ],
       "fieldConfig": {
