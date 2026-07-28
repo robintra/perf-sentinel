@@ -573,62 +573,76 @@ pub(crate) fn fmt_tiny(v: f64) -> String {
     }
 }
 
-/// The database-waste text line. Pure so the sanitization and the
-/// measured-versus-estimated label are assertable. `region` and `model`
-/// flow through user-supplied `--input` JSON, sanitize at the sink.
-fn format_database_waste_line(db: &sentinel_core::report::DatabaseWaste) -> String {
-    let gco2 = db
+/// The fields one waste line needs, borrowed from either twin.
+struct WasteLine<'a> {
+    label: &'a str,
+    ratio_label: &'a str,
+    waste_kwh: f64,
+    energy_kwh: f64,
+    ratio: f64,
+    model: &'a str,
+    region: Option<&'a str>,
+    waste_gco2: Option<f64>,
+}
+
+/// One waste text line, database or broker. Pure so the sanitization and
+/// the measured-versus-estimated label are assertable. `region` and
+/// `model` flow through user-supplied `--input` JSON, sanitize at the sink.
+fn format_waste_line(w: &WasteLine<'_>) -> String {
+    let gco2 = w
         .waste_gco2
         .map(|g| format!(", {} gCO\u{2082}", fmt_tiny(g)))
         .unwrap_or_default();
-    let region = db.region.as_deref().map_or_else(String::new, |r| {
+    let region = w.region.map_or_else(String::new, |r| {
         format!(", region {}", sanitize_for_terminal(r))
     });
-    let model = if db.model.is_empty() {
+    let model = if w.model.is_empty() {
         "-".into()
     } else {
-        sanitize_for_terminal(&db.model)
+        sanitize_for_terminal(w.model)
     };
     // Only the estimated figure is a re-presented share of the report
-    // totals. Measured (or unknown) models are additional energy.
-    let scope = if db.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
+    // totals. Measured and declared models are additional energy.
+    let scope = if w.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
         "[within the report totals]"
     } else {
         "[excluded from totals]"
     };
     format!(
-        "  Database waste:    {} kWh of {} kWh ({:.0}% SQL ratio, model {model}){gco2}{region} {scope}",
-        fmt_tiny(db.waste_kwh),
-        fmt_tiny(db.energy_kwh),
-        db.sql_waste_ratio * 100.0,
+        // Padded to the same column as the other summary lines.
+        "  {:<19}{} kWh of {} kWh ({:.0}% {} ratio, model {model}){gco2}{region} {scope}",
+        w.label,
+        fmt_tiny(w.waste_kwh),
+        fmt_tiny(w.energy_kwh),
+        w.ratio * 100.0,
+        w.ratio_label,
     )
 }
 
-/// The broker twin of [`format_database_waste_line`].
+fn format_database_waste_line(db: &sentinel_core::report::DatabaseWaste) -> String {
+    format_waste_line(&WasteLine {
+        label: "Database waste:",
+        ratio_label: "SQL",
+        waste_kwh: db.waste_kwh,
+        energy_kwh: db.energy_kwh,
+        ratio: db.sql_waste_ratio,
+        model: &db.model,
+        region: db.region.as_deref(),
+        waste_gco2: db.waste_gco2,
+    })
+}
+
 fn format_messaging_waste_line(mw: &sentinel_core::report::MessagingWaste) -> String {
-    let gco2 = mw
-        .waste_gco2
-        .map(|g| format!(", {} gCO\u{2082}", fmt_tiny(g)))
-        .unwrap_or_default();
-    let region = mw.region.as_deref().map_or_else(String::new, |r| {
-        format!(", region {}", sanitize_for_terminal(r))
-    });
-    let model = if mw.model.is_empty() {
-        "-".into()
-    } else {
-        sanitize_for_terminal(&mw.model)
-    };
-    let scope = if mw.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
-        "[within the report totals]"
-    } else {
-        "[excluded from totals]"
-    };
-    format!(
-        "  Broker waste:      {} kWh of {} kWh ({:.0}% messaging ratio, model {model}){gco2}{region} {scope}",
-        fmt_tiny(mw.waste_kwh),
-        fmt_tiny(mw.energy_kwh),
-        mw.messaging_waste_ratio * 100.0,
-    )
+    format_waste_line(&WasteLine {
+        label: "Broker waste:",
+        ratio_label: "messaging",
+        waste_kwh: mw.waste_kwh,
+        energy_kwh: mw.energy_kwh,
+        ratio: mw.messaging_waste_ratio,
+        model: &mw.model,
+        region: mw.region.as_deref(),
+        waste_gco2: mw.waste_gco2,
+    })
 }
 
 /// The CO2 block of the `GreenOps` summary. Split out of

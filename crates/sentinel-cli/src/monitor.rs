@@ -860,6 +860,42 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
 /// live `green_summary` (no extra aggregation). Two tables: per service
 /// (effective source, measured share, energy, region) and per region
 /// (grid intensity, cold embedded vs hot scraped source).
+/// One waste line, database or broker. `provenance` bundles the three
+/// daemon-sourced strings so the signature stays under the argument cap.
+fn waste_line(
+    label: &'static str,
+    ratio_label: &str,
+    waste_kwh: f64,
+    energy_kwh: f64,
+    ratio: f64,
+    provenance: (&str, Option<&str>, Option<f64>),
+    dim: Style,
+) -> Line<'static> {
+    let (model, region, waste_gco2) = provenance;
+    let gco2 = waste_gco2.map_or_else(|| "-".to_string(), |g| format!("{} gCO2", fmt_tiny(g)));
+    // Daemon-sourced strings: sanitize + cap like every other cell.
+    let region = truncate_cell(region.unwrap_or("-"), 24);
+    let model_cell = truncate_cell(if model.is_empty() { "-" } else { model }, 24);
+    let scope = if model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
+        "within the report totals"
+    } else {
+        "excluded from totals"
+    };
+    Line::from(vec![
+        Span::styled(label, dim),
+        Span::raw(format!(
+            "{} kWh of {} kWh ({:.0}% {ratio_label} ratio)   {gco2}",
+            fmt_tiny(waste_kwh),
+            fmt_tiny(energy_kwh),
+            ratio * 100.0,
+        )),
+        Span::styled(
+            format!("   model {model_cell}   region {region}   {scope}"),
+            dim,
+        ),
+    ])
+}
+
 fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let dim = crate::tui::dim_style();
     let bold = Style::default().add_modifier(Modifier::BOLD);
@@ -896,59 +932,26 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         ),
     ]));
     if let Some(db) = &gs.database_waste {
-        let gco2 = db
-            .waste_gco2
-            .map_or_else(|| "-".to_string(), |g| format!("{} gCO2", fmt_tiny(g)));
-        // Daemon-sourced string: sanitize + cap like every other cell.
-        let region = truncate_cell(db.region.as_deref().unwrap_or("-"), 24);
-        let model = truncate_cell(if db.model.is_empty() { "-" } else { &db.model }, 24);
-        lines.push(Line::from(vec![
-            Span::styled("Database waste: ", dim),
-            Span::raw(format!(
-                "{} kWh of {} kWh ({:.0}% SQL ratio)   {gco2}",
-                fmt_tiny(db.waste_kwh),
-                fmt_tiny(db.energy_kwh),
-                db.sql_waste_ratio * 100.0,
-            )),
-            Span::styled(
-                format!(
-                    "   model {model}   region {region}   {}",
-                    if db.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
-                        "within the report totals"
-                    } else {
-                        "excluded from totals"
-                    }
-                ),
-                dim,
-            ),
-        ]));
+        lines.push(waste_line(
+            "Database waste: ",
+            "SQL",
+            db.waste_kwh,
+            db.energy_kwh,
+            db.sql_waste_ratio,
+            (&db.model, db.region.as_deref(), db.waste_gco2),
+            dim,
+        ));
     }
     if let Some(mw) = &gs.messaging_waste {
-        let gco2 = mw
-            .waste_gco2
-            .map_or_else(|| "-".to_string(), |g| format!("{} gCO2", fmt_tiny(g)));
-        let region = truncate_cell(mw.region.as_deref().unwrap_or("-"), 24);
-        let model = truncate_cell(if mw.model.is_empty() { "-" } else { &mw.model }, 24);
-        lines.push(Line::from(vec![
-            Span::styled("Broker waste:   ", dim),
-            Span::raw(format!(
-                "{} kWh of {} kWh ({:.0}% messaging ratio)   {gco2}",
-                fmt_tiny(mw.waste_kwh),
-                fmt_tiny(mw.energy_kwh),
-                mw.messaging_waste_ratio * 100.0,
-            )),
-            Span::styled(
-                format!(
-                    "   model {model}   region {region}   {}",
-                    if mw.model == sentinel_core::report::DB_WASTE_MODEL_ESTIMATED {
-                        "within the report totals"
-                    } else {
-                        "excluded from totals"
-                    }
-                ),
-                dim,
-            ),
-        ]));
+        lines.push(waste_line(
+            "Broker waste:   ",
+            "messaging",
+            mw.waste_kwh,
+            mw.energy_kwh,
+            mw.messaging_waste_ratio,
+            (&mw.model, mw.region.as_deref(), mw.waste_gco2),
+            dim,
+        ));
     }
     lines.push(Line::from(""));
 
