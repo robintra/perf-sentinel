@@ -16,7 +16,7 @@
 //! application batches its publishes, and `MAX_BILLABLE_MS` truncates a
 //! long idle stretch. See `docs/LIMITATIONS.md`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::score::cloud_energy::table::lookup_instance_power;
 
@@ -41,7 +41,9 @@ pub struct StaticBrokerConfig {
     pub nodes: u32,
     /// Instance type looked up in the embedded `SPECpower` table.
     pub instance_type: String,
-    /// `aws`, `gcp`, `azure`, or anything else for the generic default.
+    /// `aws`, `gcp`, `azure`, or `generic` for an on-prem default.
+    /// Validation rejects anything else, an unrecognised value would
+    /// silently resolve to the generic watts.
     pub provider: String,
     /// Declared region, used to convert the waste energy to gCO2.
     /// `None` reports the waste in kWh only.
@@ -68,6 +70,10 @@ impl StaticBrokerConfig {
 pub struct StaticBrokerState {
     last_ms: AtomicU64,
     watts: f64,
+    /// Set while this declaration is covering a measurement outage. The
+    /// delta that lands on recovery reaches back over wall clock already
+    /// billed here, so it has to be dropped exactly once.
+    billed_during_outage: AtomicBool,
 }
 
 impl StaticBrokerState {
@@ -76,7 +82,19 @@ impl StaticBrokerState {
         Self {
             last_ms: AtomicU64::new(now_ms),
             watts: cfg.cluster_watts(),
+            billed_during_outage: AtomicBool::new(false),
         }
+    }
+
+    /// Record that this declaration billed a window the measurement did
+    /// not cover.
+    pub fn mark_outage_billed(&self) {
+        self.billed_during_outage.store(true, Ordering::SeqCst);
+    }
+
+    /// Consume the outage marker, returning whether one was set.
+    pub fn clear_outage_billed(&self) -> bool {
+        self.billed_during_outage.swap(false, Ordering::SeqCst)
     }
 
     /// Energy since the previous take, in kWh, advancing the marker.

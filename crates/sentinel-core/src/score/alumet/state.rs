@@ -23,7 +23,7 @@ crate::score::energy_state::impl_energy_state! {
 }
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Cumulative database energy: the scraper (single writer) adds each
 /// scrape window's kWh, the event loop takes the delta per scored
@@ -34,6 +34,13 @@ pub struct DbEnergyState {
     cumulative_kwh_bits: AtomicU64,
     consumed_kwh_bits: AtomicU64,
     last_update_ms: AtomicU64,
+    /// Last scrape that actually carried this workload's label, as
+    /// opposed to `last_update_ms` which any successful scrape refreshes.
+    last_sample_ms: AtomicU64,
+    /// Whether a labelled sample ever landed. An explicit flag rather than
+    /// a zero timestamp: `monotonic_ms()` legitimately reads 0 early in
+    /// the process, so the two cannot be told apart.
+    ever_sampled: AtomicBool,
 }
 
 impl DbEnergyState {
@@ -61,15 +68,28 @@ impl DbEnergyState {
                 Some((f64::from_bits(bits) + kwh).to_bits())
             });
         self.last_update_ms.store(now_ms, Ordering::SeqCst);
+        self.last_sample_ms.store(now_ms, Ordering::SeqCst);
+        self.ever_sampled.store(true, Ordering::SeqCst);
     }
 
-    /// Consumer side: whether a scrape landed recently enough for this
-    /// workload to own its slice of the timeline. A delta covers every
-    /// interval since the previous one, so a live scraper owns the gaps
-    /// between deltas too, not only the ticks that carry one.
+    /// Consumer side: whether this workload's own series was seen recently
+    /// enough for the measurement to own its slice of the timeline. A
+    /// delta covers every interval since the previous one, so a measured
+    /// workload owns the gaps between deltas too, not only the ticks that
+    /// carry one.
+    ///
+    /// Deliberately stricter than the liveness [`Self::take_window_kwh`]
+    /// uses: `mark_alive` fires on every successful scrape, label present
+    /// or not, which is right for keeping banked energy alive but would
+    /// let a mistyped label suppress a declared fallback forever.
     #[must_use]
-    pub fn is_fresh(&self, now_ms: u64, staleness_ms: u64) -> bool {
-        let last = self.last_update_ms.load(Ordering::SeqCst);
+    pub fn has_recent_sample(&self, now_ms: u64, staleness_ms: u64) -> bool {
+        if !self.ever_sampled.load(Ordering::SeqCst) {
+            // Without this an unscraped state reads fresh for the whole
+            // first staleness window of every process.
+            return false;
+        }
+        let last = self.last_sample_ms.load(Ordering::SeqCst);
         now_ms.saturating_sub(last) <= staleness_ms
     }
 
@@ -87,9 +107,10 @@ impl DbEnergyState {
     /// energy is delivered once the scraper recovers) or when nothing
     /// accumulated.
     pub fn take_window_kwh(&self, now_ms: u64, staleness_ms: u64) -> Option<f64> {
-        // No never-updated sentinel needed: an untouched state has a
+        // No never-updated sentinel needed here: an untouched state has a
         // zero cumulative, so the delta check below returns None.
-        if !self.is_fresh(now_ms, staleness_ms) {
+        let last = self.last_update_ms.load(Ordering::SeqCst);
+        if now_ms.saturating_sub(last) > staleness_ms {
             return None;
         }
         let cumulative_bits = self.cumulative_kwh_bits.load(Ordering::SeqCst);
