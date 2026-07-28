@@ -349,6 +349,37 @@ region = "eu-west-3"           # optionnel, active la conversion gCO2 (déclaré
 
 `label_value` est obligatoire, apparié exactement comme une valeur de `service_mappings`. `region` est optionnel et utilise les mêmes identifiants de région que `[green.service_regions]` : sans lui le gaspillage est publié en kWh seulement. Une base par configuration, déclarez le cgroup qui sert votre trafic SQL.
 
+##### `[green.alumet.broker]` (optionnel)
+
+Le jumeau messaging de la section ci-dessus. Déclare un broker de messages mesuré par Alumet : un broker n'émet pas de spans propres non plus, donc son énergie de fenêtre est multipliée par le ratio de gaspillage messaging (`avoidable_messaging_io_ops / total_messaging_io_ops`) et rapportée en `green_summary.messaging_waste`.
+
+```toml
+[green.alumet.broker]
+label_value = "kafka-pod"      # valeur portée par label_key pour le cgroup du broker, telle quelle
+region = "eu-west-3"           # optionnel, active la conversion gCO2
+```
+
+Un même cgroup ne peut pas alimenter deux figures : un `label_value` qui apparaît aussi dans `service_mappings`, ou qui correspond à la déclaration de base de données, est rejeté au chargement de la config. Exige un agent sur l'hôte du broker, donc inapplicable à un broker managé. Pour ceux-là, voir `[green.broker_static]`.
+
+#### `[green.broker_static]` (optionnel, opt-in)
+
+Déclare un cluster de brokers **provisionné**, sans agent ni métrique. C'est la seule voie qui fonctionne pour un broker managé (Confluent Cloud, MSK, SQS, Pulsar managé), où aucun hôte n'est instrumentable.
+
+```toml
+[green.broker_static]
+nodes = 3                      # nœuds de broker provisionnés, requis
+instance_type = "m5.2xlarge"   # cherché dans la table SPECpower embarquée, requis
+provider = "aws"               # optionnel : aws, gcp, azure, sinon un défaut générique
+region = "eu-west-3"           # optionnel, active la conversion gCO2
+```
+
+L'énergie vaut `nodes × max_watts × durée de la fenêtre`, suivant `E(n) = n × P_max`, la seule forme publiée pour des brokers de classe Kafka. Deux propriétés à accepter avant de s'appuyer dessus :
+
+- **C'est un majorant.** `max_watts` est la puissance à 100 % de CPU, et le modèle compte l'infrastructure provisionnée plutôt que consommée. Un cluster de trois nœuds est immobilisé qu'il tourne à 10 % ou à 60 %.
+- **Le chiffre ne réagit à aucun changement applicatif.** Grouper vos publications ne le fera pas bouger, puisque rien dedans ne dépend du trafic. Si vous voulez un chiffre qui répond à une remédiation, il faut la voie mesurée.
+
+Un `instance_type` inconnu émet un avertissement et retombe sur un défaut fournisseur plutôt que d'échouer : le chiffre reste honnête, simplement plus grossier. Daemon uniquement, comme toute voie mesurée, puisqu'une durée de fenêtre est nécessaire. Quand cette section et `[green.alumet.broker]` sont toutes deux configurées, **la mesure gagne** : une déclaration n'est jamais facturée sur une fenêtre déjà couverte par Alumet.
+
 #### `[green.redfish]` (optionnel, opt-in)
 
 Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour les lectures de puissance murale sur bare-metal. Contrairement à Scaphandre et Kepler (qui mesurent uniquement CPU + DRAM), Redfish lit la sortie réelle de l'alimentation via le BMC, donc la périphérie (NIC, disques, ventilateurs, pertes PSU) est incluse. Bare-metal uniquement, pas de VMs cloud.
