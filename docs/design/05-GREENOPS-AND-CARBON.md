@@ -489,6 +489,27 @@ Past the division this is Scaphandre's formula verbatim, and it inherits the sam
 
 **Shared parser.** `parse_metric_samples` in `score/prom_parser.rs` was extracted from `kepler/parser.rs` when Alumet became its second consumer: the code was already generic over `(metric_name, label_key)`. `scaphandre/parser.rs` stays separate, it extracts two labels (`exe`, `cmdline`) in a single pass so its scan loop legitimately diverges.
 
+## Broker energy attribution
+
+A broker poses the database's problem twice over: it burns the energy of an N+1 publish loop, it emits no span of its own, and it is very often managed, so there is no host to run an agent on. The answer is the `database_waste` shape with the messaging-only ratio, `broker energy × (avoidable publish ops / total publish ops)`, reported as `green_summary.messaging_waste`.
+
+**Why not a per-publish coefficient.** Covered above under "Why no per-publish coefficient can be a measurement". The short version: broker power stops tracking throughput past roughly 20 % of capacity, so marginal energy is not a constant, and the three determinants (utilisation point, replication factor, topology) are invisible from a producer span. Hence a workload-level measurement split by a count-based ratio, never a coefficient.
+
+**Why `cloud_energy` could not be reused.** The obvious idea, feeding the broker through the existing SPECpower CPU% path, is blocked three times over in the per-op path: `ops_snapshot_diff` produces no op delta for a workload that emits no spans, `cloud_energy/table.rs` guards on `ops == 0`, and the region gate in `carbon_compute.rs` is never reached. Only the Alumet-database pattern, which bypasses the span loop entirely, applies. `lookup_instance_power` is reused directly, the surrounding machinery is not.
+
+**Two sources, one accumulator.** `[green.alumet.broker]` measures the broker cgroup, a second `DbEnergyState` instance beside the database one. `[green.broker_static]` declares a provisioned cluster and needs no agent at all, which is the only path open on Confluent Cloud, MSK, SQS or a managed Pulsar. Its model is `E(n) = n × P_max`, resolved once at config load rather than per batch.
+
+What that declared figure bounds is narrower than it reads. `SPECpower` covers CPU and baseboard, so it ceilings the declared vCPUs' compute and not the cluster's wall power, and a storage-bound broker can draw more. It also does not move when the application starts batching, which is a genuine weakness for a figure meant to show remediation working, and `MAX_BILLABLE_MS` truncates an idle stretch to one hour, so it under-counts there. All three are stated in `docs/LIMITATIONS.md` rather than smoothed over.
+
+**Arbitration is the subtle part**, and it took three review passes to settle. A measurement outranks a declaration, but "the measurement is live" is not the tick-level question it looks like.
+
+- *Per interval, not per tick.* Alumet delivers retroactively: one delta covers every interval since the previous one, so a live series owns the gaps between its deltas too. Arbitrating on "did a delta land this tick" bills those gaps twice, once per model tag.
+- *The series, not the endpoint.* `mark_alive` fires on every successful scrape whether or not the workload's label appeared, which is right for keeping banked energy alive across an idle workload. Ownership needs the stronger signal `has_recent_sample`, or a mistyped `label_value` leaves the endpoint answering forever and suppresses the declaration permanently, publishing nothing at all.
+- *Banked energy is real.* When the series goes quiet, whatever it banked while live is delivered before the declaration takes the window. A label that was never seen has nothing banked, which is exactly what lets a typo fall through to the fallback.
+- *Discard once, on recovery.* The delta that lands when the series returns reaches back over wall clock the declaration billed, so it is dropped via `discard_pending`, gated on an outage marker carried by `StaticBrokerState`. Discarding on every fallback tick instead would wipe joules banked while the measurement was still live.
+
+**Provenance rides with the figure.** `DbEnergyContext.model` is filled by whichever source populated the window, because nothing downstream can infer it. Its `Default` is the weakest of the three tags (`estimated`), so a caller that forgets to state provenance cannot claim a measurement. The periodic disclosure keeps three buckets rather than two: folding a declared cluster into `measured_energy_kwh` would publish an operator's statement about provisioned hardware as a reading of the broker.
+
 ## Kepler and Redfish attribution notes
 
 The Kepler and Redfish integrations follow the same shared-state pattern as Scaphandre and cloud SPECpower (`ArcSwap`-backed `AgedEnergyMap`, `3 × scrape_interval` staleness gate, per-service `OpsSnapshotDiff`) but each carries its own methodology trade-offs that warrant a dedicated note.

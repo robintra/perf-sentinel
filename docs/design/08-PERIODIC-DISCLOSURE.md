@@ -1,13 +1,13 @@
 # Periodic disclosure report
 
-Design notes for the periodic public disclosure pipeline: schema (current v1.3), aggregator, validator, daemon archive, and the `disclose` subcommand. Operator-facing usage lives in `docs/REPORTING.md`, the calculation chain lives in `docs/METHODOLOGY.md`, the wire reference lives in `docs/SCHEMA.md`. This document explains the design decisions behind each module.
+Design notes for the periodic public disclosure pipeline: schema (current v1.5), aggregator, validator, daemon archive, and the `disclose` subcommand. Operator-facing usage lives in `docs/REPORTING.md`, the calculation chain lives in `docs/METHODOLOGY.md`, the wire reference lives in `docs/SCHEMA.md`. This document explains the design decisions behind each module.
 
 ## Module layout
 
 ```
 crates/sentinel-core/src/report/periodic/
   ├── mod.rs        // re-exports
-  ├── schema.rs     // v1.3 wire types
+  ├── schema.rs     // v1.5 wire types
   ├── errors.rs     // ValidationError, HashError, AggregationError
   ├── hasher.rs     // canonical JSON + SHA-256 + binary_hash helper
   ├── validator.rs  // validate_official, validate_content_hash
@@ -209,6 +209,16 @@ This is the in-binary signal closest to the self-disclosure escape hatch "just s
 ## Standard crosswalk and RGESN criteria (v1.3)
 
 v1.3 adds two interpretive mapping fields, neither of which is a gate. `methodology.standard_crosswalk` is an ESRS E1 datapoint crosswalk: a mapping aid that points each disclosure figure at the closest CSRD / ESRS E1 datapoint, carrying an explicit disclaimer that it is not a substitute for an audited inventory. `applications[].anti_patterns[].rgesn_criteria` tags each detected anti-pattern with the RGESN 2024 (Référentiel général d'écoconception de services numériques) criteria it relates to, so an eco-design auditor can map a finding back to the reference framework. Both are `#[serde(default)]` additive extensions: older readers ignore them, and a report written without them re-hashes identically. The wire reference for both lives in `docs/SCHEMA.md`.
+
+## Workload waste blocks (v1.4, v1.5)
+
+v1.4 adds `aggregate.database_waste` and v1.5 its messaging twin `aggregate.messaging_waste`, alongside the three messaging `PatternName` values. Both are informational and stay outside every total, so no existing figure changes meaning.
+
+**One type, two fields.** `MessagingWasteAggregate` is a type alias of `DatabaseWasteAggregate`, not a copy: the two blocks are wire-identical by design, so a single struct removes the possibility of drift. The JSON Schema mirrors this with a `$ref` rather than a duplicated `$def`, since a hand-copied definition reintroduces in the file consumers validate against exactly the drift the alias prevents. The name `DatabaseWasteAggregate` is kept for v1.4 readers.
+
+**Three provenance buckets, not two.** The fold splits on the `model` tag into `measured_*`, `declared_*` and `estimated_windows`, with `measured_windows + declared_windows + estimated_windows == windows_with_figure` enforced by the validator. The two-bucket shape that shipped first (anything not `estimated` counts as measured) put a declared provisioned cluster inside a field named `measured_energy_kwh`, on the one surface where provenance is the whole point. `models` proves which tags occurred but is period-wide, so it cannot separate the energy again. The declared pair carries `skip_serializing_if`, so a report with no declared source keeps the byte-exact wire shape it had before the fields existed and re-hashes to its original `content_hash`.
+
+**Invariants the fold preserves.** A provenance tag outside the `is_valid_model_tag` charset drops the whole block before any figure reaches the sums, rather than publishing a partial one. `None` and `0.0` stay distinct on the carbon legs: an absent conversion must never read as an affirmative zero-carbon claim. `windows_with_carbon <= windows_with_figure` marks a partial carbon picture. The validator tolerates an all-zero split, which is what a report predating the fields looks like.
 
 ## Future revisions
 
