@@ -546,13 +546,28 @@
       },
       "targets": [
         {
+          "expr": "perf_sentinel_alumet_last_scrape_age_seconds",
+          "legendFormat": "alumet",
+          "refId": "A"
+        },
+        {
           "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds",
-          "refId": "A",
+          "refId": "B",
           "legendFormat": "scaphandre"
         },
         {
+          "expr": "perf_sentinel_kepler_last_scrape_age_seconds",
+          "legendFormat": "kepler",
+          "refId": "C"
+        },
+        {
+          "expr": "perf_sentinel_redfish_last_scrape_age_seconds",
+          "legendFormat": "redfish",
+          "refId": "D"
+        },
+        {
           "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds",
-          "refId": "B",
+          "refId": "E",
           "legendFormat": "cloud_energy"
         }
       ],
@@ -715,6 +730,44 @@
               }
             ]
           }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "OTLP span intake (received vs filtered)",
+      "description": "Span intake at the OTLP boundary. `filtered` are spans carrying no I/O operation, which is normal and usually the majority. `rejected` is back-pressure or malformed payloads and should sit at zero.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(perf_sentinel_otlp_spans_received_total[5m]))",
+          "legendFormat": "received/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_otlp_spans_filtered_total[5m]))",
+          "legendFormat": "filtered/s (not I/O)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_otlp_rejected_total[5m]))",
+          "legendFormat": "rejected/s",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
         },
         "overrides": []
       }
