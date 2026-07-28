@@ -56,7 +56,7 @@ gaspillage broker = énergie broker x (ops de publication évitables / ops de pu
 
 Le résultat est `green_summary.messaging_waste`. Ce qui change par rapport à la base, c'est le nombre de façons d'obtenir l'énergie du broker, et elles n'ont pas le même statut.
 
-- `[green.alumet.broker]` mesure le cgroup du broker. Même échelon que la base, même borne RAPL : CPU et DRAM seulement, donc il sous-compte.
+- `[green.alumet.broker]` mesure le cgroup du broker. Même échelon que la base, même borne : la formule d'attribution par défaut d'Alumet ne couvre que le CPU, donc il sous-compte.
 - `[green.broker_static]` déclare un cluster provisionné (`nodes` et un type d'instance) sans aucun agent, ce qui est la seule voie ouverte sur Confluent Cloud, MSK, SQS ou un Pulsar managé. Elle lit `E(n) = n x P_max` dans la table SPECpower embarquée. Cette table couvre le CPU et la carte mère : le résultat borne donc les vCPU déclarés à pleine charge et non la consommation murale du cluster, et un broker limité par le stockage peut consommer davantage. Ce chiffre ne bouge pas non plus quand l'application se met à batcher, ce qui est une vraie faiblesse pour une figure censée montrer qu'une remédiation fonctionne.
 - Sans aucune des deux, le chiffre est estimé depuis l'énergie modélisée des spans de publication, exactement comme le repli de la base.
 

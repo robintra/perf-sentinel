@@ -856,10 +856,6 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     lines
 }
 
-/// Body of the Energy tab: the effective energy/carbon mix, all from the
-/// live `green_summary` (no extra aggregation). Two tables: per service
-/// (effective source, measured share, energy, region) and per region
-/// (grid intensity, cold embedded vs hot scraped source).
 /// One waste line, database or broker. `provenance` bundles the three
 /// daemon-sourced strings so the signature stays under the argument cap.
 fn waste_line(
@@ -896,6 +892,10 @@ fn waste_line(
     ])
 }
 
+/// Body of the Energy tab: the effective energy/carbon mix, all from the
+/// live `green_summary` (no extra aggregation). Two tables: per service
+/// (effective source, measured share, energy, region) and per region
+/// (grid intensity, cold embedded vs hot scraped source).
 fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let dim = crate::tui::dim_style();
     let bold = Style::default().add_modifier(Modifier::BOLD);
