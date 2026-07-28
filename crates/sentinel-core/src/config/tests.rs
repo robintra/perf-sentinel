@@ -3285,6 +3285,31 @@ region = "eu-west-3"
 }
 
 #[test]
+fn broker_static_provider_allow_list() {
+    let with = |line: &str| {
+        load_from_str(&format!(
+            "[green.broker_static]\nnodes = 1\ninstance_type = \"m5.2xlarge\"\n{line}\n"
+        ))
+    };
+    // An unrecognised provider would silently resolve to the generic
+    // on-prem watts, so it is rejected rather than guessed.
+    assert!(with("provider = \"asw\"").is_err());
+    assert!(with("provider = \"on-prem\"").is_err());
+    for accepted in ["aws", "gcp", "azure", "generic"] {
+        assert!(
+            with(&format!("provider = \"{accepted}\"")).is_ok(),
+            "{accepted} must be accepted"
+        );
+    }
+    // Omitted and explicitly blank both mean "unset", not "invalid".
+    for unset in ["", "provider = \"\"", "provider = \"  \""] {
+        let cfg = with(unset).expect("an unset provider must load");
+        let b = cfg.green.broker_static.as_ref().expect("declared");
+        assert_eq!(b.provider, "generic");
+    }
+}
+
+#[test]
 fn broker_static_without_instance_type_is_rejected() {
     let toml = "
 [green.broker_static]
