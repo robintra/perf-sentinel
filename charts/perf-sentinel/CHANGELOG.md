@@ -10,6 +10,16 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.23]
+
+`appVersion` moves to `0.9.23`. The application gains OpenTelemetry messaging
+ingestion and broker energy attribution, so two chart-visible surfaces change:
+`config.toml` accepts the new `[green.alumet.broker]` and `[green.broker_static]`
+sections, and the bundled Grafana dashboard gains a messaging p95 series, an OTLP
+intake panel, the two missing energy backends on the freshness panel, and batch
+shedding on the headroom panel. No template, value or default changes, so an
+existing values file installs unchanged.
+
 ## [0.9.22]
 
 `appVersion` moves to `0.9.22`, realigning with the chart `version` after the
