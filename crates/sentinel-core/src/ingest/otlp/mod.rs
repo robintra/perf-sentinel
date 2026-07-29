@@ -162,6 +162,12 @@ const TRACE_ID_LEN: usize = 16;
 /// Parent-lookup index per `service.name`, built once for a whole request.
 type ServiceSpanIndexes<'a> = HashMap<&'a str, HashMap<&'a [u8], &'a Span>>;
 
+/// Link-bearing CONSUMER spans grouped by parent, per `service.name`.
+///
+/// A parent can hold several, so unlike [`ServiceSpanIndexes`] the value is a
+/// list: picking one at index time would decide by payload order.
+type ServiceConsumerIndexes<'a> = HashMap<&'a str, HashMap<&'a [u8], Vec<&'a Span>>>;
+
 /// Code-frame attributes read from a single span's attribute set.
 ///
 /// Borrows from the span attributes, so the lifetime is tied to the
@@ -395,7 +401,7 @@ fn walk_parents_for_code_attrs<'a>(
 fn resolve_producer_link<'a>(
     span: &'a Span,
     span_index: &HashMap<&'a [u8], &'a Span>,
-    consumers_by_parent: &HashMap<&'a [u8], &'a Span>,
+    consumers_by_parent: &HashMap<&'a [u8], Vec<&'a Span>>,
 ) -> Option<Arc<str>> {
     let valid =
         |id: &[u8]| id.len() == TRACE_ID_LEN && id != span.trace_id && id.iter().any(|&b| b != 0);
@@ -405,27 +411,35 @@ fn resolve_producer_link<'a>(
             .filter(|l| valid(&l.trace_id))
             .map(|l| Arc::from(bytes_to_hex(&l.trace_id).as_str()))
     };
-    // A `receive` sibling only explains work that started after it. Without
-    // this a scheduled flush or a health check under the same parent would
-    // inherit the message's trace.
-    let sibling_link = |parent_id: &[u8]| {
+    // A `receive` sibling only explains work that started after it, so a
+    // scheduled flush or a health check that was already running under the
+    // same parent inherits nothing. `started` is the node whose subtree is
+    // being attributed, not the leaf: a handler that began before the
+    // message arrived shields its children, however late their own I/O runs.
+    let sibling_link = |parent_id: &[u8], started: u64| {
         if parent_id.is_empty() || parent_id.iter().all(|&b| b == 0) {
             return None;
         }
         consumers_by_parent
-            .get(parent_id)
+            .get(parent_id)?
+            .iter()
             .filter(|c| {
                 c.trace_id == span.trace_id
                     && c.span_id != span.span_id
-                    && span.start_time_unix_nano >= c.start_time_unix_nano
+                    && started >= c.start_time_unix_nano
             })
+            // The nearest preceding one: with several messages under a
+            // consumer loop, the work belongs to the last that arrived
+            // before it. Ties keep the highest span id so a re-serialised
+            // payload still answers the same.
+            .max_by_key(|c| (c.start_time_unix_nano, &c.span_id))
             .and_then(|c| link_of(c))
     };
     // The OTel Java and .NET Kafka instrumentations emit `receive` as a
     // sibling of the work it triggered, so it is never on the ancestor
     // chain. The handler often sits between the two, hence one sibling
     // lookup per level rather than only at the span itself.
-    if let Some(found) = sibling_link(&span.parent_span_id) {
+    if let Some(found) = sibling_link(&span.parent_span_id, span.start_time_unix_nano) {
         return Some(found);
     }
     let mut found = None;
@@ -436,7 +450,7 @@ fn resolve_producer_link<'a>(
             found = link_of(ancestor);
         }
         if found.is_none() {
-            found = sibling_link(&ancestor.parent_span_id);
+            found = sibling_link(&ancestor.parent_span_id, ancestor.start_time_unix_nano);
         }
         found.is_some()
     });
@@ -446,22 +460,23 @@ fn resolve_producer_link<'a>(
 /// Link-bearing CONSUMER spans indexed by their parent, per service.
 ///
 /// Built only when the request carries such a span, so a bus-less fleet pays
-/// one `any()` pass and nothing else. Keeps the first consumer per parent: a
-/// trace with several sibling `receive` spans has no unambiguous answer, and
-/// batch order is at least deterministic.
+/// one `any()` pass and nothing else. Every consumer under a parent is kept,
+/// because which one triggered a given span is a question only that span's
+/// start time can answer, and the exporter's ordering must not decide it.
 ///
 /// A root consumer lands under the empty key, or under an all-zero one from
 /// exporters that spell a root that way. The sibling lookup rejects both, so
 /// neither can pair two roots together. They are indexed anyway so an empty
 /// index means "this service has no linked consumer at all", the condition
 /// that skips the ancestor walk too.
-fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes<'_> {
-    let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
+fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceConsumerIndexes<'_> {
+    let mut per_service: ServiceConsumerIndexes<'_> = HashMap::new();
     for resource_spans in &request.resource_spans {
         let index = per_service
             .entry(resource_service_name(resource_spans))
             .or_default();
-        for scope_spans in &resource_spans.scope_spans {
+        let mut kept = 0usize;
+        'resource: for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
                 if span.links.is_empty()
                     || span.kind
@@ -469,14 +484,15 @@ fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceSp
                 {
                     continue;
                 }
-                if index.len() >= MAX_SPANS_PER_SERVICE {
+                if kept >= MAX_SPANS_PER_SERVICE {
                     tracing::warn!(
                         "OTLP consumer-link index capped at {} entries for one service, producer links may be missing for its remaining spans",
                         MAX_SPANS_PER_SERVICE
                     );
-                    break;
+                    break 'resource;
                 }
-                index.entry(&span.parent_span_id).or_insert(span);
+                index.entry(&span.parent_span_id).or_default().push(span);
+                kept += 1;
             }
         }
     }
@@ -1202,6 +1218,7 @@ pub fn convert_otlp_request_counted(
     // splits a trace, but never cross services.
     let span_indexes = build_span_indexes(request);
     let empty_index = HashMap::new();
+    let empty_consumers = HashMap::new();
     // One O(spans) pass, so the per-span ancestor walk is skipped entirely
     // on a fleet with no broker.
     let has_consumer_links = request.resource_spans.iter().any(|rs| {
@@ -1225,7 +1242,9 @@ pub fn convert_otlp_request_counted(
         let service_name = resource_service_name(resource_spans);
         let service_arc: Arc<str> = Arc::from(service_name);
         let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
-        let consumer_index = consumer_indexes.get(service_name).unwrap_or(&empty_index);
+        let consumer_index = consumer_indexes
+            .get(service_name)
+            .unwrap_or(&empty_consumers);
 
         // cloud.region: resource-level with span-level fallback in convert_span.
         // Invalid values silently dropped (sanitization at ingest boundary).
@@ -1446,7 +1465,7 @@ fn convert_span<'a>(
     scope_index: &HashMap<&[u8], &str>,
     stitched_statement: Option<&'a str>,
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
-    consumer_index: &HashMap<&[u8], &Span>,
+    consumer_index: &HashMap<&'a [u8], Vec<&'a Span>>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let owned = rebuilt_classified(span, cached_attrs, stitched_statement);
     let classified = match (&owned, cached_attrs) {
