@@ -108,7 +108,7 @@
       <div data-dc-tpl="103" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px; max-width: 760px;">
         <div data-dc-tpl="104" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em; margin-bottom: 16px;"><span class="sc-interp">Read this first</span></div>
         <div data-dc-tpl="105" style="display: flex; flex-direction: column; gap: 12px;">
-          <p data-dc-tpl="106" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="107" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prerequisite:</span></strong> <span class="sc-interp">your services emit OpenTelemetry traces (SQL and HTTP spans), or dd-trace bridged through a Collector, carrying the query text (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>) and the target URL (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>).</span> <span class="sc-interp">Setup</span> <a data-dc-tpl="108" href="docs/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">by language (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)</span></a>. <span class="sc-interp">No OpenTelemetry SDK? Teams on Datadog bridge dd-trace through the Collector <code class="dc-cmd">datadogreceiver</code>, see</span> <a data-dc-tpl="109" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
+          <p data-dc-tpl="106" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="107" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prerequisite:</span></strong> <span class="sc-interp">your services emit OpenTelemetry traces (SQL, HTTP and messaging spans), or dd-trace bridged through a Collector, carrying the query text (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>), the target URL (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>) or the broker destination (<code class="dc-cmd">messaging.system</code> / <code class="dc-cmd">messaging.destination.name</code>).</span> <span class="sc-interp">Setup</span> <a data-dc-tpl="108" href="docs/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">by language (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)</span></a>. <span class="sc-interp">No OpenTelemetry SDK? Teams on Datadog bridge dd-trace through the Collector <code class="dc-cmd">datadogreceiver</code>, see</span> <a data-dc-tpl="109" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
           <p data-dc-tpl="110" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="111" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Audit your tracing first:</span></strong> <span class="sc-interp">spans that lack those attributes are dropped silently, with no warning, so a thin or empty report can mean no problems found or no usable instrumentation. <code class="dc-cmd">perf-sentinel inspect</code> shows what was actually extracted, an empty span tree means the carrying attributes are missing upstream. See</span> <a data-dc-tpl="112" href="docs/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">what bounds the findings</span></a>.</p>
           <p data-dc-tpl="113" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="114" style="color: var(--text); font-weight: 600;"><span class="sc-interp">What it is not:</span></strong> <span class="sc-interp">a full APM, a continuous profiler, nor (for now) a standalone regulatory carbon accounting platform. See</span> <a data-dc-tpl="115" href="#comparatif" data-clink="1" style="color: var(--accent);"><span class="sc-interp">the comparison</span></a>.</p>
           <p data-dc-tpl="116" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="117" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Maturity:</span></strong> <span class="sc-interp">beta, pre-1.0. The CLI, config keys and on-disk formats may still change before 1.0. The JSON output enums are the one part under an explicit stability contract, with breaking changes flagged in the</span> <a data-dc-tpl="118" href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" data-clink="1" style="color: var(--accent);"><span class="sc-interp">release notes</span></a>.</p>
@@ -123,7 +123,7 @@
       <div data-dc-tpl="123" style="margin-top: 26px; display: flex; flex-direction: column; gap: 18px; max-width: 720px;">
         <p data-dc-tpl="124" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.</span></p>
         <p data-dc-tpl="125" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.</span></p>
-        <p data-dc-tpl="126" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.</span></p>
+        <p data-dc-tpl="126" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">perf-sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.</span></p>
         <p data-dc-tpl="127" style="margin: 0px; font-size: 15.5px; color: var(--text); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 18px;"><span class="sc-interp">Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.</span></p>
       </div>
     </section>
@@ -221,7 +221,7 @@
       <div data-dc-tpl="206" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
         <div data-dc-tpl="207">
           <div data-dc-tpl="208" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// what gets detected</span></div>
-          <h2 data-dc-tpl="209" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Ten I/O </span><span data-dc-tpl="210" style="color: var(--coral);"><span class="sc-interp">anti-patterns</span></span><span class="sc-interp">, at the protocol level</span></h2>
+          <h2 data-dc-tpl="209" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Twelve I/O </span><span data-dc-tpl="210" style="color: var(--coral);"><span class="sc-interp">anti-patterns</span></span><span class="sc-interp">, at the protocol level</span></h2>
         </div>
         <p data-dc-tpl="211" style="margin: 0px; max-width: 360px; font-size: 15px; color: var(--text-2);"><span class="sc-interp">On the SQL and HTTP requests your services already emit, whatever the language or ORM.</span></p>
       </div>
@@ -246,13 +246,21 @@
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
             <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">03</span></div>
             <div data-dc-tpl="216">
+              <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">N+1 messaging</span></div>
+              <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">The same destination published to ≥ N times within one trace.</span></div>
+            </div>
+          </div>
+        
+          <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">04</span></div>
+            <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Redundant SQL</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Identical query, identical parameters, same trace.</span></div>
             </div>
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">04</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">05</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Redundant HTTP</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Identical call, identical parameters, same trace.</span></div>
@@ -260,7 +268,7 @@
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">05</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">06</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow SQL</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Query duration above the configured threshold.</span></div>
@@ -268,7 +276,7 @@
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">06</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">07</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow HTTP</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Request duration above the configured threshold.</span></div>
@@ -276,7 +284,15 @@
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">07</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">08</span></div>
+            <div data-dc-tpl="216">
+              <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Slow messaging</span></div>
+              <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Publish duration above the configured threshold.</span></div>
+            </div>
+          </div>
+        
+          <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">09</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Excessive fanout</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A span starts ≥ N children in parallel.</span></div>
@@ -284,7 +300,7 @@
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">08</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">10</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Chatty service</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A → B repeatedly within a single user request.</span></div>
@@ -292,7 +308,7 @@
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">09</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">11</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Pool saturation</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Concurrent in-flight requests above the pool size.</span></div>
@@ -300,7 +316,7 @@
           </div>
         
           <div data-dc-tpl="214" class="scp2" style="display: flex; gap: 18px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
-            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">10</span></div>
+            <div data-dc-tpl="215" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">12</span></div>
             <div data-dc-tpl="216">
               <div data-dc-tpl="217" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Serialized calls</span></div>
               <div data-dc-tpl="218" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Sequential I/O that could be parallelized.</span></div>
@@ -1427,7 +1443,7 @@ class Component extends DCLogic {
         stats: [
           { value: '<20 MB', label: 'RSS at rest (daemon)' },
           { value: '~1.2 M', label: 'events/s analyzed (M4 Pro)' },
-          { value: '10', label: 'finding types' },
+          { value: '12', label: 'finding types' },
           { value: 'exit 1', label: 'deterministic CI quality gate' },
         ],
         detEyebrow: '// what gets detected',
@@ -1435,10 +1451,10 @@ class Component extends DCLogic {
         whyT1: 'Why ', whyTName: 'perf-sentinel', whyT2: '?',
         whyP1: 'I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
         whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.',
-        whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
+        whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
         whyP4: 'Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.',
         prereqTitle: 'Read this first',
-        prereq1Label: 'Prerequisite:', prereq1Text: 'your services emit OpenTelemetry traces (SQL and HTTP spans), or dd-trace bridged through a Collector, carrying the query text (`db.statement` / `db.query.text`) and the target URL (`http.url` / `url.full`).', prereq1Setup: 'Setup', prereq1Link: 'by language (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)', prereq1Dd: 'No OpenTelemetry SDK? Teams on Datadog bridge dd-trace through the Collector `datadogreceiver`, see', prereq1DdLink: 'Coming from Datadog', prereq1DdHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry',
+        prereq1Label: 'Prerequisite:', prereq1Text: 'your services emit OpenTelemetry traces (SQL, HTTP and messaging spans), or dd-trace bridged through a Collector, carrying the query text (`db.statement` / `db.query.text`), the target URL (`http.url` / `url.full`) or the broker destination (`messaging.system` / `messaging.destination.name`).', prereq1Setup: 'Setup', prereq1Link: 'by language (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)', prereq1Dd: 'No OpenTelemetry SDK? Teams on Datadog bridge dd-trace through the Collector `datadogreceiver`, see', prereq1DdLink: 'Coming from Datadog', prereq1DdHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry',
         prereq2Label: 'Audit your tracing first:', prereq2Text: 'spans that lack those attributes are dropped silently, with no warning, so a thin or empty report can mean no problems found or no usable instrumentation. `perf-sentinel inspect` shows what was actually extracted, an empty span tree means the carrying attributes are missing upstream. See', prereq2Link: 'what bounds the findings',
         prereq3Label: 'What it is not:', prereq3Text: 'a full APM, a continuous profiler, nor (for now) a standalone regulatory carbon accounting platform. See', prereq3Link: 'the comparison',
         prereq4Label: 'Maturity:', prereq4Text: 'beta, pre-1.0. The CLI, config keys and on-disk formats may still change before 1.0. The JSON output enums are the one part under an explicit stability contract, with breaking changes flagged in the', prereq4Link: 'release notes',
@@ -1474,19 +1490,21 @@ class Component extends DCLogic {
           { lead: 'Not zero-config.', body: 'Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.' },
           { lead: 'Not an IDE plugin.', body: 'For in-IDE feedback on JVM/.NET code as you type, Digma offers a well-integrated JetBrains experience.' },
         ],
-        detT1: 'Ten I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
+        detT1: 'Twelve I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
         detIntro: 'On the SQL and HTTP requests your services already emit, whatever the language or ORM.',
         patterns: [
           { n: '01', name: 'N+1 SQL', trigger: 'The same query template fired ≥ N times within one trace.' },
           { n: '02', name: 'N+1 HTTP', trigger: 'The same URL template called ≥ N times within one trace.' },
-          { n: '03', name: 'Redundant SQL', trigger: 'Identical query, identical parameters, same trace.' },
-          { n: '04', name: 'Redundant HTTP', trigger: 'Identical call, identical parameters, same trace.' },
-          { n: '05', name: 'Slow SQL', trigger: 'Query duration above the configured threshold.' },
-          { n: '06', name: 'Slow HTTP', trigger: 'Request duration above the configured threshold.' },
-          { n: '07', name: 'Excessive fanout', trigger: 'A span starts ≥ N children in parallel.' },
-          { n: '08', name: 'Chatty service', trigger: 'A → B repeatedly within a single user request.' },
-          { n: '09', name: 'Pool saturation', trigger: 'Concurrent in-flight requests above the pool size.' },
-          { n: '10', name: 'Serialized calls', trigger: 'Sequential I/O that could be parallelized.' },
+          { n: '03', name: 'N+1 messaging', trigger: 'The same destination published to ≥ N times within one trace.' },
+          { n: '04', name: 'Redundant SQL', trigger: 'Identical query, identical parameters, same trace.' },
+          { n: '05', name: 'Redundant HTTP', trigger: 'Identical call, identical parameters, same trace.' },
+          { n: '06', name: 'Slow SQL', trigger: 'Query duration above the configured threshold.' },
+          { n: '07', name: 'Slow HTTP', trigger: 'Request duration above the configured threshold.' },
+          { n: '08', name: 'Slow messaging', trigger: 'Publish duration above the configured threshold.' },
+          { n: '09', name: 'Excessive fanout', trigger: 'A span starts ≥ N children in parallel.' },
+          { n: '10', name: 'Chatty service', trigger: 'A → B repeatedly within a single user request.' },
+          { n: '11', name: 'Pool saturation', trigger: 'Concurrent in-flight requests above the pool size.' },
+          { n: '12', name: 'Serialized calls', trigger: 'Sequential I/O that could be parallelized.' },
         ],
         detFoot: 'Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.',
         modEyebrow: '// four ways to run it',
@@ -1572,7 +1590,7 @@ class Component extends DCLogic {
         stats: [
           { value: '<20 Mo', label: 'RSS au repos (daemon)' },
           { value: '~1,2 M', label: 'évts/s analysés (M4 Pro)' },
-          { value: '10', label: 'types de findings' },
+          { value: '12', label: 'types de findings' },
           { value: 'exit 1', label: 'quality gate CI déterministe' },
         ],
         detEyebrow: '// ce qui est détecté',
@@ -1580,10 +1598,10 @@ class Component extends DCLogic {
         whyT1: 'Pourquoi ', whyTName: 'perf-sentinel', whyT2: ' ?',
         whyP1: 'Les anti-patterns d\u2019I/O touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
-        whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.',
+        whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP, publications vers un broker), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.',
         whyP4: 'Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.',
         prereqTitle: 'À lire en premier',
-        prereq1Label: 'Prérequis :', prereq1Text: 'vos services émettent des traces OpenTelemetry (spans SQL et HTTP), ou dd-trace via un pont Collector, portant le texte de la requête (`db.statement` / `db.query.text`) et l’URL cible (`http.url` / `url.full`).', prereq1Setup: 'Mise en place', prereq1Link: 'par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)', prereq1Dd: 'Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le `datadogreceiver` du Collector OTel, voir', prereq1DdLink: 'Vous venez de Datadog', prereq1DdHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry',
+        prereq1Label: 'Prérequis :', prereq1Text: 'vos services émettent des traces OpenTelemetry (spans SQL, HTTP et messaging), ou dd-trace via un pont Collector, portant le texte de la requête (`db.statement` / `db.query.text`), l’URL cible (`http.url` / `url.full`) ou la destination broker (`messaging.system` / `messaging.destination.name`).', prereq1Setup: 'Mise en place', prereq1Link: 'par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)', prereq1Dd: 'Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le `datadogreceiver` du Collector OTel, voir', prereq1DdLink: 'Vous venez de Datadog', prereq1DdHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry',
         prereq2Label: 'Auditez votre tracing d’abord :', prereq2Text: 'les spans qui ne portent pas ces attributs sont écartés en silence, sans avertissement, donc un rapport maigre ou vide peut signifier aucun problème détecté ou aucune instrumentation exploitable. `perf-sentinel inspect` montre ce qui a réellement été extrait, un arbre de spans vide signifie que les attributs porteurs manquent en amont. Voir', prereq2Link: 'ce qui borne les findings',
         prereq3Label: 'Ce que ce n’est pas :', prereq3Text: 'un APM complet, un profiler continu, ni (pour le moment) une plateforme de comptabilité carbone réglementaire standalone. Voir', prereq3Link: 'le comparatif',
         prereq4Label: 'Maturité :', prereq4Text: 'bêta, pré-1.0. La CLI, les clés de configuration et les formats sur disque peuvent encore changer avant la 1.0. Les enums de sortie JSON sont la seule partie sous contrat de stabilité explicite, les ruptures de compatibilité étant signalées dans les', prereq4Link: 'notes de version',
@@ -1619,19 +1637,21 @@ class Component extends DCLogic {
           { lead: 'Pas zéro-config.', body: 'La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n’émet pas de traces, perf-sentinel n’a rien à analyser.' },
           { lead: 'Pas un plugin IDE.', body: 'Pour du feedback in-IDE en JVM/.NET au fil de la frappe, Digma offre une expérience JetBrains bien intégrée.' },
         ],
-        detT1: 'Dix ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
+        detT1: 'Douze ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
         detIntro: 'Sur les requêtes SQL et HTTP que vos services émettent déjà, quel que soit le langage ou l\u2019ORM.',
         patterns: [
           { n: '01', name: 'N+1 SQL', trigger: 'Même template de requête tiré ≥ N fois dans une trace.' },
           { n: '02', name: 'N+1 HTTP', trigger: "Même template d'URL appelé ≥ N fois dans une trace." },
-          { n: '03', name: 'SQL redondant', trigger: 'Requête identique, paramètres identiques, même trace.' },
-          { n: '04', name: 'HTTP redondant', trigger: 'Appel identique, paramètres identiques, même trace.' },
-          { n: '05', name: 'SQL lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
-          { n: '06', name: 'HTTP lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
-          { n: '07', name: 'Fanout excessif', trigger: 'Un span démarre ≥ N enfants en parallèle.' },
-          { n: '08', name: 'Service bavard', trigger: 'A → B de manière répétée dans une seule requête utilisateur.' },
-          { n: '09', name: 'Saturation de pool', trigger: 'Requêtes concurrentes en vol au-dessus de la taille du pool.' },
-          { n: '10', name: 'Appels sérialisés', trigger: 'I/O séquentiels qui pourraient être parallélisés.' },
+          { n: '03', name: 'N+1 messaging', trigger: 'Même destination publiée ≥ N fois dans une trace.' },
+          { n: '04', name: 'SQL redondant', trigger: 'Requête identique, paramètres identiques, même trace.' },
+          { n: '05', name: 'HTTP redondant', trigger: 'Appel identique, paramètres identiques, même trace.' },
+          { n: '06', name: 'SQL lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
+          { n: '07', name: 'HTTP lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
+          { n: '08', name: 'Messaging lent', trigger: 'Durée de publication au-dessus du seuil configuré.' },
+          { n: '09', name: 'Fanout excessif', trigger: 'Un span démarre ≥ N enfants en parallèle.' },
+          { n: '10', name: 'Service bavard', trigger: 'A → B de manière répétée dans une seule requête utilisateur.' },
+          { n: '11', name: 'Saturation de pool', trigger: 'Requêtes concurrentes en vol au-dessus de la taille du pool.' },
+          { n: '12', name: 'Appels sérialisés', trigger: 'I/O séquentiels qui pourraient être parallélisés.' },
         ],
         detFoot: 'Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source et impact GreenOps. En mode daemon, s\u2019y ajoute la corrélation cross-trace.',
         modEyebrow: "// quatre façons de l'exécuter",

@@ -170,7 +170,7 @@
           
             <div data-dc-tpl="88" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 15px 17px;">
               <div data-dc-tpl="89" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">detection.slow_query_threshold_ms</span></div>
-              <div data-dc-tpl="90" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Durée au-dessus de laquelle une requête SQL/HTTP est signalée comme lente.</span></div>
+              <div data-dc-tpl="90" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Durée au-dessus de laquelle une requête SQL, un appel HTTP ou une publication est signalé comme lent.</span></div>
             </div>
           
         </div>
@@ -1523,7 +1523,7 @@ class Component extends DCLogic {
           { key: 'thresholds.n_plus_one_sql_critical_max', desc: 'Max critical N+1 SQL findings before the gate fails. 0 = zero tolerance.' },
           { key: 'thresholds.io_waste_ratio_max', desc: 'Maximum share of avoidable I/O tolerated, between 0 and 1.' },
           { key: 'detection.n_plus_one_min_occurrences', desc: 'Repetitions of a query template within a trace before it counts as N+1.' },
-          { key: 'detection.slow_query_threshold_ms', desc: 'Duration above which a SQL/HTTP request is flagged as slow.' },
+          { key: 'detection.slow_query_threshold_ms', desc: 'Duration above which a SQL query, HTTP call or broker publish is flagged as slow.' },
         ],
         cliTitle: 'CLI reference',
         cliIntro: 'One binary, a handful of subcommands. Run perf-sentinel <cmd> --help for the full flag list.',
@@ -1708,7 +1708,7 @@ class Component extends DCLogic {
           { key: 'thresholds.n_plus_one_sql_critical_max', desc: 'Nombre max de N+1 SQL critiques avant échec du gate. 0 = tolérance zéro.' },
           { key: 'thresholds.io_waste_ratio_max', desc: 'Part maximale d\u2019I/O évitables tolérée, entre 0 et 1.' },
           { key: 'detection.n_plus_one_min_occurrences', desc: 'Répétitions d\u2019un template de requête dans une trace avant de compter comme N+1.' },
-          { key: 'detection.slow_query_threshold_ms', desc: 'Durée au-dessus de laquelle une requête SQL/HTTP est signalée comme lente.' },
+          { key: 'detection.slow_query_threshold_ms', desc: 'Durée au-dessus de laquelle une requête SQL, un appel HTTP ou une publication est signalé comme lent.' },
         ],
         cliTitle: 'Référence CLI',
         cliIntro: 'Un binaire, une poignée de sous-commandes. Lancez perf-sentinel <cmd> --help pour la liste complète des flags.',
