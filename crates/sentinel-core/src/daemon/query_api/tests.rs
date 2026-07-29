@@ -464,7 +464,7 @@ async fn handle_export_report_evaluates_real_quality_gate() {
         !report.quality_gate.passed,
         "critical N+1 SQL must fail gate"
     );
-    assert_eq!(report.quality_gate.rules.len(), 3, "all rules evaluated");
+    assert_eq!(report.quality_gate.rules.len(), 4, "all rules evaluated");
     let sql_rule = report
         .quality_gate
         .rules

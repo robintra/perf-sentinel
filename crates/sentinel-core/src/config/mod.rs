@@ -122,6 +122,11 @@ pub struct ThresholdsConfig {
     pub n_plus_one_sql_critical_max: u32,
     /// Maximum allowed warning+ N+1 HTTP findings before quality gate fails.
     pub n_plus_one_http_warning_max: u32,
+    /// Maximum allowed warning+ N+1 messaging findings before the gate fails.
+    /// Warning+ rather than critical-only, like HTTP: a Kafka client may
+    /// already batch the publishes it buffers, so the occurrence count is an
+    /// upper bound there, see `docs/LIMITATIONS.md`.
+    pub n_plus_one_messaging_warning_max: u32,
     /// Maximum allowed I/O waste ratio before quality gate fails.
     pub io_waste_ratio_max: f64,
 }
@@ -342,6 +347,7 @@ impl Default for ThresholdsConfig {
         Self {
             n_plus_one_sql_critical_max: 0,
             n_plus_one_http_warning_max: 3,
+            n_plus_one_messaging_warning_max: 3,
             io_waste_ratio_max: 0.30,
         }
     }
