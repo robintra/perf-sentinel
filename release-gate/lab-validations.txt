@@ -51,3 +51,11 @@ v0.9.14	33e6a5d	2026-07-19	PASS
 v0.9.15	891af5e	2026-07-23	PASS
 v0.9.22	caf6e2c	2026-07-27	PASS
 v0.9.23	634f839	2026-07-29	PASS
+# v0.9.23 634f839 (above) validated 8d6847c8. A post-PASS adversarial review then found two
+# defects in the sibling producer-link resolution (the temporal guard judged the leaf instead
+# of the attributed ancestor, and the consumer index kept one receive per parent so payload
+# order decided the attribution), fixed in 0162e6bc. The targeted round 4 revalidated the
+# tagged revision c340424e: F1/F2 unchanged at 14/14 and 10/10, seven topology probes plus a
+# new payload-order invariance gate, replay corpora identical. Lab HEAD f9815c9 is the tree
+# that actually validated the tagged revision.
+v0.9.23	f9815c9	2026-07-29	PASS
