@@ -462,6 +462,27 @@ Passée la division, c'est la formule de Scaphandre mot pour mot, et elle hérit
 
 **Parseur partagé.** `parse_metric_samples` dans `score/prom_parser.rs` a été extrait de `kepler/parser.rs` quand Alumet en est devenu le deuxième consommateur : le code était déjà générique sur `(metric_name, label_key)`. `scaphandre/parser.rs` reste séparé, il extrait deux labels (`exe`, `cmdline`) en une seule passe, sa boucle de scan diverge donc légitimement.
 
+## Attribution de l'énergie du broker
+
+Un broker pose le problème de la base de données en double : il brûle l'énergie d'une boucle de publication N+1, il n'émet aucun span à lui, et il est très souvent managé, donc il n'existe aucun hôte où faire tourner un agent de mesure. La réponse est la forme de `database_waste` avec le ratio messaging seul, `énergie du broker × (ops de publication évitables / ops de publication totales)`, rapportée en `green_summary.messaging_waste`.
+
+**Pourquoi pas un coefficient par publication.** Traité plus haut sous "Pourquoi aucun coefficient par publication ne peut être une mesure". En résumé : la puissance d'un broker cesse de suivre le débit au-delà d'environ 20 % de sa capacité, l'énergie marginale n'est donc pas une constante, et les trois éléments qui la détermineraient (taux d'utilisation, facteur de réplication, topologie) sont invisibles depuis un span producteur. D'où une mesure au niveau du workload répartie par un ratio de comptage, jamais un coefficient.
+
+**Pourquoi `cloud_energy` n'était pas réutilisable.** L'idée évidente, faire passer le broker par le chemin CPU% et SPECpower existant, est bloquée trois fois dans la voie par opération : `ops_snapshot_diff` ne produit aucun delta d'ops pour un workload qui n'émet pas de spans, `cloud_energy/table.rs` garde sur `ops == 0`, et la porte de région dans `carbon_compute.rs` n'est jamais atteinte. Seul le motif Alumet-base de données, qui contourne entièrement la boucle de spans, s'applique. `lookup_instance_power` est réutilisée directement, la machinerie autour ne l'est pas.
+
+**Deux sources, un seul accumulateur.** `[green.alumet.broker]` mesure le cgroup du broker, une seconde instance de `DbEnergyState` à côté de celle de la base. `[green.broker_static]` déclare un cluster provisionné et ne demande aucun agent, ce qui est la seule voie ouverte sur Confluent Cloud, MSK, SQS ou un Pulsar managé. Son modèle est `E(n) = n × P_max`, résolu une fois au chargement de la configuration et non par lot.
+
+Ce que borne ce chiffre déclaré est plus étroit qu'il n'y paraît. `SPECpower` couvre le CPU et la carte mère, il plafonne donc le calcul des vCPU déclarés et non la consommation murale du cluster, et un broker limité par le stockage peut consommer davantage. Il ne bouge pas non plus quand l'application se met à batcher, ce qui est une vraie faiblesse pour une figure censée montrer qu'une remédiation fonctionne, et `MAX_BILLABLE_MS` tronque une période d'inactivité à une heure, il sous-compte donc là. Les trois sont énoncés dans `docs/FR/LIMITATIONS-FR.md` plutôt que lissés.
+
+**L'arbitrage est la partie subtile**, et il a fallu trois passes de revue pour le stabiliser. Une mesure prime sur une déclaration, mais "la mesure est vivante" n'est pas la question au niveau du tick qu'elle semble être.
+
+- *Par intervalle, pas par tick.* Alumet livre rétroactivement : un delta couvre chaque intervalle depuis le précédent, une série vivante possède donc aussi les trous entre ses deltas. Arbitrer sur "un delta est-il arrivé à ce tick" facture ces trous deux fois, une fois par étiquette de modèle.
+- *La série, pas l'endpoint.* `mark_alive` se déclenche à chaque scrape réussi, que le label du workload soit apparu ou non, ce qui est juste pour garder vivante l'énergie mise en banque. La possession demande le signal plus fort `has_recent_sample`, sinon un `label_value` mal orthographié laisse l'endpoint répondre indéfiniment et supprime la déclaration pour toujours, ne publiant plus rien du tout.
+- *L'énergie en banque est réelle.* Quand la série se tait, ce qu'elle a mis en banque tant qu'elle vivait est livré avant que la déclaration ne prenne la fenêtre. Un label jamais vu n'a rien en banque, et c'est exactement ce qui laisse une faute de frappe retomber sur le repli.
+- *Jeter une fois, à la reprise.* Le delta qui arrive au retour de la série remonte sur du temps mural que la déclaration a facturé, il est donc jeté via `discard_pending`, sous condition d'un marqueur de panne porté par `StaticBrokerState`. Jeter à chaque tick de repli effacerait aussi des joules mis en banque pendant que la mesure vivait encore.
+
+**La provenance voyage avec la figure.** `DbEnergyContext.model` est rempli par la source qui a peuplé la fenêtre, parce que rien en aval ne peut le déduire. Son `Default` est la plus faible des trois étiquettes (`estimated`), pour qu'un appelant qui oublie de déclarer sa provenance ne puisse pas revendiquer une mesure. La divulgation périodique garde trois seaux plutôt que deux : fondre un cluster déclaré dans `measured_energy_kwh` publierait la déclaration d'un opérateur sur du matériel provisionné comme une lecture du broker.
+
 ## Notes d'attribution Kepler et Redfish
 
 Les intégrations Kepler et Redfish suivent le même schéma d'état partagé que Scaphandre et cloud SPECpower (`AgedEnergyMap` adossé à `ArcSwap`, fenêtre de fraîcheur `3 × scrape_interval`, `OpsSnapshotDiff` partagé par service) mais chacune porte des compromis méthodologiques qui méritent une note dédiée.
@@ -670,3 +691,13 @@ Le champ apparaît dans :
 - **Sortie terminal CLI** : NON affiché (le terminal reste propre pour l'usage interactif).
 
 Le consommateur planifié est perf-lint, une intégration IDE compagnon (pas encore publiée), qui importera les findings runtime depuis la sortie JSON de perf-sentinel et appliquera un multiplicateur de sévérité basé sur la confiance. Tout outil tiers qui consomme la même sortie JSON ou SARIF peut utiliser ce champ de la même manière. Voir `docs/FR/INTEGRATION-FR.md` "Champ de confiance sur les findings" pour l'exemple d'intégration.
+
+## Calibrer le proxy contre un vrai wattmètre
+
+`calibrate.rs` sert la sous-commande `calibrate`, qui transforme un CSV de puissance mesurée en multiplicateurs par service pour le proxy I/O. Elle comble l'écart entre "un coefficient directionnel" et "un coefficient directionnel ancré sur votre matériel", sans exiger d'agent de mesure au runtime.
+
+L'arithmétique est volontairement plate : pour chaque service présent **à la fois** dans les traces et dans les relevés, `énergie_par_op = énergie_totale / ops_totales`, et le facteur émis est ce rapport divisé par le coefficient proxy par défaut. Un service à zéro op sur la fenêtre d'observation est ignoré plutôt que doté d'un facteur, puisque diviser par lui fabriquerait un nombre à partir d'aucune preuve.
+
+Deux formes d'entrée sont acceptées et détectées depuis l'en-tête CSV. `timestamp,service,power_watts` est intégré en énergie via l'intervalle entre relevés consécutifs **par service**, pour que des services entrelacés ne corrompent pas mutuellement leurs intervalles. `timestamp,service,energy_kwh` est pris tel quel. Les lignes commençant par `#` sont ignorées, car les exports de wattmètre portent couramment un préambule.
+
+Ce que cela ne fait pas, c'est transformer la figure en mesure. Le résultat reste porté par le ratio de comptage et garde une étiquette de modèle (`io_proxy_*+cal`) disant que c'est un modèle calibré et non une lecture. Une calibration dérivée sur un profil de charge et appliquée à un autre hérite des hypothèses du premier, raison pour laquelle le facteur est par service et non global.

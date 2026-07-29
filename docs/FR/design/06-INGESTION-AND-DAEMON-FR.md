@@ -74,7 +74,19 @@ Les spans RPC (`rpc.system`, par ex. gRPC ou Dubbo) sont examinés après SQL et
 
 Les spans messaging (`messaging.system`, une seule convention pour Kafka, RabbitMQ, Pulsar, SQS, NATS et JMS) sont examinés en dernier, avec `messaging.destination.name` comme cible et le nom du span en repli. Contrairement au RPC, ils ont leur propre `EventType::Messaging`, pour deux raisons : la destination ne doit pas passer par le normaliseur de chemins HTTP, qui masquerait un identifiant de compte SQS en `{id}`, et une publication mérite ses propres types de findings plutôt qu'une étiquette teintée HTTP. Seul `SpanKind::Producer` est admis, sur la même logique de double comptage que le RPC, à quoi s'ajoute qu'un consommateur qui fait du polling noierait les détecteurs d'occurrences.
 
-L'arête producteur vers consommateur est un span link OTel, pas une relation parent-enfant, et le consommateur démarre le plus souvent sa propre trace. `resolve_producer_link` remonte jusqu'à l'ancêtre `CONSUMER` le plus proche, lit son premier lien et porte l'identifiant de la trace productrice sur l'événement en `link_trace_id`. Le filtre sur `CONSUMER` compte : les batch span processors et les relations follows-from émettent aussi des liens. Un lien qui revient vers la trace du span est écarté. Les deux traces ne sont jamais fusionnées, voir [LIMITATIONS-FR.md](../LIMITATIONS-FR.md#messaging--traces-producteur-et-consommateur-reliées-pas-fusionnées) pour les raisons.
+L'arête producteur vers consommateur est un span link OTel, pas une relation parent-enfant, et le consommateur démarre le plus souvent sa propre trace. `resolve_producer_link` trouve le span `CONSUMER` qui porte ce lien, lit sa première entrée et pose l'identifiant de la trace productrice sur l'événement en `link_trace_id`. Le filtre sur `CONSUMER` compte : les batch span processors et les relations follows-from émettent aussi des liens. Un lien qui revient vers la trace du span est écarté. Les deux traces ne sont jamais fusionnées, voir [LIMITATIONS-FR.md](../LIMITATIONS-FR.md#messaging--traces-producteur-et-consommateur-reliées-pas-fusionnées) pour les raisons.
+
+**Deux topologies, parce que les instrumentations OTel ne placent pas `receive` au même endroit.** Certaines imbriquent le travail du handler **sous** le span `receive`, ce qu'une remontée d'ancêtres retrouve. L'instrumentation Kafka officielle OpenTelemetry Java et .NET ne fait pas cela : elle émet `receive` comme **frère** du travail qu'il déclenche, sous un parent commun.
+
+```
+order-consumed        INTERNAL   parent=""     links=[]
+├─ orders receive     CONSUMER   parent=root   links=[<trace productrice>]
+└─ postgresql         CLIENT     parent=root   links=[]        <- le span analysable
+```
+
+La chaîne d'ancêtres du span SQL est `postgresql -> order-consumed`, le `CONSUMER` porteur du lien n'y figure donc jamais. Une remontée d'ancêtres seule a manqué **100 %** des liens sur deux corpus capturés pendant que tous les tests unitaires restaient verts, justement parce qu'ils construisaient la forme ancêtre que le code attendait. La résolution essaie donc les frères d'abord, via un index des spans `CONSUMER` porteurs de lien indexés par parent, puis retombe sur la chaîne d'ancêtres.
+
+Cet index n'est construit que si la requête porte un span `CONSUMER` lié, et il sert aussi de garde par service : un service sans un tel span saute les deux recherches. L'indexation par parent impose une décision que la remontée d'ancêtres n'avait jamais eu à prendre, car plusieurs spans `receive` frères peuvent partager un parent. Le premier dans l'ordre du lot l'emporte, ce qui est déterministe mais arbitraire : rien dans les spans ne dit quel message a causé quelle requête.
 
 Les conventions sémantiques OTel legacy (pré-1.21) et stables (1.21+) sont toutes deux supportées : `db.statement` et `db.query.text` pour le SQL, `http.url` et `url.full` pour le HTTP, `http.method` et `http.request.method` pour le verbe, `http.status_code` et `http.response.status_code` pour le statut. Cela assure la compatibilité avec les anciens SDKs OTel comme avec les agents Java modernes (v2.x).
 
@@ -515,3 +527,27 @@ Le parsing est volontairement strict. Au-delà des checks au niveau hyper (nom t
 - Les inputs bruts plus longs que 8 KiB, pour borner le clone par tâche dans le fanout parallèle Tempo et stopper un `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` pathologique à la porte. Un JWT typique fait 2 à 4 KiB, 8 KiB laisse de la marge pour des tokens multi-claims longs sans ouvrir la porte à des blobs arbitraires.
 - Les valeurs vides après trim, qui enverraient un `Authorization:` inutile au backend et produiraient un 401 confus.
 - Les noms de header qui activeraient du request smuggling ou un override d'authority si user-supplied : `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Les utilisateurs voulant tweaker ceux-là devraient passer par un proxy local, pas par ce flag.
+
+## Ingestion des digests performance_schema MySQL
+
+`ingest/mysql_stat.rs` est le pendant MySQL de `pg_stat_statements` : il lit un export CSV ou JSON de `events_statements_summary_by_digest` et classe les points chauds SQL. Comme la voie Postgres, il n'a pas de `trace_id`, c'est donc une vue complémentaire côté base et non quelque chose que le corrélateur peut joindre.
+
+Deux détails mécaniques faciles à rater. Les colonnes de temps (`SUM_TIMER_WAIT`, `AVG_TIMER_WAIT`) arrivent en **picosecondes** et sont converties au parsing. Les classements sortent dans un ordre fixe (temps total, nombre d'appels, temps moyen, lignes examinées) et les consommateurs indexent dans ce tableau, un nouveau classement s'ajoute donc à la fin et les positions existantes ne bougent jamais.
+
+**Le pont digest vers trace est la partie intéressante.** Marquer un digest comme "vu dans les traces" demande de comparer le `DIGEST_TEXT` de MySQL à un template normalisé depuis du SQL applicatif, et une comparaison littérale ne correspond jamais : MySQL espace chaque token (`` `c` . `name` ``), met les mots-clés en majuscules et force les backticks, rien de tout cela ne survivant à la normalisation côté application. Les deux côtés sont donc canonicalisés d'abord, en retirant les backticks, en supprimant les espaces autour de la ponctuation, en réduisant les suites d'espaces et en passant en minuscules.
+
+Cette dernière étape a un plafond assumé qui mérite d'être écrit, car c'est un arbitrage et non un oubli : la mise en minuscules replie les identifiants en même temps que les mots-clés, donc sur un serveur sensible à la casse (`lower_case_table_names=0`) deux tables qui ne diffèrent que par la casse partagent une clé et le marqueur peut sur-correspondre. Ne replier que les mots-clés demanderait une table complète des mots-clés MySQL. Pour un marqueur informatif, la sur-correspondance est l'erreur la moins chère.
+
+## Gestion des signaux d'arrêt
+
+`shutdown.rs` se résout sur SIGINT partout, et en plus sur SIGTERM sous Unix, ce que Kubernetes envoie à la terminaison d'un pod, ce que `kill` envoie par défaut et ce que systemd utilise pour arrêter une unité. Les deux déclenchent le même nettoyage. Construisez le future une seule fois et faites `tokio::pin!` avant une boucle `select!`, sinon les listeners se réenregistrent à chaque itération.
+
+Une réserve mérite d'être connue avant de réutiliser ceci hors du daemon : sous Unix, l'enregistrement du handler SIGTERM est global au processus et définitif. Tokio ne restaure jamais la disposition par défaut, donc une fois ce future attendu, le processus ne meurt plus par défaut sur SIGTERM, pour le reste de sa vie, même après que le future a été détruit. C'est exactement ce que veut un daemon de longue durée et exactement ce que ne veut pas une commande one-shot.
+
+## Helpers d'ingestion partagés
+
+`ingest/lookback.rs` et `ingest/url_enc.rs` existent parce que `tempo` et `jaeger_query` avaient besoin des deux mêmes choses et commençaient chacun à faire pousser les siennes. Les deux gardent leur type d'erreur au site d'appel et ne partagent que la logique.
+
+Le parseur de lookback accepte les suffixes `h`, `m`, `s` et somme les formes composées (`2h30m` vaut 9000 s), avec de l'arithmétique vérifiée partout pour que `999999999h` remonte en erreur de débordement au lieu de boucler en release.
+
+Les helpers d'URL écrivent à la main un encodeur pour-cent minimal plutôt que de tirer `percent-encoding` pour douze lignes. Le validateur d'endpoint est volontairement étroit : il rejette un schéma autre que `http(s)` et les identifiants **dans l'autorité**, et accepte délibérément un `@` littéral dans le chemin ou la query, pour que `/api/traces?owner=foo%40example.com` fonctionne.

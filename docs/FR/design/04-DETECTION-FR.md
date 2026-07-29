@@ -620,3 +620,19 @@ Pour ajouter un nouveau langage :
 3. Définir un nouveau slice `*_RULES` et une variante générique fallback sur `Framework`.
 
 Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déjà `suggestions::enrich` à la fin de la passe de détection per-trace et les rendus CLI / JSON / SARIF gèrent déjà un `suggested_fix` optionnel.
+
+## Signatures de findings et acquittements
+
+`acknowledgments.rs` est la moitié batch/CI du workflow d'acquittement. Il charge `.perf-sentinel-acknowledgments.toml`, calcule une signature par finding, déplace les findings acquittés dans `report.acknowledged_findings`, puis réévalue la porte qualité sur ce qui reste. Le store runtime du daemon (`daemon/ack.rs`) partage le format de signature et est unioné avec le TOML au moment de la requête, le TOML l'emportant : c'est la référence immuable passée par revue de PR.
+
+**La signature est la pièce porteuse**, parce que c'est à elle qu'est épinglée la décision "on n'y touche pas" d'un opérateur. Sa forme est `<finding_type>:<service>:<endpoint_assaini>:<prefixe-sha256-du-template>`.
+
+- **Pourquoi un hash uniquement sur le template.** Le triplet `(finding_type, service, source_endpoint)` est déjà dans la signature, le hash ne désambiguïse donc que les templates au sein d'un même triplet, une population minuscule. Ses 32 caractères hexadécimaux (128 bits) ne sont donc pas de la résistance aux collisions pour elle-même, mais une défense en profondeur contre un acquittement qui masquerait un *autre* finding après une refonte SQL ou un renommage de service.
+- **Pourquoi `/` et l'espace deviennent `_`.** Pour que `:` reste un séparateur unique et non ambigu, qu'un opérateur peut découper au `cut -d:` dans un pipeline shell.
+- **Pourquoi les caractères BiDi et invisibles sont retirés** de `service` et `source_endpoint` (Trojan Source, CVE-2021-42574) : deux signatures qui s'affichent à l'identique ne doivent pas désigner deux entrées distinctes, sinon un acquittement devient invérifiable à la lecture.
+
+**La stabilité est un contrat, pas un détail d'implémentation.** Toute modification du format, de l'assainissement ou de la largeur du hash invalide silencieusement chaque fichier d'acquittements déployé, et l'échec est silencieux dans le pire sens : les findings que l'opérateur avait acceptés réapparaissent, ou pire, un acquittement périmé continue de correspondre à autre chose. Une suite de tests dédiée épingle le format pour cette raison. Traitez un changement de signature comme une rupture exigeant un ré-acquittement, et dites-le dans le changelog.
+
+**Réévaluer la porte est le point central.** Filtrer les findings sans relancer `quality_gate` laisserait `analyze --ci` en échec sur des findings que l'opérateur a explicitement acceptés, ce qui est toute la sémantique de "won't fix". La réévaluation tourne même quand rien n'a correspondu, pour que le champ de la porte soit toujours cohérent avec la liste finale de `findings` et non avec un instantané d'avant filtrage. `apply` vide aussi `acknowledged_findings` en premier, pour qu'un `Report` repassé dedans (un aller-retour JSON de référence) ne puisse pas accumuler de paires périmées.
+
+**L'expiration échoue en ouvert sur le finding, en fermé sur le fichier.** Un acquittement dont `expires_at` est passé est inactif et son finding revient. Une date malformée, en revanche, interrompt l'exécution : une faute de frappe ne doit pas élargir silencieusement l'ensemble acquitté.

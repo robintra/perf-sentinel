@@ -165,16 +165,19 @@ Le `+ 8` tient compte du plus long remplacement (`{uuid}` = 6 caractères, rempl
 
 ## Dispatcher de normalisation
 
-La fonction `normalize()` redirige vers le normaliseur SQL ou HTTP selon `event_type` :
+La fonction `normalize()` redirige selon `event_type` :
 
 ```rust
 pub fn normalize(event: SpanEvent) -> NormalizedEvent {
     match event.event_type {
         EventType::Sql => { /* sql::normalize_sql(...) */ }
         EventType::HttpOut => { /* http::normalize_http(...) */ }
+        EventType::Messaging => { /* "{operation} {target}", sans params */ }
     }
 }
 ```
+
+Le bras messaging ne normalise rien, volontairement : un nom de topic ou de file est déjà un template, il n'a aucune partie variable à extraire. Le faire passer par `normalize_http` masquerait les segments numériques en `{id}` et retirerait l'identifiant de compte d'un ARN de file SQS, fusionnant deux comptes AWS dans un seul template. La seule transformation appliquée vit dans `sanitize_span_event`, pas ici : une destination porteuse d'un schéma (`amqp://user:pass@host/q`) se voit retirer ses identifiants et sa query, car contrairement à SQL et HTTP ce bras n'a aucun parseur entre une chaîne fournie par l'opérateur et le template du finding. Une destination sans schéma est laissée octet pour octet, puisque `@` et `#` sont légaux dans un nom de file (`ORDERS@QM1`, `logs.#`) et que les réécrire fusionnerait des destinations distinctes.
 
 `normalize_all()` est un simple `events.into_iter().map(normalize).collect()`. Le `into_iter()` consomme le vecteur d'entrée et chaque `SpanEvent` est déplacé (pas cloné) dans le normaliseur.
 
