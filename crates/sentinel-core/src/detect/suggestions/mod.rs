@@ -133,14 +133,16 @@ impl MessagingSystem {
         }
     }
 
-    /// Semconv `messaging.system` value to fixes-table key. `activemq`
-    /// maps to JMS (the API the advice targets), `sqs` is a shorthand for
-    /// `aws_sqs`. Unlisted systems keep the generic suggestion.
+    /// Semconv `messaging.system` value to fixes-table key. Separators
+    /// are folded (`.`/`-` to `_`) because emitters spell SQS both
+    /// `aws_sqs` and `aws.sqs`. `activemq` maps to JMS, the API the
+    /// advice targets. Unlisted systems keep the generic suggestion.
     fn from_semconv(value: &str) -> Option<Self> {
-        match value.to_ascii_lowercase().as_str() {
+        let folded = value.to_ascii_lowercase().replace(['.', '-'], "_");
+        match folded.as_str() {
             "kafka" => Some(Self::Kafka),
             "rabbitmq" => Some(Self::RabbitMq),
-            "aws_sqs" | "sqs" => Some(Self::AwsSqs),
+            "aws_sqs" | "sqs" | "amazonsqs" => Some(Self::AwsSqs),
             "pulsar" => Some(Self::Pulsar),
             "nats" => Some(Self::Nats),
             "jms" | "activemq" => Some(Self::Jms),
@@ -1675,9 +1677,12 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
     }
 }
 
-/// The broker behind a messaging finding: normalize builds the template
-/// as `{messaging.system} {destination}`, so the first token carries the
-/// system verbatim. No span access needed, per the module contract.
+/// The broker behind a messaging finding, from the first token of the
+/// template (`normalize` builds it as `{operation} {target}`).
+///
+/// Only the OTLP path puts `messaging.system` in `operation`; a
+/// hand-written JSON input can put anything there, so an unknown token
+/// degrades to the generic suggestion.
 fn messaging_system_of(finding: &Finding) -> Option<MessagingSystem> {
     let system = finding.pattern.template.split_whitespace().next()?;
     MessagingSystem::from_semconv(system)
