@@ -9,7 +9,7 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 | Document                                 | Description                                                                       |
 |------------------------------------------|-----------------------------------------------------------------------------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md)       | Pipeline overview, module responsibilities, key types                             |
-| [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust           |
+| [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP         |
 | [CI.md](CI.md)                           | CI mode, GitHub Actions / GitLab CI / Jenkins recipes, PR regression detection    |
 
 ## Deployment
@@ -23,12 +23,12 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 
 | Document                             | Description                                                                                                       |
 |--------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| [CONFIGURATION.md](CONFIGURATION.md) | Full `.perf-sentinel.toml` reference (thresholds, detection, GreenOps, daemon)                                    |
+| [CONFIGURATION.md](CONFIGURATION.md) | Full `.perf-sentinel.toml` reference (thresholds, detection, GreenOps, broker energy, daemon)                                    |
 | [CLI.md](CLI.md)                     | Subcommand reference (`analyze`, `watch`, `report`, `diff`, `query`, `ack`, `inspect`, `disclose`, `verify-hash`) |
 | [METRICS.md](METRICS.md)             | Prometheus metrics exposed by the daemon on `/metrics`                                                            |
 | [QUERY-API.md](QUERY-API.md)         | Daemon HTTP API (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                     |
 | [SARIF.md](SARIF.md)                 | SARIF v2.1.0 output format for IDE and GitHub Code Scanning integration                                           |
-| [SCHEMA.md](SCHEMA.md)               | JSON Schema for the periodic disclosure report (`perf-sentinel-report v1.3`)                                      |
+| [SCHEMA.md](SCHEMA.md)               | JSON Schema for the periodic disclosure report (`perf-sentinel-report v1.5`)                                      |
 
 ## Features
 
