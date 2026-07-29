@@ -7,7 +7,7 @@ Documentation utilisateur de perf-sentinel. Pour la documentation de conception 
 | Document                                       | Description                                                                                |
 |------------------------------------------------|--------------------------------------------------------------------------------------------|
 | [ARCHITECTURE-FR.md](ARCHITECTURE-FR.md)       | Vue d'ensemble du pipeline, responsabilités des modules, types clés                        |
-| [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust            |
+| [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP |
 | [CI-FR.md](CI-FR.md)                           | Mode CI, recettes GitHub Actions / GitLab CI / Jenkins, détection de régression sur PR     |
 
 ## Déploiement
@@ -21,12 +21,12 @@ Documentation utilisateur de perf-sentinel. Pour la documentation de conception 
 
 | Document                                   | Description                                                                                                               |
 |--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| [CONFIGURATION-FR.md](CONFIGURATION-FR.md) | Référence complète `.perf-sentinel.toml` (seuils, détection, GreenOps, daemon)                                            |
+| [CONFIGURATION-FR.md](CONFIGURATION-FR.md) | Référence complète `.perf-sentinel.toml` (seuils, détection, GreenOps, énergie broker, daemon)                            |
 | [CLI-FR.md](CLI-FR.md)                     | Référence des sous-commandes (`analyze`, `watch`, `report`, `diff`, `query`, `ack`, `inspect`, `disclose`, `verify-hash`) |
 | [METRICS-FR.md](METRICS-FR.md)             | Métriques Prometheus exposées par le daemon sur `/metrics`                                                                |
 | [QUERY-API-FR.md](QUERY-API-FR.md)         | API HTTP du daemon (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                          |
 | [SARIF-FR.md](SARIF-FR.md)                 | Format de sortie SARIF v2.1.0 pour l'intégration IDE et GitHub Code Scanning                                              |
-| [SCHEMA-FR.md](SCHEMA-FR.md)               | Schéma JSON du rapport de divulgation périodique (`perf-sentinel-report v1.3`)                                            |
+| [SCHEMA-FR.md](SCHEMA-FR.md)               | Schéma JSON du rapport de divulgation périodique (`perf-sentinel-report v1.5`)                                            |
 
 ## Fonctionnalités
 
@@ -43,7 +43,7 @@ Documentation utilisateur de perf-sentinel. Pour la documentation de conception 
 | Document                                       | Description                                                                         |
 |------------------------------------------------|-------------------------------------------------------------------------------------|
 | [RUNBOOK-FR.md](RUNBOOK-FR.md)                 | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production |
-| [ENERGY-FR.md](ENERGY-FR.md)                   | Synthèse vulgarisée : comment les comptages deviennent des kWh et des gCO2    |
+| [ENERGY-FR.md](ENERGY-FR.md)                   | Synthèse vulgarisée : comment les comptages deviennent des kWh et des gCO2, base de données et broker compris |
 | [METHODOLOGY-FR.md](METHODOLOGY-FR.md)         | Chaîne de calcul des traces vers `efficiency_score`, `energy_kwh`, `carbon_kgco2eq` |
 | [LIMITATIONS-FR.md](LIMITATIONS-FR.md)         | Compromis connus, contraintes amont, limites de la détection                        |
 
