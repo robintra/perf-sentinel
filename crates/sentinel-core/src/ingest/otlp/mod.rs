@@ -1266,61 +1266,76 @@ pub fn convert_otlp_request_counted(
     };
 
     for resource_spans in &request.resource_spans {
-        // Build the per-Resource Arc<str> once, then Arc::clone into each span.
-        // A resource_spans block routinely carries hundreds of spans for the
-        // same service.name, so this collapses N allocations to one.
         let service_name = resource_service_name(resource_spans);
-        let service_arc: Arc<str> = Arc::from(service_name);
-        let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
-        let consumer_index = consumer_indexes
-            .get(service_name)
-            .unwrap_or(&empty_consumers);
-
-        // cloud.region: resource-level with span-level fallback in convert_span.
-        // Invalid values silently dropped (sanitization at ingest boundary).
-        let resource_cloud_region: Option<Arc<str>> = resource_spans
-            .resource
-            .as_ref()
-            .and_then(|r| get_str_attribute(&r.attributes, "cloud.region"))
-            .filter(|s| crate::score::carbon::is_valid_region_id(s))
-            .map(Arc::from);
-
-        let scope_index = build_scope_index(resource_spans);
-        let classified = classify_resource_spans(resource_spans);
-        let stitch = compute_stitch_decisions(resource_spans, span_index, &classified);
-
-        let mut span_idx = 0usize;
-        for scope_spans in &resource_spans.scope_spans {
-            for span in &scope_spans.spans {
-                stats.received += 1;
-                let cached_attrs = classified.get(span_idx);
-                span_idx += 1;
-                let stitched_statement = match stitch.get(&span_key(span)) {
-                    Some(StitchDecision::Suppress) => {
-                        stats.count_filtered(OtlpSpanFilterReason::MergedDbSpan);
-                        continue;
-                    }
-                    Some(StitchDecision::Adopt(statement)) => Some(*statement),
-                    None => None,
-                };
-                match convert_span(
-                    span,
-                    &service_arc,
-                    resource_cloud_region.as_ref(),
-                    span_index,
-                    &scope_index,
-                    stitched_statement,
-                    cached_attrs,
-                    consumer_index,
-                ) {
-                    Ok(event) => events.push(event),
-                    Err(reason) => stats.count_filtered(reason),
-                }
-            }
-        }
+        convert_resource_spans(
+            resource_spans,
+            span_indexes.get(service_name).unwrap_or(&empty_index),
+            consumer_indexes
+                .get(service_name)
+                .unwrap_or(&empty_consumers),
+            &mut events,
+            &mut stats,
+        );
     }
 
     (events, stats)
+}
+
+/// Convert one `ResourceSpans` block, appending to `events` and `stats`.
+fn convert_resource_spans<'a>(
+    resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+    span_index: &HashMap<&'a [u8], &'a Span>,
+    consumer_index: &HashMap<&'a [u8], Vec<&'a Span>>,
+    events: &mut Vec<SpanEvent>,
+    stats: &mut SpanConversionStats,
+) {
+    // Build the per-Resource Arc<str> once, then Arc::clone into each span.
+    // A resource_spans block routinely carries hundreds of spans for the
+    // same service.name, so this collapses N allocations to one.
+    let service_arc: Arc<str> = Arc::from(resource_service_name(resource_spans));
+
+    // cloud.region: resource-level with span-level fallback in convert_span.
+    // Invalid values silently dropped (sanitization at ingest boundary).
+    let resource_cloud_region: Option<Arc<str>> = resource_spans
+        .resource
+        .as_ref()
+        .and_then(|r| get_str_attribute(&r.attributes, "cloud.region"))
+        .filter(|s| crate::score::carbon::is_valid_region_id(s))
+        .map(Arc::from);
+
+    let scope_index = build_scope_index(resource_spans);
+    let classified = classify_resource_spans(resource_spans);
+    let stitch = compute_stitch_decisions(resource_spans, span_index, &classified);
+
+    let mut span_idx = 0usize;
+    for scope_spans in &resource_spans.scope_spans {
+        for span in &scope_spans.spans {
+            stats.received += 1;
+            let cached_attrs = classified.get(span_idx);
+            span_idx += 1;
+            let stitched_statement = match stitch.get(&span_key(span)) {
+                Some(StitchDecision::Suppress) => {
+                    stats.count_filtered(OtlpSpanFilterReason::MergedDbSpan);
+                    continue;
+                }
+                Some(StitchDecision::Adopt(statement)) => Some(*statement),
+                None => None,
+            };
+            match convert_span(
+                span,
+                &service_arc,
+                resource_cloud_region.as_ref(),
+                span_index,
+                &scope_index,
+                stitched_statement,
+                cached_attrs,
+                consumer_index,
+            ) {
+                Ok(event) => events.push(event),
+                Err(reason) => stats.count_filtered(reason),
+            }
+        }
+    }
 }
 
 /// Classify why a span was skipped: distinguishes "internal span" from
