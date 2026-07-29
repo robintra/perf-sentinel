@@ -693,8 +693,9 @@ fn take_broker_energy(
     if declared.is_some_and(score::broker_static::StaticBrokerState::clear_outage_billed)
         && let Some(state) = alumet_state
     {
-        // Drop the recovery delta once, here only: it reaches back over
-        // wall clock the declaration billed.
+        // Drop the recovery delta: it reaches back over wall clock the
+        // declaration billed. The stale branch above drops for the same
+        // reason, so both sites are gated on the same marker.
         state.discard_pending();
     }
     let measured = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms));
