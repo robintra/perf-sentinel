@@ -43,6 +43,28 @@ const NON_SQL_DB_SYSTEMS: &[&str] = &[
     "influxdb",
 ];
 
+/// What the tag-based gates (Jaeger, Zipkin) can classify a span as.
+///
+/// Deliberately narrower than [`EventType`]: those gates admit a span on
+/// `db.statement` or on an HTTP target, never on `messaging.system`.
+/// Matching on this instead of `EventType` makes adding a third case a
+/// compile error in every downstream match, rather than a publish
+/// silently inheriting the HTTP arm and being labelled `GET`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TagIoKind {
+    Sql,
+    HttpOut,
+}
+
+impl TagIoKind {
+    pub(crate) const fn event_type(self) -> crate::event::EventType {
+        match self {
+            Self::Sql => crate::event::EventType::Sql,
+            Self::HttpOut => crate::event::EventType::HttpOut,
+        }
+    }
+}
+
 /// True when `db.system` names a known non-SQL datastore. Such spans
 /// carry a `db.statement` that is not SQL, so they are dropped at
 /// ingestion rather than fed to the SQL tokenizer (perf-sentinel does
