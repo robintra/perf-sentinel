@@ -78,7 +78,16 @@ impl StaticBrokerState {
         self.billed_during_outage.store(true, Ordering::SeqCst);
     }
 
-    /// Consume the outage marker, returning whether one was set.
+    /// Whether this declaration has billed a stretch the measurement did not
+    /// cover. Non-consuming on purpose: the marker states a fact about the
+    /// timeline, not about one tick, and a tick that bills nothing must not
+    /// erase it.
+    pub fn outage_billed(&self) -> bool {
+        self.billed_during_outage.load(Ordering::SeqCst)
+    }
+
+    /// Consume the outage marker, returning whether one was set. Only the
+    /// recovery path, which acts on it, may clear it.
     pub fn clear_outage_billed(&self) -> bool {
         self.billed_during_outage.swap(false, Ordering::SeqCst)
     }

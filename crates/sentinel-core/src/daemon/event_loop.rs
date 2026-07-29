@@ -661,7 +661,10 @@ fn take_broker_energy(
     let measured_owns_the_timeline =
         alumet_state.is_some_and(|b| b.has_recent_sample(now, alumet_staleness_ms));
     if !measured_owns_the_timeline {
-        if declared.is_some_and(score::broker_static::StaticBrokerState::clear_outage_billed) {
+        // Read, never consume: a sub-second stale tick bills nothing (see
+        // MIN_BILLABLE_MS) and would otherwise erase the marker before the
+        // recovery path can act on it.
+        if declared.is_some_and(score::broker_static::StaticBrokerState::outage_billed) {
             // The declaration already billed this stretch, so whatever the
             // series banked since covers time someone else paid for.
             if let Some(state) = alumet_state {
@@ -1600,6 +1603,41 @@ mod tests {
         assert!(
             m.is_none(),
             "the banked delta covers wall clock the declaration already billed"
+        );
+    }
+
+    #[test]
+    fn sub_second_stale_ticks_do_not_erase_the_outage_marker() {
+        // Regression: the marker states a fact about the timeline. A stale
+        // tick spaced under MIN_BILLABLE_MS bills nothing, so consuming it
+        // there lost the fact and the recovery delta was billed twice. With
+        // trace_ttl_ms = 1000 the eviction sweep lands every 500 ms, so this
+        // cadence is the default under continuous traffic, not an edge case.
+        let measured = DbEnergyState::new();
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+        measured.add_window_kwh(1e-6, 1_000);
+        take_broker_energy(Some(&measured), Some(&state), 1_000, 10_000);
+
+        // Label gone, endpoint alive: one billing tick sets the marker.
+        measured.mark_alive(100_000);
+        let (_, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
+        assert!(d.is_some(), "the declaration bills the outage");
+
+        // Then several sub-second stale ticks, none of which bills.
+        for t in [100_300_u64, 100_600, 100_900] {
+            measured.mark_alive(t);
+            let (_, billed) = take_broker_energy(Some(&measured), Some(&state), t, 10_000);
+            assert!(billed.is_none(), "a sub-second tick bills nothing at t={t}");
+        }
+
+        // The catch-up sample still covers wall clock already billed.
+        measured.add_window_kwh(5e-6, 101_000);
+        measured.mark_alive(200_000);
+        let (m, _) = take_broker_energy(Some(&measured), Some(&state), 200_000, 10_000);
+        assert!(
+            m.is_none(),
+            "the marker must survive ticks that bill nothing"
         );
     }
 
