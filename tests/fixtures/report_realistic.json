@@ -8,7 +8,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM customers WHERE id = 7",
     "duration_us": 1200,
-    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/7/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 142,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -23,7 +26,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 101",
     "duration_us": 820,
-    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/7/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -38,7 +44,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 102",
     "duration_us": 810,
-    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/7/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -53,7 +62,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 103",
     "duration_us": 830,
-    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/7/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -68,7 +80,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 104",
     "duration_us": 790,
-    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/7/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -83,12 +98,14 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 105",
     "duration_us": 800,
-    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/7/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
-
   {
     "timestamp": "2026-04-20T10:00:01.000Z",
     "trace_id": "trace-order-02",
@@ -98,7 +115,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM customers WHERE id = 8",
     "duration_us": 1100,
-    "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/8/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 142,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -113,7 +133,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 201",
     "duration_us": 800,
-    "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/8/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -128,7 +151,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 202",
     "duration_us": 810,
-    "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/8/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -143,7 +169,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 203",
     "duration_us": 820,
-    "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/8/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -158,7 +187,10 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 204",
     "duration_us": 780,
-    "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/8/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
@@ -173,12 +205,14 @@
     "operation": "SELECT",
     "target": "SELECT * FROM order_item WHERE order_id = 205",
     "duration_us": 790,
-    "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "source": {
+      "endpoint": "POST /api/orders/8/checkout",
+      "method": "OrderService.checkout"
+    },
     "code_filepath": "com/example/order/OrderService.java",
     "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
-
   {
     "timestamp": "2026-04-20T10:00:02.000Z",
     "trace_id": "trace-payment-01",
@@ -188,7 +222,10 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 555",
     "duration_us": 450,
-    "source": { "endpoint": "GET /api/payment/555", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/555",
+      "method": "PaymentController.get"
+    }
   },
   {
     "timestamp": "2026-04-20T10:00:02.010Z",
@@ -200,7 +237,10 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 555",
     "duration_us": 440,
-    "source": { "endpoint": "GET /api/payment/555", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/555",
+      "method": "PaymentController.get"
+    }
   },
   {
     "timestamp": "2026-04-20T10:00:02.020Z",
@@ -212,7 +252,10 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 555",
     "duration_us": 430,
-    "source": { "endpoint": "GET /api/payment/555", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/555",
+      "method": "PaymentController.get"
+    }
   },
   {
     "timestamp": "2026-04-20T10:00:02.030Z",
@@ -224,9 +267,11 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 555",
     "duration_us": 435,
-    "source": { "endpoint": "GET /api/payment/555", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/555",
+      "method": "PaymentController.get"
+    }
   },
-
   {
     "timestamp": "2026-04-20T10:00:03.000Z",
     "trace_id": "trace-payment-02",
@@ -236,7 +281,10 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 999",
     "duration_us": 440,
-    "source": { "endpoint": "GET /api/payment/999", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/999",
+      "method": "PaymentController.get"
+    }
   },
   {
     "timestamp": "2026-04-20T10:00:03.010Z",
@@ -248,7 +296,10 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 999",
     "duration_us": 430,
-    "source": { "endpoint": "GET /api/payment/999", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/999",
+      "method": "PaymentController.get"
+    }
   },
   {
     "timestamp": "2026-04-20T10:00:03.020Z",
@@ -260,9 +311,11 @@
     "operation": "SELECT",
     "target": "SELECT id, status FROM payment WHERE id = 999",
     "duration_us": 445,
-    "source": { "endpoint": "GET /api/payment/999", "method": "PaymentController.get" }
+    "source": {
+      "endpoint": "GET /api/payment/999",
+      "method": "PaymentController.get"
+    }
   },
-
   {
     "timestamp": "2026-04-20T10:00:04.000Z",
     "trace_id": "trace-chat-01",
@@ -272,7 +325,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1250000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -284,7 +340,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1310000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -296,7 +355,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1290000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -308,7 +370,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1280000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -320,7 +385,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1350000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -332,7 +400,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1260000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -344,7 +415,10 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1220000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
   {
@@ -356,10 +430,12 @@
     "operation": "POST",
     "target": "http://notification-svc/api/notify",
     "duration_us": 1330000,
-    "source": { "endpoint": "POST /api/chat/send", "method": "ChatController.send" },
+    "source": {
+      "endpoint": "POST /api/chat/send",
+      "method": "ChatController.send"
+    },
     "status_code": 200
   },
-
   {
     "timestamp": "2026-04-20T10:00:12.000Z",
     "trace_id": "trace-clean-01",
@@ -369,7 +445,10 @@
     "operation": "SELECT",
     "target": "SELECT id FROM orders WHERE id = 12",
     "duration_us": 400,
-    "source": { "endpoint": "GET /api/orders/12", "method": "OrderController.get" }
+    "source": {
+      "endpoint": "GET /api/orders/12",
+      "method": "OrderController.get"
+    }
   },
   {
     "timestamp": "2026-04-20T10:00:13.000Z",
@@ -380,7 +459,100 @@
     "operation": "GET",
     "target": "http://billing-svc/api/status/42",
     "duration_us": 35000,
-    "source": { "endpoint": "GET /api/payment/summary", "method": "PaymentController.summary" },
+    "source": {
+      "endpoint": "GET /api/payment/summary",
+      "method": "PaymentController.summary"
+    },
     "status_code": 200
+  },
+  {
+    "timestamp": "2026-04-20T10:02:10.100Z",
+    "trace_id": "trace-notify-01",
+    "span_id": "n1-msg-1",
+    "parent_span_id": "n1-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2600,
+    "source": {
+      "endpoint": "POST /api/orders/7/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    }
+  },
+  {
+    "timestamp": "2026-04-20T10:02:10.130Z",
+    "trace_id": "trace-notify-01",
+    "span_id": "n1-msg-2",
+    "parent_span_id": "n1-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2740,
+    "source": {
+      "endpoint": "POST /api/orders/7/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    }
+  },
+  {
+    "timestamp": "2026-04-20T10:02:10.160Z",
+    "trace_id": "trace-notify-01",
+    "span_id": "n1-msg-3",
+    "parent_span_id": "n1-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2880,
+    "source": {
+      "endpoint": "POST /api/orders/7/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    }
+  },
+  {
+    "timestamp": "2026-04-20T10:02:10.190Z",
+    "trace_id": "trace-notify-01",
+    "span_id": "n1-msg-4",
+    "parent_span_id": "n1-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 3020,
+    "source": {
+      "endpoint": "POST /api/orders/7/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    }
+  },
+  {
+    "timestamp": "2026-04-20T10:02:10.220Z",
+    "trace_id": "trace-notify-01",
+    "span_id": "n1-msg-5",
+    "parent_span_id": "n1-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 3160,
+    "source": {
+      "endpoint": "POST /api/orders/7/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    }
+  },
+  {
+    "timestamp": "2026-04-20T10:02:10.250Z",
+    "trace_id": "trace-notify-01",
+    "span_id": "n1-msg-6",
+    "parent_span_id": "n1-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 3300,
+    "source": {
+      "endpoint": "POST /api/orders/7/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    }
   }
 ]
