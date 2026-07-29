@@ -4,7 +4,7 @@ This page tells the whole energy story in plain language: what perf-sentinel cou
 
 ## The idea in one paragraph
 
-perf-sentinel reads distributed traces and counts every I/O operation an application performs: SQL queries and outbound HTTP calls. Its detectors flag the operations that did not need to happen, mainly N+1 loops and redundant repeated calls. The ratio between avoidable and total operations is the waste ratio, and it is the most robust number the tool produces because it does not depend on any energy model at all. Everything else in this page is about turning the operation counts into energy and carbon: the waste ratio tells you which share is wasted, the energy pipeline tells you how much that share weighs in kWh and gCO2.
+perf-sentinel reads distributed traces and counts every I/O operation an application performs: SQL queries, outbound HTTP calls and broker publishes. Its detectors flag the operations that did not need to happen, mainly N+1 loops and redundant repeated calls. The ratio between avoidable and total operations is the waste ratio, and it is the most robust number the tool produces because it does not depend on any energy model at all. Everything else in this page is about turning the operation counts into energy and carbon: the waste ratio tells you which share is wasted, the energy pipeline tells you how much that share weighs in kWh and gCO2.
 
 ## Where each number comes from
 

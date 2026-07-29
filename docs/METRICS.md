@@ -111,11 +111,11 @@ proxy or gateway logs, or wire a tower-http rejection counter in their
 own stack.
 
 The two span-level counters expose the retention ratio of the
-deliberate I/O filter (only SQL and outbound-HTTP spans are analyzable,
-see [`LIMITATIONS.md`](./LIMITATIONS.md)). A fleet whose
-instrumentation strips `db.statement` or `http.url` converts every
-request to zero events while requests keep returning success, and only
-this counter pair makes that visible:
+deliberate I/O filter (only SQL, outbound-HTTP and broker-publish
+spans are analyzable, see [`LIMITATIONS.md`](./LIMITATIONS.md)). A
+fleet whose instrumentation strips `db.statement` or `http.url`
+converts every request to zero events while requests keep returning
+success, and only this counter pair makes that visible:
 `perf_sentinel_otlp_spans_received_total` rising while
 `perf_sentinel_events_processed_total` stays flat means the spans
 arrive but none carries an analyzable attribute.

@@ -113,9 +113,10 @@ monitorer les logs du proxy ou de la gateway upstream, ou câbler un
 counter de rejet tower-http dans leur stack.
 
 Les deux counters au niveau span exposent le taux de rétention du
-filtre I/O délibéré (seuls les spans SQL et HTTP sortants sont
-analysables, voir [`LIMITATIONS-FR.md`](./LIMITATIONS-FR.md)). Une
-flotte dont l'instrumentation supprime `db.statement` ou `http.url`
+filtre I/O délibéré (seuls les spans SQL, HTTP sortants et de
+publication vers un broker sont analysables, voir
+[`LIMITATIONS-FR.md`](./LIMITATIONS-FR.md)). Une flotte dont
+l'instrumentation supprime `db.statement` ou `http.url`
 convertit chaque requête en zéro événement alors que les requêtes
 continuent de répondre en succès, et seule cette paire de counters
 rend cela visible : `perf_sentinel_otlp_spans_received_total` qui

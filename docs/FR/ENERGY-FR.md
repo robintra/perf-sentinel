@@ -4,7 +4,7 @@ Cette page raconte toute l'histoire de l'énergie en langage clair : ce que perf
 
 ## L'idée en un paragraphe
 
-perf-sentinel lit des traces distribuées et compte chaque opération d'I/O qu'une application effectue : requêtes SQL et appels HTTP sortants. Ses détecteurs signalent les opérations qui n'avaient pas besoin d'exister, principalement les boucles N+1 et les appels répétés redondants. Le rapport entre opérations évitables et opérations totales est le ratio de gaspillage, et c'est le chiffre le plus robuste que produit l'outil parce qu'il ne dépend d'aucun modèle d'énergie. Tout le reste de cette page consiste à transformer les comptages en énergie et en carbone : le ratio de gaspillage dit quelle part est gaspillée, la chaîne d'énergie dit combien cette part pèse en kWh et en gCO2.
+perf-sentinel lit des traces distribuées et compte chaque opération d'I/O qu'une application effectue : requêtes SQL, appels HTTP sortants et publications vers un broker. Ses détecteurs signalent les opérations qui n'avaient pas besoin d'exister, principalement les boucles N+1 et les appels répétés redondants. Le rapport entre opérations évitables et opérations totales est le ratio de gaspillage, et c'est le chiffre le plus robuste que produit l'outil parce qu'il ne dépend d'aucun modèle d'énergie. Tout le reste de cette page consiste à transformer les comptages en énergie et en carbone : le ratio de gaspillage dit quelle part est gaspillée, la chaîne d'énergie dit combien cette part pèse en kWh et en gCO2.
 
 ## D'où vient chaque chiffre
 

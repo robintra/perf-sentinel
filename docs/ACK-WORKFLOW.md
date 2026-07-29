@@ -10,7 +10,7 @@ helper introduced in 0.5.22 plugs into the daemon side.
 
 > **What is a finding signature.** A signature is a stable identifier
 > for a finding, built by hashing `(finding_type, service, normalised
-> endpoint template, normalised SQL/HTTP query template)` with SHA-256
+> endpoint template, normalised query, URL or destination template)` with SHA-256
 > and keeping a 32-hex prefix. The same finding produced by two daemon
 > restarts yields the same signature, so an ack written once stays
 > attached to its target across restarts and across analyzers. The
@@ -239,7 +239,7 @@ gates until you either:
 
 Same applies to non-cosmetic changes to `http.route` (e.g.
 `/api/orders/{id}` → `/api/v2/orders/{id}`) and to changes to the
-SQL/HTTP template that the detector builds (a refactor that adds a
+normalised template that the detector builds (a refactor that adds a
 `WHERE` clause changes the normalized template, hence the
 sha256 prefix). Plan these renames alongside an ack-file refresh PR.
 
