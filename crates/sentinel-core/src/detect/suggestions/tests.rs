@@ -1282,6 +1282,95 @@ fn fix_table_cardinality_is_pinned() {
 }
 
 #[test]
+fn messaging_fix_table_cardinality_is_pinned() {
+    // Same contract as the FIXES pin: bump deliberately, never silently.
+    assert_eq!(MESSAGING_FIXES.len(), 12);
+    for system in [
+        MessagingSystem::Kafka,
+        MessagingSystem::RabbitMq,
+        MessagingSystem::AwsSqs,
+        MessagingSystem::Pulsar,
+        MessagingSystem::Nats,
+        MessagingSystem::Jms,
+    ] {
+        for ft in [FindingType::NPlusOneMessaging, FindingType::SlowMessaging] {
+            assert!(
+                MESSAGING_FIXES.contains_key(&(ft.clone(), system)),
+                "MESSAGING_FIXES entry ({ft:?}, {system:?}) is missing"
+            );
+        }
+    }
+}
+
+// ── Messaging system detection ───────────────────────────────
+
+fn messaging_finding(ft: FindingType, template: &str) -> Finding {
+    let mut f = make_finding(ft, Severity::Warning);
+    f.pattern.template = template.to_string();
+    f.suggested_fix = None;
+    f
+}
+
+#[test]
+fn messaging_fix_is_keyed_on_the_template_system_token() {
+    let f = messaging_finding(FindingType::NPlusOneMessaging, "kafka order.events");
+    let fix = lookup_fix(&f).expect("kafka has a batching fix");
+    assert_eq!(fix.framework, "kafka");
+    assert_eq!(fix.pattern, "n_plus_one_messaging");
+
+    let f = messaging_finding(FindingType::SlowMessaging, "rabbitmq work.queue");
+    assert_eq!(lookup_fix(&f).expect("rabbitmq").framework, "rabbitmq");
+}
+
+#[test]
+fn messaging_system_aliases_resolve() {
+    // `sqs` shorthand and `activemq` both land on the API-level advice.
+    let f = messaging_finding(FindingType::NPlusOneMessaging, "sqs my-queue");
+    assert_eq!(lookup_fix(&f).expect("sqs alias").framework, "aws_sqs");
+
+    let f = messaging_finding(FindingType::SlowMessaging, "activemq orders");
+    assert_eq!(lookup_fix(&f).expect("activemq").framework, "jms");
+
+    // Lowercase per semconv, but a miscased emitter still resolves.
+    let f = messaging_finding(FindingType::NPlusOneMessaging, "Kafka order.events");
+    assert_eq!(lookup_fix(&f).expect("miscased").framework, "kafka");
+}
+
+#[test]
+fn unknown_messaging_system_keeps_the_generic_suggestion() {
+    for template in ["rocketmq topic", "servicebus q", ""] {
+        let f = messaging_finding(FindingType::NPlusOneMessaging, template);
+        assert_eq!(lookup_fix(&f), None, "template {template:?}");
+    }
+}
+
+#[test]
+fn messaging_findings_never_take_the_framework_path() {
+    // A Java-scoped messaging finding must not pick up a JPA fix: the
+    // lookup routes on finding type before any framework signal.
+    let mut f = messaging_finding(FindingType::NPlusOneMessaging, "rocketmq topic");
+    f.instrumentation_scopes = vec!["io.opentelemetry.jdbc".to_string()];
+    assert_eq!(lookup_fix(&f), None);
+}
+
+#[test]
+fn enrich_attaches_the_messaging_fix() {
+    let mut findings = vec![messaging_finding(
+        FindingType::NPlusOneMessaging,
+        "kafka order.events",
+    )];
+    enrich(&mut findings);
+    let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+    assert_eq!(fix.framework, "kafka");
+    assert!(
+        fix.reference_url
+            .as_deref()
+            .unwrap()
+            .starts_with("https://")
+    );
+}
+
+#[test]
 fn lookup_table_misses_for_pool_saturation_under_webflux() {
     // (PoolSaturation, JavaWebFlux) is intentionally never mapped:
     // WebFlux is a reactor runtime, pool saturation is a server-side
@@ -1618,6 +1707,11 @@ fn fix_table_reference_urls_are_https_and_on_allowed_domains() {
         // Cross-language references (vendor-neutral)
         "www.postgresql.org",
         "martinfowler.com",
+        // Messaging brokers (MESSAGING_FIXES)
+        "docs.confluent.io",
+        "www.rabbitmq.com",
+        "docs.aws.amazon.com",
+        "pulsar.apache.org",
     ];
     // `github.com` is broad — pin to explicit `<org>/<repo>` paths so a
     // future PR pointing at a typo-squat repo trips the guard.
@@ -1629,13 +1723,23 @@ fn fix_table_reference_urls_are_https_and_on_allowed_domains() {
         "github.com/sony/gobreaker",
         "github.com/ruby-concurrency/concurrent-ruby",
     ];
-    for ((ft, fw), fix) in FIXES.iter() {
+    // Both fix tables flow into the same CLI / JSON / SARIF surfaces,
+    // so both are held to the same URL policy.
+    let labelled = FIXES
+        .iter()
+        .map(|((ft, fw), fix)| (format!("({ft:?}, {fw:?})"), fix))
+        .chain(
+            MESSAGING_FIXES
+                .iter()
+                .map(|((ft, sys), fix)| (format!("({ft:?}, {sys:?})"), fix)),
+        );
+    for (key, fix) in labelled {
         let Some(url) = fix.reference_url.as_deref() else {
             continue;
         };
         assert!(
             url.starts_with("https://"),
-            "({ft:?}, {fw:?}) reference_url must start with https://, got {url:?}"
+            "{key} reference_url must start with https://, got {url:?}"
         );
         let after_scheme = &url["https://".len()..];
         // Reject userinfo (`user@host`) before any path separator: a URL
@@ -1646,7 +1750,7 @@ fn fix_table_reference_urls_are_https_and_on_allowed_domains() {
             .unwrap_or(after_scheme.len());
         assert!(
             !after_scheme[..authority_end].contains('@'),
-            "({ft:?}, {fw:?}) reference_url must not carry userinfo, got {url:?}"
+            "{key} reference_url must not carry userinfo, got {url:?}"
         );
         // Strip an optional `:<port>` before the suffix match so a
         // legit `https://docs.spring.io:8443/...` is not rejected
@@ -1669,7 +1773,7 @@ fn fix_table_reference_urls_are_https_and_on_allowed_domains() {
             });
         assert!(
             host_ok || github_path_ok,
-            "({ft:?}, {fw:?}) reference_url {url:?} not allowed; add the host \
+            "{key} reference_url {url:?} not allowed; add the host \
              to ALLOWED_DOMAIN_SUFFIXES or the `<org>/<repo>` path to \
              ALLOWED_GITHUB_PREFIXES"
         );

@@ -4,9 +4,12 @@
 //! instrumentation scopes, `code_location` or service name reveal the
 //! framework that produced the anti-pattern. Covers Java, C#, Rust,
 //! Python, Go, Node.js/TypeScript, Ruby and PHP across all ten
-//! anti-patterns, with a per-language `*Generic` fallback when no
-//! framework-specific recommendation applies. Coverage history is in
-//! `docs/design/04-DETECTION.md`.
+//! protocol anti-patterns, with a per-language `*Generic` fallback when
+//! no framework-specific recommendation applies. The two messaging
+//! anti-patterns are keyed by broker technology instead (Kafka,
+//! `RabbitMQ`, SQS, Pulsar, NATS, JMS): their remediation lives in the
+//! broker client's batching API, which the application framework does
+//! not name. Coverage history is in `docs/design/04-DETECTION.md`.
 //!
 //! Detection is cheap and deterministic: only fields already present
 //! on [`Finding`] are read (no span-level access, no hot-path
@@ -31,7 +34,9 @@ pub struct SuggestedFix {
     /// re-reading the parent.
     pub pattern: String,
     /// Framework tag this fix applies to (e.g. `java_jpa`,
-    /// `csharp_ef_core`, `rust_diesel`). Stable enum-like string.
+    /// `csharp_ef_core`, `rust_diesel`), or the broker technology for
+    /// the messaging finding types (e.g. `kafka`, `aws_sqs`). Stable
+    /// enum-like string.
     pub framework: String,
     /// Short, imperative remediation sentence.
     pub recommendation: String,
@@ -98,6 +103,48 @@ impl Framework {
             Self::PhpLaravelEloquent => "php_laravel_eloquent",
             Self::PhpDoctrine => "php_doctrine",
             Self::PhpGeneric => "php_generic",
+        }
+    }
+}
+
+/// Broker technology tag for the messaging fixes table, private like
+/// [`Framework`]. The axis differs on purpose: a publish anti-pattern is
+/// fixed in the broker client's batching API, which the framework does
+/// not name. Rationale in `docs/design/04-DETECTION.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum MessagingSystem {
+    Kafka,
+    RabbitMq,
+    AwsSqs,
+    Pulsar,
+    Nats,
+    Jms,
+}
+
+impl MessagingSystem {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Kafka => "kafka",
+            Self::RabbitMq => "rabbitmq",
+            Self::AwsSqs => "aws_sqs",
+            Self::Pulsar => "pulsar",
+            Self::Nats => "nats",
+            Self::Jms => "jms",
+        }
+    }
+
+    /// Semconv `messaging.system` value to fixes-table key. `activemq`
+    /// maps to JMS (the API the advice targets), `sqs` is a shorthand for
+    /// `aws_sqs`. Unlisted systems keep the generic suggestion.
+    fn from_semconv(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "kafka" => Some(Self::Kafka),
+            "rabbitmq" => Some(Self::RabbitMq),
+            "aws_sqs" | "sqs" => Some(Self::AwsSqs),
+            "pulsar" => Some(Self::Pulsar),
+            "nats" => Some(Self::Nats),
+            "jms" | "activemq" => Some(Self::Jms),
+            _ => None,
         }
     }
 }
@@ -1484,6 +1531,124 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
     m
 });
 
+/// Broker-technology fixes for the messaging finding types. Same
+/// extension point contract as [`FIXES`]: add entries here, nothing
+/// else to wire.
+static MESSAGING_FIXES: LazyLock<HashMap<(FindingType, MessagingSystem), SuggestedFix>> =
+    LazyLock::new(|| {
+        use FindingType::{NPlusOneMessaging, SlowMessaging};
+        use MessagingSystem::{AwsSqs, Jms, Kafka, Nats, Pulsar, RabbitMq};
+        const KAFKA_PRODUCER_CONFIGS: &str = "https://docs.confluent.io/platform/current/installation/configuration/producer-configs.html";
+        const RABBITMQ_CONFIRMS: &str = "https://www.rabbitmq.com/docs/confirms";
+        const SQS_BATCH: &str = "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/\
+             SQSDeveloperGuide/sqs-batch-api-actions.html";
+        const PULSAR_BATCHING: &str = "https://pulsar.apache.org/docs/concepts-messaging/";
+        const JMS_LOCAL_TX: &str = "https://docs.oracle.com/javaee/7/tutorial/jms-concepts004.htm";
+        let entries: &[((FindingType, MessagingSystem), &str, Option<&str>)] = &[
+            (
+                (NPlusOneMessaging, Kafka),
+                "Let the producer batch: publish the records without calling `flush()` or \
+                 blocking on each `send()` future, and tune `linger.ms` / `batch.size` so \
+                 records to the same partition coalesce into one broker request.",
+                Some(KAFKA_PRODUCER_CONFIGS),
+            ),
+            (
+                (SlowMessaging, Kafka),
+                "A slow publish usually blocks on acknowledgement or metadata: avoid \
+                 `send().get()` per record, let `linger.ms` batching amortize the \
+                 round-trip, and weigh `acks=all` durability against latency explicitly.",
+                Some(KAFKA_PRODUCER_CONFIGS),
+            ),
+            (
+                (NPlusOneMessaging, RabbitMq),
+                "Publish the batch on one channel and wait for outstanding confirms once \
+                 after the loop instead of per message, or aggregate the items into one \
+                 message when the consumer processes them together.",
+                Some(RABBITMQ_CONFIRMS),
+            ),
+            (
+                (SlowMessaging, RabbitMq),
+                "Waiting for a publisher confirm per message costs one broker round-trip \
+                 each: process confirms asynchronously or per batch. A broker under a \
+                 memory or disk alarm also throttles publishers cluster-wide.",
+                Some(RABBITMQ_CONFIRMS),
+            ),
+            (
+                (NPlusOneMessaging, AwsSqs),
+                "Replace the per-item `SendMessage` calls with `SendMessageBatch`, which \
+                 carries up to 10 messages per request.",
+                Some(SQS_BATCH),
+            ),
+            (
+                (SlowMessaging, AwsSqs),
+                "Each `SendMessage` is an HTTPS round-trip: reuse one SDK client so \
+                 connections pool, and amortize with `SendMessageBatch`. Throttling \
+                 retries with backoff also surface as slow publishes.",
+                Some(SQS_BATCH),
+            ),
+            (
+                (NPlusOneMessaging, Pulsar),
+                "Enable producer batching (`enableBatching`, `batchingMaxPublishDelay`, \
+                 `batchingMaxMessages`) and publish with `sendAsync` so the client \
+                 coalesces the messages into one broker request.",
+                Some(PULSAR_BATCHING),
+            ),
+            (
+                (SlowMessaging, Pulsar),
+                "Publish with `sendAsync` and batching enabled rather than a blocking \
+                 `send` per message, and watch the pending-messages queue: with \
+                 `blockIfQueueFull` a full queue makes `sendAsync` block too.",
+                Some(PULSAR_BATCHING),
+            ),
+            (
+                (NPlusOneMessaging, Nats),
+                "With JetStream, publish asynchronously and await the acks together after \
+                 the loop instead of one synchronous publish per item. If the subscriber \
+                 handles the items together, aggregate them into one message.",
+                None,
+            ),
+            (
+                (SlowMessaging, Nats),
+                "A synchronous JetStream publish waits for the stream's acknowledgement, \
+                 and a replicated stream acknowledges after quorum: publish asynchronously \
+                 and await the acks in batch.",
+                None,
+            ),
+            (
+                (NPlusOneMessaging, Jms),
+                "Send the batch inside a transacted session and commit once after the \
+                 loop, so the provider ships the sends as one unit instead of one \
+                 synchronous round-trip each.",
+                Some(JMS_LOCAL_TX),
+            ),
+            (
+                (SlowMessaging, Jms),
+                "Persistent delivery makes the broker sync each message before \
+                 acknowledging: batch sends in a transacted session, and use \
+                 non-persistent delivery only where message loss is acceptable.",
+                Some(JMS_LOCAL_TX),
+            ),
+        ];
+        let mut m = HashMap::with_capacity(entries.len());
+        for ((ft, system), recommendation, url) in entries {
+            m.insert(
+                (ft.clone(), *system),
+                SuggestedFix {
+                    pattern: ft.as_str().to_string(),
+                    framework: system.as_str().to_string(),
+                    recommendation: (*recommendation).to_string(),
+                    reference_url: url.map(ToString::to_string),
+                },
+            );
+        }
+        debug_assert_eq!(
+            entries.len(),
+            m.len(),
+            "duplicate (FindingType, MessagingSystem) key in MESSAGING_FIXES entries"
+        );
+        m
+    });
+
 /// Enrich findings in place with a [`SuggestedFix`] when the framework
 /// can be inferred and a mapping exists. No-op for findings where the
 /// framework is unknown or the lookup misses.
@@ -1498,8 +1663,24 @@ pub(crate) fn enrich(findings: &mut [Finding]) {
 }
 
 fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
-    let framework = detect_framework(finding)?;
-    FIXES.get(&(finding.finding_type.clone(), framework))
+    match finding.finding_type {
+        FindingType::NPlusOneMessaging | FindingType::SlowMessaging => {
+            let system = messaging_system_of(finding)?;
+            MESSAGING_FIXES.get(&(finding.finding_type.clone(), system))
+        }
+        _ => {
+            let framework = detect_framework(finding)?;
+            FIXES.get(&(finding.finding_type.clone(), framework))
+        }
+    }
+}
+
+/// The broker behind a messaging finding: normalize builds the template
+/// as `{messaging.system} {destination}`, so the first token carries the
+/// system verbatim. No span access needed, per the module contract.
+fn messaging_system_of(finding: &Finding) -> Option<MessagingSystem> {
+    let system = finding.pattern.template.split_whitespace().next()?;
+    MessagingSystem::from_semconv(system)
 }
 
 /// Pure framework detector. Inspects five signals in order, most
