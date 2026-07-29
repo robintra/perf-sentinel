@@ -74,7 +74,19 @@ RPC spans (`rpc.system`, e.g. gRPC or Dubbo) are checked after SQL and HTTP: the
 
 Messaging spans (`messaging.system`, one convention for Kafka, RabbitMQ, Pulsar, SQS, NATS and JMS) are checked last, with `messaging.destination.name` as the target and the span name as fallback. Unlike RPC they get their own `EventType::Messaging`, for two reasons: the destination must not go through the HTTP path normalizer, which would mask an SQS account id as `{id}`, and a publish deserves its own finding types rather than an HTTP-flavored label. Only `SpanKind::Producer` is admitted, on the same double-counting rationale as RPC, plus the fact that a polling consumer would flood the occurrence detectors.
 
-The producer-to-consumer edge is an OTel span link, not a parent-child relation, and the consumer usually starts its own trace. `resolve_producer_link` walks up to the nearest `CONSUMER` ancestor, reads its first link and carries the producer trace id onto the event as `link_trace_id`. The gate on `CONSUMER` matters: batch span processors and follows-from relations emit links too. A link back into the span's own trace is dropped. The two traces are never merged, see [LIMITATIONS.md](../LIMITATIONS.md#messaging-producer-and-consumer-traces-are-linked-not-merged) for why.
+The producer-to-consumer edge is an OTel span link, not a parent-child relation, and the consumer usually starts its own trace. `resolve_producer_link` finds the `CONSUMER` span holding that link, reads its first entry and carries the producer trace id onto the event as `link_trace_id`. The gate on `CONSUMER` matters: batch span processors and follows-from relations emit links too. A link back into the span's own trace is dropped. The two traces are never merged, see [LIMITATIONS.md](../LIMITATIONS.md#messaging-producer-and-consumer-traces-are-linked-not-merged) for why.
+
+**Two topologies, because agents disagree on where `receive` goes.** Some nest the handler's work *under* the `receive` span, which an ancestor walk finds. Real OpenTelemetry Java and .NET Kafka instrumentation does not: it emits `receive` as a **sibling** of the work it triggered, under a shared parent.
+
+```
+order-consumed        INTERNAL   parent=""     links=[]
+├─ orders receive     CONSUMER   parent=root   links=[<producer trace>]
+└─ postgresql         CLIENT     parent=root   links=[]        <- the analyzable span
+```
+
+The SQL span's ancestor chain is `postgresql -> order-consumed`, so the linked `CONSUMER` is never on it. An ancestor-only walk missed **100%** of the links on two captured corpora while every unit test stayed green, because the tests built the ancestor shape the code expected. Resolution therefore tries siblings first, through an index of link-bearing `CONSUMER` spans keyed by parent, then falls back to the ancestor chain.
+
+That index is built only when a request carries a linked `CONSUMER` span, and it doubles as the per-service gate: a service with no such span skips both lookups. Keying by parent forces a decision the ancestor walk never faced, since several sibling `receive` spans can share one parent. The first in batch order wins, which is deterministic but arbitrary: nothing in the spans says which message caused which query.
 
 Both legacy (pre-1.21) and stable (1.21+) [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported: `db.statement` and `db.query.text` for SQL, `http.url` and `url.full` for HTTP, `http.method` and `http.request.method` for the HTTP verb, `http.status_code` and `http.response.status_code` for the status. This ensures compatibility with both older OTel SDKs and modern Java agents (v2.x).
 

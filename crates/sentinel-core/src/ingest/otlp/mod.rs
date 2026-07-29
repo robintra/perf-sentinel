@@ -383,17 +383,39 @@ fn walk_parents_for_code_attrs<'a>(
 
 /// Producer trace this span's work was triggered by, or `None`.
 ///
-/// Reads the first span link of the nearest CONSUMER ancestor, the edge `OTel`
-/// uses when the consumer starts its own trace. Gated on CONSUMER because batch
-/// span processors and follows-from relations emit links too, and those are not
-/// causality. The length check is not cosmetic: the proto bounds nothing and
-/// the walk runs once per descendant span.
+/// Reads the first span link of the CONSUMER span that triggered this work,
+/// the edge `OTel` uses when the consumer starts its own trace. Gated on
+/// CONSUMER because batch span processors and follows-from relations emit
+/// links too, and those are not causality. The length check is not cosmetic:
+/// the proto bounds nothing and this runs once per descendant span.
+///
+/// Two topologies, because agents disagree on where the `receive` span goes.
+/// See `docs/design/06-INGESTION-AND-DAEMON.md`.
 fn resolve_producer_link<'a>(
     span: &'a Span,
     span_index: &HashMap<&'a [u8], &'a Span>,
+    consumers_by_parent: &HashMap<&'a [u8], &'a Span>,
 ) -> Option<Arc<str>> {
     let valid =
         |id: &[u8]| id.len() == TRACE_ID_LEN && id != span.trace_id && id.iter().any(|&b| b != 0);
+    let link_of = |s: &Span| {
+        s.links
+            .first()
+            .filter(|l| valid(&l.trace_id))
+            .map(|l| Arc::from(bytes_to_hex(&l.trace_id).as_str()))
+    };
+    // Sibling first: real Java/.NET Kafka instrumentation emits `receive` as a
+    // sibling of the work it triggered, under a shared parent, so it is never
+    // on the ancestor chain.
+    if !span.parent_span_id.is_empty()
+        && let Some(sibling) = consumers_by_parent.get(span.parent_span_id.as_slice())
+        && sibling.trace_id == span.trace_id
+        && sibling.span_id != span.span_id
+        && let Some(found) = link_of(sibling)
+    {
+        return Some(found);
+    }
+    // Then the ancestor chain, for agents that nest the work under `receive`.
     let mut found = None;
     walk_same_trace_ancestors(span, span_index, |ancestor| {
         if ancestor.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32 {
@@ -401,14 +423,44 @@ fn resolve_producer_link<'a>(
         }
         // Keep walking when this consumer has no usable link: agents emit a
         // link-less `process` span under the `receive` span that holds it.
-        found = ancestor
-            .links
-            .first()
-            .filter(|l| valid(&l.trace_id))
-            .map(|l| Arc::from(bytes_to_hex(&l.trace_id).as_str()));
+        found = link_of(ancestor);
         found.is_some()
     });
     found
+}
+
+/// Link-bearing CONSUMER spans indexed by their parent, per service.
+///
+/// Built only when the request carries such a span, so a bus-less fleet pays
+/// one `any()` pass and nothing else. Keeps the first consumer per parent: a
+/// trace with several sibling `receive` spans has no unambiguous answer, and
+/// batch order is at least deterministic.
+///
+/// A root consumer lands under the empty key, which no sibling lookup ever
+/// reaches. It is indexed anyway so an empty index means "this service has no
+/// linked consumer at all", the condition that skips the ancestor walk too.
+fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes<'_> {
+    let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
+    for resource_spans in &request.resource_spans {
+        let index = per_service
+            .entry(resource_service_name(resource_spans))
+            .or_default();
+        for scope_spans in &resource_spans.scope_spans {
+            for span in &scope_spans.spans {
+                if span.links.is_empty()
+                    || span.kind
+                        != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32
+                {
+                    continue;
+                }
+                if index.len() >= MAX_SPANS_PER_SERVICE {
+                    break;
+                }
+                index.entry(&span.parent_span_id).or_insert(span);
+            }
+        }
+    }
+    per_service
 }
 
 /// Inbound HTTP endpoint carried by a single ancestor span, or `None`.
@@ -1140,6 +1192,11 @@ pub fn convert_otlp_request_counted(
             })
         })
     });
+    let consumer_indexes = if has_consumer_links {
+        build_consumer_link_indexes(request)
+    } else {
+        HashMap::new()
+    };
 
     for resource_spans in &request.resource_spans {
         // Build the per-Resource Arc<str> once, then Arc::clone into each span.
@@ -1148,6 +1205,7 @@ pub fn convert_otlp_request_counted(
         let service_name = resource_service_name(resource_spans);
         let service_arc: Arc<str> = Arc::from(service_name);
         let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
+        let consumer_index = consumer_indexes.get(service_name).unwrap_or(&empty_index);
 
         // cloud.region: resource-level with span-level fallback in convert_span.
         // Invalid values silently dropped (sanitization at ingest boundary).
@@ -1184,7 +1242,7 @@ pub fn convert_otlp_request_counted(
                     &scope_index,
                     stitched_statement,
                     cached_attrs,
-                    has_consumer_links,
+                    consumer_index,
                 ) {
                     Ok(event) => events.push(event),
                     Err(reason) => stats.count_filtered(reason),
@@ -1368,7 +1426,7 @@ fn convert_span<'a>(
     scope_index: &HashMap<&[u8], &str>,
     stitched_statement: Option<&'a str>,
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
-    has_consumer_links: bool,
+    consumer_index: &HashMap<&[u8], &Span>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let owned = rebuilt_classified(span, cached_attrs, stitched_statement);
     let classified = match (&owned, cached_attrs) {
@@ -1460,8 +1518,8 @@ fn convert_span<'a>(
     let code_namespace: Option<Arc<str>> = code.namespace.map(Arc::from);
 
     let instrumentation_scopes = collect_instrumentation_scopes(span, span_index, scope_index);
-    let link_trace_id = has_consumer_links
-        .then(|| resolve_producer_link(span, span_index))
+    let link_trace_id = (!consumer_index.is_empty())
+        .then(|| resolve_producer_link(span, span_index, consumer_index))
         .flatten();
 
     let mut event = SpanEvent {
