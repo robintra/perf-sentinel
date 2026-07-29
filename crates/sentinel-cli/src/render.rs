@@ -665,6 +665,35 @@ fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport) {
     }
 }
 
+/// One `Per-region breakdown` line.
+///
+/// `region` and `estimation_method` reach here from the OTLP `cloud.region`
+/// span attribute or a user-supplied `--input` JSON, so both are sanitized at
+/// this sink: a hostile producer must not inject ANSI / OSC 8 / control bytes
+/// into the operator's terminal.
+fn format_region_line(region: &sentinel_core::score::carbon::RegionBreakdown) -> String {
+    let region_label = sanitize_for_terminal(&region.region);
+    // Unresolved regions carry placeholder zero intensity. Render an explicit
+    // marker rather than `0 gCO2/kWh, source: annual` so a reader does not
+    // mistake an unknown region for a clean grid.
+    if region.status == sentinel_core::score::carbon::REGION_STATUS_UNRESOLVED {
+        return format!(
+            "    - {region_label}: {} I/O ops, {:.6} gCO\u{2082} (intensity: unresolved, source: -)",
+            region.io_ops, region.co2_gco2,
+        );
+    }
+    let source_str = intensity_source_label(region.intensity_source);
+    let raw_suffix = format_estimation_suffix(
+        region.intensity_estimated,
+        region.intensity_estimation_method.as_deref(),
+    );
+    let estimation_suffix = sanitize_for_terminal(&raw_suffix);
+    format!(
+        "    - {region_label}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str}{estimation_suffix})",
+        region.io_ops, region.co2_gco2, region.grid_intensity_gco2_kwh,
+    )
+}
+
 fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
     let colors = ansi_colors(force_color);
     let AnsiColors {
@@ -721,35 +750,7 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         println!();
         println!("  {bold}Per-region breakdown:{reset}");
         for region in &summary.regions {
-            // `region.region` originates from the OTLP `cloud.region`
-            // span attribute or a user-supplied `--input` JSON; sanitize
-            // at the print sink so a hostile producer cannot inject
-            // ANSI / OSC 8 / control bytes into the operator's terminal.
-            let region_label = sanitize_for_terminal(&region.region);
-            // Unresolved regions carry placeholder zero intensity. Render
-            // an explicit marker rather than `0 gCO2/kWh, source: annual`
-            // so a reader does not mistake an unknown region for a clean
-            // grid.
-            if region.status == sentinel_core::score::carbon::REGION_STATUS_UNRESOLVED {
-                println!(
-                    "    - {region_label}: {} I/O ops, {:.6} gCO\u{2082} (intensity: unresolved, source: -)",
-                    region.io_ops, region.co2_gco2,
-                );
-            } else {
-                let source_str = intensity_source_label(region.intensity_source);
-                // estimation_method may originate from a user-supplied
-                // --input JSON, sanitize at the print sink so a hostile
-                // baseline cannot inject ANSI / OSC 8 / control bytes.
-                let raw_suffix = format_estimation_suffix(
-                    region.intensity_estimated,
-                    region.intensity_estimation_method.as_deref(),
-                );
-                let estimation_suffix = sanitize_for_terminal(&raw_suffix);
-                println!(
-                    "    - {region_label}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str}{estimation_suffix})",
-                    region.io_ops, region.co2_gco2, region.grid_intensity_gco2_kwh,
-                );
-            }
+            println!("{}", format_region_line(region));
         }
     }
 
