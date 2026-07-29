@@ -1101,6 +1101,72 @@ fn consumer_link_propagates_to_child_io_span() {
     assert_eq!(events[0].link_trace_id.as_deref(), Some(&*"ab".repeat(16)));
 }
 
+/// The shape real Java/.NET Kafka instrumentation emits: `receive` is a
+/// **sibling** of the work it triggered, under a shared parent, not an
+/// ancestor of it. Transcribed from an astronomy-shop capture (service
+/// `accounting`, trace b987d5b6…), where the ancestor-only walk missed 100%
+/// of the links across two corpora.
+fn make_sibling_consumer_trace(link_trace: Vec<u8>) -> Vec<Span> {
+    let root = make_bare_span(&[24; 8], vec![]);
+    let mut receive = make_bare_span(
+        &[43; 8],
+        vec![
+            make_kv("messaging.system", "kafka"),
+            make_kv("messaging.destination.name", "orders"),
+        ],
+    );
+    receive.kind = SPAN_KIND_CONSUMER;
+    receive.parent_span_id = vec![24; 8];
+    receive.links = vec![opentelemetry_proto::tonic::trace::v1::span::Link {
+        trace_id: link_trace,
+        span_id: vec![7; 8],
+        ..Default::default()
+    }];
+    let mut sql = make_bare_span(
+        &[31; 8],
+        vec![
+            make_kv("db.system", "postgresql"),
+            make_kv("db.statement", "INSERT INTO orders (id) VALUES (1)"),
+        ],
+    );
+    sql.parent_span_id = vec![24; 8];
+    vec![root, receive, sql]
+}
+
+#[test]
+fn sibling_consumer_link_reaches_the_io_span() {
+    let req = make_request(
+        "accounting",
+        make_sibling_consumer_trace(PRODUCER_TRACE.to_vec()),
+    );
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL sibling is admitted");
+    assert_eq!(
+        sql.link_trace_id.as_deref(),
+        Some(&*"ab".repeat(16)),
+        "the receive span is a sibling, not an ancestor"
+    );
+}
+
+#[test]
+fn a_sibling_consumer_from_another_trace_is_ignored() {
+    // Same parent id reused across traces is malformed input, not causality.
+    let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());
+    spans[1].trace_id = vec![9; 16];
+    let req = make_request("accounting", spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(sql.link_trace_id, None);
+}
+
 #[test]
 fn link_on_a_non_consumer_ancestor_is_ignored() {
     // Batch span processors and follows-from relations emit links too.

@@ -16,7 +16,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - Publish spans count as I/O operations, so on any service that emits them `total_io_ops` grows and the I/O intensity score of the endpoints involved rises, along with their rank in the top offenders and the denominator of the waste ratio. The same traffic scored by 0.9.22 and by this release gives different figures. This is a widening of the measurement perimeter, not an application regression, and it matters when comparing disclosure periods across the upgrade. SQL-only and HTTP-only services are unaffected.
-- `analyze --ci` can start failing on a bus-heavy service with no configuration change: N+1 messaging findings count as avoidable I/O, so they feed `io_waste_ratio` and the `io_waste_ratio_max` gate rule. No gate rule is dedicated to the messaging types, the ratio is the only path.
+- `analyze --ci` can start failing on a bus-heavy service with no configuration change, and not necessarily on a messaging finding. N+1 messaging findings do feed `io_waste_ratio` and its gate rule, no gate rule being dedicated to the messaging types. But the effect measured on a real corpus arrived through `serialized_calls`: a service publishing one message per request grows no messaging anti-pattern at all, it simply adds I/O spans to its traces, and the detectors that count spans per trace cross their threshold more often. Expect the new findings to land on the topological detectors rather than on the messaging ones.
 
 ### Migration
 
