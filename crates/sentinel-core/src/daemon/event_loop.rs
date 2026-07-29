@@ -661,9 +661,19 @@ fn take_broker_energy(
     let measured_owns_the_timeline =
         alumet_state.is_some_and(|b| b.has_recent_sample(now, alumet_staleness_ms));
     if !measured_owns_the_timeline {
-        // Joules banked while the series was live are real. A label never
-        // seen has nothing banked, so a typo still falls through.
-        if let Some(kwh) = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms)) {
+        if declared.is_some_and(score::broker_static::StaticBrokerState::clear_outage_billed) {
+            // The declaration already billed this stretch, so whatever the
+            // series banked since covers time someone else paid for.
+            if let Some(state) = alumet_state {
+                state.discard_pending();
+            }
+        } else if let Some(kwh) =
+            alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms))
+        {
+            // Joules banked while the series was live are real, and nothing
+            // else billed that stretch, so the declared marker may advance
+            // over it. A label never seen banks nothing, so a typo still
+            // falls through to the declaration below.
             if let Some(state) = declared {
                 state.take_window_kwh(now);
             }
@@ -1563,6 +1573,33 @@ mod tests {
         assert!(
             (delivered - 3e-6).abs() < 1e-18,
             "only the joules after the handover may be billed, got {delivered}"
+        );
+    }
+
+    #[test]
+    fn a_bank_landing_after_a_billed_outage_is_dropped_not_delivered() {
+        // The endpoint keeps answering while the label vanishes, so the
+        // declaration bills the outage. When the label returns, its delta
+        // reaches back over that stretch and must not be paid twice.
+        let measured = DbEnergyState::new();
+        let cfg = declared_cfg(3);
+        let state = score::broker_static::StaticBrokerState::new(0, &cfg);
+        measured.add_window_kwh(1e-6, 1_000);
+        take_broker_energy(Some(&measured), Some(&state), 1_000, 10_000);
+
+        // Label gone, endpoint alive: the declaration covers the outage.
+        measured.mark_alive(100_000);
+        let (_, d) = take_broker_energy(Some(&measured), Some(&state), 100_000, 10_000);
+        assert!(d.is_some(), "the declaration bills the outage");
+
+        // One late sample banks a delta spanning the whole outage, but the
+        // label is stale again by the next window.
+        measured.add_window_kwh(5e-6, 105_000);
+        measured.mark_alive(200_000);
+        let (m, _) = take_broker_energy(Some(&measured), Some(&state), 200_000, 10_000);
+        assert!(
+            m.is_none(),
+            "the banked delta covers wall clock the declaration already billed"
         );
     }
 
