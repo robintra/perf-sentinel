@@ -1337,6 +1337,45 @@ fn messaging_system_aliases_resolve() {
 }
 
 #[test]
+fn every_table_entry_is_reachable_from_a_real_semconv_value() {
+    // Pinning the table key is not enough: the SQS entries shipped
+    // unreachable because emitters spell it `aws.sqs`.
+    for value in [
+        "kafka",
+        "rabbitmq",
+        "aws_sqs",
+        "aws.sqs",
+        "AmazonSQS",
+        "pulsar",
+        "nats",
+        "jms",
+        "activemq",
+    ] {
+        let f = messaging_finding(
+            FindingType::NPlusOneMessaging,
+            &format!("{value} some.destination"),
+        );
+        assert!(
+            lookup_fix(&f).is_some(),
+            "no messaging fix routes from messaging.system {value:?}"
+        );
+    }
+    // So a future entry cannot ship dead either.
+    let reachable: std::collections::HashSet<_> = [
+        "kafka", "rabbitmq", "aws_sqs", "aws.sqs", "pulsar", "nats", "jms",
+    ]
+    .iter()
+    .filter_map(|v| MessagingSystem::from_semconv(v))
+    .collect();
+    for (_, system) in MESSAGING_FIXES.keys() {
+        assert!(
+            reachable.contains(system),
+            "{system:?} has table entries but no semconv spelling routes to it"
+        );
+    }
+}
+
+#[test]
 fn unknown_messaging_system_keeps_the_generic_suggestion() {
     for template in ["rocketmq topic", "servicebus q", ""] {
         let f = messaging_finding(FindingType::NPlusOneMessaging, template);
