@@ -91,16 +91,18 @@ Et il ne s'arrête pas à la détection. Chaque I/O évitable est traduit en én
 
 ## Ce qui est détecté
 
-Dix types de findings, plus la corrélation cross-trace en mode daemon :
+Douze types de findings, plus la corrélation cross-trace en mode daemon :
 
 | Pattern            | Déclencheur                                                         |
 |--------------------|---------------------------------------------------------------------|
 | N+1 SQL            | Même template de requête tiré ≥ N fois dans une trace               |
 | N+1 HTTP           | Même template d'URL appelé ≥ N fois dans une trace                  |
+| N+1 messaging      | Même destination publiée ≥ N fois dans une trace                    |
 | SQL redondant      | Requête identique avec paramètres identiques, même trace            |
 | HTTP redondant     | Appel identique avec paramètres identiques, même trace              |
 | SQL lent           | Durée de requête au-dessus du seuil configuré                       |
 | HTTP lent          | Durée de requête au-dessus du seuil configuré                       |
+| Messaging lent     | Durée de publication au-dessus du seuil configuré                   |
 | Fanout excessif    | Un span démarre ≥ N enfants en parallèle                            |
 | Service bavard     | Service A → B de manière répétée dans une seule requête utilisateur |
 | Saturation de pool | Requêtes concurrentes en vol au-dessus de la taille du pool         |
