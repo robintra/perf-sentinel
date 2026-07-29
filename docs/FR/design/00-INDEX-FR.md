@@ -27,6 +27,15 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `event.rs`                     | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
 | `pipeline.rs`                  | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
 | `quality_gate.rs`              | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
+| `explain.rs`                   | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md), [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
+| `diff.rs`                      | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
+| `synth.rs`                     | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
+| `http_client.rs`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `time.rs`                      | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `acknowledgments.rs`           | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `calibrate.rs`                 | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `shutdown.rs`                  | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `text_safety.rs`               | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `normalize/sql.rs`             | [02 : Normalisation](02-NORMALIZATION-FR.md)                                                            |
 | `normalize/http.rs`            | [02 : Normalisation](02-NORMALIZATION-FR.md)                                                            |
 | `normalize/mod.rs`             | [02 : Normalisation](02-NORMALIZATION-FR.md)                                                            |
@@ -46,10 +55,30 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `score/carbon.rs`              | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
 | `score/carbon_compute.rs`      | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `score/region_breakdown.rs`    | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `score/carbon_profiles.rs`     | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `score/energy_state.rs`        | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `score/prom_parser.rs`         | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `score/ops_snapshot_diff.rs`   | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `score/broker_static.rs`       | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `score/canonical.rs`           | [08 : Transparence périodique](08-PERIODIC-DISCLOSURE-FR.md)                                            |
+| `score/alumet/`                | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
+| `score/scaphandre/`            | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
+| `score/kepler/`                | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
+| `score/redfish/`               | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
+| `score/cloud_energy/`          | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
+| `score/electricity_maps/`      | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `ingest/mod.rs`                | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `ingest/json.rs`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `ingest/otlp/`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `ingest/pg_stat.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/jaeger.rs`             | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/zipkin.rs`             | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/tempo.rs`              | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/jaeger_query.rs`       | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/auth_header.rs`        | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/mysql_stat.rs`         | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/lookback.rs`           | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `ingest/url_enc.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/mod.rs`                | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/event_loop.rs`         | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/listeners.rs`          | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
@@ -58,10 +87,15 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `daemon/sampling.rs`           | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/findings_store.rs`     | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `daemon/query_api/`          | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `daemon/ack.rs`                | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `daemon/mem_pressure.rs`       | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `config/` (mod, raw, validate)                    | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md), [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
 | `report/mod.rs`, `json.rs`     | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
 | `report/html/`                 | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `report/metrics.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `report/interpret.rs`          | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
+| `report/warnings.rs`           | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
+| `report/sarif.rs`              | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `report/periodic/*`            | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
 | `daemon/archive.rs`            | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
 | `sentinel-cli/src/main.rs`     | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |

@@ -76,7 +76,7 @@ Messaging spans (`messaging.system`, one convention for Kafka, RabbitMQ, Pulsar,
 
 The producer-to-consumer edge is an OTel span link, not a parent-child relation, and the consumer usually starts its own trace. `resolve_producer_link` finds the `CONSUMER` span holding that link, reads its first entry and carries the producer trace id onto the event as `link_trace_id`. The gate on `CONSUMER` matters: batch span processors and follows-from relations emit links too. A link back into the span's own trace is dropped. The two traces are never merged, see [LIMITATIONS.md](../LIMITATIONS.md#messaging-producer-and-consumer-traces-are-linked-not-merged) for why.
 
-**Two topologies, because agents disagree on where `receive` goes.** Some nest the handler's work *under* the `receive` span, which an ancestor walk finds. Real OpenTelemetry Java and .NET Kafka instrumentation does not: it emits `receive` as a **sibling** of the work it triggered, under a shared parent.
+**Two topologies, because OTel instrumentations disagree on where `receive` goes.** Some nest the handler's work *under* the `receive` span, which an ancestor walk finds. The official OpenTelemetry Java and .NET Kafka instrumentations do not: it emits `receive` as a **sibling** of the work it triggered, under a shared parent.
 
 ```
 order-consumed        INTERNAL   parent=""     links=[]

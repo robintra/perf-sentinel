@@ -476,3 +476,26 @@ Le `DiffReport` porte quatre listes :
 ### Pas de flag `--ci`
 
 Le quality gate `analyze --ci` n'est intentionnellement pas dupliqué sur `diff` : le diff lui-même est le signal. Une liste `new_findings` non-vide, une régression dans `severity_changes` ou une entrée positive dans `endpoint_metric_deltas` sont autant de signaux sur lesquels le consommateur CI peut décider d'échouer, selon sa politique.
+
+## Bandes d'interprétation : ce qui est ancré et ce qui est une règle empirique
+
+`report/interpret.rs` transforme deux métriques brutes en une étiquette `healthy | moderate | high | critical`. Les étiquettes sont une aide au rendu, mais deux des seuils derrière elles ne sont pas arbitraires, et la différence compte pour qui serait tenté de les régler.
+
+- `IIS_HIGH` (5.0) est ancré sur le `n_plus_one_threshold` par défaut du détecteur N+1. Un endpoint qui l'atteint est arithmétiquement au point où `detect_n_plus_one` commence à émettre.
+- `IIS_CRITICAL` (10.0) est mécaniquement ancré sur `detect::n_plus_one::CRITICAL_OCCURRENCE_THRESHOLD`, avec un test garde-fou qui casse le build si l'une des deux valeurs bouge sans l'autre.
+- `IIS_MODERATE` (2.0) est **une règle empirique**, pas une mesure : l'intuition qu'un endpoint CRUD typique fait une ou deux opérations d'I/O par requête. Attendez-vous à y voir beaucoup d'endpoints légitimes.
+- `WASTE_RATIO_HIGH` (0.30) est ancré sur l'`io_waste_ratio_max` **par défaut**, délibérément pas sur la valeur configurée par l'opérateur. La porte est une politique utilisateur, l'interprétation est une heuristique fixe, et un lecteur qui compare deux rapports a besoin que le second veuille dire la même chose dans les deux.
+
+**Le contrat JSON sépare la stabilité en deux.** Les valeurs de l'énumération (`"healthy"`, `"moderate"`, `"high"`, `"critical"`) sont stables entre versions et les consommateurs peuvent s'y fier. Les seuils derrière elles sont versionnés avec le binaire et peuvent bouger. Un consommateur qui veut une classification indépendante de la version doit lire `io_intensity_score` et `io_waste_ratio` bruts et appliquer ses propres bandes. C'est le même schéma que `co2.model`, qui évolue de `io_proxy_v1` à `v3` sans casser un consommateur qui veut seulement savoir quel modèle a tourné.
+
+`NaN` classe en `Healthy` partout, puisqu'il compare faux contre tous les seuils. C'est le sens voulu : une donnée manquante ne doit pas s'afficher en rouge.
+
+## Durcir les sorties rendues
+
+Trois sinks placent des chaînes dans l'interface de quelqu'un d'autre, et tous trois considèrent la même classe d'attaque comme dans leur périmètre : un span hostile qui met dans `service.name`, `http.url` ou `code.filepath` quelque chose qui *s'affiche* autrement qu'il ne *se lit*. L'échappement JSON côté consommateur ferme l'injection, il ne ferme pas l'usurpation.
+
+**SARIF (`report/sarif.rs`)** est le plus strict, parce que GitHub et GitLab le rendent en revue de code. Toute chaîne non fiable qui atteint un message ou une logical location se voit retirer ses surcharges BiDi et ses caractères de format invisibles (Trojan Source, CVE-2021-42574) : `char::is_control` ne les attrape pas, ce sont des caractères de format. `code.filepath` reçoit un validateur dédié volontairement brutal : **tout** deux-points est rejeté plutôt que de tailler une exception pour les lettres de lecteur Windows, car l'exception rouvre les contournements `javascript:`, `data:` et `A:B:C://` alors qu'un chemin source légitime dans une application instrumentée n'en contient pas. Les encodages UTF-8 surlongs de `.` (`%c0%ae`, `%e0%80%ae`, le bug IIS classique) sont rejetés en bloc. Un chemin qui échoue à un contrôle est abandonné plutôt qu'assaini, car un chemin à moitié réparé est un mensonge pire qu'un chemin absent. Les métadonnées d'acquittement reçoivent le même traitement à la sortie : c'est du texte libre contrôlé par l'opérateur, et `alice<RLO>@evil.com` usurpe une identité dans l'interface du relecteur.
+
+**Les warnings (`report/warnings.rs`)** portent un contrat explicite plutôt qu'un mécanisme. `Warning::new` n'assainit rien parce que tous les producteurs actuels passent un littéral en dur ou un `format!` sur un compteur. C'est une propriété des sites d'appel d'aujourd'hui, pas du type, le module énonce donc la règle : un `Warning` construit depuis quoi que ce soit touchant à des octets contrôlés par l'utilisateur (attributs OTLP, noms de spans, en-têtes, chaînes de configuration) doit passer par `Warning::from_untrusted`. Le `warning_details` structuré coexiste avec le `warnings: Vec<String>` historique, les renderers préférant le premier quand il est non vide, pour que les références plus anciennes continuent de se parser via `serde(default)`.
+
+**`text_safety.rs`** détient les deux primitives que le reste de l'arbre appelle : `sanitize_for_terminal` et `safe_url`. Tout ce qui est influencé par un attaquant et atteint un terminal ou le dashboard HTML passe par elles plutôt que de faire pousser son propre échappement.

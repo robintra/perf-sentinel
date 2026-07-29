@@ -389,7 +389,8 @@ fn walk_parents_for_code_attrs<'a>(
 /// links too, and those are not causality. The length check is not cosmetic:
 /// the proto bounds nothing and this runs once per descendant span.
 ///
-/// Two topologies, because agents disagree on where the `receive` span goes.
+/// Two topologies, because OTel instrumentations disagree on where the
+/// `receive` span goes.
 /// See `docs/design/06-INGESTION-AND-DAEMON.md`.
 fn resolve_producer_link<'a>(
     span: &'a Span,
@@ -404,9 +405,9 @@ fn resolve_producer_link<'a>(
             .filter(|l| valid(&l.trace_id))
             .map(|l| Arc::from(bytes_to_hex(&l.trace_id).as_str()))
     };
-    // Sibling first: real Java/.NET Kafka instrumentation emits `receive` as a
-    // sibling of the work it triggered, under a shared parent, so it is never
-    // on the ancestor chain.
+    // Sibling first: the OTel Java and .NET Kafka instrumentations emit
+    // `receive` as a sibling of the work it triggered, under a shared parent,
+    // so it is never on the ancestor chain.
     if !span.parent_span_id.is_empty()
         && let Some(sibling) = consumers_by_parent.get(span.parent_span_id.as_slice())
         && sibling.trace_id == span.trace_id
@@ -415,13 +416,14 @@ fn resolve_producer_link<'a>(
     {
         return Some(found);
     }
-    // Then the ancestor chain, for agents that nest the work under `receive`.
+    // Then the ancestor chain, for instrumentations that nest the work
+    // under `receive`.
     let mut found = None;
     walk_same_trace_ancestors(span, span_index, |ancestor| {
         if ancestor.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32 {
             return false;
         }
-        // Keep walking when this consumer has no usable link: agents emit a
+        // Keep walking when this consumer has no usable link: some emit a
         // link-less `process` span under the `receive` span that holds it.
         found = link_of(ancestor);
         found.is_some()

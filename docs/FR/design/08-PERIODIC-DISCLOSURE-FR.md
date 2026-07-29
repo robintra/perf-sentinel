@@ -1,13 +1,13 @@
 # Rapport public périodique
 
-Notes de design pour le pipeline de transparence : schéma (actuel v1.3), aggregator, validator, archive daemon, et la subcommand `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`. Ce document explique les décisions de design derrière chaque module.
+Notes de design pour le pipeline de transparence : schéma (actuel v1.5), aggregator, validator, archive daemon, et la subcommand `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`. Ce document explique les décisions de design derrière chaque module.
 
 ## Disposition des modules
 
 ```
 crates/sentinel-core/src/report/periodic/
   ├── mod.rs        // re-exports
-  ├── schema.rs     // types wire v1.3
+  ├── schema.rs     // types wire v1.5
   ├── errors.rs     // ValidationError, HashError, AggregationError
   ├── hasher.rs     // JSON canonique + SHA-256 + binary_hash helper
   ├── validator.rs  // validate_official, validate_content_hash
@@ -207,6 +207,30 @@ C'est le signal in-binary le plus proche de l'échappatoire d'auto-déclaration 
 ## Crosswalk standard et critères RGESN (v1.3)
 
 La v1.3 ajoute deux champs de correspondance interprétative, dont aucun n'est une barrière. `methodology.standard_crosswalk` est un crosswalk vers les datapoints ESRS E1 : une aide de correspondance qui pointe chaque chiffre de la disclosure vers le datapoint CSRD / ESRS E1 le plus proche, avec un disclaimer explicite indiquant qu'il ne remplace pas un inventaire audité. `applications[].anti_patterns[].rgesn_criteria` tague chaque anti-pattern détecté avec les critères RGESN 2024 (Référentiel général d'écoconception de services numériques) auxquels il se rattache, pour qu'un auditeur écoconception puisse relier un finding au référentiel. Les deux sont des extensions additives `#[serde(default)]` : les lecteurs plus anciens les ignorent, et un rapport écrit sans eux se rehashe à l'identique. La référence wire des deux vit dans `docs/FR/SCHEMA-FR.md`.
+
+## Blocs de gaspillage par workload (v1.4, v1.5)
+
+La v1.4 ajoute `aggregate.database_waste` et la v1.5 son jumeau messaging `aggregate.messaging_waste`, aux côtés des trois valeurs messaging de `PatternName`. Les deux sont informatifs et restent hors de tous les totaux, aucune figure existante ne change donc de sens.
+
+**Un type, deux champs.** `MessagingWasteAggregate` est un alias de type de `DatabaseWasteAggregate`, pas une copie : les deux blocs sont identiques sur le fil par conception, une seule structure supprime donc la possibilité d'une dérive. Le schéma JSON reflète cela par un `$ref` plutôt qu'une `$def` dupliquée, car une définition recopiée à la main réintroduit, dans le fichier que les consommateurs valident, exactement la dérive que l'alias empêche. Le nom `DatabaseWasteAggregate` est conservé pour les lecteurs v1.4.
+
+**Trois seaux de provenance, pas deux.** Le fold répartit selon l'étiquette `model` entre `measured_*`, `declared_*` et `estimated_windows`, avec `measured_windows + declared_windows + estimated_windows == windows_with_figure` imposé par le validateur. La forme à deux seaux livrée d'abord (tout ce qui n'est pas `estimated` compte comme mesuré) plaçait un cluster provisionné déclaré dans un champ nommé `measured_energy_kwh`, sur la seule surface où la provenance est tout l'enjeu. `models` prouve quelles étiquettes sont apparues mais couvre toute la période, il ne peut donc pas re-séparer l'énergie. La paire déclarée porte `skip_serializing_if`, un rapport sans source déclarée garde donc la forme d'octets exacte qu'il avait avant l'existence des champs et se re-hashe sur son `content_hash` d'origine.
+
+**Invariants préservés par le fold.** Une étiquette de provenance hors du charset de `is_valid_model_tag` fait tomber le bloc entier avant qu'aucune figure n'atteigne les sommes, plutôt que d'en publier un partiel. `None` et `0.0` restent distincts sur les jambes carbone : une conversion absente ne doit jamais se lire comme une affirmation de zéro carbone. `windows_with_carbon <= windows_with_figure` signale une image carbone partielle. Le validateur tolère une répartition entièrement nulle, ce à quoi ressemble un rapport antérieur aux champs.
+
+## Paliers canoniques : rendre la figure publique non manipulable
+
+`score/canonical.rs` existe à cause d'un conflit d'intérêts intégré à l'outil. L'opérateur règle `n_plus_one_threshold`, qui décide combien de répétitions deviennent un finding. L'augmenter est un réglage légitime en CI, où le but est un rapport signal sur bruit sur lequel une équipe agira. Mais l'énergie et le carbone évitables qu'une divulgation publie dérivent de ces mêmes findings : le bouton qui calme la CI réduit aussi le chiffre que l'organisation divulgue. Sans garde-fou, le geste honnête et le geste malhonnête sont le même geste.
+
+La séparation est la réponse : chaque fenêtre archivée porte **deux** paliers d'évitable. Le palier opérationnel utilise le seuil configuré par l'opérateur et alimente la CLI, la porte et les tableaux de bord. Le palier canonique utilise `DISCLOSURE_N_PLUS_ONE_THRESHOLD`, figé dans le binaire, et alimente la divulgation. Tourner le bouton déplace le premier et ne peut pas déplacer le second.
+
+Trois conséquences méritent d'être dites.
+
+- **Les deux paliers sont calculés ensemble, au moment du scoring, dans le daemon.** Ils ne peuvent pas être recalculés plus tard : `disclose` lit des paliers pré-calculés dans l'archive, car les reconstruire demanderait les spans, disparus depuis longtemps. Une fenêtre archivée sans palier canonique n'est pas intégrée du tout à la divulgation, plutôt qu'intégrée au seuil de l'opérateur, pour qu'une archive de millésimes mélangés ne puisse pas confondre les deux en silence.
+- **La figure canonique n'est pas "la bonne" et l'opérationnelle "la fausse".** Elles répondent à deux questions différentes : ce que cette équipe a décidé de poursuivre, contre ce que compte un étalon public fixe. La divulgation porte le seuil qui a produit chaque palier, la différence est donc auditable plutôt qu'implicite.
+- **Les figures de gaspillage se remettent à l'échelle depuis une base indépendante du ratio.** `messaging_waste` et `database_waste` calculent leur jambe canonique depuis l'`energy_gco2` de la fenêtre et non depuis le gaspillage opérationnel, pour qu'un seuil opérateur qui annule la figure opérationnelle ne puisse pas annuler le carbone canonique.
+
+Les invariants anti-triche sont testés sous la feature `daemon`, seul mode qui produit les deux paliers.
 
 ## Révisions futures
 
