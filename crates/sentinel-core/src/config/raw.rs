@@ -63,6 +63,7 @@ struct ArchiveSection {
 struct ThresholdsSection {
     n_plus_one_sql_critical_max: Option<u32>,
     n_plus_one_http_warning_max: Option<u32>,
+    n_plus_one_messaging_warning_max: Option<u32>,
     io_waste_ratio_max: Option<f64>,
 }
 
@@ -313,6 +314,10 @@ impl From<RawConfig> for Config {
                     .thresholds
                     .n_plus_one_http_warning_max
                     .unwrap_or(thresholds_defaults.n_plus_one_http_warning_max),
+                n_plus_one_messaging_warning_max: raw
+                    .thresholds
+                    .n_plus_one_messaging_warning_max
+                    .unwrap_or(thresholds_defaults.n_plus_one_messaging_warning_max),
                 io_waste_ratio_max: raw
                     .thresholds
                     .io_waste_ratio_max

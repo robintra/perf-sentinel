@@ -176,7 +176,7 @@ fn full_pipeline_runs_on_all_fixtures() {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);
         assert!(report.analysis.events_processed > 0, "fixture: {fixture}");
-        assert_eq!(report.quality_gate.rules.len(), 3, "fixture: {fixture}");
+        assert_eq!(report.quality_gate.rules.len(), 4, "fixture: {fixture}");
     }
 }
 
@@ -384,7 +384,7 @@ fn full_pipeline_runs_on_slow_fixture() {
 
     assert_eq!(report.analysis.events_processed, 7);
     assert_eq!(report.analysis.traces_analyzed, 1);
-    assert_eq!(report.quality_gate.rules.len(), 3);
+    assert_eq!(report.quality_gate.rules.len(), 4);
     assert!(report.green_summary.total_io_ops > 0);
 }
 

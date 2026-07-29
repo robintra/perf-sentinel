@@ -11,7 +11,7 @@ pub fn evaluate(
     green_summary: &GreenSummary,
     thresholds: &ThresholdsConfig,
 ) -> QualityGate {
-    let mut rules = Vec::with_capacity(3);
+    let mut rules = Vec::with_capacity(4);
 
     // Rule 1: n_plus_one_sql_critical_max
     let critical_sql_count = findings
@@ -42,7 +42,25 @@ pub fn evaluate(
         passed: warning_plus_http_count <= threshold_http as usize,
     });
 
-    // Rule 3: io_waste_ratio_max
+    // Rule 3: n_plus_one_messaging_warning_max. Warning+ like HTTP rather
+    // than critical-only like SQL: a Kafka client may already batch the
+    // publishes it buffers, so the count is an upper bound.
+    let warning_plus_messaging_count = findings
+        .iter()
+        .filter(|f| {
+            f.finding_type == FindingType::NPlusOneMessaging
+                && matches!(f.severity, Severity::Warning | Severity::Critical)
+        })
+        .count();
+    let threshold_messaging = thresholds.n_plus_one_messaging_warning_max;
+    rules.push(QualityRule {
+        rule: "n_plus_one_messaging_warning_max".to_string(),
+        threshold: f64::from(threshold_messaging),
+        actual: warning_plus_messaging_count as f64,
+        passed: warning_plus_messaging_count <= threshold_messaging as usize,
+    });
+
+    // Rule 4: io_waste_ratio_max
     rules.push(QualityRule {
         rule: "io_waste_ratio_max".to_string(),
         threshold: thresholds.io_waste_ratio_max,
@@ -71,8 +89,29 @@ mod tests {
         let gate = evaluate(&[], &summary, &config.thresholds);
 
         assert!(gate.passed);
-        assert_eq!(gate.rules.len(), 3);
+        assert_eq!(gate.rules.len(), 4);
         assert!(gate.rules.iter().all(|r| r.passed));
+    }
+
+    #[test]
+    fn messaging_n_plus_one_fails_its_own_rule() {
+        // Warning+ counts, like HTTP: the gate must name the messaging rule
+        // rather than only moving the global waste ratio.
+        let config = Config::default(); // n_plus_one_messaging_warning_max = 3
+        let summary = empty_green_summary();
+        let findings: Vec<_> = (0..4)
+            .map(|_| make_finding(FindingType::NPlusOneMessaging, Severity::Warning))
+            .collect();
+        let gate = evaluate(&findings, &summary, &config.thresholds);
+
+        let rule = gate
+            .rules
+            .iter()
+            .find(|r| r.rule == "n_plus_one_messaging_warning_max")
+            .expect("the messaging rule is evaluated");
+        assert!(!rule.passed, "4 warnings exceed the default of 3");
+        assert!((rule.actual - 4.0).abs() < f64::EPSILON);
+        assert!(!gate.passed);
     }
 
     #[test]

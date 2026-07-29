@@ -22,6 +22,7 @@ Exit code is non-zero if the **quality gate** (a configurable set of pass/fail t
 [thresholds]
 n_plus_one_sql_critical_max = 0
 n_plus_one_http_warning_max = 3
+n_plus_one_messaging_warning_max = 3
 io_waste_ratio_max = 0.30
 ```
 

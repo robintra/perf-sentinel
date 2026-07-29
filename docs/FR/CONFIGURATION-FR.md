@@ -41,6 +41,7 @@ Seuils du quality gate. Le quality gate échoue si une règle est violée.
 |-------------------------------|----------|--------|-------------------------------------------------------------------------------|
 | `n_plus_one_sql_critical_max` | entier   | `0`    | Nombre maximum de findings N+1 SQL **critiques** avant l'échec du gate        |
 | `n_plus_one_http_warning_max` | entier   | `3`    | Nombre maximum de findings N+1 HTTP **warning ou plus** avant l'échec du gate |
+| `n_plus_one_messaging_warning_max` | entier | `3` | Nombre maximum de findings N+1 messaging **warning ou plus** avant l'échec du gate. Warning+ plutôt que critique seul, comme HTTP : un client Kafka peut déjà grouper les publications qu'il met en tampon, le compte d'occurrences y est donc un majorant |
 | `io_waste_ratio_max`          | flottant | `0.30` | Ratio maximum de gaspillage I/O (0.0 à 1.0) avant l'échec du gate             |
 
 ### `[detection]`
@@ -744,6 +745,7 @@ io_waste_ratio_max = 0.25
 [thresholds]
 n_plus_one_sql_critical_max = 0
 n_plus_one_http_warning_max = 3
+n_plus_one_messaging_warning_max = 3
 io_waste_ratio_max = 0.30
 
 [detection]
