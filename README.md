@@ -91,16 +91,18 @@ And it doesn't stop at detection. Each avoidable I/O is translated into energy t
 
 ## What it detects
 
-Ten finding types, plus cross-trace correlations in daemon mode:
+Twelve finding types, plus cross-trace correlations in daemon mode:
 
 | Pattern             | Trigger                                                          |
 |---------------------|------------------------------------------------------------------|
 | N+1 SQL             | Same query template fired ≥ N times in a single trace            |
 | N+1 HTTP            | Same URL template called ≥ N times in a single trace             |
+| N+1 messaging       | Same destination published to ≥ N times in a single trace         |
 | Redundant SQL       | Identical query with identical params, same trace                |
 | Redundant HTTP      | Identical call with identical params, same trace                 |
 | Slow SQL            | Query duration above configured threshold                        |
 | Slow HTTP           | Request duration above configured threshold                      |
+| Slow messaging      | Publish duration above configured threshold                      |
 | Excessive fanout    | One span starts ≥ N children in parallel                         |
 | Chatty service      | Service A → B repeatedly within one user request                 |
 | Pool saturation     | Concurrent in-flight queries exceed configured pool size         |
