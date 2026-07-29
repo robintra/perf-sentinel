@@ -590,6 +590,37 @@ fn scroll_in_detail_panel_clamps_at_content_end() {
 }
 
 #[test]
+fn detail_panel_renders_the_suggested_fix_line_and_counts_it() {
+    let mut app = make_test_app();
+    let without_fix = app.detail_panel_line_count();
+    app.all_findings[0].suggested_fix = Some(sentinel_core::detect::suggestions::SuggestedFix {
+        pattern: "n_plus_one_sql".to_string(),
+        framework: "java_jpa".to_string(),
+        recommendation: "Batch the publishes.".to_string(),
+        reference_url: Some("https://docs.confluent.io/x".to_string()),
+    });
+
+    // The scroll clamp must count the extra row, or the last span-tree
+    // line becomes unreachable.
+    assert_eq!(app.detail_panel_line_count(), without_fix + 1);
+
+    let backend = ratatui::backend::TestBackend::new(100, 30);
+    let mut terminal = ratatui::Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|f| draw_detail_panel(f, &app, f.area()))
+        .expect("draw");
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect();
+    assert!(text.contains("Suggested fix:"), "got: {text}");
+    assert!(text.contains("Batch the publishes."), "got: {text}");
+}
+
+#[test]
 fn scroll_clamps_with_cached_span_tree() {
     // Exercises the `cached_detail.is_some()` branch of
     // `detail_panel_line_count`: when a span tree is cached for the

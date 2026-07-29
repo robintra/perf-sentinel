@@ -36,7 +36,7 @@ use sentinel_core::explain;
 use sentinel_core::report::interpret::InterpretationLevel;
 use sentinel_core::report::periodic::schema::{Confidentiality, ReportIntent};
 use sentinel_core::report::{Analysis, GreenSummary, QualityGate};
-use sentinel_core::text_safety::sanitize_for_terminal;
+use sentinel_core::text_safety::{safe_url, sanitize_for_terminal, strip_code_ticks};
 
 use crate::disclose::{CustomField, DiscloseState, Granularity, Tone};
 use crate::tui_resize::{
@@ -368,6 +368,9 @@ impl App {
             .as_ref()
             .is_some_and(|loc| !loc.display_string().is_empty())
         {
+            count = count.saturating_add(1);
+        }
+        if finding.suggested_fix.is_some() {
             count = count.saturating_add(1);
         }
         if finding.green_impact.is_some() {
@@ -2262,6 +2265,20 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(&finding.suggestion),
         ]),
     ];
+
+    // Same sanitization as the CLI path (render.rs): the fix can come
+    // from a --input JSON or a daemon, not only the embedded table.
+    if let Some(ref fix) = finding.suggested_fix {
+        let plain = strip_code_ticks(&fix.recommendation);
+        let mut spans = vec![
+            Span::styled("Suggested fix: ", Style::default().fg(Color::Cyan)),
+            Span::raw(sanitize_for_terminal(&plain).into_owned()),
+        ];
+        if let Some(url) = fix.reference_url.as_deref().and_then(safe_url) {
+            spans.push(Span::styled(format!(" (see: {url})"), dim_style()));
+        }
+        lines.push(Line::from(spans));
+    }
 
     if let Some(ref loc) = finding.code_location {
         let src = loc.display_string();
