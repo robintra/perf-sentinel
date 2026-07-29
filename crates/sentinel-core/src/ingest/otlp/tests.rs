@@ -1193,6 +1193,62 @@ fn a_handler_between_receive_and_the_io_span_keeps_the_link() {
 }
 
 #[test]
+fn a_handler_that_started_before_the_receive_shields_its_children() {
+    // The temporal guard has to judge the ancestor whose subtree is being
+    // attributed, not the leaf. A handler that began before the message
+    // arrived was not triggered by it, however late its own SQL runs.
+    let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());
+    let mut handler = make_bare_span(&[52; 8], vec![]);
+    handler.parent_span_id = vec![24; 8];
+    handler.start_time_unix_nano = spans[1].start_time_unix_nano - 1;
+    spans[2].parent_span_id = vec![52; 8];
+    spans[2].start_time_unix_nano = spans[1].start_time_unix_nano + 1;
+    spans.push(handler);
+    let req = make_request("accounting", spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(sql.link_trace_id, None);
+}
+
+#[test]
+fn work_follows_the_nearest_preceding_receive_not_the_first_in_the_payload() {
+    // A consumer loop emits several `receive` spans under one parent. The
+    // work belongs to the message that arrived last before it started, and
+    // that answer must not depend on the order the exporter serialised them.
+    let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());
+    let mut second = spans[1].clone();
+    second.span_id = vec![44; 8];
+    second.start_time_unix_nano = spans[1].start_time_unix_nano + 100;
+    second.links[0].trace_id = vec![0xcd; 16];
+    spans[2].start_time_unix_nano = second.start_time_unix_nano + 1;
+    spans.insert(1, second);
+
+    let events = convert_otlp_request(&make_request("accounting", spans.clone()));
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(
+        sql.link_trace_id.as_deref(),
+        Some(&*"cd".repeat(16)),
+        "the later receive is the one that triggered this work"
+    );
+
+    // Same spans, reversed: payload order must not change the answer.
+    spans.reverse();
+    let events = convert_otlp_request(&make_request("accounting", spans));
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(sql.link_trace_id.as_deref(), Some(&*"cd".repeat(16)));
+}
+
+#[test]
 fn an_all_zero_parent_id_does_not_pair_two_roots() {
     // Some exporters spell a root parent as eight zero bytes instead of
     // leaving it empty, which would make it a real shared key.
