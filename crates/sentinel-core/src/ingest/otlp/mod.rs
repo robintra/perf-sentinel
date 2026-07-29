@@ -471,32 +471,70 @@ fn resolve_producer_link<'a>(
 /// that skips the ancestor walk too.
 fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceConsumerIndexes<'_> {
     let mut per_service: ServiceConsumerIndexes<'_> = HashMap::new();
+    // Spans kept per service, not per block: a batch processor splits one
+    // service across several `ResourceSpans`, and a per-block counter would
+    // let each block spend the whole budget again.
+    let mut kept_per_service: HashMap<&str, usize> = HashMap::new();
     for resource_spans in &request.resource_spans {
-        let index = per_service
-            .entry(resource_service_name(resource_spans))
-            .or_default();
-        let mut kept = 0usize;
-        'resource: for scope_spans in &resource_spans.scope_spans {
-            for span in &scope_spans.spans {
-                if span.links.is_empty()
-                    || span.kind
-                        != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32
-                {
-                    continue;
-                }
-                if kept >= MAX_SPANS_PER_SERVICE {
-                    tracing::warn!(
-                        "OTLP consumer-link index capped at {} entries for one service, producer links may be missing for its remaining spans",
-                        MAX_SPANS_PER_SERVICE
-                    );
-                    break 'resource;
-                }
-                index.entry(&span.parent_span_id).or_default().push(span);
-                kept += 1;
-            }
-        }
+        let service = resource_service_name(resource_spans);
+        index_linked_consumers(
+            resource_spans,
+            per_service.entry(service).or_default(),
+            kept_per_service.entry(service).or_default(),
+        );
     }
     per_service
+}
+
+/// Whether the request carries any link-bearing CONSUMER span at all.
+///
+/// Short-circuits on the first one, so a fleet on a bus pays almost nothing
+/// here and a bus-less one pays a single traversal instead of building and
+/// allocating an index per service it would never read.
+fn any_linked_consumer(request: &ExportTraceServiceRequest) -> bool {
+    request.resource_spans.iter().any(|resource_spans| {
+        resource_spans.scope_spans.iter().any(|scope_spans| {
+            scope_spans.spans.iter().any(|span| {
+                span.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32
+                    && !span.links.is_empty()
+            })
+        })
+    })
+}
+
+/// Index one block's link-bearing CONSUMER spans into a service's `index`.
+///
+/// `kept` carries across blocks so the cap bounds the service. Past the cap
+/// it is advanced one further as a latch, so a service split across many
+/// blocks warns once instead of once per block.
+fn index_linked_consumers<'a>(
+    resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+    index: &mut HashMap<&'a [u8], Vec<&'a Span>>,
+    kept: &mut usize,
+) {
+    let linked_consumers = resource_spans
+        .scope_spans
+        .iter()
+        .flat_map(|scope_spans| &scope_spans.spans)
+        .filter(|span| {
+            !span.links.is_empty()
+                && span.kind
+                    == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32
+        });
+    for span in linked_consumers {
+        if *kept >= MAX_SPANS_PER_SERVICE {
+            if *kept == MAX_SPANS_PER_SERVICE {
+                tracing::warn!(
+                    "OTLP consumer-link index capped at {} entries for one service, producer links may be missing for its remaining spans",
+                    MAX_SPANS_PER_SERVICE
+                );
+                *kept += 1;
+            }
+            return;
+        }
+        index.entry(&span.parent_span_id).or_default().push(span);
+        *kept += 1;
+    }
 }
 
 /// Inbound HTTP endpoint carried by a single ancestor span, or `None`.
@@ -1221,15 +1259,7 @@ pub fn convert_otlp_request_counted(
     let empty_consumers = HashMap::new();
     // One O(spans) pass, so the per-span ancestor walk is skipped entirely
     // on a fleet with no broker.
-    let has_consumer_links = request.resource_spans.iter().any(|rs| {
-        rs.scope_spans.iter().any(|ss| {
-            ss.spans.iter().any(|s| {
-                s.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32
-                    && !s.links.is_empty()
-            })
-        })
-    });
-    let consumer_indexes = if has_consumer_links {
+    let consumer_indexes = if any_linked_consumer(request) {
         build_consumer_link_indexes(request)
     } else {
         HashMap::new()
