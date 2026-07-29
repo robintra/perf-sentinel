@@ -180,7 +180,7 @@
 <li>Scoring to compute <strong>all</strong> metrics regardless of pass/fail</li>
 <li>The quality gate to make a binary pass/fail decision based on <strong>configurable rules</strong></li>
 </ul>
-<p class="ps-p">The three rules (max critical SQL N+1, max warning+ HTTP N+1, max waste ratio) are evaluated independently. The gate passes only if all rules pass. This is more flexible than a single severity threshold.</p>
+<p class="ps-p">The four rules (max critical SQL N+1, max warning+ HTTP N+1, max warning+ messaging N+1, max waste ratio) are evaluated independently. The gate passes only if all rules pass. This is more flexible than a single severity threshold.</p>
 <h2 id="report-structure" class="ps-h2">Report structure</h2>
 <p class="ps-p">The <code class="ps-ic">Report</code> struct combines four sections:</p>
 <div class="ps-code"><div class="ps-code-lang">rust</div><pre><code><span style="color:var(--code-cmd);font-weight:600">pub</span> <span style="color:var(--code-cmd);font-weight:600">struct</span> <span style="color:var(--code-sub)">Report</span> {
