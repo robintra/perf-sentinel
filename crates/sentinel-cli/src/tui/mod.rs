@@ -898,7 +898,13 @@ impl App {
                 ("FAIL", Color::Red)
             };
             lines.push(Line::from(vec![
-                Span::raw(format!("  - {}: ", sanitize_for_terminal(&rule.rule))),
+                Span::raw(format!(
+                    "  - {}: ",
+                    sentinel_core::quality_gate::rule_label(&rule.rule).map_or_else(
+                        || sanitize_for_terminal(&rule.rule).into_owned(),
+                        str::to_string
+                    )
+                )),
                 Span::styled(
                     format!("{:.2} (actual {:.2}) ", rule.threshold, rule.actual),
                     dim,
