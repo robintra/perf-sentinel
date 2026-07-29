@@ -1604,7 +1604,9 @@
     io_waste_ratio_max: "Max I/O waste ratio"
   };
   function humanizeGateRule(key) {
-    if (GATE_RULE_LABELS[key]) return GATE_RULE_LABELS[key];
+    // hasOwnProperty, not a bare lookup: a rule named "constructor" or
+    // "toString" would otherwise resolve to an inherited function.
+    if (Object.prototype.hasOwnProperty.call(GATE_RULE_LABELS, key)) return GATE_RULE_LABELS[key];
     var s = String(key || "");
     var prefix = "";
     if (s.endsWith("_max")) { prefix = "Max "; s = s.slice(0, -4); }
