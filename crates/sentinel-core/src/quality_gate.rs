@@ -4,6 +4,27 @@ use crate::config::ThresholdsConfig;
 use crate::detect::{Finding, FindingType, Severity};
 use crate::report::{GreenSummary, QualityGate, QualityRule};
 
+/// Human-readable label for a gate rule key, or `None` for a key this
+/// build does not know.
+///
+/// `None` matters for security as much as for display: a rule name read
+/// back from `/api/export/report` is attacker-influenced, so a caller that
+/// falls through to the raw key must sanitize it. Known keys are literals
+/// and need no sanitizing.
+///
+/// The HTML dashboard carries its own copy in `GATE_RULE_LABELS`, because
+/// it renders standalone with no Rust at hand. Keep the two in step.
+#[must_use]
+pub fn rule_label(rule: &str) -> Option<&'static str> {
+    match rule {
+        "n_plus_one_sql_critical_max" => Some("Max critical N+1 SQL"),
+        "n_plus_one_http_warning_max" => Some("Max N+1 HTTP (warning+)"),
+        "n_plus_one_messaging_warning_max" => Some("Max N+1 messaging (warning+)"),
+        "io_waste_ratio_max" => Some("Max I/O waste ratio"),
+        _ => None,
+    }
+}
+
 /// Evaluate quality gate rules against findings and green summary.
 #[must_use]
 pub fn evaluate(
@@ -91,6 +112,22 @@ mod tests {
         assert!(gate.passed);
         assert_eq!(gate.rules.len(), 4);
         assert!(gate.rules.iter().all(|r| r.passed));
+    }
+
+    #[test]
+    fn every_evaluated_rule_has_a_label() {
+        // The CLI, the TUI and the dashboard all display these keys. A rule
+        // added without its label would surface as raw snake_case.
+        let config = Config::default();
+        let gate = evaluate(&[], &empty_green_summary(), &config.thresholds);
+        for r in &gate.rules {
+            assert!(
+                rule_label(&r.rule).is_some(),
+                "rule {} has no display label",
+                r.rule
+            );
+        }
+        assert!(rule_label("some_future_rule").is_none());
     }
 
     #[test]

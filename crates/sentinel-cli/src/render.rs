@@ -827,10 +827,13 @@ fn print_quality_gate(
     for rule in &gate.rules {
         let status_color = if rule.passed { green } else { red };
         let status_label = if rule.passed { "PASS" } else { "FAIL" };
-        // Rule names are bounded internal literals on the local path, but the
-        // daemon-snapshot path (`/api/export/report` fed into `report`) makes
-        // them attacker-influenced, so sanitize like the other report fields.
-        let rule_name = sanitize_for_terminal(&rule.rule);
+        // A known key is a literal; an unknown one comes off the
+        // daemon-snapshot path (`/api/export/report` fed into `report`) and is
+        // attacker-influenced, so it sanitizes like the other report fields.
+        let rule_name = sentinel_core::quality_gate::rule_label(&rule.rule).map_or_else(
+            || sanitize_for_terminal(&rule.rule).into_owned(),
+            str::to_string,
+        );
         println!(
             "  {dim}-{reset} {rule_name}: {} (actual {}) {status_color}{status_label}{reset}",
             rule.threshold, rule.actual,
