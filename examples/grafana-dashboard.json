@@ -216,7 +216,7 @@
       }
     },
     {
-      "title": "Slow query duration p95 (global)",
+      "title": "Slow span duration p95 by kind",
       "description": "95th percentile duration of spans that crossed the slow threshold (500 ms by default, configurable). Only slow spans enter this histogram, so the value is always above that threshold by construction and is not your overall latency. Split by kind: sql, http_out and messaging. Aggregated with histogram_quantile so it stays correct across sharded daemons.",
       "type": "timeseries",
       "gridPos": {

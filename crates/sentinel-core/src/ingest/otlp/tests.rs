@@ -1153,6 +1153,63 @@ fn sibling_consumer_link_reaches_the_io_span() {
 }
 
 #[test]
+fn a_sibling_that_started_before_the_receive_is_not_triggered_by_it() {
+    // A scheduled flush or a health check under the same parent is not work
+    // the message caused, and inherits no producer trace.
+    let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());
+    spans[2].start_time_unix_nano = spans[1].start_time_unix_nano - 1;
+    let req = make_request("accounting", spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(sql.link_trace_id, None);
+}
+
+#[test]
+fn a_handler_between_receive_and_the_io_span_keeps_the_link() {
+    // The official Java agent puts a @Transactional handler between the
+    // shared parent and the work, so the receive is the handler's sibling
+    // rather than the SQL span's.
+    let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());
+    let mut handler = make_bare_span(&[52; 8], vec![]);
+    handler.parent_span_id = vec![24; 8];
+    spans[2].parent_span_id = vec![52; 8];
+    spans.push(handler);
+    let req = make_request("accounting", spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(
+        sql.link_trace_id.as_deref(),
+        Some(&*"ab".repeat(16)),
+        "the sibling lookup must retry at each ancestor"
+    );
+}
+
+#[test]
+fn an_all_zero_parent_id_does_not_pair_two_roots() {
+    // Some exporters spell a root parent as eight zero bytes instead of
+    // leaving it empty, which would make it a real shared key.
+    let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());
+    spans[1].parent_span_id = vec![0; 8];
+    spans[2].parent_span_id = vec![0; 8];
+    let req = make_request("accounting", spans);
+    let events = convert_otlp_request(&req);
+
+    let sql = events
+        .iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("the SQL span is admitted");
+    assert_eq!(sql.link_trace_id, None);
+}
+
+#[test]
 fn a_sibling_consumer_from_another_trace_is_ignored() {
     // Same parent id reused across traces is malformed input, not causality.
     let mut spans = make_sibling_consumer_trace(PRODUCER_TRACE.to_vec());

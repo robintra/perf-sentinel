@@ -389,7 +389,7 @@ fn walk_parents_for_code_attrs<'a>(
 /// links too, and those are not causality. The length check is not cosmetic:
 /// the proto bounds nothing and this runs once per descendant span.
 ///
-/// Two topologies, because OTel instrumentations disagree on where the
+/// Two topologies, because `OTel` instrumentations disagree on where the
 /// `receive` span goes.
 /// See `docs/design/06-INGESTION-AND-DAEMON.md`.
 fn resolve_producer_link<'a>(
@@ -405,27 +405,39 @@ fn resolve_producer_link<'a>(
             .filter(|l| valid(&l.trace_id))
             .map(|l| Arc::from(bytes_to_hex(&l.trace_id).as_str()))
     };
-    // Sibling first: the OTel Java and .NET Kafka instrumentations emit
-    // `receive` as a sibling of the work it triggered, under a shared parent,
-    // so it is never on the ancestor chain.
-    if !span.parent_span_id.is_empty()
-        && let Some(sibling) = consumers_by_parent.get(span.parent_span_id.as_slice())
-        && sibling.trace_id == span.trace_id
-        && sibling.span_id != span.span_id
-        && let Some(found) = link_of(sibling)
-    {
+    // A `receive` sibling only explains work that started after it. Without
+    // this a scheduled flush or a health check under the same parent would
+    // inherit the message's trace.
+    let sibling_link = |parent_id: &[u8]| {
+        if parent_id.is_empty() || parent_id.iter().all(|&b| b == 0) {
+            return None;
+        }
+        consumers_by_parent
+            .get(parent_id)
+            .filter(|c| {
+                c.trace_id == span.trace_id
+                    && c.span_id != span.span_id
+                    && span.start_time_unix_nano >= c.start_time_unix_nano
+            })
+            .and_then(|c| link_of(c))
+    };
+    // The OTel Java and .NET Kafka instrumentations emit `receive` as a
+    // sibling of the work it triggered, so it is never on the ancestor
+    // chain. The handler often sits between the two, hence one sibling
+    // lookup per level rather than only at the span itself.
+    if let Some(found) = sibling_link(&span.parent_span_id) {
         return Some(found);
     }
-    // Then the ancestor chain, for instrumentations that nest the work
-    // under `receive`.
     let mut found = None;
     walk_same_trace_ancestors(span, span_index, |ancestor| {
-        if ancestor.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32 {
-            return false;
-        }
         // Keep walking when this consumer has no usable link: some emit a
         // link-less `process` span under the `receive` span that holds it.
-        found = link_of(ancestor);
+        if ancestor.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32 {
+            found = link_of(ancestor);
+        }
+        if found.is_none() {
+            found = sibling_link(&ancestor.parent_span_id);
+        }
         found.is_some()
     });
     found
@@ -438,9 +450,11 @@ fn resolve_producer_link<'a>(
 /// trace with several sibling `receive` spans has no unambiguous answer, and
 /// batch order is at least deterministic.
 ///
-/// A root consumer lands under the empty key, which no sibling lookup ever
-/// reaches. It is indexed anyway so an empty index means "this service has no
-/// linked consumer at all", the condition that skips the ancestor walk too.
+/// A root consumer lands under the empty key, or under an all-zero one from
+/// exporters that spell a root that way. The sibling lookup rejects both, so
+/// neither can pair two roots together. They are indexed anyway so an empty
+/// index means "this service has no linked consumer at all", the condition
+/// that skips the ancestor walk too.
 fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes<'_> {
     let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
     for resource_spans in &request.resource_spans {
@@ -456,6 +470,10 @@ fn build_consumer_link_indexes(request: &ExportTraceServiceRequest) -> ServiceSp
                     continue;
                 }
                 if index.len() >= MAX_SPANS_PER_SERVICE {
+                    tracing::warn!(
+                        "OTLP consumer-link index capped at {} entries for one service, producer links may be missing for its remaining spans",
+                        MAX_SPANS_PER_SERVICE
+                    );
                     break;
                 }
                 index.entry(&span.parent_span_id).or_insert(span);
