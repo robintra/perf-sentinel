@@ -9,7 +9,7 @@
 //! OTLP path: nearest inbound HTTP route first, otherwise the outermost
 //! application `code.*` frame, otherwise `"unknown"`.
 
-use crate::event::{EventSource, EventType, SpanEvent};
+use crate::event::{EventSource, SpanEvent};
 use crate::ingest::IngestSource;
 use crate::time::micros_to_iso8601;
 
@@ -199,24 +199,23 @@ fn convert_zipkin_span(
     if db_system.is_some_and(super::is_non_sql_db_system) {
         return None;
     }
-    let (event_type, target) =
+    let (io_kind, target) =
         if let Some(stmt) = get_tag("db.statement").or_else(|| get_tag("db.query.text")) {
-            (EventType::Sql, stmt.to_string())
+            (super::TagIoKind::Sql, stmt.to_string())
         } else {
             // Not an I/O span unless it carries an HTTP target.
             (
-                EventType::HttpOut,
+                super::TagIoKind::HttpOut,
                 get_tag("http.url")
                     .or_else(|| get_tag("url.full"))?
                     .to_string(),
             )
         };
+    let event_type = io_kind.event_type();
 
-    // This path never yields Messaging, its gate admits SQL and HTTP only,
-    // so messaging rides along with the outbound-call arm.
-    let operation = match event_type {
-        EventType::Sql => db_system.unwrap_or("sql").to_string(),
-        EventType::HttpOut | EventType::Messaging => get_tag("http.method")
+    let operation = match io_kind {
+        super::TagIoKind::Sql => db_system.unwrap_or("sql").to_string(),
+        super::TagIoKind::HttpOut => get_tag("http.method")
             .or_else(|| get_tag("http.request.method"))
             .unwrap_or("GET")
             .to_string(),
@@ -231,11 +230,11 @@ fn convert_zipkin_span(
     let timestamp = span.timestamp.unwrap_or(0);
     let duration_us = span.duration.unwrap_or(0);
 
-    let status_code = match event_type {
-        EventType::HttpOut | EventType::Messaging => get_tag("http.status_code")
+    let status_code = match io_kind {
+        super::TagIoKind::HttpOut => get_tag("http.status_code")
             .or_else(|| get_tag("http.response.status_code"))
             .and_then(|s| s.parse().ok()),
-        EventType::Sql => None,
+        super::TagIoKind::Sql => None,
     };
 
     // code.* attributes from span tags, stable semconv names first, same
@@ -258,12 +257,12 @@ fn convert_zipkin_span(
 
     // On a DB span an HTTP tag is the inbound route propagated onto it, so it
     // wins. On an outbound span it is the callee's path, so only the walk answers.
-    let endpoint = match event_type {
-        EventType::Sql => get_tag("http.route")
+    let endpoint = match io_kind {
+        super::TagIoKind::Sql => get_tag("http.route")
             .or_else(|| get_tag("http.target"))
             .filter(|s| !s.trim().is_empty())
             .map(ToString::to_string),
-        EventType::HttpOut | EventType::Messaging => None,
+        super::TagIoKind::HttpOut => None,
     }
     .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
     let method = get_tag("code.function")
@@ -306,6 +305,7 @@ fn convert_zipkin_span(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventType;
 
     fn sample_zipkin_json() -> &'static str {
         r#"[

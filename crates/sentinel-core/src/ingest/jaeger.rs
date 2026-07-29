@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
-use crate::event::{EventSource, EventType, SpanEvent};
+use crate::event::{EventSource, SpanEvent};
 use crate::ingest::IngestSource;
 use crate::time::micros_to_iso8601;
 
@@ -242,23 +242,22 @@ fn convert_jaeger_span(
     if db_system.is_some_and(super::is_non_sql_db_system) {
         return None;
     }
-    let (event_type, target) = if let Some(stmt) =
+    let (io_kind, target) = if let Some(stmt) =
         find_tag(tags, "db.statement").or_else(|| find_tag(tags, "db.query.text"))
     {
-        (EventType::Sql, stmt)
+        (super::TagIoKind::Sql, stmt)
     } else {
         // Not an I/O span unless it carries an HTTP target.
         (
-            EventType::HttpOut,
+            super::TagIoKind::HttpOut,
             find_tag(tags, "http.url").or_else(|| find_tag(tags, "url.full"))?,
         )
     };
+    let event_type = io_kind.event_type();
 
-    // Operation. This path never yields Messaging, its gate admits SQL and
-    // HTTP only, so messaging rides along with the outbound-call arm.
-    let operation = match event_type {
-        EventType::Sql => db_system.unwrap_or("sql").to_string(),
-        EventType::HttpOut | EventType::Messaging => find_tag(tags, "http.method")
+    let operation = match io_kind {
+        super::TagIoKind::Sql => db_system.unwrap_or("sql").to_string(),
+        super::TagIoKind::HttpOut => find_tag(tags, "http.method")
             .or_else(|| find_tag(tags, "http.request.method"))
             .unwrap_or_else(|| "GET".to_string()),
     };
@@ -272,11 +271,11 @@ fn convert_jaeger_span(
     let parent_span_id = child_of(span).map(ToString::to_string);
 
     // Status code (HTTP only)
-    let status_code = match event_type {
-        EventType::HttpOut | EventType::Messaging => find_tag(tags, "http.status_code")
+    let status_code = match io_kind {
+        super::TagIoKind::HttpOut => find_tag(tags, "http.status_code")
             .or_else(|| find_tag(tags, "http.response.status_code"))
             .and_then(|s| s.parse().ok()),
-        EventType::Sql => None,
+        super::TagIoKind::Sql => None,
     };
 
     // code.* attributes from span tags, stable semconv names first, same
@@ -303,11 +302,11 @@ fn convert_jaeger_span(
 
     // On a DB span an HTTP tag is the inbound route propagated onto it, so it
     // wins. On an outbound span it is the callee's path, so only the walk answers.
-    let endpoint = match event_type {
-        EventType::Sql => find_tag(tags, "http.route")
+    let endpoint = match io_kind {
+        super::TagIoKind::Sql => find_tag(tags, "http.route")
             .or_else(|| find_tag(tags, "http.target"))
             .filter(|s| !s.trim().is_empty()),
-        EventType::HttpOut | EventType::Messaging => None,
+        super::TagIoKind::HttpOut => None,
     }
     .unwrap_or_else(|| resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index));
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
@@ -354,6 +353,7 @@ fn find_tag(tags: &[JaegerTag], key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventType;
 
     fn sample_jaeger_json() -> &'static str {
         r#"{
