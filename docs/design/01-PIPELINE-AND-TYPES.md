@@ -70,7 +70,7 @@ The quality gate (`quality_gate::evaluate`) is a distinct stage called after sco
 - Scoring to compute **all** metrics regardless of pass/fail
 - The quality gate to make a binary pass/fail decision based on **configurable rules**
 
-The three rules (max critical SQL N+1, max warning+ HTTP N+1, max waste ratio) are evaluated independently. The gate passes only if all rules pass. This is more flexible than a single severity threshold.
+The four rules (max critical SQL N+1, max warning+ HTTP N+1, max warning+ messaging N+1, max waste ratio) are evaluated independently. The gate passes only if all rules pass. This is more flexible than a single severity threshold.
 
 ## Report structure
 

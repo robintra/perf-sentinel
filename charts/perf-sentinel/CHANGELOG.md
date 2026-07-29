@@ -17,8 +17,11 @@ ingestion and broker energy attribution, so two chart-visible surfaces change:
 `config.toml` accepts the new `[green.alumet.broker]` and `[green.broker_static]`
 sections, and the bundled Grafana dashboard gains a messaging p95 series, an OTLP
 intake panel, the two missing energy backends on the freshness panel, and batch
-shedding on the headroom panel. No template, value or default changes, so an
-existing values file installs unchanged.
+shedding on the headroom panel. No template changes, but the default
+`config.toml` gains the fourth quality-gate rule `n_plus_one_messaging_warning_max
+= 3`, so a values file that keeps the bundled default now fails the gate on a
+service carrying four or more warning-or-higher N+1 messaging findings. Override
+the threshold under `config.toml` to keep the previous behaviour.
 
 ## [0.9.22]
 

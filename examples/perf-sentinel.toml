@@ -18,6 +18,10 @@
 n_plus_one_sql_critical_max = 0
 # Max number of warning-level N+1 HTTP findings tolerated.
 n_plus_one_http_warning_max = 3
+# Max number of warning-level N+1 messaging findings tolerated. Warning+ like
+# the HTTP rule rather than critical-only: a client that batches its publishes
+# makes the occurrence count an upper bound.
+n_plus_one_messaging_warning_max = 3
 # Max avoidable-I/O waste ratio tolerated (0.0 to 1.0).
 io_waste_ratio_max = 0.30
 
