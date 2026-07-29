@@ -4,8 +4,8 @@ use super::*;
 use crate::detect::{Confidence, FindingType, Pattern, Severity};
 use crate::event::SpanEvent;
 use crate::score::carbon::{
-    CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE, CarbonContext, DbEnergyContext, ENERGY_PER_IO_OP_KWH,
-    IntensitySource, RealTimeIntensityEntry, UNKNOWN_REGION, db_waste_gco2,
+    CO2_MODEL_ALUMET, CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE, CarbonContext, DbEnergyContext,
+    ENERGY_PER_IO_OP_KWH, IntensitySource, RealTimeIntensityEntry, UNKNOWN_REGION, db_waste_gco2,
 };
 use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
 
@@ -413,7 +413,7 @@ fn messaging_split_excludes_the_sql_share() {
                 "orders",
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
             );
-            e.event_type = crate::event::EventType::Messaging;
+            e.event_type = EventType::Messaging;
             e.operation = "kafka".to_string();
             e
         })
@@ -504,7 +504,7 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
             region: Some("eu-west-3".to_string()),
             // Stated, not defaulted: only the caller that fills the
             // window knows it was measured.
-            model: crate::score::carbon::CO2_MODEL_ALUMET,
+            model: CO2_MODEL_ALUMET,
         }),
         ..CarbonContext::default()
     };
@@ -581,7 +581,7 @@ fn messaging_waste_measured_from_a_declared_broker() {
     // A declared broker delivers window energy, so the figure carries it
     // verbatim and multiplies by the messaging ratio only.
     let mut publish = make_http_event("t1", "s1", "orders", "2025-07-10T14:32:01.000Z");
-    publish.event_type = crate::event::EventType::Messaging;
+    publish.event_type = EventType::Messaging;
     publish.operation = "kafka".to_string();
     let trace = make_trace(vec![publish]);
     let ctx = CarbonContext {
@@ -589,7 +589,7 @@ fn messaging_waste_measured_from_a_declared_broker() {
         broker_energy: Some(DbEnergyContext {
             window_kwh: 2.0,
             region: Some("eu-west-3".to_string()),
-            model: crate::score::carbon::CO2_MODEL_ALUMET,
+            model: CO2_MODEL_ALUMET,
         }),
         ..CarbonContext::default()
     };
@@ -608,7 +608,7 @@ fn messaging_waste_measured_from_a_declared_broker() {
 #[test]
 fn messaging_waste_carries_the_declared_cluster_tag() {
     let mut publish = make_http_event("t1", "s1", "orders", "2025-07-10T14:32:01.000Z");
-    publish.event_type = crate::event::EventType::Messaging;
+    publish.event_type = EventType::Messaging;
     publish.operation = "kafka".to_string();
     let trace = make_trace(vec![publish]);
     let ctx = CarbonContext {
@@ -634,7 +634,7 @@ fn messaging_waste_estimated_when_no_broker_declared() {
     // No broker at all: the figure falls back to the modeled publish
     // energy, tagged estimated, and stays within the report totals.
     let mut publish = make_http_event("t1", "s1", "orders", "2025-07-10T14:32:01.000Z");
-    publish.event_type = crate::event::EventType::Messaging;
+    publish.event_type = EventType::Messaging;
     publish.operation = "kafka".to_string();
     let trace = make_trace(vec![publish]);
     let ctx = CarbonContext {

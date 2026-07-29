@@ -866,9 +866,7 @@ fn mysql_stat_csv_and_json_fixtures_produce_same_entries() {
 #[test]
 fn messaging_chain_detects_publish_loop_and_keeps_traces_separate() {
     let events = load_fixture("messaging_chain.json");
-    let traces = sentinel_core::correlate::correlate(sentinel_core::normalize::normalize_all(
-        events.clone(),
-    ));
+    let traces = correlate::correlate(normalize::normalize_all(events.clone()));
     assert_eq!(
         traces.len(),
         2,

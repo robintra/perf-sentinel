@@ -305,7 +305,7 @@ mod tests {
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                     600_000,
                 );
-                e.event_type = crate::event::EventType::Messaging;
+                e.event_type = EventType::Messaging;
                 e.operation = "kafka".to_string();
                 e
             })

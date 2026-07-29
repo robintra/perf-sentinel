@@ -77,54 +77,75 @@ pub(crate) fn compute_disclosure_waste(
     }
 }
 
-/// Both database-waste tiers from the window's operational figure. The
-/// canonical tier reuses the same energy with the SQL ratio recomputed
-/// at the canonical threshold; its gCO₂ scales the ratio-independent
-/// `energy_gco2` base, so an operator threshold that zeroes the
-/// operational figure cannot zero the canonical carbon leg.
+/// The five figure fields both waste twins share, borrowed from either.
+struct WasteTierInput<'a> {
+    energy_kwh: f64,
+    model: &'a str,
+    waste_kwh: f64,
+    waste_gco2: Option<f64>,
+    energy_gco2: Option<f64>,
+}
+
+/// Both tiers from one window figure. The canonical tier reuses the same
+/// energy with the ratio recomputed at the canonical threshold, and its
+/// gCO₂ scales the ratio-independent `energy_gco2` base, so an operator
+/// threshold that zeroes the operational figure cannot zero the canonical
+/// carbon leg.
+fn build_waste_tiers(
+    figure: &WasteTierInput<'_>,
+    canonical_avoidable: usize,
+    total: usize,
+) -> DisclosureDbWaste {
+    #[allow(clippy::cast_precision_loss)] // counts, far below 2^53
+    let canonical_ratio = if total == 0 {
+        0.0
+    } else {
+        (canonical_avoidable as f64 / total as f64).min(1.0)
+    };
+    DisclosureDbWaste {
+        energy_kwh: figure.energy_kwh,
+        model: figure.model.to_string(),
+        operational_waste_kwh: figure.waste_kwh,
+        operational_waste_gco2: figure.waste_gco2,
+        canonical_waste_kwh: figure.energy_kwh * canonical_ratio,
+        canonical_waste_gco2: figure.energy_gco2.map(|g| g * canonical_ratio),
+    }
+}
+
 fn build_db_waste_tiers(
     operational: &GreenSummary,
     canonical_sql_avoidable: usize,
 ) -> Option<DisclosureDbWaste> {
     let db = operational.database_waste.as_ref()?;
-    let total_sql = operational.total_sql_io_ops;
-    let canonical_ratio = if total_sql == 0 {
-        0.0
-    } else {
-        (canonical_sql_avoidable as f64 / total_sql as f64).min(1.0)
-    };
-    Some(DisclosureDbWaste {
-        energy_kwh: db.energy_kwh,
-        model: db.model.clone(),
-        operational_waste_kwh: db.waste_kwh,
-        operational_waste_gco2: db.waste_gco2,
-        canonical_waste_kwh: db.energy_kwh * canonical_ratio,
-        canonical_waste_gco2: db.energy_gco2.map(|g| g * canonical_ratio),
-    })
+    Some(build_waste_tiers(
+        &WasteTierInput {
+            energy_kwh: db.energy_kwh,
+            model: &db.model,
+            waste_kwh: db.waste_kwh,
+            waste_gco2: db.waste_gco2,
+            energy_gco2: db.energy_gco2,
+        },
+        canonical_sql_avoidable,
+        operational.total_sql_io_ops,
+    ))
 }
 
-/// The messaging twin of [`build_db_waste_tiers`], same anti-gaming
-/// construction: the canonical tier rescales the ratio-independent
-/// `energy_gco2` base rather than the operational figure.
 fn build_msg_waste_tiers(
     operational: &GreenSummary,
     canonical_messaging_avoidable: usize,
 ) -> Option<crate::report::DisclosureMsgWaste> {
     let mw = operational.messaging_waste.as_ref()?;
-    let total = operational.total_messaging_io_ops;
-    let canonical_ratio = if total == 0 {
-        0.0
-    } else {
-        (canonical_messaging_avoidable as f64 / total as f64).min(1.0)
-    };
-    Some(crate::report::DisclosureMsgWaste {
-        energy_kwh: mw.energy_kwh,
-        model: mw.model.clone(),
-        operational_waste_kwh: mw.waste_kwh,
-        operational_waste_gco2: mw.waste_gco2,
-        canonical_waste_kwh: mw.energy_kwh * canonical_ratio,
-        canonical_waste_gco2: mw.energy_gco2.map(|g| g * canonical_ratio),
-    })
+    Some(build_waste_tiers(
+        &WasteTierInput {
+            energy_kwh: mw.energy_kwh,
+            model: &mw.model,
+            waste_kwh: mw.waste_kwh,
+            waste_gco2: mw.waste_gco2,
+            energy_gco2: mw.energy_gco2,
+        },
+        canonical_messaging_avoidable,
+        operational.total_messaging_io_ops,
+    ))
 }
 
 #[cfg(test)]
