@@ -59,3 +59,9 @@ v0.9.23	634f839	2026-07-29	PASS
 # new payload-order invariance gate, replay corpora identical. Lab HEAD f9815c9 is the tree
 # that actually validated the tagged revision.
 v0.9.23	f9815c9	2026-07-29	PASS
+# Scope note: the row above attests product revision c340424e. Commits after it on this branch
+# (messaging suggested fixes keyed by broker technology, the TUI suggested-fix line, and two
+# complexity-gate splits) were validated by CI and by inspecting the generated HTML and TUI
+# output rather than by a lab round, on the maintainer's call: they touch no ingest, energy or
+# disclosure path the lab legs exercise. The gate matches on version and date only, so this
+# note, not the gate, is what records the boundary.
