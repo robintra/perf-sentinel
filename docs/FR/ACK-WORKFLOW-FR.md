@@ -10,13 +10,14 @@ comment le helper CLI introduit en 0.5.22 s'intègre côté daemon.
 
 > **Qu'est-ce qu'une signature de finding.** Une signature est un
 > identifiant stable pour un finding, construit en hashant `(type de
-> finding, service, template d'endpoint normalisé, template SQL/HTTP
-> normalisé)` avec SHA-256 et en gardant un préfixe de 32 caractères
-> hex. Le même finding produit par deux redémarrages du daemon donne
-> la même signature, donc un ack écrit une fois reste attaché à sa
-> cible à travers les redémarrages et à travers les analyseurs. La
-> règle de sérialisation exacte et les 11 tests qui la verrouillent
-> vivent dans `docs/FR/ACKNOWLEDGMENTS-FR.md`.
+> finding, service, template d'endpoint normalisé, template normalisé
+> de requête, d'URL ou de destination)` avec SHA-256 et en gardant un
+> préfixe de 32 caractères hex. Le même finding produit par deux
+> redémarrages du daemon donne la même signature, donc un ack écrit
+> une fois reste attaché à sa cible à travers les redémarrages et à
+> travers les analyseurs. La règle de sérialisation exacte et les 11
+> tests qui la verrouillent vivent dans
+> `docs/FR/ACKNOWLEDGMENTS-FR.md`.
 
 ## CI ack : TOML dans le repo
 
@@ -251,7 +252,7 @@ CLI et les quality gates jusqu'à ce que :
 
 Idem pour les changements non cosmétiques de `http.route` (par
 exemple `/api/orders/{id}` → `/api/v2/orders/{id}`) et pour les
-changements sur le template SQL/HTTP construit par le détecteur (une
+changements sur le template normalisé construit par le détecteur (une
 refacto qui ajoute une clause `WHERE` change le template normalisé
 et donc le préfixe sha256). Planifiez ces renommages en même temps
 qu'une PR de mise à jour du fichier d'ack.
