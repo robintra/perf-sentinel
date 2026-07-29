@@ -56,11 +56,13 @@ Set FontSize 13
 # Narrower and shorter than the 1600x900 the inspect TUIs use: the
 # monitor's tabs are far less dense (a few summary tables, not
 # multi-panel browsers), so the default viewport frames the content
-# against a wide empty margin on the right and below. 810 cols fits the
-# widest line (the Energy By-service row, ~90 cols) with a small margin;
-# 600 fits the fullest tab (Energy, ~26 lines) and gives the two Trends
-# chart rows ~12 lines each.
-Set Width 810
+# against a wide empty margin on the right and below. 1000 cols fits the
+# widest line, which is now the Energy waste row (`Database waste: ... model
+# estimated ... within the report totals`, ~120 cols) rather than the
+# By-service row; at 810 the provenance tag was cut off mid-word. 600 fits
+# the fullest tab (Energy, ~26 lines) and gives the two Trends chart rows
+# ~12 lines each.
+Set Width 1000
 Set Height 600
 Set TypingSpeed 100ms
 Set Padding 15
@@ -92,7 +94,7 @@ Enter
 # keeps the Trends curves moving (random sub-batches, unique trace ids).
 Type `python3 -c "import socket, json; e=json.load(open('$OLDPWD/tests/fixtures/demo.json')); s=socket.socket(socket.AF_UNIX); s.connect('/tmp/demo-monitor-dir/perf-sentinel.sock'); s.sendall((json.dumps(e)+chr(10)).encode()); s.shutdown(socket.SHUT_WR)"`
 Enter
-Type `python3 "$OLDPWD/scripts/demo-seed-loop.py" /tmp/demo-monitor-dir/perf-sentinel.sock "$OLDPWD/tests/fixtures/demo.json" > /dev/null 2>&1 &`
+Type `python3 "$OLDPWD/scripts/demo-seed-loop.py" /tmp/demo-monitor-dir/perf-sentinel.sock "$OLDPWD/tests/fixtures/demo.json" 1.3 checkout-svc,dashboard-svc,notify-svc > /dev/null 2>&1 &`
 Enter
 # Wait > trace_ttl_ms so windows flush, and long enough for a few cloud
 # scrape failures so the Scrapers age column is visibly non-zero. The VHS

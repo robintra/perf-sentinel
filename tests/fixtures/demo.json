@@ -1267,5 +1267,119 @@
       "endpoint": "GET /api/dashboard",
       "method": "DashboardService::render"
     }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:20.100Z",
+    "trace_id": "trace-demo-messaging",
+    "span_id": "span-msg-1",
+    "parent_span_id": "span-msg-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2400,
+    "source": {
+      "endpoint": "POST /api/orders/42/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    },
+    "code_function": "publishItem",
+    "code_filepath": "src/main/java/com/shop/notify/OrderEventPublisher.java",
+    "code_lineno": 64,
+    "code_namespace": "com.shop.notify.OrderEventPublisher"
+  },
+  {
+    "timestamp": "2025-07-10T14:32:20.130Z",
+    "trace_id": "trace-demo-messaging",
+    "span_id": "span-msg-2",
+    "parent_span_id": "span-msg-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2520,
+    "source": {
+      "endpoint": "POST /api/orders/42/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    },
+    "code_function": "publishItem",
+    "code_filepath": "src/main/java/com/shop/notify/OrderEventPublisher.java",
+    "code_lineno": 64,
+    "code_namespace": "com.shop.notify.OrderEventPublisher"
+  },
+  {
+    "timestamp": "2025-07-10T14:32:20.160Z",
+    "trace_id": "trace-demo-messaging",
+    "span_id": "span-msg-3",
+    "parent_span_id": "span-msg-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2640,
+    "source": {
+      "endpoint": "POST /api/orders/42/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    },
+    "code_function": "publishItem",
+    "code_filepath": "src/main/java/com/shop/notify/OrderEventPublisher.java",
+    "code_lineno": 64,
+    "code_namespace": "com.shop.notify.OrderEventPublisher"
+  },
+  {
+    "timestamp": "2025-07-10T14:32:20.190Z",
+    "trace_id": "trace-demo-messaging",
+    "span_id": "span-msg-4",
+    "parent_span_id": "span-msg-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2760,
+    "source": {
+      "endpoint": "POST /api/orders/42/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    },
+    "code_function": "publishItem",
+    "code_filepath": "src/main/java/com/shop/notify/OrderEventPublisher.java",
+    "code_lineno": 64,
+    "code_namespace": "com.shop.notify.OrderEventPublisher"
+  },
+  {
+    "timestamp": "2025-07-10T14:32:20.220Z",
+    "trace_id": "trace-demo-messaging",
+    "span_id": "span-msg-5",
+    "parent_span_id": "span-msg-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 2880,
+    "source": {
+      "endpoint": "POST /api/orders/42/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    },
+    "code_function": "publishItem",
+    "code_filepath": "src/main/java/com/shop/notify/OrderEventPublisher.java",
+    "code_lineno": 64,
+    "code_namespace": "com.shop.notify.OrderEventPublisher"
+  },
+  {
+    "timestamp": "2025-07-10T14:32:20.250Z",
+    "trace_id": "trace-demo-messaging",
+    "span_id": "span-msg-6",
+    "parent_span_id": "span-msg-root",
+    "service": "notify-svc",
+    "type": "messaging",
+    "operation": "kafka",
+    "target": "order.events",
+    "duration_us": 3000,
+    "source": {
+      "endpoint": "POST /api/orders/42/confirm",
+      "method": "OrderEventPublisher::publishItem"
+    },
+    "code_function": "publishItem",
+    "code_filepath": "src/main/java/com/shop/notify/OrderEventPublisher.java",
+    "code_lineno": 64,
+    "code_namespace": "com.shop.notify.OrderEventPublisher"
   }
 ]
