@@ -3546,7 +3546,8 @@ fn validate_workload_fields_rejects_bad_input() {
 fn workload_field_errors_name_the_calling_section() {
     // A broker misconfiguration must not send the operator to the
     // database block.
-    let err = super::validate::validate_workload_fields("[green.alumet.broker]", "   ", None)
+    use super::validate::validate_workload_fields;
+    let err = validate_workload_fields("[green.alumet.broker]", "   ", None)
         .expect_err("blank label_value");
     assert!(err.starts_with("[green.alumet.broker]"), "got: {err}");
 }

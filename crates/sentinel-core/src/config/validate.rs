@@ -144,7 +144,7 @@ pub(super) fn validate_broker_static(
     }
     if cfg.instance_type.is_empty()
         || cfg.instance_type.len() > 256
-        || crate::config::has_control_char(&cfg.instance_type)
+        || has_control_char(&cfg.instance_type)
     {
         return Err(
             "[green.broker_static] instance_type must be 1-256 chars and free of \
