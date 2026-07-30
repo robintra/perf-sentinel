@@ -29,10 +29,18 @@ pouvez conserver comme artefact de build, rejouer avec d'autres seuils,
 ou comparer à une référence avec `diff`.
 
 L'application n'a besoin d'aucun réglage propre à perf-sentinel, juste
-de la variable d'endpoint standard :
+des variables d'endpoint standard. Précisez aussi le protocole : les SDK
+ne s'accordent pas sur leur défaut, et un endpoint pointé sur le mauvais
+n'exporte rien sans le dire.
 
 ```bash
+# OTLP HTTP, le défaut de la plupart des SDK
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+# OTLP gRPC, le défaut d'opentelemetry-java
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
 ### Deux formes
@@ -92,11 +100,16 @@ par `analyze` au lieu d'être présenté comme une gate au vert.
 
 - `0` : capture terminée.
 - le code de la commande enveloppée quand elle a échoué, ce signal étant
-  le plus important.
+  le plus important. Une commande tuée par un signal renvoie
+  `128 + signal`, comme le ferait un shell, jamais `0`.
 - `1` : la capture elle-même a échoué (port pris, fichier non
-  inscriptible).
-- `2` : le plafond de taille a tronqué le fichier de traces, tout
-  verdict qui en sortirait sous-estimerait le run.
+  inscriptible). Les deux sont détectés avant le démarrage de la commande
+  enveloppée, une capture qui ne peut pas écouter ne laisse donc jamais
+  une suite de tests en cours.
+- `2` : le fichier de traces est en deçà du run, soit parce que le
+  plafond de taille a été atteint, soit parce que des requêtes n'ont pas
+  pu être mises en file assez vite. Tout verdict qui en sortirait
+  sous-estimerait le run.
 
 ## ack
 

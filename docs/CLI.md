@@ -27,10 +27,18 @@ stays with `analyze`, on a file you can keep as a build artifact, replay
 with different thresholds, or compare against a baseline with `diff`.
 
 The application needs no perf-sentinel-specific setting, only the
-standard endpoint variable:
+standard endpoint variables. Set the protocol too: SDKs disagree on
+their default, and an endpoint pointed at the wrong one exports nothing
+without saying so.
 
 ```bash
+# OTLP HTTP, what most SDKs default to
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+# OTLP gRPC, the opentelemetry-java default
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
 ### Two shapes
@@ -87,10 +95,14 @@ clean gate.
 
 - `0`: capture completed.
 - the wrapped command's own code when it failed, since that is the more
-  important signal.
-- `1`: the capture itself failed (port taken, unwritable file).
-- `2`: the size cap truncated the trace file, so any verdict from it
-  would understate the run.
+  important signal. A command killed by a signal reports `128 + signal`,
+  as a shell would, never `0`.
+- `1`: the capture itself failed (port taken, unwritable file). Both are
+  detected before the wrapped command starts, so a capture that cannot
+  listen never leaves a test suite running.
+- `2`: the trace file is short of the run, either because the size cap
+  was hit or because requests could not be queued fast enough. Any
+  verdict from it would understate the run.
 
 ## ack
 

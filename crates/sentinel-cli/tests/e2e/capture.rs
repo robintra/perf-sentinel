@@ -118,6 +118,59 @@ fn cli_analyze_rejects_an_empty_capture_rather_than_passing_it() {
 }
 
 #[test]
+fn cli_capture_does_not_report_success_for_a_signal_killed_command() {
+    // A test JVM killed by the OOM killer must not read as a green build.
+    // `ExitStatus::code()` is None for a signal death, and reporting 0 there
+    // would let a half-run suite pass the gate.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("traces.json");
+    let mut argv = args(out.to_str().unwrap(), 34325, 34326);
+    argv.extend([
+        "--".into(),
+        "sh".into(),
+        "-c".into(),
+        "kill -TERM $$".into(),
+    ]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(&argv)
+        .output()
+        .expect("spawn capture");
+
+    let code = output.status.code();
+    assert_ne!(code, Some(0), "a signal-killed command must not exit 0");
+    assert_eq!(code, Some(143), "128 + SIGTERM, the shell convention");
+}
+
+#[test]
+fn cli_capture_does_not_start_the_command_when_the_port_is_taken() {
+    // The bind must happen before the spawn. Otherwise a bind failure leaves
+    // the test suite running detached while perf-sentinel exits.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("traces.json");
+    let marker = dir.path().join("command-ran");
+    let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken = squatter.local_addr().unwrap().port();
+
+    let mut argv = args(out.to_str().unwrap(), taken, 34328);
+    argv.extend([
+        "--".into(),
+        "touch".into(),
+        marker.to_str().unwrap().to_string(),
+    ]);
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(&argv)
+        .output()
+        .expect("spawn capture");
+
+    assert!(!output.status.success());
+    assert!(
+        !marker.exists(),
+        "the wrapped command must never start when the capture cannot listen"
+    );
+}
+
+#[test]
 fn cli_capture_fails_clearly_when_the_port_is_taken() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("traces.json");

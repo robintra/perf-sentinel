@@ -179,8 +179,10 @@ impl IngestSource for JsonIngest {
                                 return Err(JsonIngestError::Parse(e));
                             };
                             normalize_otlp_json(&mut value);
-                            let request: OtlpRequest =
-                                serde_json::from_value(value).map_err(JsonIngestError::Parse)?;
+                            // Surface the original error, not the retry's:
+                            // `from_value` carries no line or column.
+                            let request: OtlpRequest = serde_json::from_value(value)
+                                .map_err(|_| JsonIngestError::Parse(e))?;
                             parsed_any = true;
                             events.extend(crate::ingest::otlp::convert_otlp_request(&request));
                             offset += retry.byte_offset();
@@ -237,8 +239,12 @@ impl IngestSource for JsonIngest {
 
 /// True for the two serde errors raised by attribute shapes canonical protojson
 /// allows but the derived Deserialize rejects: an empty list (missing field
-/// "values") and a valueless attribute (no known keys found). Both only gate a
-/// retry through `normalize_otlp_json`, a malformed document still fails there.
+/// "values") and a valueless attribute (no known keys found).
+///
+/// The first is unambiguous (only ArrayValue/KeyValueList have `values`), the
+/// second is not: any unrecognised flattened oneof takes the retry too. That
+/// costs one reparse on a document that fails either way, and the caller still
+/// gets the strict pass's positioned error.
 fn is_recoverable_attribute_shape(e: &serde_json::Error) -> bool {
     e.classify() == serde_json::error::Category::Data
         && (e.to_string().contains("missing field `values`")
