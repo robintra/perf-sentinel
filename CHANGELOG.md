@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Added
+
+- `perf-sentinel capture` receives OTLP and writes the trace file `analyze --ci` gates on, which removes the OpenTelemetry Collector from the CI path entirely. The gap it closes is real and not Java-specific: of the six languages tracked by the OpenTelemetry configuration project, only C++ and PHP implement an exporter that writes to a chosen path, and a forked Maven test JVM cannot even yield its stdout, which Surefire uses as its command channel. Exporting over the network is the one thing every runtime does the same way, so that is what the subcommand listens for, on OTLP gRPC 4317 and OTLP HTTP 4318. The application needs no perf-sentinel-specific setting, only `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- Two shapes, one subcommand. `capture --output traces.json -- mvn verify` wraps the test step: ports are bound before the command starts so no export is lost to a start-up race, the capture ends when the command exits rather than on a guessed delay, the command inherits stdout and stderr untouched, and its exit code is propagated. Without a trailing command it runs alongside an existing test step and stops on SIGINT or SIGTERM, which is the drop-in replacement for a Collector in a pipeline that already exists. Prefixing the existing step is the documented shape, adding a second stage would run the integration suite twice.
+- Requests are written as received, one NDJSON line each, with no conversion: the file describes what the application sent rather than what the pipeline kept, and it stays canonical OTLP/JSON with hex trace ids, the same shape the Collector `file` exporter produces. Format auto-detection reads it with no flag. `--max-file-size` (512 MiB by default) stops appending rather than filling a CI agent's disk, and says so with exit code 2, because a silently short trace file would produce a falsely clean verdict. Both transports share the daemon's listeners through a new `OtlpSink`, so the payload caps, gzip decompression and concurrency limits are the same code rather than a second implementation that drifts.
+
 ### Fixed
 
 - An empty trace file is now rejected with `trace file is empty: nothing was captured or exported, so there is nothing to analyze` instead of `EOF while parsing a value at line 1 column 0`. It stays an error rather than becoming an empty report: a gate that passes on zero measured spans is a false green, which is the exact failure mode a capture that received nothing would otherwise produce.

@@ -1644,9 +1644,62 @@ fn convert_span<'a>(
 /// rejection ever counted.
 const INGEST_ENQUEUE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Where a decoded OTLP request goes, shared by both transports.
+///
+/// `Events` is the daemon path: convert to [`SpanEvent`]s and feed the
+/// pipeline. `Raw` is the capture path: hand the request over untouched so
+/// [`crate::capture`] can write it back as an OTLP/JSON trace file. Capture
+/// must not go through the conversion, which drops non-I/O spans and masks
+/// fields, or the file would no longer describe what the application sent.
+#[derive(Clone)]
+pub enum OtlpSink {
+    Events(tokio::sync::mpsc::Sender<Vec<SpanEvent>>),
+    Raw(tokio::sync::mpsc::Sender<ExportTraceServiceRequest>),
+}
+
+/// Why a request could not be handed over, payload dropped so both sink arms
+/// answer with one type. `Full` is retryable, `Closed` means shutdown.
+pub(crate) enum SinkRejection {
+    Full,
+    Closed,
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendTimeoutError<T>> for SinkRejection {
+    fn from(e: tokio::sync::mpsc::error::SendTimeoutError<T>) -> Self {
+        match e {
+            tokio::sync::mpsc::error::SendTimeoutError::Timeout(_) => Self::Full,
+            tokio::sync::mpsc::error::SendTimeoutError::Closed(_) => Self::Closed,
+        }
+    }
+}
+
+impl OtlpSink {
+    /// Enqueue one request, converting first on the `Events` arm. An empty
+    /// conversion is a success with nothing sent, as before.
+    async fn accept(
+        &self,
+        request: ExportTraceServiceRequest,
+        metrics: Option<&Arc<dyn MetricsSink>>,
+    ) -> Result<(), SinkRejection> {
+        match self {
+            Self::Events(tx) => {
+                let (events, stats) = convert_otlp_request_counted(&request);
+                if let Some(m) = metrics {
+                    m.record_otlp_spans(stats);
+                }
+                if events.is_empty() {
+                    return Ok(());
+                }
+                Ok(tx.send_timeout(events, INGEST_ENQUEUE_TIMEOUT).await?)
+            }
+            Self::Raw(tx) => Ok(tx.send_timeout(request, INGEST_ENQUEUE_TIMEOUT).await?),
+        }
+    }
+}
+
 /// OTLP gRPC trace service that converts spans and sends them through a channel.
 pub struct OtlpGrpcService {
-    sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+    sink: OtlpSink,
     metrics: Option<Arc<dyn MetricsSink>>,
 }
 
@@ -1656,7 +1709,22 @@ impl OtlpGrpcService {
         sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
         metrics: Option<Arc<dyn MetricsSink>>,
     ) -> Self {
-        Self { sender, metrics }
+        Self {
+            sink: OtlpSink::Events(sender),
+            metrics,
+        }
+    }
+
+    /// Same service, feeding a capture sink instead of the pipeline.
+    #[must_use]
+    pub fn new_raw(
+        sender: tokio::sync::mpsc::Sender<ExportTraceServiceRequest>,
+        metrics: Option<Arc<dyn MetricsSink>>,
+    ) -> Self {
+        Self {
+            sink: OtlpSink::Raw(sender),
+            metrics,
+        }
     }
 }
 
@@ -1682,15 +1750,10 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
                 "ingest paused: memory high-water, retry",
             ));
         }
-        let (events, stats) = convert_otlp_request_counted(request.get_ref());
-        if let Some(m) = self.metrics.as_ref() {
-            m.record_otlp_spans(stats);
-        }
-        if !events.is_empty()
-            && let Err(e) = self
-                .sender
-                .send_timeout(events, INGEST_ENQUEUE_TIMEOUT)
-                .await
+        if let Err(e) = self
+            .sink
+            .accept(request.into_inner(), self.metrics.as_ref())
+            .await
         {
             if let Some(m) = self.metrics.as_ref() {
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
@@ -1700,12 +1763,8 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
             // would make compliant exporters drop the batch for good.
             // A closed channel means shutdown: INTERNAL is accurate.
             return Err(match e {
-                tokio::sync::mpsc::error::SendTimeoutError::Timeout(_) => {
-                    Status::unavailable("ingest queue full, retry")
-                }
-                tokio::sync::mpsc::error::SendTimeoutError::Closed(_) => {
-                    Status::internal("event channel closed")
-                }
+                SinkRejection::Full => Status::unavailable("ingest queue full, retry"),
+                SinkRejection::Closed => Status::internal("event channel closed"),
             });
         }
         Ok(Response::new(ExportTraceServiceResponse {
@@ -1723,7 +1782,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
 /// metrics Option carries an Arc).
 #[derive(Clone)]
 struct OtlpHttpState {
-    sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+    sink: OtlpSink,
     metrics: Option<Arc<dyn MetricsSink>>,
 }
 
@@ -1735,6 +1794,16 @@ struct OtlpHttpState {
 /// `None` in batch / test contexts where no Prometheus registry exists.
 pub fn otlp_http_router(
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+    max_payload_size: usize,
+    metrics: Option<Arc<dyn MetricsSink>>,
+) -> axum::Router {
+    otlp_http_router_with_sink(OtlpSink::Events(sender), max_payload_size, metrics)
+}
+
+/// Same router, against an explicit sink. `OtlpSink::Raw` is what
+/// [`crate::capture`] mounts so requests reach the trace file unconverted.
+pub fn otlp_http_router_with_sink(
+    sink: OtlpSink,
     max_payload_size: usize,
     metrics: Option<Arc<dyn MetricsSink>>,
 ) -> axum::Router {
@@ -1798,18 +1867,13 @@ pub fn otlp_http_router(
             reject(OtlpRejectReason::ParseError);
             return StatusCode::BAD_REQUEST;
         };
-        let (events, stats) = convert_otlp_request_counted(&request);
-        if let Some(m) = state.metrics.as_ref() {
-            m.record_otlp_spans(stats);
-        }
-        if !events.is_empty()
-            && state
-                .sender
-                .send_timeout(events, INGEST_ENQUEUE_TIMEOUT)
-                .await
-                .is_err()
+        if state
+            .sink
+            .accept(request, state.metrics.as_ref())
+            .await
+            .is_err()
         {
-            tracing::warn!("OTLP HTTP: event channel full or closed, dropping events");
+            tracing::warn!("OTLP HTTP: ingest channel full or closed, dropping request");
             reject(OtlpRejectReason::ChannelFull);
             return StatusCode::SERVICE_UNAVAILABLE;
         }
@@ -1846,7 +1910,7 @@ pub fn otlp_http_router(
         next.run(request).await
     }
 
-    let state = OtlpHttpState { sender, metrics };
+    let state = OtlpHttpState { sink, metrics };
     let guard_state = state.clone();
     let router = Router::new()
         .route("/v1/traces", post(handle_traces))
