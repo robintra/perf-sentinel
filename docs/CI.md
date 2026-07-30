@@ -16,6 +16,29 @@ For CI pipelines, use batch mode instead of daemon mode:
 perf-sentinel analyze --ci --input traces.json
 ```
 
+### Producing `traces.json`
+
+Batch mode needs a trace file, and how a test suite hands one over
+depends entirely on the language. Only C++ and PHP implement an OTLP
+exporter that writes to a path you choose, and a forked Maven test JVM
+cannot even yield its stdout, which Surefire uses as its command
+channel. The portable answer is to let the application export over the
+network, as it does in production, and to listen:
+
+```bash
+perf-sentinel capture --output traces.json -- ./scripts/run-integration-tests.sh
+perf-sentinel analyze --ci --input traces.json
+```
+
+The test suite only needs the standard
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`. Prefix the test
+step you already have rather than adding a stage next to it, or the
+integration suite runs twice. When the step cannot be prefixed, run
+`capture` in the background and stop it with a signal once the tests
+finish. See [`CLI.md`](./CLI.md#capture) for both shapes and
+[`INSTRUMENTATION.md`](./INSTRUMENTATION.md) for the per-language
+setup, including the Collector alternative.
+
 Exit code is non-zero if the **quality gate** (a configurable set of pass/fail thresholds, the same idea as a SonarQube quality gate or a coverage gate) fails. Configure thresholds in `.perf-sentinel.toml`:
 
 ```toml

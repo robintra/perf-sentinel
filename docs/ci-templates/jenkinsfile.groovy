@@ -120,21 +120,18 @@ pipeline {
         // file at $PERF_SENTINEL_TRACES before the perf-sentinel stage runs.
         // Java has no OTLP file exporter, and a forked Maven test JVM cannot hand
         // you its stdout either: Surefire uses it as a command channel and diverts
-        // the agent's writes to a .dumpstream. Hence forkCount=0 with the agent on
-        // MAVEN_OPTS below, the alternative being a network export to a receiver.
-        // See docs/INSTRUMENTATION.md for both shapes.
+        // the agent's writes to a .dumpstream. So the agent exports over the
+        // network and `capture` writes the file, with the fork left untouched.
+        // PREFIX the existing test command, never add a second stage, or the
+        // integration suite runs twice. See docs/INSTRUMENTATION.md for the POM
+        // side (agent on the failsafe argLine, OTEL_EXPORTER_OTLP_ENDPOINT).
         //
         // stage('Integration tests') {
         //     steps {
-        //         withEnv(["MAVEN_OPTS=-javaagent:${WORKSPACE}/opentelemetry-javaagent.jar",
-        //                  'OTEL_TRACES_EXPORTER=experimental-otlp/stdout',
-        //                  'OTEL_TRACES_SAMPLER=always_on']) {
-        //             sh '''
-        //                 set -euo pipefail
-        //                 mvn verify -DskipUnitTests=false -DforkCount=0 | tee build.log
-        //                 grep -h '^{"resourceSpans"' build.log > "$PERF_SENTINEL_TRACES"
-        //             '''
-        //         }
+        //         sh '''
+        //             perf-sentinel capture --output "$PERF_SENTINEL_TRACES" \
+        //                 -- mvn verify -DskipUnitTests=false
+        //         '''
         //     }
         // }
 
