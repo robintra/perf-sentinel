@@ -556,6 +556,7 @@ So the traces have to leave the JVM the way they do in production, over the netw
     <environmentVariables>
       <OTEL_TRACES_EXPORTER>otlp</OTEL_TRACES_EXPORTER>
       <OTEL_EXPORTER_OTLP_ENDPOINT>http://localhost:4317</OTEL_EXPORTER_OTLP_ENDPOINT>
+      <OTEL_EXPORTER_OTLP_PROTOCOL>grpc</OTEL_EXPORTER_OTLP_PROTOCOL>
       <OTEL_SERVICE_NAME>my-service</OTEL_SERVICE_NAME>
       <OTEL_TRACES_SAMPLER>always_on</OTEL_TRACES_SAMPLER>
       <OTEL_METRICS_EXPORTER>none</OTEL_METRICS_EXPORTER>
@@ -566,6 +567,8 @@ So the traces have to leave the JVM the way they do in production, over the netw
 ```
 
 Keep any existing `<argLine>` content (heap flags, a JaCoCo `@{argLine}` placeholder) and append `-javaagent:...` to it. Overwriting it is a common mistake that silently drops JaCoCo coverage instrumentation. `OTEL_TRACES_SAMPLER=always_on` matters more here than in production: sampling would drop exactly the repeated calls N+1 detection relies on.
+
+**Set the protocol, do not rely on the default.** Agent 2.0 changed it from `grpc` to `http/protobuf`, so the same endpoint means different ports depending on the agent version. An endpoint pointed at the wrong one exports nothing and only warns in the agent's own log, which leaves a capture empty for a reason nothing else names. Pairing `:4317` with `grpc`, as above, or `:4318` with `http/protobuf`, both work.
 
 Nothing above is specific to perf-sentinel, it is the standard OTLP setup. What changes is who listens.
 

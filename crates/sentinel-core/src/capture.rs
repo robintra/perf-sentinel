@@ -49,9 +49,11 @@ pub struct CaptureStats {
     pub requests: u64,
     pub spans: u64,
     pub bytes: u64,
-    /// Requests refused because the writer could not keep up. Non-zero means
-    /// the file is short of what the application sent.
-    pub rejected: u64,
+    /// Requests refused because the writer could not keep up.
+    pub rejected_backpressure: u64,
+    /// Requests refused as unusable: wrong content type or undecodable body,
+    /// which is a misconfigured exporter rather than a slow writer.
+    pub rejected_unusable: u64,
     /// True when `max_file_bytes` was hit and spans were dropped. The file
     /// stays valid NDJSON, but it no longer describes the whole run, so a
     /// verdict computed from it would be optimistic.
@@ -63,7 +65,7 @@ impl CaptureStats {
     /// turns this into a non-zero exit.
     #[must_use]
     pub const fn is_incomplete(&self) -> bool {
-        self.truncated || self.rejected > 0
+        self.truncated || self.rejected_backpressure > 0 || self.rejected_unusable > 0
     }
 }
 
@@ -98,15 +100,24 @@ fn encode_request(request: &ExportTraceServiceRequest) -> serde_json::Result<Vec
 
 /// Admission control and drop accounting, so a run that lost spans cannot
 /// report a confident span count and exit 0.
+///
+/// The two rejection causes are counted apart because they point at opposite
+/// fixes: a full queue means the writer fell behind, an unusable request means
+/// the exporter is misconfigured. Merging them sends operators to the wrong one.
 #[derive(Debug, Default)]
 pub(crate) struct CaptureMetrics {
-    rejected: std::sync::atomic::AtomicU64,
+    backpressure: std::sync::atomic::AtomicU64,
+    unusable: std::sync::atomic::AtomicU64,
     queue_full: std::sync::atomic::AtomicBool,
 }
 
 impl CaptureMetrics {
-    fn rejected(&self) -> u64 {
-        self.rejected.load(std::sync::atomic::Ordering::Relaxed)
+    fn backpressure(&self) -> u64 {
+        self.backpressure.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn unusable(&self) -> u64 {
+        self.unusable.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn set_queue_full(&self, full: bool) {
@@ -118,9 +129,13 @@ impl CaptureMetrics {
 impl crate::ingest::otlp::MetricsSink for CaptureMetrics {
     fn record_otlp_spans(&self, _stats: crate::ingest::otlp::SpanConversionStats) {}
 
-    fn record_otlp_reject(&self, _reason: crate::report::metrics::OtlpRejectReason) {
-        self.rejected
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    fn record_otlp_reject(&self, reason: crate::report::metrics::OtlpRejectReason) {
+        use crate::report::metrics::OtlpRejectReason as Reason;
+        let counter = match reason {
+            Reason::ChannelFull | Reason::MemoryPressure => &self.backpressure,
+            Reason::UnsupportedMediaType | Reason::ParseError => &self.unusable,
+        };
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn ingest_over_memory_limit(&self) -> bool {
@@ -383,12 +398,14 @@ impl Capture {
                 source: std::io::Error::other(format!("writer task failed: {e}")),
             })
         })?;
-        stats.rejected = self.metrics.rejected();
-        if stats.rejected > 0 {
+        stats.rejected_backpressure = self.metrics.backpressure();
+        stats.rejected_unusable = self.metrics.unusable();
+        if stats.is_incomplete() {
             tracing::warn!(
-                rejected = stats.rejected,
-                "capture turned away requests it could not queue: the trace \
-                 file is incomplete and any verdict from it understates the run"
+                backpressure = stats.rejected_backpressure,
+                unusable = stats.rejected_unusable,
+                "capture turned requests away: the trace file is incomplete and \
+                 any verdict from it understates the run"
             );
         }
         Ok(stats)
@@ -742,7 +759,14 @@ mod tests {
         );
         assert!(
             CaptureStats {
-                rejected: 1,
+                rejected_backpressure: 1,
+                ..base
+            }
+            .is_incomplete()
+        );
+        assert!(
+            CaptureStats {
+                rejected_unusable: 1,
                 ..base
             }
             .is_incomplete()

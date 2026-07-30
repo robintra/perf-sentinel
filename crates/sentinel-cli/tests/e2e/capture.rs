@@ -170,6 +170,120 @@ fn cli_capture_does_not_start_the_command_when_the_port_is_taken() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn cli_capture_stops_the_whole_command_tree_on_signal() {
+    // `mvn` forks a test JVM. Signalling only the direct child leaves that
+    // fork holding its port and its database connection on an agent that
+    // thinks the step is over.
+    use std::io::Read;
+
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("traces.json");
+    // The grandchild records its own pid, then sleeps well past the test. A
+    // witness file written *after* the sleep would prove nothing, it would be
+    // absent either way within the test's lifetime.
+    let pidfile = dir.path().join("grandchild.pid");
+    let mut argv = args(out.to_str().unwrap(), 34329, 34330);
+    argv.extend([
+        "--".into(),
+        "sh".into(),
+        "-c".into(),
+        // No `exec`: the shell must stay as a middle process, so `sleep` is a
+        // real grandchild. That is the shape `mvn` plus its Failsafe fork has,
+        // and the one that survives when only the direct child is signalled.
+        format!("sleep 120 & echo $! > {}; wait", pidfile.display()),
+    ]);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(&argv)
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn capture");
+
+    // Wait for the listeners, then signal the capture the way a cancelled CI
+    // job would.
+    let mut stderr = child.stderr.take().expect("stderr piped");
+    let mut seen = String::new();
+    let mut buf = [0u8; 512];
+    while !seen.contains("capture listening") {
+        let n = stderr.read(&mut buf).expect("read stderr");
+        assert!(n > 0, "capture exited before listening: {seen}");
+        seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+    }
+    // The pid of the backgrounded `sleep`, written a moment after the
+    // listeners come up, hence the wait.
+    let mut grandchild = None;
+    for _ in 0..100 {
+        if let Ok(text) = std::fs::read_to_string(&pidfile)
+            && let Ok(pid) = text.trim().parse::<i32>()
+        {
+            grandchild = Some(pid);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let grandchild = grandchild.expect("grandchild wrote its pid");
+
+    unsafe {
+        libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+    }
+    let status = child.wait().expect("wait capture");
+    assert!(!status.success(), "a signalled run is not a success");
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Signal 0 only probes: alive means the group was never signalled, and in
+    // a real job that would be a Failsafe fork still holding its port.
+    let alive = unsafe { libc::kill(grandchild, 0) } == 0;
+    if alive {
+        unsafe { libc::kill(grandchild, libc::SIGKILL) };
+    }
+    assert!(
+        !alive,
+        "grandchild {grandchild} survived the signal, it would hold the agent's ports"
+    );
+}
+
+#[test]
+fn cli_capture_blames_the_exporter_not_the_writer_on_an_unusable_request() {
+    // A wrong Content-Type is a misconfigured exporter, not backpressure.
+    // Reporting it as "faster than the writer" sends the operator to resize a
+    // queue that is not the problem.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("traces.json");
+    let mut argv = args(out.to_str().unwrap(), 34331, 34332);
+    argv.extend([
+        "--".into(),
+        "sh".into(),
+        "-c".into(),
+        "printf 'POST /v1/traces HTTP/1.1\\r\\nHost: h\\r\\nContent-Type: application/json\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\n{}' | nc 127.0.0.1 34332 || true".into(),
+    ]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(&argv)
+        .output()
+        .expect("spawn capture");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.contains("refused as unusable") {
+        // `nc` is not everywhere; skip rather than fail on a missing tool.
+        assert!(
+            stderr.contains("no traces received"),
+            "unexpected capture output: {stderr}"
+        );
+        return;
+    }
+    assert!(
+        stderr.contains("OTEL_EXPORTER_OTLP_PROTOCOL"),
+        "the message must name the setting to fix: {stderr}"
+    );
+    assert!(
+        !stderr.contains("faster than the writer"),
+        "an unusable request is not backpressure: {stderr}"
+    );
+    assert_eq!(output.status.code(), Some(2));
+}
+
 #[test]
 fn cli_capture_fails_clearly_when_the_port_is_taken() {
     let dir = tempfile::tempdir().unwrap();
