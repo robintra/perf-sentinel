@@ -10,6 +10,7 @@
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -48,10 +49,22 @@ pub struct CaptureStats {
     pub requests: u64,
     pub spans: u64,
     pub bytes: u64,
+    /// Requests refused because the writer could not keep up. Non-zero means
+    /// the file is short of what the application sent.
+    pub rejected: u64,
     /// True when `max_file_bytes` was hit and spans were dropped. The file
     /// stays valid NDJSON, but it no longer describes the whole run, so a
     /// verdict computed from it would be optimistic.
     pub truncated: bool,
+}
+
+impl CaptureStats {
+    /// True when the file is short of the run, whatever the cause. The CLI
+    /// turns this into a non-zero exit.
+    #[must_use]
+    pub const fn is_incomplete(&self) -> bool {
+        self.truncated || self.rejected > 0
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,6 +94,38 @@ fn encode_request(request: &ExportTraceServiceRequest) -> serde_json::Result<Vec
     let mut line = serde_json::to_vec(request)?;
     line.push(b'\n');
     Ok(line)
+}
+
+/// Admission control and drop accounting, so a run that lost spans cannot
+/// report a confident span count and exit 0.
+#[derive(Debug, Default)]
+pub(crate) struct CaptureMetrics {
+    rejected: std::sync::atomic::AtomicU64,
+    queue_full: std::sync::atomic::AtomicBool,
+}
+
+impl CaptureMetrics {
+    fn rejected(&self) -> u64 {
+        self.rejected.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set_queue_full(&self, full: bool) {
+        self.queue_full
+            .store(full, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl crate::ingest::otlp::MetricsSink for CaptureMetrics {
+    fn record_otlp_spans(&self, _stats: crate::ingest::otlp::SpanConversionStats) {}
+
+    fn record_otlp_reject(&self, _reason: crate::report::metrics::OtlpRejectReason) {
+        self.rejected
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn ingest_over_memory_limit(&self) -> bool {
+        self.queue_full.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 /// Total spans across a request, for the run summary.
@@ -137,15 +182,10 @@ async fn write_one<W: tokio::io::AsyncWrite + Unpin>(
 async fn write_loop(
     mut rx: mpsc::Receiver<ExportTraceServiceRequest>,
     mut stop: tokio::sync::oneshot::Receiver<()>,
+    file: tokio::fs::File,
     path: &Path,
     max_file_bytes: u64,
 ) -> Result<CaptureStats, CaptureError> {
-    let file = tokio::fs::File::create(path)
-        .await
-        .map_err(|source| CaptureError::Output {
-            path: path.to_path_buf(),
-            source,
-        })?;
     let mut writer = tokio::io::BufWriter::new(file);
     let mut stats = CaptureStats::default();
 
@@ -204,9 +244,10 @@ async fn bind_listeners(
 fn spawn_grpc(
     listener: tokio::net::TcpListener,
     tx: mpsc::Sender<ExportTraceServiceRequest>,
+    metrics: Arc<CaptureMetrics>,
 ) -> tokio::task::JoinHandle<()> {
     use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
-    let service = OtlpGrpcService::new_raw(tx, None);
+    let service = OtlpGrpcService::new_raw(tx, Some(metrics));
     tokio::spawn(async move {
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         if let Err(e) = tonic::transport::Server::builder()
@@ -224,8 +265,9 @@ fn spawn_grpc(
 fn spawn_http(
     listener: tokio::net::TcpListener,
     tx: mpsc::Sender<ExportTraceServiceRequest>,
+    metrics: Arc<CaptureMetrics>,
 ) -> tokio::task::JoinHandle<()> {
-    let router = otlp_http_router_with_sink(OtlpSink::Raw(tx), MAX_PAYLOAD_BYTES, None);
+    let router = otlp_http_router_with_sink(OtlpSink::Raw(tx), MAX_PAYLOAD_BYTES, Some(metrics));
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, router).await {
             tracing::error!("capture HTTP server error: {e}");
@@ -233,29 +275,62 @@ fn spawn_http(
     })
 }
 
-/// Listen for OTLP until `shutdown` resolves, writing every request received
-/// to `cfg.output` as NDJSON.
+/// A capture that is already listening, returned by [`start`].
+///
+/// The split from [`Capture::finish`] is what lets wrapper mode bind the
+/// ports and open the file before it spawns the test command.
+#[derive(Debug)]
+pub struct Capture {
+    grpc: tokio::task::JoinHandle<()>,
+    http: tokio::task::JoinHandle<()>,
+    queue_monitor: tokio::task::JoinHandle<()>,
+    writer: tokio::task::JoinHandle<Result<CaptureStats, CaptureError>>,
+    tx: mpsc::Sender<ExportTraceServiceRequest>,
+    stop_writer: tokio::sync::oneshot::Sender<()>,
+    metrics: Arc<CaptureMetrics>,
+    output: PathBuf,
+    grace: Duration,
+}
+
+/// Bind both OTLP ports, open the trace file, and start serving. Everything
+/// that can fail up front fails here, before the caller starts the traffic.
 ///
 /// # Errors
 ///
 /// [`CaptureError::Bind`] when a port is taken, [`CaptureError::Output`] when
-/// the trace file cannot be written, [`CaptureError::Encode`] on a request
-/// that fails to serialise.
-pub async fn run(
-    cfg: &CaptureConfig,
-    shutdown: impl Future<Output = ()> + Send,
-) -> Result<CaptureStats, CaptureError> {
+/// the trace file cannot be created.
+pub async fn start(cfg: &CaptureConfig) -> Result<Capture, CaptureError> {
     let (grpc_listener, http_listener) = bind_listeners(cfg).await?;
+    let file = tokio::fs::File::create(&cfg.output)
+        .await
+        .map_err(|source| CaptureError::Output {
+            path: cfg.output.clone(),
+            source,
+        })?;
+
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (stop_writer, stop_writer_rx) = tokio::sync::oneshot::channel();
+    let metrics = Arc::new(CaptureMetrics::default());
 
     let output = cfg.output.clone();
     let max_file_bytes = cfg.max_file_bytes;
+    let queue_guard = Arc::clone(&metrics);
+    let queue_watch = tx.clone();
     let writer =
-        tokio::spawn(async move { write_loop(rx, stop_writer_rx, &output, max_file_bytes).await });
+        tokio::spawn(
+            async move { write_loop(rx, stop_writer_rx, file, &output, max_file_bytes).await },
+        );
+    // Refuse before decoding while the queue is full, so RSS is bounded by
+    // the queue instead of the queue plus everything waiting to enter it.
+    let queue_monitor = tokio::spawn(async move {
+        while !queue_watch.is_closed() {
+            queue_guard.set_queue_full(queue_watch.capacity() == 0);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
 
-    let grpc = spawn_grpc(grpc_listener, tx.clone());
-    let http = spawn_http(http_listener, tx.clone());
+    let grpc = spawn_grpc(grpc_listener, tx.clone(), Arc::clone(&metrics));
+    let http = spawn_http(http_listener, tx.clone(), Arc::clone(&metrics));
     tracing::info!(
         "capture listening on {}:{} (gRPC) and {}:{} (HTTP), writing {}",
         cfg.listen_addr,
@@ -265,28 +340,74 @@ pub async fn run(
         cfg.output.display()
     );
 
-    shutdown.await;
-
-    // Grace window: an exporter flushes its last batch when the application
-    // shuts down, which is often the same moment we are asked to stop.
-    tokio::time::sleep(cfg.grace).await;
-
-    // Aborting rather than draining connections: past the grace window there
-    // is nothing legitimate left in flight, and a CI step must not hang on a
-    // client that keeps its connection open.
-    grpc.abort();
-    http.abort();
-    drop(tx);
-    // Tell the writer to drain and stop. Dropping senders is not enough, see
-    // `write_loop`.
-    let _ = stop_writer.send(());
-
-    writer.await.unwrap_or_else(|e| {
-        Err(CaptureError::Output {
-            path: cfg.output.clone(),
-            source: std::io::Error::other(format!("writer task failed: {e}")),
-        })
+    Ok(Capture {
+        grpc,
+        http,
+        queue_monitor,
+        writer,
+        tx,
+        stop_writer,
+        metrics,
+        output: cfg.output.clone(),
+        grace: cfg.grace,
     })
+}
+
+impl Capture {
+    /// Stop listening and close the trace file, after a grace window for the
+    /// exporter's final flush.
+    ///
+    /// # Errors
+    ///
+    /// [`CaptureError::Output`] on a write failure, [`CaptureError::Encode`]
+    /// on a request that fails to serialise.
+    pub async fn finish(self) -> Result<CaptureStats, CaptureError> {
+        // An exporter flushes its last batch at application shutdown, often
+        // the same moment we are asked to stop.
+        tokio::time::sleep(self.grace).await;
+
+        // Aborting rather than draining connections: past the grace window
+        // there is nothing legitimate left in flight, and a CI step must not
+        // hang on a client that keeps its connection open.
+        self.grpc.abort();
+        self.http.abort();
+        self.queue_monitor.abort();
+        drop(self.tx);
+        // Tell the writer to drain and stop. Dropping senders is not enough,
+        // see `write_loop`.
+        let _ = self.stop_writer.send(());
+
+        let mut stats = self.writer.await.unwrap_or_else(|e| {
+            Err(CaptureError::Output {
+                path: self.output.clone(),
+                source: std::io::Error::other(format!("writer task failed: {e}")),
+            })
+        })?;
+        stats.rejected = self.metrics.rejected();
+        if stats.rejected > 0 {
+            tracing::warn!(
+                rejected = stats.rejected,
+                "capture turned away requests it could not queue: the trace \
+                 file is incomplete and any verdict from it understates the run"
+            );
+        }
+        Ok(stats)
+    }
+}
+
+/// Listen for OTLP until `shutdown` resolves, writing every request received
+/// to `cfg.output` as NDJSON.
+///
+/// # Errors
+///
+/// Same as [`start`] and [`Capture::finish`].
+pub async fn run(
+    cfg: &CaptureConfig,
+    shutdown: impl Future<Output = ()> + Send,
+) -> Result<CaptureStats, CaptureError> {
+    let capture = start(cfg).await?;
+    shutdown.await;
+    capture.finish().await
 }
 
 /// [`run`] stopping on SIGINT or SIGTERM, the shape a CI job uses when the
@@ -296,7 +417,13 @@ pub async fn run(
 ///
 /// Same as [`run`].
 pub async fn run_until_signal(cfg: &CaptureConfig) -> Result<CaptureStats, CaptureError> {
-    run(cfg, crate::shutdown::shutdown_signal()).await
+    run(cfg, shutdown_signal()).await
+}
+
+/// Resolves on SIGINT, or SIGTERM on Unix. Re-exported so wrapper mode can
+/// race it against the wrapped command instead of dying unflushed.
+pub async fn shutdown_signal() {
+    crate::shutdown::shutdown_signal().await;
 }
 
 #[cfg(test)]
@@ -344,7 +471,10 @@ mod tests {
         drop(tx);
 
         let (_stop, stop_rx) = tokio::sync::oneshot::channel();
-        let stats = write_loop(rx, stop_rx, &path, u64::MAX).await.unwrap();
+        let file = tokio::fs::File::create(&path).await.unwrap();
+        let stats = write_loop(rx, stop_rx, file, &path, u64::MAX)
+            .await
+            .unwrap();
         assert_eq!(stats.spans, 15);
 
         let raw = std::fs::read(&path).unwrap();
@@ -419,7 +549,10 @@ mod tests {
 
         // Sender kept alive so the loop ends by channel close, not by stop.
         let (_stop, stop_rx) = tokio::sync::oneshot::channel();
-        let stats = write_loop(rx, stop_rx, &path, u64::MAX).await.unwrap();
+        let file = tokio::fs::File::create(&path).await.unwrap();
+        let stats = write_loop(rx, stop_rx, file, &path, u64::MAX)
+            .await
+            .unwrap();
         assert_eq!(stats.requests, 2);
         assert_eq!(stats.spans, 2);
         assert!(!stats.truncated);
@@ -449,7 +582,10 @@ mod tests {
 
         // Room for exactly one line.
         let (_stop, stop_rx) = tokio::sync::oneshot::channel();
-        let stats = write_loop(rx, stop_rx, &path, one_line).await.unwrap();
+        let file = tokio::fs::File::create(&path).await.unwrap();
+        let stats = write_loop(rx, stop_rx, file, &path, one_line)
+            .await
+            .unwrap();
         assert!(stats.truncated, "hitting the cap must be reported");
         assert_eq!(stats.requests, 1);
 
@@ -555,13 +691,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn output_error_surfaces_with_the_path() {
-        let (tx, rx) = mpsc::channel::<ExportTraceServiceRequest>(1);
-        drop(tx);
-        let path = Path::new("/nonexistent-dir-for-capture-test/traces.json");
-        let (_stop, stop_rx) = tokio::sync::oneshot::channel();
-        let err = write_loop(rx, stop_rx, path, u64::MAX).await.unwrap_err();
+    async fn unwritable_output_fails_at_start_not_at_the_end() {
+        // The file is opened by `start`, before the caller runs whatever
+        // produces the traces. Discovering an unwritable path only at the end
+        // would mean a whole test suite ran for a file that was never going
+        // to exist.
+        let cfg = CaptureConfig {
+            listen_addr: "127.0.0.1".to_string(),
+            port_grpc: free_port(),
+            port_http: free_port(),
+            output: PathBuf::from("/nonexistent-dir-for-capture-test/traces.json"),
+            max_file_bytes: u64::MAX,
+            grace: Duration::from_millis(10),
+        };
+        let err = start(&cfg).await.unwrap_err();
         assert!(matches!(err, CaptureError::Output { .. }));
         assert!(err.to_string().contains("traces.json"));
+    }
+
+    #[tokio::test]
+    async fn taken_port_fails_at_start_and_names_the_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let taken = squatter.local_addr().unwrap().port();
+        let cfg = CaptureConfig {
+            listen_addr: "127.0.0.1".to_string(),
+            port_grpc: taken,
+            port_http: free_port(),
+            output: dir.path().join("traces.json"),
+            max_file_bytes: u64::MAX,
+            grace: Duration::from_millis(10),
+        };
+        let err = start(&cfg).await.unwrap_err();
+        assert!(matches!(err, CaptureError::Bind { .. }));
+        assert!(err.to_string().contains(&taken.to_string()));
+    }
+
+    #[test]
+    fn incomplete_covers_both_causes_of_a_short_file() {
+        // The CLI turns this into a non-zero exit, so it has to catch the
+        // channel-drop path too, not only the size cap.
+        let base = CaptureStats::default();
+        assert!(!base.is_incomplete());
+        assert!(
+            CaptureStats {
+                truncated: true,
+                ..base
+            }
+            .is_incomplete()
+        );
+        assert!(
+            CaptureStats {
+                rejected: 1,
+                ..base
+            }
+            .is_incomplete()
+        );
     }
 }
