@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- An OTLP/JSON attribute carrying no value, `{"key":"k","value":{}}`, no longer fails the whole ingest. `AnyValue` is a flattened oneof and an empty object matches no variant, so the derived `Deserialize` rejected the document with `no known keys found` and a single such attribute cost every trace in the file. It now joins the empty-list case on the lenient retry, where the field is dropped so the value stays absent. The shape comes straight from the opentelemetry-java stdout exporter, which is what a CI capture feeds to `analyze`.
+
 ## [0.9.23] - 2026-07-29
 
 ### Added
