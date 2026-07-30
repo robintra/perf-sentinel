@@ -487,47 +487,64 @@ fi
 
 **Le starter Spring Boot ne suffit pas.** Le `spring-boot-starter-opentelemetry` (Spring Boot 4) n'instrumente pas les appels sortants `WebClient` ou `RestTemplate` avec propagation du trace context. Utilisez le Java Agent pour une détection N+1 HTTP complète.
 
-#### Tests d'intégration en CI (Maven Failsafe, exporteur stdout)
+#### Tests d'intégration en CI (Maven Failsafe)
 
-La configuration ci-dessus suppose un processus qui tourne en continu et parle à un endpoint OTLP live. Les tests d'intégration sont différents : ils tournent dans la JVM du test runner lui-même, et il n'y a pas de daemon vers qui envoyer des traces en CI. Voir [CI.md](../CI.md#ci-mode-batch-analysis) (anglais) pour le mode batch que cette configuration alimente.
+La configuration ci-dessus suppose un processus qui tourne en continu et parle à un endpoint OTLP live. Les tests d'intégration sont différents : ils tournent dans la JVM du test runner lui-même, et il n'y a pas de daemon vers qui envoyer des traces en CI. Voir [CI-FR.md](CI-FR.md#mode-ci-analyse-batch) pour le mode batch que cette configuration alimente.
 
-**Attachez l'agent au fork de test, pas seulement à l'image buildée.** Si les tests d'intégration tournent en process contre `@SpringBootTest` (Maven Failsafe, `integrationTest` Gradle) plutôt que contre le conteneur buildé, l'agent embarqué dans votre Dockerfile ne les voit jamais. Attachez une seconde copie de l'agent directement au fork Failsafe, avec la même version que celle du Dockerfile pour que les deux environnements instrumentent de la même façon :
+**Java n'a pas d'exporteur fichier, et une JVM de test forkée ne vous donne pas non plus sa sortie standard.** Aucun exporteur Java supporté n'écrit les spans dans un fichier au chemin de votre choix. L'exporteur `otlp_file/development` de la configuration déclarative définit bien un champ `output_stream: file://...`, mais l'implémentation Java le déclare [non implémenté](https://github.com/open-telemetry/opentelemetry-configuration/blob/main/language-support-status.md). Reste `experimental-otlp/stdout`, qui écrit du JSON OTLP sur `System.out`, et c'est là que Maven s'interpose : Surefire et Failsafe dialoguent avec la JVM forkée via un protocole encodé porté par la sortie standard de ce fork. L'agent s'initialise en `premain` et capture le `System.out` d'origine, c'est-à-dire le canal de commande lui-même, avant que Surefire n'installe le wrapper sur lequel agit `redirectTestOutputToFile`. Chaque export est alors classé comme corruption du canal et dévié dans `target/failsafe-reports/<horodatage>-jvmRunN.dumpstream` :
+
+```
+Corrupted channel by directly writing to native stream in forked JVM 1.
+Stream '{"resourceSpans":[{"resource":{"attributes":[{"key":"host.arch",…}]}}]}'.
+```
+
+Rien d'exploitable n'atteint `-output.txt`, et rediriger le build avec `tee` n'aide pas davantage, la sortie standard du fork étant le canal et non la console. Ce n'est pas un artefact de version, Failsafe 3.5.0, 3.2.5 et 2.22.2 la dévient tous. Un run forké demande donc l'une des deux formes ci-dessous.
+
+**Attachez l'agent à la JVM de test, pas seulement à l'image buildée.** Si les tests d'intégration tournent en process contre `@SpringBootTest` (Maven Failsafe, `integrationTest` Gradle) plutôt que contre le conteneur buildé, l'agent embarqué dans votre Dockerfile ne les voit jamais. Récupérez le jar de l'agent avant le build, épinglé sur la version du Dockerfile pour que les deux environnements instrumentent de la même façon :
+
+```bash
+curl -sSLf -o opentelemetry-javaagent.jar \
+  https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.27.0/opentelemetry-javaagent.jar
+```
+
+Le télécharger comme étape de build (`maven-dependency-plugin` lié à `pre-integration-test`) convient à l'option 2 ci-dessous, mais pas à l'option 1, où la JVM qui a besoin de l'agent est celle de Maven et a déjà démarré à ce moment-là.
+
+##### Option 1, supprimer le fork et capturer la console
+
+Sans fork, il n'y a pas de canal de commande, la sortie de l'exporteur atteint donc la console comme celle de n'importe quel programme. `<argLine>` et `<environmentVariables>` ne s'appliquent qu'aux forks, l'agent passe donc par `MAVEN_OPTS` et les réglages deviennent de vraies variables d'environnement :
+
+```bash
+export MAVEN_OPTS="-javaagent:$PWD/opentelemetry-javaagent.jar"
+export OTEL_TRACES_EXPORTER=experimental-otlp/stdout
+export OTEL_SERVICE_NAME=mon-service
+export OTEL_TRACES_SAMPLER=always_on
+export OTEL_METRICS_EXPORTER=none
+export OTEL_LOGS_EXPORTER=none
+
+set -o pipefail
+mvn verify -DforkCount=0 | tee build.log
+grep -h '^{"resourceSpans"' build.log > target/traces.json
+perf-sentinel analyze --ci --input target/traces.json
+```
+
+Le résultat est du NDJSON, une requête OTLP par ligne, exactement la forme que produit l'exporteur `file` du Collector, et la détection automatique de format le lit sans aucun flag. `OTEL_TRACES_SAMPLER=always_on` compte plus ici qu'en production, le sampling supprimerait justement les appels répétés dont dépend la détection N+1.
+
+`forkCount=0` a deux coûts, tous deux réels. L'isolation des tests disparaît, ils tournent dans la JVM de Maven elle-même, ce qui veut aussi dire que la capture porte les spans de Maven en plus de ceux de l'application. Et tout ce qui reposait sur `<argLine>`, en particulier un placeholder JaCoCo `@{argLine}`, doit passer par `MAVEN_OPTS` lui aussi sous peine de cesser silencieusement de s'appliquer.
+
+##### Option 2, garder le fork et exporter sur le réseau
+
+Si le fork doit rester, les traces doivent quitter la JVM comme elles le font en production, en OTLP. L'agent se place sur le fork Failsafe et pointe vers un récepteur qui tourne le temps du job :
 
 ```xml
-<!-- Copie le jar de l'agent dans target/ avant la phase integration-test. -->
-<plugin>
-  <groupId>org.apache.maven.plugins</groupId>
-  <artifactId>maven-dependency-plugin</artifactId>
-  <executions>
-    <execution>
-      <id>copy-otel-agent</id>
-      <phase>pre-integration-test</phase>
-      <goals><goal>copy</goal></goals>
-      <configuration>
-        <artifactItems>
-          <artifactItem>
-            <groupId>io.opentelemetry.javaagent</groupId>
-            <artifactId>opentelemetry-javaagent</artifactId>
-            <version>2.27.0</version> <!-- même version que celle du Dockerfile -->
-            <destFileName>opentelemetry-javaagent.jar</destFileName>
-          </artifactItem>
-        </artifactItems>
-        <outputDirectory>${project.build.directory}</outputDirectory>
-      </configuration>
-    </execution>
-  </executions>
-</plugin>
-
 <!-- Ajoute -javaagent à l'argLine EXISTANT de failsafe, ne le remplace pas. -->
 <plugin>
   <groupId>org.apache.maven.plugins</groupId>
   <artifactId>maven-failsafe-plugin</artifactId>
   <configuration>
     <argLine>@{argLine} -javaagent:${project.build.directory}/opentelemetry-javaagent.jar</argLine>
-    <!-- Envoie la sortie standard de la JVM forkée dans target/failsafe-reports/*-output.txt. -->
-    <redirectTestOutputToFile>true</redirectTestOutputToFile>
     <environmentVariables>
-      <OTEL_TRACES_EXPORTER>experimental-otlp/stdout</OTEL_TRACES_EXPORTER>
+      <OTEL_TRACES_EXPORTER>otlp</OTEL_TRACES_EXPORTER>
+      <OTEL_EXPORTER_OTLP_ENDPOINT>http://localhost:4317</OTEL_EXPORTER_OTLP_ENDPOINT>
       <OTEL_SERVICE_NAME>mon-service</OTEL_SERVICE_NAME>
       <OTEL_TRACES_SAMPLER>always_on</OTEL_TRACES_SAMPLER>
       <OTEL_METRICS_EXPORTER>none</OTEL_METRICS_EXPORTER>
@@ -537,19 +554,11 @@ La configuration ci-dessus suppose un processus qui tourne en continu et parle �
 </plugin>
 ```
 
-Conservez le contenu existant de votre `<argLine>` (flags de heap, placeholder JaCoCo `@{argLine}`) et ajoutez `-javaagent:...` à la fin. L'écraser est une erreur fréquente qui fait silencieusement disparaître l'instrumentation de couverture JaCoCo. `OTEL_TRACES_SAMPLER=always_on` compte plus ici qu'en production : le sampling supprimerait justement les appels répétés dont dépend la détection N+1.
+Conservez le contenu existant de votre `<argLine>` (flags de heap, placeholder JaCoCo `@{argLine}`) et ajoutez `-javaagent:...` à la fin. L'écraser est une erreur fréquente qui fait silencieusement disparaître l'instrumentation de couverture JaCoCo.
 
-**Java n'a pas d'exporteur fichier, les traces sortent donc sur stdout.** Aucun exporteur Java supporté n'écrit les spans dans un fichier au chemin de votre choix, il n'y a donc pas de fichier de traces à passer directement à `analyze --input` sans une étape supplémentaire. `experimental-otlp/stdout` est le seul exporteur OTLP JSON qui ne passe pas par le réseau, et il écrit un objet JSON par lot d'export sur la sortie standard de la JVM forkée. L'exporteur `otlp_file/development` de la configuration déclarative définit bien un champ `output_stream: file://...`, mais l'implémentation Java le déclare [non implémenté](https://github.com/open-telemetry/opentelemetry-configuration/blob/main/language-support-status.md). `redirectTestOutputToFile` range cette sortie sous `target/failsafe-reports/<ClasseDeTest>-output.txt`, et un seul grep en fait le fichier de traces :
+Alimentez ensuite perf-sentinel avec ce que le récepteur a écrit. Un Collector avec l'exporteur `file` est la forme qui produit un fichier de traces sur lequel `analyze --ci` peut poser une gate, voir [Production : via OpenTelemetry Collector](#production--via-opentelemetry-collector). C'est plus lourd, un conteneur de plus dans le job, et c'est la seule option qui laisse la configuration de test intacte.
 
-```bash
-mvn verify
-grep -h '^{"resourceSpans"' target/failsafe-reports/*-output.txt > target/traces.json
-perf-sentinel analyze --ci --input target/traces.json
-```
-
-Le résultat est du NDJSON, une requête OTLP par ligne, exactement la forme que produit l'exporteur `file` du Collector. La détection automatique de format le lit sans aucun flag. Les forks parallèles restent corrects, chaque classe de test écrivant son propre fichier de sortie que le grep concatène, donc aucune contrainte de `<forkCount>` ne s'applique. Si vous préférez ne pas toucher à `redirectTestOutputToFile`, redirigez plutôt le build, `set -o pipefail && mvn verify | tee build.log`, puis greppez `build.log` de la même façon.
-
-**Deux noms d'exporteur voisins ne conviennent pas ici.** `logging` affiche un résumé de span lisible par un humain et non du JSON OTLP, perf-sentinel ne peut pas le parser du tout. `logging-otlp` émet bien du JSON OTLP, mais via un logger, donc chaque ligne porte le préfixe ajouté par la configuration de logs de l'application et le grep ci-dessus cesse de matcher. Seul `experimental-otlp/stdout` écrit sur `System.out` sans préfixe.
+**Trois noms d'exporteur voisins n'aident pas ici.** `logging` affiche un résumé de span lisible par un humain et non du JSON OTLP, perf-sentinel ne peut pas le parser du tout. `logging-otlp` émet bien du JSON OTLP, mais via un logger, donc chaque ligne porte le préfixe ajouté par la configuration de logs de l'application. `otlp_file` et `OTEL_EXPORTER_OTLP_FILE_PATH` n'existent tout simplement pas, malgré leurs noms très plausibles.
 
 ---
 

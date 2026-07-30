@@ -75,14 +75,16 @@ jobs:
       # Place your integration-test stage here. It must produce the trace file
       # at $PERF_SENTINEL_TRACES before perf-sentinel runs. How the traces get
       # written depends on the language, see docs/INSTRUMENTATION.md. Java has
-      # no OTLP file exporter, the agent writes OTLP JSON to the forked JVM's
-      # stdout and the step below grabs it. Example:
+      # no OTLP file exporter, and a forked Maven test JVM cannot hand you its
+      # stdout either (Surefire uses it as a command channel), so the recipe
+      # there is either forkCount=0 with the agent on MAVEN_OPTS, as below, or
+      # a network export to a receiver. Example:
       #
       # - name: Run integration tests with OTel tracing
       #   run: |
       #     set -euo pipefail
-      #     ./scripts/run-integration-tests.sh
-      #     grep -h '^{"resourceSpans"' target/failsafe-reports/*-output.txt > "${PERF_SENTINEL_TRACES}"
+      #     ./scripts/run-integration-tests.sh | tee build.log
+      #     grep -h '^{"resourceSpans"' build.log > "${PERF_SENTINEL_TRACES}"
       #   env:
       #     OTEL_TRACES_EXPORTER: experimental-otlp/stdout
       #     OTEL_TRACES_SAMPLER: always_on
