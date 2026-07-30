@@ -118,6 +118,13 @@ impl IngestSource for JsonIngest {
     type Error = JsonIngestError;
 
     fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error> {
+        // An empty file is the routine outcome of a capture that received
+        // nothing, and `EOF while parsing a value at line 1 column 0` tells
+        // that user nothing. It stays an error rather than an empty report:
+        // a gate that passes on zero measured spans is a false green.
+        if raw.iter().all(u8::is_ascii_whitespace) {
+            return Err(JsonIngestError::Empty);
+        }
         if raw.len() > self.max_size {
             return Err(JsonIngestError::PayloadTooLarge {
                 size: raw.len(),
@@ -419,6 +426,10 @@ pub enum JsonIngestError {
         "payload nesting exceeds maximum depth of {max_depth} (defense against deeply-nested attacker payloads)"
     )]
     PayloadTooDeep { max_depth: usize },
+    #[error(
+        "trace file is empty: nothing was captured or exported, so there is nothing to analyze"
+    )]
+    Empty,
     #[error("JSON parse error: {0}")]
     Parse(#[from] serde_json::Error),
     #[error("format detection error: {0}")]
