@@ -68,7 +68,7 @@ default_region = "eu-west-3"       # optional: enables gCO2eq estimates
 # "api-asia" = "ap-southeast-1"
 ```
 
-CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, 2× multiplicative uncertainty), multi-region scoring activates automatically when spans carry the `cloud.region` attribute. See `CONFIGURATION.md` and `LIMITATIONS.md#carbon-estimates-accuracy`.
+CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, 2× multiplicative uncertainty), multi-region scoring activates automatically when spans carry the `cloud.region` attribute. See `CONFIGURATION.md` and [docs/LIMITATIONS.md](LIMITATIONS.md#carbon-estimates-accuracy).
 
 ### Collect traces
 

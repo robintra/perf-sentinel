@@ -156,7 +156,7 @@ Quand le scoring vert est activé et qu'au moins un événement est analysé, le
 - **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator"` : `(E × I) + M` sommé sur les traces ou `"sci_v1_numerator+transport"` quand l'énergie transport réseau est incluse) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut l'embodié). Valeurs `model`, le plus précis gagne : `"electricity_maps_api"` → `"scaphandre_rapl"` → `"kepler_ebpf"` → `"redfish_bmc"` → `"cloud_specpower"` → `"io_proxy_v3"` → `"io_proxy_v2"` → `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté (ex. `"io_proxy_v2+cal"`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré.
 - **`regions[]`** : breakdown par région avec `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **trié par `co2_gco2` décroissant** (régions à plus fort impact en premier) avec tiebreak alphabétique. `intensity_source` vaut `"annual"`, `"hourly"`, `"monthly_hourly"` ou `"real_time"` (API Electricity Maps) selon quelle source d'intensité carbone a été utilisée pour la région.
 
-Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie et `docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone` pour le disclaimer directionnel / non-réglementaire.
+Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie et [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#précision-des-estimations-carbone) pour le disclaimer directionnel / non-réglementaire.
 
 #### Profils horaires fournis par l'utilisateur
 
@@ -198,7 +198,7 @@ La table complète des alias se trouve dans `score/carbon_profiles.rs`. Si votre
 
 Intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) pour la mesure énergétique par processus sur les hôtes Linux avec support Intel RAPL. Quand cette section est configurée, le daemon `watch` lance une tâche de fond qui scrape l'endpoint Prometheus de Scaphandre toutes les `scrape_interval_secs` secondes et utilise les lectures de puissance mesurées pour remplacer la constante `ENERGY_PER_IO_OP_KWH` fixe pour chaque service mappé.
 
-**Préférez `[green.alumet]` pour les nouveaux déploiements.** Les deux intégrations lisent les mêmes compteurs RAPL, mais l'échantillonnage d'Alumet est mesurablement moins erroné, comme le caractérisent ses propres auteurs dans [Dissecting the software-based measurement of CPU energy consumption](https://hal.science/hal-04420527v2/document) (Raffin et al.), et il attribue par cgroup plutôt que par processus. Le support Scaphandre est conservé pour les déploiements existants, et `alumet_rapl` surclasse `scaphandre_rapl` dès que les deux alimentent le même service. Voir [docs/FR/LIMITATIONS-FR.md § Limites de précision Scaphandre](LIMITATIONS-FR.md#limites-de-précision-scaphandre).
+**Préférez `[green.alumet]` pour les nouveaux déploiements.** Les deux intégrations lisent les mêmes compteurs RAPL, mais l'échantillonnage d'Alumet est mesurablement moins erroné, comme le caractérisent ses propres auteurs dans [Dissecting the software-based measurement of CPU energy consumption](https://hal.science/hal-04420527v2/document) (Raffin et al.), et il attribue par cgroup plutôt que par processus. Le support Scaphandre est conservé pour les déploiements existants, et `alumet_rapl` surclasse `scaphandre_rapl` dès que les deux alimentent le même service. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-scaphandre).
 
 | Champ                  | Type   | Défaut    | Description                                                                                                                                                                           |
 |------------------------|--------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -231,7 +231,7 @@ exe_contains = "/opt/native-svc/bin/native-svc"
 
 **Comportement de fallback.** Quand l'endpoint est inaccessible, qu'un service n'est pas présent dans `process_map` ou qu'un service a eu zéro ops dans la fenêtre de scrape courante, l'étape de scoring retombe sur le modèle proxy pour ces spans. Le premier échec est logué en niveau `warn` ; les échecs suivants en `debug` pour éviter le spam. La jauge Prometheus `perf_sentinel_scaphandre_last_scrape_age_seconds` permet aux opérateurs de détecter un scraper bloqué.
 
-**Limites de précision (important).** Scaphandre améliore le coefficient énergétique **au niveau service** mais ne donne PAS d'attribution par finding. RAPL est au niveau processus, pas au niveau span : deux findings dans le même processus pendant la même fenêtre de scrape partagent le même coefficient. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-scaphandre` pour la discussion complète.
+**Limites de précision (important).** Scaphandre améliore le coefficient énergétique **au niveau service** mais ne donne PAS d'attribution par finding. RAPL est au niveau processus, pas au niveau span : deux findings dans le même processus pendant la même fenêtre de scrape partagent le même coefficient. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-scaphandre) pour la discussion complète.
 
 #### `[green.kepler]` (optionnel, opt-in)
 
@@ -260,7 +260,7 @@ metric_kind = "container"
 
 **Les compteurs partageant une valeur de label sont sommés.** Un même nom de conteneur répété entre pods (ou un même `comm` partagé par plusieurs processus) produit plusieurs séries cumulatives sous une même valeur de mapping. Leurs compteurs sont sommés avant le calcul du delta par fenêtre, le coefficient les couvre donc ensemble.
 
-**Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler prend tout son sens sur ARM64 où Scaphandre est indisponible. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-kepler` pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
+**Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler prend tout son sens sur ARM64 où Scaphandre est indisponible. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-kepler) pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
 
 **Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Dans un cluster multi-nœuds, l'`endpoint` doit pointer vers un Prometheus amont qui scrape l'ensemble du `DaemonSet` plutôt qu'un seul pod, sinon seule l'énergie d'un nœud sera visible. Le mode Prometheus-médié (requêtes PromQL) est réservé à une version ultérieure.
 
@@ -286,7 +286,7 @@ curl -s http://localhost:9091/metrics | grep -i energy
 
 **Plusieurs lignes par service sont sommées.** Le `label_key` d'Alumet est couramment partagé : un pod porte une ligne par domaine RAPL (`package` + `dram`), et `label_key = "domain"` sur un hôte bi-socket porte une ligne `domain="package"` par socket. Toutes les lignes partageant une valeur de label sont sommées, ce qui est la lecture physiquement correcte puisque l'énergie est additive (les lignes NaN ou négatives sont ignorées). Deux conséquences à configurer. Choisissez `label_key` de sorte que les lignes partageant une valeur soient bien celles que vous voulez additionner. Et assurez-vous que ces lignes ne se recouvrent pas : les domaines RAPL s'emboîtent (`psys` contient `package`, `package` contient `pp0`/`pp1`), donc une formule qui émet un domaine parent et son enfant pour un même label compte deux fois la part partagée. `package` plus `dram` se somme correctement, `psys` plus `package` non.
 
-**Pourquoi `energy_interval_secs` existe.** C'est le champ à ne pas rater. L'exporteur d'Alumet publie chaque mesure comme une **jauge Prometheus contenant la dernière valeur flushée**, et `rapl_consumed_energy` est un `CounterDiff` : les joules brûlés pendant un `poll_interval` de la source, ni un compteur cumulatif ni une puissance. perf-sentinel divise par cet intervalle pour retrouver des watts. L'intervalle n'apparaît nulle part sur le fil, il doit donc être déclaré ici et correspondre à la configuration côté Alumet. **Un écart met l'énergie et le carbone à une échelle linéairement fausse, en silence** : déclarer `1.0` alors qu'Alumet échantillonne à `5s` surestime l'énergie d'un facteur 5, sans aucun avertissement. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-alumet`. Le démon affiche la valeur utilisée dans la ligne de log `Alumet scraper started`.
+**Pourquoi `energy_interval_secs` existe.** C'est le champ à ne pas rater. L'exporteur d'Alumet publie chaque mesure comme une **jauge Prometheus contenant la dernière valeur flushée**, et `rapl_consumed_energy` est un `CounterDiff` : les joules brûlés pendant un `poll_interval` de la source, ni un compteur cumulatif ni une puissance. perf-sentinel divise par cet intervalle pour retrouver des watts. L'intervalle n'apparaît nulle part sur le fil, il doit donc être déclaré ici et correspondre à la configuration côté Alumet. **Un écart met l'énergie et le carbone à une échelle linéairement fausse, en silence** : déclarer `1.0` alors qu'Alumet échantillonne à `5s` surestime l'énergie d'un facteur 5, sans aucun avertissement. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet). Le démon affiche la valeur utilisée dans la ligne de log `Alumet scraper started`.
 
 **Configuration Alumet correspondante.** L'attribution par service demande trois plugins Alumet qui travaillent ensemble, `rapl` seul ne mesure que la machine entière et `procfs` n'identifie les processus que par PID :
 
@@ -423,7 +423,7 @@ schema = "environment_metrics"
 
 **Ignoré en mode batch `analyze`.** Comme Scaphandre et Kepler, seul `watch` intègre Redfish.
 
-**Coefficient au niveau du nœud.** Chaque service mappé au même châssis reçoit le **même** coefficient. Deux services sur un même châssis n'auront jamais de coefficients mesurés distincts via Redfish. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-redfish-bmc` pour la discussion complète de ce compromis et de la variance JSON entre fournisseurs.
+**Coefficient au niveau du nœud.** Chaque service mappé au même châssis reçoit le **même** coefficient. Deux services sur un même châssis n'auront jamais de coefficients mesurés distincts via Redfish. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-redfish-bmc) pour la discussion complète de ce compromis et de la variance JSON entre fournisseurs.
 
 #### `[green.cloud]` (optionnel, opt-in)
 
@@ -467,7 +467,7 @@ Familles d'instances modernes couvertes : AWS m7i/c7i/r7i, m7a/c7a, m6a/c6a, m7g
 
 **Comportement de repli.** Si le endpoint Prometheus est inaccessible, le daemon utilise le modèle proxy pour tous les services configurés cloud. Les types d'instance inconnus retombent sur un défaut au niveau du fournisseur.
 
-**Limites de précision.** Le modèle d'interpolation SPECpower a une précision d'environ +/-30%, meilleure que le modèle proxy mais moins précise que Scaphandre RAPL. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-du-cloud-specpower` pour les détails.
+**Limites de précision.** Le modèle d'interpolation SPECpower a une précision d'environ +/-30%, meilleure que le modèle proxy mais moins précise que Scaphandre RAPL. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-du-cloud-specpower) pour les détails.
 
 #### `[green.electricity_maps]` (optionnel, opt-in)
 

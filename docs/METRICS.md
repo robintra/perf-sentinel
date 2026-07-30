@@ -348,7 +348,7 @@ proxy tag instead of `alumet_rapl`.
 
 Note that no metric can catch a wrong `energy_interval_secs`: scrapes
 succeed, samples match, and only the magnitude is wrong. See
-`docs/LIMITATIONS.md#alumet-precision-bounds`.
+[docs/LIMITATIONS.md](LIMITATIONS.md#alumet-precision-bounds).
 
 ## Redfish scrape counters (since 0.7.4)
 

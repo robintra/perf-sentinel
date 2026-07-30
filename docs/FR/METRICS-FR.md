@@ -366,7 +366,7 @@ un tag proxy au lieu d'`alumet_rapl`.
 Notez qu'aucune métrique ne peut détecter un `energy_interval_secs`
 faux : les scrapes réussissent, les échantillons correspondent, seule
 l'échelle est fausse. Voir
-`docs/FR/LIMITATIONS-FR.md#limites-de-précision-alumet`.
+[docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
 
 ## Compteurs de scrape Redfish (depuis 0.7.4)
 
