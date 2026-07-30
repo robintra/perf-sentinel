@@ -233,8 +233,8 @@ enum Commands {
         /// at application shutdown, which is exactly that moment.
         #[arg(long, default_value_t = 2000)]
         grace_ms: u64,
-        /// Command to run under capture, after `--`. `last` keeps its own
-        /// flags out of this parser, so `-- mvn -X verify` reaches Maven whole.
+        /// Test command to run under capture, after `--`. Its own flags are
+        /// passed through untouched, so `-- mvn -X verify` reaches Maven whole.
         #[arg(last = true, value_name = "COMMAND")]
         command: Vec<String>,
     },
