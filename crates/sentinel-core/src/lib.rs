@@ -16,6 +16,8 @@
 
 pub mod acknowledgments;
 pub mod calibrate;
+#[cfg(feature = "daemon")]
+pub mod capture;
 pub mod config;
 pub mod correlate;
 #[cfg(feature = "daemon")]

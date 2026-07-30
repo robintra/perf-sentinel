@@ -13,6 +13,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(feature = "daemon")]
 mod ack;
 mod bench;
+#[cfg(feature = "daemon")]
+mod capture;
 mod demo;
 mod disclose;
 mod hash_bake;
@@ -196,6 +198,45 @@ enum Commands {
         /// Override the daemon gRPC (OTLP) listen port.
         #[arg(long)]
         listen_port_grpc: Option<u16>,
+    },
+
+    /// Receive OTLP traces into a file for batch analysis, without a
+    /// Collector. Point the application at this listener the way it points
+    /// at any OTLP endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`), then feed the
+    /// file to `analyze --ci`.
+    ///
+    /// With a trailing `-- <command>` the capture wraps that command: ports
+    /// are bound first, the command inherits stdout and stderr untouched,
+    /// and its exit code is propagated. Without one, the capture runs until
+    /// SIGINT or SIGTERM, alongside an existing test step.
+    #[cfg(feature = "daemon")]
+    #[command(after_help = help_examples::CAPTURE)]
+    Capture {
+        /// Path of the NDJSON trace file to write.
+        #[arg(short, long, value_name = "PATH")]
+        output: PathBuf,
+        /// Address to listen on.
+        #[arg(long, default_value = "127.0.0.1")]
+        listen_address: String,
+        /// OTLP gRPC listen port.
+        #[arg(long, default_value_t = 4317)]
+        listen_port_grpc: u16,
+        /// OTLP HTTP listen port.
+        #[arg(long, default_value_t = 4318)]
+        listen_port_http: u16,
+        /// Stop appending past this size, in MiB, so a runaway exporter
+        /// cannot fill the CI agent's disk.
+        #[arg(long, default_value_t = 512)]
+        max_file_size: u64,
+        /// How long to keep listening after the stop signal or the wrapped
+        /// command's exit, in milliseconds. Exporters flush their last batch
+        /// at application shutdown, which is exactly that moment.
+        #[arg(long, default_value_t = 2000)]
+        grace_ms: u64,
+        /// Command to run under capture, after `--`. `last` keeps its own
+        /// flags out of this parser, so `-- mvn -X verify` reaches Maven whole.
+        #[arg(last = true, value_name = "COMMAND")]
+        command: Vec<String>,
     },
 
     /// Run analysis on an embedded demo dataset.
@@ -894,6 +935,20 @@ mod help_examples {
   # Load thresholds and detection settings from a config file
   perf-sentinel watch --config .perf-sentinel.toml";
 
+    #[cfg(feature = "daemon")]
+    pub const CAPTURE: &str = "Examples:
+  # Wrap the test step: ports are up before it starts, its exit code is kept
+  perf-sentinel capture --output traces.json -- mvn verify
+  perf-sentinel analyze --ci --input traces.json
+
+  # Alongside an existing test step, stopped with a signal
+  perf-sentinel capture --output traces.json &
+  ./scripts/run-integration-tests.sh
+  kill %1
+
+  # The application only needs the standard OTLP endpoint variable
+  export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317";
+
     pub const EXPLAIN: &str = "Examples:
   # Render the annotated span tree for a single trace
   perf-sentinel explain --input traces.json --trace-id abc123def456";
@@ -1089,6 +1144,30 @@ async fn dispatch_command(command: Commands) {
                 listen_port_grpc,
             )
             .await;
+        }
+        #[cfg(feature = "daemon")]
+        Commands::Capture {
+            output,
+            listen_address,
+            listen_port_grpc,
+            listen_port_http,
+            max_file_size,
+            grace_ms,
+            command,
+        } => {
+            let code = capture::cmd_capture(
+                &output,
+                listen_address,
+                listen_port_grpc,
+                listen_port_http,
+                max_file_size,
+                grace_ms,
+                &command,
+            )
+            .await;
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Commands::Demo {
             config,

@@ -7,6 +7,8 @@ mod helpers;
 
 mod ack;
 mod analyze;
+#[cfg(feature = "daemon")]
+mod capture;
 mod demo;
 mod diff;
 mod disclose;
