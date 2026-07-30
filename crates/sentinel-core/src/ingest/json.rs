@@ -161,12 +161,11 @@ impl IngestSource for JsonIngest {
                             events.extend(crate::ingest::otlp::convert_otlp_request(&request));
                             offset += stream.byte_offset();
                         }
-                        // Canonical protojson omits empty repeated fields, so an
-                        // empty-list attribute serializes as `{"arrayValue":{}}`
-                        // and fails with `missing field values`. Backfill the
-                        // empty list via normalize_otlp_json and retry just this
-                        // one document.
-                        Some(Err(e)) if is_missing_values(&e) => {
+                        // Empty list (`{"arrayValue":{}}`) and valueless attribute
+                        // (`{"key":"k","value":{}}`, seen from the Java stdout
+                        // exporter): normalize_otlp_json repairs both, retry this
+                        // document only.
+                        Some(Err(e)) if is_recoverable_attribute_shape(&e) => {
                             let mut retry = serde_json::Deserializer::from_slice(&raw[offset..])
                                 .into_iter::<serde_json::Value>();
                             let Some(Ok(mut value)) = retry.next() else {
@@ -229,21 +228,20 @@ impl IngestSource for JsonIngest {
     }
 }
 
-/// True for the serde error opentelemetry-proto raises on an empty-list
-/// attribute serialized the protojson way, `{"arrayValue":{}}` or
-/// `{"kvlistValue":{}}`: the derived Deserialize marks `values` required. The
-/// only proto fields named `values` are ArrayValue/KeyValueList, so this match
-/// is unambiguous and never fires on a well-formed request.
-fn is_missing_values(e: &serde_json::Error) -> bool {
+/// True for the two serde errors raised by attribute shapes canonical protojson
+/// allows but the derived Deserialize rejects: an empty list (missing field
+/// "values") and a valueless attribute (no known keys found). Both only gate a
+/// retry through `normalize_otlp_json`, a malformed document still fails there.
+fn is_recoverable_attribute_shape(e: &serde_json::Error) -> bool {
     e.classify() == serde_json::error::Category::Data
-        && e.to_string().contains("missing field `values`")
+        && (e.to_string().contains("missing field `values`")
+            || e.to_string().contains("no known keys found"))
 }
 
-/// Backfill the `values` field on empty `arrayValue`/`kvlistValue` attribute
-/// values. Canonical protojson omits empty repeated fields, so `{"arrayValue":{}}`
-/// is a valid empty list, but opentelemetry-proto's derived Deserialize marks
-/// `values` required. Walks the parsed document and inserts an empty array where
-/// missing. Recursion depth is bounded by the pre-dispatch `MAX_JSON_DEPTH` cap.
+/// Repair the protojson attribute shapes the derived Deserialize rejects: backfill
+/// the omitted `values` on empty `arrayValue`/`kvlistValue`, and drop a `"value": {}`
+/// so `AnyValue` stays `None` rather than matching no oneof variant. Recursion depth
+/// is bounded by the pre-dispatch `MAX_JSON_DEPTH` cap.
 fn normalize_otlp_json(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
@@ -253,6 +251,15 @@ fn normalize_otlp_json(value: &mut serde_json::Value) {
                 {
                     inner.insert("values".to_string(), serde_json::Value::Array(Vec::new()));
                 }
+            }
+            // Scoped to KeyValue (an object carrying both `key` and `value`), so
+            // an empty object elsewhere in the document is left alone.
+            if map.contains_key("key")
+                && map
+                    .get("value")
+                    .is_some_and(|v| v.as_object().is_some_and(serde_json::Map::is_empty))
+            {
+                map.remove("value");
             }
             for v in map.values_mut() {
                 normalize_otlp_json(v);
@@ -648,6 +655,22 @@ mod tests {
         let json = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc-a"}}]},"scopeSpans":[{"scope":{"name":"repro"},"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174","name":"GET /x","kind":2,"startTimeUnixNano":"1783678644000000000","endTimeUnixNano":"1783678644100000000","attributes":[{"key":"empty.list","value":{"arrayValue":{}}}]}]}]}]}"#;
         let ingest = JsonIngest::new(1_048_576);
         assert!(ingest.ingest(json.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn otlp_valueless_attribute_ingests() {
+        // Attribute shape `{"key":"empty","value":{}}`, taken from the
+        // opentelemetry-java stdout-exporter fixture (expected-spans-wrapper.json).
+        // It is what a CI capture of `experimental-otlp/stdout` carries.
+        let line = otlp_request_json_with_attrs(
+            "0af7651916cd43dd8448eb211c80319c",
+            "SELECT 1",
+            r#",{"key":"empty","value":{}}"#,
+        );
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(line.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, "SELECT 1");
     }
 
     #[test]
