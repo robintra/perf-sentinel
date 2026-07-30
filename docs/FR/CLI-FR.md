@@ -19,6 +19,85 @@ sous-commande, elles se concentrent sur les surfaces utilisateur qui
 bénéficient d'une explication en prose (workflow, valeurs par défaut,
 codes de sortie). Pour la liste complète des flags, préférez `--help`.
 
+## capture
+
+Reçoit des traces OTLP et les écrit dans un fichier, pour qu'un job de
+CI produise l'entrée sur laquelle `analyze --ci` pose sa gate sans faire
+tourner d'OpenTelemetry Collector. Cette commande reçoit et écrit, elle
+n'analyse jamais : le verdict reste à `analyze`, sur un fichier que vous
+pouvez conserver comme artefact de build, rejouer avec d'autres seuils,
+ou comparer à une référence avec `diff`.
+
+L'application n'a besoin d'aucun réglage propre à perf-sentinel, juste
+de la variable d'endpoint standard :
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+### Deux formes
+
+**Envelopper l'étape de test**, la plus solide :
+
+```bash
+perf-sentinel capture --output traces.json -- mvn verify
+perf-sentinel analyze --ci --input traces.json
+```
+
+Les ports sont liés avant que la commande démarre, aucun export ne se
+perd donc dans une course au démarrage, et la capture s'arrête à la fin
+de la commande plutôt que sur un délai deviné. La commande hérite de
+stdout et stderr sans altération, et son code de sortie est propagé :
+un échec de tests reste un échec de job.
+
+**Écouter à côté d'une étape de test existante**, quand votre pipeline
+génère la commande de test et qu'elle ne peut pas être préfixée :
+
+```bash
+perf-sentinel capture --output traces.json &
+CAPTURE=$!
+./scripts/run-integration-tests.sh
+kill -TERM $CAPTURE && wait $CAPTURE
+```
+
+> **Préfixez l'étape existante, n'en ajoutez jamais une seconde.**
+> `capture -- mvn verify` lance les tests une fois. Une nouvelle étape
+> de pipeline à côté de l'existante ferait tourner toute la suite
+> d'intégration deux fois, pour rien.
+
+### Sortie
+
+Du NDJSON, une requête OTLP par ligne, la forme que produit l'exporteur
+`file` du Collector. `analyze`, `report` et `diff` la détectent
+automatiquement, sans flag. Les requêtes sont écrites telles que reçues,
+sans conversion, le fichier décrit donc ce que l'application a réellement
+envoyé.
+
+La progression et le décompte final vont sur **stderr**, jamais sur
+stdout : en mode enveloppe, ce flux appartient à la commande enveloppée.
+Ce résumé est ce qui permet de distinguer "aucun anti-pattern trouvé" de
+"rien n'a jamais été exporté", et un fichier de traces vide est rejeté
+par `analyze` au lieu d'être présenté comme une gate au vert.
+
+### Options utiles
+
+| Flag | Défaut | Pourquoi le changer |
+|---|---|---|
+| `--listen-address` | `127.0.0.1` | `0.0.0.0` quand l'application tourne dans un autre conteneur du même job |
+| `--listen-port-grpc` / `--listen-port-http` | `4317` / `4318` | un port est déjà pris sur l'agent |
+| `--max-file-size` | `512` (Mio) | une grosse suite. Au-delà du plafond le fichier reste valide mais incomplet, et le run sort en `2` plutôt que de faire semblant |
+| `--grace-ms` | `2000` | combien de temps continuer à écouter après la fin de la commande, pour le dernier flush de l'exporteur |
+
+### Codes de sortie
+
+- `0` : capture terminée.
+- le code de la commande enveloppée quand elle a échoué, ce signal étant
+  le plus important.
+- `1` : la capture elle-même a échoué (port pris, fichier non
+  inscriptible).
+- `2` : le plafond de taille a tronqué le fichier de traces, tout
+  verdict qui en sortirait sous-estimerait le run.
+
 ## ack
 
 Acquitter des findings via l'API daemon ack introduite en 0.5.20.

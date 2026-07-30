@@ -516,44 +516,37 @@ Corrupted channel by directly writing to native stream in forked JVM 1.
 Stream '{"resourceSpans":[{"resource":{"attributes":[{"key":"host.arch",…}]}}]}'.
 ```
 
-Nothing usable reaches `-output.txt`, and piping the build with `tee` does not help either, since the fork's stdout is the channel rather than the console. This is not a version artefact, Failsafe 3.5.0, 3.2.5 and 2.22.2 all divert it. So a forked run needs one of the two shapes below.
+Nothing usable reaches `-output.txt`, and piping the build with `tee` does not help either, since the fork's stdout is the channel rather than the console. This is not a version artefact, Failsafe 3.5.0, 3.2.5 and 2.22.2 all divert it.
 
-**Attach the agent to the test JVM, not just the built image.** If integration tests run in-process against `@SpringBootTest` (Maven Failsafe, Gradle `integrationTest`) rather than against the built container, the agent baked into your Dockerfile never sees them. Fetch the agent jar before the build, pinned to the version baked into your Dockerfile so both environments instrument the same way:
+So the traces have to leave the JVM the way they do in production, over the network, and something has to be listening. That is what `perf-sentinel capture` is for.
 
-```bash
-curl -sSLf -o opentelemetry-javaagent.jar \
-  https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.27.0/opentelemetry-javaagent.jar
-```
-
-Downloading it as a build step (`maven-dependency-plugin` bound to `pre-integration-test`) works for option 2 below but not for option 1, where the JVM that needs the agent is Maven's own and has already started by then.
-
-##### Option 1, drop the fork and capture the console
-
-Without a fork there is no command channel, so the exporter's output reaches the console like any other program's. `<argLine>` and `<environmentVariables>` only apply to forks, so the agent moves to `MAVEN_OPTS` and the settings become real environment variables:
-
-```bash
-export MAVEN_OPTS="-javaagent:$PWD/opentelemetry-javaagent.jar"
-export OTEL_TRACES_EXPORTER=experimental-otlp/stdout
-export OTEL_SERVICE_NAME=my-service
-export OTEL_TRACES_SAMPLER=always_on
-export OTEL_METRICS_EXPORTER=none
-export OTEL_LOGS_EXPORTER=none
-
-set -o pipefail
-mvn verify -DforkCount=0 | tee build.log
-grep -h '^{"resourceSpans"' build.log > target/traces.json
-perf-sentinel analyze --ci --input target/traces.json
-```
-
-The result is NDJSON, one OTLP request per line, the same shape the Collector `file` exporter produces, and format auto-detection reads it with no extra flag. `OTEL_TRACES_SAMPLER=always_on` matters more here than in production, sampling would drop exactly the repeated calls N+1 detection relies on.
-
-Two costs come with `forkCount=0`, both real. Test isolation is gone, the tests run in the Maven JVM itself, which also means the capture carries Maven's own spans alongside the application's. And anything else that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, has to move to `MAVEN_OPTS` too or it silently stops applying.
-
-##### Option 2, keep the fork and export over the network
-
-If the fork has to stay, the traces have to leave the JVM the way they do in production, over OTLP. The agent goes on the Failsafe fork and points at a receiver running for the duration of the job:
+**Attach the agent to the test JVM, not just the built image.** If integration tests run in-process against `@SpringBootTest` (Maven Failsafe, Gradle `integrationTest`) rather than against the built container, the agent baked into your Dockerfile never sees them. Copy the agent jar into the build, pinned to the version baked into your Dockerfile so both environments instrument the same way:
 
 ```xml
+<!-- Copy the agent jar into target/ before the integration-test phase. -->
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-dependency-plugin</artifactId>
+  <executions>
+    <execution>
+      <id>copy-otel-agent</id>
+      <phase>pre-integration-test</phase>
+      <goals><goal>copy</goal></goals>
+      <configuration>
+        <artifactItems>
+          <artifactItem>
+            <groupId>io.opentelemetry.javaagent</groupId>
+            <artifactId>opentelemetry-javaagent</artifactId>
+            <version>2.27.0</version> <!-- match the version baked into your Dockerfile -->
+            <destFileName>opentelemetry-javaagent.jar</destFileName>
+          </artifactItem>
+        </artifactItems>
+        <outputDirectory>${project.build.directory}</outputDirectory>
+      </configuration>
+    </execution>
+  </executions>
+</plugin>
+
 <!-- Add -javaagent to the EXISTING failsafe argLine, do not replace it. -->
 <plugin>
   <groupId>org.apache.maven.plugins</groupId>
@@ -572,9 +565,44 @@ If the fork has to stay, the traces have to leave the JVM the way they do in pro
 </plugin>
 ```
 
-Keep any existing `<argLine>` content (heap flags, a JaCoCo `@{argLine}` placeholder) and append `-javaagent:...` to it. Overwriting it is a common mistake that silently drops JaCoCo coverage instrumentation.
+Keep any existing `<argLine>` content (heap flags, a JaCoCo `@{argLine}` placeholder) and append `-javaagent:...` to it. Overwriting it is a common mistake that silently drops JaCoCo coverage instrumentation. `OTEL_TRACES_SAMPLER=always_on` matters more here than in production: sampling would drop exactly the repeated calls N+1 detection relies on.
 
-Then feed perf-sentinel from what the receiver wrote. A Collector with the `file` exporter is the shape that produces a trace file `analyze --ci` can gate on, see [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector). This is heavier, one more container in the job, and it is the only option that leaves the test setup untouched.
+Nothing above is specific to perf-sentinel, it is the standard OTLP setup. What changes is who listens.
+
+##### Option 1, `perf-sentinel capture` (recommended)
+
+The `capture` subcommand receives OTLP and writes a trace file, nothing else. No Collector, no container, no plugin, and the fork stays exactly as it is. Either wrap the test step:
+
+```bash
+perf-sentinel capture --output target/traces.json -- mvn verify
+perf-sentinel analyze --ci --input target/traces.json
+```
+
+or, when the test step cannot be prefixed because your pipeline owns it, run alongside it:
+
+```bash
+perf-sentinel capture --output target/traces.json &
+CAPTURE=$!
+mvn verify
+kill -TERM $CAPTURE && wait $CAPTURE
+perf-sentinel analyze --ci --input target/traces.json
+```
+
+> **Prefix your existing test step, never add a second one.** `capture -- mvn verify` runs the tests once, it does not run them again. Adding a new pipeline stage next to the existing one would run the whole integration suite twice, for nothing.
+
+Wrapping is the sturdier of the two: the ports are bound before the command starts, so no export can be lost to a start-up race, and the capture stops when the command exits rather than on a guessed delay. The wrapped command inherits stdout and stderr untouched, and its exit code is propagated, so a failing test run stays a failing job.
+
+The file is NDJSON, one OTLP request per line, the same shape the Collector `file` exporter produces, and format auto-detection reads it with no extra flag. `capture` writes to stderr only, and reports how many spans it received, which is how you tell "no anti-patterns" from "nothing was ever exported". An empty trace file is rejected by `analyze` rather than reported as a clean gate.
+
+Details: [`CLI.md`](./CLI.md), and `perf-sentinel capture --help` for `--listen-address`, `--max-file-size` and `--grace-ms`.
+
+##### Option 2, an OpenTelemetry Collector
+
+If a Collector is already part of the job, keep it. Its `file` exporter produces the same NDJSON, see [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector). This is the heavier shape, one more container to start and stop, and it makes sense mostly when the same traces have to reach another backend at the same time.
+
+##### Option 3, no receiver at all
+
+`<forkCount>0</forkCount>` removes the fork, therefore the command channel, so `experimental-otlp/stdout` reaches the console and a grep over the build log yields the trace file. It needs no listener, at a price: test isolation is gone, the capture then carries Maven's own spans alongside the application's, and anything that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, must move to `MAVEN_OPTS` or it silently stops applying. Reach for it only when nothing may listen on a port.
 
 **Three neighbouring exporter names do not help here.** `logging` prints a human-readable span summary rather than OTLP JSON, so perf-sentinel cannot parse it at all. `logging-otlp` does emit OTLP JSON, but through a logger, so each line carries whatever prefix the application's logging setup adds. `otlp_file` and `OTEL_EXPORTER_OTLP_FILE_PATH` do not exist at all, despite reading like they should.
 

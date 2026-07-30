@@ -18,6 +18,80 @@ The sections below are not exhaustive for every subcommand; they
 focus on the user surfaces that benefit from prose context (workflow,
 defaults, exit codes). For exhaustive flag listings, prefer `--help`.
 
+## capture
+
+Receives OTLP traces and writes them to a file, so a CI job can produce
+the input `analyze --ci` gates on without running an OpenTelemetry
+Collector. It only receives and writes, it never analyzes: the verdict
+stays with `analyze`, on a file you can keep as a build artifact, replay
+with different thresholds, or compare against a baseline with `diff`.
+
+The application needs no perf-sentinel-specific setting, only the
+standard endpoint variable:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+### Two shapes
+
+**Wrapping the test step**, which is the sturdier one:
+
+```bash
+perf-sentinel capture --output traces.json -- mvn verify
+perf-sentinel analyze --ci --input traces.json
+```
+
+The ports are bound before the command starts, so no export is lost to a
+start-up race, and the capture ends when the command does rather than on
+a guessed delay. The command inherits stdout and stderr untouched, and
+its exit code is propagated: a failing test run stays a failing job.
+
+**Alongside an existing test step**, when your pipeline owns the test
+command and it cannot be prefixed:
+
+```bash
+perf-sentinel capture --output traces.json &
+CAPTURE=$!
+./scripts/run-integration-tests.sh
+kill -TERM $CAPTURE && wait $CAPTURE
+```
+
+> **Prefix the existing step, never add a second one.** `capture -- mvn
+> verify` runs the tests once. A new pipeline stage next to the existing
+> one would run the whole integration suite twice, for nothing.
+
+### Output
+
+NDJSON, one OTLP request per line, the shape the Collector `file`
+exporter produces. `analyze`, `report` and `diff` auto-detect it, no
+flag needed. Requests are written as received, unconverted, so the file
+describes what the application actually sent.
+
+Progress and the final count go to **stderr**, never stdout: in wrapper
+mode that stream belongs to the wrapped command. The summary is how you
+tell "no anti-patterns found" from "nothing was ever exported", and an
+empty trace file is rejected by `analyze` rather than reported as a
+clean gate.
+
+### Options worth knowing
+
+| Flag | Default | Why you would change it |
+|---|---|---|
+| `--listen-address` | `127.0.0.1` | `0.0.0.0` when the application runs in another container of the same job |
+| `--listen-port-grpc` / `--listen-port-http` | `4317` / `4318` | a port is already taken on the agent |
+| `--max-file-size` | `512` (MiB) | a large suite. Past the cap the file stays valid but incomplete, and the run exits `2` rather than pretending |
+| `--grace-ms` | `2000` | how long to keep listening after the command exits, for the exporter's last flush |
+
+### Exit codes
+
+- `0`: capture completed.
+- the wrapped command's own code when it failed, since that is the more
+  important signal.
+- `1`: the capture itself failed (port taken, unwritable file).
+- `2`: the size cap truncated the trace file, so any verdict from it
+  would understate the run.
+
 ## ack
 
 Acknowledge findings via the daemon ack API introduced in 0.5.20.
