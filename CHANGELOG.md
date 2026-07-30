@@ -8,6 +8,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 - An OTLP/JSON attribute carrying no value, `{"key":"k","value":{}}`, no longer fails the whole ingest. `AnyValue` is a flattened oneof and an empty object matches no variant, so the derived `Deserialize` rejected the document with `no known keys found` and a single such attribute cost every trace in the file. It now joins the empty-list case on the lenient retry, where the field is dropped so the value stays absent. The shape comes straight from the opentelemetry-java stdout exporter, which is what a CI capture feeds to `analyze`.
 
+### Changed
+
+- The Maven Failsafe recipe in `docs/INSTRUMENTATION.md` no longer claims an `otlp_file` exporter driven by `OTEL_EXPORTER_OTLP_FILE_PATH`. Neither exists: no supported Java exporter writes spans to a chosen path, and the declarative `otlp_file/development` exporter reports `output_stream` as not implemented in Java. The recipe now uses `experimental-otlp/stdout` with `redirectTestOutputToFile`, and one grep over `target/failsafe-reports/*-output.txt` produces the NDJSON trace file. The `<forkCount>` caveat is gone with it, each test class writing its own output file. Same correction in the FR mirror, in `docs/CI.md` and its mirror, and in the GitHub Actions, GitLab CI and Jenkins templates under `docs/ci-templates/`.
+
 ## [0.9.23] - 2026-07-29
 
 ### Added

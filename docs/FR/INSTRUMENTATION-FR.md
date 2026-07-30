@@ -487,7 +487,7 @@ fi
 
 **Le starter Spring Boot ne suffit pas.** Le `spring-boot-starter-opentelemetry` (Spring Boot 4) n'instrumente pas les appels sortants `WebClient` ou `RestTemplate` avec propagation du trace context. Utilisez le Java Agent pour une détection N+1 HTTP complète.
 
-#### Tests d'intégration en CI (Maven Failsafe, exporteur fichier)
+#### Tests d'intégration en CI (Maven Failsafe, exporteur stdout)
 
 La configuration ci-dessus suppose un processus qui tourne en continu et parle à un endpoint OTLP live. Les tests d'intégration sont différents : ils tournent dans la JVM du test runner lui-même, et il n'y a pas de daemon vers qui envoyer des traces en CI. Voir [CI.md](../CI.md#ci-mode-batch-analysis) (anglais) pour le mode batch que cette configuration alimente.
 
@@ -524,9 +524,10 @@ La configuration ci-dessus suppose un processus qui tourne en continu et parle �
   <artifactId>maven-failsafe-plugin</artifactId>
   <configuration>
     <argLine>@{argLine} -javaagent:${project.build.directory}/opentelemetry-javaagent.jar</argLine>
+    <!-- Envoie la sortie standard de la JVM forkée dans target/failsafe-reports/*-output.txt. -->
+    <redirectTestOutputToFile>true</redirectTestOutputToFile>
     <environmentVariables>
-      <OTEL_TRACES_EXPORTER>otlp_file</OTEL_TRACES_EXPORTER>
-      <OTEL_EXPORTER_OTLP_FILE_PATH>${project.build.directory}/traces.json</OTEL_EXPORTER_OTLP_FILE_PATH>
+      <OTEL_TRACES_EXPORTER>experimental-otlp/stdout</OTEL_TRACES_EXPORTER>
       <OTEL_SERVICE_NAME>mon-service</OTEL_SERVICE_NAME>
       <OTEL_TRACES_SAMPLER>always_on</OTEL_TRACES_SAMPLER>
       <OTEL_METRICS_EXPORTER>none</OTEL_METRICS_EXPORTER>
@@ -536,9 +537,19 @@ La configuration ci-dessus suppose un processus qui tourne en continu et parle �
 </plugin>
 ```
 
-Conservez le contenu existant de votre `<argLine>` (flags de heap, placeholder JaCoCo `@{argLine}`) et ajoutez `-javaagent:...` à la fin. L'écraser est une erreur fréquente qui fait silencieusement disparaître l'instrumentation de couverture JaCoCo. `OTEL_TRACES_SAMPLER=always_on` compte plus ici qu'en production : le sampling supprimerait justement les appels répétés dont dépend la détection N+1. L'exporteur `otlp_file` écrit un seul fichier JSON sans collector, consommé directement par `analyze --input target/traces.json` en CI.
+Conservez le contenu existant de votre `<argLine>` (flags de heap, placeholder JaCoCo `@{argLine}`) et ajoutez `-javaagent:...` à la fin. L'écraser est une erreur fréquente qui fait silencieusement disparaître l'instrumentation de couverture JaCoCo. `OTEL_TRACES_SAMPLER=always_on` compte plus ici qu'en production : le sampling supprimerait justement les appels répétés dont dépend la détection N+1.
 
-Cette config suppose le fork unique par défaut de Failsafe, qui produit un seul `target/traces.json`. Si votre POM définit déjà `<forkCount>` au-dessus de 1, chaque fork partage ce même chemin statique et écrase la sortie des autres, corrompant le fichier de traces que la CI passe ensuite à `analyze`. Ajoutez `<forkCount>1</forkCount>` à la config Failsafe ci-dessus pour que cette recette reste correcte, ou donnez vous-même à chaque fork son propre `OTEL_EXPORTER_OTLP_FILE_PATH` si vous devez garder les tests d'intégration en parallèle.
+**Java n'a pas d'exporteur fichier, les traces sortent donc sur stdout.** Aucun exporteur Java supporté n'écrit les spans dans un fichier au chemin de votre choix, il n'y a donc pas de fichier de traces à passer directement à `analyze --input` sans une étape supplémentaire. `experimental-otlp/stdout` est le seul exporteur OTLP JSON qui ne passe pas par le réseau, et il écrit un objet JSON par lot d'export sur la sortie standard de la JVM forkée. L'exporteur `otlp_file/development` de la configuration déclarative définit bien un champ `output_stream: file://...`, mais l'implémentation Java le déclare [non implémenté](https://github.com/open-telemetry/opentelemetry-configuration/blob/main/language-support-status.md). `redirectTestOutputToFile` range cette sortie sous `target/failsafe-reports/<ClasseDeTest>-output.txt`, et un seul grep en fait le fichier de traces :
+
+```bash
+mvn verify
+grep -h '^{"resourceSpans"' target/failsafe-reports/*-output.txt > target/traces.json
+perf-sentinel analyze --ci --input target/traces.json
+```
+
+Le résultat est du NDJSON, une requête OTLP par ligne, exactement la forme que produit l'exporteur `file` du Collector. La détection automatique de format le lit sans aucun flag. Les forks parallèles restent corrects, chaque classe de test écrivant son propre fichier de sortie que le grep concatène, donc aucune contrainte de `<forkCount>` ne s'applique. Si vous préférez ne pas toucher à `redirectTestOutputToFile`, redirigez plutôt le build, `set -o pipefail && mvn verify | tee build.log`, puis greppez `build.log` de la même façon.
+
+**Deux noms d'exporteur voisins ne conviennent pas ici.** `logging` affiche un résumé de span lisible par un humain et non du JSON OTLP, perf-sentinel ne peut pas le parser du tout. `logging-otlp` émet bien du JSON OTLP, mais via un logger, donc chaque ligne porte le préfixe ajouté par la configuration de logs de l'application et le grep ci-dessus cesse de matcher. Seul `experimental-otlp/stdout` écrit sur `System.out` sans préfixe.
 
 ---
 

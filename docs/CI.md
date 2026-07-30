@@ -492,19 +492,18 @@ jobs:
           install -m 0755 perf-sentinel-linux-amd64 "${GITHUB_WORKSPACE}/bin/perf-sentinel"
           echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
 
-      # Run integration tests on the PR branch and capture traces.
+      # Run integration tests on the PR branch and capture traces. Your
+      # script owns the trace file, it takes the output path as an argument
+      # here. See INSTRUMENTATION.md for how each language produces one,
+      # Java in particular has no file exporter and needs a stdout capture.
       - name: Collect PR-branch traces
-        run: ./scripts/run-integration-tests.sh
-        env:
-          OTEL_EXPORTER_OTLP_FILE_PATH: pr-traces.json
+        run: ./scripts/run-integration-tests.sh pr-traces.json
 
       # Re-run on the base branch.
       - name: Collect base-branch traces
         run: |
           git checkout ${{ github.event.pull_request.base.sha }} -- .
-          ./scripts/run-integration-tests.sh
-        env:
-          OTEL_EXPORTER_OTLP_FILE_PATH: base-traces.json
+          ./scripts/run-integration-tests.sh base-traces.json
 
       - name: Diff
         run: |
