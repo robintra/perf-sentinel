@@ -538,6 +538,7 @@ Les traces doivent donc quitter la JVM comme elles le font en production, par le
     <environmentVariables>
       <OTEL_TRACES_EXPORTER>otlp</OTEL_TRACES_EXPORTER>
       <OTEL_EXPORTER_OTLP_ENDPOINT>http://localhost:4317</OTEL_EXPORTER_OTLP_ENDPOINT>
+      <OTEL_EXPORTER_OTLP_PROTOCOL>grpc</OTEL_EXPORTER_OTLP_PROTOCOL>
       <OTEL_SERVICE_NAME>mon-service</OTEL_SERVICE_NAME>
       <OTEL_TRACES_SAMPLER>always_on</OTEL_TRACES_SAMPLER>
       <OTEL_METRICS_EXPORTER>none</OTEL_METRICS_EXPORTER>
@@ -548,6 +549,8 @@ Les traces doivent donc quitter la JVM comme elles le font en production, par le
 ```
 
 Conservez le contenu existant de votre `<argLine>` (flags de heap, placeholder JaCoCo `@{argLine}`) et ajoutez `-javaagent:...` à la fin. L'écraser est une erreur fréquente qui fait silencieusement disparaître l'instrumentation de couverture JaCoCo. `OTEL_TRACES_SAMPLER=always_on` compte plus ici qu'en production : le sampling supprimerait justement les appels répétés dont dépend la détection N+1.
+
+**Précisez le protocole, ne comptez pas sur le défaut.** L'agent 2.0 l'a fait passer de `grpc` à `http/protobuf`, un même endpoint désigne donc des ports différents selon la version de l'agent. Un endpoint pointé sur le mauvais n'exporte rien et ne prévient que dans le log de l'agent lui-même, ce qui laisse une capture vide pour une raison que rien d'autre ne nomme. `:4317` avec `grpc`, comme ci-dessus, ou `:4318` avec `http/protobuf`, les deux conviennent.
 
 Rien de tout cela n'est spécifique à perf-sentinel, c'est la configuration OTLP standard. Ce qui change, c'est qui écoute.
 

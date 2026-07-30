@@ -86,8 +86,15 @@ async fn run_wrapped(
         Err(e) => return (Err(e), None),
     };
 
-    let spawned = tokio::process::Command::new(program).args(args).spawn();
-    let mut child = match spawned {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args);
+    // Own process group, so a cancelled job can stop the whole tree. `mvn`
+    // forks a test JVM: signalling only the direct child leaves that fork
+    // holding its port and its database connection on an agent that thinks
+    // the step is over.
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
             eprintln!("Capture error: cannot run {program}: {e}");
@@ -97,7 +104,7 @@ async fn run_wrapped(
     };
 
     // A cancelled CI job signals us, not the child. Handling it here flushes
-    // the writer and kills the child rather than orphaning it.
+    // the writer and stops the command tree rather than orphaning it.
     let code = tokio::select! {
         waited = child.wait() => match waited {
             Ok(status) => Some(exit_code_of(status)),
@@ -108,11 +115,35 @@ async fn run_wrapped(
         },
         () = sentinel_core::capture::shutdown_signal() => {
             eprintln!("Capture: stopping on signal, terminating {program}");
-            let _ = child.kill().await;
+            terminate_tree(&mut child).await;
             Some(EXIT_CAPTURE_FAILED)
         }
     };
     (capture.finish().await, code.or(Some(0)))
+}
+
+/// How long a signalled command tree gets to exit before it is killed.
+const TERM_GRACE: Duration = Duration::from_secs(5);
+
+/// Stop the wrapped command and everything it spawned, SIGTERM first so a
+/// build can clean up, SIGKILL if it will not go.
+async fn terminate_tree(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        let pgid = pid.cast_signed();
+        // SAFETY: killpg on a group we created, with a defined signal.
+        unsafe {
+            libc::killpg(pgid, libc::SIGTERM);
+        }
+        if tokio::time::timeout(TERM_GRACE, child.wait()).await.is_ok() {
+            return;
+        }
+        eprintln!("Capture: command did not stop on SIGTERM, killing it");
+        unsafe {
+            libc::killpg(pgid, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill().await;
 }
 
 /// Clamp to what the batch readers will accept, so capture cannot write a
@@ -175,12 +206,24 @@ fn report(cfg: &CaptureConfig, stats: &CaptureStats) {
             cfg.output.display()
         );
     }
-    if stats.rejected > 0 {
+    if stats.rejected_backpressure > 0 {
         eprintln!(
             "Capture: {} requests could not be queued and were refused, {} is \
              incomplete. The exporter was faster than the writer.",
-            stats.rejected,
+            stats.rejected_backpressure,
             cfg.output.display()
+        );
+    }
+    if stats.rejected_unusable > 0 {
+        eprintln!(
+            "Capture: {} requests were refused as unusable, {} is incomplete. \
+             Is the exporter sending OTLP protobuf? Set \
+             OTEL_EXPORTER_OTLP_PROTOCOL to grpc (port {}) or http/protobuf \
+             (port {}).",
+            stats.rejected_unusable,
+            cfg.output.display(),
+            cfg.port_grpc,
+            cfg.port_http
         );
     }
 }
