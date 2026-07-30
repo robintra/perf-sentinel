@@ -31,12 +31,19 @@ variables:
 
 # Place your integration-test job here. It must produce the trace file at
 # $PERF_SENTINEL_TRACES and publish it as an artifact so the perf-sentinel
-# job can pick it up via `dependencies:`. Example:
+# job can pick it up via `dependencies:`. How the traces get written depends
+# on the language, see docs/INSTRUMENTATION.md. Java has no OTLP file
+# exporter, the agent writes OTLP JSON to the forked JVM's stdout and the
+# job below grabs it. Example:
 #
 # integration-tests:
 #   stage: test
+#   variables:
+#     OTEL_TRACES_EXPORTER: "experimental-otlp/stdout"
+#     OTEL_TRACES_SAMPLER: "always_on"
 #   script:
 #     - ./scripts/run-integration-tests.sh
+#     - grep -h '^{"resourceSpans"' target/failsafe-reports/*-output.txt > "${PERF_SENTINEL_TRACES}"
 #   artifacts:
 #     paths:
 #       - test-traces.json

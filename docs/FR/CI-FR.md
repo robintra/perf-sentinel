@@ -601,18 +601,18 @@ jobs:
           echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
 
       # Lancer les tests d'intégration sur la branche PR et capturer les traces.
+      # Votre script produit le fichier de traces, il reçoit ici le chemin de
+      # sortie en argument. Voir INSTRUMENTATION-FR.md pour la façon dont
+      # chaque langage en produit un, Java notamment n'a pas d'exporteur
+      # fichier et demande une capture de la sortie standard.
       - name: Collecter les traces de la branche PR
-        run: ./scripts/run-integration-tests.sh
-        env:
-          OTEL_EXPORTER_OTLP_FILE_PATH: pr-traces.json
+        run: ./scripts/run-integration-tests.sh pr-traces.json
 
       # Re-jouer sur la branche de base.
       - name: Collecter les traces de la branche de base
         run: |
           git checkout ${{ github.event.pull_request.base.sha }} -- .
-          ./scripts/run-integration-tests.sh
-        env:
-          OTEL_EXPORTER_OTLP_FILE_PATH: base-traces.json
+          ./scripts/run-integration-tests.sh base-traces.json
 
       - name: Diff
         run: |

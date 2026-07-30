@@ -73,13 +73,19 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # Place your integration-test stage here. It must produce the trace file
-      # at $PERF_SENTINEL_TRACES before perf-sentinel runs. Example:
+      # at $PERF_SENTINEL_TRACES before perf-sentinel runs. How the traces get
+      # written depends on the language, see docs/INSTRUMENTATION.md. Java has
+      # no OTLP file exporter, the agent writes OTLP JSON to the forked JVM's
+      # stdout and the step below grabs it. Example:
       #
       # - name: Run integration tests with OTel tracing
-      #   run: ./scripts/run-integration-tests.sh
+      #   run: |
+      #     set -euo pipefail
+      #     ./scripts/run-integration-tests.sh
+      #     grep -h '^{"resourceSpans"' target/failsafe-reports/*-output.txt > "${PERF_SENTINEL_TRACES}"
       #   env:
-      #     OTEL_TRACES_EXPORTER: otlp_file
-      #     OTEL_EXPORTER_OTLP_FILE_PATH: ${{ env.PERF_SENTINEL_TRACES }}
+      #     OTEL_TRACES_EXPORTER: experimental-otlp/stdout
+      #     OTEL_TRACES_SAMPLER: always_on
 
       - name: Download perf-sentinel from GitHub Releases
         id: download

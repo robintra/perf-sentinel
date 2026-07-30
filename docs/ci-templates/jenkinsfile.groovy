@@ -118,10 +118,20 @@ pipeline {
     stages {
         // Place your integration-test stage here. It must produce the trace
         // file at $PERF_SENTINEL_TRACES before the perf-sentinel stage runs.
+        // Java has no OTLP file exporter: the agent writes OTLP JSON to the
+        // forked JVM's stdout, which Failsafe parks under target/failsafe-reports
+        // once redirectTestOutputToFile is on. See docs/INSTRUMENTATION.md for
+        // the matching POM snippet.
         //
         // stage('Integration tests') {
         //     steps {
-        //         sh 'mvn verify -DskipUnitTests=false'
+        //         withEnv(['OTEL_TRACES_EXPORTER=experimental-otlp/stdout',
+        //                  'OTEL_TRACES_SAMPLER=always_on']) {
+        //             sh '''
+        //                 mvn verify -DskipUnitTests=false
+        //                 grep -h '^{"resourceSpans"' target/failsafe-reports/*-output.txt > "$PERF_SENTINEL_TRACES"
+        //             '''
+        //         }
         //     }
         // }
 
