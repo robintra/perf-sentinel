@@ -6,6 +6,8 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Fixed
 
+- An empty trace file is now rejected with `trace file is empty: nothing was captured or exported, so there is nothing to analyze` instead of `EOF while parsing a value at line 1 column 0`. It stays an error rather than becoming an empty report: a gate that passes on zero measured spans is a false green, which is the exact failure mode a capture that received nothing would otherwise produce.
+
 - An OTLP/JSON attribute carrying no value, `{"key":"k","value":{}}`, no longer fails the whole ingest. `AnyValue` is a flattened oneof and an empty object matches no variant, so the derived `Deserialize` rejected the document with `no known keys found` and a single such attribute cost every trace in the file. It now joins the empty-list case on the lenient retry, where the field is dropped so the value stays absent. The shape comes straight from the opentelemetry-java stdout exporter, which is what a CI capture feeds to `analyze`.
 
 ### Changed
