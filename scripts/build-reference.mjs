@@ -152,12 +152,15 @@ function relabelDocPaths(html, lang) {
   // inline-code or bare path text -> link to the doc, labelled. The code tags carry the
   // .ps-ic class; matching a bare <code> left the opening in place but consumed the real
   // </code>, leaving the span open so everything after it rendered mono. Match the real
-  // opening, and never strip just one tag of the pair.
-  html = html.replace(/(<code class="ps-ic">)?((?:\.{0,2}\/)?(?:docs\/)?(?:FR\/)?(?:design\/)?[A-Za-z0-9_.-]+\.md(?:#[\w.-]+)?)(<\/code>)?/g, (m, open, p, close) => {
+  // opening, and never strip just one tag of the pair. The anchor class is
+  // unicode-aware: slug() keeps accented letters, so an ASCII-only \w stopped at
+  // the first accent, pushed the </code> out of the match and (open XOR close)
+  // then declined every FR section reference.
+  html = html.replace(/(<code class="ps-ic">)?((?:\.{0,2}\/)?(?:docs\/)?(?:FR\/)?(?:design\/)?[A-Za-z0-9_.-]+\.md(?:#[\p{L}\p{N}_.-]+)?)(<\/code>)?/gu, (m, open, p, close) => {
     const id = pathToId(p);
     if (!id) return m;
     if (Boolean(open) !== Boolean(close)) return m;
-    const anchor = (p.match(/#([\w.-]+)/) || [])[1];
+    const anchor = (p.match(/#([\p{L}\p{N}_.-]+)/u) || [])[1];
     return `<a href="${hrefFor(id, lang)}${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
   });
   return html;
