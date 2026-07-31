@@ -127,8 +127,6 @@ impl CaptureMetrics {
 }
 
 impl crate::ingest::otlp::MetricsSink for CaptureMetrics {
-    fn record_otlp_spans(&self, _stats: crate::ingest::otlp::SpanConversionStats) {}
-
     fn record_otlp_reject(&self, reason: crate::report::metrics::OtlpRejectReason) {
         use crate::report::metrics::OtlpRejectReason as Reason;
         let counter = match reason {
@@ -137,6 +135,8 @@ impl crate::ingest::otlp::MetricsSink for CaptureMetrics {
         };
         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
+
+    fn record_otlp_spans(&self, _stats: crate::ingest::otlp::SpanConversionStats) {}
 
     fn ingest_over_memory_limit(&self) -> bool {
         self.queue_full.load(std::sync::atomic::Ordering::Relaxed)
