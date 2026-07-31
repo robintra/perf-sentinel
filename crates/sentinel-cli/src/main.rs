@@ -941,13 +941,19 @@ mod help_examples {
   perf-sentinel capture --output traces.json -- mvn verify
   perf-sentinel analyze --ci --input traces.json
 
+  # Any test command works, capture just starts a process
+  perf-sentinel capture --output traces.json -- pytest tests/integration
+  perf-sentinel capture --output traces.json -- npm run test:e2e
+  perf-sentinel capture --output traces.json -- go test ./...
+
   # Alongside an existing test step, stopped with a signal
   perf-sentinel capture --output traces.json &
   ./scripts/run-integration-tests.sh
   kill %1
 
-  # The application only needs the standard OTLP endpoint variable
-  export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317";
+  # The application only needs the standard OTLP endpoint variables
+  export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+  export OTEL_EXPORTER_OTLP_PROTOCOL=grpc";
 
     pub const EXPLAIN: &str = "Examples:
   # Render the annotated span tree for a single trace

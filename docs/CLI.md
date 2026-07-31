@@ -55,6 +55,36 @@ start-up race, and the capture ends when the command does rather than on
 a guessed delay. The command inherits stdout and stderr untouched, and
 its exit code is propagated: a failing test run stays a failing job.
 
+The wrapped command is whatever runs your tests. `capture` starts a
+process, it does not care what that process is, and nothing about it is
+Java-specific:
+
+```bash
+perf-sentinel capture --output traces.json -- ./gradlew integrationTest
+perf-sentinel capture --output traces.json -- pytest tests/integration
+perf-sentinel capture --output traces.json -- npm run test:e2e
+perf-sentinel capture --output traces.json -- go test ./...
+perf-sentinel capture --output traces.json -- dotnet test
+perf-sentinel capture --output traces.json -- ./scripts/run-integration-tests.sh
+```
+
+The command is executed directly, not through a shell, so a pipeline or
+a `&&` chain belongs in a script that `capture` then wraps.
+
+What does differ per language is the instrumentation that makes the
+application export in the first place, covered in
+[`INSTRUMENTATION.md`](./INSTRUMENTATION.md). `capture` only listens.
+
+**Tests running in containers.** When the application under test runs in
+a sibling container rather than on the runner itself, bind the listener
+on all interfaces and point the exporter at the host:
+
+```bash
+perf-sentinel capture --output traces.json --listen-address 0.0.0.0 -- docker compose up --exit-code-from tests
+# in the container: OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+#                   OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
 **Alongside an existing test step**, when your pipeline owns the test
 command and it cannot be prefixed:
 

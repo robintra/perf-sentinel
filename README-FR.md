@@ -136,7 +136,7 @@ perf-sentinel demo --tui                 # rapport TUI interactif
 perf-sentinel demo --html demo.html      # tableau de bord HTML
 
 # 2. Capturer les traces de votre suite de tests, sans Collector
-perf-sentinel capture --output traces.json -- mvn verify
+perf-sentinel capture --output traces.json -- mvn verify   # ou pytest, npm test, go test ./...
 
 # 3. Analyser un fichier de traces capturées
 perf-sentinel analyze --input traces.json

@@ -58,6 +58,38 @@ de la commande plutôt que sur un délai deviné. La commande hérite de
 stdout et stderr sans altération, et son code de sortie est propagé :
 un échec de tests reste un échec de job.
 
+La commande enveloppée est celle qui lance vos tests, quelle qu'elle
+soit. `capture` démarre un processus, peu lui importe lequel, et rien
+là-dedans n'est propre à Java :
+
+```bash
+perf-sentinel capture --output traces.json -- ./gradlew integrationTest
+perf-sentinel capture --output traces.json -- pytest tests/integration
+perf-sentinel capture --output traces.json -- npm run test:e2e
+perf-sentinel capture --output traces.json -- go test ./...
+perf-sentinel capture --output traces.json -- dotnet test
+perf-sentinel capture --output traces.json -- ./scripts/run-integration-tests.sh
+```
+
+La commande est exécutée directement, sans passer par un shell : un pipe
+ou une chaîne `&&` doit vivre dans un script que `capture` enveloppe
+ensuite.
+
+Ce qui change d'un langage à l'autre, c'est l'instrumentation qui fait
+exporter l'application, décrite dans
+[`INSTRUMENTATION-FR.md`](INSTRUMENTATION-FR.md). `capture` ne fait
+qu'écouter.
+
+**Tests dans des conteneurs.** Quand l'application testée tourne dans un
+conteneur voisin plutôt que sur le runner, liez l'écoute sur toutes les
+interfaces et pointez l'exporteur vers l'hôte :
+
+```bash
+perf-sentinel capture --output traces.json --listen-address 0.0.0.0 -- docker compose up --exit-code-from tests
+# dans le conteneur : OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+#                     OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
 **Écouter à côté d'une étape de test existante**, quand votre pipeline
 génère la commande de test et qu'elle ne peut pas être préfixée :
 
