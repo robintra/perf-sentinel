@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.23
-appVersion: "0.9.23"
+version: 0.9.24
+appVersion: "0.9.24"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,6 +36,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "appVersion 0.9.24: the new perf-sentinel capture subcommand receives OTLP and writes the NDJSON trace file analyze --ci gates on, which removes the OpenTelemetry Collector from the CI path. It matters because most runtimes cannot hand over a trace file at all: of the six languages tracked by the OpenTelemetry configuration project only C++ and PHP implement an exporter that writes to a chosen path, and a forked Maven test JVM cannot even yield its stdout, which Surefire uses as its command channel. Either wrap the test step (capture --output traces.json -- mvn verify) or run alongside it and stop on a signal. No chart-visible change: capture is a CLI subcommand for CI jobs, the daemon deployment this chart installs is unaffected."
+    - kind: fixed
+      description: "appVersion 0.9.24: an OTLP attribute carrying no value ({\"key\":\"k\",\"value\":{}}) no longer fails the whole ingest, and an empty trace file is rejected with a message that names the cause instead of a bare JSON parse error. The first shape is emitted by the opentelemetry-java stdout exporter, and a single such attribute previously cost every trace in the file. Both paths are shared with the daemon ingest this chart deploys."
     - kind: added
       description: "appVersion 0.9.23: OpenTelemetry messaging spans are ingested (Kafka, RabbitMQ, Pulsar, SQS, NATS, JMS), with two dedicated finding types and producer-to-consumer resolution through span links. Broker energy can now be attributed to those findings: [green.alumet.broker] measures the broker cgroup, [green.broker_static] declares a provisioned cluster and needs no agent, which is the only path open on a managed broker. Either figure is reported as green_summary.messaging_waste with a model tag saying where it came from, and the periodic disclosure moves to schema v1.5 with a third provenance bucket so a declared cluster is never published as a measurement."
     - kind: changed
@@ -172,7 +176,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.23
+      image: ghcr.io/robintra/perf-sentinel:0.9.24
       platforms:
         - linux/amd64
         - linux/arm64

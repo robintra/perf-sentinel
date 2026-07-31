@@ -11,12 +11,12 @@
 #   2. PERF_SENTINEL_TRACES: path to a trace file produced by your integration
 #      test stage. The trace file must be present in the workspace at the
 #      moment perf-sentinel runs. Common patterns:
-#        - emit traces from your test runner via OTel JSON exporter to
-#          target/traces.json (Java/Maven, see docs/INSTRUMENTATION.md
-#          "CI integration tests (Maven Failsafe, file exporter)" for a
-#          worked example).
-#        - capture traces via tcpdump or sidecar collector during a docker
-#          compose integration run.
+#        - wrap the test step with `perf-sentinel capture`, which receives
+#          OTLP over the network and writes the file (see docs/CLI.md
+#          "capture", and docs/INSTRUMENTATION.md "CI integration tests
+#          (Maven Failsafe)" for the Java setup).
+#        - or point the application at a Collector running the `file`
+#          exporter, if a Collector is already part of the job.
 #   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
 #      [thresholds] section to set quality-gate severity floors.
 #   4. Action SHAs: every `uses:` below is pinned to a 40-character commit
@@ -64,7 +64,7 @@ jobs:
     name: Performance anti-pattern scan
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.9.23"
+      PERF_SENTINEL_VERSION: "0.9.24"
       PERF_SENTINEL_TRACES: "test-traces.json"
       PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 
