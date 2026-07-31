@@ -3,6 +3,8 @@ title: Auto-format detection
 ---
 flowchart TD
     raw["Raw bytes - file or stdin"]
+    empty{"empty or whitespace only?"}
+    reject_empty["Empty<br/><i>nothing was captured<br/>or exported</i>"]
     size{"size > max_payload?"}
     reject["PayloadTooLarge"]
 
@@ -25,7 +27,9 @@ flowchart TD
 
     output["Vec of SpanEvent"]
 
-    raw --> size
+    raw --> empty
+    empty -- "yes" --> reject_empty
+    empty -- "no" --> size
     size -- "yes" --> reject
     size -- "no" --> peek
 
@@ -47,6 +51,7 @@ flowchart TD
     sanitize --> output
 
     style reject fill:#4a2d2d,stroke:#f87171
+    style reject_empty fill:#4a2d2d,stroke:#f87171
     style otlp_parse fill:#3b2d4a,stroke:#a78bfa
     style jaeger_parse fill:#4a3b2d,stroke:#fbbf24
     style zipkin_parse fill:#2d4a3e,stroke:#4ade80

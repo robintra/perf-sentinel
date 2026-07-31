@@ -9,6 +9,7 @@ sequenceDiagram
     participant Out as Vec of SpanEvent
 
     Note over Req: Also used by Tempo ingestion:<br/>fetch protobuf, decode, then this flow
+    Note over Req: capture skips this flow entirely and writes<br/>the request as received, so the trace file<br/>describes what the application sent
 
     Req->>P1: resource_spans[].scope_spans[].spans[]
     Note over P1: Extract cloud.region from<br/>resource attributes (span fallback)
