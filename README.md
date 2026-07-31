@@ -135,19 +135,22 @@ perf-sentinel demo                       # colored terminal report
 perf-sentinel demo --tui                 # interactive TUI report
 perf-sentinel demo --html demo.html      # HTML dashboard
 
-# 2. Analyze a captured trace file
+# 2. Capture traces from your own test suite, no Collector required
+perf-sentinel capture --output traces.json -- mvn verify
+
+# 3. Analyze a captured trace file
 perf-sentinel analyze --input traces.json
 
-# 3. Use as a CI quality gate (exits 1 on threshold breach)
+# 4. Use as a CI quality gate (exits 1 on threshold breach)
 perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 
-# 4. Stream traces from your apps (daemon mode)
+# 5. Stream traces from your apps (daemon mode)
 perf-sentinel watch
 ```
 
 `demo --html` is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, mysql_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
 
-On dd-trace? Bridge via the Collector `datadogreceiver`: `watch` for the daemon, a Collector `file` exporter dump for step 2 (`analyze` auto-detects OTLP JSON since 0.9.5), or a Tempo/Jaeger backend with `tempo`/`jaeger-query`. See [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
+On dd-trace? Bridge via the Collector `datadogreceiver`: `watch` for the daemon, a Collector `file` exporter dump for step 3 (`analyze` auto-detects OTLP JSON since 0.9.5), or a Tempo/Jaeger backend with `tempo`/`jaeger-query`. See [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 
 Minimal `.perf-sentinel.toml` at the repo root:
 

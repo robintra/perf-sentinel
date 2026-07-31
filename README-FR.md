@@ -135,19 +135,22 @@ perf-sentinel demo                       # rapport terminal en couleurs
 perf-sentinel demo --tui                 # rapport TUI interactif
 perf-sentinel demo --html demo.html      # tableau de bord HTML
 
-# 2. Analyser un fichier de traces capturées
+# 2. Capturer les traces de votre suite de tests, sans Collector
+perf-sentinel capture --output traces.json -- mvn verify
+
+# 3. Analyser un fichier de traces capturées
 perf-sentinel analyze --input traces.json
 
-# 3. L'utiliser comme quality gate CI (exit 1 si seuil dépassé)
+# 4. L'utiliser comme quality gate CI (exit 1 si seuil dépassé)
 perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 
-# 4. Streamer les traces de vos apps (mode daemon)
+# 5. Streamer les traces de vos apps (mode daemon)
 perf-sentinel watch
 ```
 
 `demo --html` est une vitrine complète : tous les onglets du tableau de bord sont remplis (Overview, Findings avec Explain en ligne, Carbon, pg_stat, mysql_stat, Diff et corrélations inter-traces synthétisées). L'acquittement en direct reste réservé au daemon, voir `watch` puis `query --daemon <URL> monitor`.
 
-Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector : `watch` pour le daemon, un dump de l'exporter `file` du Collector pour l'étape 2 (`analyze` auto-détecte l'OTLP JSON depuis la 0.9.5), ou un backend Tempo/Jaeger avec `tempo`/`jaeger-query`. Voir [Vous venez de Datadog](docs/FR/INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
+Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector : `watch` pour le daemon, un dump de l'exporter `file` du Collector pour l'étape 3 (`analyze` auto-détecte l'OTLP JSON depuis la 0.9.5), ou un backend Tempo/Jaeger avec `tempo`/`jaeger-query`. Voir [Vous venez de Datadog](docs/FR/INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
 
 `.perf-sentinel.toml` minimal à la racine du repo :
 
