@@ -544,7 +544,7 @@ Les compteurs `/metrics` (`perf_sentinel_findings_total`, `perf_sentinel_io_wast
 
 Un tableau de bord prêt à l'emploi est fourni dans le dépôt à
 [`examples/grafana-dashboard.json`](../../examples/grafana-dashboard.json)
-(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 20 panneaux :
+(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 21 panneaux :
 opérations d'E/S et ratio de gaspillage, types de findings par sévérité,
 p95 des requêtes lentes, traces actives, santé du daemon, plus les jauges
 d'énergie, de carbone et de marge runtime issues des compteurs `/metrics`
@@ -554,6 +554,22 @@ du Grafana que vous exploitez déjà. Importez-le de deux façons.
 
 Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
 JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
+
+**Deux variables de template** surmontent les panneaux. `Job` choisit le
+job Prometheus à lire, ce qui compte quand plusieurs daemons sont scrapés
+par le même Prometheus, staging et production par exemple. `Service`
+filtre le panneau d'I/O par service, et lui seul : toutes les autres
+métriques exportées par le daemon sont globales par conception, les
+valeurs de labels Prometheus venant ici d'un ensemble borné à la
+compilation pour maîtriser la cardinalité. Un filtre service qui
+paraîtrait restreindre tout le tableau de bord mentirait sur dix-neuf de
+ses panneaux.
+
+Les panneaux de taux utilisent `$__rate_interval`, ils suivent donc la
+plage de temps que vous choisissez plutôt qu'une fenêtre figée de cinq
+minutes. Les deux panneaux dont le titre annonce une fenêtre (`1h`,
+`24h`) la conservent, cette fenêtre étant la mesure qu'ils rapportent et
+non un choix d'affichage.
 
 Import par sidecar (kube-prometheus-stack et similaires) : chargez le JSON
 dans une ConfigMap étiquetée pour que le sidecar Grafana la découvre

@@ -714,7 +714,7 @@ detection events without any ack filter.
 
 A ready-made dashboard ships in the repo at
 [`examples/grafana-dashboard.json`](../examples/grafana-dashboard.json)
-(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 20 panels:
+(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 21 panels:
 I/O ops and waste ratio, finding types by severity, slow-query p95,
 active traces, daemon health, plus the energy, carbon and runtime
 headroom gauges off the `/metrics` counters scraped above). The chart
@@ -724,6 +724,20 @@ Import it one of two ways.
 
 Manual import: in Grafana open Dashboards then Import, upload the JSON,
 and map the `DS_PROMETHEUS` input to your Prometheus datasource.
+
+**Two template variables** sit above the panels. `Job` selects which
+Prometheus job to read, which matters when several daemons are scraped
+by the same Prometheus, staging and production for instance. `Service`
+filters the per-service I/O panel and only that one: every other metric
+the daemon exports is daemon-wide by design, since Prometheus label
+values here come from a bounded compile-time set to keep cardinality
+under control. A service filter that appeared to narrow the whole
+dashboard would be lying about nineteen of its panels.
+
+Rate panels use `$__rate_interval`, so they follow the time range you
+pick rather than a fixed five-minute window. The two panels whose title
+names a window (`1h`, `24h`) keep it, that window is the measure they
+report rather than a display choice.
 
 Sidecar import (kube-prometheus-stack and similar): load the JSON into a
 ConfigMap labelled so the Grafana sidecar discovers it automatically.
