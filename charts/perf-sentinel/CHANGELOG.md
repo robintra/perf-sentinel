@@ -10,6 +10,19 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.24]
+
+`appVersion` moves to `0.9.24`. The application gains the `capture` subcommand,
+which receives OTLP and writes the trace file `analyze --ci` gates on, so a CI
+job no longer needs an OpenTelemetry Collector to produce one. That is a CLI
+surface for CI pipelines and it changes nothing in this chart: no template, no
+value, no `config.toml` key. The daemon deployment installs and behaves exactly
+as it did under `0.9.23`.
+
+Two ingest fixes in the same release do reach the deployed daemon, since both
+paths are shared: an OTLP attribute carrying no value no longer fails the whole
+request, and an empty trace file is rejected with a message that names the cause.
+
 ## [0.9.23]
 
 `appVersion` moves to `0.9.23`. The application gains OpenTelemetry messaging
