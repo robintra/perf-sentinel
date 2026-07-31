@@ -605,7 +605,7 @@ fn detail_panel_renders_the_suggested_fix_line_and_counts_it() {
     assert_eq!(app.detail_panel_line_count(), without_fix + 1);
 
     let backend = ratatui::backend::TestBackend::new(100, 30);
-    let mut terminal = ratatui::Terminal::new(backend).expect("test terminal");
+    let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal
         .draw(|f| draw_detail_panel(f, &app, f.area()))
         .expect("draw");
