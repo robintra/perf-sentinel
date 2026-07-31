@@ -65,3 +65,13 @@ v0.9.23	f9815c9	2026-07-29	PASS
 # output rather than by a lab round, on the maintainer's call: they touch no ingest, energy or
 # disclosure path the lab legs exercise. The gate matches on version and date only, so this
 # note, not the gate, is what records the boundary.
+v0.9.24	df70118	2026-07-31	PASS
+# Scope note: the row above attests product revision 57d2a2f9, the round-3 tree. The tagged
+# revision 07cb6c6c adds only the version bump on top of it: thirteen files, zero .rs, the
+# workspace and chart versions, the CI-template pins, the three changelog surfaces, and one
+# stale cross-reference in the GitHub Actions template. Round 3 closed the three round-2
+# defects (the published POM exporting nothing, refused requests reported as backpressure,
+# an orphaned grandchild on SIGTERM) and brought scenarios/java-ci-capture out of quarantine,
+# taking the gate from 60 to 61 scenarios. limit-saturation-curve stays red on the 256 MiB
+# container limit and fails identically on the published 0.9.23 image, so it is an environment
+# limit rather than a regression, confirmed by A/B against that image.
