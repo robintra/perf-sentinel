@@ -217,6 +217,34 @@ git push origin chart-vA.B.C
 
 L'un ou l'autre chemin déclenche `.github/workflows/helm-release.yml`, qui valide le tag du chart contre `Chart.yaml` via `scripts/check-helm-tag-version.sh`, package le chart et le pousse sur GHCR comme artefact OCI, le signe avec cosign en keyless, atteste la provenance de build SLSA et un SBOM SPDX (tous deux vérifiables via `gh attestation verify`), et crée la GitHub Release en brouillon. Publiez le brouillon une fois que vous l'avez relu.
 
+### 8. Publier une révision du dashboard Grafana, s'il a changé
+
+Le dashboard publié sur
+[grafana.com/grafana/dashboards](https://grafana.com/grafana/dashboards)
+est une photo, pas un miroir. Il ne bouge que si quelqu'un téléverse une
+révision, une release qui touche les panneaux ou les métriques qu'ils
+lisent laisse donc le catalogue périmé tant que cette étape n'est pas
+faite.
+
+Vérifiez si c'est le cas, par rapport au tag précédent :
+
+```bash
+git diff vA.B.B..vA.B.C -- examples/grafana-dashboard.json
+```
+
+Aucune sortie, rien à publier. Sinon, téléversez le fichier chez Grafana
+Labs, dans votre profil sous les dashboards de l'organisation, comme une
+nouvelle révision du dashboard existant et non comme un nouveau
+dashboard, puis notez la révision dans les notes de release. Le JSON
+porte déjà le bloc `__inputs` dont le catalogue a besoin, ne le retirez
+pas.
+
+Deux changements imposent une révision même si aucun panneau n'a bougé :
+une métrique lue par ce dashboard renommée ou supprimée, et une nouvelle
+règle `[thresholds]` dont le panneau de gate manquerait. Les deux
+viennent de l'application et non du chart, lisez donc le CHANGELOG du
+binaire plutôt que celui du chart pour trancher.
+
 ## Ce que fait le workflow de release
 
 À titre de référence, voici ce que `release.yml` exécute à chaque push de tag `v*` :

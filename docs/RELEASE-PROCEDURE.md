@@ -214,6 +214,32 @@ git push origin chart-vA.B.C
 
 Either path triggers `.github/workflows/helm-release.yml`, which validates the chart tag against `Chart.yaml` via `scripts/check-helm-tag-version.sh`, packages the chart and pushes it to GHCR as an OCI artifact, cosign keyless signs it, attests SLSA build provenance and an SPDX SBOM (both queryable via `gh attestation verify`), and drafts the GitHub Release. Publish the drafted release once you have reviewed it.
 
+### 8. Publish a Grafana dashboard revision, when it changed
+
+The dashboard published on
+[grafana.com/grafana/dashboards](https://grafana.com/grafana/dashboards)
+is a snapshot, not a mirror. It only moves when someone uploads a
+revision, so a release that touches the panels or the metrics behind
+them leaves the catalogue stale until this step runs.
+
+Check whether it did, against the previous tag:
+
+```bash
+git diff vA.B.B..vA.B.C -- examples/grafana-dashboard.json
+```
+
+No output means nothing to publish. Otherwise upload the file at
+Grafana Labs, in your profile under organization dashboards, as a new
+revision of the existing dashboard rather than a new dashboard, and note
+the revision in the release notes. The JSON already carries the
+`__inputs` block the catalogue needs, do not strip it.
+
+Two changes oblige a revision even when no panel moved: a metric this
+dashboard reads being renamed or removed, and a new `[thresholds]` rule
+whose gate panel would otherwise be missing. Both come from the
+application, not from the chart, so read the binary CHANGELOG rather than
+the chart one to decide.
+
 ## What the release workflow does
 
 For reference, here is what `release.yml` runs on every `v*` tag push:
