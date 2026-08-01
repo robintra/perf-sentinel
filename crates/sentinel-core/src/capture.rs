@@ -312,7 +312,7 @@ pub struct Capture {
 #[cfg(unix)]
 type OutputIdentity = (u64, u64);
 #[cfg(windows)]
-type OutputIdentity = (Option<u32>, Option<u64>);
+type OutputIdentity = u64;
 #[cfg(not(any(unix, windows)))]
 type OutputIdentity = ();
 
@@ -325,7 +325,11 @@ fn output_identity(metadata: &std::fs::Metadata) -> OutputIdentity {
 #[cfg(windows)]
 fn output_identity(metadata: &std::fs::Metadata) -> OutputIdentity {
     use std::os::windows::fs::MetadataExt as _;
-    (metadata.volume_serial_number(), metadata.file_index())
+    // volume_serial_number/file_index would be exact but are unstable
+    // (windows_by_handle). Creation time is stable, survives writes and
+    // changes when the path is deleted and recreated, which is the case
+    // this identity exists to catch.
+    metadata.creation_time()
 }
 
 #[cfg(not(any(unix, windows)))]
