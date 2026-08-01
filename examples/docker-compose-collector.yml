@@ -38,12 +38,12 @@ services:
     image: ghcr.io/robintra/perf-sentinel:latest
     # Mount the Docker-specific config so the daemon binds to `0.0.0.0`
     # (required because the collector is in a sibling container and cannot
-    # reach the daemon's loopback). To enable the optional scrapers
-    # (Scaphandre, Electricity Maps, cloud energy, hourly profiles), copy
-    # the relevant sections from `examples/perf-sentinel.toml` into this file.
+    # reach the daemon's loopback). To enable optional scrapers, mount the
+    # numbered fragments you need under `/etc/perf-sentinel/.perf-sentinel.d/`
+    # with their original filenames. This main file still loads last.
     command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
     volumes:
-      - ./perf-sentinel-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+      - ./60-daemon-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
     # environment:
     #   # Inject secrets via env vars, never in the config file.
     #   ELECTRICITY_MAPS_API_KEY: "${ELECTRICITY_MAPS_API_KEY}"

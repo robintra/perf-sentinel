@@ -1,7 +1,7 @@
 # Modelled energy for cloud VMs, which expose no RAPL and therefore cannot
 # be measured by Alumet, Kepler or Scaphandre. Usable as is:
 #
-#   perf-sentinel watch --config perf-sentinel-energy-cloud.toml
+#   perf-sentinel watch --config 31-green-cloud.toml
 #
 # Everything not listed here keeps its default. Full key list, defaults and
 # ranges: examples/perf-sentinel.toml, or

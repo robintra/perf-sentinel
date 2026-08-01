@@ -1,17 +1,20 @@
 # Reference perf-sentinel config with every section annotated.
 #
-# This file is the inventory, not the shortest way in. For one job, start
-# from the file that already carries what that job needs and nothing else,
-# each usable as is with `--config`:
+# This file is the inventory. The numbered files beside it are composable
+# fragments. Copy the ones you need into `.perf-sentinel.d/` without
+# renaming them:
 #
-#   perf-sentinel-docker.toml          daemon reachable from a sibling container
-#   perf-sentinel-energy-alumet.toml   measured energy, bare metal or k8s node
-#   perf-sentinel-energy-cloud.toml    modelled energy, cloud VMs with no RAPL
-#   perf-sentinel-carbon-live.toml     live grid intensity, Electricity Maps
+#   30-green-alumet.toml               measured energy, bare metal or k8s node
+#   31-green-cloud.toml                modelled energy, cloud VMs with no RAPL
+#   32-green-scaphandre.toml           measured process energy from Scaphandre
+#   33-green-kepler.toml               measured container energy from Kepler
+#   34-green-redfish.toml              measured chassis energy from Redfish BMC
+#   40-green-electricity-maps.toml     live grid intensity, Electricity Maps
+#   60-daemon-docker.toml              daemon reachable from a sibling container
 #
-# Only one config file is loaded, there is no include or merge, and TOML
-# refuses a table declared twice, so those files cannot be concatenated with
-# each other. Pick one and add what you need to it from here.
+# Fragments load by their two-digit priority. Duplicate priorities and names
+# outside `NN-lowercase-name.toml` are rejected. This main file loads last and
+# overrides fragment values, while nested tables merge recursively.
 #
 # Copy this file to `.perf-sentinel.toml` in your working directory (or mount
 # it into the container, see `examples/docker-compose-collector.yml`) and

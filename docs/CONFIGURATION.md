@@ -6,12 +6,46 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 
 ## Contents
 
+- [Configuration fragments](#configuration-fragments): deterministic multi-file loading.
 - [Subcommands](#subcommands): which subcommands read `.perf-sentinel.toml`.
 - [Sections](#sections): full per-section reference (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, `[reporting]`).
 - [Minimal configuration](#minimal-configuration): the smallest useful `.perf-sentinel.toml`.
 - [Full configuration example](#full-configuration-example): every section populated with example values.
 - [Migration from 0.5.x](#migration-from-05x): the 8 legacy top-level keys removed in 0.6.0 and how to migrate.
 - [Environment variables](#environment-variables): which env vars override config-file values.
+
+## Configuration fragments
+
+perf-sentinel loads TOML documents from the directory `.perf-sentinel.d/`
+beside the main config, then loads `.perf-sentinel.toml` last. This also
+applies when `--config path/to/custom.toml` is used: fragments come from
+`path/to/.perf-sentinel.d/` and `custom.toml` remains the final override.
+The main file is optional only when `--config` is not supplied.
+
+Fragment names must follow `NN-lowercase-name.toml`, where `NN` is a unique
+two-digit priority from `00` to `99`. Files load in ascending priority order.
+Duplicate priorities, uppercase names and ambiguous separators are rejected.
+Non-TOML files in the directory are ignored.
+
+Tables merge recursively. A later scalar, array or datetime replaces the
+earlier value at the same key. Replacing a key with another TOML type is an
+error. The examples use these reserved bands:
+
+| Priority     | Purpose                                                 |
+|--------------|---------------------------------------------------------|
+| `00` to `19` | shared defaults, thresholds and detection               |
+| `20` to `39` | energy sources and GreenOps measurement                 |
+| `40` to `49` | carbon-intensity sources                                |
+| `50` to `69` | daemon and deployment topology                          |
+| `70` to `89` | reporting and organisation-specific policy              |
+| `90` to `99` | local overrides, preferably kept out of version control |
+
+The ready-to-copy fragments in `examples/` preserve their priority in their
+filename. Keep those names when copying them into `.perf-sentinel.d/`:
+`30-green-alumet.toml`, `31-green-cloud.toml`,
+`32-green-scaphandre.toml`, `33-green-kepler.toml`,
+`34-green-redfish.toml`, `40-green-electricity-maps.toml` and
+`60-daemon-docker.toml`.
 
 ## Subcommands
 

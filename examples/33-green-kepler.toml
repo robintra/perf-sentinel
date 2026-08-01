@@ -1,0 +1,12 @@
+# Kepler energy fragment.
+# Copy this file to `.perf-sentinel.d/33-green-kepler.toml`.
+# Used by `watch` only. Adjust the endpoint and service mappings.
+
+[green.kepler]
+endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+scrape_interval_secs = 5
+metric_kind = "container"
+
+[green.kepler.service_mappings]
+"order-svc" = "order-svc-deployment"
+"chat-svc" = "chat"

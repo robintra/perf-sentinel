@@ -1,0 +1,14 @@
+# Scaphandre energy fragment.
+# Copy this file to `.perf-sentinel.d/32-green-scaphandre.toml`.
+# Used by `watch` only. Adjust the endpoint and process matchers.
+
+[green.scaphandre]
+endpoint = "http://localhost:8080/metrics"
+scrape_interval_secs = 5
+
+[green.scaphandre.process_map."order-svc"]
+exe_contains = "bin/java"
+cmdline_contains = "order-svc.jar"
+
+[green.scaphandre.process_map."native-svc"]
+exe_contains = "/opt/native-svc/bin/native-svc"

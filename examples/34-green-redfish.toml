@@ -1,0 +1,19 @@
+# Redfish energy fragment.
+# Copy this file to `.perf-sentinel.d/34-green-redfish.toml`.
+# Used by `watch` only. Adjust the BMC endpoints and service mappings.
+
+[green.redfish]
+scrape_interval_secs = 60
+
+[green.redfish.endpoints."chassis-legacy-1"]
+url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+schema = "legacy_power"
+
+[green.redfish.endpoints."chassis-modern-1"]
+url = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/EnvironmentMetrics"
+schema = "environment_metrics"
+
+[green.redfish.service_mappings]
+"order-svc" = "chassis-legacy-1"
+"chat-svc" = "chassis-legacy-1"
+"ledger-svc" = "chassis-modern-1"
