@@ -316,7 +316,10 @@ le template exempt de surface supply-chain pour le chemin d'upload.
 Seule `actions/checkout` (pinnée) est réutilisée dans les trois
 workflows.
 
-**Empreinte de stockage**. Un rapport typique fait 80 à 150 Ko. Avec
+**Empreinte de stockage**. Un rapport fait 450 à 550 Ko, et le nombre
+de findings ne le fait quasiment pas bouger : l'essentiel, ce sont les
+polices et les logos embarqués qui rendent le fichier autonome, qu'un
+rapport sans rien à montrer porte aussi. Avec
 la rétention gérée par le workflow de cleanup, la branche gh-pages ne
 porte que les rapports des PRs ouvertes plus l'unique
 `baseline.json`. Pas de croissance illimitée.
@@ -404,7 +407,8 @@ proches du plafond sur `perf-sentinel-pages`, `expire_in` peut être
 réduit, ou les MRs doivent être fermées/mergées rapidement pour
 libérer des slots.
 
-**Empreinte de stockage**. Un rapport typique fait 80 à 150 Ko et
+**Empreinte de stockage**. Un rapport fait 450 à 550 Ko, surtout les
+polices et les logos embarqués plutôt que les findings, et
 un baseline JSON 10 à 50 Ko. Avec la rétention active sur le chemin
 Premium, seules les MRs ouvertes plus le baseline courant consomment
 de l'espace. Le chemin Free stocke un seul deployment.
@@ -531,6 +535,12 @@ le DOM statique et n'a besoin d'aucun script pour être lisible,
 un autre chantier. D'ici là, les options A et B sont les deux
 réponses.
 
+La contrainte est propre à Jenkins. GitHub Pages et GitLab Pages
+servent le rapport sans politique à eux, et les deux chemins ci-dessus
+l'affichent comme le ferait un navigateur ouvrant le fichier en local,
+navigation par onglets comprise. Rien à configurer ni sur l'un ni sur
+l'autre.
+
 **Tab Diff via le plugin Copy Artifact**. Contrairement à GitHub
 Actions et GitLab CI où un workflow baseline companion rafraîchit
 `baseline.json` à chaque push sur la branche par défaut, Jenkins n'a
@@ -566,7 +576,8 @@ depuis le pipeline, mais cela nécessite de gérer un token forge
 dans les credentials Jenkins et reste hors scope pour ce template.
 
 **Empreinte de stockage** par-build et retenue indéfiniment
-(`keepAll: true`). Un rapport typique fait 80 à 150 Ko. Pour des
+(`keepAll: true`). Un rapport fait 450 à 550 Ko, surtout les polices et
+les logos embarqués plutôt que les findings. Pour des
 controllers Jenkins long-lived avec gros volume de builds, appairer
 `publishHTML keepAll: true` avec le build discarder dans la config
 du job (par exemple garder les N derniers builds) pour plafonner
