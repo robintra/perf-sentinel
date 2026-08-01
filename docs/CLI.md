@@ -106,6 +106,11 @@ exporter produces. `analyze`, `report` and `diff` auto-detect it, no
 flag needed. Requests are written as received, unconverted, so the file
 describes what the application actually sent.
 
+The directory of `--output` is created if it is missing, so
+`--output target/traces.json` works on a clean CI workspace where the
+build tool has not created `target/` yet. In wrapper mode the build tool
+is precisely what has not run.
+
 Progress and the final count go to **stderr**, never stdout: in wrapper
 mode that stream belongs to the wrapped command. The summary is how you
 tell "no anti-patterns found" from "nothing was ever exported", and an
