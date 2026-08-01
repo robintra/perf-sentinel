@@ -521,10 +521,15 @@ Compromis :
   les options de démarrage (`JAVA_OPTS`, `jenkins.xml` ou unit
   systemd).
 
-Une future release perf-sentinel pourrait produire un rapport
-CSP-friendly (CSS et JavaScript dans des fichiers voisins) qui
-fonctionnerait avec le CSP Jenkins par défaut. Pas de date
-engagée.
+Découper le rapport en fichiers CSS et JavaScript voisins ne
+servirait à rien, et aucune release ne le fera pour cette raison.
+La politique Jenkins par défaut ne déclare aucun `script-src`,
+elle retombe donc sur `default-src 'none'`, qui bloque un script
+externe exactement comme un script inline. Ce qui s'afficherait
+sous cette politique, c'est un rapport dont le contenu tient dans
+le DOM statique et n'a besoin d'aucun script pour être lisible,
+un autre chantier. D'ici là, les options A et B sont les deux
+réponses.
 
 **Tab Diff via le plugin Copy Artifact**. Contrairement à GitHub
 Actions et GitLab CI où un workflow baseline companion rafraîchit
