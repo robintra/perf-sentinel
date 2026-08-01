@@ -91,9 +91,8 @@ pub struct AggregateInputs {
     pub chain_breaks_outside: u64,
     /// Coefficient sets observed over the period, as `key=value` strings.
     pub scoring_coefficients: BTreeSet<String>,
-    /// SCI methodology tags observed (`sci_v1_numerator`, or the
-    /// `+transport` variant). Says whether the numerator includes
-    /// network transport, which nothing else in the report does.
+    /// SCI methodology tags observed. Current windows use the `+transport`
+    /// variant. The legacy tag can remain when a period spans older windows.
     pub carbon_methodologies: BTreeSet<String>,
     /// The three terms whose sum is the published total, in gCO2eq.
     /// Only `operational` carries an avoidable share: embodied hardware
@@ -267,7 +266,11 @@ fn fold_waste_block(acc: &mut DbWasteAccumulator, block: &crate::report::Disclos
     if let Some(g) = canonical_gco2 {
         acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
     }
-    if let Some(g) = energy_gco2 {
+    // Estimated subsystem carbon is already attributed inside the service
+    // total. Only measured or declared external-scope figures sit beside it.
+    if model != crate::report::DB_WASTE_MODEL_ESTIMATED
+        && let Some(g) = energy_gco2
+    {
         acc.energy_g = Some(acc.energy_g.unwrap_or(0.0) + sanitize_f64(g));
     }
     acc.windows = acc.windows.saturating_add(1);
@@ -319,6 +322,7 @@ struct Builder {
     malformed_lines_skipped: u64,
     first_seen: BTreeMap<(String, String), DateTime<Utc>>,
     last_seen: BTreeMap<(String, String), DateTime<Utc>>,
+    total_requests: u64,
     total_io_ops: u64,
     total_carbon_kgco2eq: f64,
     /// Avoidable tiers from each window's `Report.disclosure_waste`.
@@ -587,6 +591,7 @@ impl Builder {
 
     fn fold_global_counters(&mut self, m: &WindowMetrics) {
         self.windows_aggregated += 1;
+        self.total_requests = self.total_requests.saturating_add(m.traces);
         self.total_io_ops = self.total_io_ops.saturating_add(m.total_io);
         self.total_carbon_kgco2eq += m.carbon_kg;
         self.runtime_energy_kwh += m.energy_kwh;
@@ -907,7 +912,7 @@ impl Builder {
     }
 
     fn finalize(self, source_files: Vec<String>, period: &Period) -> AggregateInputs {
-        let total_requests: u64 = self.per_service.values().map(|s| s.total_requests).sum();
+        let total_requests = self.total_requests;
         let total_energy_kwh = self.total_energy_kwh();
         let total_carbon = self.total_carbon_kgco2eq;
         // Flat avoidable fields alias the canonical (non-manipulable) tier.
@@ -1602,9 +1607,8 @@ mod tests {
 
     #[test]
     fn carbon_methodology_and_embodied_are_folded_from_the_windows() {
-        // The two carbon settings that change published figures leave no
-        // other trace in the disclosure, so they are read off the windows
-        // rather than off the config of whoever runs `disclose`.
+        // Methodology and embodied values are read from archived windows,
+        // not from the config of whoever runs `disclose`.
         let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
         let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
         let mut with_transport = plain_window();
@@ -1629,7 +1633,7 @@ mod tests {
         assert_eq!(
             out.carbon_methodologies.len(),
             2,
-            "a setting that changed mid-period shows both tags"
+            "a period spanning legacy and current windows shows both tags"
         );
         // 0.2 gCO2eq of M per window, two windows.
         assert!((out.embodied_gco2_total - 0.4).abs() < 1e-9);
@@ -1944,7 +1948,7 @@ mod tests {
             operational_waste_gco2: Some(energy * 50.0),
             canonical_waste_kwh: energy * 0.8,
             canonical_waste_gco2: Some(energy * 80.0),
-            energy_gco2: None,
+            energy_gco2: Some(energy * 100.0),
         };
         let tier = crate::report::AvoidableTier {
             n_plus_one_threshold: 2,
@@ -1971,6 +1975,13 @@ mod tests {
         let agg = aggregate_from_paths(&[path], &q1_2026(), false)
             .unwrap()
             .aggregate;
+        assert_eq!(
+            agg.carbon_breakdown
+                .as_ref()
+                .and_then(|b| b.messaging_kgco2eq_out_of_total),
+            Some(0.2),
+            "estimated fallback carbon is already inside the service total"
+        );
         let mw = agg.messaging_waste.expect("messaging block emitted");
 
         assert!((mw.energy_kwh - 3.0).abs() < 1e-12);
@@ -2009,7 +2020,7 @@ mod tests {
             operational_waste_gco2: Some(energy * 50.0),
             canonical_waste_kwh: energy * 0.8,
             canonical_waste_gco2: Some(energy * 80.0),
-            energy_gco2: None,
+            energy_gco2: Some(energy * 100.0),
         };
         let tier = crate::report::AvoidableTier {
             n_plus_one_threshold: 2,
@@ -2046,6 +2057,14 @@ mod tests {
         let agg = aggregate_from_paths(&[path], &q1_2026(), false)
             .unwrap()
             .aggregate;
+
+        assert_eq!(
+            agg.carbon_breakdown
+                .as_ref()
+                .and_then(|b| b.database_kgco2eq_out_of_total),
+            Some(0.1),
+            "estimated fallback carbon is already inside the service total"
+        );
 
         let db = agg.database_waste.expect("database aggregate");
         assert_eq!(db.windows_with_figure, 2);
@@ -2125,6 +2144,23 @@ mod tests {
         );
         // svc-a saw two endpoints across the windows.
         assert!(svc_a.endpoints_seen.len() >= 2);
+    }
+
+    #[test]
+    fn aggregate_request_total_does_not_sum_rounded_service_shares() {
+        let ts = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let report = make_report(
+            1,
+            2,
+            0,
+            &[("svc-a", "/api", 1), ("svc-b", "/api", 1)],
+            vec![],
+        );
+        let (_dir, path) = write_archive(&[(ts, report)]);
+        let aggregate = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate;
+        assert_eq!(aggregate.total_requests, 1);
     }
 
     #[test]

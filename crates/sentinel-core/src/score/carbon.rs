@@ -364,6 +364,9 @@ pub struct CarbonContext {
     /// SQL verb / HTTP size tier weighting (proxy model only).
     pub per_operation_coefficients: bool,
     pub network_energy_per_byte_kwh: f64,
+    /// Whether dashboards should show the network transport term.
+    /// The term is always computed and retained in structured output.
+    pub include_network_transport: bool,
     /// User-supplied hourly profiles from `[green] hourly_profiles_file`.
     /// Keys are pre-lowercased region identifiers.
     /// Takes precedence over embedded profiles. Wrapped in `Arc` so the
@@ -381,8 +384,7 @@ pub struct CarbonContext {
     /// emission factor type, temporal granularity). Surfaced on
     /// [`crate::report::GreenSummary::scoring_config`] so auditors can
     /// verify which carbon model produced the numbers without reading
-    /// the operator's TOML. `None` when Electricity Maps is not
-    /// configured.
+    /// the operator's TOML. `None` when green scoring is disabled.
     pub scoring_config: Option<ScoringConfig>,
     /// Declared database measured by Alumet (`[green.alumet.database]`).
     /// `Some` with `window_kwh = 0.0` in the base context; the daemon
@@ -455,6 +457,13 @@ pub struct ScoringConfig {
 }
 
 impl ScoringConfig {
+    /// Whether this report used Electricity Maps. A present legacy
+    /// `scoring_config` predates the explicit flag and therefore means yes.
+    #[must_use]
+    pub fn uses_electricity_maps(&self) -> bool {
+        self.electricity_maps.unwrap_or(true)
+    }
+
     /// Build from the live Electricity Maps config. Used by
     /// [`crate::config::Config::carbon_context`] when the daemon (or
     /// the analyze pipeline) has the `[green.electricity_maps]` block
@@ -470,6 +479,8 @@ impl ScoringConfig {
         }
     }
 }
+
+impl Eq for ScoringConfig {}
 
 /// One real-time intensity value from `Electricity Maps`, carrying the
 /// optional `isEstimated` and `estimationMethod` metadata fields the
@@ -514,6 +525,7 @@ impl Default for CarbonContext {
             energy_snapshot: None,
             per_operation_coefficients: true,
             network_energy_per_byte_kwh: DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
+            include_network_transport: false,
             custom_hourly_profiles: None,
             calibration: None,
             real_time_intensity: None,
@@ -2059,9 +2071,8 @@ mod tests {
 
     #[test]
     fn scoring_config_only_claims_electricity_maps_when_built_from_it() {
-        // The three dimensions above keep their defaults on every run, so
-        // the flag is what the report sinks read before naming the API.
-        assert_eq!(ScoringConfig::default().electricity_maps, None);
+        let legacy = ScoringConfig::default();
+        assert!(legacy.uses_electricity_maps());
         let em = ElectricityMapsConfig {
             api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
             auth_token: "test-token".to_string(),
@@ -2074,6 +2085,19 @@ mod tests {
             ScoringConfig::from_electricity_maps(&em).electricity_maps,
             Some(true)
         );
+        assert!(
+            !ScoringConfig {
+                electricity_maps: Some(false),
+                ..ScoringConfig::default()
+            }
+            .uses_electricity_maps()
+        );
+    }
+
+    #[test]
+    fn scoring_config_retains_eq_compatibility() {
+        fn requires_eq<T: Eq>() {}
+        requires_eq::<ScoringConfig>();
     }
 
     #[test]

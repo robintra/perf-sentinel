@@ -2684,7 +2684,7 @@
   function renderScoringConfigBandeau(cfg) {
     var bandeau = document.getElementById("green-scoring-config");
     if (!bandeau) return;
-    if (!cfg || cfg.electricity_maps !== true) {
+    if (!cfg || cfg.electricity_maps === false) {
       bandeau.style.display = "none";
       return;
     }

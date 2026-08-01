@@ -275,12 +275,9 @@ mod tests {
                 assert_eq!(listed.get(name), Some(expected), "{relative}: {name}");
             }
             assert!(doc.contains(SPECPOWER_VINTAGE), "{relative}: vintage");
-            assert!(
-                doc.split("## Bare metal")
-                    .nth(1)
-                    .is_some_and(|section| section.contains("| `xeon-6780e` |")),
-                "{relative}: bare-metal section"
-            );
+            let bare_metal = doc.find("## Bare metal").expect("bare-metal section");
+            let xeon = doc.find("`xeon-6780e`").expect("bare-metal row");
+            assert!(xeon > bare_metal, "{relative}: bare-metal section");
         }
     }
 

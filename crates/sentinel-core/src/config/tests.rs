@@ -1637,7 +1637,15 @@ fn carbon_context_carries_the_transport_setting_as_display_only() {
     assert!(!cfg.green.include_network_transport);
     let scoring = cfg.carbon_context().scoring_config.unwrap();
     assert_eq!(scoring.show_network_transport, Some(false));
-    assert_eq!(scoring.electricity_maps, None);
+    assert_eq!(scoring.electricity_maps, Some(false));
+    assert!(!cfg.carbon_context().include_network_transport);
+}
+
+#[test]
+fn carbon_context_omits_scoring_config_when_green_scoring_is_disabled() {
+    let mut cfg = Config::default();
+    cfg.green.enabled = false;
+    assert!(cfg.carbon_context().scoring_config.is_none());
 }
 
 #[test]

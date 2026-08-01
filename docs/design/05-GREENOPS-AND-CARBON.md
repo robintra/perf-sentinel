@@ -235,7 +235,7 @@ co2.sci_per_trace.mid = co2.total.mid / traces_analyzed
 
 To tag this semantic distinction at the data layer, `CarbonEstimate` carries a `methodology` field with three possible values:
 
-- `"sci_v1_numerator"`: used on `co2.total`. The `(E × I) + M` footprint summed over traces.
+- `"sci_v1_numerator+transport"`: used on `co2.total`. The `(E × I) + M + T` footprint summed over traces, including when `T` is zero.
 - `"sci_v1_intensity"`: used on `co2.sci_per_trace`. The per-R intensity `((E × I) + M) / R`, R = 1 trace.
 - `"sci_v1_operational_ratio"`: used on `co2.avoidable`. The region-blind global ratio `operational × (avoidable/accounted)`, excluding embodied carbon.
 
@@ -279,7 +279,7 @@ pub struct CarbonEstimate {
     pub mid: f64,           // best estimate
     pub high: f64,          // mid × 2.0
     pub model: &'static str,       // "io_proxy_v1"
-    pub methodology: &'static str, // "sci_v1_numerator" or "sci_v1_operational_ratio"
+    pub methodology: &'static str, // "sci_v1_numerator+transport" or "sci_v1_operational_ratio"
 }
 ```
 
@@ -607,7 +607,7 @@ The `green_summary.scoring_config` object exposes the runtime configuration of t
 - `emission_factor_type`: mirrors the TOML knob, one of `lifecycle` (default) or `direct`.
 - `temporal_granularity`: mirrors the TOML knob, one of `hourly` (default), `5_minutes`, `15_minutes`.
 
-**Scope of the surface.** `scoring_config` started (0.5.12) as the Electricity Maps **client configuration only**, a partial methodology footprint rather than the full SCI input vector. 0.9.25 added the coefficients that scale the figures: `embodied_per_request_gco2`, `network_energy_per_byte_kwh`, `per_operation_coefficients`, `use_hourly_profiles` and `show_network_transport`, each mirroring its `[green]` setting, plus an `electricity_maps` flag because the object now ships on every run and its presence alone no longer means the API is configured. What a strict replay still lacks is the per-region PUE drawn from the embedded provider table, recoverable only if the Provider classification is stable across runs. The disclosure republishes the same coefficients under `methodology.calibration_inputs.scoring_coefficients`, folded from the archived windows rather than read from the machine running `disclose`.
+**Scope of the surface.** `scoring_config` started (0.5.12) as the Electricity Maps **client configuration only**, a partial methodology footprint rather than the full SCI input vector. 0.9.25 added the coefficients that scale the figures: `embodied_per_request_gco2`, `network_energy_per_byte_kwh`, `per_operation_coefficients`, `use_hourly_profiles` and `show_network_transport`, each mirroring its `[green]` setting, plus an `electricity_maps` flag because the object now ships on every green-scored run and its presence alone no longer means the API is configured. What a strict replay still lacks is the per-region PUE drawn from the embedded provider table, recoverable only if the Provider classification is stable across runs. The disclosure republishes the same coefficients under `methodology.calibration_inputs.scoring_coefficients`, folded from the archived windows rather than read from the machine running `disclose`.
 
 **Backward compat.** The field is `None` (and the dashboard bandeau / terminal line are hidden) when `[green.electricity_maps]` is not configured, so reports produced without Electricity Maps stay shape-identical to pre-0.5.12. The wire form is additive on the JSON `green_summary` via `#[serde(skip_serializing_if = "Option::is_none", default)]`, so pre-0.5.12 baselines fed back through `report --before` keep parsing.
 

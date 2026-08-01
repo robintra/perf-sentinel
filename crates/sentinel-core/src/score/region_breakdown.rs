@@ -299,7 +299,7 @@ pub(super) fn avoidable_share(
 
 /// Final assembly of the [`CarbonReport`] struct: SCI v1.0 numerator
 /// (E × I + M + T), avoidable CO₂ via region-blind ratio, and the
-/// methodology tag that shifts when network transport is included.
+/// methodology tag that records network transport in the numerator.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn finalize_carbon_report(
     traces_len: usize,
@@ -333,11 +333,7 @@ pub(super) fn finalize_carbon_report(
     } else {
         None
     };
-    let total_methodology = if transport_gco2.is_some() {
-        carbon::METHODOLOGY_SCI_NUMERATOR_TRANSPORT
-    } else {
-        carbon::METHODOLOGY_SCI_NUMERATOR
-    };
+    let total_methodology = carbon::METHODOLOGY_SCI_NUMERATOR_TRANSPORT;
 
     // SCI per-R intensity: the numerator divided by the functional unit
     // R = 1 trace. This is the SCI score proper. traces_len >= 1 here (the

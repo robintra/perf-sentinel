@@ -1339,11 +1339,11 @@ pub(crate) fn build_report(
     // omitting it at zero would hide the most extreme version of exactly
     // that, an operator who sets the coefficient to 0 looking identical to
     // a pre-v1.6 report.
-    let embodied_total = aggregate.aggregate.carbon_breakdown.as_ref().map(|_| {
-        // Round to the milligram: the sum of many f64 additions carries
-        // noise well below any meaningful digit, and the report is hashed.
-        (aggregate.embodied_gco2_total * 1000.0).round() / 1000.0
-    });
+    let embodied_total = aggregate
+        .aggregate
+        .carbon_breakdown
+        .as_ref()
+        .map(|_| aggregate.embodied_gco2_total);
     let chain = SourceChain {
         windows_verified: aggregate.chain_verified,
         windows_unchained: aggregate.chain_unchained,
@@ -1352,10 +1352,7 @@ pub(crate) fn build_report(
     };
     let embodied_per_request = embodied_total.and_then(|total| {
         let requests = aggregate.aggregate.total_requests;
-        (requests > 0).then(|| {
-            let per = total / requests as f64;
-            (per * 1e9).round() / 1e9
-        })
+        (requests > 0).then(|| total / requests as f64)
     });
     let methodology = Methodology {
         sci_specification: org.methodology.sci_specification.clone(),
@@ -1488,7 +1485,7 @@ pub(crate) fn build_report(
             content_hash: String::new(),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: Some(chain),
+            trace_integrity_chain: serde_json::json!(chain),
             signature: None,
             binary_attestation: None,
             cross_period_log: None,
@@ -1902,5 +1899,49 @@ mod tests {
         };
         // Internal intent skips the total_requests_in_period warning even when undeclared.
         assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, false).is_empty());
+    }
+
+    #[test]
+    fn embodied_calibration_keeps_sub_milligram_values() {
+        let org_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/examples/perf-sentinel-org.toml");
+        let org = org_config::load_from_path(org_path).unwrap();
+        let mut aggregate = AggregateInputs::default();
+        aggregate.aggregate.total_requests = 1;
+        aggregate.aggregate.carbon_breakdown =
+            Some(sentinel_core::report::periodic::schema::CarbonBreakdown {
+                operational_kgco2eq: 0.0,
+                embodied_kgco2eq: 0.000_000_1,
+                database_kgco2eq_out_of_total: None,
+                messaging_kgco2eq_out_of_total: None,
+                transport_kgco2eq: None,
+            });
+        aggregate.embodied_gco2_total = 0.0001;
+        let period = Period {
+            from_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            period_type: PeriodType::Custom,
+            days_covered: 1,
+        };
+
+        let report = build_report(
+            &org,
+            period,
+            ReportIntent::Internal,
+            Confidentiality::Internal,
+            "test".to_string(),
+            aggregate,
+        );
+        assert_eq!(
+            report.methodology.calibration_inputs.embodied_gco2_total,
+            Some(0.0001)
+        );
+        assert_eq!(
+            report
+                .methodology
+                .calibration_inputs
+                .embodied_gco2_per_request,
+            Some(0.0001)
+        );
     }
 }

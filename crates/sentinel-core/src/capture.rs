@@ -460,8 +460,7 @@ impl Capture {
         // Reporting success there would send the next step to a file that
         // was never going to be readable.
         let output_matches = std::fs::metadata(&self.output)
-            .map(|metadata| output_identity(&metadata) == self.output_identity)
-            .unwrap_or(false);
+            .is_ok_and(|metadata| output_identity(&metadata) == self.output_identity);
         if !output_matches {
             return Err(CaptureError::Output {
                 path: self.output.clone(),

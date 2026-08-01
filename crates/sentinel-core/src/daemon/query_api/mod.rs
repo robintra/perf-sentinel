@@ -567,7 +567,7 @@ async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergySt
             state
                 .scoring_config
                 .as_ref()
-                .is_some_and(|c| c.electricity_maps == Some(true)),
+                .is_some_and(crate::score::carbon::ScoringConfig::uses_electricity_maps),
             None,
             None,
         ),

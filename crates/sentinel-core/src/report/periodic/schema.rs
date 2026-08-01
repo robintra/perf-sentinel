@@ -394,11 +394,9 @@ pub struct CalibrationInputs {
     /// for a key means it changed mid-period. v1.6.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub scoring_coefficients: BTreeSet<String>,
-    /// SCI methodology tags observed across the period's windows,
-    /// `sci_v1_numerator` or its `+transport` variant. Says whether the
-    /// numerator counted network transport, which two otherwise
-    /// identical reports do not distinguish. Several entries mean the
-    /// setting changed mid-period. v1.6.
+    /// SCI methodology tags observed across the period's windows. Current
+    /// windows use the `+transport` variant. The legacy tag can remain when
+    /// a period spans older windows. v1.6.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub carbon_methodologies: BTreeSet<String>,
     /// SCI `M` term summed over the period, in gCO2eq, with the mean
@@ -541,8 +539,10 @@ pub struct CarbonBreakdown {
     /// `[green] embodied_carbon_per_request_gco2`.
     #[serde(default)]
     pub embodied_kgco2eq: f64,
-    /// Total carbon of the database and of the broker over the period,
-    /// when measured. **Outside the sum above and outside
+    /// Total carbon of the database and broker over the period when
+    /// measured or declared as an external scope. Estimated fallback
+    /// carbon is already in the service total and stays excluded here.
+    /// **Outside the sum above and outside
     /// `total_carbon_kgco2eq`**: both cover a different scope from the
     /// instrumented services, and folding them in would mix perimeters.
     /// Published here so a reader sees every carbon figure the run
@@ -551,18 +551,14 @@ pub struct CarbonBreakdown {
     pub database_kgco2eq_out_of_total: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messaging_kgco2eq_out_of_total: Option<f64>,
-    /// Cross-region network transport, absent when no window counted any.
-    /// Omitted rather than zeroed, because a zero would not distinguish
-    /// `[green] include_network_transport` being off from it being on
-    /// with no cross-region traffic: the two produce identical windows,
-    /// and `carbon_methodologies` carries the same `sci_v1_numerator` tag
-    /// for both.
+    /// Cross-region network transport, absent when its value is zero.
+    /// `carbon_methodologies` still records that transport belongs to the
+    /// current numerator.
     ///
     /// The least certain of the three when present. Its coefficient
     /// defaults to an upper bound (0.04 kWh/GB) and published figures span
     /// two orders of magnitude, so the report's uniform 2x bracket
-    /// understates it. Read it as a ceiling, and exclude it when comparing
-    /// periods that do not agree on the setting.
+    /// understates it. Read it as a ceiling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_kgco2eq: Option<f64>,
 }
@@ -751,8 +747,8 @@ pub struct Integrity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_verification_url: Option<String>,
     /// Integrity of the source windows this report was aggregated from.
-    /// Reserved and always `null` before v1.6, typed as an `Option` since,
-    /// so a `null` from an older file still reads.
+    /// Reserved and always `null` before v1.6. Kept as `Value` for source
+    /// compatibility with consumers that built this public structure.
     ///
     /// Deliberately NOT `skip_serializing_if`: this key has been emitted
     /// since v1.0 and every published report was hashed with it present.
@@ -761,7 +757,7 @@ pub struct Integrity {
     /// `serde(default) + skip_serializing_if` rule applies to fields the
     /// schema adds, never to one it already emitted.
     #[serde(default)]
-    pub trace_integrity_chain: Option<SourceChain>,
+    pub trace_integrity_chain: serde_json::Value,
     /// Sigstore cosign in-toto attestation metadata. The signature
     /// itself lives in a sidecar bundle file. This object carries
     /// the locator and identity facts a verifier needs. Serialised
@@ -967,7 +963,7 @@ mod tests {
                 + "0000000000000000000000000000000000000000000000000000000000000000",
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: None,
+            trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: None,
             cross_period_log: None,
@@ -1208,7 +1204,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: None,
+            trace_integrity_chain: serde_json::Value::Null,
             signature: Some(sample_signature()),
             binary_attestation: Some(sample_attestation()),
             cross_period_log: None,
@@ -1225,7 +1221,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: None,
+            trace_integrity_chain: serde_json::Value::Null,
             signature: Some(sample_signature()),
             binary_attestation: None,
             cross_period_log: None,
@@ -1245,7 +1241,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: None,
+            trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: Some(sample_attestation()),
             cross_period_log: None,
@@ -1265,7 +1261,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: None,
+            trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: None,
             cross_period_log: None,
