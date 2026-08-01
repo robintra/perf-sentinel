@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.24
-appVersion: "0.9.24"
+version: 0.9.25
+appVersion: "0.9.25"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,6 +36,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: fixed
+      description: "appVersion 0.9.25: perf-sentinel capture creates the directory of --output when it is missing. The documented CI recipe writes to target/traces.json, and a CI workspace starts clean: the build tool creates target/, and in wrapper mode the build tool is the command capture wraps, so it has not run yet. capture refused to start, and because it refuses before spawning, the wrapped test suite never ran and the job failed pointing at a trace file. No chart-visible change: capture is a CLI subcommand for CI jobs, the daemon deployment this chart installs is unaffected."
     - kind: added
       description: "appVersion 0.9.24: the new perf-sentinel capture subcommand receives OTLP and writes the NDJSON trace file analyze --ci gates on, which removes the OpenTelemetry Collector from the CI path. It matters because most runtimes cannot hand over a trace file at all: of the six languages tracked by the OpenTelemetry configuration project only C++ and PHP implement an exporter that writes to a chosen path, and a forked Maven test JVM cannot even yield its stdout, which Surefire uses as its command channel. Either wrap the test step (capture --output traces.json -- mvn verify) or run alongside it and stop on a signal. No chart-visible change: capture is a CLI subcommand for CI jobs, the daemon deployment this chart installs is unaffected."
     - kind: fixed

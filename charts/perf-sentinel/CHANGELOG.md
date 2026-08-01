@@ -10,6 +10,17 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.25]
+
+`appVersion` moves to `0.9.25`. `perf-sentinel capture` now creates the
+directory of `--output` when it is missing, which is what the documented CI
+recipe needs: `--output target/traces.json` on a clean workspace, where the
+build tool has not created `target/` yet because it is the very command
+`capture` wraps. Refusing there meant the wrapped test suite never ran at all.
+That is a CLI surface for CI jobs and it changes nothing in this chart: no
+template, no value, no `config.toml` key. The daemon deployment installs and
+behaves exactly as it did under `0.9.24`.
+
 ## [0.9.24]
 
 `appVersion` moves to `0.9.24`. The application gains the `capture` subcommand,
