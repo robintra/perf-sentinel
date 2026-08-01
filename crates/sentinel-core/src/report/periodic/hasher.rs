@@ -29,7 +29,7 @@ const BINARY_HASH_MAX_BYTES: u64 = 256 * 1024 * 1024;
 pub fn compute_content_hash(report: &PeriodicReport) -> Result<String, HashError> {
     let mut value = serde_json::to_value(report)?;
     blank_content_hash(&mut value);
-    let canonical = canonicalize(value);
+    let canonical = canonicalize(&value);
     let bytes = serde_json::to_vec(&canonical)?;
     Ok(format_sha256(&bytes))
 }
@@ -94,7 +94,7 @@ pub const ARCHIVE_CHAIN_SEED: &str = "perf-sentinel-archive/v1";
 ///
 /// Returns [`serde_json::Error`] if the body cannot be serialised.
 pub fn archive_chain_hash(body: &Value) -> Result<String, serde_json::Error> {
-    let canonical = canonicalize(body.clone());
+    let canonical = canonicalize(body);
     let bytes = serde_json::to_vec(&canonical)?;
     Ok(format_sha256(&bytes))
 }
@@ -104,21 +104,18 @@ pub fn archive_chain_hash(body: &Value) -> Result<String, serde_json::Error> {
 /// configured upstream. Removing this collect would silently break the
 /// hash determinism the moment a transitive crate flips the
 /// `serde_json/preserve_order` feature.
-pub(crate) fn canonicalize(v: Value) -> Value {
+pub(crate) fn canonicalize(v: &Value) -> Value {
     match v {
         Value::Object(map) => {
-            let sorted: BTreeMap<String, Value> = map
-                .into_iter()
-                .map(|(k, val)| (k, canonicalize(val)))
-                .collect();
+            let sorted: BTreeMap<&String, &Value> = map.iter().collect();
             let mut out = serde_json::Map::new();
             for (k, val) in sorted {
-                out.insert(k, val);
+                out.insert(k.clone(), canonicalize(val));
             }
             Value::Object(out)
         }
-        Value::Array(arr) => Value::Array(arr.into_iter().map(canonicalize).collect()),
-        other => other,
+        Value::Array(arr) => Value::Array(arr.iter().map(canonicalize).collect()),
+        other => other.clone(),
     }
 }
 
@@ -308,8 +305,8 @@ mod tests {
             );
         }
         assert_eq!(
-            canonicalize(round_tripped)["integrity"],
-            canonicalize(from_file)["integrity"],
+            canonicalize(&round_tripped)["integrity"],
+            canonicalize(&from_file)["integrity"],
             "the re-serialized integrity block must match the published one key for key"
         );
     }
@@ -377,8 +374,8 @@ mod tests {
     fn canonicalize_is_key_order_invariant() {
         let a = serde_json::json!({ "alpha": 1, "beta": 2, "gamma": 3 });
         let b = serde_json::json!({ "gamma": 3, "alpha": 1, "beta": 2 });
-        let ca = canonicalize(a);
-        let cb = canonicalize(b);
+        let ca = canonicalize(&a);
+        let cb = canonicalize(&b);
         assert_eq!(
             serde_json::to_vec(&ca).unwrap(),
             serde_json::to_vec(&cb).unwrap()
@@ -396,8 +393,8 @@ mod tests {
             "outer": { "a": 2, "z": 1 }
         });
         assert_eq!(
-            serde_json::to_vec(&canonicalize(a)).unwrap(),
-            serde_json::to_vec(&canonicalize(b)).unwrap(),
+            serde_json::to_vec(&canonicalize(&a)).unwrap(),
+            serde_json::to_vec(&canonicalize(&b)).unwrap(),
         );
     }
 
