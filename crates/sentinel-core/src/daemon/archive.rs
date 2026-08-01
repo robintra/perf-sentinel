@@ -3,7 +3,7 @@
 //! drop-on-full policy. See `docs/design/08-PERIODIC-DISCLOSURE.md`.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -90,7 +90,7 @@ fn refuse_symlink(path: &Path) -> Result<(), ArchiveError> {
     }
 }
 
-fn open_append(path: &Path) -> Result<BufWriter<File>, ArchiveError> {
+fn open_append(path: &Path) -> Result<File, ArchiveError> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -99,7 +99,7 @@ fn open_append(path: &Path) -> Result<BufWriter<File>, ArchiveError> {
             path: path.display().to_string(),
             source,
         })?;
-    Ok(BufWriter::new(file))
+    Ok(file)
 }
 
 fn metadata_len(path: &Path) -> u64 {
@@ -112,7 +112,7 @@ fn metadata_len(path: &Path) -> u64 {
 async fn run_writer(
     mut rx: Receiver<OwnedArchive>,
     path: PathBuf,
-    initial_file: BufWriter<File>,
+    initial_file: File,
     initial_bytes: u64,
     cap_bytes: u64,
     max_files: u32,
@@ -129,11 +129,13 @@ async fn run_writer(
             }
         };
         if let Err(err) = write_line(&mut file, &line) {
-            // The chain head stays where it was: a line that never reached
-            // the file must not move it, or the next window would carry a
-            // `prev` pointing at nothing and be published as tampering
-            // rather than as the dropped window it is.
+            // A failed write can still have landed part of the line, so the
+            // file is cut back to the last complete window. Leaving the
+            // fragment there would publish an I/O error as tampering.
             tracing::warn!(error = %err, "archive write failed, dropping line");
+            if let Err(err) = file.set_len(bytes_written) {
+                tracing::warn!(error = %err, "archive truncation after a failed write failed");
+            }
             continue;
         }
         prev = extract_hash(&line).unwrap_or(prev);
@@ -154,20 +156,18 @@ async fn run_writer(
             }
         }
     }
-    if let Err(err) = file.flush() {
-        tracing::warn!(error = %err, "archive flush at shutdown failed");
-    }
 }
 
 /// Serialise one window and chain it to `prev`.
 ///
 /// `hash` covers `{ts, report, prev, seq}` in canonical form, so editing
 /// any of them breaks it. `prev` ties the line to its predecessor, so
-/// removing or reordering a line breaks the next one, and `seq` counts
-/// lines within the file so truncating its tail no longer leaves a
-/// shorter but self-consistent chain. It detects tampering after the
-/// fact, not an insincere writer: whoever owns the daemon can rewrite the
-/// whole chain.
+/// removing or reordering a line breaks the next one, and `seq` pins its
+/// position so a break says how many lines are off, not only that one is.
+/// A tail cut cleanly off the file stays invisible to both: what remains
+/// is a shorter self-consistent chain, and only an anchor kept outside the
+/// file can see it. It detects tampering after the fact, not an insincere
+/// writer: whoever owns the daemon can rewrite the whole chain.
 fn serialize_envelope(
     archive: &OwnedArchive,
     prev: &str,
@@ -191,24 +191,53 @@ fn serialize_envelope(
 /// daemon continues instead of opening a break at every restart. Falls
 /// back to the seed on an empty, unreadable or pre-chain file.
 fn resume_chain(path: &Path) -> (String, u64) {
-    let Some(tail) = read_tail(path, TAIL_SCAN_BYTES) else {
-        return (ARCHIVE_CHAIN_SEED.to_string(), 0);
-    };
-    tail.lines()
-        .rev()
-        .find_map(|line| {
-            let value: serde_json::Value = serde_json::from_str(line).ok()?;
-            let hash = value.get("hash")?.as_str()?.to_string();
-            let seq = value.get("seq").and_then(serde_json::Value::as_u64)?;
-            Some((hash, seq.saturating_add(1)))
-        })
-        .unwrap_or_else(|| (ARCHIVE_CHAIN_SEED.to_string(), 0))
+    resume_chain_within(path, &[TAIL_SCAN_BYTES, MAX_TAIL_SCAN_BYTES])
+}
+
+fn resume_chain_within(path: &Path, windows: &[u64]) -> (String, u64) {
+    let seed = || (ARCHIVE_CHAIN_SEED.to_string(), 0);
+    // A window larger than the first read window leaves only a truncated
+    // fragment in it, and reseeding mid-file is exactly the restart-reads-
+    // as-tampering case this function exists to prevent, so widen once.
+    for &window in windows {
+        let Some(tail) = read_tail(path, window) else {
+            return seed();
+        };
+        if let Some(head) = chain_head(&tail) {
+            return head;
+        }
+        if metadata_len(path) <= window {
+            return seed();
+        }
+    }
+    tracing::warn!(
+        path = %path.display(),
+        "no chained window in the last {} bytes of the archive, restarting the \
+         chain: the next disclose reports one break here",
+        windows.last().copied().unwrap_or(0),
+    );
+    seed()
+}
+
+/// Last chained line of `tail`, as `(hash, next_seq)`.
+fn chain_head(tail: &str) -> Option<(String, u64)> {
+    tail.lines().rev().find_map(|line| {
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+        let hash = value.get("hash")?.as_str()?.to_string();
+        let seq = value.get("seq").and_then(serde_json::Value::as_u64)?;
+        Some((hash, seq.saturating_add(1)))
+    })
 }
 
 /// How much of the file's end to read back. One archived window is a few
 /// KB, so this covers the last line by a wide margin while keeping
 /// startup independent of an archive that can reach the rotation cap.
 const TAIL_SCAN_BYTES: u64 = 1024 * 1024;
+
+/// Second and last attempt, for a window whose findings and per-endpoint
+/// tables outgrew the first. Bounded so startup never reads a whole
+/// multi-gigabyte archive into memory.
+const MAX_TAIL_SCAN_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Last `max_bytes` of `path`, as lossy UTF-8 since the window may start
 /// mid-character. `None` when the file cannot be read.
@@ -231,19 +260,18 @@ fn extract_hash(line: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-/// Write one line and flush it.
+/// Write one line straight to the file.
 ///
-/// The flush is what keeps an ungraceful death (SIGKILL, OOM) from
-/// leaving a half-written line: on restart the reader would find no
-/// parseable trailing hash and publish a chain break for what was only a
-/// hard shutdown. One flush per window, at window cadence, is cheap.
-fn write_line(file: &mut BufWriter<File>, line: &str) -> std::io::Result<()> {
+/// Unbuffered on purpose: at window cadence buffering saves nothing, and
+/// a `BufWriter` would leave a half-written line on an ungraceful death
+/// (SIGKILL, OOM) or hold bytes the caller then cannot account for when a
+/// write fails. Both cases end up published as a chain break.
+fn write_line(file: &mut File, line: &str) -> std::io::Result<()> {
     file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
-    file.flush()
+    file.write_all(b"\n")
 }
 
-fn rotate(active: &Path, file: &mut BufWriter<File>, max_files: u32) -> std::io::Result<()> {
+fn rotate(active: &Path, file: &mut File, max_files: u32) -> std::io::Result<()> {
     file.flush()?;
     let stamp = Utc::now().format("%Y%m%dT%H%M%S%fZ").to_string();
     let rotated_name = match active.file_stem().and_then(|s| s.to_str()) {
@@ -262,7 +290,7 @@ fn rotate(active: &Path, file: &mut BufWriter<File>, max_files: u32) -> std::io:
         .create_new(true)
         .append(true)
         .open(active)?;
-    *file = BufWriter::new(fresh);
+    *file = fresh;
     prune(active, max_files)?;
     Ok(())
 }
@@ -412,6 +440,35 @@ mod tests {
             lines[1]["prev"].as_str().unwrap(),
             lines[0]["hash"].as_str().unwrap(),
             "the line written after the restart must reference the last one on disk"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_window_larger_than_the_first_read_window_still_resumes() {
+        // The tail read is bounded, and a window whose findings outgrow it
+        // leaves only a fragment in the first pass. Reseeding there would
+        // open a chain mid-file and publish a restart as tampering.
+        let dir = TempDir::new().unwrap();
+        let handle = spawn(&cfg(&dir, 100, 12)).unwrap();
+        let mut archive = sample_archive();
+        archive.report.warnings = vec!["x".repeat(4096)];
+        handle.tx.send(archive).await.unwrap();
+        drop(handle.tx);
+        handle.join.await.unwrap();
+
+        let path = dir.path().join("archive.ndjson");
+        let line: serde_json::Value =
+            serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
+        // 64 bytes cannot hold the line, 1 MiB can.
+        assert_eq!(
+            resume_chain_within(&path, &[64, 1024 * 1024]),
+            (line["hash"].as_str().unwrap().to_string(), 1),
+        );
+        // Narrow-only reads nothing parseable and must not pretend the
+        // file is empty, it says so and reseeds.
+        assert_eq!(
+            resume_chain_within(&path, &[64]),
+            (ARCHIVE_CHAIN_SEED.to_string(), 0),
         );
     }
 

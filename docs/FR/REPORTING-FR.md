@@ -394,11 +394,21 @@ Le `content_hash`, la signature cosign et la provenance SLSA lient le
 hachage chaque fenêtre archivée au moment où il l'écrit, et `disclose`
 parcourt cette chaîne pendant l'agrégation, en publiant le résultat dans
 `integrity.trace_integrity_chain` : fenêtres vérifiées, fenêtres écrites
-avant l'existence du chaînage, et ruptures trouvées. Cela ferme l'écart
+avant l'existence du chaînage, ruptures trouvées dans la période et
+ruptures trouvées hors d'elle dans les mêmes fichiers, puisqu'une
+archive glissante peut couvrir des années et qu'un rapport ne répond que
+de sa propre période. Cela ferme l'écart
 où une fenêtre pouvait être éditée entre la mesure et la publication
 sans que rien ne le montre. Une rupture n'arrête pas le rapport, elle
 est publiée comme un compteur, si bien qu'une archive tronquée donne
 encore une divulgation partielle honnête.
+
+Une édition que la chaîne ne voit pas est une coupe nette de la fin
+d'une archive : ce qui reste est une chaîne plus courte qui se vérifie
+selon ses propres termes, et aucun champ interne au fichier ne peut la
+contredire. La détecter demande une trace de la tête de chaîne conservée
+hors du contrôle de l'opérateur, ce à quoi `integrity.cross_period_log`
+reste réservé.
 
 Ce que rien de tout cela ne prouve, c'est la sincérité de la mesure à la
 source. Un opérateur qui contrôle le daemon et ses fichiers peut

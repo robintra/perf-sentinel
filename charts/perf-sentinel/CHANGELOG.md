@@ -17,13 +17,15 @@ key, but two changes do reach the daemon this chart deploys.
 
 **Archived windows are now hash-chained.** When `[daemon.archive]` is
 configured, each NDJSON line carries the hash of its own content, the hash of
-the previous line and its position in the file, so a window edited, removed,
-reordered or truncated after the fact becomes detectable. `disclose` walks
-that chain while aggregating and publishes the verdict. Existing archives stay
-readable and are reported as unchained rather than broken, since they predate
-the format. Operators running `StatefulSet` with persistence keep their
-archive across restarts as before, and the writer now flushes each window as it is written, so an
-ungraceful pod kill no longer leaves a half-written line.
+the previous line and its position in the file, so a window edited, removed or
+reordered after the fact becomes detectable. A clean truncation of the file's
+tail stays invisible to the chain alone, it needs an anchor kept outside the
+file. `disclose` walks that chain while aggregating and publishes the verdict.
+Existing archives stay readable and are reported as unchained rather than
+broken, since they predate the format. Operators running `StatefulSet` with
+persistence keep their archive across restarts as before, and each window is
+now written unbuffered, so an ungraceful pod kill no longer leaves a
+half-written line.
 
 **The disclosure schema moves to `perf-sentinel-report/v1.6`.** Reports gain
 the carbon parameters that scale their own figures (the SCI methodology tags

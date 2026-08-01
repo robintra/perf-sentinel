@@ -85,6 +85,10 @@ pub struct AggregateInputs {
     pub chain_verified: u64,
     pub chain_unchained: u64,
     pub chain_breaks: u64,
+    /// Breaks in the same files but outside the period. One rolling
+    /// archive can cover several periods, and this report only answers
+    /// for its own, so they are counted apart rather than folded in.
+    pub chain_breaks_outside: u64,
     /// Coefficient sets observed over the period, as `key=value` strings.
     pub scoring_coefficients: BTreeSet<String>,
     /// SCI methodology tags observed (`sci_v1_numerator`, or the
@@ -347,6 +351,7 @@ struct Builder {
     chain_verified: u64,
     chain_unchained: u64,
     chain_breaks: u64,
+    chain_breaks_outside: u64,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
     /// Distinct coefficient sets observed, as `"key=value"` strings. A
@@ -384,12 +389,12 @@ impl Builder {
         let reader = BufReader::new(file);
         let mut warned_fallback = false;
         // Chain state is per file: a rotated file restarts from the seed.
-        // Walked over every line, including those outside the period, or an
-        // edit just outside the window would go unseen.
-        let mut expected_prev = super::hasher::ARCHIVE_CHAIN_SEED.to_string();
+        // `None` means the walk lost its anchor and adopts whatever the
+        // next chained line declares, so one damaged line costs one break.
+        let mut expected: Option<(String, u64)> =
+            Some((super::hasher::ARCHIVE_CHAIN_SEED.to_string(), 0));
         let mut warned_break = false;
         let mut chain_started = false;
-        let mut expected_seq: u64 = 0;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -406,29 +411,47 @@ impl Builder {
                 .as_ref()
                 .and_then(|v| v.get("seq"))
                 .and_then(serde_json::Value::as_u64);
-            match verify_chain_value(parsed.as_ref(), &expected_prev, expected_seq) {
+            // Every line is walked, including those outside the period, or
+            // an edit just outside the window would go unseen. What the
+            // line's own timestamp decides is which counter it lands in:
+            // one rolling archive can span several periods, and a 2024
+            // edit must not be published as this quarter's break.
+            let in_scope = line_in_period(parsed.as_ref(), period);
+            let next_seq = |expected: &Option<(String, u64)>| {
+                parsed_seq
+                    .unwrap_or_else(|| expected.as_ref().map_or(0, |(_, seq)| *seq))
+                    .saturating_add(1)
+            };
+            match verify_chain_value(parsed.as_ref(), expected.as_ref()) {
                 ChainOutcome::Verified(hash) => {
                     chain_started = true;
-                    self.chain_verified += 1;
-                    expected_prev = hash;
-                    expected_seq = expected_seq.saturating_add(1);
+                    if in_scope {
+                        self.chain_verified += 1;
+                    }
+                    expected = Some((hash, next_seq(&expected)));
                 }
                 // Unchained is benign only before the file's chain starts:
                 // those lines predate chaining. Once a line has verified,
                 // a later one without a `hash` is a field that was removed,
                 // which is exactly the edit the chain exists to catch.
-                ChainOutcome::Unchained if !chain_started => self.chain_unchained += 1,
+                ChainOutcome::Unchained if !chain_started => {
+                    if in_scope {
+                        self.chain_unchained += 1;
+                    }
+                }
                 ChainOutcome::Unchained => {
-                    self.chain_breaks += 1;
+                    self.count_break(in_scope);
+                    // No hash to chain onto, so the anchor is dropped and
+                    // the next chained line re-establishes it.
+                    expected = None;
                     warn_break(path, line_no, &mut warned_break);
                 }
                 ChainOutcome::Break(hash) => {
                     chain_started = true;
-                    self.chain_breaks += 1;
+                    self.count_break(in_scope);
                     // Resynchronise on this line's own hash and seq, so one
                     // edit reports one break rather than poisoning the tail.
-                    expected_prev = hash;
-                    expected_seq = parsed_seq.map_or(expected_seq, |s| s.saturating_add(1));
+                    expected = Some((hash, next_seq(&expected)));
                     warn_break(path, line_no, &mut warned_break);
                 }
             }
@@ -463,6 +486,14 @@ impl Builder {
             }
         }
         Ok(())
+    }
+
+    fn count_break(&mut self, in_scope: bool) {
+        if in_scope {
+            self.chain_breaks += 1;
+        } else {
+            self.chain_breaks_outside += 1;
+        }
     }
 
     fn process_window(
@@ -958,6 +989,7 @@ impl Builder {
             chain_verified: self.chain_verified,
             chain_unchained: self.chain_unchained,
             chain_breaks: self.chain_breaks,
+            chain_breaks_outside: self.chain_breaks_outside,
             carbon_methodologies: self.carbon_methodologies,
             scoring_coefficients: self.scoring_coefficients,
             embodied_gco2_total: self.embodied_gco2_total,
@@ -1039,8 +1071,7 @@ enum ChainOutcome {
 
 fn verify_chain_value(
     value: Option<&serde_json::Value>,
-    expected_prev: &str,
-    expected_seq: u64,
+    expected: Option<&(String, u64)>,
 ) -> ChainOutcome {
     let Some(value) = value else {
         return ChainOutcome::Unchained;
@@ -1053,23 +1084,40 @@ fn verify_chain_value(
     if let Some(obj) = body.as_object_mut() {
         obj.remove("hash");
     }
-    let recomputed = super::hasher::archive_chain_hash(&body).ok();
+    if super::hasher::archive_chain_hash(&body).ok().as_deref() != Some(stated.as_str()) {
+        return ChainOutcome::Break(stated);
+    }
+    // Without an anchor the walk cannot say where this line belongs, so it
+    // adopts it: the break was already counted on the line that lost it.
+    let Some((expected_prev, expected_seq)) = expected else {
+        return ChainOutcome::Verified(stated);
+    };
     let prev_ok = body
         .get("prev")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|p| p == expected_prev);
     // A `seq` that skips means lines are missing between this one and the
-    // last, which `prev` alone cannot see once the removed run ends the
-    // file. Absent on the first chained format, treated as in sequence.
+    // last. Absent on the first chained format, treated as in sequence.
     let seq_ok = body
         .get("seq")
         .and_then(serde_json::Value::as_u64)
-        .is_none_or(|s| s == expected_seq);
-    if recomputed.as_deref() == Some(stated.as_str()) && prev_ok && seq_ok {
+        .is_none_or(|s| s == *expected_seq);
+    if prev_ok && seq_ok {
         ChainOutcome::Verified(stated)
     } else {
         ChainOutcome::Break(stated)
     }
+}
+
+/// Whether an archive line's own timestamp falls inside the period.
+/// A line the reader cannot parse counts as in-period: it was read from a
+/// file the operator pointed at, and dropping it would hide a break.
+fn line_in_period(value: Option<&serde_json::Value>, period: &Period) -> bool {
+    value
+        .and_then(|v| v.get("ts"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+        .is_none_or(|ts| in_period(ts.with_timezone(&Utc), period))
 }
 
 fn service_io_distribution(
@@ -1601,10 +1649,9 @@ mod tests {
     }
 
     #[test]
-    fn truncating_the_tail_of_an_archive_is_a_break() {
-        // `prev` alone cannot see a removed run that ends the file: what
-        // is left is a shorter, self-consistent chain. `seq` is what makes
-        // the gap visible.
+    fn a_removed_run_that_ends_inside_the_file_is_a_break() {
+        // `prev` alone cannot see a removed run: the line after it points
+        // at a hash that is no longer there, and `seq` jumps too.
         let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
         let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
         let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
@@ -1615,11 +1662,88 @@ mod tests {
         ]);
         let text = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        // Keep the first and the last: `prev` still chains, `seq` jumps.
         std::fs::write(&path, format!("{}\n{}\n", lines[0], lines[2])).unwrap();
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         assert_eq!(out.chain_breaks, 1, "the missing middle must surface");
+    }
+
+    #[test]
+    fn truncating_the_tail_is_invisible_to_the_chain_alone() {
+        // Pins the documented limit rather than a capability: what is left
+        // after a clean tail cut is a shorter self-consistent chain, and
+        // no field inside the file can contradict it. Only an anchor kept
+        // outside it can, which `integrity.cross_period_log` reserves.
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+            (ts3, plain_window()),
+        ]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        std::fs::write(&path, format!("{}\n", lines[0])).unwrap();
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 0, "the remaining prefix is consistent");
+        assert_eq!(out.chain_verified, 1);
+    }
+
+    #[test]
+    fn one_stripped_hash_costs_one_break_not_two() {
+        // The line after a damaged one chains onto a hash the walk never
+        // saw. Counting that as a second break would report two edits for
+        // one, and a reader cannot tell an inflated count from a real one.
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+            (ts3, plain_window()),
+        ]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        lines[1].as_object_mut().unwrap().remove("hash");
+        let rewritten: Vec<String> = lines.iter().map(ToString::to_string).collect();
+        std::fs::write(&path, rewritten.join("\n") + "\n").unwrap();
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 1, "one damaged line, one break");
+        assert_eq!(out.chain_verified, 2, "the third line re-anchors");
+    }
+
+    #[test]
+    fn a_break_outside_the_period_is_counted_apart() {
+        // One rolling archive can cover years. A window edited in 2025
+        // must not be published as a break in the 2026 Q1 disclosure, and
+        // the verified count must match what the period actually folded.
+        let old_ts = Utc.with_ymd_and_hms(2025, 6, 15, 0, 0, 0).unwrap();
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[
+            (old_ts, plain_window()),
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+        ]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        lines[0]["report"]["green_summary"]["io_waste_ratio"] = serde_json::json!(0.01);
+        let rewritten: Vec<String> = lines.iter().map(ToString::to_string).collect();
+        std::fs::write(&path, rewritten.join("\n") + "\n").unwrap();
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 0, "the period itself is intact");
+        assert_eq!(out.chain_breaks_outside, 1, "the 2025 edit still surfaces");
+        assert_eq!(out.chain_verified, 2, "only the period's windows count");
     }
 
     #[test]

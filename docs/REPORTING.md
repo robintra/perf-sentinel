@@ -386,10 +386,19 @@ the **published document**. Since 0.9.25 the daemon also hash-chains
 each archived window as it writes it, and `disclose` walks that chain
 while aggregating, publishing the result in
 `integrity.trace_integrity_chain`: windows verified, windows written
-before chaining existed, and breaks found. That closes the gap where a
-window could be edited between measurement and publication with nothing
-to show for it. A break does not stop the report, it is published as a
-count, so a truncated archive still yields an honest partial disclosure.
+before chaining existed, breaks found inside the period and breaks found
+in the same files outside it, since one rolling archive can span years
+and a report answers only for its own period. That closes the gap where
+a window could be edited between measurement and publication with
+nothing to show for it. A break does not stop the report, it is
+published as a count, so a truncated archive still yields an honest
+partial disclosure.
+
+One edit the chain does not see is a clean cut of an archive's tail:
+what remains is a shorter chain that verifies on its own terms, and no
+field inside the file can contradict it. Detecting that needs a record
+of the chain head kept somewhere the operator does not control, which is
+what `integrity.cross_period_log` stays reserved for.
 
 What none of this proves is that the measurement was sincere in the
 first place. An operator who controls the daemon and its files can

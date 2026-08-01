@@ -730,10 +730,17 @@ pub struct SourceChain {
     /// chained. Not tampering, simply not attestable.
     #[serde(default)]
     pub windows_unchained: u64,
-    /// Detected breaks. Non-zero means part of the period is no longer
-    /// attestable, and the report says so rather than refusing to exist.
+    /// Detected breaks inside the period. Non-zero means part of it is no
+    /// longer attestable, and the report says so rather than refusing to
+    /// exist.
     #[serde(default)]
     pub breaks: u64,
+    /// Breaks found in the same archive files but outside the period. A
+    /// rolling archive can span several periods, and this report only
+    /// answers for its own, so they are reported apart from `breaks`
+    /// instead of being folded into a verdict they do not concern.
+    #[serde(default)]
+    pub breaks_outside_period: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
