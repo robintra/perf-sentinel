@@ -607,7 +607,7 @@ The `green_summary.scoring_config` object exposes the runtime configuration of t
 - `emission_factor_type`: mirrors the TOML knob, one of `lifecycle` (default) or `direct`.
 - `temporal_granularity`: mirrors the TOML knob, one of `hourly` (default), `5_minutes`, `15_minutes`.
 
-**Scope of the surface.** `scoring_config` captures the Electricity Maps **client configuration only**. It is a partial methodology footprint, not the full SCI input vector. A complete strict-replay of the carbon math from a saved baseline would also need `[green] embodied_carbon_per_request_gco2`, `[green] use_hourly_profiles`, `[green] per_operation_coefficients`, `[green] include_network_transport` and `[green] network_energy_per_byte_kwh` (none of which are in the JSON today), plus the per-region PUE drawn from the embedded provider table (recoverable only if the Provider classification is stable across runs). Surfacing the complete methodology footprint is tracked as future work, the 0.5.12 surface closes the audit gap on the Electricity Maps slice specifically because that is the slice the 0.5.10 + 0.5.11 work added knobs to without surfacing them.
+**Scope of the surface.** `scoring_config` started (0.5.12) as the Electricity Maps **client configuration only**, a partial methodology footprint rather than the full SCI input vector. 0.9.25 added the coefficients that scale the figures: `embodied_per_request_gco2`, `network_energy_per_byte_kwh`, `per_operation_coefficients`, `use_hourly_profiles` and `show_network_transport`, each mirroring its `[green]` setting, plus an `electricity_maps` flag because the object now ships on every run and its presence alone no longer means the API is configured. What a strict replay still lacks is the per-region PUE drawn from the embedded provider table, recoverable only if the Provider classification is stable across runs. The disclosure republishes the same coefficients under `methodology.calibration_inputs.scoring_coefficients`, folded from the archived windows rather than read from the machine running `disclose`.
 
 **Backward compat.** The field is `None` (and the dashboard bandeau / terminal line are hidden) when `[green.electricity_maps]` is not configured, so reports produced without Electricity Maps stay shape-identical to pre-0.5.12. The wire form is additive on the JSON `green_summary` via `#[serde(skip_serializing_if = "Option::is_none", default)]`, so pre-0.5.12 baselines fed back through `report --before` keep parsing.
 
@@ -687,15 +687,14 @@ The carbon intensity and PUE of the **source** region (where the data originates
 2. **Callee region**: the hostname is extracted from the HTTP target URL (e.g., `order-api` from `http://order-api:8080/api/orders`), then looked up in `ctx.service_regions`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term).
 3. If both regions resolve and differ (case-insensitive comparison), the transport energy is computed and accumulated.
 
-**What triggers it.** Three conditions must all be true for a span to contribute transport energy:
+**What triggers it.** Two conditions must both be true for a span to contribute transport energy:
 
-- `include_network_transport = true` in the config
 - The span is an HTTP outbound call (`event_type == HttpOut`)
 - The span has a `response_size_bytes` value (from OTel `http.response.body.size`)
 
-**Report output.** Transport CO2 appears as `transport_gco2` in both `CarbonReport` and `GreenSummary`. It is included in the SCI total: `total_mid = operational + embodied + transport`. The field is omitted from JSON when zero or when the feature is disabled.
+**Report output.** Transport CO2 appears as `transport_gco2` in both `CarbonReport` and `GreenSummary`. It is included in the SCI total: `total_mid = operational + embodied + transport`. The field is omitted from JSON when zero, which is the case whenever no cross-region call carried a response size.
 
-**Config.** `[green] include_network_transport = false` (default, opt-in). The coefficient is configurable via `[green] network_energy_per_byte_kwh`. The feature is disabled by default because the transport term is often negligible compared to compute energy and adds model complexity.
+**Config.** `[green] include_network_transport = false` (default) is display-only since 0.9.25: it hides the term in the CLI report and the TUI, and changes nothing in what is computed, archived or disclosed. It reaches those sinks as `scoring_config.show_network_transport`. Gating the computation made two reports non-comparable over a setting that left no trace in them. The coefficient is configurable via `[green] network_energy_per_byte_kwh`.
 
 **Hot path optimizations.** The transport path runs inside the per-span scoring loop. Two micro-optimizations avoid allocations in the common case:
 - The hostname extracted from the URL is compared against `service_regions` with a probe-before-allocate pattern: `to_ascii_lowercase()` is only called when the hostname contains uppercase bytes (rare for Kubernetes/Docker service names).
