@@ -77,6 +77,14 @@ pub struct AggregateInputs {
     /// `true` if at least one folded window carried a `+cal` suffix on
     /// its `energy_model`. Surfaced via `CalibrationInputs.calibration_applied`.
     pub calibration_applied: bool,
+    /// SCI methodology tags observed (`sci_v1_numerator`, or the
+    /// `+transport` variant). Says whether the numerator includes
+    /// network transport, which nothing else in the report does.
+    pub carbon_methodologies: BTreeSet<String>,
+    /// Sum of the SCI `M` term over the folded windows, in gCO2eq.
+    /// Scaled directly by `[green] embodied_carbon_per_request_gco2`,
+    /// which is published nowhere else.
+    pub embodied_gco2_total: f64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -313,6 +321,10 @@ struct Builder {
     /// Set when at least one window's `energy_model` carried the `+cal`
     /// suffix, indicating operator calibration was active for that window.
     calibration_applied: bool,
+    /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
+    carbon_methodologies: BTreeSet<String>,
+    /// Running sum of the SCI `M` term across folded windows, in gCO2eq.
+    embodied_gco2_total: f64,
     /// Per-service set of distinct energy model tags accumulated across
     /// the period's windows. The `+cal` suffix is stripped before
     /// insertion. Service cardinality is bounded by `MAX_SERVICES`,
@@ -398,6 +410,7 @@ impl Builder {
         self.fold_disclosure_waste(&report, &m);
         self.fold_binary_version(&report.binary_version);
         self.fold_window_energy_model(&report.green_summary.energy_model);
+        self.fold_carbon_methodology(report.green_summary.co2.as_ref());
         self.fold_per_service_measured_ratio(&report.green_summary.per_service_measured_ratio);
         self.fold_per_service_energy_models(&report.green_summary.per_service_energy_model);
 
@@ -534,6 +547,21 @@ impl Builder {
         }
         if self.binary_versions.len() < MAX_BINARY_VERSIONS || self.binary_versions.contains(bv) {
             self.binary_versions.insert(bv.to_string());
+        }
+    }
+
+    /// Collect the methodology tag and the `M` term of one window.
+    fn fold_carbon_methodology(&mut self, co2: Option<&crate::score::carbon::CarbonReport>) {
+        let Some(co2) = co2 else { return };
+        self.embodied_gco2_total += sanitize_f64(co2.embodied_gco2);
+        let tag = co2.total.methodology.as_str();
+        if tag.is_empty() || tag.len() > MAX_ENERGY_MODEL_LEN {
+            return;
+        }
+        if self.carbon_methodologies.len() < MAX_ENERGY_MODELS
+            || self.carbon_methodologies.contains(tag)
+        {
+            self.carbon_methodologies.insert(tag.to_string());
         }
     }
 
@@ -841,6 +869,8 @@ impl Builder {
             runtime_windows: self.runtime_windows,
             fallback_windows: self.fallback_windows,
             calibration_applied: self.calibration_applied,
+            carbon_methodologies: self.carbon_methodologies,
+            embodied_gco2_total: self.embodied_gco2_total,
         }
     }
 }
@@ -1216,6 +1246,36 @@ mod tests {
 
     fn plain_window() -> Report {
         make_report(10, 100, 10, &[("svc-a", "/api", 100)], vec![])
+    }
+
+    #[test]
+    fn carbon_methodology_and_embodied_are_folded_from_the_windows() {
+        // The two carbon settings that change published figures leave no
+        // other trace in the disclosure, so they are read off the windows
+        // rather than off the config of whoever runs `disclose`.
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let mut with_transport = plain_window();
+        if let Some(co2) = with_transport.green_summary.co2.as_mut() {
+            co2.total.methodology = "sci_v1_numerator+transport".to_string();
+            co2.transport_gco2 = Some(0.05);
+        }
+        let (_dir, path) = write_archive(&[(ts1, plain_window()), (ts2, with_transport)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(
+            out.carbon_methodologies
+                .contains("sci_v1_numerator+transport"),
+            "a window counting transport must be visible: {:?}",
+            out.carbon_methodologies
+        );
+        assert_eq!(
+            out.carbon_methodologies.len(),
+            2,
+            "a setting that changed mid-period shows both tags"
+        );
+        // 0.2 gCO2eq of M per window, two windows.
+        assert!((out.embodied_gco2_total - 0.4).abs() < 1e-9);
     }
 
     #[test]
