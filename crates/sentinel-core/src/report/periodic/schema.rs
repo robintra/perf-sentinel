@@ -1,4 +1,4 @@
-//! Wire schema (v1.5) for the periodic disclosure report.
+//! Wire schema (v1.6) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
 //!
@@ -34,13 +34,22 @@
 //! `Aggregate.messaging_waste`, the broker-side twin of `database_waste`.
 //! Additive via `serde(default)` plus `skip_serializing_if`, so
 //! re-hashing a v1.4 report still yields its original `content_hash`.
+//!
+//! v1.6 adds three `CalibrationInputs` fields that make the carbon
+//! parameters visible: `carbon_methodologies` (the SCI tags observed, which
+//! say whether transport is in the numerator) and the `M` term as a period
+//! total plus a per-request mean. Both settings behind them, `[green]
+//! include_network_transport` and `embodied_carbon_per_request_gco2`, change
+//! published figures and appeared nowhere in the report. Same
+//! `serde(default)` + `skip_serializing_if` rule, so an older report keeps
+//! its `content_hash` when re-hashed here.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.5";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.6";
 
 /// Scope fields the operator declares by hand in the org config. These are
 /// unaudited inputs: the binary cannot verify the size of the portfolio they
@@ -378,6 +387,21 @@ pub struct CalibrationInputs {
     /// flag is the only place that surfaces the fact.
     #[serde(default)]
     pub calibration_applied: bool,
+    /// SCI methodology tags observed across the period's windows,
+    /// `sci_v1_numerator` or its `+transport` variant. Says whether the
+    /// numerator counted network transport, which two otherwise
+    /// identical reports do not distinguish. Several entries mean the
+    /// setting changed mid-period. v1.6.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub carbon_methodologies: BTreeSet<String>,
+    /// SCI `M` term summed over the period, in gCO2eq, with the mean
+    /// coefficient it implies per request. `[green]
+    /// embodied_carbon_per_request_gco2` scales both and is published
+    /// nowhere else, so halving it used to leave no trace. v1.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embodied_gco2_total: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embodied_gco2_per_request: Option<f64>,
 }
 
 /// Database-side waste summed over the period's windows that carried a

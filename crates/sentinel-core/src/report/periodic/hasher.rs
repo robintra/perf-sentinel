@@ -207,6 +207,7 @@ mod tests {
         Application, Confidentiality, PeriodicReport, ReportIntent,
     };
     use crate::report::periodic::test_fixtures;
+    use std::collections::BTreeSet;
 
     fn sample_report() -> PeriodicReport {
         test_fixtures::sample_report(
@@ -214,6 +215,39 @@ mod tests {
             Confidentiality::Public,
             vec![Application::G1(test_fixtures::sample_g1_application())],
         )
+    }
+
+    #[test]
+    fn v1_6_carbon_fields_are_hashed_when_present_and_absent_when_not() {
+        // Two halves of the same contract. Absent, the v1.6 fields must not
+        // move the hash, or every pre-v1.6 report would fail re-verification.
+        // Present, they must move it, or an auditor could rewrite the
+        // published embodied coefficient without breaking the signature.
+        let mut r = sample_report();
+        let baseline = compute_content_hash(&r).unwrap();
+
+        r.methodology.calibration_inputs.carbon_methodologies = BTreeSet::new();
+        r.methodology.calibration_inputs.embodied_gco2_total = None;
+        r.methodology.calibration_inputs.embodied_gco2_per_request = None;
+        assert_eq!(
+            compute_content_hash(&r).unwrap(),
+            baseline,
+            "empty v1.6 fields must serialize away and leave the hash alone"
+        );
+
+        r.methodology.calibration_inputs.embodied_gco2_total = Some(1240.5);
+        let with_total = compute_content_hash(&r).unwrap();
+        assert_ne!(with_total, baseline, "the M term must be covered");
+
+        r.methodology
+            .calibration_inputs
+            .carbon_methodologies
+            .insert("sci_v1_numerator+transport".to_string());
+        assert_ne!(
+            compute_content_hash(&r).unwrap(),
+            with_total,
+            "the methodology tag must be covered"
+        );
     }
 
     #[test]

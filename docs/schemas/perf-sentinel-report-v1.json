@@ -26,7 +26,8 @@
         "perf-sentinel-report/v1.2",
         "perf-sentinel-report/v1.3",
         "perf-sentinel-report/v1.4",
-        "perf-sentinel-report/v1.5"
+        "perf-sentinel-report/v1.5",
+        "perf-sentinel-report/v1.6"
       ]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
@@ -344,6 +345,22 @@
           "type": "boolean",
           "default": false,
           "description": "True if at least one scoring window in the period had operator-supplied per-service calibration coefficients applied to the proxy energy (i.e. emitted an energy_model with the +cal suffix). Period-wide binary flag, distinct from energy_source_models which describes which source produced the numbers (0.7.0+)."
+        },
+        "carbon_methodologies": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "uniqueItems": true,
+          "description": "SCI methodology tags observed across the period's windows: sci_v1_numerator, or sci_v1_numerator+transport when network transport is counted in the numerator. Two reports whose numerator differs are otherwise indistinguishable. More than one entry means the setting changed mid-period (v1.6+)."
+        },
+        "embodied_gco2_total": {
+          "type": "number",
+          "minimum": 0,
+          "description": "SCI M term summed over the period, in gCO2eq. Scaled directly by the operator's embodied_carbon_per_request_gco2 setting, which appears nowhere else in the report. Omitted when no window carried a carbon figure (v1.6+)."
+        },
+        "embodied_gco2_per_request": {
+          "type": "number",
+          "minimum": 0,
+          "description": "embodied_gco2_total divided by total_requests: the mean embodied coefficient actually applied over the period, comparable across reports and independent of traffic volume. A weighted mean when the setting changed mid-period. Omitted when the total is absent or no request was measured (v1.6+)."
         }
       }
     },

@@ -1332,6 +1332,20 @@ pub(crate) fn build_report(
     generated_by: String,
     aggregate: AggregateInputs,
 ) -> PeriodicReport {
+    // Omitted rather than zeroed when no window carried a carbon figure,
+    // so "not measured" never reads as "measured at zero".
+    let embodied_total = (aggregate.embodied_gco2_total > 0.0).then_some({
+        // Round to the milligram: the sum of many f64 additions carries
+        // noise well below any meaningful digit, and the report is hashed.
+        (aggregate.embodied_gco2_total * 1000.0).round() / 1000.0
+    });
+    let embodied_per_request = embodied_total.and_then(|total| {
+        let requests = aggregate.aggregate.total_requests;
+        (requests > 0).then(|| {
+            let per = total / requests as f64;
+            (per * 1e9).round() / 1e9
+        })
+    });
     let methodology = Methodology {
         sci_specification: org.methodology.sci_specification.clone(),
         perf_sentinel_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1357,6 +1371,9 @@ pub(crate) fn build_report(
             scaphandre_used: org.methodology.calibration.scaphandre_used,
             energy_source_models: aggregate.energy_source_models.clone(),
             calibration_applied: aggregate.calibration_applied,
+            carbon_methodologies: aggregate.carbon_methodologies.clone(),
+            embodied_gco2_total: embodied_total,
+            embodied_gco2_per_request: embodied_per_request,
         },
         standard_crosswalk: Some(StandardCrosswalk::esrs_e1()),
     };
