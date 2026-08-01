@@ -19,6 +19,28 @@ fn parse_empty_toml_gives_defaults() {
 }
 
 #[test]
+fn every_example_config_loads() {
+    // The Redfish and Scaphandre snippets shipped for months in a shape the
+    // parser rejects, because nothing ever fed an example file back through
+    // it. An example that does not load is worse than no example.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&dir).expect("read examples/") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("read example");
+        if let Err(e) = load_from_str(&text) {
+            // `{e}` and not `{e:?}`, the Debug form carries the whole file.
+            panic!("{} does not load: {e}", path.display());
+        }
+        checked += 1;
+    }
+    assert!(checked >= 5, "expected the example files, found {checked}");
+}
+
+#[test]
 fn example_config_covers_every_key_the_parser_accepts() {
     // `examples/perf-sentinel.toml` calls itself the reference config, and
     // nothing checked that claim: it had drifted to 14 of the 31 daemon

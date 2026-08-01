@@ -1,0 +1,37 @@
+# Live grid carbon intensity from the Electricity Maps API, instead of the
+# embedded hourly profiles. Usable as is:
+#
+#   perf-sentinel analyze --input traces.json --config perf-sentinel-carbon-live.toml
+#
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
+#
+# This is the one section that reaches the network on its own, and only
+# because you put a key in it. Any scrape failure falls back to the embedded
+# profile, so a dead API degrades the model tag rather than the run.
+
+[green]
+enabled = true
+# No default. Without a region, a service whose spans carry no cloud.region
+# attribute gets no carbon figure at all.
+default_region = "eu-west-3"
+
+# Region per service, when the spans carry no cloud.region attribute.
+[green.service_regions]
+"order-svc" = "us-east-1"
+"chat-svc" = "ap-southeast-1"
+
+[green.electricity_maps]
+# Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here, it takes
+# precedence over this file. There is no "env:VAR" indirection, a value in
+# that shape is used literally.
+api_key = "your-api-key"
+# Default 300. The free tier is about 30 requests per zone per month, so it
+# needs 3600 or more.
+poll_interval_secs = 3600
+# Map your region IDs to Electricity Maps zone IDs.
+region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "ap-southeast-1" = "SG" }
+# "lifecycle" (default) includes construction and fuel supply chain,
+# "direct" counts combustion only.
+emission_factor_type = "lifecycle"

@@ -1,0 +1,38 @@
+# Measured energy from an Alumet agent, for bare metal or a Kubernetes node
+# where RAPL is readable. Usable as is:
+#
+#   perf-sentinel analyze --input traces.json --config perf-sentinel-energy-alumet.toml
+#
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
+#
+# Prerequisites: an Alumet agent running `rapl` + `k8s` + `energy-attribution`
+# + `prometheus-exporter`. `rapl` alone only measures the whole machine and
+# cannot attribute per service.
+
+[green]
+enabled = true
+# No default. Without a region, a service whose spans carry no cloud.region
+# attribute gets no carbon figure at all.
+default_region = "eu-west-3"
+
+[green.alumet]
+endpoint = "http://localhost:9091/metrics"
+scrape_interval_secs = 5
+# No defaults, both required. Read them off your own endpoint, the exporter
+# names them after a prefix/suffix and an attribution formula you choose:
+#   curl -s http://localhost:9091/metrics | grep -i energy
+metric_name = "attributed_energy_cpu_alumet"
+label_key = "name"
+# /!\ Must equal the poll_interval of the Alumet source feeding the metric.
+# Alumet publishes the joules of one interval as a gauge, so a mismatch
+# rescales energy and carbon silently.
+energy_interval_secs = 1.0
+# Map each service name to the label value carrying its energy.
+service_mappings = { "account-svc" = "account-pod", "game-svc" = "game-pod" }
+
+# Optional: attribute the database cgroup too, which turns the estimated
+# database waste figure into a measured one.
+# [green.alumet.database]
+# label_value = "postgres-pod"

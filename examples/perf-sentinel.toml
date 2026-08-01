@@ -1,5 +1,18 @@
 # Reference perf-sentinel config with every section annotated.
 #
+# This file is the inventory, not the shortest way in. For one job, start
+# from the file that already carries what that job needs and nothing else,
+# each usable as is with `--config`:
+#
+#   perf-sentinel-docker.toml          daemon reachable from a sibling container
+#   perf-sentinel-energy-alumet.toml   measured energy, bare metal or k8s node
+#   perf-sentinel-energy-cloud.toml    modelled energy, cloud VMs with no RAPL
+#   perf-sentinel-carbon-live.toml     live grid intensity, Electricity Maps
+#
+# Only one config file is loaded, there is no include or merge, and TOML
+# refuses a table declared twice, so those files cannot be concatenated with
+# each other. Pick one and add what you need to it from here.
+#
 # Copy this file to `.perf-sentinel.toml` in your working directory (or mount
 # it into the container, see `examples/docker-compose-collector.yml`) and
 # uncomment the sections you need.
