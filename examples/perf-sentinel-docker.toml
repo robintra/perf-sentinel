@@ -11,13 +11,17 @@
 # combined result into the container.
 
 [daemon]
-# Bind to all interfaces so the collector in a sibling container can
-# reach the daemon via its service name. The daemon emits a security
-# warning on startup: that is expected and fine in a trusted container
-# network. For external exposure, put a reverse proxy in front (nginx,
-# traefik, envoy) with TLS and authentication.
-listen_address = "0.0.0.0"
+# /!\ Binds to ALL interfaces, so the collector in a sibling container can
+# reach the daemon by service name. The daemon emits a security warning on
+# startup: expected on a trusted container network, and only there. Anything
+# that can route to this host reaches OTLP ingestion and the query API,
+# including the ack routes, which are unauthenticated until
+# `[daemon.ack] api_key` is set. For external exposure put a reverse proxy
+# in front (nginx, traefik, envoy) with TLS and authentication.
+listen_address = "0.0.0.0"         # default 127.0.0.1
 
-# Stamp findings with `daemon_staging` confidence by default. Flip to
-# `"production"` when this compose is adapted for production traffic.
-environment = "staging"
+# Confidence stamped on every finding, `daemon_production` here. Only
+# "staging" and "production" are accepted, "prod" is rejected at load time.
+# Use "staging" when this compose carries pre-production traffic, or the
+# findings claim more confidence than the traffic supports.
+environment = "production"         # default "staging"
