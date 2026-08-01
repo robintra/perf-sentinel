@@ -2929,7 +2929,7 @@ fn transport_co2_same_region_zero() {
 }
 
 #[test]
-fn transport_co2_disabled_by_default() {
+fn transport_co2_is_counted_even_when_the_display_setting_is_off() {
     use crate::test_helpers::make_http_event_with_size;
     let mut event = make_http_event_with_size(
         "t1",
@@ -2949,14 +2949,16 @@ fn transport_co2_disabled_by_default() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: false, // disabled
+        // Off: hides the term in the dashboards, no longer excludes it
+        // from what the disclosure counts.
+        include_network_transport: false,
         ..CarbonContext::default()
     };
 
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(
-        summary.transport_gco2.is_none(),
-        "transport_gco2 should be None when disabled"
+        summary.transport_gco2.is_some_and(|g| g > 0.0),
+        "a cross-region call must count, whatever the display setting"
     );
 }
 

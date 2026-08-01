@@ -88,6 +88,7 @@ pub(super) fn sample_calibration_inputs() -> CalibrationInputs {
         calibration_applied: false,
         energy_source_models: BTreeSet::new(),
         carbon_methodologies: BTreeSet::new(),
+        scoring_coefficients: BTreeSet::new(),
         embodied_gco2_total: None,
         embodied_gco2_per_request: None,
     }

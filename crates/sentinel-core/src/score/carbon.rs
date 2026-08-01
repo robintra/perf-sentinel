@@ -428,11 +428,25 @@ impl Default for DbEnergyContext {
 /// (lifecycle default, direct opt-in), temporal granularity (hourly
 /// default, sub-hour opt-in). Built via
 /// [`ScoringConfig::from_electricity_maps`] at config load time.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ScoringConfig {
     pub api_version: ApiVersion,
     pub emission_factor_type: EmissionFactorType,
     pub temporal_granularity: TemporalGranularity,
+    /// Coefficients that scale the published figures. Absent on windows
+    /// written before they were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embodied_per_request_gco2: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_energy_per_byte_kwh: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_operation_coefficients: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_hourly_profiles: Option<bool>,
+    /// Display-only: hides the transport term in the dashboards. It does
+    /// not change what is computed or disclosed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_network_transport: Option<bool>,
 }
 
 impl ScoringConfig {
@@ -446,6 +460,7 @@ impl ScoringConfig {
             api_version: ApiVersion::from_endpoint(&cfg.api_endpoint),
             emission_factor_type: cfg.emission_factor_type,
             temporal_granularity: cfg.temporal_granularity,
+            ..Self::default()
         }
     }
 }
@@ -2054,6 +2069,7 @@ mod tests {
             api_version: ApiVersion::V3,
             emission_factor_type: EmissionFactorType::Direct,
             temporal_granularity: TemporalGranularity::FiveMinutes,
+            ..ScoringConfig::default()
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ScoringConfig = serde_json::from_str(&json).unwrap();

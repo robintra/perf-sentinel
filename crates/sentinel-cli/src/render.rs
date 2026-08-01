@@ -1789,6 +1789,7 @@ mod tests {
             api_version: ApiVersion::V4,
             emission_factor_type: EmissionFactorType::Direct,
             temporal_granularity: TemporalGranularity::FiveMinutes,
+            ..ScoringConfig::default()
         };
         let line = format_scoring_config_line(&cfg);
         assert_eq!(
@@ -1843,6 +1844,7 @@ mod tests {
                     api_version: ApiVersion::V4,
                     emission_factor_type: EmissionFactorType::Direct,
                     temporal_granularity: TemporalGranularity::FifteenMinutes,
+                    ..ScoringConfig::default()
                 },
             ),
         ];

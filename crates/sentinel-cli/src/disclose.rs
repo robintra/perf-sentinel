@@ -1382,6 +1382,7 @@ pub(crate) fn build_report(
             energy_source_models: aggregate.energy_source_models.clone(),
             calibration_applied: aggregate.calibration_applied,
             carbon_methodologies: aggregate.carbon_methodologies.clone(),
+            scoring_coefficients: aggregate.scoring_coefficients.clone(),
             embodied_gco2_total: embodied_total,
             embodied_gco2_per_request: embodied_per_request,
         },

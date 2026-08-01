@@ -85,6 +85,8 @@ pub struct AggregateInputs {
     pub chain_verified: u64,
     pub chain_unchained: u64,
     pub chain_breaks: u64,
+    /// Coefficient sets observed over the period, as `key=value` strings.
+    pub scoring_coefficients: BTreeSet<String>,
     /// SCI methodology tags observed (`sci_v1_numerator`, or the
     /// `+transport` variant). Says whether the numerator includes
     /// network transport, which nothing else in the report does.
@@ -338,6 +340,9 @@ struct Builder {
     chain_breaks: u64,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
+    /// Distinct coefficient sets observed, as `"key=value"` strings. A
+    /// set that changed mid-period yields more than one entry.
+    scoring_coefficients: BTreeSet<String>,
     /// Running sums of the three terms of the published total, in gCO2eq.
     embodied_gco2_total: f64,
     operational_gco2_total: f64,
@@ -472,6 +477,7 @@ impl Builder {
         self.fold_binary_version(&report.binary_version);
         self.fold_window_energy_model(&report.green_summary.energy_model);
         self.fold_carbon_methodology(report.green_summary.co2.as_ref());
+        self.fold_scoring_coefficients(report.green_summary.scoring_config.as_ref());
         self.fold_per_service_measured_ratio(&report.green_summary.per_service_measured_ratio);
         self.fold_per_service_energy_models(&report.green_summary.per_service_energy_model);
 
@@ -608,6 +614,32 @@ impl Builder {
         }
         if self.binary_versions.len() < MAX_BINARY_VERSIONS || self.binary_versions.contains(bv) {
             self.binary_versions.insert(bv.to_string());
+        }
+    }
+
+    /// Record the coefficients one window was scored with. They scale the
+    /// published figures and appear nowhere else, so a period that changed
+    /// them shows both values rather than one.
+    fn fold_scoring_coefficients(&mut self, cfg: Option<&crate::score::carbon::ScoringConfig>) {
+        let Some(cfg) = cfg else { return };
+        let mut push = |entry: String| {
+            if self.scoring_coefficients.len() < MAX_ENERGY_MODELS
+                || self.scoring_coefficients.contains(&entry)
+            {
+                self.scoring_coefficients.insert(entry);
+            }
+        };
+        if let Some(v) = cfg.embodied_per_request_gco2 {
+            push(format!("embodied_gco2_per_request={v}"));
+        }
+        if let Some(v) = cfg.network_energy_per_byte_kwh {
+            push(format!("network_kwh_per_byte={v}"));
+        }
+        if let Some(v) = cfg.per_operation_coefficients {
+            push(format!("per_operation_coefficients={v}"));
+        }
+        if let Some(v) = cfg.use_hourly_profiles {
+            push(format!("use_hourly_profiles={v}"));
         }
     }
 
@@ -932,6 +964,7 @@ impl Builder {
             chain_unchained: self.chain_unchained,
             chain_breaks: self.chain_breaks,
             carbon_methodologies: self.carbon_methodologies,
+            scoring_coefficients: self.scoring_coefficients,
             embodied_gco2_total: self.embodied_gco2_total,
             operational_gco2_total: self.operational_gco2_total,
             transport_gco2_total: self.transport_gco2_total,
@@ -1588,6 +1621,39 @@ mod tests {
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         assert_eq!(out.chain_breaks, 1, "the missing middle must surface");
+    }
+
+    #[test]
+    fn the_applied_coefficients_are_published_and_a_change_shows_both() {
+        // They scale every published figure and appear nowhere else, so a
+        // period scored under two different coefficients must say so
+        // rather than average them into one number.
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let mut first = plain_window();
+        first.green_summary.scoring_config = Some(crate::score::carbon::ScoringConfig {
+            embodied_per_request_gco2: Some(0.001),
+            ..crate::score::carbon::ScoringConfig::default()
+        });
+        let mut second = plain_window();
+        second.green_summary.scoring_config = Some(crate::score::carbon::ScoringConfig {
+            embodied_per_request_gco2: Some(0.0001),
+            ..crate::score::carbon::ScoringConfig::default()
+        });
+        let (_dir, path) = write_archive(&[(ts1, first), (ts2, second)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(
+            out.scoring_coefficients
+                .contains("embodied_gco2_per_request=0.001"),
+            "{:?}",
+            out.scoring_coefficients
+        );
+        assert!(
+            out.scoring_coefficients
+                .contains("embodied_gco2_per_request=0.0001"),
+            "a coefficient lowered mid-period must stay visible"
+        );
     }
 
     #[test]

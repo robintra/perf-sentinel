@@ -765,6 +765,7 @@ fn validation_html_for_scoring_config() {
                 api_version: ApiVersion::V4,
                 emission_factor_type: EmissionFactorType::Direct,
                 temporal_granularity: TemporalGranularity::FifteenMinutes,
+                ..ScoringConfig::default()
             },
         ),
     ];
