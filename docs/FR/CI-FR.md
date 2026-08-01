@@ -545,6 +545,15 @@ sans style inline et sans ressource embarquée, soit un second
 format de sortie plutôt qu'un correctif de l'actuel. Les options A
 et B restent les deux réponses.
 
+Ce que le rapport porte depuis la 0.9.25, c'est un avis en haut de
+page, en texte brut non stylé, qui dit que son contenu est construit
+par script, qu'une politique restrictive est la raison habituelle
+pour laquelle il n'a pas tourné, et qui renvoie ici. Un script placé
+juste après le retire pendant le parsing, un chargement normal ne
+l'affiche donc jamais. Une page qui s'explique n'est pas un dashboard
+affiché, elle remplace seulement la page blanche qui a envoyé le
+premier utilisateur fouiller ses logs de build.
+
 La contrainte est propre à Jenkins. GitHub Pages et GitLab Pages
 servent le rapport sans politique à eux, et les deux chemins ci-dessus
 l'affichent comme le ferait un navigateur ouvrant le fichier en local,

@@ -442,6 +442,14 @@ policy is a multi-file artifact with no script, no inline style
 and no embedded asset, which is a second output format rather than
 a fix to the current one. Options A and B stay the two answers.
 
+What the report does carry since 0.9.25 is a notice at the top of
+the page, in plain unstyled text, saying that its content is built
+by script, that a restrictive policy is the usual reason it did not
+run, and pointing here. A script placed right after it removes it
+during parsing, so a normal load never shows it. A page that
+explains itself is not a rendered dashboard, it only replaces the
+blank page that sent the first reporter looking through build logs.
+
 The constraint is specific to Jenkins. GitHub Pages and GitLab Pages
 serve the report with no policy of their own, and the two paths above
 render it as a browser opening the file locally would, tab navigation
