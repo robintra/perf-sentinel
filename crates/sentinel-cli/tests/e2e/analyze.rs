@@ -644,6 +644,30 @@ fn cli_analyze_invalid_implicit_fragment_fails_instead_of_using_defaults() {
     assert!(stderr.contains("invalid fragment name \"bad.toml\""));
 }
 
+#[cfg(unix)]
+#[test]
+fn cli_analyze_broken_implicit_config_symlink_fails() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    std::os::unix::fs::symlink(
+        "missing-config.toml",
+        dir.path().join(".perf-sentinel.toml"),
+    )
+    .unwrap();
+    let input = dir.path().join("traces.json");
+    fs::write(&input, "[]").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", input.to_str().unwrap()])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert_eq!(output.status.code(), Some(75));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Error reading config"));
+    assert!(stderr.contains(".perf-sentinel.toml"));
+}
+
 #[test]
 fn cli_analyze_sarif_output() {
     let fixture_path = format!(
