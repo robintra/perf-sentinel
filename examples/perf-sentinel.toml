@@ -124,10 +124,12 @@ per_operation_coefficients = true
 # where available). When `true`, the model tag becomes `io_proxy_v2`.
 use_hourly_profiles = true
 
-# Include network-transport energy. Adds a `sci_v1_numerator+transport`
-# methodology tag. Opt-in because it requires the `response_size_bytes` field
-# in your spans.
-include_network_transport = false
+# Include network-transport energy. Needs `response_size_bytes` on your
+# spans, and counts nothing without it. It moves the SCI numerator, so the
+# methodology tag becomes `sci_v1_numerator+transport` and the disclosure
+# reports it under `carbon_methodologies`: two periods that differ on this
+# setting are not comparable, and now say so.
+include_network_transport = true   # default false
 # network_energy_per_byte_kwh = 0.00000000004 # 0.04 kWh / GB, default
 
 # User-supplied hourly profile file (CSV or JSON). Overrides the embedded
