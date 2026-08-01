@@ -164,16 +164,22 @@ max_retained_findings = 10000      # default 10000, bounds 0..10000000
 ingest_queue_capacity = 1024       # default 1024, bounds 1..1048576
 analysis_queue_capacity = 1024     # default 1024, bounds 1..1048576
 # Stamped on every finding as `confidence`, read by downstream tooling and
-# not by the quality gate. "production" -> `daemon_production` (high),
-# "staging" -> `daemon_staging` (medium). Set this to match the environment,
-# the value shown is for the production daemon this file describes.
+# not by the quality gate. Two values here, case-insensitive, anything else
+# is rejected at load time: "production" -> `daemon_production` (real
+# patterns at real scale), "staging" -> `daemon_staging` (real patterns, not
+# production scale). The other two confidence levels belong to batch runs
+# and are not settable: `ci_batch` when `analyze` detects a CI environment,
+# `local_batch` otherwise. Set this to match the environment, the value
+# shown is for the production daemon this file describes.
 environment = "production"         # default "staging"
 # Serve the query API (`/api/*`). `false` keeps OTLP ingestion and
 # `/metrics`, drops every read and ack route including the dashboard's
 # live mode.
 api_enabled = true                 # default true
 
-# --- /!\ Change these only if you know what you are doing -------------------
+# -------------------------------------------------------------------------- #
+#        /!\ Change these only if you know what you are doing /!\            #
+# -------------------------------------------------------------------------- #
 # Still inside [daemon], because a bare key cannot be moved past a
 # sub-table. These change what the daemon reports, or what it exposes, not
 # how fast it runs. A wrong value here does not fail, it produces a daemon
@@ -238,13 +244,13 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #   share of the traffic.
 
 # ###########################################################################
-# /!\ EXPOSURE SETTINGS
+#                        /!\ EXPOSURE SETTINGS /!\
 #
 # Everything below this line either opens a door or authenticates one. Read
 # before uncommenting, they are off in the shipped defaults.
 # ###########################################################################
 
-# --- /!\ Runtime acknowledgments (daemon-side, JSONL) ----------------------
+# --- /!\ Runtime acknowledgments (daemon-side, JSONL) /!\ ------------------
 # Distinct from the CI baseline `.perf-sentinel-acknowledgments.toml`, which
 # stays read-only at runtime. `docs/ACK-WORKFLOW.md` says which belongs
 # where. Needs a durable path, see the topology block above.
@@ -297,7 +303,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # healthy, so leave it out until the follow-up lands.
 #
 # [green.redfish]
-# scrape_interval_secs = 60             # default 60
+# scrape_interval_secs = 60                      # default 60
 # ca_bundle_path = "/etc/ssl/bmc-ca.pem"         # RESERVED, do not set: the scraper stops on it
 # auth_header = "Authorization: Basic BASE64"    # default unset, prefer PERF_SENTINEL_REDFISH_AUTH_HEADER
 # Each entry is a table, never a bare URL string. `schema` picks the wire
@@ -378,7 +384,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #
 # [green.scaphandre]
 # endpoint = "http://localhost:8080/metrics"
-# scrape_interval_secs = 5              # default 5
+# scrape_interval_secs = 5                       # default 5
 # auth_header = "Authorization: Bearer TOKEN"    # default unset, prefer PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER
 #
 # One entry per service, matched against Scaphandre's own process labels.
@@ -386,7 +392,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # services share a runtime binary, which is the usual case on the JVM.
 # [green.scaphandre.process_map."account-svc"]
 # exe_contains = "bin/java"
-# cmdline_contains = "account-svc.jar"   # default unset
+# cmdline_contains = "account-svc.jar"           # default unset
 # [green.scaphandre.process_map."chat-svc"]
 # exe_contains = "dotnet"
 
@@ -443,13 +449,13 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # that shape is used literally.
 #
 # [green.electricity_maps]
-# api_key = "your-api-key"             # prefer PERF_SENTINEL_EMAPS_TOKEN
+# api_key = "your-api-key"                         # prefer PERF_SENTINEL_EMAPS_TOKEN
 # endpoint = "https://api.electricitymaps.com/v4"  # default https://api.electricitymaps.com/v4
-# poll_interval_secs = 3600             # default 300. The free tier is about 30 requests
-#                                       # per zone per month, so it needs 3600 or more
+# poll_interval_secs = 3600                        # default 300. The free tier is about 30 requests
+#                                                  # per zone per month, so it needs 3600 or more
 # region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
-# emission_factor_type = "lifecycle"    # default "lifecycle", or "direct" (combustion only)
-# temporal_granularity = "hourly"       # default "hourly", or "5_minutes" / "15_minutes"
+# emission_factor_type = "lifecycle"               # default "lifecycle", or "direct" (combustion only)
+# temporal_granularity = "hourly"                  # default "hourly", or "5_minutes" / "15_minutes"
 
 # --- Per-window NDJSON archive (input for `disclose`) ----------------------
 # Written only when `path` is set. Requires `[green] enabled = true`, the
@@ -461,20 +467,31 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # max_size_mb = 100   # default 100, rotate past this size, >= 1
 # max_files = 12      # default 12, rotated files kept, >= 1
 
-# --- Public disclosure reporting (`disclose`, `hash-bake`, `verify-hash`) --
-# What each intent commits you to, and the org config file behind
-# "official": https://perf-sentinel.dev/docs/REPORTING
+# --- Public disclosure reporting -------------------------------------------
+# Read this before filling anything in: `disclose` takes its own values from
+# CLI flags (`--intent`, `--confidentiality`, `--period-type`, `--org-config`,
+# `--output`), NOT from this section. What is left here only gates the daemon
+# at startup. What each intent commits you to:
+#   https://perf-sentinel.dev/docs/REPORTING
 # [reporting]
-# intent = "internal"                   # default unset, one of "internal", "official", "audited"
-#                                       # /!\ "official" requires org_config_path and states the
-#                                       # report is published on your organization's behalf
-# confidentiality_level = "internal"    # default unset, "internal" or "public"
+# intent = "internal"                   # default unset. "internal", "official" or "audited"
+#                                       # /!\ read by the daemon at startup only: "audited" makes
+#                                       # it REFUSE to start (not implemented yet), and "official"
+#                                       # requires org_config_path and validates that file
 # org_config_path = "/etc/perf-sentinel/org.toml"      # default unset, required when intent = "official"
+# confidentiality_level = "internal"    # default unset, "internal" or "public". RESERVED: validated
+#                                       # then unused, the published value comes from
+#                                       # `disclose --confidentiality`
 # disclose_output_path = "/var/lib/perf-sentinel/disclosure.json"   # default unset, RESERVED: no
 #                                       # effect today, reports come from `disclose --output`
-# disclose_period = "calendar-quarter"  # default unset, or "calendar-month" / "calendar-year" / "custom"
+# disclose_period = "calendar-quarter"  # default unset, "calendar-month" / "calendar-year" /
+#                                       # "custom". RESERVED: unused, see `disclose --period-type`
 
-# Transparency-log endpoints used when verifying a cosign attestation.
+# Sigstore endpoints, Rekor being the transparency log and Fulcio the
+# certificate authority. /!\ RESERVED, both are parsed and then unused:
+# `verify-hash` shells out to `cosign verify-blob`, which is never given
+# `--rekor-url` or `--fulcio-url`, so it follows its own configuration.
+# Pointing these at a private Sigstore instance changes nothing today.
 # [reporting.sigstore]
-# rekor_url = "https://rekor.sigstore.dev"     # default https://rekor.sigstore.dev
-# fulcio_url = "https://fulcio.sigstore.dev"   # default https://fulcio.sigstore.dev
+# rekor_url = "https://rekor.sigstore.dev"     # default https://rekor.sigstore.dev, no effect
+# fulcio_url = "https://fulcio.sigstore.dev"   # default https://fulcio.sigstore.dev, no effect

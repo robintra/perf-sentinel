@@ -716,18 +716,20 @@ Paramètres de divulgation publique consommés par `disclose`, `hash-bake` et `v
 
 | Champ                   | Type   | Défaut         | Description                                                                                           |
 |-------------------------|--------|----------------|-------------------------------------------------------------------------------------------------------|
-| `intent`                | string | *(non défini)* | `internal`, `official` ou `audited`. `official` exige `org_config_path` au démarrage du daemon        |
-| `confidentiality_level` | string | *(non défini)* | `internal` ou `public`. Pilote la granularité G1 (détail par service) vs G2 (agrégé)                  |
-| `org_config_path`       | string | *(non défini)* | Chemin vers le TOML organisation/scope/méthodologie                                                   |
-| `disclose_output_path`  | string | *(non défini)* | Chemin par défaut où `disclose` écrit le JSON. Indication seulement, `--output` est prioritaire       |
-| `disclose_period`       | string | *(non défini)* | `calendar-quarter`, `calendar-month`, `calendar-year` ou `custom`. Indication pour les runs planifiés |
+| `intent`                | string | *(non défini)* | `internal`, `official` ou `audited`. Lu au démarrage du daemon uniquement : `audited` le fait REFUSER de démarrer (pas implémenté), `official` exige `org_config_path` et valide ce fichier |
+| `org_config_path`       | string | *(non défini)* | Chemin vers le TOML organisation/scope/méthodologie, exigé quand `intent = "official"`                |
+| `confidentiality_level` | string | *(non défini)* | `internal` ou `public`. **Réservé**, validé puis inutilisé : la valeur publiée vient de `disclose --confidentiality` |
+| `disclose_output_path`  | string | *(non défini)* | **Réservé**, sans effet aujourd'hui, c'est `disclose --output` qui écrit le rapport                    |
+| `disclose_period`       | string | *(non défini)* | `calendar-quarter`, `calendar-month`, `calendar-year` ou `custom`. **Réservé**, inutilisé, voir `disclose --period-type` |
 
-La sous-section `[reporting.sigstore]` porte les endpoints Sigstore enregistrés dans le rapport pour que `verify-hash` sache quel Rekor interroger :
+`disclose` ne lit aucune de ces clés : il prend `--intent`, `--confidentiality`, `--period-type`, `--org-config` et `--output` sur la ligne de commande. Ce que cette section fait encore, c'est conditionner le démarrage du daemon via `intent` et `org_config_path`.
+
+La sous-section `[reporting.sigstore]` porte les endpoints Sigstore, Rekor étant le journal de transparence et Fulcio l'autorité de certification. **Les deux sont réservés : ils sont parsés puis inutilisés.** `verify-hash` délègue la vérification de signature au binaire `cosign` et appelle `cosign verify-blob` sans `--rekor-url` ni `--fulcio-url`, cosign suit donc sa propre configuration et renseigner l'une de ces clés ici n'a aucun effet. Pointez une instance Sigstore privée sur cosign lui-même en attendant que ce soit câblé.
 
 | Champ        | Type   | Défaut                        | Description                                    |
 |--------------|--------|-------------------------------|------------------------------------------------|
-| `rekor_url`  | string | `https://rekor.sigstore.dev`  | Endpoint du journal de transparence Rekor      |
-| `fulcio_url` | string | `https://fulcio.sigstore.dev` | Endpoint de l'autorité de certification Fulcio |
+| `rekor_url`  | string | `https://rekor.sigstore.dev`  | Endpoint du journal de transparence Rekor. Réservé. |
+| `fulcio_url` | string | `https://fulcio.sigstore.dev` | Endpoint de l'autorité de certification Fulcio. Réservé. |
 
 ## Configuration minimale
 
