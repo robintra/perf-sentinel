@@ -355,11 +355,10 @@ fn build_http_router(
             start_time: std::time::Instant::now(),
             correlator,
             metrics,
-            scoring_config: config
-                .green
-                .electricity_maps
-                .as_ref()
-                .map(score::carbon::ScoringConfig::from_electricity_maps),
+            // Same object the batch pipeline publishes: it carries the
+            // applied coefficients and the transport display setting, not
+            // only the Electricity Maps dimensions.
+            scoring_config: config.carbon_context().scoring_config,
             green_summary,
             ack_store,
             toml_acks,

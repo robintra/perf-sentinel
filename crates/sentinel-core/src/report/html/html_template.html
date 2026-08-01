@@ -2676,13 +2676,15 @@
   }
 
   // Renders three chips above the green-regions table: API version,
-  // emission factor type, temporal granularity. Hidden when the
-  // payload carries no scoring_config (Electricity Maps not configured).
-  // The 3 fields are bounded enums on the Rust side, no escaping needed.
+  // emission factor type, temporal granularity. Hidden unless the payload
+  // says Electricity Maps is configured: scoring_config now ships on every
+  // run to carry the applied coefficients, so its presence alone means
+  // nothing here. The 3 fields are bounded enums on the Rust side, no
+  // escaping needed.
   function renderScoringConfigBandeau(cfg) {
     var bandeau = document.getElementById("green-scoring-config");
     if (!bandeau) return;
-    if (!cfg) {
+    if (!cfg || cfg.electricity_maps !== true) {
       bandeau.style.display = "none";
       return;
     }

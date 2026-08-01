@@ -478,7 +478,6 @@ impl Config {
             use_hourly_profiles: self.green.use_hourly_profiles,
             energy_snapshot: None,
             per_operation_coefficients: self.green.per_operation_coefficients,
-            include_network_transport: self.green.include_network_transport,
             network_energy_per_byte_kwh: self.green.network_energy_per_byte_kwh,
             custom_hourly_profiles: self.green.custom_hourly_profiles.clone(),
             calibration: self.green.calibration.clone(),

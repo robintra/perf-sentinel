@@ -647,7 +647,7 @@ fn format_messaging_waste_line(mw: &sentinel_core::report::MessagingWaste) -> St
 
 /// The CO2 block of the `GreenOps` summary. Split out of
 /// [`print_green_summary`] to keep that function's branching shallow.
-fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport) {
+fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport, show_transport: bool) {
     println!(
         "  Est. CO\u{2082}:          {:.6} g (low {:.6}, high {:.6}, model {})",
         carbon.total.mid, carbon.total.low, carbon.total.high, carbon.total.model,
@@ -660,7 +660,7 @@ fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport) {
         "  Operational:       {:.6} g    Embodied: {:.6} g    Methodology: {}",
         carbon.operational_gco2, carbon.embodied_gco2, carbon.total.methodology,
     );
-    if let Some(transport) = carbon.transport_gco2 {
+    if let Some(transport) = carbon.transport_gco2.filter(|_| show_transport) {
         println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
     }
 }
@@ -725,7 +725,14 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     );
 
     if let Some(carbon) = summary.co2.as_ref() {
-        print_carbon_summary(carbon);
+        // `include_network_transport = false` hides the term here, it
+        // never removes it from what was computed or disclosed.
+        let show_transport = summary
+            .scoring_config
+            .as_ref()
+            .and_then(|cfg| cfg.show_network_transport)
+            .unwrap_or(true);
+        print_carbon_summary(carbon, show_transport);
     }
 
     if let Some(db) = &summary.database_waste {
@@ -735,10 +742,15 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         println!("{}", format_messaging_waste_line(mw));
     }
 
-    // Carbon scoring config header. Hidden when Electricity Maps is
-    // not configured. The 3 fields are typed enums with bounded
-    // variants, no terminal sanitization needed.
-    if let Some(scoring) = &summary.scoring_config {
+    // Carbon scoring config header. Hidden when Electricity Maps is not
+    // configured: `scoring_config` is built on every run now, so its
+    // presence alone no longer means the API is in use. The 3 fields are
+    // typed enums with bounded variants, no terminal sanitization needed.
+    if let Some(scoring) = summary
+        .scoring_config
+        .as_ref()
+        .filter(|cfg| cfg.electricity_maps == Some(true))
+    {
         println!();
         println!("{}", format_scoring_config_line(scoring));
     }

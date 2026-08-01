@@ -564,7 +564,10 @@ async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergySt
         // intensity sources on the report's region breakdown.
         (
             "electricity_maps",
-            state.scoring_config.is_some(),
+            state
+                .scoring_config
+                .as_ref()
+                .is_some_and(|c| c.electricity_maps == Some(true)),
             None,
             None,
         ),

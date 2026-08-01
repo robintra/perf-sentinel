@@ -1070,6 +1070,7 @@ async fn energy_endpoint_derives_electricity_maps_from_scoring_config() {
         api_version: ApiVersion::V4,
         emission_factor_type: EmissionFactorType::Lifecycle,
         temporal_granularity: TemporalGranularity::Hourly,
+        electricity_maps: Some(true),
         ..ScoringConfig::default()
     });
     let energy = fetch_energy(Arc::new(state)).await;
@@ -1081,6 +1082,26 @@ async fn energy_endpoint_derives_electricity_maps_from_scoring_config() {
     assert!(emaps.configured);
     // No freshness gauge exists for the EM API by design.
     assert!(emaps.last_scrape_age_seconds.is_none());
+}
+
+#[tokio::test]
+async fn energy_endpoint_does_not_claim_electricity_maps_from_coefficients_alone() {
+    use crate::score::carbon::ScoringConfig;
+
+    // Every run now ships a `scoring_config` to carry the applied
+    // coefficients, so its presence must not be read as "the API is on".
+    let mut state = (*make_state()).clone_for_test();
+    state.scoring_config = Some(ScoringConfig {
+        embodied_per_request_gco2: Some(0.001),
+        ..ScoringConfig::default()
+    });
+    let energy = fetch_energy(Arc::new(state)).await;
+    let emaps = energy
+        .backends
+        .iter()
+        .find(|b| b.backend == "electricity_maps")
+        .expect("electricity_maps row");
+    assert!(!emaps.configured);
 }
 
 #[allow(clippy::unused_async)]
