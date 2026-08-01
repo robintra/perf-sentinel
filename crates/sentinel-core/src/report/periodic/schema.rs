@@ -534,17 +534,20 @@ pub struct CarbonBreakdown {
     /// `[green] embodied_carbon_per_request_gco2`.
     #[serde(default)]
     pub embodied_kgco2eq: f64,
-    /// Cross-region network transport. Zero unless
-    /// `[green] include_network_transport` is on and spans carry
-    /// `response_size_bytes`.
+    /// Cross-region network transport, absent when no window counted any.
+    /// Omitted rather than zeroed, because a zero would not distinguish
+    /// `[green] include_network_transport` being off from it being on
+    /// with no cross-region traffic: the two produce identical windows,
+    /// and `carbon_methodologies` carries the same `sci_v1_numerator` tag
+    /// for both.
     ///
-    /// The least certain of the three. Its coefficient defaults to an
-    /// upper bound (0.04 kWh/GB) and published figures span two orders of
-    /// magnitude, so the report's uniform 2x bracket understates it. Read
-    /// it as a ceiling, and exclude it when comparing periods that do not
-    /// agree on the setting.
-    #[serde(default)]
-    pub transport_kgco2eq: f64,
+    /// The least certain of the three when present. Its coefficient
+    /// defaults to an upper bound (0.04 kWh/GB) and published figures span
+    /// two orders of magnitude, so the report's uniform 2x bracket
+    /// understates it. Read it as a ceiling, and exclude it when comparing
+    /// periods that do not agree on the setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_kgco2eq: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
