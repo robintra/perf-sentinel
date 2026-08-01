@@ -164,6 +164,12 @@ n_plus_one_min_occurrences = 5
 slow_query_threshold_ms = 500
 ```
 
+Pour une configuration modulaire, placez des fragments numérotés comme
+`30-green-alumet.toml` dans `.perf-sentinel.d/`. Ils sont chargés selon leur
+priorité unique à deux chiffres, puis `.perf-sentinel.toml` les surcharge. Les
+fragments GreenOps prêts à copier sont dans [`examples/`](examples/). Voir la
+[référence de configuration](docs/FR/CONFIGURATION-FR.md#fragments-de-configuration).
+
 Référence complète des sous-commandes : `perf-sentinel <cmd> --help`, ou [docs/FR/CLI-FR.md](docs/FR/CLI-FR.md).
 
 <details>

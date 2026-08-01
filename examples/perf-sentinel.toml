@@ -1,8 +1,8 @@
 # Reference perf-sentinel config with every section annotated.
 #
-# This file is the inventory. The numbered files beside it are composable
-# fragments. Copy the ones you need into `.perf-sentinel.d/` without
-# renaming them:
+# This file is the inventory. The numbered GreenOps files beside it are
+# composable fragments. Copy the ones you need into `.perf-sentinel.d/`
+# without renaming them:
 #
 #   30-green-alumet.toml               measured energy, bare metal or k8s node
 #   31-green-cloud.toml                modelled energy, cloud VMs with no RAPL
@@ -10,11 +10,13 @@
 #   33-green-kepler.toml               measured container energy from Kepler
 #   34-green-redfish.toml              measured chassis energy from Redfish BMC
 #   40-green-electricity-maps.toml     live grid intensity, Electricity Maps
-#   60-daemon-docker.toml              daemon reachable from a sibling container
 #
 # Fragments load by their two-digit priority. Duplicate priorities and names
 # outside `NN-lowercase-name.toml` are rejected. This main file loads last and
 # overrides fragment values, while nested tables merge recursively.
+# `60-daemon-docker.toml` is instead a standalone main config for the Compose
+# collector and sharded topologies. Mount it as `.perf-sentinel.toml`, then put
+# only optional GreenOps fragments beside it in `.perf-sentinel.d/`.
 #
 # Copy this file to `.perf-sentinel.toml` in your working directory (or mount
 # it into the container, see `examples/docker-compose-collector.yml`) and

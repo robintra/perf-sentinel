@@ -21,15 +21,19 @@ beside the main config, then loads `.perf-sentinel.toml` last. This also
 applies when `--config path/to/custom.toml` is used: fragments come from
 `path/to/.perf-sentinel.d/` and `custom.toml` remains the final override.
 The main file is optional only when `--config` is not supplied.
+Defaults are used only when neither the implicit main file nor any fragment
+exists. Any discovered file that cannot be read, parsed or validated stops the
+command with exit code 75 instead of silently discarding valid configuration.
 
 Fragment names must follow `NN-lowercase-name.toml`, where `NN` is a unique
 two-digit priority from `00` to `99`. Files load in ascending priority order.
 Duplicate priorities, uppercase names and ambiguous separators are rejected.
 Non-TOML files in the directory are ignored.
 
-Tables merge recursively. A later scalar, array or datetime replaces the
-earlier value at the same key. Replacing a key with another TOML type is an
-error. The examples use these reserved bands:
+When both values are tables, they merge recursively. Any other later value
+replaces the earlier value at the same key. The final merged document must
+still match the typed configuration schema. The examples use these reserved
+bands:
 
 | Priority     | Purpose                                                 |
 |--------------|---------------------------------------------------------|
@@ -44,8 +48,10 @@ The ready-to-copy fragments in `examples/` preserve their priority in their
 filename. Keep those names when copying them into `.perf-sentinel.d/`:
 `30-green-alumet.toml`, `31-green-cloud.toml`,
 `32-green-scaphandre.toml`, `33-green-kepler.toml`,
-`34-green-redfish.toml`, `40-green-electricity-maps.toml` and
-`60-daemon-docker.toml`.
+`34-green-redfish.toml` and `40-green-electricity-maps.toml`.
+`60-daemon-docker.toml` is a standalone main config for the collector and
+sharded Compose topologies. Mount it as `.perf-sentinel.toml`, then place only
+the optional GreenOps fragments in the sibling `.perf-sentinel.d/` directory.
 
 ## Subcommands
 
