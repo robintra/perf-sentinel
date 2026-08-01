@@ -48,7 +48,8 @@ fn example_config_covers_every_key_the_parser_accepts() {
             continue;
         };
         // A field naming a subsection appears as a `[table.header]`
-        // rather than as `key = value`, so accept either spelling.
+        // rather than as `key = value`, and a map of tables appears as
+        // `[a.b.field."entry"]`, so accept every spelling.
         let shown = example.lines().any(|l| {
             let l = l
                 .trim_start()
@@ -59,6 +60,7 @@ fn example_config_covers_every_key_the_parser_accepts() {
                 || l.contains(&format!("{field} = "))
                 || l.starts_with(&format!("[{field}]"))
                 || l.contains(&format!(".{field}]"))
+                || l.contains(&format!(".{field}."))
         });
         if !shown {
             missing.push(field);
