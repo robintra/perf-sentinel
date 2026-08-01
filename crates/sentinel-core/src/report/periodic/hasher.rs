@@ -80,17 +80,12 @@ fn blank_content_hash(v: &mut Value) {
     }
 }
 
-/// Recursively re-build every JSON object via `BTreeMap` so the output
-/// has sorted keys regardless of how `serde_json::Map` happens to be
-/// configured upstream. Removing this collect would silently break the
-/// hash determinism the moment a transitive crate flips the
-/// `serde_json/preserve_order` feature.
 /// Seed for the first line of an archive chain. A domain literal rather
 /// than the file path, so a renamed archive stays verifiable.
 pub const ARCHIVE_CHAIN_SEED: &str = "perf-sentinel-archive/v1";
 
 /// SHA-256 of the canonical form of an archive envelope body
-/// (`{ts, report, prev}`, without its own `hash`).
+/// (`{ts, report, prev, seq}`, without its own `hash`).
 ///
 /// Lives here rather than in the daemon writer because `disclose` verifies
 /// the chain and builds without the `daemon` feature.
@@ -104,6 +99,11 @@ pub fn archive_chain_hash(body: &Value) -> Result<String, serde_json::Error> {
     Ok(format_sha256(&bytes))
 }
 
+/// Recursively re-build every JSON object via `BTreeMap` so the output
+/// has sorted keys regardless of how `serde_json::Map` happens to be
+/// configured upstream. Removing this collect would silently break the
+/// hash determinism the moment a transitive crate flips the
+/// `serde_json/preserve_order` feature.
 pub(crate) fn canonicalize(v: Value) -> Value {
     match v {
         Value::Object(map) => {
@@ -294,7 +294,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../docs/schemas/examples/example-internal-G1.json");
         let raw = std::fs::read_to_string(&path).expect("read published example");
-        let from_file: serde_json::Value = serde_json::from_str(&raw).expect("parse example");
+        let from_file: Value = serde_json::from_str(&raw).expect("parse example");
         let report: PeriodicReport = serde_json::from_str(&raw).expect("deserialize example");
 
         let round_tripped = serde_json::to_value(&report).expect("re-serialize");

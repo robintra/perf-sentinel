@@ -282,7 +282,7 @@ mod tests {
 
         // The vintage is what tells a reader how old the figures are.
         assert!(
-            doc.contains(super::super::table_data::SPECPOWER_VINTAGE),
+            doc.contains(SPECPOWER_VINTAGE),
             "the doc must carry the current table vintage"
         );
     }
