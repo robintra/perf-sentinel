@@ -705,18 +705,20 @@ Public-disclosure settings consumed by `disclose`, `hash-bake` and `verify-hash`
 
 | Field                   | Type   | Default   | Description                                                                                  |
 |-------------------------|--------|-----------|----------------------------------------------------------------------------------------------|
-| `intent`                | string | *(unset)* | `internal`, `official` or `audited`. `official` requires `org_config_path` at daemon startup |
-| `confidentiality_level` | string | *(unset)* | `internal` or `public`. Drives G1 (full per-service) vs G2 (aggregated) granularity          |
-| `org_config_path`       | string | *(unset)* | Path to the organisation/scope/methodology TOML                                              |
-| `disclose_output_path`  | string | *(unset)* | Default path where `disclose` writes the JSON. Hint only, `--output` overrides it            |
-| `disclose_period`       | string | *(unset)* | `calendar-quarter`, `calendar-month`, `calendar-year` or `custom`. Hint for scheduled runs   |
+| `intent`                | string | *(unset)* | `internal`, `official` or `audited`. Read at daemon startup only: `audited` makes the daemon refuse to start (not implemented), `official` requires `org_config_path` and validates it |
+| `org_config_path`       | string | *(unset)* | Path to the organisation/scope/methodology TOML, required when `intent = "official"`         |
+| `confidentiality_level` | string | *(unset)* | `internal` or `public`. **Reserved**, validated then unused: the published value comes from `disclose --confidentiality` |
+| `disclose_output_path`  | string | *(unset)* | **Reserved**, no effect today, `disclose --output` is what writes the report                 |
+| `disclose_period`       | string | *(unset)* | `calendar-quarter`, `calendar-month`, `calendar-year` or `custom`. **Reserved**, unused, see `disclose --period-type` |
 
-The `[reporting.sigstore]` sub-section holds the Sigstore endpoints recorded in the report so `verify-hash` knows which Rekor to query:
+`disclose` reads none of these: it takes `--intent`, `--confidentiality`, `--period-type`, `--org-config` and `--output` from the command line. What this section still does is gate the daemon at startup through `intent` and `org_config_path`.
 
-| Field        | Type   | Default                         | Description                              |
-|--------------|--------|---------------------------------|------------------------------------------|
-| `rekor_url`  | string | `https://rekor.sigstore.dev`    | Rekor transparency log endpoint          |
-| `fulcio_url` | string | `https://fulcio.sigstore.dev`   | Fulcio certificate authority endpoint    |
+The `[reporting.sigstore]` sub-section holds the Sigstore endpoints, Rekor being the transparency log and Fulcio the certificate authority. **Both are reserved: they are parsed and then unused.** `verify-hash` delegates signature checking to the `cosign` binary and invokes `cosign verify-blob` without `--rekor-url` or `--fulcio-url`, so cosign follows its own configuration and setting either key here has no effect. Point a private Sigstore instance at cosign itself until this is wired up.
+
+| Field        | Type   | Default                         | Description                                     |
+|--------------|--------|---------------------------------|-------------------------------------------------|
+| `rekor_url`  | string | `https://rekor.sigstore.dev`    | Rekor transparency log endpoint. Reserved.      |
+| `fulcio_url` | string | `https://fulcio.sigstore.dev`   | Fulcio certificate authority endpoint. Reserved.|
 
 ## Minimal configuration
 

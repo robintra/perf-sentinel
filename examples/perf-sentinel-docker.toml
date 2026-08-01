@@ -20,8 +20,12 @@
 # in front (nginx, traefik, envoy) with TLS and authentication.
 listen_address = "0.0.0.0"         # default 127.0.0.1
 
-# Confidence stamped on every finding, `daemon_production` here. Only
-# "staging" and "production" are accepted, "prod" is rejected at load time.
-# Use "staging" when this compose carries pre-production traffic, or the
-# findings claim more confidence than the traffic supports.
+# Confidence stamped on every finding. This key takes two values,
+# case-insensitive, anything else is rejected at load time:
+#   "production" -> `daemon_production`, real patterns at real scale
+#   "staging"    -> `daemon_staging`, real patterns, not production scale
+# The two remaining confidence levels are not settable here, batch runs pick
+# them on their own: `ci_batch` when `analyze` detects a CI environment and
+# `local_batch` otherwise. Use "staging" when this compose carries
+# pre-production traffic, or the findings claim more than the traffic supports.
 environment = "production"         # default "staging"
