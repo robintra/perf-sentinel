@@ -1,12 +1,24 @@
-# Kepler energy fragment.
-# Copy this file to `.perf-sentinel.d/33-green-kepler.toml`.
-# Used by `watch` only. Adjust the endpoint and service mappings.
+# Measured container or process energy from one Kepler v0.10+ /metrics endpoint.
+# Usable as is after mapping services:
+#
+#   perf-sentinel watch --config 33-green-kepler.toml
+
+[green]
+enabled = true   # default true
+# No default. Used when spans carry no cloud.region attribute.
+default_region = "eu-west-3"
 
 [green.kepler]
+# Prometheus /metrics URL. No default, required to activate the scraper.
 endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
-scrape_interval_secs = 5
-metric_kind = "container"
+scrape_interval_secs = 5   # default 5, bounds 1..3600
+# "container" reads container_name. "process" reads the 15-byte Linux comm.
+metric_kind = "container"   # default "container", or "process"
+# Credentials belong in PERF_SENTINEL_KEPLER_AUTH_HEADER, which wins over
+# this optional field.
+# auth_header = "Authorization: Bearer TOKEN"   # default unset
 
+# Default empty. Map each service to its container_name or comm label.
 [green.kepler.service_mappings]
 "order-svc" = "order-svc-deployment"
 "chat-svc" = "chat"

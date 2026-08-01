@@ -1,10 +1,25 @@
-# Redfish energy fragment.
-# Copy this file to `.perf-sentinel.d/34-green-redfish.toml`.
-# Used by `watch` only. Adjust the BMC endpoints and service mappings.
+# Measured chassis power from a bare-metal Redfish BMC.
+# Each mapped service receives its chassis-level coefficient. Usable as is
+# after adjusting the endpoints and mappings:
+#
+#   perf-sentinel watch --config 34-green-redfish.toml
+
+[green]
+enabled = true   # default true
+# No default. Used when spans carry no cloud.region attribute.
+default_region = "eu-west-3"
 
 [green.redfish]
-scrape_interval_secs = 60
+scrape_interval_secs = 60   # default 60, bounds 15..3600
+# Reserved. Setting this currently stops the scraper, so leave it unset.
+# ca_bundle_path = "/etc/ssl/bmc-ca.pem"   # default unset
+# Credentials belong in PERF_SENTINEL_REDFISH_AUTH_HEADER, which wins over
+# this optional field.
+# auth_header = "Authorization: Basic BASE64"   # default unset
 
+# Default empty. At least one endpoint is required to activate the scraper.
+# Both fields have no default and are required. Use "legacy_power" for /Power
+# or "environment_metrics" for /EnvironmentMetrics.
 [green.redfish.endpoints."chassis-legacy-1"]
 url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
 schema = "legacy_power"
@@ -13,6 +28,7 @@ schema = "legacy_power"
 url = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/EnvironmentMetrics"
 schema = "environment_metrics"
 
+# Default empty. Map each service to an endpoint chassis ID declared above.
 [green.redfish.service_mappings]
 "order-svc" = "chassis-legacy-1"
 "chat-svc" = "chassis-legacy-1"

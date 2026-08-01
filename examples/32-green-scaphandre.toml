@@ -1,14 +1,25 @@
-# Scaphandre energy fragment.
-# Copy this file to `.perf-sentinel.d/32-green-scaphandre.toml`.
-# Used by `watch` only. Adjust the endpoint and process matchers.
+# Measured per-process energy from Scaphandre on Linux hosts with Intel RAPL.
+# Prefer Alumet for new deployments. Usable as is after adjusting the matchers:
+#
+#   perf-sentinel watch --config 32-green-scaphandre.toml
+
+[green]
+enabled = true   # default true
+# No default. Used when spans carry no cloud.region attribute.
+default_region = "eu-west-3"
 
 [green.scaphandre]
+# Prometheus /metrics URL. No default, required to activate the scraper.
 endpoint = "http://localhost:8080/metrics"
-scrape_interval_secs = 5
+scrape_interval_secs = 5   # default 5, bounds 1..3600
+# Credentials belong in PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER, which wins over
+# this optional field.
+# auth_header = "Authorization: Bearer TOKEN"   # default unset
 
+# Default empty. Map each service to exactly one Scaphandre process.
 [green.scaphandre.process_map."order-svc"]
-exe_contains = "bin/java"
-cmdline_contains = "order-svc.jar"
+exe_contains = "bin/java"             # no default, required
+cmdline_contains = "order-svc.jar"    # default unset, narrows shared runtimes
 
 [green.scaphandre.process_map."native-svc"]
-exe_contains = "/opt/native-svc/bin/native-svc"
+exe_contains = "/opt/native-svc/bin/native-svc"   # no default, required
