@@ -643,7 +643,24 @@
         "binary_verification_url": { "type": "string", "format": "uri" },
         "trace_integrity_chain": {
           "type": ["null", "object"],
-          "description": "Reserved. Always null in schema v1.0."
+          "description": "Integrity of the archived windows this report was aggregated from (v1.6+; null on earlier reports). The daemon hash-chains each window as it writes it, and disclose walks the chain while reading. Detects a window edited, removed or reordered after the fact. It does not attest the source: whoever controls the daemon and its files can regenerate a consistent chain.",
+          "properties": {
+            "windows_verified": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Windows whose recomputed hash matched and whose prev pointed at the preceding line."
+            },
+            "windows_unchained": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Windows carrying no chain, written before chaining existed. Not tampering, simply not attestable."
+            },
+            "breaks": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Detected breaks. Non-zero means part of the period is no longer attestable. The report is still produced and says so, rather than refusing to exist."
+            }
+          }
         },
         "signature": {
           "oneOf": [

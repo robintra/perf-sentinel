@@ -475,6 +475,11 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # daemon refuses the pairing otherwise since an archive of windows with no
 # energy would make `disclose` output meaningless. Needs a durable path, see
 # the topology block above.
+#
+# Each window is hash-chained to the one before it, and `disclose` reports
+# how many verified and how many breaks it found. That detects a window
+# edited or removed after the fact, and does not attest the source: whoever
+# controls this daemon and these files can regenerate a consistent chain.
 # [daemon.archive]
 # path = "/var/lib/perf-sentinel/archive.ndjson"   # default unset (no archive)
 # max_size_mb = 100   # default 100, rotate past this size, >= 1

@@ -18,8 +18,8 @@ use sentinel_core::report::periodic::schema::{
     AntiPatternDetail, Application, ApplicationG1, ApplicationG2, CalibrationInputs,
     Confidentiality, CoverageBasis, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity,
     IntegrityLevel, Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType,
-    PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, StandardCrosswalk,
-    TemporalCoverage, core_patterns_required,
+    PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, SourceChain,
+    StandardCrosswalk, TemporalCoverage, core_patterns_required,
 };
 use sentinel_core::report::periodic::{
     LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD, MIN_PERIOD_COVERAGE_FOR_OFFICIAL, binary_hash,
@@ -1339,6 +1339,11 @@ pub(crate) fn build_report(
         // noise well below any meaningful digit, and the report is hashed.
         (aggregate.embodied_gco2_total * 1000.0).round() / 1000.0
     });
+    let (chain_verified, chain_unchained, chain_breaks) = (
+        aggregate.chain_verified,
+        aggregate.chain_unchained,
+        aggregate.chain_breaks,
+    );
     let embodied_per_request = embodied_total.and_then(|total| {
         let requests = aggregate.aggregate.total_requests;
         (requests > 0).then(|| {
@@ -1476,7 +1481,11 @@ pub(crate) fn build_report(
             content_hash: String::new(),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: serde_json::Value::Null,
+            trace_integrity_chain: Some(SourceChain {
+                windows_verified: chain_verified,
+                windows_unchained: chain_unchained,
+                breaks: chain_breaks,
+            }),
             signature: None,
             binary_attestation: None,
             cross_period_log: None,

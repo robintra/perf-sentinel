@@ -387,6 +387,29 @@ Et dans `report_metadata` :
 (Utiliser `"signed-with-attestation"` au lieu de `"signed"` quand
 le binaire producteur porte aussi une provenance SLSA.)
 
+### Ce que le hash prouve, et où il s'arrête
+
+Le `content_hash`, la signature cosign et la provenance SLSA lient le
+**document publié**. Depuis la 0.9.25, le daemon chaîne aussi par
+hachage chaque fenêtre archivée au moment où il l'écrit, et `disclose`
+parcourt cette chaîne pendant l'agrégation, en publiant le résultat dans
+`integrity.trace_integrity_chain` : fenêtres vérifiées, fenêtres écrites
+avant l'existence du chaînage, et ruptures trouvées. Cela ferme l'écart
+où une fenêtre pouvait être éditée entre la mesure et la publication
+sans que rien ne le montre. Une rupture n'arrête pas le rapport, elle
+est publiée comme un compteur, si bien qu'une archive tronquée donne
+encore une divulgation partielle honnête.
+
+Ce que rien de tout cela ne prouve, c'est la sincérité de la mesure à la
+source. Un opérateur qui contrôle le daemon et ses fichiers peut
+régénérer une chaîne cohérente, exactement comme il peut choisir un
+coefficient défavorable. Ces paramètres sont désormais publiés eux
+aussi, voir `carbon_methodologies` et les champs embodied dans
+`methodology.calibration_inputs`, ce qui les rend contestables plutôt
+qu'invisibles. L'étape restante est l'ancrage de la tête de chaîne hors
+du contrôle de l'opérateur, ce à quoi `integrity.cross_period_log` reste
+réservé. À lire comme : inviolable après coup, auto-déclaré à la source.
+
 ### Le content hash reste valide
 
 Le `content_hash` n'a **pas** besoin d'être recalculé après
