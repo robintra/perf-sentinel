@@ -584,11 +584,12 @@
 <div id="ps-no-js" style="padding:24px;max-width:60em;font:16px/1.6 system-ui,sans-serif">
   <strong>This report did not build.</strong>
   Its content is rendered by the JavaScript embedded in this file, and the page
-  loaded without running it. A server sending a restrictive
-  Content-Security-Policy is the usual cause, which Jenkins does by default. See
-  <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/CI.md" target="_blank" rel="noopener noreferrer">docs/CI.md</a>,
-  section "Configuring Jenkins to render the interactive report". Opening this
-  file straight from disk always works.
+  loaded without running it. Either the browser has JavaScript turned off, or
+  the server sent a Content-Security-Policy that blocks it, which a Jenkins
+  controller does by default while GitHub Pages and GitLab Pages do not.
+  Remedies per CI provider:
+  <a href="https://perf-sentinel.dev/docs/CI" target="_blank" rel="noopener noreferrer">perf-sentinel.dev/docs/CI</a>.
+  Opening this file straight from disk always works.
 </div>
 <script>var n=document.getElementById("ps-no-js");if(n){n.remove()}</script>
 <div class="ps-shell" id="ps-shell">
