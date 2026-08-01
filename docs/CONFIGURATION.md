@@ -91,7 +91,13 @@ recovers the correct classification:
   regardless of ORM scope, sequential siblings, or variance, under the
   `looks_sanitized` guard. Use this when actionable `redundant_sql`
   findings are valuable signal that should not be silently absorbed
-  into `n_plus_one_sql`.
+  into `n_plus_one_sql`. This is the value to prefer on a stack whose
+  instrumentation names an ORM: the simulation lab runs all of its
+  stacks this way, because under `auto` the ORM scope alone reclassifies
+  15 cache-warmed identical `SELECT`s through Hibernate as an N+1. On a
+  bare driver, with no ORM scope to corroborate, prefer `auto` instead,
+  since `strict` leaves the lower occurrence counts to the redundant
+  detector.
 - `"always"`: reclassify any sanitized group with at least
   `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
   may flip a real single-param redundancy.
@@ -518,14 +524,9 @@ calibration_file = ".perf-sentinel-calibration.toml"
 
 **`perf-sentinel calibrate` input size limits.** Both inputs are capped to protect against unbounded memory use: the `--traces` file is capped at 1 GiB (the fixed batch cap since 0.8.7, same as `analyze`) and the `--measured-energy` CSV is capped at 64 MiB. Calibrate exits with a clear error if either file exceeds its limit. 64 MiB is generous for thousands of RAPL samples per minute, if you need more, file an issue describing the workload.
 
-#### `[tempo]` (optional)
+#### `perf-sentinel tempo` (no config section)
 
-Configuration for the `perf-sentinel tempo` subcommand. The subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. All values below can also be set via CLI flags (flags override config).
-
-| Field        | Type    | Default | Description                                        |
-|--------------|---------|---------|----------------------------------------------------|
-| `endpoint`   | string  | none    | Tempo HTTP API base URL (e.g. `http://tempo:3200`) |
-| `max_traces` | integer | `100`   | Maximum traces to fetch in search mode             |
+The `tempo` subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. Its own settings are CLI flags only, there is no `[tempo]` section: `--endpoint` is required, `--max-traces` defaults to `100`, alongside `--trace-id`, `--service`, `--lookback` and `--auth-header`. Run `perf-sentinel tempo --help` for the current list. A `[tempo]` table written into the config file is ignored in silence, as any unknown top-level table is. The `--config` file still applies for everything else, thresholds and detection in particular, since the fetched traces go through the same pipeline.
 
 ### `[daemon]`
 
