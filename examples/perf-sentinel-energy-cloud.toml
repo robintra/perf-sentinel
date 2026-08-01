@@ -26,8 +26,8 @@ scrape_interval_secs = 15
 #     on-prem watts, so a typo degrades the figure instead of failing.
 #   instance_type: looked up in the embedded SPECpower table. An unknown one
 #     warns at startup and falls back to a provider average, the figure just
-#     gets coarser. Families covered and how to check yours:
-#     https://perf-sentinel.dev/docs/CONFIGURATION#green-cloud-optional-opt-in
+#     gets coarser, and that warning is how you check yours. Full list:
+#     https://github.com/robintra/perf-sentinel/blob/main/docs/INSTANCE-TYPES.md
 default_provider = "aws"
 default_instance_type = "c5.4xlarge"
 # Omit `cpu_metric` and the query is derived from the provider:

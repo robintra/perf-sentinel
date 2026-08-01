@@ -245,6 +245,48 @@ pub fn compute_cloud_energy_per_op_kwh(
 mod tests {
     use super::*;
 
+    /// The published list must hold every type the lookup accepts, and
+    /// claim no type it does not. `refresh-instance-power.py` rewrites the
+    /// table from upstream coefficients, so a hand-maintained page would
+    /// go stale on the first refresh and quietly send operators to a
+    /// fallback average. Regenerate with
+    /// `python3 scripts/generate-instance-types-doc.py`.
+    #[test]
+    fn instance_types_doc_matches_the_table() {
+        let doc = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/INSTANCE-TYPES.md"),
+        )
+        .expect("read docs/INSTANCE-TYPES.md");
+        let listed: std::collections::HashSet<&str> = doc
+            .lines()
+            .filter_map(|l| l.strip_prefix("| `"))
+            .filter_map(|l| l.split('`').next())
+            .collect();
+
+        let missing: Vec<&str> = INSTANCE_POWER
+            .keys()
+            .filter(|k| !listed.contains(*k))
+            .copied()
+            .collect();
+        assert!(missing.is_empty(), "types absent from the doc: {missing:?}");
+
+        let invented: Vec<&str> = listed
+            .iter()
+            .filter(|k| !INSTANCE_POWER.contains_key(*k))
+            .copied()
+            .collect();
+        assert!(
+            invented.is_empty(),
+            "types the doc claims but the table does not have: {invented:?}"
+        );
+
+        // The vintage is what tells a reader how old the figures are.
+        assert!(
+            doc.contains(super::super::table_data::SPECPOWER_VINTAGE),
+            "the doc must carry the current table vintage"
+        );
+    }
+
     // ------------------------------------------------------------------
     // lookup_instance_power
     // ------------------------------------------------------------------
