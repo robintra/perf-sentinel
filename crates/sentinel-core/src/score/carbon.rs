@@ -113,8 +113,8 @@ pub const CO2_MODEL_V3_CAL: &str = "io_proxy_v3+cal";
 pub const METHODOLOGY_SCI_NUMERATOR: &str = "sci_v1_numerator";
 
 /// Methodology tag: SCI v1.0 numerator with network transport energy added.
-/// `(E x I) + M + T` where `T` is network transport CO2. Used whenever
-/// transport CO2 > 0, the term is counted on every run.
+/// `(E x I) + M + T` where `T` is network transport CO2. Applied on every
+/// run since the transport term became unconditional, zero included.
 pub const METHODOLOGY_SCI_NUMERATOR_TRANSPORT: &str = "sci_v1_numerator+transport";
 
 /// Methodology tag: avoidable CO2 via `operational * (avoidable_ops / accounted_ops)`.
