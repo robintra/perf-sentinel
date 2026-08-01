@@ -427,6 +427,16 @@
           "properties": {
             "operational_kgco2eq": { "type": "number", "minimum": 0 },
             "embodied_kgco2eq": { "type": "number", "minimum": 0 },
+            "database_kgco2eq_out_of_total": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Total carbon of the database over the period, when measured. Outside the sum of the three terms and outside total_carbon_kgco2eq: it covers a different scope from the instrumented services. Published here so every carbon figure a run produced is readable in one place (v1.6+)."
+            },
+            "messaging_kgco2eq_out_of_total": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Same as database_kgco2eq_out_of_total, for the message broker (v1.6+)."
+            },
             "transport_kgco2eq": {
               "type": "number",
               "minimum": 0,

@@ -157,6 +157,12 @@ pub struct DisclosureDbWaste {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operational_waste_gco2: Option<f64>,
     pub canonical_waste_kwh: f64,
+    /// Total carbon of the subsystem for the window, not just its waste.
+    /// `None` when the window energy had no carbon conversion. Reported
+    /// beside the totals, never inside them: this is a different scope
+    /// from the instrumented services.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_gco2: Option<f64>,
     /// Window `energy_gco2` scaled by the canonical SQL ratio; `None`
     /// when the window energy had no carbon conversion.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -234,16 +234,20 @@ struct WasteTierAccumulator {
 /// Fold one window's waste block into a running accumulator. An
 /// out-of-spec provenance tag drops the whole block: a figure whose
 /// provenance cannot be published must not reach the sums either.
-#[allow(clippy::too_many_arguments)] // one per wire field, all distinct
-fn fold_waste_block(
-    acc: &mut DbWasteAccumulator,
-    model: &str,
-    energy_kwh: f64,
-    operational_kwh: f64,
-    operational_gco2: Option<f64>,
-    canonical_kwh: f64,
-    canonical_gco2: Option<f64>,
-) {
+fn fold_waste_block(acc: &mut DbWasteAccumulator, block: &crate::report::DisclosureDbWaste) {
+    let crate::report::DisclosureDbWaste {
+        model,
+        energy_kwh,
+        operational_waste_kwh: operational_kwh,
+        operational_waste_gco2: operational_gco2,
+        canonical_waste_kwh: canonical_kwh,
+        canonical_waste_gco2: canonical_gco2,
+        energy_gco2,
+    } = block;
+    let (energy_kwh, operational_kwh, canonical_kwh) =
+        (*energy_kwh, *operational_kwh, *canonical_kwh);
+    let (operational_gco2, canonical_gco2, energy_gco2) =
+        (*operational_gco2, *canonical_gco2, *energy_gco2);
     if !super::schema::is_valid_model_tag(model) {
         return;
     }
@@ -258,6 +262,9 @@ fn fold_waste_block(
     }
     if let Some(g) = canonical_gco2 {
         acc.canonical_g = Some(acc.canonical_g.unwrap_or(0.0) + sanitize_f64(g));
+    }
+    if let Some(g) = energy_gco2 {
+        acc.energy_g = Some(acc.energy_g.unwrap_or(0.0) + sanitize_f64(g));
     }
     acc.windows = acc.windows.saturating_add(1);
     // Three provenance classes, three buckets, see
@@ -276,7 +283,7 @@ fn fold_waste_block(
     }
     // Same cap as the sibling energy-model collector.
     if acc.models.len() < MAX_BINARY_VERSIONS || acc.models.contains(model) {
-        acc.models.insert(model.to_string());
+        acc.models.insert(model.clone());
     }
 }
 
@@ -290,6 +297,8 @@ struct DbWasteAccumulator {
     operational_g: Option<f64>,
     canonical_kwh: f64,
     canonical_g: Option<f64>,
+    /// Total carbon of the subsystem, beside the totals and never in them.
+    energy_g: Option<f64>,
     models: BTreeSet<String>,
     windows: u64,
     measured_windows: u64,
@@ -584,28 +593,12 @@ impl Builder {
     /// block: a figure whose provenance cannot be published must not reach
     /// the sums either.
     fn fold_database_block(&mut self, db: &crate::report::DisclosureDbWaste) {
-        fold_waste_block(
-            &mut self.db_waste,
-            &db.model,
-            db.energy_kwh,
-            db.operational_waste_kwh,
-            db.operational_waste_gco2,
-            db.canonical_waste_kwh,
-            db.canonical_waste_gco2,
-        );
+        fold_waste_block(&mut self.db_waste, db);
     }
 
     /// Same fold for the window's `disclosure_waste.messaging` block.
     fn fold_messaging_block(&mut self, mw: &crate::report::DisclosureMsgWaste) {
-        fold_waste_block(
-            &mut self.msg_waste,
-            &mw.model,
-            mw.energy_kwh,
-            mw.operational_waste_kwh,
-            mw.operational_waste_gco2,
-            mw.canonical_waste_kwh,
-            mw.canonical_waste_gco2,
-        );
+        fold_waste_block(&mut self.msg_waste, mw);
     }
 
     fn fold_binary_version(&mut self, bv: &str) {
@@ -908,6 +901,8 @@ impl Builder {
                     self.operational_gco2_total,
                     self.embodied_gco2_total,
                     self.transport_gco2_total,
+                    self.db_waste.energy_g,
+                    self.msg_waste.energy_g,
                 ),
                 aggregate_efficiency_score: canonical_waste.efficiency_score,
                 aggregate_waste_ratio: canonical_waste.waste_ratio,
@@ -1001,12 +996,16 @@ fn build_carbon_breakdown(
     operational_gco2: f64,
     embodied_gco2: f64,
     transport_gco2: f64,
+    database_gco2: Option<f64>,
+    messaging_gco2: Option<f64>,
 ) -> Option<CarbonBreakdown> {
     (operational_gco2 > 0.0 || embodied_gco2 > 0.0 || transport_gco2 > 0.0).then(|| {
         CarbonBreakdown {
             operational_kgco2eq: operational_gco2 / 1000.0,
             embodied_kgco2eq: embodied_gco2 / 1000.0,
             transport_kgco2eq: (transport_gco2 > 0.0).then_some(transport_gco2 / 1000.0),
+            database_kgco2eq_out_of_total: database_gco2.map(|g| g / 1000.0),
+            messaging_kgco2eq_out_of_total: messaging_gco2.map(|g| g / 1000.0),
         }
     })
 }
@@ -1776,6 +1775,7 @@ mod tests {
             operational_waste_gco2: Some(energy * 50.0),
             canonical_waste_kwh: energy * 0.8,
             canonical_waste_gco2: Some(energy * 80.0),
+            energy_gco2: None,
         };
         let tier = crate::report::AvoidableTier {
             n_plus_one_threshold: 2,
@@ -1840,6 +1840,7 @@ mod tests {
             operational_waste_gco2: Some(energy * 50.0),
             canonical_waste_kwh: energy * 0.8,
             canonical_waste_gco2: Some(energy * 80.0),
+            energy_gco2: None,
         };
         let tier = crate::report::AvoidableTier {
             n_plus_one_threshold: 2,
