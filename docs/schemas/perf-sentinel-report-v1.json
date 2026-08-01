@@ -421,6 +421,19 @@
       "properties": {
         "total_requests": { "type": "integer", "minimum": 0 },
         "total_energy_kwh": { "type": "number", "minimum": 0 },
+        "carbon_breakdown": {
+          "type": "object",
+          "description": "The three SCI terms total_carbon_kgco2eq is made of, which differ in what an operator can act on (v1.6+). operational carries the avoidable share the waste tiers quantify; embodied amortises manufactured hardware and transport covers cross-region network energy, both irreducible by fixing an anti-pattern. The three sum to the total, up to rounding. Omitted when no window carried a carbon figure.",
+          "properties": {
+            "operational_kgco2eq": { "type": "number", "minimum": 0 },
+            "embodied_kgco2eq": { "type": "number", "minimum": 0 },
+            "transport_kgco2eq": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Cross-region network transport, the least certain of the three terms. Its coefficient defaults to an upper bound (0.04 kWh/GB) and published figures span two orders of magnitude, so the report's uniform 2x bracket understates it. Read it as a ceiling, and exclude it when comparing periods that disagree on the include_network_transport setting."
+            }
+          }
+        },
         "total_carbon_kgco2eq": { "type": "number", "minimum": 0 },
         "aggregate_efficiency_score": {
           "type": "number",

@@ -15,7 +15,9 @@ use crate::report::Report;
 use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 
 use super::errors::AggregationError;
-use super::schema::{Aggregate, DatabaseWasteAggregate, Period, TemporalCoverage, WasteTier};
+use super::schema::{
+    Aggregate, CarbonBreakdown, DatabaseWasteAggregate, Period, TemporalCoverage, WasteTier,
+};
 
 pub const UNATTRIBUTED_SERVICE: &str = "_unattributed";
 
@@ -87,10 +89,12 @@ pub struct AggregateInputs {
     /// `+transport` variant). Says whether the numerator includes
     /// network transport, which nothing else in the report does.
     pub carbon_methodologies: BTreeSet<String>,
-    /// Sum of the SCI `M` term over the folded windows, in gCO2eq.
-    /// Scaled directly by `[green] embodied_carbon_per_request_gco2`,
-    /// which is published nowhere else.
+    /// The three terms whose sum is the published total, in gCO2eq.
+    /// Only `operational` carries an avoidable share: embodied hardware
+    /// and network transport are irreducible by fixing an anti-pattern.
     pub embodied_gco2_total: f64,
+    pub operational_gco2_total: f64,
+    pub transport_gco2_total: f64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -334,8 +338,10 @@ struct Builder {
     chain_breaks: u64,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
-    /// Running sum of the SCI `M` term across folded windows, in gCO2eq.
+    /// Running sums of the three terms of the published total, in gCO2eq.
     embodied_gco2_total: f64,
+    operational_gco2_total: f64,
+    transport_gco2_total: f64,
     /// Per-service set of distinct energy model tags accumulated across
     /// the period's windows. The `+cal` suffix is stripped before
     /// insertion. Service cardinality is bounded by `MAX_SERVICES`,
@@ -588,10 +594,15 @@ impl Builder {
         }
     }
 
-    /// Collect the methodology tag and the `M` term of one window.
+    /// Collect the methodology tag and the three terms of one window's
+    /// total: operational, embodied, transport. Only the first carries an
+    /// avoidable share, so the split is what tells a reader how much of
+    /// the published total is reducible at all.
     fn fold_carbon_methodology(&mut self, co2: Option<&crate::score::carbon::CarbonReport>) {
         let Some(co2) = co2 else { return };
         self.embodied_gco2_total += sanitize_f64(co2.embodied_gco2);
+        self.operational_gco2_total += sanitize_f64(co2.operational_gco2);
+        self.transport_gco2_total += sanitize_f64(co2.transport_gco2.unwrap_or(0.0));
         let tag = co2.total.methodology.as_str();
         if tag.is_empty() || tag.len() > MAX_ENERGY_MODEL_LEN {
             return;
@@ -805,16 +816,20 @@ impl Builder {
             .or_insert(ts);
     }
 
-    fn finalize(self, source_files: Vec<String>, period: &Period) -> AggregateInputs {
-        let total_requests: u64 = self.per_service.values().map(|s| s.total_requests).sum();
-        // Prefer the sum of runtime-calibrated `energy_kwh` accumulated
-        // from each window. Falls back to per-service energy (which is
-        // already proxy when no runtime data exists).
-        let total_energy_kwh: f64 = if self.runtime_energy_kwh > 0.0 {
+    /// Prefer the sum of runtime-calibrated `energy_kwh` accumulated from
+    /// each window. Falls back to per-service energy, already proxy when
+    /// no runtime data exists.
+    fn total_energy_kwh(&self) -> f64 {
+        if self.runtime_energy_kwh > 0.0 {
             self.runtime_energy_kwh
         } else {
             self.per_service.values().map(|s| s.energy_kwh).sum()
-        };
+        }
+    }
+
+    fn finalize(self, source_files: Vec<String>, period: &Period) -> AggregateInputs {
+        let total_requests: u64 = self.per_service.values().map(|s| s.total_requests).sum();
+        let total_energy_kwh = self.total_energy_kwh();
         let total_carbon = self.total_carbon_kgco2eq;
         // Flat avoidable fields alias the canonical (non-manipulable) tier.
         let canonical_waste = make_waste_tier(&self.canonical_waste, self.total_io_ops);
@@ -840,6 +855,11 @@ impl Builder {
                 total_requests,
                 total_energy_kwh,
                 total_carbon_kgco2eq: total_carbon,
+                carbon_breakdown: build_carbon_breakdown(
+                    self.operational_gco2_total,
+                    self.embodied_gco2_total,
+                    self.transport_gco2_total,
+                ),
                 aggregate_efficiency_score: canonical_waste.efficiency_score,
                 aggregate_waste_ratio: canonical_waste.waste_ratio,
                 anti_patterns_detected_count: anti_patterns_count,
@@ -865,23 +885,7 @@ impl Builder {
                     canonical_waste_kwh: self.db_waste.canonical_kwh,
                     canonical_waste_kgco2eq: self.db_waste.canonical_g.map(|g| g / 1000.0),
                 }),
-                messaging_waste: (self.msg_waste.windows > 0).then(|| {
-                    super::schema::MessagingWasteAggregate {
-                        energy_kwh: self.msg_waste.energy_kwh,
-                        measured_energy_kwh: self.msg_waste.measured_energy_kwh,
-                        declared_energy_kwh: self.msg_waste.declared_energy_kwh,
-                        models: self.msg_waste.models,
-                        windows_with_figure: self.msg_waste.windows,
-                        measured_windows: self.msg_waste.measured_windows,
-                        declared_windows: self.msg_waste.declared_windows,
-                        estimated_windows: self.msg_waste.estimated_windows,
-                        windows_with_carbon: self.msg_waste.windows_with_carbon,
-                        operational_waste_kwh: self.msg_waste.operational_kwh,
-                        operational_waste_kgco2eq: self.msg_waste.operational_g.map(|g| g / 1000.0),
-                        canonical_waste_kwh: self.msg_waste.canonical_kwh,
-                        canonical_waste_kgco2eq: self.msg_waste.canonical_g.map(|g| g / 1000.0),
-                    }
-                }),
+                messaging_waste: messaging_waste_aggregate(self.msg_waste),
                 per_service_energy_models: self.per_service_energy_models,
                 per_service_measured_ratio: self
                     .per_service_measured_ratio_sums
@@ -912,8 +916,49 @@ impl Builder {
             chain_breaks: self.chain_breaks,
             carbon_methodologies: self.carbon_methodologies,
             embodied_gco2_total: self.embodied_gco2_total,
+            operational_gco2_total: self.operational_gco2_total,
+            transport_gco2_total: self.transport_gco2_total,
         }
     }
+}
+
+/// Broker-side waste block, emitted only once a window carried a figure.
+fn messaging_waste_aggregate(
+    w: DbWasteAccumulator,
+) -> Option<super::schema::MessagingWasteAggregate> {
+    (w.windows > 0).then(|| super::schema::MessagingWasteAggregate {
+        energy_kwh: w.energy_kwh,
+        measured_energy_kwh: w.measured_energy_kwh,
+        declared_energy_kwh: w.declared_energy_kwh,
+        models: w.models,
+        windows_with_figure: w.windows,
+        measured_windows: w.measured_windows,
+        declared_windows: w.declared_windows,
+        estimated_windows: w.estimated_windows,
+        windows_with_carbon: w.windows_with_carbon,
+        operational_waste_kwh: w.operational_kwh,
+        operational_waste_kgco2eq: w.operational_g.map(|g| g / 1000.0),
+        canonical_waste_kwh: w.canonical_kwh,
+        canonical_waste_kgco2eq: w.canonical_g.map(|g| g / 1000.0),
+    })
+}
+
+/// Split the period total into its three terms, in kgCO2eq.
+///
+/// Omitted when no window carried a carbon figure, so an absent split
+/// never reads as three measured zeroes.
+fn build_carbon_breakdown(
+    operational_gco2: f64,
+    embodied_gco2: f64,
+    transport_gco2: f64,
+) -> Option<CarbonBreakdown> {
+    (operational_gco2 > 0.0 || embodied_gco2 > 0.0 || transport_gco2 > 0.0).then(|| {
+        CarbonBreakdown {
+            operational_kgco2eq: operational_gco2 / 1000.0,
+            embodied_kgco2eq: embodied_gco2 / 1000.0,
+            transport_kgco2eq: transport_gco2 / 1000.0,
+        }
+    })
 }
 
 /// Verdict for one archive line against the running chain.
@@ -1415,6 +1460,11 @@ mod tests {
         if let Some(co2) = with_transport.green_summary.co2.as_mut() {
             co2.total.methodology = "sci_v1_numerator+transport".to_string();
             co2.transport_gco2 = Some(0.05);
+            // The real pipeline computes total as operational + embodied +
+            // transport, so a window carrying transport carries it in its
+            // total too. Adding the term without the total would test an
+            // arithmetic the product never produces.
+            co2.total.mid += 0.05;
         }
         let (_dir, path) = write_archive(&[(ts1, plain_window()), (ts2, with_transport)]);
 
@@ -1432,6 +1482,23 @@ mod tests {
         );
         // 0.2 gCO2eq of M per window, two windows.
         assert!((out.embodied_gco2_total - 0.4).abs() < 1e-9);
+
+        // The split must add up to the published total, otherwise a reader
+        // cannot tell the reducible part from the rest.
+        let bd = out.aggregate.carbon_breakdown.expect("breakdown present");
+        let sum = bd.operational_kgco2eq + bd.embodied_kgco2eq + bd.transport_kgco2eq;
+        assert!(
+            (sum - out.aggregate.total_carbon_kgco2eq).abs() < 1e-9,
+            "operational {} + embodied {} + transport {} must equal total {}",
+            bd.operational_kgco2eq,
+            bd.embodied_kgco2eq,
+            bd.transport_kgco2eq,
+            out.aggregate.total_carbon_kgco2eq
+        );
+        assert!(
+            bd.transport_kgco2eq > 0.0,
+            "the window counting transport must show up in the split"
+        );
     }
 
     #[test]
