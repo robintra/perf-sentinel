@@ -307,15 +307,33 @@ pub struct Capture {
     grace: Duration,
 }
 
-/// Bind both OTLP ports, open the trace file, and start serving. Everything
-/// that can fail up front fails here, before the caller starts the traffic.
+/// Bind both OTLP ports, create the output directory if it is missing, open
+/// the trace file, and start serving. Everything that can fail up front fails
+/// here, before the caller starts the traffic.
+///
+/// The directory is created because the documented CI recipe writes to
+/// `target/traces.json` and a clean CI workspace has no `target/` yet: Maven
+/// is what creates it, and in wrapper mode Maven has not run. Refusing there
+/// would keep the wrapped test suite from running at all.
 ///
 /// # Errors
 ///
 /// [`CaptureError::Bind`] when a port is taken, [`CaptureError::Output`] when
-/// the trace file cannot be created.
+/// the directory or the trace file cannot be created.
 pub async fn start(cfg: &CaptureConfig) -> Result<Capture, CaptureError> {
     let (grpc_listener, http_listener) = bind_listeners(cfg).await?;
+    // A bare filename yields `parent() == Some("")`, which is the current
+    // directory rather than "no parent", and creating it would fail.
+    if let Some(parent) = cfg.output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|source| CaptureError::Output {
+                path: cfg.output.clone(),
+                source,
+            })?;
+    }
     let file = tokio::fs::File::create(&cfg.output)
         .await
         .map_err(|source| CaptureError::Output {
@@ -713,17 +731,44 @@ mod tests {
         // produces the traces. Discovering an unwritable path only at the end
         // would mean a whole test suite ran for a file that was never going
         // to exist.
+        //
+        // The parent is a regular file, which no uid can turn into a
+        // directory: a missing directory is created now, an impossible one
+        // still has to fail.
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("not-a-dir");
+        std::fs::write(&blocker, b"x").unwrap();
         let cfg = CaptureConfig {
             listen_addr: "127.0.0.1".to_string(),
             port_grpc: free_port(),
             port_http: free_port(),
-            output: PathBuf::from("/nonexistent-dir-for-capture-test/traces.json"),
+            output: blocker.join("traces.json"),
             max_file_bytes: u64::MAX,
             grace: Duration::from_millis(10),
         };
         let err = start(&cfg).await.unwrap_err();
         assert!(matches!(err, CaptureError::Output { .. }));
         assert!(err.to_string().contains("traces.json"));
+    }
+
+    #[tokio::test]
+    async fn missing_output_directory_is_created_rather_than_refused() {
+        // The documented CI recipe writes to target/traces.json, and a clean
+        // CI workspace has no target/ yet. Refusing there would keep the
+        // wrapped test suite from running at all.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("target").join("traces.json");
+        let cfg = CaptureConfig {
+            listen_addr: "127.0.0.1".to_string(),
+            port_grpc: free_port(),
+            port_http: free_port(),
+            output: path.clone(),
+            max_file_bytes: u64::MAX,
+            grace: Duration::from_millis(10),
+        };
+        let capture = start(&cfg).await.expect("start must create target/");
+        capture.finish().await.unwrap();
+        assert!(path.exists(), "the trace file must be there to be written");
     }
 
     #[tokio::test]
