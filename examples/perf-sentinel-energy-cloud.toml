@@ -1,7 +1,7 @@
 # Modelled energy for cloud VMs, which expose no RAPL and therefore cannot
 # be measured by Alumet, Kepler or Scaphandre. Usable as is:
 #
-#   perf-sentinel analyze --input traces.json --config perf-sentinel-energy-cloud.toml
+#   perf-sentinel watch --config perf-sentinel-energy-cloud.toml
 #
 # Everything not listed here keeps its default. Full key list, defaults and
 # ranges: examples/perf-sentinel.toml, or
@@ -22,8 +22,7 @@ default_region = "eu-west-3"
 prometheus_endpoint = "http://prometheus:9090"   # no default, required
 scrape_interval_secs = 15   # default 15
 # Fallbacks for any service below that names neither.
-#   provider: "aws", "gcp" or "azure". Any other value resolves to generic
-#     on-prem watts, so a typo degrades the figure instead of failing.
+#   provider: "aws", "gcp" or "azure". Any other value is rejected at startup.
 #   instance_type: looked up in the embedded SPECpower table. An unknown one
 #     warns at startup and falls back to a provider average, the figure just
 #     gets coarser, and that warning is how you check yours. Full list:

@@ -23,7 +23,9 @@ VINTAGE = re.compile(r'SPECPOWER_VINTAGE: &str = "([^"]+)"')
 
 
 def provider(name):
-    """AWS uses `family.size`, Azure `Standard_*`, GCP `family-size`."""
+    """Classify the naming schemes used by the embedded table."""
+    if name.startswith("xeon-"):
+        return "Bare metal"
     if name.startswith("Standard_"):
         return "Azure"
     if "." in name:
@@ -50,7 +52,8 @@ def table(rows, headers):
 
 
 def render(rows, vintage, lang):
-    by_provider = {p: [r for r in rows if provider(r[0]) == p] for p in ("AWS", "GCP", "Azure")}
+    providers = ("AWS", "GCP", "Azure", "Bare metal")
+    by_provider = {p: [r for r in rows if provider(r[0]) == p] for p in providers}
     if lang == "en":
         head = f"""# Instance types with an embedded power profile
 
@@ -81,7 +84,7 @@ This page is generated from the embedded table by
 the two ever disagree. Do not edit it by hand.
 """
         headers = ("Instance type", "Idle (W)", "Max (W)")
-        section = "## {} ({} entries)"
+        units = ("entry", "entries")
     else:
         head = f"""# Types d'instance avec un profil de puissance embarqué
 
@@ -113,11 +116,12 @@ Cette page est générée depuis la table embarquée par
 deux divergent. Ne la modifiez pas à la main.
 """
         headers = ("Type d'instance", "Repos (W)", "Max (W)")
-        section = "## {} ({} entrées)"
+        units = ("entrée", "entrées")
 
     parts = [head]
     for name, entries in by_provider.items():
-        parts.append(section.format(name, len(entries)))
+        count = len(entries)
+        parts.append(f"## {name} ({count} {units[count != 1]})")
         parts.append("")
         parts.append(table(entries, headers))
         parts.append("")

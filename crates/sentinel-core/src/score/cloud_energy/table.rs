@@ -253,38 +253,35 @@ mod tests {
     /// `python3 scripts/generate-instance-types-doc.py`.
     #[test]
     fn instance_types_doc_matches_the_table() {
-        let doc = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/INSTANCE-TYPES.md"),
-        )
-        .expect("read docs/INSTANCE-TYPES.md");
-        let listed: std::collections::HashSet<&str> = doc
-            .lines()
-            .filter_map(|l| l.strip_prefix("| `"))
-            .filter_map(|l| l.split('`').next())
-            .collect();
+        fn rows(doc: &str) -> std::collections::HashMap<&str, (f64, f64)> {
+            doc.lines()
+                .filter_map(|line| {
+                    let mut columns = line.split('|').map(str::trim);
+                    columns.next()?;
+                    let name = columns.next()?.strip_prefix('`')?.strip_suffix('`')?;
+                    let idle = columns.next()?.parse().ok()?;
+                    let max = columns.next()?.parse().ok()?;
+                    Some((name, (idle, max)))
+                })
+                .collect()
+        }
 
-        let missing: Vec<&str> = INSTANCE_POWER
-            .keys()
-            .filter(|k| !listed.contains(*k))
-            .copied()
-            .collect();
-        assert!(missing.is_empty(), "types absent from the doc: {missing:?}");
-
-        let invented: Vec<&str> = listed
-            .iter()
-            .filter(|k| !INSTANCE_POWER.contains_key(*k))
-            .copied()
-            .collect();
-        assert!(
-            invented.is_empty(),
-            "types the doc claims but the table does not have: {invented:?}"
-        );
-
-        // The vintage is what tells a reader how old the figures are.
-        assert!(
-            doc.contains(SPECPOWER_VINTAGE),
-            "the doc must carry the current table vintage"
-        );
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs");
+        for relative in ["INSTANCE-TYPES.md", "FR/INSTANCE-TYPES-FR.md"] {
+            let doc = std::fs::read_to_string(root.join(relative)).expect("read instance docs");
+            let listed = rows(&doc);
+            assert_eq!(listed.len(), INSTANCE_POWER.len(), "{relative}");
+            for (name, expected) in INSTANCE_POWER.iter() {
+                assert_eq!(listed.get(name), Some(expected), "{relative}: {name}");
+            }
+            assert!(doc.contains(SPECPOWER_VINTAGE), "{relative}: vintage");
+            assert!(
+                doc.split("## Bare metal")
+                    .nth(1)
+                    .is_some_and(|section| section.contains("| `xeon-6780e` |")),
+                "{relative}: bare-metal section"
+            );
+        }
     }
 
     // ------------------------------------------------------------------
