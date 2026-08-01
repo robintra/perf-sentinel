@@ -108,6 +108,7 @@ fn build_waste_tiers(
         operational_waste_kwh: figure.waste_kwh,
         operational_waste_gco2: figure.waste_gco2,
         canonical_waste_kwh: figure.energy_kwh * canonical_ratio,
+        energy_gco2: figure.energy_gco2,
         canonical_waste_gco2: figure.energy_gco2.map(|g| g * canonical_ratio),
     }
 }

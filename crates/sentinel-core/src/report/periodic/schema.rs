@@ -541,6 +541,16 @@ pub struct CarbonBreakdown {
     /// `[green] embodied_carbon_per_request_gco2`.
     #[serde(default)]
     pub embodied_kgco2eq: f64,
+    /// Total carbon of the database and of the broker over the period,
+    /// when measured. **Outside the sum above and outside
+    /// `total_carbon_kgco2eq`**: both cover a different scope from the
+    /// instrumented services, and folding them in would mix perimeters.
+    /// Published here so a reader sees every carbon figure the run
+    /// produced in one place. v1.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database_kgco2eq_out_of_total: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messaging_kgco2eq_out_of_total: Option<f64>,
     /// Cross-region network transport, absent when no window counted any.
     /// Omitted rather than zeroed, because a zero would not distinguish
     /// `[green] include_network_transport` being off from it being on
