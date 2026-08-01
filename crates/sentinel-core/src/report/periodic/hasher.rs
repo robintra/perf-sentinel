@@ -85,7 +85,26 @@ fn blank_content_hash(v: &mut Value) {
 /// configured upstream. Removing this collect would silently break the
 /// hash determinism the moment a transitive crate flips the
 /// `serde_json/preserve_order` feature.
-fn canonicalize(v: Value) -> Value {
+/// Seed for the first line of an archive chain. A domain literal rather
+/// than the file path, so a renamed archive stays verifiable.
+pub const ARCHIVE_CHAIN_SEED: &str = "perf-sentinel-archive/v1";
+
+/// SHA-256 of the canonical form of an archive envelope body
+/// (`{ts, report, prev}`, without its own `hash`).
+///
+/// Lives here rather than in the daemon writer because `disclose` verifies
+/// the chain and builds without the `daemon` feature.
+///
+/// # Errors
+///
+/// Returns [`serde_json::Error`] if the body cannot be serialised.
+pub fn archive_chain_hash(body: &Value) -> Result<String, serde_json::Error> {
+    let canonical = canonicalize(body.clone());
+    let bytes = serde_json::to_vec(&canonical)?;
+    Ok(format_sha256(&bytes))
+}
+
+pub(crate) fn canonicalize(v: Value) -> Value {
     match v {
         Value::Object(map) => {
             let sorted: BTreeMap<String, Value> = map
@@ -103,7 +122,7 @@ fn canonicalize(v: Value) -> Value {
     }
 }
 
-fn format_sha256(bytes: &[u8]) -> String {
+pub(crate) fn format_sha256(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(7 + 64);
     out.push_str("sha256:");
@@ -243,10 +262,24 @@ mod tests {
             .calibration_inputs
             .carbon_methodologies
             .insert("sci_v1_numerator+transport".to_string());
-        assert_ne!(
+        let with_tag = compute_content_hash(&r).unwrap();
+        assert_ne!(with_tag, with_total, "the methodology tag must be covered");
+
+        // Same rule for the source chain: a break count outside the hash
+        // could be rewritten to zero under a still-valid signature.
+        r.integrity.trace_integrity_chain = Some(crate::report::periodic::schema::SourceChain {
+            windows_verified: 2160,
+            windows_unchained: 0,
+            breaks: 3,
+        });
+        let with_chain = compute_content_hash(&r).unwrap();
+        assert_ne!(with_chain, with_tag, "the source chain must be covered");
+
+        r.integrity.trace_integrity_chain = None;
+        assert_eq!(
             compute_content_hash(&r).unwrap(),
-            with_total,
-            "the methodology tag must be covered"
+            with_tag,
+            "an absent chain must serialize away, as in every pre-v1.6 report"
         );
     }
 

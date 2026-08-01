@@ -379,6 +379,29 @@ And in `report_metadata`:
 (Use `"signed-with-attestation"` instead of `"signed"` when the
 producing binary also carries SLSA provenance.)
 
+### What the hash proves, and where it stops
+
+The `content_hash`, the cosign signature and the SLSA provenance bind
+the **published document**. Since 0.9.25 the daemon also hash-chains
+each archived window as it writes it, and `disclose` walks that chain
+while aggregating, publishing the result in
+`integrity.trace_integrity_chain`: windows verified, windows written
+before chaining existed, and breaks found. That closes the gap where a
+window could be edited between measurement and publication with nothing
+to show for it. A break does not stop the report, it is published as a
+count, so a truncated archive still yields an honest partial disclosure.
+
+What none of this proves is that the measurement was sincere in the
+first place. An operator who controls the daemon and its files can
+regenerate a consistent chain, exactly as they can choose an
+unfavourable coefficient. Those parameters are now published too, see
+`carbon_methodologies` and the embodied fields in
+`methodology.calibration_inputs`, which makes them contestable rather
+than invisible. The remaining step is anchoring the chain head outside
+the operator's control, which is what `integrity.cross_period_log`
+stays reserved for. Read the guarantee as: tamper-evident after the
+fact, self-declared at the source.
+
 ### Content hash stays valid
 
 The `content_hash` does **not** need to be recomputed after step 3.

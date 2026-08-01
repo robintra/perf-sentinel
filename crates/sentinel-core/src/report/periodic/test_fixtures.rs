@@ -130,7 +130,7 @@ pub(super) fn sample_integrity() -> Integrity {
         content_hash: String::new(),
         binary_hash: None,
         binary_verification_url: None,
-        trace_integrity_chain: serde_json::Value::Null,
+        trace_integrity_chain: None,
         signature: None,
         binary_attestation: None,
         cross_period_log: None,

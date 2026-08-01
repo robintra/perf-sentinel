@@ -77,6 +77,12 @@ pub struct AggregateInputs {
     /// `true` if at least one folded window carried a `+cal` suffix on
     /// its `energy_model`. Surfaced via `CalibrationInputs.calibration_applied`.
     pub calibration_applied: bool,
+    /// Archive integrity: windows whose chain verified, windows written
+    /// before chaining existed, and detected breaks. Published so a
+    /// reader sees which part of the period is still attestable.
+    pub chain_verified: u64,
+    pub chain_unchained: u64,
+    pub chain_breaks: u64,
     /// SCI methodology tags observed (`sci_v1_numerator`, or the
     /// `+transport` variant). Says whether the numerator includes
     /// network transport, which nothing else in the report does.
@@ -321,6 +327,11 @@ struct Builder {
     /// Set when at least one window's `energy_model` carried the `+cal`
     /// suffix, indicating operator calibration was active for that window.
     calibration_applied: bool,
+    /// Archive lines whose hash chain checked out, carried no chain at
+    /// all (pre-chaining archives), or failed to verify.
+    chain_verified: u64,
+    chain_unchained: u64,
+    chain_breaks: u64,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
     /// Running sum of the SCI `M` term across folded windows, in gCO2eq.
@@ -352,6 +363,11 @@ impl Builder {
         })?;
         let reader = BufReader::new(file);
         let mut warned_fallback = false;
+        // Chain state is per file: a rotated file restarts from the seed.
+        // Walked over every line, including those outside the period, or an
+        // edit just outside the window would go unseen.
+        let mut expected_prev = super::hasher::ARCHIVE_CHAIN_SEED.to_string();
+        let mut warned_break = false;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -360,6 +376,28 @@ impl Builder {
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
+            }
+            match verify_chain_line(trimmed, &expected_prev) {
+                ChainOutcome::Verified(hash) => {
+                    self.chain_verified += 1;
+                    expected_prev = hash;
+                }
+                ChainOutcome::Unchained => self.chain_unchained += 1,
+                ChainOutcome::Break(hash) => {
+                    self.chain_breaks += 1;
+                    // Resynchronise on the line's own hash, so one edit
+                    // reports one break rather than poisoning the tail.
+                    expected_prev = hash;
+                    if !warned_break {
+                        warned_break = true;
+                        tracing::warn!(
+                            path = %path.display(),
+                            line = line_no + 1,
+                            "archive integrity chain broken: a window was edited, \
+                             removed or reordered after it was written",
+                        );
+                    }
+                }
             }
             match serde_json::from_str::<ArchivedReport>(trimmed) {
                 Ok(envelope) => {
@@ -869,9 +907,49 @@ impl Builder {
             runtime_windows: self.runtime_windows,
             fallback_windows: self.fallback_windows,
             calibration_applied: self.calibration_applied,
+            chain_verified: self.chain_verified,
+            chain_unchained: self.chain_unchained,
+            chain_breaks: self.chain_breaks,
             carbon_methodologies: self.carbon_methodologies,
             embodied_gco2_total: self.embodied_gco2_total,
         }
+    }
+}
+
+/// Verdict for one archive line against the running chain.
+enum ChainOutcome {
+    /// Hash recomputes and `prev` points at the previous line. Carries the
+    /// line's own hash, which the next line must reference.
+    Verified(String),
+    /// No `hash` field: written before archives were chained. Not a break,
+    /// simply not attestable.
+    Unchained,
+    /// Edited, removed or reordered. Carries this line's own hash so the
+    /// walk can resynchronise.
+    Break(String),
+}
+
+fn verify_chain_line(line: &str, expected_prev: &str) -> ChainOutcome {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return ChainOutcome::Unchained;
+    };
+    let Some(stated) = value.get("hash").and_then(serde_json::Value::as_str) else {
+        return ChainOutcome::Unchained;
+    };
+    let stated = stated.to_string();
+    let mut body = value;
+    if let Some(obj) = body.as_object_mut() {
+        obj.remove("hash");
+    }
+    let recomputed = super::hasher::archive_chain_hash(&body).ok();
+    let prev_ok = body
+        .get("prev")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|p| p == expected_prev);
+    if recomputed.as_deref() == Some(stated.as_str()) && prev_ok {
+        ChainOutcome::Verified(stated)
+    } else {
+        ChainOutcome::Break(stated)
     }
 }
 
@@ -1235,6 +1313,26 @@ mod tests {
         (dir, path)
     }
 
+    /// Same shape the daemon writer produces, built with the shared chain
+    /// primitives rather than a second implementation of them.
+    fn write_chained_archive(lines: &[(DateTime<Utc>, Report)]) -> (TempDir, PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("archive.ndjson");
+        let mut file = File::create(&path).unwrap();
+        let mut prev = super::super::hasher::ARCHIVE_CHAIN_SEED.to_string();
+        for (ts, report) in lines {
+            let body = serde_json::json!({ "ts": ts, "report": report, "prev": prev });
+            let hash = super::super::hasher::archive_chain_hash(&body).unwrap();
+            let mut line = body;
+            line.as_object_mut()
+                .unwrap()
+                .insert("hash".to_string(), serde_json::Value::String(hash.clone()));
+            writeln!(file, "{}", serde_json::to_string(&line).unwrap()).unwrap();
+            prev = hash;
+        }
+        (dir, path)
+    }
+
     fn q1_2026() -> Period {
         Period {
             from_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
@@ -1246,6 +1344,64 @@ mod tests {
 
     fn plain_window() -> Report {
         make_report(10, 100, 10, &[("svc-a", "/api", 100)], vec![])
+    }
+
+    #[test]
+    fn an_intact_chain_verifies_and_an_edited_window_breaks_it() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let windows = [
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+            (ts3, plain_window()),
+        ];
+
+        let (_dir, path) = write_chained_archive(&windows);
+        let clean = aggregate_from_paths(std::slice::from_ref(&path), &q1_2026(), false).unwrap();
+        assert_eq!(clean.chain_verified, 3);
+        assert_eq!(clean.chain_breaks, 0);
+        assert_eq!(clean.chain_unchained, 0);
+
+        // Edit the middle window the way a hand-tuned archive would be.
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<String> = text.lines().map(ToString::to_string).collect();
+        let mut middle: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
+        middle["report"]["green_summary"]["io_waste_ratio"] = serde_json::json!(0.01);
+        lines[1] = serde_json::to_string(&middle).unwrap();
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        let tampered = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(tampered.chain_breaks, 1, "the edited window must show up");
+        assert_eq!(
+            tampered.chain_verified, 2,
+            "the untouched windows stay attestable"
+        );
+    }
+
+    #[test]
+    fn a_removed_window_breaks_the_chain_and_pre_chain_archives_do_not() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+            (ts3, plain_window()),
+        ]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        // Drop the middle line: the third no longer points at its predecessor.
+        std::fs::write(&path, format!("{}\n{}\n", lines[0], lines[2])).unwrap();
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 1);
+
+        // An archive written before chaining existed is not a break.
+        let (_dir2, old) = write_archive(&[(ts1, plain_window()), (ts2, plain_window())]);
+        let legacy = aggregate_from_paths(&[old], &q1_2026(), false).unwrap();
+        assert_eq!(legacy.chain_unchained, 2);
+        assert_eq!(legacy.chain_breaks, 0);
+        assert_eq!(legacy.chain_verified, 0);
     }
 
     #[test]

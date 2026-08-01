@@ -50,7 +50,7 @@ pub use schema::{
     BinaryAttestationMetadata, CalibrationInputs, Confidentiality, Conformance, CoverageBasis,
     CrossPeriodLogRef, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity, IntegrityLevel,
     Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType, PeriodicReport,
-    ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, SignatureMetadata,
+    ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, SignatureMetadata, SourceChain,
     TemporalCoverage, core_patterns_required,
 };
 pub use validator::{

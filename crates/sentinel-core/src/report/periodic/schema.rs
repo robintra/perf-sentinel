@@ -661,6 +661,27 @@ pub struct AntiPatternDetail {
     pub rgesn_criteria: Vec<String>,
 }
 
+/// Whether the archived windows behind this report still hash-chain, as
+/// the daemon wrote them. Detects a window edited, removed or reordered
+/// after the fact. It does not attest the source: whoever owns the daemon
+/// and its files can regenerate a consistent chain, which is what
+/// [`CrossPeriodLogRef`] is reserved to address. v1.6.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SourceChain {
+    /// Windows whose recomputed hash matched and whose `prev` pointed at
+    /// the preceding line.
+    #[serde(default)]
+    pub windows_verified: u64,
+    /// Windows carrying no chain at all, written before archives were
+    /// chained. Not tampering, simply not attestable.
+    #[serde(default)]
+    pub windows_unchained: u64,
+    /// Detected breaks. Non-zero means part of the period is no longer
+    /// attestable, and the report says so rather than refusing to exist.
+    #[serde(default)]
+    pub breaks: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Integrity {
     pub content_hash: String,
@@ -668,8 +689,11 @@ pub struct Integrity {
     pub binary_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_verification_url: Option<String>,
-    #[serde(default)]
-    pub trace_integrity_chain: serde_json::Value,
+    /// Integrity of the source windows this report was aggregated from.
+    /// Reserved and always `null` before v1.6. Typed as an `Option` so a
+    /// `null` from an older file still reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_integrity_chain: Option<SourceChain>,
     /// Sigstore cosign in-toto attestation metadata. The signature
     /// itself lives in a sidecar bundle file. This object carries
     /// the locator and identity facts a verifier needs. Serialised
@@ -874,7 +898,7 @@ mod tests {
                 + "0000000000000000000000000000000000000000000000000000000000000000",
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: serde_json::Value::Null,
+            trace_integrity_chain: None,
             signature: None,
             binary_attestation: None,
             cross_period_log: None,
@@ -1115,7 +1139,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: serde_json::Value::Null,
+            trace_integrity_chain: None,
             signature: Some(sample_signature()),
             binary_attestation: Some(sample_attestation()),
             cross_period_log: None,
@@ -1132,7 +1156,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: serde_json::Value::Null,
+            trace_integrity_chain: None,
             signature: Some(sample_signature()),
             binary_attestation: None,
             cross_period_log: None,
@@ -1152,7 +1176,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: serde_json::Value::Null,
+            trace_integrity_chain: None,
             signature: None,
             binary_attestation: Some(sample_attestation()),
             cross_period_log: None,
@@ -1172,7 +1196,7 @@ mod tests {
             content_hash: "sha256:".to_string() + &"0".repeat(64),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: serde_json::Value::Null,
+            trace_integrity_chain: None,
             signature: None,
             binary_attestation: None,
             cross_period_log: None,

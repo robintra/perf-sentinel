@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 
 use crate::config::DaemonArchiveConfig;
 use crate::report::Report;
+use crate::report::periodic::hasher::{ARCHIVE_CHAIN_SEED, archive_chain_hash};
 
 const CHANNEL_CAPACITY: usize = 256;
 
@@ -118,14 +119,16 @@ async fn run_writer(
 ) {
     let mut file = initial_file;
     let mut bytes_written = initial_bytes;
+    let mut prev = last_chain_hash(&path);
     while let Some(archive) = rx.recv().await {
-        let line = match serialize_envelope(&archive) {
+        let line = match serialize_envelope(&archive, &prev) {
             Ok(line) => line,
             Err(err) => {
                 tracing::warn!(error = %err, "archive serialization failed, dropping window");
                 continue;
             }
         };
+        prev = extract_hash(&line).unwrap_or_else(|| prev.clone());
         if let Err(err) = write_line(&mut file, &line) {
             tracing::warn!(error = %err, "archive write failed, dropping line");
             continue;
@@ -133,7 +136,12 @@ async fn run_writer(
         bytes_written = bytes_written.saturating_add(line.len() as u64 + 1);
         if cap_bytes > 0 && bytes_written >= cap_bytes {
             match rotate(&path, &mut file, max_files) {
-                Ok(()) => bytes_written = 0,
+                // A rotated file opens a fresh chain: the reader treats a
+                // seed-rooted first line as a start, not as a break.
+                Ok(()) => {
+                    bytes_written = 0;
+                    prev = ARCHIVE_CHAIN_SEED.to_string();
+                }
                 Err(err) => {
                     tracing::warn!(error = %err, "archive rotation failed, continuing on current file");
                 }
@@ -145,11 +153,52 @@ async fn run_writer(
     }
 }
 
-fn serialize_envelope(archive: &OwnedArchive) -> Result<String, serde_json::Error> {
-    serde_json::to_string(&serde_json::json!({
+/// Serialise one window and chain it to `prev`.
+///
+/// `hash` covers `{ts, report, prev}` in canonical form, so editing any of
+/// the three breaks it, and `prev` ties the line to its predecessor, so
+/// removing or reordering a line breaks the next one. It detects tampering
+/// after the fact, not an insincere writer: whoever owns the daemon can
+/// rewrite the whole chain.
+fn serialize_envelope(archive: &OwnedArchive, prev: &str) -> Result<String, serde_json::Error> {
+    let body = serde_json::json!({
         "ts": archive.ts,
         "report": &archive.report,
-    }))
+        "prev": prev,
+    });
+    let hash = archive_chain_hash(&body)?;
+    let mut line = body;
+    if let Some(obj) = line.as_object_mut() {
+        obj.insert("hash".to_string(), serde_json::Value::String(hash));
+    }
+    serde_json::to_string(&line)
+}
+
+/// Last `hash` already on disk, so a restarted daemon continues the chain
+/// instead of opening a break at every restart. Falls back to the seed on
+/// an empty, unreadable or pre-chain file.
+fn last_chain_hash(path: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return ARCHIVE_CHAIN_SEED.to_string();
+    };
+    text.lines()
+        .rev()
+        .find_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()?
+                .get("hash")?
+                .as_str()
+                .map(ToString::to_string)
+        })
+        .unwrap_or_else(|| ARCHIVE_CHAIN_SEED.to_string())
+}
+
+fn extract_hash(line: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get("hash")?
+        .as_str()
+        .map(ToString::to_string)
 }
 
 fn write_line(file: &mut BufWriter<File>, line: &str) -> std::io::Result<()> {
@@ -294,6 +343,39 @@ mod tests {
             assert!(v.get("ts").is_some());
             assert!(v.get("report").is_some());
         }
+    }
+
+    #[tokio::test]
+    async fn a_restarted_writer_resumes_the_chain_instead_of_breaking_it() {
+        // The writer opens in append mode, so without reading the last hash
+        // back every daemon restart would look like tampering to disclose.
+        let dir = TempDir::new().unwrap();
+        let first = spawn(&cfg(&dir, 100, 12)).unwrap();
+        first.tx.send(sample_archive()).await.unwrap();
+        drop(first.tx);
+        first.join.await.unwrap();
+
+        let second = spawn(&cfg(&dir, 100, 12)).unwrap();
+        second.tx.send(sample_archive()).await.unwrap();
+        drop(second.tx);
+        second.join.await.unwrap();
+
+        let contents = std::fs::read_to_string(dir.path().join("archive.ndjson")).unwrap();
+        let lines: Vec<serde_json::Value> = contents
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[0]["prev"].as_str().unwrap(),
+            ARCHIVE_CHAIN_SEED,
+            "the first line roots the chain"
+        );
+        assert_eq!(
+            lines[1]["prev"].as_str().unwrap(),
+            lines[0]["hash"].as_str().unwrap(),
+            "the line written after the restart must reference the last one on disk"
+        );
     }
 
     #[tokio::test]
