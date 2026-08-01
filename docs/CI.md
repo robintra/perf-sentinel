@@ -420,9 +420,14 @@ Tradeoffs:
 - Reverts to default on Jenkins restart unless persisted via the
   startup options (`JAVA_OPTS`, `jenkins.xml`, or systemd unit).
 
-A future perf-sentinel release may produce a CSP-friendly report
-(CSS and JavaScript split into sibling files) that works on the
-default Jenkins CSP. No date committed.
+Splitting the report into sibling CSS and JavaScript files would
+not help, and no release will do it for this reason. The default
+Jenkins policy declares no `script-src` at all, so it falls back
+to `default-src 'none'`, which blocks an external script exactly
+as it blocks an inline one. What would render on that policy is a
+report whose content sits in the static DOM and needs no script to
+be readable, which is a different piece of work. Until then,
+options A and B are the two answers.
 
 **Diff tab via the Copy Artifact plugin**. Unlike GitHub Actions and
 GitLab CI where a companion baseline workflow refreshes `baseline.json`
