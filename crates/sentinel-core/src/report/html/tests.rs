@@ -162,6 +162,26 @@ fn renders_minimal_report_to_valid_html() {
 }
 
 #[test]
+fn no_js_notice_is_removed_by_a_script_that_follows_it() {
+    // The notice is what a viewer gets when the script cannot run, which
+    // is what a restrictive CSP does (Jenkins by default). Order is the
+    // whole point: the remover has to sit after the notice and before
+    // the shell, so a normal load drops it during parsing and never
+    // paints it.
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    let notice = html.find(r#"id="ps-no-js""#).expect("no-JS notice");
+    let remover = html
+        .find(r#"getElementById("ps-no-js")"#)
+        .expect("notice remover");
+    let shell = html.find(r#"id="ps-shell""#).expect("app shell");
+    assert!(
+        notice < remover && remover < shell,
+        "notice, then remover, then shell"
+    );
+}
+
+#[test]
 fn green_panel_carries_database_waste_card() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));
@@ -232,11 +252,12 @@ fn escapes_closing_script_tag_in_embedded_json() {
     // The raw closing tag must not appear anywhere in the payload.
     // Count the occurrences in the entire document: the static shell
     // has one (`</script>` closing the head density bootstrap), one
-    // (`</script>` closing the JSON block) and one (`</script>`
-    // closing the app JS), so the total must be exactly 3.
+    // (`</script>` closing the no-JS notice remover), one (`</script>`
+    // closing the JSON block) and one (`</script>` closing the app JS),
+    // so the total must be exactly 4.
     assert_eq!(
         html.matches("</script>").count(),
-        3,
+        4,
         "user-controlled </script> leaked into the document"
     );
     // And the escaped form must appear (proof that the hostile

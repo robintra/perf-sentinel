@@ -578,6 +578,19 @@
 </style>
 </head>
 <body>
+<!-- Visible until the script below removes it, which happens during
+     parsing so a normal load never paints it. What is left when the
+     script cannot run is a page that says why instead of a blank one. -->
+<div id="ps-no-js" style="padding:24px;max-width:60em;font:16px/1.6 system-ui,sans-serif">
+  <strong>This report did not build.</strong>
+  Its content is rendered by the JavaScript embedded in this file, and the page
+  loaded without running it. A server sending a restrictive
+  Content-Security-Policy is the usual cause, which Jenkins does by default. See
+  <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/CI.md" target="_blank" rel="noopener noreferrer">docs/CI.md</a>,
+  section "Configuring Jenkins to render the interactive report". Opening this
+  file straight from disk always works.
+</div>
+<script>var n=document.getElementById("ps-no-js");if(n){n.remove()}</script>
 <div class="ps-shell" id="ps-shell">
   <aside class="ps-sidebar">
     <div class="ps-sidebar-sticky">
