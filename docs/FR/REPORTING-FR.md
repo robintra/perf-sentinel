@@ -404,9 +404,9 @@ Ce que rien de tout cela ne prouve, c'est la sincérité de la mesure à la
 source. Un opérateur qui contrôle le daemon et ses fichiers peut
 régénérer une chaîne cohérente, exactement comme il peut choisir un
 coefficient défavorable. Ces paramètres sont désormais publiés eux
-aussi, voir `carbon_methodologies` et les champs embodied dans
-`methodology.calibration_inputs`, ce qui les rend contestables plutôt
-qu'invisibles. L'étape restante est l'ancrage de la tête de chaîne hors
+aussi, voir `carbon_methodologies`, `scoring_coefficients` et les champs
+embodied dans `methodology.calibration_inputs`, ce qui les rend
+contestables plutôt qu'invisibles. L'étape restante est l'ancrage de la tête de chaîne hors
 du contrôle de l'opérateur, ce à quoi `integrity.cross_period_log` reste
 réservé. À lire comme : inviolable après coup, auto-déclaré à la source.
 

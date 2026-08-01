@@ -361,6 +361,13 @@
           "type": "number",
           "minimum": 0,
           "description": "embodied_gco2_total divided by total_requests: the mean embodied coefficient actually applied over the period, comparable across reports and independent of traffic volume. A weighted mean when the setting changed mid-period. Omitted when the total is absent or no request was measured (v1.6+)."
+        },
+        "scoring_coefficients": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "uniqueItems": true,
+          "maxItems": 64,
+          "description": "Coefficients the period's windows were scored with, as key=value strings: embodied_gco2_per_request, network_kwh_per_byte, per_operation_coefficients, use_hourly_profiles. They scale the published figures and appear nowhere else, so halving one left no trace before v1.6. Read off the archived windows rather than the configuration of whichever machine ran disclose. More than one entry for a key means the setting changed mid-period. Omitted when every window predates the coefficients being recorded (v1.6+)."
         }
       }
     },
