@@ -126,6 +126,56 @@ fn standardized_example_fragments_compose() {
 }
 
 #[test]
+fn energy_fragment_examples_cover_every_backend_key() {
+    let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let examples = crate_root.join("../../examples");
+    let raw = std::fs::read_to_string(crate_root.join("src/config/raw.rs")).unwrap();
+    let scaphandre =
+        std::fs::read_to_string(crate_root.join("src/score/scaphandre/config.rs")).unwrap();
+    let redfish = std::fs::read_to_string(crate_root.join("src/score/redfish/config.rs")).unwrap();
+    let cases = [
+        (
+            "32-green-scaphandre.toml",
+            vec![
+                fields_in_struct(&raw, "ScaphandreSection"),
+                fields_in_struct(&scaphandre, "ProcessMatcher"),
+            ],
+        ),
+        (
+            "33-green-kepler.toml",
+            vec![fields_in_struct(&raw, "KeplerSection")],
+        ),
+        (
+            "34-green-redfish.toml",
+            vec![
+                fields_in_struct(&raw, "RedfishSection"),
+                fields_in_struct(&redfish, "RedfishEndpoint"),
+            ],
+        ),
+    ];
+
+    for (name, fields) in cases {
+        let example = std::fs::read_to_string(examples.join(name)).expect("read energy fragment");
+        let missing: Vec<_> = fields
+            .into_iter()
+            .flatten()
+            .filter(|field| !example_shows(&example, field))
+            .collect();
+        assert!(missing.is_empty(), "{name} is missing fields: {missing:?}");
+    }
+}
+
+fn fields_in_struct<'a>(source: &'a str, name: &str) -> Vec<&'a str> {
+    let marker = format!("struct {name} {{");
+    let mut lines = source.lines().skip_while(|line| !line.contains(&marker));
+    assert!(lines.next().is_some(), "struct {name} not found");
+    lines
+        .take_while(|line| !line.starts_with('}'))
+        .filter_map(field_name)
+        .collect()
+}
+
+#[test]
 fn example_config_covers_every_key_the_parser_accepts() {
     // `examples/perf-sentinel.toml` calls itself the reference config, and
     // nothing checked that claim: it had drifted to 14 of the 31 daemon
