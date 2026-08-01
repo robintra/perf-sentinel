@@ -342,7 +342,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # `energy_interval_secs` MUST match the poll_interval of the Alumet source
 # feeding the metric. A mismatch rescales energy and carbon silently. Why,
 # and the matching alumet-config.toml:
-#   https://perf-sentinel.dev/docs/CONFIGURATION#greenalumet-optional-opt-in
+#   https://perf-sentinel.dev/docs/CONFIGURATION#green-alumet-optional-opt-in
 #
 # [green.alumet]
 # endpoint = "http://localhost:9091/metrics"
