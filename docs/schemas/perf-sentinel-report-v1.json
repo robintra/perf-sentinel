@@ -673,7 +673,7 @@
         "binary_verification_url": { "type": "string", "format": "uri" },
         "trace_integrity_chain": {
           "type": ["null", "object"],
-          "description": "Always present, null before v1.6 and on any report with no chain to describe: the key is never omitted, since dropping it would change the canonical bytes of already-published reports. Integrity of the archived windows this report was aggregated from (v1.6+; null on earlier reports). The daemon hash-chains each window as it writes it, and disclose walks the chain while reading. Detects a window edited, removed or reordered after the fact. It does not attest the source: whoever controls the daemon and its files can regenerate a consistent chain.",
+          "description": "Always present, null before v1.6 and on any report with no chain to describe: the key is never omitted, since dropping it would change the canonical bytes of already-published reports. Integrity of the archived windows this report was aggregated from (v1.6+; null on earlier reports). The daemon hash-chains each window as it writes it, and disclose walks the chain while reading. Detects a window edited, removed or reordered after the fact. Two things it does not detect. A clean truncation of an archive's tail leaves a shorter self-consistent chain that no field inside the file can contradict, which needs an anchor kept outside it (see integrity.cross_period_log). And it does not attest the source: whoever controls the daemon and its files can regenerate a consistent chain.",
           "properties": {
             "windows_verified": {
               "type": "integer",
@@ -688,7 +688,12 @@
             "breaks": {
               "type": "integer",
               "minimum": 0,
-              "description": "Detected breaks. Non-zero means part of the period is no longer attestable. The report is still produced and says so, rather than refusing to exist."
+              "description": "Detected breaks inside the period. Non-zero means part of it is no longer attestable. The report is still produced and says so, rather than refusing to exist."
+            },
+            "breaks_outside_period": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Breaks found in the same archive files but outside the period. A rolling archive can span several periods, and this report only answers for its own, so a window edited two years ago is reported here rather than folded into breaks. Keeps windows_verified and breaks reconcilable with the windows the period actually aggregated (v1.6+)."
             }
           }
         },

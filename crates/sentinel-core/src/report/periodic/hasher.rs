@@ -271,6 +271,7 @@ mod tests {
             windows_verified: 2160,
             windows_unchained: 0,
             breaks: 3,
+            breaks_outside_period: 1,
         });
         let with_chain = compute_content_hash(&r).unwrap();
         assert_ne!(with_chain, with_tag, "the source chain must be covered");

@@ -1344,11 +1344,12 @@ pub(crate) fn build_report(
         // noise well below any meaningful digit, and the report is hashed.
         (aggregate.embodied_gco2_total * 1000.0).round() / 1000.0
     });
-    let (chain_verified, chain_unchained, chain_breaks) = (
-        aggregate.chain_verified,
-        aggregate.chain_unchained,
-        aggregate.chain_breaks,
-    );
+    let chain = SourceChain {
+        windows_verified: aggregate.chain_verified,
+        windows_unchained: aggregate.chain_unchained,
+        breaks: aggregate.chain_breaks,
+        breaks_outside_period: aggregate.chain_breaks_outside,
+    };
     let embodied_per_request = embodied_total.and_then(|total| {
         let requests = aggregate.aggregate.total_requests;
         (requests > 0).then(|| {
@@ -1487,11 +1488,7 @@ pub(crate) fn build_report(
             content_hash: String::new(),
             binary_hash: None,
             binary_verification_url: None,
-            trace_integrity_chain: Some(SourceChain {
-                windows_verified: chain_verified,
-                windows_unchained: chain_unchained,
-                breaks: chain_breaks,
-            }),
+            trace_integrity_chain: Some(chain),
             signature: None,
             binary_attestation: None,
             cross_period_log: None,
