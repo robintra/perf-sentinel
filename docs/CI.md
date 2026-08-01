@@ -228,7 +228,10 @@ blocks (step 6 above). No third-party deploy action is required, which
 keeps the template free of supply-chain surface for the upload path.
 Only `actions/checkout` (pinned) is reused across all three workflows.
 
-**Storage footprint**. A typical report is 80 to 150 KB. With retention
+**Storage footprint**. A report is 450 to 550 KB, and the number of
+findings barely moves it: the bulk is the embedded fonts and logos that
+make the file self-contained, which a report with nothing to show
+carries too. With retention
 handled by the cleanup workflow, the gh-pages branch only carries
 reports for open PRs plus the single `baseline.json`. No unbounded
 growth.
@@ -311,7 +314,8 @@ not subject to this cap. For projects running near the cap on
 `perf-sentinel-pages`, `expire_in` can be lowered or MRs should be
 closed/merged promptly to release slots.
 
-**Storage footprint**. A typical report is 80 to 150 KB and a
+**Storage footprint**. A report is 450 to 550 KB, mostly the embedded
+fonts and logos rather than the findings, and a
 baseline JSON is 10 to 50 KB. With retention active on the
 Premium path, only open MRs plus the current baseline consume space.
 The Free path stores a single deployment.
@@ -429,6 +433,11 @@ report whose content sits in the static DOM and needs no script to
 be readable, which is a different piece of work. Until then,
 options A and B are the two answers.
 
+The constraint is specific to Jenkins. GitHub Pages and GitLab Pages
+serve the report with no policy of their own, and the two paths above
+render it as a browser opening the file locally would, tab navigation
+included. Nothing to configure on either.
+
 **Diff tab via the Copy Artifact plugin**. Unlike GitHub Actions and
 GitLab CI where a companion baseline workflow refreshes `baseline.json`
 on every push to the default branch, Jenkins has no built-in artifact
@@ -460,7 +469,8 @@ but that requires managing a forge token in Jenkins credentials
 and is out of scope for this template.
 
 **Storage footprint** is per-build and retained indefinitely
-(`keepAll: true`). A typical report is 80 to 150 KB. For long-lived
+(`keepAll: true`). A report is 450 to 550 KB, mostly the embedded fonts
+and logos rather than the findings. For long-lived
 Jenkins controllers with high build volume, pair
 `publishHTML keepAll: true` with the build discarder in the job
 configuration (e.g. keep last N builds) to cap the footprint.
