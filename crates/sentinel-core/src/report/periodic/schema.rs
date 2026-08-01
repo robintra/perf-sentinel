@@ -518,11 +518,45 @@ impl TemporalCoverage {
     }
 }
 
+/// Split of the published carbon total into its three SCI terms, which
+/// differ in what an operator can act on. `operational` is the only one
+/// carrying an avoidable share, the one the waste tiers quantify.
+/// `embodied` amortises manufactured hardware and `transport` covers
+/// cross-region network energy, both irreducible by fixing an
+/// anti-pattern: they belong in the total and not in a savings target.
+/// The three sum to `total_carbon_kgco2eq`, up to rounding. v1.6.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CarbonBreakdown {
+    /// SCI `O = E x I`, running the workload. Contains the avoidable part.
+    #[serde(default)]
+    pub operational_kgco2eq: f64,
+    /// SCI `M`, amortised hardware. Scaled by
+    /// `[green] embodied_carbon_per_request_gco2`.
+    #[serde(default)]
+    pub embodied_kgco2eq: f64,
+    /// Cross-region network transport. Zero unless
+    /// `[green] include_network_transport` is on and spans carry
+    /// `response_size_bytes`.
+    ///
+    /// The least certain of the three. Its coefficient defaults to an
+    /// upper bound (0.04 kWh/GB) and published figures span two orders of
+    /// magnitude, so the report's uniform 2x bracket understates it. Read
+    /// it as a ceiling, and exclude it when comparing periods that do not
+    /// agree on the setting.
+    #[serde(default)]
+    pub transport_kgco2eq: f64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Aggregate {
     pub total_requests: u64,
     pub total_energy_kwh: f64,
     pub total_carbon_kgco2eq: f64,
+    /// The three terms `total_carbon_kgco2eq` is made of. Reading the
+    /// total without them mixes what an anti-pattern fix can reduce with
+    /// what it cannot. Absent on pre-v1.6 reports. v1.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carbon_breakdown: Option<CarbonBreakdown>,
     /// Period efficiency. Since v1.1 this aliases `canonical_waste.efficiency_score`
     /// (the non-manipulable tier); pre-v1.1 it carried the operator-threshold value.
     pub aggregate_efficiency_score: f64,
@@ -856,6 +890,7 @@ mod tests {
         Aggregate {
             total_requests: 980_000,
             total_energy_kwh: 12.5,
+            carbon_breakdown: None,
             total_carbon_kgco2eq: 1.4,
             aggregate_efficiency_score: 82.0,
             aggregate_waste_ratio: 0.18,

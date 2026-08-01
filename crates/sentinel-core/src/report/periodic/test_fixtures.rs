@@ -156,6 +156,7 @@ pub(super) fn sample_report(
         aggregate: Aggregate {
             total_requests: 1000,
             total_energy_kwh: 0.5,
+            carbon_breakdown: None,
             total_carbon_kgco2eq: 0.05,
             aggregate_efficiency_score: 90.0,
             aggregate_waste_ratio: 0.1,
