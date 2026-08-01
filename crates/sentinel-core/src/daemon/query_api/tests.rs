@@ -619,9 +619,9 @@ async fn handle_export_report_serves_live_green_summary_after_batch() {
 }
 
 #[tokio::test]
-async fn handle_export_report_omits_scoring_config_when_emaps_not_configured() {
-    // Symmetric guard: when EM is not configured at daemon
-    // startup, the snapshot must not advertise a methodology.
+async fn handle_export_report_leaves_scoring_config_absent_when_state_has_none() {
+    // Symmetric guard: the handler stitches the field from the daemon
+    // state and invents nothing when that state carries no config.
     let state = make_state();
     state.metrics.events_processed_total.inc_by(1.0);
     state.metrics.traces_analyzed_total.inc_by(1.0);
