@@ -19,6 +19,54 @@ fn parse_empty_toml_gives_defaults() {
 }
 
 #[test]
+fn ordered_fragments_deep_merge_and_later_values_win() {
+    let config = load_from_fragments(&[
+        (
+            "10-base.toml",
+            "[detection]\nn_plus_one_min_occurrences = 7\n[green]\ndefault_region = \"eu-west-3\"\n",
+        ),
+        (
+            "30-energy.toml",
+            "[green]\ninclude_network_transport = true\n[green.service_regions]\napi = \"us-east-1\"\n",
+        ),
+        (
+            ".perf-sentinel.toml",
+            "[detection]\nn_plus_one_min_occurrences = 11\n",
+        ),
+    ])
+    .unwrap();
+
+    assert_eq!(config.detection.n_plus_one_threshold, 11);
+    assert_eq!(config.green.default_region.as_deref(), Some("eu-west-3"));
+    assert!(config.green.include_network_transport);
+    assert_eq!(
+        config.green.service_regions.get("api").map(String::as_str),
+        Some("us-east-1")
+    );
+}
+
+#[test]
+fn fragment_merge_rejects_a_key_type_change() {
+    let error = load_from_fragments(&[
+        ("10-green.toml", "[green]\nenabled = true\n"),
+        ("20-bad.toml", "green = \"yes\"\n"),
+    ])
+    .unwrap_err();
+    assert!(matches!(error, ConfigError::Merge { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("changes green from table to string")
+    );
+}
+
+#[test]
+fn fragment_parse_error_names_the_file() {
+    let error = load_from_fragments(&[("30-broken.toml", "[green\n")]).unwrap_err();
+    assert!(error.to_string().contains("30-broken.toml"));
+}
+
+#[test]
 fn every_example_config_loads() {
     // The Redfish and Scaphandre snippets shipped for months in a shape the
     // parser rejects, because nothing ever fed an example file back through
@@ -38,6 +86,43 @@ fn every_example_config_loads() {
         checked += 1;
     }
     assert!(checked >= 5, "expected the example files, found {checked}");
+}
+
+#[test]
+fn standardized_example_fragments_compose() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let names = [
+        "30-green-alumet.toml",
+        "31-green-cloud.toml",
+        "32-green-scaphandre.toml",
+        "33-green-kepler.toml",
+        "34-green-redfish.toml",
+        "40-green-electricity-maps.toml",
+        "60-daemon-docker.toml",
+        "perf-sentinel.toml",
+    ];
+    let owned: Vec<_> = names
+        .iter()
+        .map(|name| {
+            (
+                *name,
+                std::fs::read_to_string(root.join(name)).expect("read example fragment"),
+            )
+        })
+        .collect();
+    let fragments: Vec<_> = owned
+        .iter()
+        .map(|(name, content)| (*name, content.as_str()))
+        .collect();
+
+    let config = load_from_fragments(&fragments).unwrap();
+    assert!(config.green.alumet.is_some());
+    assert!(config.green.cloud_energy.is_some());
+    assert!(config.green.scaphandre.is_some());
+    assert!(config.green.kepler.is_some());
+    assert!(config.green.redfish.is_some());
+    assert!(config.green.electricity_maps.is_some());
+    assert_eq!(config.daemon.listen_addr, "127.0.0.1");
 }
 
 #[test]

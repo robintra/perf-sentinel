@@ -42,7 +42,7 @@ services:
     image: ghcr.io/robintra/perf-sentinel:latest
     command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
     volumes:
-      - ./perf-sentinel-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+      - ./60-daemon-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
     ports:
       - "127.0.0.1:14318:4318"
       - "127.0.0.1:14317:4317"
@@ -61,7 +61,7 @@ services:
     image: ghcr.io/robintra/perf-sentinel:latest
     command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
     volumes:
-      - ./perf-sentinel-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+      - ./60-daemon-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
     ports:
       - "127.0.0.1:24318:4318"
       - "127.0.0.1:24317:4317"

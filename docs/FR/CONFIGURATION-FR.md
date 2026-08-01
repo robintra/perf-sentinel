@@ -6,12 +6,48 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 
 ## Sommaire
 
+- [Fragments de configuration](#fragments-de-configuration) : chargement multi-fichier déterministe.
 - [Sous-commandes](#sous-commandes) : quelles sous-commandes lisent `.perf-sentinel.toml`.
 - [Sections](#sections) : référence complète par section (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, `[reporting]`).
 - [Configuration minimale](#configuration-minimale) : le `.perf-sentinel.toml` le plus court utile.
 - [Exemple de configuration complète](#exemple-de-configuration-complète) : chaque section peuplée avec des valeurs d'exemple.
 - [Migration depuis 0.5.x](#migration-depuis-05x) : les 8 clés top-level legacy retirées en 0.6.0 et comment migrer.
 - [Variables d'environnement](#variables-denvironnement) : quelles variables d'environnement surchargent les valeurs du fichier de config.
+
+## Fragments de configuration
+
+perf-sentinel charge les documents TOML du répertoire `.perf-sentinel.d/`
+placé à côté de la configuration principale, puis charge
+`.perf-sentinel.toml` en dernier. Cette règle vaut aussi avec
+`--config chemin/vers/custom.toml` : les fragments viennent de
+`chemin/vers/.perf-sentinel.d/` et `custom.toml` reste la surcharge finale.
+Le fichier principal est facultatif uniquement sans option `--config`.
+
+Le nom d'un fragment doit suivre `NN-nom-minuscule.toml`, avec une priorité
+unique `NN` comprise entre `00` et `99`. Les fichiers sont chargés par priorité
+croissante. Une priorité dupliquée, une majuscule ou un séparateur ambigu est
+refusé. Les fichiers qui ne se terminent pas par `.toml` sont ignorés.
+
+Les tables fusionnent récursivement. Une valeur scalaire, un tableau ou une
+date plus tardive remplace la valeur précédente de la même clé. Remplacer une
+clé par un autre type TOML provoque une erreur. Les exemples réservent ces
+plages :
+
+| Priorité     | Usage                                                    |
+|--------------|----------------------------------------------------------|
+| `00` à `19` | valeurs partagées, seuils et détection                   |
+| `20` à `39` | sources d'énergie et mesure GreenOps                     |
+| `40` à `49` | sources d'intensité carbone                              |
+| `50` à `69` | daemon et topologie de déploiement                       |
+| `70` à `89` | reporting et politique propre à l'organisation           |
+| `90` à `99` | surcharges locales, à garder de préférence hors du dépôt |
+
+Les fragments prêts à copier dans `examples/` conservent leur priorité dans
+leur nom. Gardez ces noms en les copiant dans `.perf-sentinel.d/` :
+`30-green-alumet.toml`, `31-green-cloud.toml`,
+`32-green-scaphandre.toml`, `33-green-kepler.toml`,
+`34-green-redfish.toml`, `40-green-electricity-maps.toml` et
+`60-daemon-docker.toml`.
 
 ## Sous-commandes
 

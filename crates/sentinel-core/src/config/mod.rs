@@ -554,6 +554,10 @@ const REMOVED_LEGACY_TOP_LEVEL_KEYS: &[(&str, &str)] = &[
 /// prints both pieces of information in one error.
 fn reject_legacy_top_level_keys(content: &str) -> Result<(), ConfigError> {
     let value: toml::Value = toml::from_str(content).map_err(ConfigError::Parse)?;
+    reject_legacy_top_level_value(&value)
+}
+
+fn reject_legacy_top_level_value(value: &toml::Value) -> Result<(), ConfigError> {
     let toml::Value::Table(table) = value else {
         return Ok(());
     };
@@ -598,6 +602,95 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
             }
         }
     };
+    validate_raw_config(raw)
+}
+
+/// Load and deeply merge ordered TOML documents. Later documents override
+/// earlier scalar values while tables are merged recursively.
+///
+/// # Errors
+///
+/// Returns a parse error naming the fragment, a merge error when the same
+/// key changes TOML type, or the regular configuration validation errors.
+pub fn load_from_fragments(fragments: &[(&str, &str)]) -> Result<Config, ConfigError> {
+    let mut merged = toml::Value::Table(toml::Table::new());
+    for (name, content) in fragments {
+        let normalized = normalize_toml_path_strings(content);
+        let value = match toml::from_str(normalized.as_ref()) {
+            Ok(value) => value,
+            Err(normalized_error) if matches!(normalized, Cow::Owned(_)) => {
+                tracing::debug!(
+                    %normalized_error,
+                    fragment = *name,
+                    "path normalization produced invalid TOML; retrying with original input"
+                );
+                toml::from_str(content).map_err(|source| ConfigError::FragmentParse {
+                    name: (*name).to_string(),
+                    source,
+                })?
+            }
+            Err(source) => {
+                return Err(ConfigError::FragmentParse {
+                    name: (*name).to_string(),
+                    source,
+                });
+            }
+        };
+        reject_legacy_top_level_value(&value)?;
+        merge_toml_value(&mut merged, value, "", name)?;
+    }
+    let raw: RawConfig = merged.try_into().map_err(ConfigError::Parse)?;
+    validate_raw_config(raw)
+}
+
+fn merge_toml_value(
+    base: &mut toml::Value,
+    overlay: toml::Value,
+    path: &str,
+    fragment: &str,
+) -> Result<(), ConfigError> {
+    match (base, overlay) {
+        (toml::Value::Table(base), toml::Value::Table(overlay)) => {
+            for (key, value) in overlay {
+                let child = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                if let Some(existing) = base.get_mut(&key) {
+                    merge_toml_value(existing, value, &child, fragment)?;
+                } else {
+                    base.insert(key, value);
+                }
+            }
+            Ok(())
+        }
+        (base, overlay) if toml_value_kind(base) == toml_value_kind(&overlay) => {
+            *base = overlay;
+            Ok(())
+        }
+        (base, overlay) => Err(ConfigError::Merge {
+            fragment: fragment.to_string(),
+            key: path.to_string(),
+            existing: toml_value_kind(base),
+            incoming: toml_value_kind(&overlay),
+        }),
+    }
+}
+
+const fn toml_value_kind(value: &toml::Value) -> &'static str {
+    match value {
+        toml::Value::String(_) => "string",
+        toml::Value::Integer(_) => "integer",
+        toml::Value::Float(_) => "float",
+        toml::Value::Boolean(_) => "boolean",
+        toml::Value::Datetime(_) => "datetime",
+        toml::Value::Array(_) => "array",
+        toml::Value::Table(_) => "table",
+    }
+}
+
+fn validate_raw_config(raw: RawConfig) -> Result<Config, ConfigError> {
     // Validate before the lossy `Config::from` conversion: a typo like
     // `envrionment = "prod"` would otherwise silently downgrade to
     // Staging instead of erroring.
@@ -640,6 +733,23 @@ pub enum ConfigError {
     /// TOML parsing error.
     #[error("config parse error: {0}")]
     Parse(#[from] toml::de::Error),
+    /// TOML parsing error in one named fragment.
+    #[error("config fragment {name} parse error: {source}")]
+    FragmentParse {
+        name: String,
+        #[source]
+        source: toml::de::Error,
+    },
+    /// A later fragment tried to replace a key with another TOML type.
+    #[error(
+        "config fragment {fragment} changes {key} from {existing} to {incoming}. Types must match"
+    )]
+    Merge {
+        fragment: String,
+        key: String,
+        existing: &'static str,
+        incoming: &'static str,
+    },
     /// Validation error (out-of-range values).
     #[error("config validation error: {0}")]
     Validation(String),

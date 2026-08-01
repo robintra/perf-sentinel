@@ -6,9 +6,9 @@
 # option (thresholds, detection tuning, GreenOps, Scaphandre, Electricity
 # Maps, cloud energy), see `examples/perf-sentinel.toml`.
 #
-# To combine the optional scrapers with this Docker topology, copy this file
-# and add the sections you need from `perf-sentinel.toml`, then mount the
-# combined result into the container.
+# To combine optional scrapers with this topology, keep this file as
+# `60-daemon-docker.toml` in `.perf-sentinel.d/` and add the numbered GreenOps
+# fragments you need. Mount that directory beside the main config.
 
 [daemon]
 # /!\ Binds to ALL interfaces, so the collector in a sibling container can
