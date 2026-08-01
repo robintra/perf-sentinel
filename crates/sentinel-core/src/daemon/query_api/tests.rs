@@ -1088,10 +1088,11 @@ async fn energy_endpoint_derives_electricity_maps_from_scoring_config() {
 async fn energy_endpoint_does_not_claim_electricity_maps_from_coefficients_alone() {
     use crate::score::carbon::ScoringConfig;
 
-    // Every run now ships a `scoring_config` to carry the applied
+    // Every green-scored run ships a `scoring_config` to carry the applied
     // coefficients, so its presence must not be read as "the API is on".
     let mut state = (*make_state()).clone_for_test();
     state.scoring_config = Some(ScoringConfig {
+        electricity_maps: Some(false),
         embodied_per_request_gco2: Some(0.001),
         ..ScoringConfig::default()
     });

@@ -907,7 +907,7 @@ fn co2_computed_when_region_set() {
     assert_eq!(co2.total.model, "io_proxy_v1");
     // Methodology field replaces sci_version,
     // with distinct values for total (numerator) vs avoidable (ratio).
-    assert_eq!(co2.total.methodology, "sci_v1_numerator");
+    assert_eq!(co2.total.methodology, "sci_v1_numerator+transport");
     assert_eq!(co2.avoidable.methodology, "sci_v1_operational_ratio");
     // 2× multiplicative uncertainty bracket.
     assert!((co2.total.low - co2.total.mid * 0.5).abs() < f64::EPSILON);
@@ -1458,7 +1458,7 @@ fn co2_methodology_labels_set() {
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v1");
-    assert_eq!(co2.total.methodology, "sci_v1_numerator");
+    assert_eq!(co2.total.methodology, "sci_v1_numerator+transport");
     assert_eq!(co2.avoidable.model, "io_proxy_v1");
     assert_eq!(co2.avoidable.methodology, "sci_v1_operational_ratio");
 }

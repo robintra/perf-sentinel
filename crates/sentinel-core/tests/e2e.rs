@@ -403,7 +403,7 @@ fn co2_serializes_correctly_in_json() {
     let json = serde_json::to_string(&report).unwrap();
     // Structured co2 object with methodology tags must appear in the report.
     assert!(json.contains("\"co2\""));
-    assert!(json.contains("\"sci_v1_numerator\""));
+    assert!(json.contains("\"sci_v1_numerator+transport\""));
     assert!(json.contains("\"sci_v1_operational_ratio\""));
     assert!(json.contains("\"methodology\""));
 }

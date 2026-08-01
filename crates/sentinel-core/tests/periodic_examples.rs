@@ -138,3 +138,23 @@ fn examples_carry_v1_2_continuity_and_provenance_fields() {
         );
     }
 }
+
+#[test]
+fn nested_carbon_and_chain_objects_require_their_core_fields() {
+    let path = workspace_doc("docs/schemas/perf-sentinel-report-v1.json");
+    let schema: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(
+        schema["$defs"]["Aggregate"]["properties"]["carbon_breakdown"]["required"],
+        serde_json::json!(["operational_kgco2eq", "embodied_kgco2eq"])
+    );
+    assert_eq!(
+        schema["$defs"]["Integrity"]["properties"]["trace_integrity_chain"]["required"],
+        serde_json::json!([
+            "windows_verified",
+            "windows_unchained",
+            "breaks",
+            "breaks_outside_period"
+        ])
+    );
+}

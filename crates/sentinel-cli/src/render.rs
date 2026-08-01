@@ -743,13 +743,13 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     }
 
     // Carbon scoring config header. Hidden when Electricity Maps is not
-    // configured: `scoring_config` is built on every run now, so its
+    // configured: `scoring_config` is built on every green-scored run, so its
     // presence alone no longer means the API is in use. The 3 fields are
     // typed enums with bounded variants, no terminal sanitization needed.
     if let Some(scoring) = summary
         .scoring_config
         .as_ref()
-        .filter(|cfg| cfg.electricity_maps == Some(true))
+        .filter(|cfg| cfg.uses_electricity_maps())
     {
         println!();
         println!("{}", format_scoring_config_line(scoring));

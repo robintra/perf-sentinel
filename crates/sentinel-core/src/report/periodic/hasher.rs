@@ -267,20 +267,21 @@ mod tests {
 
         // Same rule for the source chain: a break count outside the hash
         // could be rewritten to zero under a still-valid signature.
-        r.integrity.trace_integrity_chain = Some(crate::report::periodic::schema::SourceChain {
-            windows_verified: 2160,
-            windows_unchained: 0,
-            breaks: 3,
-            breaks_outside_period: 1,
-        });
+        r.integrity.trace_integrity_chain =
+            serde_json::json!(crate::report::periodic::schema::SourceChain {
+                windows_verified: 2160,
+                windows_unchained: 0,
+                breaks: 3,
+                breaks_outside_period: 1,
+            });
         let with_chain = compute_content_hash(&r).unwrap();
         assert_ne!(with_chain, with_tag, "the source chain must be covered");
 
-        r.integrity.trace_integrity_chain = None;
+        r.integrity.trace_integrity_chain = serde_json::Value::Null;
         assert_eq!(
             compute_content_hash(&r).unwrap(),
             with_tag,
-            "an absent chain must serialize away, as in every pre-v1.6 report"
+            "an absent chain must serialize as null, as in every pre-v1.6 report"
         );
     }
 

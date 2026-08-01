@@ -350,7 +350,7 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1, "maxLength": 64 },
           "uniqueItems": true,
-          "description": "SCI methodology tags observed across the period's windows: sci_v1_numerator, or sci_v1_numerator+transport when network transport is counted in the numerator. Two reports whose numerator differs are otherwise indistinguishable. More than one entry means the setting changed mid-period (v1.6+)."
+          "description": "SCI methodology tags observed across the period's windows. Current windows use sci_v1_numerator+transport because network transport is part of the numerator, including when its value is zero. The legacy sci_v1_numerator tag can appear when a period spans older windows (v1.6+)."
         },
         "embodied_gco2_total": {
           "type": "number",
@@ -430,6 +430,7 @@
         "total_energy_kwh": { "type": "number", "minimum": 0 },
         "carbon_breakdown": {
           "type": "object",
+          "required": ["operational_kgco2eq", "embodied_kgco2eq"],
           "description": "The three SCI terms total_carbon_kgco2eq is made of, which differ in what an operator can act on (v1.6+). operational carries the avoidable share the waste tiers quantify; embodied amortises manufactured hardware and transport covers cross-region network energy, both irreducible by fixing an anti-pattern. The three sum to the total, up to rounding. Omitted when no window carried a carbon figure.",
           "properties": {
             "operational_kgco2eq": { "type": "number", "minimum": 0 },
@@ -437,7 +438,7 @@
             "database_kgco2eq_out_of_total": {
               "type": "number",
               "minimum": 0,
-              "description": "Total carbon of the database over the period, when measured. Outside the sum of the three terms and outside total_carbon_kgco2eq: it covers a different scope from the instrumented services. Published here so every carbon figure a run produced is readable in one place (v1.6+)."
+              "description": "Total carbon of the database over the period when measured or declared as an external scope. Estimated fallback carbon is already included in the service total and is excluded here. This field sits outside the three-term sum and total_carbon_kgco2eq (v1.6+)."
             },
             "messaging_kgco2eq_out_of_total": {
               "type": "number",
@@ -447,7 +448,7 @@
             "transport_kgco2eq": {
               "type": "number",
               "minimum": 0,
-              "description": "Cross-region network transport, omitted when no window counted any. Omitted rather than zeroed because a zero would not distinguish include_network_transport being off from it being on with no cross-region traffic: both produce identical windows and the same sci_v1_numerator tag. The least certain of the three terms when present. Its coefficient defaults to an upper bound (0.04 kWh/GB) and published figures span two orders of magnitude, so the report's uniform 2x bracket understates it. Read it as a ceiling, and exclude it when comparing periods that disagree on the include_network_transport setting."
+              "description": "Cross-region network transport, omitted when its value is zero. The methodology still records that transport is part of the numerator. The least certain of the three terms when present. Its coefficient defaults to an upper bound (0.04 kWh/GB) and published figures span two orders of magnitude, so the report's uniform 2x bracket understates it. Read it as a ceiling."
             }
           }
         },
@@ -673,6 +674,7 @@
         "binary_verification_url": { "type": "string", "format": "uri" },
         "trace_integrity_chain": {
           "type": ["null", "object"],
+          "required": ["windows_verified", "windows_unchained", "breaks", "breaks_outside_period"],
           "description": "Always present, null before v1.6 and on any report with no chain to describe: the key is never omitted, since dropping it would change the canonical bytes of already-published reports. Integrity of the archived windows this report was aggregated from (v1.6+; null on earlier reports). The daemon hash-chains each window as it writes it, and disclose walks the chain while reading. Detects a window edited, removed or reordered after the fact. Two things it does not detect. A clean truncation of an archive's tail leaves a shorter self-consistent chain that no field inside the file can contradict, which needs an anchor kept outside it (see integrity.cross_period_log). And it does not attest the source: whoever controls the daemon and its files can regenerate a consistent chain.",
           "properties": {
             "windows_verified": {

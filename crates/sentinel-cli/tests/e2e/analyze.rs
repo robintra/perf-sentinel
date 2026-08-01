@@ -557,7 +557,7 @@ fn cli_analyze_with_config_region_shows_co2() {
     assert!(co2["total"]["low"].is_number());
     assert!(co2["total"]["high"].is_number());
     assert_eq!(co2["total"]["model"], "io_proxy_v1");
-    assert_eq!(co2["total"]["methodology"], "sci_v1_numerator");
+    assert_eq!(co2["total"]["methodology"], "sci_v1_numerator+transport");
     assert_eq!(co2["avoidable"]["methodology"], "sci_v1_operational_ratio");
     assert!(co2["operational_gco2"].is_number());
     assert!(co2["embodied_gco2"].is_number());

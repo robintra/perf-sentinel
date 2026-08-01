@@ -407,7 +407,7 @@ co2.sci_per_trace.mid = co2.total.mid / analysis.traces_analyzed
 
 The functional unit R is declared on `co2.functional_unit` (`"trace"`). Both views are kept because they answer different questions: the footprint sizes the absolute impact, the intensity normalizes it per unit of work. The `methodology` field on each `CarbonEstimate` tags the semantic:
 
-- `co2.total.methodology = "sci_v1_numerator"`: the `(E × I) + M` footprint over analyzed traces.
+- `co2.total.methodology = "sci_v1_numerator+transport"`: the `(E × I) + M + T` footprint over analyzed traces. Legacy reports can carry `"sci_v1_numerator"`.
 - `co2.sci_per_trace.methodology = "sci_v1_intensity"`: the per-R intensity `((E × I) + M) / R`, R = 1 trace.
 - `co2.avoidable.methodology = "sci_v1_operational_ratio"`: `operational × (avoidable_io_ops / accounted_io_ops)`, a region-blind global ratio that excludes embodied carbon by design.
 
