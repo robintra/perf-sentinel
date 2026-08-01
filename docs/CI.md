@@ -426,12 +426,21 @@ Tradeoffs:
 
 Splitting the report into sibling CSS and JavaScript files would
 not help, and no release will do it for this reason. The default
-Jenkins policy declares no `script-src` at all, so it falls back
-to `default-src 'none'`, which blocks an external script exactly
-as it blocks an inline one. What would render on that policy is a
-report whose content sits in the static DOM and needs no script to
-be readable, which is a different piece of work. Until then,
-options A and B are the two answers.
+Jenkins policy blocks scripts twice over: it declares no
+`script-src` at all, so an external one falls back to
+`default-src 'none'`, and its `sandbox` directive omits
+`allow-scripts`, which turns scripting off for the document
+whatever the source. Measured on a control page under that exact
+policy: neither an inline nor a sibling script runs, while a
+sibling stylesheet and a same-origin image do load.
+
+Moving the content into the static DOM would not be enough either.
+Inline `<style>` is blocked the same way (`style-src 'self'`
+carries no `'unsafe-inline'`), and the `data:` URI fonts and logos
+fall under `default-src 'none'`. A report that renders on this
+policy is a multi-file artifact with no script, no inline style
+and no embedded asset, which is a second output format rather than
+a fix to the current one. Options A and B stay the two answers.
 
 The constraint is specific to Jenkins. GitHub Pages and GitLab Pages
 serve the report with no policy of their own, and the two paths above

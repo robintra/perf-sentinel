@@ -527,13 +527,23 @@ Compromis :
 
 Découper le rapport en fichiers CSS et JavaScript voisins ne
 servirait à rien, et aucune release ne le fera pour cette raison.
-La politique Jenkins par défaut ne déclare aucun `script-src`,
-elle retombe donc sur `default-src 'none'`, qui bloque un script
-externe exactement comme un script inline. Ce qui s'afficherait
-sous cette politique, c'est un rapport dont le contenu tient dans
-le DOM statique et n'a besoin d'aucun script pour être lisible,
-un autre chantier. D'ici là, les options A et B sont les deux
-réponses.
+La politique Jenkins par défaut bloque les scripts deux fois : elle
+ne déclare aucun `script-src`, un script externe retombe donc sur
+`default-src 'none'`, et sa directive `sandbox` omet
+`allow-scripts`, ce qui coupe le scripting du document quelle que
+soit la provenance. Mesuré sur une page témoin servie sous cette
+politique exacte : ni un script inline ni un script voisin ne
+tournent, alors qu'une feuille de style voisine et une image de
+même origine se chargent, elles.
+
+Déplacer le contenu dans le DOM statique ne suffirait pas non plus.
+Le `<style>` inline est bloqué de la même façon (`style-src 'self'`
+ne porte pas `'unsafe-inline'`), et les polices et logos en URI
+`data:` tombent sous `default-src 'none'`. Un rapport qui s'affiche
+sous cette politique, c'est un artefact multi-fichiers sans script,
+sans style inline et sans ressource embarquée, soit un second
+format de sortie plutôt qu'un correctif de l'actuel. Les options A
+et B restent les deux réponses.
 
 La contrainte est propre à Jenkins. GitHub Pages et GitLab Pages
 servent le rapport sans politique à eux, et les deux chemins ci-dessus
