@@ -3,7 +3,7 @@
 //! drop-on-full policy. See `docs/design/08-PERIODIC-DISCLOSURE.md`.
 
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -70,7 +70,11 @@ pub fn try_send(tx: &Sender<OwnedArchive>, archive: OwnedArchive) -> bool {
 pub fn spawn(cfg: &DaemonArchiveConfig) -> Result<ArchiveHandle, ArchiveError> {
     let path = PathBuf::from(&cfg.path);
     refuse_symlink(&path)?;
-    let file = open_append(&path)?;
+    let mut file = open_append(&path)?;
+    terminate_incomplete_line(&mut file).map_err(|source| ArchiveError::Open {
+        path: path.display().to_string(),
+        source,
+    })?;
     let bytes_written = metadata_len(&path);
     let cap_bytes = cfg.max_size_mb.saturating_mul(1_048_576);
     let max_files = cfg.max_files;
@@ -93,6 +97,7 @@ fn refuse_symlink(path: &Path) -> Result<(), ArchiveError> {
 fn open_append(path: &Path) -> Result<File, ArchiveError> {
     let file = OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(path)
         .map_err(|source| ArchiveError::Open {
@@ -100,6 +105,23 @@ fn open_append(path: &Path) -> Result<File, ArchiveError> {
             source,
         })?;
     Ok(file)
+}
+
+/// Keep a crash-truncated record from being joined to the next window.
+/// A complete JSON value that only missed its newline stays usable; a
+/// partial value becomes one malformed line that disclosure can skip.
+fn terminate_incomplete_line(file: &mut File) -> std::io::Result<()> {
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(());
+    }
+    file.seek(SeekFrom::Start(len - 1))?;
+    let mut last = [0];
+    file.read_exact(&mut last)?;
+    if last[0] != b'\n' {
+        file.write_all(b"\n")?;
+    }
+    Ok(())
 }
 
 fn metadata_len(path: &Path) -> u64 {
@@ -191,65 +213,23 @@ fn serialize_envelope(
 /// daemon continues instead of opening a break at every restart. Falls
 /// back to the seed on an empty, unreadable or pre-chain file.
 fn resume_chain(path: &Path) -> (String, u64) {
-    resume_chain_within(path, &[TAIL_SCAN_BYTES, MAX_TAIL_SCAN_BYTES])
-}
-
-fn resume_chain_within(path: &Path, windows: &[u64]) -> (String, u64) {
     let seed = || (ARCHIVE_CHAIN_SEED.to_string(), 0);
-    // A window larger than the first read window leaves only a truncated
-    // fragment in it, and reseeding mid-file is exactly the restart-reads-
-    // as-tampering case this function exists to prevent, so widen once.
-    for &window in windows {
-        let Some(tail) = read_tail(path, window) else {
-            return seed();
-        };
-        if let Some(head) = chain_head(&tail) {
-            return head;
-        }
-        if metadata_len(path) <= window {
-            return seed();
-        }
-    }
-    tracing::warn!(
-        path = %path.display(),
-        "no chained window in the last {} bytes of the archive, restarting the \
-         chain: the next disclose reports one break here",
-        windows.last().copied().unwrap_or(0),
-    );
-    seed()
-}
-
-/// Last chained line of `tail`, as `(hash, next_seq)`.
-fn chain_head(tail: &str) -> Option<(String, u64)> {
-    tail.lines().rev().find_map(|line| {
-        let value: serde_json::Value = serde_json::from_str(line).ok()?;
-        let hash = value.get("hash")?.as_str()?.to_string();
-        let seq = value.get("seq").and_then(serde_json::Value::as_u64)?;
-        Some((hash, seq.saturating_add(1)))
-    })
-}
-
-/// How much of the file's end to read back. One archived window is a few
-/// KB, so this covers the last line by a wide margin while keeping
-/// startup independent of an archive that can reach the rotation cap.
-const TAIL_SCAN_BYTES: u64 = 1024 * 1024;
-
-/// Second and last attempt, for a window whose findings and per-endpoint
-/// tables outgrew the first. Bounded so startup never reads a whole
-/// multi-gigabyte archive into memory.
-const MAX_TAIL_SCAN_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Last `max_bytes` of `path`, as lossy UTF-8 since the window may start
-/// mid-character. `None` when the file cannot be read.
-fn read_tail(path: &Path, max_bytes: u64) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    let from = len.saturating_sub(max_bytes);
-    file.seek(SeekFrom::Start(from)).ok()?;
-    let mut buf = Vec::with_capacity(usize::try_from(len - from).unwrap_or(0));
-    file.read_to_end(&mut buf).ok()?;
-    Some(String::from_utf8_lossy(&buf).into_owned())
+    let Ok(file) = File::open(path) else {
+        return seed();
+    };
+    // A linear scan avoids any record-size ceiling. A sidecar head can be
+    // added if startup on multi-gigabyte unrotated archives becomes slow.
+    BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(&line).ok()?;
+            let hash = value.get("hash")?.as_str()?.to_string();
+            let seq = value.get("seq").and_then(serde_json::Value::as_u64)?;
+            Some((hash, seq.saturating_add(1)))
+        })
+        .last()
+        .unwrap_or_else(seed)
 }
 
 fn extract_hash(line: &str) -> Option<String> {
@@ -267,8 +247,10 @@ fn extract_hash(line: &str) -> Option<String> {
 /// (SIGKILL, OOM) or hold bytes the caller then cannot account for when a
 /// write fails. Both cases end up published as a chain break.
 fn write_line(file: &mut File, line: &str) -> std::io::Result<()> {
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")
+    let mut record = Vec::with_capacity(line.len() + 1);
+    record.extend_from_slice(line.as_bytes());
+    record.push(b'\n');
+    file.write_all(&record)
 }
 
 fn rotate(active: &Path, file: &mut File, max_files: u32) -> std::io::Result<()> {
@@ -443,33 +425,39 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_window_larger_than_the_first_read_window_still_resumes() {
-        // The tail read is bounded, and a window whose findings outgrow it
-        // leaves only a fragment in the first pass. Reseeding there would
-        // open a chain mid-file and publish a restart as tampering.
+    #[test]
+    fn a_window_larger_than_64_mib_still_resumes() {
         let dir = TempDir::new().unwrap();
+        let path = dir.path().join("archive.ndjson");
+        let line = serde_json::json!({
+            "hash": "large-window-head",
+            "seq": 7,
+            "padding": "x".repeat(64 * 1024 * 1024),
+        });
+        std::fs::write(&path, serde_json::to_vec(&line).unwrap()).unwrap();
+        assert_eq!(resume_chain(&path), ("large-window-head".to_string(), 8),);
+    }
+
+    #[tokio::test]
+    async fn restart_separates_a_crash_truncated_line_from_the_next_window() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("archive.ndjson");
+        let first = serialize_envelope(&sample_archive(), ARCHIVE_CHAIN_SEED, 0).unwrap();
+        std::fs::write(&path, format!("{first}\n{{\"partial\"")).unwrap();
+
         let handle = spawn(&cfg(&dir, 100, 12)).unwrap();
-        let mut archive = sample_archive();
-        archive.report.warnings = vec!["x".repeat(4096)];
-        handle.tx.send(archive).await.unwrap();
+        handle.tx.send(sample_archive()).await.unwrap();
         drop(handle.tx);
         handle.join.await.unwrap();
 
-        let path = dir.path().join("archive.ndjson");
-        let line: serde_json::Value =
-            serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
-        // 64 bytes cannot hold the line, 1 MiB can.
-        assert_eq!(
-            resume_chain_within(&path, &[64, 1024 * 1024]),
-            (line["hash"].as_str().unwrap().to_string(), 1),
-        );
-        // Narrow-only reads nothing parseable and must not pretend the
-        // file is empty, it says so and reseeds.
-        assert_eq!(
-            resume_chain_within(&path, &[64]),
-            (ARCHIVE_CHAIN_SEED.to_string(), 0),
-        );
+        let contents = std::fs::read_to_string(path).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(serde_json::from_str::<serde_json::Value>(lines[1]).is_err());
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        let resumed: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(resumed["prev"], first["hash"]);
+        assert_eq!(resumed["seq"], 1);
     }
 
     #[tokio::test]
