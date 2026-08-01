@@ -12,7 +12,7 @@
 # profile, so a dead API degrades the model tag rather than the run.
 
 [green]
-enabled = true
+enabled = true   # default true
 # No default. Without a region, a service whose spans carry no cloud.region
 # attribute gets no carbon figure at all.
 default_region = "eu-west-3"
@@ -26,12 +26,12 @@ default_region = "eu-west-3"
 # Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here, it takes
 # precedence over this file. There is no "env:VAR" indirection, a value in
 # that shape is used literally.
-api_key = "your-api-key"
+api_key = "your-api-key"   # no default, required
 # Default 300. The free tier is about 30 requests per zone per month, so it
 # needs 3600 or more.
-poll_interval_secs = 3600
+poll_interval_secs = 3600   # default 300, bounds 60..86400
 # Map your region IDs to Electricity Maps zone IDs.
-region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "ap-southeast-1" = "SG" }
+region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "ap-southeast-1" = "SG" }   # no default, at least one entry required
 # "lifecycle" (default) includes construction and fuel supply chain,
 # "direct" counts combustion only.
-emission_factor_type = "lifecycle"
+emission_factor_type = "lifecycle"   # default "lifecycle", or "direct"

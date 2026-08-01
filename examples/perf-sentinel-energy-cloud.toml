@@ -13,14 +13,14 @@
 # below the measured backends: it is an estimate, not a measurement.
 
 [green]
-enabled = true
+enabled = true   # default true
 # No default. Without a region, a service whose spans carry no cloud.region
 # attribute gets no carbon figure at all.
 default_region = "eu-west-3"
 
 [green.cloud]
-prometheus_endpoint = "http://prometheus:9090"
-scrape_interval_secs = 15
+prometheus_endpoint = "http://prometheus:9090"   # no default, required
+scrape_interval_secs = 15   # default 15
 # Fallbacks for any service below that names neither.
 #   provider: "aws", "gcp" or "azure". Any other value resolves to generic
 #     on-prem watts, so a typo degrades the figure instead of failing.
@@ -34,7 +34,7 @@ default_instance_type = "c5.4xlarge"
 # aws_ec2_cpuutilization_average, the GCP instance/cpu/utilization series, or
 # azure_compute_virtualmachines_percentage_cpu_average. Set it only when your
 # exporter names the series differently.
-# cpu_metric = "aws_ec2_cpuutilization_average"
+# cpu_metric = "aws_ec2_cpuutilization_average"   # default unset
 # Credentials belong in PERF_SENTINEL_CLOUD_AUTH_HEADER rather than here,
 # it takes precedence over this file.
 
