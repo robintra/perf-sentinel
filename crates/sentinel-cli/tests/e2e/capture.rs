@@ -93,6 +93,32 @@ fn cli_capture_says_so_when_nothing_was_exported() {
 }
 
 #[test]
+fn cli_capture_runs_the_command_when_the_output_directory_is_missing() {
+    // The documented recipe writes to target/traces.json, and a CI workspace
+    // starts clean: Maven creates target/, and in wrapper mode Maven is what
+    // has not run yet. Refusing there would skip the whole test suite and
+    // fail the job pointing at a trace file.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("target").join("traces.json");
+    let mut argv = args(out.to_str().unwrap(), 34333, 34334);
+    argv.extend(["--".into(), "sh".into(), "-c".into(), "echo ran".into()]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(&argv)
+        .output()
+        .expect("spawn capture");
+
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "ran\n",
+        "the wrapped command must run; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(out.exists(), "the trace file must be there to be written");
+}
+
+#[test]
 fn cli_analyze_rejects_an_empty_capture_rather_than_passing_it() {
     // The trap this closes: a capture that received nothing, analyzed with
     // --ci, must not report a clean gate. Zero measured spans is a tooling
