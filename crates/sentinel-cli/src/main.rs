@@ -1610,7 +1610,18 @@ fn load_config_files(
     }
     match std::fs::read_to_string(config_path) {
         Ok(content) => documents.push((config_path.display().to_string(), content)),
-        Err(error) if !require_main && error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if !require_main && error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::symlink_metadata(config_path) {
+                Err(metadata_error) if metadata_error.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(_) => return Err(format!("read {}: {error}", config_path.display())),
+                Err(metadata_error) => {
+                    return Err(format!(
+                        "inspect {}: {metadata_error}",
+                        config_path.display()
+                    ));
+                }
+            }
+        }
         Err(error) => return Err(format!("read {}: {error}", config_path.display())),
     }
     if documents.is_empty() {

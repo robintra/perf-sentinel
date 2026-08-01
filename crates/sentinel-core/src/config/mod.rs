@@ -610,12 +610,11 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
 ///
 /// # Errors
 ///
-/// Returns parse and validation errors naming the fragment that supplied the
-/// invalid value.
+/// Returns parse and validation errors naming the responsible fragment when
+/// it can be identified.
 pub fn load_from_fragments(fragments: &[(&str, &str)]) -> Result<Config, ConfigError> {
     let mut merged = toml::Value::Table(toml::Table::new());
     let mut origins = HashMap::new();
-    let mut last_fragment = None;
     for (name, content) in fragments {
         let normalized = normalize_toml_path_strings(content);
         let value = match toml::from_str(normalized.as_ref()) {
@@ -645,11 +644,11 @@ pub fn load_from_fragments(fragments: &[(&str, &str)]) -> Result<Config, ConfigE
             }
         })?;
         merge_toml_value(&mut merged, value, "", name, &mut origins);
-        last_fragment = Some(*name);
     }
     let raw: RawConfig = serde_path_to_error::deserialize(merged).map_err(|error| {
-        let name = origin_for_path(&origins, &error.path().to_string())
-            .or(last_fragment)
+        let path = error.path().to_string();
+        let name = origin_for_path(&origins, &path)
+            .or_else(|| unique_origin_for_subtree(&origins, &path))
             .unwrap_or("merged configuration")
             .to_string();
         ConfigError::FragmentParse {
@@ -660,7 +659,6 @@ pub fn load_from_fragments(fragments: &[(&str, &str)]) -> Result<Config, ConfigE
     validate_raw_config(raw).map_err(|error| match error {
         ConfigError::Validation(message) => ConfigError::FragmentValidation {
             name: origin_for_validation(&origins, &message)
-                .or(last_fragment)
                 .unwrap_or("merged configuration")
                 .to_string(),
             message,
@@ -678,9 +676,6 @@ fn merge_toml_value(
 ) {
     match (base, overlay) {
         (toml::Value::Table(base), toml::Value::Table(overlay)) => {
-            if !path.is_empty() {
-                origins.insert(path.to_string(), fragment.to_string());
-            }
             for (key, value) in overlay {
                 let child = if path.is_empty() {
                     key.clone()
@@ -696,8 +691,12 @@ fn merge_toml_value(
             }
         }
         (base, overlay) => {
-            let prefix = format!("{path}.");
-            origins.retain(|key, _| key != path && !key.starts_with(&prefix));
+            if matches!(base, toml::Value::Table(_)) {
+                let prefix = format!("{path}.");
+                origins.retain(|key, _| key != path && !key.starts_with(&prefix));
+            } else {
+                origins.remove(path);
+            }
             record_toml_origins(&overlay, path, fragment, origins);
             *base = overlay;
         }
@@ -710,9 +709,6 @@ fn record_toml_origins(
     fragment: &str,
     origins: &mut HashMap<String, String>,
 ) {
-    if !path.is_empty() {
-        origins.insert(path.to_string(), fragment.to_string());
-    }
     if let toml::Value::Table(table) = value {
         for (key, value) in table {
             let child = if path.is_empty() {
@@ -722,6 +718,8 @@ fn record_toml_origins(
             };
             record_toml_origins(value, &child, fragment, origins);
         }
+    } else if !path.is_empty() {
+        origins.insert(path.to_string(), fragment.to_string());
     }
 }
 
@@ -744,21 +742,50 @@ fn origin_for_validation<'a>(
 ) -> Option<&'a str> {
     if let Some(rest) = message.strip_prefix('[')
         && let Some((section, detail)) = rest.split_once(']')
-        && let Some(field) = first_config_identifier(detail)
     {
-        return origin_for_path(origins, &format!("{section}.{field}"))
-            .or_else(|| origin_for_path(origins, section));
+        let mut matched = None;
+        for field in detail.split(|character: char| {
+            !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
+        }) {
+            if field.is_empty() {
+                continue;
+            }
+            if let Some(fragment) =
+                unique_origin_for_subtree(origins, &format!("{section}.{field}"))
+            {
+                if matched.is_some_and(|existing| existing != fragment) {
+                    return None;
+                }
+                matched = Some(fragment);
+            }
+        }
+        return matched.or_else(|| unique_origin_for_subtree(origins, section));
     }
     let field = first_config_identifier(message)?;
     let field = match field {
         "n_plus_one_threshold" => "n_plus_one_min_occurrences",
         other => other,
     };
-    origins
+    let suffix = format!(".{field}");
+    let mut matching = origins
         .iter()
-        .filter(|(path, _)| path == &field || path.ends_with(&format!(".{field}")))
-        .max_by_key(|(path, _)| path.len())
-        .map(|(_, fragment)| fragment.as_str())
+        .filter(|(path, _)| path == &field || path.ends_with(&suffix))
+        .map(|(_, fragment)| fragment.as_str());
+    let first = matching.next()?;
+    matching.all(|fragment| fragment == first).then_some(first)
+}
+
+fn unique_origin_for_subtree<'a>(
+    origins: &'a HashMap<String, String>,
+    path: &str,
+) -> Option<&'a str> {
+    let prefix = format!("{path}.");
+    let mut leaves = origins
+        .iter()
+        .filter(|(candidate, _)| candidate.as_str() == path || candidate.starts_with(&prefix))
+        .map(|(_, fragment)| fragment.as_str());
+    let first = leaves.next()?;
+    leaves.all(|fragment| fragment == first).then_some(first)
 }
 
 fn first_config_identifier(input: &str) -> Option<&str> {

@@ -95,6 +95,24 @@ fn fragment_validation_error_names_its_source_file() {
 }
 
 #[test]
+fn fragment_validation_does_not_blame_an_unrelated_overlay() {
+    let error = load_from_fragments(&[
+        (
+            "20-bad.toml",
+            "[green.service_regions]\n\"bad service!\" = \"eu-west-3\"\n",
+        ),
+        (
+            "30-valid.toml",
+            "[green.service_regions]\napi = \"eu-west-3\"\n",
+        ),
+    ])
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("merged configuration"));
+    assert!(!message.contains("30-valid.toml"));
+}
+
+#[test]
 fn fragment_legacy_key_error_names_its_source_file() {
     let error = load_from_fragments(&[("20-legacy.toml", "listen_port = 4318\n")]).unwrap_err();
     assert!(error.to_string().contains("20-legacy.toml"));
@@ -166,7 +184,7 @@ fn docker_example_is_a_standalone_main_config() {
 }
 
 #[test]
-fn energy_fragment_examples_cover_every_backend_key() {
+fn scaphandre_kepler_and_redfish_examples_cover_every_backend_key() {
     let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let examples = crate_root.join("../../examples");
     let raw = std::fs::read_to_string(crate_root.join("src/config/raw.rs")).unwrap();
