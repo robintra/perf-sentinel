@@ -457,23 +457,7 @@ impl Config {
     /// batch pipeline uses it as-is (no scrapers in batch mode).
     #[must_use]
     pub fn carbon_context(&self) -> crate::score::carbon::CarbonContext {
-        // Always built, not only under Electricity Maps: it is what carries
-        // the applied coefficients into every archived window, and what the
-        // dashboards read to honour the transport display setting.
-        let mut scoring_config = self.green.electricity_maps.as_ref().map_or_else(
-            || crate::score::carbon::ScoringConfig {
-                electricity_maps: Some(false),
-                ..Default::default()
-            },
-            crate::score::carbon::ScoringConfig::from_electricity_maps,
-        );
-        scoring_config.embodied_per_request_gco2 =
-            Some(self.green.embodied_carbon_per_request_gco2);
-        scoring_config.network_energy_per_byte_kwh = Some(self.green.network_energy_per_byte_kwh);
-        scoring_config.per_operation_coefficients = Some(self.green.per_operation_coefficients);
-        scoring_config.use_hourly_profiles = Some(self.green.use_hourly_profiles);
-        scoring_config.show_network_transport = Some(self.green.include_network_transport);
-        let scoring_config = self.green.enabled.then_some(scoring_config);
+        let scoring_config = self.green.enabled.then(|| self.scoring_config());
         crate::score::carbon::CarbonContext {
             default_region: self.green.default_region.clone(),
             service_regions: self.green.service_regions.clone(),
@@ -493,6 +477,30 @@ impl Config {
             db_energy: None,
             broker_energy: None,
         }
+    }
+
+    /// Build the [`ScoringConfig`](crate::score::carbon::ScoringConfig)
+    /// regardless of `green.enabled`. Always built, not only under
+    /// Electricity Maps: it carries the applied coefficients into every
+    /// archived window and the transport display setting the dashboards
+    /// honour. `carbon_context` gates it on `green.enabled`, the query
+    /// API reports it ungated so a configured backend stays visible.
+    #[must_use]
+    pub fn scoring_config(&self) -> crate::score::carbon::ScoringConfig {
+        let mut scoring_config = self.green.electricity_maps.as_ref().map_or_else(
+            || crate::score::carbon::ScoringConfig {
+                electricity_maps: Some(false),
+                ..Default::default()
+            },
+            crate::score::carbon::ScoringConfig::from_electricity_maps,
+        );
+        scoring_config.embodied_per_request_gco2 =
+            Some(self.green.embodied_carbon_per_request_gco2);
+        scoring_config.network_energy_per_byte_kwh = Some(self.green.network_energy_per_byte_kwh);
+        scoring_config.per_operation_coefficients = Some(self.green.per_operation_coefficients);
+        scoring_config.use_hourly_profiles = Some(self.green.use_hourly_profiles);
+        scoring_config.show_network_transport = Some(self.green.include_network_transport);
+        scoring_config
     }
 }
 
