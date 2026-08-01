@@ -21,17 +21,29 @@ default_region = "eu-west-3"
 [green.cloud]
 prometheus_endpoint = "http://prometheus:9090"
 scrape_interval_secs = 15
-# Used for any service that does not name its own provider and instance type.
+# Fallbacks for any service below that names neither.
+#   provider: "aws", "gcp" or "azure". Any other value resolves to generic
+#     on-prem watts, so a typo degrades the figure instead of failing.
+#   instance_type: looked up in the embedded SPECpower table. An unknown one
+#     warns at startup and falls back to a provider average, the figure just
+#     gets coarser. Families covered and how to check yours:
+#     https://perf-sentinel.dev/docs/CONFIGURATION#green-cloud-optional-opt-in
 default_provider = "aws"
 default_instance_type = "c5.4xlarge"
-cpu_metric = "aws_ec2_cpuutilization_average"
+# Omit `cpu_metric` and the query is derived from the provider:
+# aws_ec2_cpuutilization_average, the GCP instance/cpu/utilization series, or
+# azure_compute_virtualmachines_percentage_cpu_average. Set it only when your
+# exporter names the series differently.
+# cpu_metric = "aws_ec2_cpuutilization_average"
 # Credentials belong in PERF_SENTINEL_CLOUD_AUTH_HEADER rather than here,
 # it takes precedence over this file.
 
 # Per service, either an instance type looked up in the embedded SPECpower
-# table, or the two watt figures when your hardware is not in it.
+# table, or the two watt figures when your hardware is not in it. Use the
+# second form for on-prem or for a machine the table does not cover, it is
+# exact rather than approximated.
 [green.cloud.services]
-"api-us" = { provider = "aws", instance_type = "c5.4xlarge" }
-"api-asia" = { provider = "gcp", instance_type = "n2-standard-8" }
-"analytics" = { provider = "azure", instance_type = "Standard_D8s_v3" }
+"api-us" = { provider = "aws", instance_type = "m7i.4xlarge" }
+"api-asia" = { provider = "gcp", instance_type = "c4d-standard-8" }
+"analytics" = { provider = "azure", instance_type = "Standard_D8s_v6" }
 "on-prem-box" = { idle_watts = 45.0, max_watts = 120.0 }
