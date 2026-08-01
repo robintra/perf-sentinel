@@ -167,7 +167,7 @@ slow_query_threshold_ms = 500
 For modular configuration, place numbered fragments such as
 `30-green-alumet.toml` in `.perf-sentinel.d/`. They load by their unique
 two-digit priority, then `.perf-sentinel.toml` overrides them. Ready-to-copy
-fragments live in [`examples/`](examples/). See the
+GreenOps fragments live in [`examples/`](examples/). See the
 [configuration reference](docs/CONFIGURATION.md#configuration-fragments).
 
 Full subcommand reference: `perf-sentinel <cmd> --help`, or [docs/CLI.md](docs/CLI.md).

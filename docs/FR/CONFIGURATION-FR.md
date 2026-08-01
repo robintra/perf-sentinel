@@ -22,16 +22,20 @@ placé à côté de la configuration principale, puis charge
 `--config chemin/vers/custom.toml` : les fragments viennent de
 `chemin/vers/.perf-sentinel.d/` et `custom.toml` reste la surcharge finale.
 Le fichier principal est facultatif uniquement sans option `--config`.
+Les valeurs par défaut sont utilisées uniquement si ni le fichier principal
+implicite ni aucun fragment n'existe. Tout fichier découvert qui ne peut pas
+être lu, parsé ou validé arrête la commande avec le code 75 au lieu d'ignorer
+silencieusement une configuration valide.
 
 Le nom d'un fragment doit suivre `NN-nom-minuscule.toml`, avec une priorité
 unique `NN` comprise entre `00` et `99`. Les fichiers sont chargés par priorité
 croissante. Une priorité dupliquée, une majuscule ou un séparateur ambigu est
 refusé. Les fichiers qui ne se terminent pas par `.toml` sont ignorés.
 
-Les tables fusionnent récursivement. Une valeur scalaire, un tableau ou une
-date plus tardive remplace la valeur précédente de la même clé. Remplacer une
-clé par un autre type TOML provoque une erreur. Les exemples réservent ces
-plages :
+Lorsque les deux valeurs sont des tables, elles fusionnent récursivement.
+Toute autre valeur plus tardive remplace la précédente à la même clé. Le
+document fusionné final doit toujours respecter le schéma de configuration
+typé. Les exemples réservent ces plages :
 
 | Priorité     | Usage                                                    |
 |--------------|----------------------------------------------------------|
@@ -46,8 +50,11 @@ Les fragments prêts à copier dans `examples/` conservent leur priorité dans
 leur nom. Gardez ces noms en les copiant dans `.perf-sentinel.d/` :
 `30-green-alumet.toml`, `31-green-cloud.toml`,
 `32-green-scaphandre.toml`, `33-green-kepler.toml`,
-`34-green-redfish.toml`, `40-green-electricity-maps.toml` et
-`60-daemon-docker.toml`.
+`34-green-redfish.toml` et `40-green-electricity-maps.toml`.
+`60-daemon-docker.toml` est une configuration principale autonome pour les
+topologies Compose collector et sharded. Montez-le comme `.perf-sentinel.toml`,
+puis placez uniquement les fragments GreenOps optionnels dans le répertoire
+frère `.perf-sentinel.d/`.
 
 ## Sous-commandes
 
