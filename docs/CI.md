@@ -228,10 +228,12 @@ blocks (step 6 above). No third-party deploy action is required, which
 keeps the template free of supply-chain surface for the upload path.
 Only `actions/checkout` (pinned) is reused across all three workflows.
 
-**Storage footprint**. A report is 450 to 550 KB, and the number of
-findings barely moves it: the bulk is the embedded fonts and logos that
-make the file self-contained, which a report with nothing to show
-carries too. With retention
+**Storage footprint**. A report starts around 450 KB whatever it
+contains, since the embedded fonts and logos that make the file
+self-contained are carried even by a report with nothing to show. It
+grows from there with the number of findings, up to a 5 MiB ceiling
+where the sink starts trimming. Size a quota on that ceiling, not on
+the floor. With retention
 handled by the cleanup workflow, the gh-pages branch only carries
 reports for open PRs plus the single `baseline.json`. No unbounded
 growth.
@@ -314,8 +316,8 @@ not subject to this cap. For projects running near the cap on
 `perf-sentinel-pages`, `expire_in` can be lowered or MRs should be
 closed/merged promptly to release slots.
 
-**Storage footprint**. A report is 450 to 550 KB, mostly the embedded
-fonts and logos rather than the findings, and a
+**Storage footprint**. A report starts around 450 KB of embedded fonts
+and logos and grows with the findings up to a 5 MiB trim ceiling, and a
 baseline JSON is 10 to 50 KB. With retention active on the
 Premium path, only open MRs plus the current baseline consume space.
 The Free path stores a single deployment.
@@ -486,8 +488,9 @@ but that requires managing a forge token in Jenkins credentials
 and is out of scope for this template.
 
 **Storage footprint** is per-build and retained indefinitely
-(`keepAll: true`). A report is 450 to 550 KB, mostly the embedded fonts
-and logos rather than the findings. For long-lived
+(`keepAll: true`). A report starts around 450 KB of embedded fonts and
+logos and grows with the findings up to a 5 MiB trim ceiling. For
+long-lived
 Jenkins controllers with high build volume, pair
 `publishHTML keepAll: true` with the build discarder in the job
 configuration (e.g. keep last N builds) to cap the footprint.

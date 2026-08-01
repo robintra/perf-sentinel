@@ -316,10 +316,12 @@ le template exempt de surface supply-chain pour le chemin d'upload.
 Seule `actions/checkout` (pinnée) est réutilisée dans les trois
 workflows.
 
-**Empreinte de stockage**. Un rapport fait 450 à 550 Ko, et le nombre
-de findings ne le fait quasiment pas bouger : l'essentiel, ce sont les
-polices et les logos embarqués qui rendent le fichier autonome, qu'un
-rapport sans rien à montrer porte aussi. Avec
+**Empreinte de stockage**. Un rapport part d'environ 450 Ko quel que
+soit son contenu, les polices et logos embarqués qui rendent le fichier
+autonome étant portés même par un rapport sans rien à montrer. Il
+grossit ensuite avec le nombre de findings, jusqu'au plafond de 5 Mio
+où le sink commence à élaguer. Dimensionnez un quota sur ce plafond,
+pas sur le plancher. Avec
 la rétention gérée par le workflow de cleanup, la branche gh-pages ne
 porte que les rapports des PRs ouvertes plus l'unique
 `baseline.json`. Pas de croissance illimitée.
@@ -407,9 +409,9 @@ proches du plafond sur `perf-sentinel-pages`, `expire_in` peut être
 réduit, ou les MRs doivent être fermées/mergées rapidement pour
 libérer des slots.
 
-**Empreinte de stockage**. Un rapport fait 450 à 550 Ko, surtout les
-polices et les logos embarqués plutôt que les findings, et
-un baseline JSON 10 à 50 Ko. Avec la rétention active sur le chemin
+**Empreinte de stockage**. Un rapport part d'environ 450 Ko de polices
+et de logos embarqués et grossit avec les findings jusqu'au plafond
+d'élagage de 5 Mio, et un baseline JSON fait 10 à 50 Ko. Avec la rétention active sur le chemin
 Premium, seules les MRs ouvertes plus le baseline courant consomment
 de l'espace. Le chemin Free stocke un seul deployment.
 
@@ -595,8 +597,9 @@ depuis le pipeline, mais cela nécessite de gérer un token forge
 dans les credentials Jenkins et reste hors scope pour ce template.
 
 **Empreinte de stockage** par-build et retenue indéfiniment
-(`keepAll: true`). Un rapport fait 450 à 550 Ko, surtout les polices et
-les logos embarqués plutôt que les findings. Pour des
+(`keepAll: true`). Un rapport part d'environ 450 Ko de polices et de
+logos embarqués et grossit avec les findings jusqu'au plafond
+d'élagage de 5 Mio. Pour des
 controllers Jenkins long-lived avec gros volume de builds, appairer
 `publishHTML keepAll: true` avec le build discarder dans la config
 du job (par exemple garder les N derniers builds) pour plafonner

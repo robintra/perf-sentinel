@@ -67,14 +67,16 @@ serialized_min_sequential = 3
 # ORM instrumentation scopes it recognizes:
 #   https://perf-sentinel.dev/docs/CONFIGURATION#sanitizer_aware_classification
 #
-# Which one to run:
-#   ORM-instrumented stack (Hibernate, EF Core, ActiveRecord, SQLAlchemy,
-#     GORM, Prisma, Doctrine, ...) -> "strict", what the simulation lab runs
-#     on all 14 of its stacks. Under "auto" the ORM scope fires alone, so
-#     repeated identical queries served from cache are reported as N+1.
-#   bare driver, no ORM scope (plain JDBC, sqlx, psycopg, node-postgres,
-#     PDO without Doctrine) -> "auto". Nothing corroborates under "strict",
-#     which then leaves the lower occurrence counts to `redundant_sql`.
+# Which one to run: "strict" when a `redundant_sql` finding is itself
+# actionable for you, such as a polling loop or an unmemoized lookup served
+# from cache, since "auto" reclassifies those on the ORM scope alone. This is
+# what the simulation lab runs on all 14 of its stacks. Stay on "auto" when
+# you would rather over-report than miss one.
+#
+# Note the ceiling either way: past 3x `n_plus_one_min_occurrences` in one
+# trace (15 by default), a sanitized group is reported as N+1 under "strict"
+# too, whatever the timing and whatever the scope. "strict" changes the
+# verdict on moderate counts, not on the large ones.
 sanitizer_aware_classification = "auto"   # default "auto"
 
 # ---------------------------------------------------------------------------
@@ -91,27 +93,27 @@ enabled = true
 
 # Region used when an event has no `cloud.region` attribute and the service
 # is not listed in `[green.service_regions]`. Must be a valid region ID
-# (e.g. `eu-west-3`, `us-east-1`, `asia-southeast1`). See `docs/CONFIGURATION.md`
-# for the embedded region table.
-default_region = "eu-west-3"
+# (e.g. `eu-west-3`, `us-east-1`, `asia-southeast1`). See
+# https://perf-sentinel.dev/docs/CONFIGURATION for the embedded region table.
+default_region = "eu-west-3"       # default: none, and then a service with no
+#                                  # cloud.region attribute gets no carbon figure at all
 
 # SCI v1.0 embodied carbon term `M = traces × embodied_per_request_gco2`,
 # region-independent. Default `0.001` g/req covers typical commodity hardware
 # amortization. Raise for GPU-heavy workloads.
 embodied_carbon_per_request_gco2 = 0.001
 
-# Per-operation energy coefficients: SELECT 0.5x, INSERT/UPDATE 1.5x, etc.
-# Sources: Xu VLDB 2010, Tsirogiannis SIGMOD 2010, DBJoules 2023, IDEAS 2025.
-# Leave `true` unless you have specific reasons to treat all I/O as equal.
+# Per-operation energy coefficients. Leave `true` unless you have specific
+# reasons to treat all I/O as equal.
 per_operation_coefficients = true
 
 # Hourly intensity profiles for 30+ regions (24 UTC values, monthly × hourly
 # where available). When `true`, the model tag becomes `io_proxy_v2`.
 use_hourly_profiles = true
 
-# Include network-transport energy (Mytton et al. 2024, 0.04 kWh/GB default).
-# Adds a `sci_v1_numerator+transport` methodology tag. Opt-in because it
-# requires the `response_size_bytes` field in your spans.
+# Include network-transport energy. Adds a `sci_v1_numerator+transport`
+# methodology tag. Opt-in because it requires the `response_size_bytes` field
+# in your spans.
 include_network_transport = false
 # network_energy_per_byte_kwh = 0.00000000004 # 0.04 kWh / GB, default
 
@@ -120,7 +122,7 @@ include_network_transport = false
 # mix. Values are validated to be within ±5% of the embedded annual mean.
 # hourly_profiles_file = "/etc/perf-sentinel/hourly-profiles.json"
 
-# Calibration file produced by `perf-sentinel calibrate`. Tunes the I/O→energy
+# Calibration file produced by `perf-sentinel calibrate`. Tunes the I/O -> energy
 # coefficient from RAPL measurements on your real infra. The model tag gets
 # a `+cal` suffix (e.g. `io_proxy_v2+cal`) when active.
 # calibration_file = "/etc/perf-sentinel/calibration.toml"
@@ -152,8 +154,8 @@ max_active_traces = 10000          # default 10000, warns outside 1000..100000
 trace_ttl_ms = 30000               # default 30000, bounds 100..3600000
 # Spans kept per trace. Past it the trace is truncated and understates.
 max_events_per_trace = 1000        # default 1000, bounds 1..100000
-# Max single OTLP request, in bytes. Large because a CI suite flushes its
-# whole batch at JVM shutdown.
+# Max single OTLP request, in bytes. Large because an exporter flushing its
+# queue when the process exits sends one big batch.
 max_payload_size = 16777216        # default 16777216 (16 MiB), bounds 1024..104857600
 # Findings kept in memory for `/api/findings`. 0 disables the store and the
 # ack routes that read it.
@@ -253,8 +255,10 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # [daemon.ack]
 # enabled = true                                   # default true, 503 without a writable store
 # storage_path = "/var/lib/perf-sentinel/acks.jsonl"  # default: OS data dir, unresolvable on scratch images
-# api_key = "env:PERF_SENTINEL_ACK_API_KEY"        # default unset (NO AUTH), env: keeps it out of this file
-#                                                  # at least 12 characters, 16 recommended
+# api_key = "a-long-random-string"                 # default unset (NO AUTH), 12 chars min, 16 recommended
+#                                                  # PERF_SENTINEL_ACK_API_KEY wins over this line, and is
+#                                                  # how you keep the secret out of the file. There is no
+#                                                  # "env:VAR" indirection, such a value is taken literally
 # toml_path = ".perf-sentinel-acknowledgments.toml"   # default .perf-sentinel-acknowledgments.toml
 
 # --- /!\ Browser access to the query API ------------------------------------
@@ -288,10 +292,13 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #
 # This release does NOT yet support self-signed BMC certificates. Front the
 # BMC with a reverse proxy presenting a publicly-signed cert if needed.
+# /!\ `ca_bundle_path` is parsed but reserved: setting it makes the scraper
+# log an error and stop before its first poll, with the daemon otherwise
+# healthy, so leave it out until the follow-up lands.
 #
 # [green.redfish]
 # scrape_interval_secs = 60             # default 60
-# ca_bundle_path = "/etc/ssl/bmc-ca.pem"         # default unset (system trust store)
+# ca_bundle_path = "/etc/ssl/bmc-ca.pem"         # RESERVED, do not set: the scraper stops on it
 # auth_header = "Authorization: Basic BASE64"    # default unset, prefer PERF_SENTINEL_REDFISH_AUTH_HEADER
 # Each entry is a table, never a bare URL string. `schema` picks the wire
 # shape and therefore the field the parser reads: "legacy_power" for
@@ -391,7 +398,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #
 # [green.cloud]
 # prometheus_endpoint = "http://prometheus:9090"
-# scrape_interval_secs = 30             # default 30
+# scrape_interval_secs = 30             # default 15
 # default_provider = "aws"              # default unset, used when a service omits it
 # default_instance_type = "c5.4xlarge"  # default unset, same
 # cpu_metric = "aws_ec2_cpuutilization_average"  # default unset
@@ -431,13 +438,15 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # Falls back to the embedded profile on any scrape failure. Model tag becomes
 # `electricity_maps_api` for regions with a fresh sample.
 #
-# The `api_key` field accepts a literal string or the `env:VAR_NAME` form -
-# prefer the env form so secrets never land in the config file.
+# Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here, it takes
+# precedence over this file. There is no "env:VAR" indirection, a value in
+# that shape is used literally.
 #
 # [green.electricity_maps]
-# api_key = "env:ELECTRICITY_MAPS_API_KEY"
-# endpoint = "https://api.electricitymap.org/v3"   # default https://api.electricitymap.org/v3
-# poll_interval_secs = 900              # default 900, 15 min respects the free tier
+# api_key = "your-api-key"             # prefer PERF_SENTINEL_EMAPS_TOKEN
+# endpoint = "https://api.electricitymaps.com/v4"  # default https://api.electricitymaps.com/v4
+# poll_interval_secs = 3600             # default 300. The free tier is about 30 requests
+#                                       # per zone per month, so it needs 3600 or more
 # region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
 # emission_factor_type = "lifecycle"    # default "lifecycle", or "direct" (combustion only)
 # temporal_granularity = "hourly"       # default "hourly", or "5_minutes" / "15_minutes"
