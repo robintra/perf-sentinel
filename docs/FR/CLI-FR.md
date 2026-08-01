@@ -113,6 +113,11 @@ automatiquement, sans flag. Les requêtes sont écrites telles que reçues,
 sans conversion, le fichier décrit donc ce que l'application a réellement
 envoyé.
 
+Le répertoire de `--output` est créé s'il manque, de sorte que
+`--output target/traces.json` fonctionne sur un workspace CI vierge où
+l'outil de build n'a pas encore créé `target/`. En mode enveloppe, cet
+outil de build est justement celui qui n'a pas encore tourné.
+
 La progression et le décompte final vont sur **stderr**, jamais sur
 stdout : en mode enveloppe, ce flux appartient à la commande enveloppée.
 Ce résumé est ce qui permet de distinguer "aucun anti-pattern trouvé" de
