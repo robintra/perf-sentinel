@@ -42,15 +42,15 @@
 [thresholds]
 # Max number of critical N+1 SQL findings tolerated. Any finding above this
 # fails the quality gate (non-zero exit code).
-n_plus_one_sql_critical_max = 0
+n_plus_one_sql_critical_max = 0   # default 0, any positive integer
 # Max number of warning-level N+1 HTTP findings tolerated.
-n_plus_one_http_warning_max = 3
+n_plus_one_http_warning_max = 3   # default 3, any positive integer
 # Max number of warning-level N+1 messaging findings tolerated. Warning+ like
 # the HTTP rule rather than critical-only: a client that batches its publishes
 # makes the occurrence count an upper bound.
-n_plus_one_messaging_warning_max = 3
+n_plus_one_messaging_warning_max = 3   # default 3, any positive integer
 # Max avoidable-I/O waste ratio tolerated (0.0 to 1.0).
-io_waste_ratio_max = 0.30
+io_waste_ratio_max = 0.30   # default 0.30, bounds 0.0..1.0
 
 # ---------------------------------------------------------------------------
 # Detection tuning (applies to all detectors, messaging findings included:
@@ -59,21 +59,21 @@ io_waste_ratio_max = 0.30
 # ---------------------------------------------------------------------------
 [detection]
 # Sliding window for N+1 and redundant detection (ms).
-window_duration_ms = 500
+window_duration_ms = 500   # default 500, min 1
 # Minimum occurrences of a normalized template within the window to flag N+1.
-n_plus_one_min_occurrences = 5
+n_plus_one_min_occurrences = 5   # default 5, min 1
 # Slow-query threshold (ms). Spans above this value for a template that
 # repeats across traces are reported as `slow_sql` / `slow_http`.
-slow_query_threshold_ms = 500
-slow_query_min_occurrences = 3
+slow_query_threshold_ms = 500   # default 500, min 1
+slow_query_min_occurrences = 3   # default 3, min 1
 # Max child spans under a single parent before flagging `excessive_fanout`.
-max_fanout = 20
+max_fanout = 20   # default 20, bounds 1..100000, warns outside 5..1000
 # Min distinct targets a service must hit in one trace to be `chatty`.
-chatty_service_min_calls = 15
+chatty_service_min_calls = 15   # default 15, min 1
 # Min concurrent in-flight SQL queries to flag a `pool_saturation` event.
-pool_saturation_concurrent_threshold = 10
+pool_saturation_concurrent_threshold = 10   # default 10, min 2
 # Min sequential calls to the same target to flag `serialized_but_parallelizable`.
-serialized_min_sequential = 3
+serialized_min_sequential = 3   # default 3, min 2
 # An OTel sanitizer replaces SQL literals with placeholders, which makes an
 # N+1 and a repeated identical query look the same. This picks the recovery
 # heuristic: "auto", "strict", "always", "never". What each does, and the
@@ -102,7 +102,7 @@ sanitizer_aware_classification = "auto"   # default "auto"
 [green]
 # Master toggle. When `false`, no `co2` / `regions` fields are emitted and
 # all Scaphandre / Cloud / Electricity Maps scrapers are disabled.
-enabled = true
+enabled = true   # default true
 
 # Region used when an event has no `cloud.region` attribute and the service
 # is not listed in `[green.service_regions]`. Must be a valid region ID
@@ -114,15 +114,15 @@ default_region = "eu-west-3"       # default: none, and then a service with no
 # SCI v1.0 embodied carbon term `M = traces × embodied_per_request_gco2`,
 # region-independent. Default `0.001` g/req covers typical commodity hardware
 # amortization. Raise for GPU-heavy workloads.
-embodied_carbon_per_request_gco2 = 0.001
+embodied_carbon_per_request_gco2 = 0.001   # default 0.001, min 0.0
 
 # Per-operation energy coefficients. Leave `true` unless you have specific
 # reasons to treat all I/O as equal.
-per_operation_coefficients = true
+per_operation_coefficients = true   # default true
 
 # Hourly intensity profiles for 30+ regions (24 UTC values, monthly × hourly
 # where available). When `true`, the model tag becomes `io_proxy_v2`.
-use_hourly_profiles = true
+use_hourly_profiles = true   # default true
 
 # Show the network-transport term in the CLI report and the TUI. Display
 # only: the term is computed and disclosed on every run, so two periods
@@ -134,12 +134,12 @@ include_network_transport = true   # default false
 # User-supplied hourly profile file (CSV or JSON). Overrides the embedded
 # table for the listed regions. Useful when you have a PPA or private grid
 # mix. Values are validated to be within ±5% of the embedded annual mean.
-# hourly_profiles_file = "/etc/perf-sentinel/hourly-profiles.json"
+# hourly_profiles_file = "/etc/perf-sentinel/hourly-profiles.json"   # default unset (embedded table only)
 
 # Calibration file produced by `perf-sentinel calibrate`. Tunes the I/O -> energy
 # coefficient from RAPL measurements on your real infra. The model tag gets
 # a `+cal` suffix (e.g. `io_proxy_v2+cal`) when active.
-# calibration_file = "/etc/perf-sentinel/calibration.toml"
+# calibration_file = "/etc/perf-sentinel/calibration.toml"   # default unset (no calibration)
 
 # ===========================================================================
 # Daemon configuration (only applies to `perf-sentinel watch`)
@@ -346,12 +346,12 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #   https://perf-sentinel.dev/docs/CONFIGURATION#green-alumet-optional-opt-in
 #
 # [green.alumet]
-# endpoint = "http://localhost:9091/metrics"
+# endpoint = "http://localhost:9091/metrics"   # no default, required
 # scrape_interval_secs = 5              # default 5
 # metric_name = "attributed_energy_cpu_alumet"   # no default, required
 # label_key = "name"                    # no default, required
 # energy_interval_secs = 1.0            # default 1.0, MUST match the Alumet source poll interval
-# service_mappings = { "account-svc" = "account-pod", "game-svc" = "game-pod" }
+# service_mappings = { "account-svc" = "account-pod", "game-svc" = "game-pod" }   # default empty
 # auth_header = "Authorization: Bearer TOKEN"    # default unset, prefer PERF_SENTINEL_ALUMET_AUTH_HEADER
 #
 # Attribute the database cgroup, which turns the estimated database waste
@@ -378,10 +378,10 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # than a single pod.
 #
 # [green.kepler]
-# endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+# endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"   # no default, required
 # scrape_interval_secs = 5              # default 5
 # metric_kind = "container"             # default "container", or "process" (Kepler v2 series)
-# service_mappings = { "account-svc" = "account-deployment", "game-svc" = "game" }
+# service_mappings = { "account-svc" = "account-deployment", "game-svc" = "game" }   # default empty
 # auth_header = "Authorization: Bearer TOKEN"    # default unset, prefer PERF_SENTINEL_KEPLER_AUTH_HEADER
 
 # --- Scaphandre per-process scraper (opt-in, no default egress) ------------
@@ -397,7 +397,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # not on AWS/GCP/Azure VMs (use `[green.cloud]` for those).
 #
 # [green.scaphandre]
-# endpoint = "http://localhost:8080/metrics"
+# endpoint = "http://localhost:8080/metrics"   # no default, required
 # scrape_interval_secs = 5                       # default 5
 # auth_header = "Authorization: Bearer TOKEN"    # default unset, prefer PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER
 #
@@ -405,10 +405,10 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # `exe_contains` is required, `cmdline_contains` narrows it when several
 # services share a runtime binary, which is the usual case on the JVM.
 # [green.scaphandre.process_map."account-svc"]
-# exe_contains = "bin/java"
+# exe_contains = "bin/java"                     # no default, required
 # cmdline_contains = "account-svc.jar"           # default unset
 # [green.scaphandre.process_map."chat-svc"]
-# exe_contains = "dotnet"
+# exe_contains = "dotnet"                       # no default, required
 
 # --- Cloud CPU% + SPECpower (opt-in, no default egress) --------------------
 # Modelled, not measured: for AWS/GCP/Azure VMs that expose no RAPL. Scrapes
@@ -417,7 +417,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # Model tag: `cloud_specpower`.
 #
 # [green.cloud]
-# prometheus_endpoint = "http://prometheus:9090"
+# prometheus_endpoint = "http://prometheus:9090"   # no default, required
 # scrape_interval_secs = 30             # default 15
 # default_provider = "aws"              # default unset, used when a service omits it
 # default_instance_type = "c5.4xlarge"  # default unset, same
@@ -463,11 +463,11 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # that shape is used literally.
 #
 # [green.electricity_maps]
-# api_key = "your-api-key"                         # prefer PERF_SENTINEL_EMAPS_TOKEN
+# api_key = "your-api-key"                         # no default, required, prefer PERF_SENTINEL_EMAPS_TOKEN
 # endpoint = "https://api.electricitymaps.com/v4"  # default https://api.electricitymaps.com/v4
-# poll_interval_secs = 3600                        # default 300. The free tier is about 30 requests
+# poll_interval_secs = 3600                        # default 300, bounds 60..86400. The free tier is about 30 requests
 #                                                  # per zone per month, so it needs 3600 or more
-# region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
+# region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }   # no default, at least one entry required
 # emission_factor_type = "lifecycle"               # default "lifecycle", or "direct" (combustion only)
 # temporal_granularity = "hourly"                  # default "hourly", or "5_minutes" / "15_minutes"
 
