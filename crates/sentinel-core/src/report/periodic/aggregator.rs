@@ -374,6 +374,8 @@ impl Builder {
         // edit just outside the window would go unseen.
         let mut expected_prev = super::hasher::ARCHIVE_CHAIN_SEED.to_string();
         let mut warned_break = false;
+        let mut chain_started = false;
+        let mut expected_seq: u64 = 0;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -383,29 +385,44 @@ impl Builder {
             if trimmed.is_empty() {
                 continue;
             }
-            match verify_chain_line(trimmed, &expected_prev) {
+            // Parsed once: the chain check and the typed fold share this
+            // value, instead of running two full JSON parses per line.
+            let parsed: Option<serde_json::Value> = serde_json::from_str(trimmed).ok();
+            let parsed_seq = parsed
+                .as_ref()
+                .and_then(|v| v.get("seq"))
+                .and_then(serde_json::Value::as_u64);
+            match verify_chain_value(parsed.as_ref(), &expected_prev, expected_seq) {
                 ChainOutcome::Verified(hash) => {
+                    chain_started = true;
                     self.chain_verified += 1;
                     expected_prev = hash;
+                    expected_seq = expected_seq.saturating_add(1);
                 }
-                ChainOutcome::Unchained => self.chain_unchained += 1,
-                ChainOutcome::Break(hash) => {
+                // Unchained is benign only before the file's chain starts:
+                // those lines predate chaining. Once a line has verified,
+                // a later one without a `hash` is a field that was removed,
+                // which is exactly the edit the chain exists to catch.
+                ChainOutcome::Unchained if !chain_started => self.chain_unchained += 1,
+                ChainOutcome::Unchained => {
                     self.chain_breaks += 1;
-                    // Resynchronise on the line's own hash, so one edit
-                    // reports one break rather than poisoning the tail.
+                    warn_break(path, line_no, &mut warned_break);
+                }
+                ChainOutcome::Break(hash) => {
+                    chain_started = true;
+                    self.chain_breaks += 1;
+                    // Resynchronise on this line's own hash and seq, so one
+                    // edit reports one break rather than poisoning the tail.
                     expected_prev = hash;
-                    if !warned_break {
-                        warned_break = true;
-                        tracing::warn!(
-                            path = %path.display(),
-                            line = line_no + 1,
-                            "archive integrity chain broken: a window was edited, \
-                             removed or reordered after it was written",
-                        );
-                    }
+                    expected_seq = parsed_seq.map_or(expected_seq, |s| s.saturating_add(1));
+                    warn_break(path, line_no, &mut warned_break);
                 }
             }
-            match serde_json::from_str::<ArchivedReport>(trimmed) {
+            let typed = parsed.map_or_else(
+                || serde_json::from_str::<ArchivedReport>(trimmed),
+                serde_json::from_value::<ArchivedReport>,
+            );
+            match typed {
                 Ok(envelope) => {
                     if !in_period(envelope.ts, period) {
                         continue;
@@ -961,6 +978,20 @@ fn build_carbon_breakdown(
     })
 }
 
+/// One warning per file, whatever the number of broken lines.
+fn warn_break(path: &Path, line_no: usize, warned: &mut bool) {
+    if *warned {
+        return;
+    }
+    *warned = true;
+    tracing::warn!(
+        path = %path.display(),
+        line = line_no + 1,
+        "archive integrity chain broken: a window was edited, removed or \
+         reordered after it was written",
+    );
+}
+
 /// Verdict for one archive line against the running chain.
 enum ChainOutcome {
     /// Hash recomputes and `prev` points at the previous line. Carries the
@@ -974,15 +1005,19 @@ enum ChainOutcome {
     Break(String),
 }
 
-fn verify_chain_line(line: &str, expected_prev: &str) -> ChainOutcome {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+fn verify_chain_value(
+    value: Option<&serde_json::Value>,
+    expected_prev: &str,
+    expected_seq: u64,
+) -> ChainOutcome {
+    let Some(value) = value else {
         return ChainOutcome::Unchained;
     };
     let Some(stated) = value.get("hash").and_then(serde_json::Value::as_str) else {
         return ChainOutcome::Unchained;
     };
     let stated = stated.to_string();
-    let mut body = value;
+    let mut body = value.clone();
     if let Some(obj) = body.as_object_mut() {
         obj.remove("hash");
     }
@@ -991,7 +1026,14 @@ fn verify_chain_line(line: &str, expected_prev: &str) -> ChainOutcome {
         .get("prev")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|p| p == expected_prev);
-    if recomputed.as_deref() == Some(stated.as_str()) && prev_ok {
+    // A `seq` that skips means lines are missing between this one and the
+    // last, which `prev` alone cannot see once the removed run ends the
+    // file. Absent on the first chained format, treated as in sequence.
+    let seq_ok = body
+        .get("seq")
+        .and_then(serde_json::Value::as_u64)
+        .is_none_or(|s| s == expected_seq);
+    if recomputed.as_deref() == Some(stated.as_str()) && prev_ok && seq_ok {
         ChainOutcome::Verified(stated)
     } else {
         ChainOutcome::Break(stated)
@@ -1365,8 +1407,9 @@ mod tests {
         let path = dir.path().join("archive.ndjson");
         let mut file = File::create(&path).unwrap();
         let mut prev = super::super::hasher::ARCHIVE_CHAIN_SEED.to_string();
-        for (ts, report) in lines {
-            let body = serde_json::json!({ "ts": ts, "report": report, "prev": prev });
+        for (seq, (ts, report)) in lines.iter().enumerate() {
+            let body =
+                serde_json::json!({ "ts": ts, "report": report, "prev": prev, "seq": seq as u64 });
             let hash = super::super::hasher::archive_chain_hash(&body).unwrap();
             let mut line = body;
             line.as_object_mut()
@@ -1500,6 +1543,51 @@ mod tests {
             bd.transport_kgco2eq.is_some_and(|t| t > 0.0),
             "the window counting transport must show up in the split"
         );
+    }
+
+    #[test]
+    fn stripping_the_hash_field_is_a_break_not_a_pre_chain_line() {
+        // Deleting `hash` used to read as "written before chaining
+        // existed", the benign bucket, which handed an editor a way to
+        // rewrite a window and publish breaks: 0.
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[(ts1, plain_window()), (ts2, plain_window())]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        lines[1].as_object_mut().unwrap().remove("hash");
+        lines[1]["report"]["green_summary"]["io_waste_ratio"] = serde_json::json!(0.01);
+        let rewritten: Vec<String> = lines.iter().map(std::string::ToString::to_string).collect();
+        std::fs::write(&path, rewritten.join("\n") + "\n").unwrap();
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 1, "a stripped hash after a chained line");
+        assert_eq!(out.chain_unchained, 0, "and it is not filed as benign");
+    }
+
+    #[test]
+    fn truncating_the_tail_of_an_archive_is_a_break() {
+        // `prev` alone cannot see a removed run that ends the file: what
+        // is left is a shorter, self-consistent chain. `seq` is what makes
+        // the gap visible.
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+            (ts3, plain_window()),
+        ]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        // Keep the first and the last: `prev` still chains, `seq` jumps.
+        std::fs::write(&path, format!("{}\n{}\n", lines[0], lines[2])).unwrap();
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 1, "the missing middle must surface");
     }
 
     #[test]

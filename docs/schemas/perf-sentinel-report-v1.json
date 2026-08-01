@@ -656,7 +656,7 @@
         "binary_verification_url": { "type": "string", "format": "uri" },
         "trace_integrity_chain": {
           "type": ["null", "object"],
-          "description": "Integrity of the archived windows this report was aggregated from (v1.6+; null on earlier reports). The daemon hash-chains each window as it writes it, and disclose walks the chain while reading. Detects a window edited, removed or reordered after the fact. It does not attest the source: whoever controls the daemon and its files can regenerate a consistent chain.",
+          "description": "Always present, null before v1.6 and on any report with no chain to describe: the key is never omitted, since dropping it would change the canonical bytes of already-published reports. Integrity of the archived windows this report was aggregated from (v1.6+; null on earlier reports). The daemon hash-chains each window as it writes it, and disclose walks the chain while reading. Detects a window edited, removed or reordered after the fact. It does not attest the source: whoever controls the daemon and its files can regenerate a consistent chain.",
           "properties": {
             "windows_verified": {
               "type": "integer",
