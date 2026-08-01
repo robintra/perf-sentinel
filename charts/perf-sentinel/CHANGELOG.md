@@ -12,14 +12,29 @@ version, to know which daemon image ships.
 
 ## [0.9.25]
 
-`appVersion` moves to `0.9.25`. `perf-sentinel capture` now creates the
-directory of `--output` when it is missing, which is what the documented CI
-recipe needs: `--output target/traces.json` on a clean workspace, where the
-build tool has not created `target/` yet because it is the very command
-`capture` wraps. Refusing there meant the wrapped test suite never ran at all.
-That is a CLI surface for CI jobs and it changes nothing in this chart: no
-template, no value, no `config.toml` key. The daemon deployment installs and
-behaves exactly as it did under `0.9.24`.
+`appVersion` moves to `0.9.25`. No template changes and no new `config.toml`
+key, but two changes do reach the daemon this chart deploys.
+
+**Archived windows are now hash-chained.** When `[daemon.archive]` is
+configured, each NDJSON line carries the hash of its own content, the hash of
+the previous line and its position in the file, so a window edited, removed,
+reordered or truncated after the fact becomes detectable. `disclose` walks
+that chain while aggregating and publishes the verdict. Existing archives stay
+readable and are reported as unchained rather than broken, since they predate
+the format. Operators running `StatefulSet` with persistence keep their
+archive across restarts as before, and the writer now flushes each window as it is written, so an
+ungraceful pod kill no longer leaves a half-written line.
+
+**The disclosure schema moves to `perf-sentinel-report/v1.6`.** Reports gain
+the carbon parameters that scale their own figures (the SCI methodology tags
+observed and the embodied term, as a period total and a per-request mean), a
+split of the carbon total into its operational, embodied and transport terms,
+and the source-chain verdict above. Older reports keep their `content_hash`
+when re-hashed on this binary.
+
+`perf-sentinel capture` also creates the directory of `--output` when it is
+missing, which is what the documented CI recipe needs on a clean workspace.
+That one is a CLI surface for CI jobs and changes nothing in this chart.
 
 ## [0.9.24]
 
