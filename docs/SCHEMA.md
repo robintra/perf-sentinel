@@ -105,7 +105,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 > **See also.** The [Sigstore primer](SUPPLY-CHAIN.md#background-sigstore-primer) in the supply-chain doc defines Cosign, Fulcio, Rekor, in-toto, OIDC and SLSA used throughout this section.
 
-`content_hash` is `"sha256:<64-hex>"` over the canonical JSON form of the document with the `content_hash` field blanked to an empty string. The schema also accepts an empty string for the field so example files can ship without a baked-in hash. `binary_hash` is `"sha256:<64-hex>"` of the perf-sentinel binary that produced the file. `binary_verification_url` points at the release artefact where consumers can fetch the same binary. `trace_integrity_chain` is reserved for a future schema revision and is `null` today.
+`content_hash` is `"sha256:<64-hex>"` over the canonical JSON form of the document with the `content_hash` field blanked to an empty string. The schema also accepts an empty string for the field so example files can ship without a baked-in hash. `binary_hash` is `"sha256:<64-hex>"` of the perf-sentinel binary that produced the file. `binary_verification_url` points at the release artefact where consumers can fetch the same binary. `trace_integrity_chain` carries the source-chain verdict since v1.6 and is `null` on reports written before it, never omitted, since dropping the key would change the canonical bytes of every already-published report.
 
 `signature` (0.7.0+) is either `null` (hash-only report) or a typed object with `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, and `signed_at`. The fields collectively let a verifier locate the cosign bundle and the Rekor inclusion proof.
 

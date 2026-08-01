@@ -727,9 +727,16 @@ pub struct Integrity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_verification_url: Option<String>,
     /// Integrity of the source windows this report was aggregated from.
-    /// Reserved and always `null` before v1.6. Typed as an `Option` so a
-    /// `null` from an older file still reads.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Reserved and always `null` before v1.6, typed as an `Option` since,
+    /// so a `null` from an older file still reads.
+    ///
+    /// Deliberately NOT `skip_serializing_if`: this key has been emitted
+    /// since v1.0 and every published report was hashed with it present.
+    /// Dropping it when absent would change the canonical bytes of those
+    /// reports and make each one fail `verify-hash`. The
+    /// `serde(default) + skip_serializing_if` rule applies to fields the
+    /// schema adds, never to one it already emitted.
+    #[serde(default)]
     pub trace_integrity_chain: Option<SourceChain>,
     /// Sigstore cosign in-toto attestation metadata. The signature
     /// itself lives in a sidecar bundle file. This object carries

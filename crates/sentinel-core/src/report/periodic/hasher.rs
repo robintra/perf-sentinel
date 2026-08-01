@@ -284,6 +284,35 @@ mod tests {
     }
 
     #[test]
+    fn a_published_report_rehashes_to_the_same_value_on_this_binary() {
+        // The guarantee the schema doc makes, tested against a real
+        // published file rather than against a freshly built struct: a
+        // struct-built baseline shares whatever serialisation the current
+        // types have, so it cannot catch a key that stopped being emitted.
+        // Recomputing here must match the hash of the canonical bytes the
+        // file itself carries, `trace_integrity_chain: null` included.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/schemas/examples/example-internal-G1.json");
+        let raw = std::fs::read_to_string(&path).expect("read published example");
+        let from_file: serde_json::Value = serde_json::from_str(&raw).expect("parse example");
+        let report: PeriodicReport = serde_json::from_str(&raw).expect("deserialize example");
+
+        let round_tripped = serde_json::to_value(&report).expect("re-serialize");
+        for key in ["trace_integrity_chain", "content_hash"] {
+            assert!(
+                round_tripped["integrity"].get(key).is_some(),
+                "the round trip dropped integrity.{key}, which changes the canonical bytes \
+                 of every already-published report"
+            );
+        }
+        assert_eq!(
+            canonicalize(round_tripped)["integrity"],
+            canonicalize(from_file)["integrity"],
+            "the re-serialized integrity block must match the published one key for key"
+        );
+    }
+
+    #[test]
     fn hash_is_deterministic() {
         let r = sample_report();
         let first = compute_content_hash(&r).unwrap();

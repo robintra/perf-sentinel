@@ -119,20 +119,25 @@ async fn run_writer(
 ) {
     let mut file = initial_file;
     let mut bytes_written = initial_bytes;
-    let mut prev = last_chain_hash(&path);
+    let (mut prev, mut seq) = resume_chain(&path);
     while let Some(archive) = rx.recv().await {
-        let line = match serialize_envelope(&archive, &prev) {
+        let line = match serialize_envelope(&archive, &prev, seq) {
             Ok(line) => line,
             Err(err) => {
                 tracing::warn!(error = %err, "archive serialization failed, dropping window");
                 continue;
             }
         };
-        prev = extract_hash(&line).unwrap_or_else(|| prev.clone());
         if let Err(err) = write_line(&mut file, &line) {
+            // The chain head stays where it was: a line that never reached
+            // the file must not move it, or the next window would carry a
+            // `prev` pointing at nothing and be published as tampering
+            // rather than as the dropped window it is.
             tracing::warn!(error = %err, "archive write failed, dropping line");
             continue;
         }
+        prev = extract_hash(&line).unwrap_or(prev);
+        seq = seq.saturating_add(1);
         bytes_written = bytes_written.saturating_add(line.len() as u64 + 1);
         if cap_bytes > 0 && bytes_written >= cap_bytes {
             match rotate(&path, &mut file, max_files) {
@@ -141,6 +146,7 @@ async fn run_writer(
                 Ok(()) => {
                     bytes_written = 0;
                     prev = ARCHIVE_CHAIN_SEED.to_string();
+                    seq = 0;
                 }
                 Err(err) => {
                     tracing::warn!(error = %err, "archive rotation failed, continuing on current file");
@@ -155,16 +161,23 @@ async fn run_writer(
 
 /// Serialise one window and chain it to `prev`.
 ///
-/// `hash` covers `{ts, report, prev}` in canonical form, so editing any of
-/// the three breaks it, and `prev` ties the line to its predecessor, so
-/// removing or reordering a line breaks the next one. It detects tampering
-/// after the fact, not an insincere writer: whoever owns the daemon can
-/// rewrite the whole chain.
-fn serialize_envelope(archive: &OwnedArchive, prev: &str) -> Result<String, serde_json::Error> {
+/// `hash` covers `{ts, report, prev, seq}` in canonical form, so editing
+/// any of them breaks it. `prev` ties the line to its predecessor, so
+/// removing or reordering a line breaks the next one, and `seq` counts
+/// lines within the file so truncating its tail no longer leaves a
+/// shorter but self-consistent chain. It detects tampering after the
+/// fact, not an insincere writer: whoever owns the daemon can rewrite the
+/// whole chain.
+fn serialize_envelope(
+    archive: &OwnedArchive,
+    prev: &str,
+    seq: u64,
+) -> Result<String, serde_json::Error> {
     let body = serde_json::json!({
         "ts": archive.ts,
         "report": &archive.report,
         "prev": prev,
+        "seq": seq,
     });
     let hash = archive_chain_hash(&body)?;
     let mut line = body;
@@ -174,23 +187,40 @@ fn serialize_envelope(archive: &OwnedArchive, prev: &str) -> Result<String, serd
     serde_json::to_string(&line)
 }
 
-/// Last `hash` already on disk, so a restarted daemon continues the chain
-/// instead of opening a break at every restart. Falls back to the seed on
-/// an empty, unreadable or pre-chain file.
-fn last_chain_hash(path: &Path) -> String {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return ARCHIVE_CHAIN_SEED.to_string();
+/// Chain head already on disk as `(prev, next_seq)`, so a restarted
+/// daemon continues instead of opening a break at every restart. Falls
+/// back to the seed on an empty, unreadable or pre-chain file.
+fn resume_chain(path: &Path) -> (String, u64) {
+    let Some(tail) = read_tail(path, TAIL_SCAN_BYTES) else {
+        return (ARCHIVE_CHAIN_SEED.to_string(), 0);
     };
-    text.lines()
+    tail.lines()
         .rev()
         .find_map(|line| {
-            serde_json::from_str::<serde_json::Value>(line)
-                .ok()?
-                .get("hash")?
-                .as_str()
-                .map(ToString::to_string)
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            let hash = value.get("hash")?.as_str()?.to_string();
+            let seq = value.get("seq").and_then(serde_json::Value::as_u64)?;
+            Some((hash, seq.saturating_add(1)))
         })
-        .unwrap_or_else(|| ARCHIVE_CHAIN_SEED.to_string())
+        .unwrap_or_else(|| (ARCHIVE_CHAIN_SEED.to_string(), 0))
+}
+
+/// How much of the file's end to read back. One archived window is a few
+/// KB, so this covers the last line by a wide margin while keeping
+/// startup independent of an archive that can reach the rotation cap.
+const TAIL_SCAN_BYTES: u64 = 1024 * 1024;
+
+/// Last `max_bytes` of `path`, as lossy UTF-8 since the window may start
+/// mid-character. `None` when the file cannot be read.
+fn read_tail(path: &Path, max_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let from = len.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(from)).ok()?;
+    let mut buf = Vec::with_capacity(usize::try_from(len - from).unwrap_or(0));
+    file.read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 fn extract_hash(line: &str) -> Option<String> {
@@ -201,9 +231,16 @@ fn extract_hash(line: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+/// Write one line and flush it.
+///
+/// The flush is what keeps an ungraceful death (SIGKILL, OOM) from
+/// leaving a half-written line: on restart the reader would find no
+/// parseable trailing hash and publish a chain break for what was only a
+/// hard shutdown. One flush per window, at window cadence, is cheap.
 fn write_line(file: &mut BufWriter<File>, line: &str) -> std::io::Result<()> {
     file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")
+    file.write_all(b"\n")?;
+    file.flush()
 }
 
 fn rotate(active: &Path, file: &mut BufWriter<File>, max_files: u32) -> std::io::Result<()> {

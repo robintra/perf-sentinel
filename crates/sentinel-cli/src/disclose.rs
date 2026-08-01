@@ -1334,7 +1334,12 @@ pub(crate) fn build_report(
 ) -> PeriodicReport {
     // Omitted rather than zeroed when no window carried a carbon figure,
     // so "not measured" never reads as "measured at zero".
-    let embodied_total = (aggregate.embodied_gco2_total > 0.0).then_some({
+    // Published whenever a window carried carbon at all, zero included: the
+    // field exists to make a lowered embodied coefficient visible, and
+    // omitting it at zero would hide the most extreme version of exactly
+    // that, an operator who sets the coefficient to 0 looking identical to
+    // a pre-v1.6 report.
+    let embodied_total = aggregate.aggregate.carbon_breakdown.as_ref().map(|_| {
         // Round to the milligram: the sum of many f64 additions carries
         // noise well below any meaningful digit, and the report is hashed.
         (aggregate.embodied_gco2_total * 1000.0).round() / 1000.0
