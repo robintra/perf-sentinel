@@ -395,9 +395,9 @@ What none of this proves is that the measurement was sincere in the
 first place. An operator who controls the daemon and its files can
 regenerate a consistent chain, exactly as they can choose an
 unfavourable coefficient. Those parameters are now published too, see
-`carbon_methodologies` and the embodied fields in
-`methodology.calibration_inputs`, which makes them contestable rather
-than invisible. The remaining step is anchoring the chain head outside
+`carbon_methodologies`, `scoring_coefficients` and the embodied fields
+in `methodology.calibration_inputs`, which makes them contestable
+rather than invisible. The remaining step is anchoring the chain head outside
 the operator's control, which is what `integrity.cross_period_log`
 stays reserved for. Read the guarantee as: tamper-evident after the
 fact, self-declared at the source.
