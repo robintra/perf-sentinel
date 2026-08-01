@@ -49,6 +49,29 @@ chatty_service_min_calls = 15
 pool_saturation_concurrent_threshold = 10
 # Min sequential calls to the same target to flag `serialized_but_parallelizable`.
 serialized_min_sequential = 3
+# How to classify SQL an OTel sanitizer already turned into `?` placeholders,
+# where N+1 and redundant-query look identical on the wire:
+#   "auto"   reclassify on the ORM scope signal OR timing variance (default)
+#   "strict" needs a primary and a corroborating signal, fewer false N+1
+#   "always" reclassify any sanitized group at the threshold, most aggressive
+#   "never"  no heuristic, a sanitized N+1 is reported as `redundant_sql`
+#
+# What to pick depends on whether your instrumentation names an ORM, which
+# is the strongest signal. Recognized scopes: spring-data, hibernate, jpa,
+# micronaut-data, jdbi, r2dbc (JVM), entityframeworkcore (.NET), sqlalchemy,
+# django (Python), activerecord (Ruby), gorm (Go), sequelize, prisma,
+# typeorm, mongoose (Node.js), sea-orm, diesel (Rust), laravel, doctrine
+# (PHP).
+#   ORM from that list  -> "auto". Switch to "strict" only if you get N+1
+#                          findings you consider false.
+#   bare driver, no ORM -> "auto" as well, and do NOT use "strict": with no
+#                          scope to corroborate, it falls back to
+#                          `redundant_sql` on the lower occurrence counts.
+#                          Covers plain JDBC, sqlx, jmoiron/sqlx, psycopg,
+#                          node-postgres, PDO without Doctrine.
+# "never" only when you want the strict distinct-params semantics and accept
+# losing sanitized N+1 entirely.
+sanitizer_aware_classification = "auto"   # default "auto"
 
 # ---------------------------------------------------------------------------
 # GreenOps / carbon scoring
@@ -125,11 +148,24 @@ include_network_transport = false
 #
 # [green.alumet]
 # endpoint = "http://localhost:9091/metrics"
-# scrape_interval_secs = 5
-# metric_name = "attributed_energy_cpu_alumet"
-# label_key = "name"
-# energy_interval_secs = 1.0
+# scrape_interval_secs = 5              # default 5
+# metric_name = "attributed_energy_cpu_alumet"   # no default, required
+# label_key = "name"                    # no default, required
+# energy_interval_secs = 1.0            # default 1.0, MUST match the Alumet source poll interval
 # service_mappings = { "account-svc" = "account-pod", "game-svc" = "game-pod" }
+# auth_header = "Authorization: Bearer TOKEN"    # default unset, "Name: Value" form
+#
+# Attribute the database cgroup, which turns the estimated database waste
+# figure into a measured one. `label_value` is the series label of that
+# cgroup on your endpoint.
+# [green.alumet.database]
+# label_value = "postgres-pod"   # no default
+# region = "eu-west-3"           # default: the service region
+#
+# Same for the message broker, feeding messaging waste.
+# [green.alumet.broker]
+# label_value = "kafka-pod"      # no default
+# region = "eu-west-3"           # default: the service region
 
 # --- Scaphandre per-process scraper (opt-in, no default egress) ------------
 # For new deployments prefer [green.alumet] above: same RAPL source, less
@@ -145,8 +181,9 @@ include_network_transport = false
 #
 # [green.scaphandre]
 # endpoint = "http://localhost:8080/metrics"
-# scrape_interval_secs = 5
+# scrape_interval_secs = 5              # default 5
 # process_map = { "account-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet" }
+# auth_header = "Authorization: Bearer TOKEN"    # default unset, "Name: Value" form
 
 # --- Kepler eBPF energy scraper (opt-in, no default egress) ----------------
 # Works on ARM64 (Graviton, Ampere, Apple Silicon, Cobalt 100) where
@@ -161,9 +198,10 @@ include_network_transport = false
 #
 # [green.kepler]
 # endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
-# scrape_interval_secs = 5
-# metric_kind = "container"  # or "process" (Kepler v2 series)
+# scrape_interval_secs = 5              # default 5
+# metric_kind = "container"             # default "container", or "process" (Kepler v2 series)
 # service_mappings = { "account-svc" = "account-deployment", "game-svc" = "game" }
+# auth_header = "Authorization: Bearer TOKEN"    # default unset, "Name: Value" form
 
 # --- Redfish BMC wall-plug power scraper (opt-in, no default egress) -------
 # Bare-metal nodes with a BMC supporting Redfish 1.0+ (Dell iDRAC, HPE iLO,
@@ -176,7 +214,9 @@ include_network_transport = false
 # BMC with a reverse proxy presenting a publicly-signed cert if needed.
 #
 # [green.redfish]
-# scrape_interval_secs = 60
+# scrape_interval_secs = 60             # default 60
+# ca_bundle_path = "/etc/ssl/bmc-ca.pem"         # default unset (system trust store)
+# auth_header = "Authorization: Basic BASE64"    # default unset, "Name: Value" form
 # [green.redfish.endpoints]
 # "chassis-1" = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
 # [green.redfish.service_mappings]
@@ -190,16 +230,32 @@ include_network_transport = false
 #
 # [green.cloud]
 # prometheus_endpoint = "http://prometheus:9090"
-# scrape_interval_secs = 30
-# default_provider = "aws"
-# default_instance_type = "c5.4xlarge"
-# cpu_metric = "aws_ec2_cpuutilization_average"
+# scrape_interval_secs = 30             # default 30
+# default_provider = "aws"              # default unset, used when a service omits it
+# default_instance_type = "c5.4xlarge"  # default unset, same
+# cpu_metric = "aws_ec2_cpuutilization_average"  # default unset
+# auth_header = "Authorization: Bearer TOKEN"    # default unset, "Name: Value" form
 #
+# Per service, either an instance type read from the embedded SPECpower
+# table, or the two watt figures when your hardware is not in it.
+# `cpu_query` overrides `cpu_metric` for one service.
 # [green.cloud.services]
 # "api-us" = { provider = "aws", instance_type = "c5.4xlarge" }
 # "api-asia" = { provider = "gcp", instance_type = "n2-standard-8" }
 # "analytics" = { provider = "azure", instance_type = "Standard_D8s_v3" }
 # "custom" = { idle_watts = 45.0, max_watts = 120.0 }
+# "special" = { provider = "aws", instance_type = "c5.4xlarge", cpu_query = "avg(node_cpu{job=\"special\"})" }
+
+# --- Declared broker cluster (opt-in, no agent needed) ---------------------
+# Messaging energy for a managed broker you cannot instrument. Declared, not
+# measured: the disclosure schema keeps it in its own provenance bucket so it
+# is never published as a measurement. Prefer [green.alumet.broker] when an
+# agent can reach the broker cgroup.
+# [green.broker_static]
+# nodes = 3                      # no default, cluster size
+# instance_type = "m5.large"     # no default, looked up in the SPECpower table
+# provider = "aws"               # no default
+# region = "eu-west-3"           # default: the service region
 
 # --- Electricity Maps API (opt-in, requires API key) -----------------------
 # Real-time per-region carbon intensity instead of the embedded hourly profile.
@@ -211,9 +267,28 @@ include_network_transport = false
 #
 # [green.electricity_maps]
 # api_key = "env:ELECTRICITY_MAPS_API_KEY"
-# endpoint = "https://api.electricitymap.org/v3"
-# poll_interval_secs = 900  # 15 min - respects the free tier rate limit
+# endpoint = "https://api.electricitymap.org/v3"   # default https://api.electricitymap.org/v3
+# poll_interval_secs = 900              # default 900, 15 min respects the free tier
 # region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
+# emission_factor_type = "lifecycle"    # default "lifecycle", or "direct" (combustion only)
+# temporal_granularity = "hourly"       # default "hourly", or "5_minutes" / "15_minutes"
+
+# ===========================================================================
+# Public disclosure reporting (used by `disclose`, `hash-bake`, `verify-hash`)
+# ===========================================================================
+# [reporting]
+# intent = "internal"                   # default unset, one of "internal", "official", "audited"
+#                                       # /!\ "official" requires org_config_path and states the
+#                                       # report is published on your organization's behalf
+# confidentiality_level = "internal"    # default unset, "internal" or "public"
+# org_config_path = "/etc/perf-sentinel/org.toml"      # default unset, required when intent = "official"
+# disclose_output_path = "/var/lib/perf-sentinel/disclosure.json"   # default unset
+# disclose_period = "calendar-quarter"  # default unset, or "calendar-month" / "calendar-year" / "custom"
+
+# Transparency-log endpoints used when verifying a cosign attestation.
+# [reporting.sigstore]
+# rekor_url = "https://rekor.sigstore.dev"     # default https://rekor.sigstore.dev
+# fulcio_url = "https://fulcio.sigstore.dev"   # default https://fulcio.sigstore.dev
 
 # ===========================================================================
 # Daemon configuration (only applies to `perf-sentinel watch`)
@@ -227,7 +302,9 @@ include_network_transport = false
 #   https://perf-sentinel.dev/docs/CONFIGURATION  (or `docs/CONFIGURATION.md`)
 # ===========================================================================
 [daemon]
-# Bind address. `0.0.0.0` only in containers, isolation handled upstream.
+# Bind address. /!\ `0.0.0.0` exposes ingestion and the query API to
+# everything that can route to this host, use it only inside a container
+# whose isolation is handled upstream.
 listen_address = "127.0.0.1"       # default 127.0.0.1
 # OTLP HTTP port, also serves `/metrics` and the query API.
 listen_port_http = 4318            # default 4318
@@ -259,8 +336,11 @@ environment = "production"         # default "staging"
 # live mode.
 api_enabled = true                 # default true
 
-# --- Change these with care ------------------------------------------------
-# These change what the daemon reports or exposes, not how fast it runs.
+# --- /!\ Change these only if you know what you are doing -------------------
+# These change what the daemon reports, or what it exposes, not how fast it
+# runs. A wrong value here does not fail, it produces a daemon that answers
+# confidently with less than the truth, or one reachable by more than you
+# meant.
 #
 # Below 1.0 every count describes a sample of the traffic rather than a
 # measure of it, a rare pattern can be missed entirely, and nothing
@@ -300,14 +380,19 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # Distinct from the CI baseline `.perf-sentinel-acknowledgments.toml`, which
 # stays read-only at runtime. `docs/ACK-WORKFLOW.md` says which belongs
 # where. Needs a durable path, see the topology block at the end.
+# /!\ These routes are on by default and unauthenticated until `api_key` is
+# set: any client that reaches the port can acknowledge or revoke a finding,
+# which is harmless on 127.0.0.1 and is not on 0.0.0.0. Set the key whenever
+# the port is reachable by anything but this host.
 # [daemon.ack]
 # enabled = true                                   # default true, 503 without a writable store
 # storage_path = "/var/lib/perf-sentinel/acks.jsonl"  # default: OS data dir, unresolvable on scratch images
-# api_key = "env:PERF_SENTINEL_ACK_API_KEY"        # default unset (no auth), env: keeps it out of this file
+# api_key = "env:PERF_SENTINEL_ACK_API_KEY"        # default unset (NO AUTH), env: keeps it out of this file
 #                                                  # at least 12 characters, 16 recommended
 # toml_path = ".perf-sentinel-acknowledgments.toml"   # default .perf-sentinel-acknowledgments.toml
 
-# --- Browser access to the query API ---------------------------------------
+# --- /!\ Browser access to the query API ------------------------------------
+# Empty means no browser origin can read the API, which is the safe state.
 # Full origins (scheme + host + optional port, no trailing slash). "*" is
 # wildcard mode and mixes neither with an explicit origin nor with
 # `[daemon.ack] api_key`: that key travels on every cross-origin request, so

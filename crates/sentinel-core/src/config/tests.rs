@@ -19,6 +19,68 @@ fn parse_empty_toml_gives_defaults() {
 }
 
 #[test]
+fn example_config_covers_every_key_the_parser_accepts() {
+    // `examples/perf-sentinel.toml` calls itself the reference config, and
+    // nothing checked that claim: it had drifted to 14 of the 31 daemon
+    // keys, with whole sections missing. Adding a field to a *Section
+    // struct without showing it there fails here, which is the only place
+    // the omission is visible.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let parser = std::fs::read_to_string(root.join("crates/sentinel-core/src/config/raw.rs"))
+        .expect("read raw.rs");
+    let example =
+        std::fs::read_to_string(root.join("examples/perf-sentinel.toml")).expect("read example");
+
+    let mut in_struct = false;
+    let mut missing: Vec<&str> = Vec::new();
+    for line in parser.lines() {
+        if line.starts_with("struct ") || line.starts_with("pub(super) struct ") {
+            in_struct = true;
+            continue;
+        }
+        if line.starts_with('}') {
+            in_struct = false;
+        }
+        if !in_struct {
+            continue;
+        }
+        let Some(field) = field_name(line) else {
+            continue;
+        };
+        // A field naming a subsection appears as a `[table.header]`
+        // rather than as `key = value`, so accept either spelling.
+        let shown = example.lines().any(|l| {
+            let l = l
+                .trim_start()
+                .trim_start_matches("# ")
+                .trim_start_matches('#');
+            l.starts_with(&format!("{field} ="))
+                || l.starts_with(&format!("\"{field}\" ="))
+                || l.contains(&format!("{field} = "))
+                || l.starts_with(&format!("[{field}]"))
+                || l.contains(&format!(".{field}]"))
+        });
+        if !shown {
+            missing.push(field);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "keys accepted by the parser but absent from examples/perf-sentinel.toml: {missing:?}"
+    );
+}
+
+/// Extract `name` from a `    name: Option<T>,` struct field line.
+fn field_name(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("    ")?;
+    let rest = rest.strip_prefix("pub(super) ").unwrap_or(rest);
+    let (name, _) = rest.split_once(':')?;
+    name.chars()
+        .all(|c| c.is_ascii_lowercase() || c == '_')
+        .then_some(name)
+}
+
+#[test]
 fn parse_daemon_correlation_section() {
     // The whole section had no test, and its one conversion is the kind
     // that breaks quietly: the TOML key is in minutes, the field is in
