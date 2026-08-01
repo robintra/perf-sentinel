@@ -509,7 +509,7 @@ poll_interval_secs = 300
 
 **Visibilité dans les rapports (depuis perf-sentinel 0.5.12) :** la configuration de scoring active (version d'API, modèle de facteur d'émission, granularité temporelle) est exposée à trois endroits pour qu'un auditeur Scope 2 puisse vérifier quel modèle carbone a produit les chiffres sans lire la TOML de l'opérateur.
 
-- Le rapport JSON porte un objet `green_summary.scoring_config` avec les 3 champs. Omis quand `[green.electricity_maps]` n'est pas configuré (additif sur les baselines pré-0.5.12).
+- Le rapport JSON porte toujours `green_summary.scoring_config` quand le scoring GreenOps est actif : il enregistre les coefficients appliqués et un flag `electricity_maps`. Les champs propres à l'API ne sont significatifs que lorsque ce flag vaut `true`.
 - Le dashboard HTML rend un bandeau de chips au-dessus de la table green-regions. Les valeurs par défaut (`v4`, `lifecycle`, `hourly`) apparaissent en chips neutres, les opt-ins (`direct`, `5_minutes`, `15_minutes`) en chips accent, l'endpoint legacy `v3` en chip warning miroir de l'avertissement de dépréciation. Les tooltips natifs du navigateur expliquent chaque valeur.
 - La sortie terminale `print_green_summary` ajoute une ligne `Carbon scoring: Electricity Maps v4, lifecycle, hourly` avant le détail par région.
 
