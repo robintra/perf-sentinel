@@ -7,7 +7,8 @@
 # All fields shown with their defaults are what perf-sentinel uses when the
 # file is absent. You only need to list fields you want to override.
 #
-# Full reference: `docs/CONFIGURATION.md`.
+# Full reference: `docs/CONFIGURATION.md`, or
+# https://perf-sentinel.dev/docs/CONFIGURATION for the same thing online.
 
 # ---------------------------------------------------------------------------
 # Quality gate thresholds (used by `analyze --ci` and the daemon quality gate)
@@ -211,44 +212,149 @@ include_network_transport = false
 # poll_interval_secs = 900  # 15 min - respects the free tier rate limit
 # region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
 
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # Daemon configuration (only applies to `perf-sentinel watch`)
-# ---------------------------------------------------------------------------
+#
+# Every key the daemon accepts is listed below with its default, so this
+# section doubles as the checklist. An unknown key under [daemon] is ignored
+# in silence, so a typo reads as a code bug rather than a config mistake:
+# copy names from here rather than from memory.
+#
+# Full reference, with the per-key tables:
+#   https://perf-sentinel.dev/docs/CONFIGURATION  (or `docs/CONFIGURATION.md`)
+# ===========================================================================
 [daemon]
-# Bind address. Keep `127.0.0.1` for sidecar deployments; use `0.0.0.0`
+# Bind address. Keep `127.0.0.1` for sidecar deployments, use `0.0.0.0`
 # **only** inside containers where network isolation is handled upstream
 # (see `docker-compose-collector.yml`).
 listen_address = "127.0.0.1"
-# OTLP HTTP port (also serves Prometheus `/metrics`).
+# OTLP HTTP port. Also serves Prometheus `/metrics` and the query API.
 listen_port_http = 4318
 # OTLP gRPC port.
 listen_port_grpc = 4317
 # Unix socket for the native JSON ingestion path.
 json_socket = "/tmp/perf-sentinel.sock"
-# Sliding-window memory controls. Tune if you hit the `max_active_traces`
-# cap or see traces evicted before their children arrive.
+# Traces held in the sliding window at once. Memory grows roughly linearly
+# with it. Outside 1_000..=100_000 the daemon warns at startup.
 max_active_traces = 10000
+# How long a trace stays open for late spans, in MILLISECONDS (not seconds).
+# Hard bounds 100..=3_600_000, comfort zone 1_000..=600_000.
 trace_ttl_ms = 30000
-# 1.0 = keep every incoming trace. Lower to sub-sample in high-traffic envs.
-sampling_rate = 1.0
+# Spans kept per trace, ring buffer. Beyond it a trace is truncated and its
+# findings understate it. Hard bounds 1..=100_000.
 max_events_per_trace = 1000
-# Max single OTLP request payload in bytes (1 MB default).
-max_payload_size = 1048576
-# Bounded-queue capacities (defaults shown). Raise under bursty load to
-# reduce ingestion backpressure and analysis-worker shedding.
+# Max single OTLP request payload, in bytes. Default 16 MiB, hard bounds
+# 1 KiB..=100 MiB. A CI suite flushing its whole batch at JVM shutdown is
+# what makes the default this large.
+max_payload_size = 16777216
+# Findings kept in memory for `/api/findings`. 0 disables the store, which
+# also disables the ack routes that read from it. Hard bounds 0..=10_000_000.
+max_retained_findings = 10000
+# Bounded-queue capacities. Raise under bursty load to reduce ingestion
+# backpressure and analysis-worker shedding. Hard bounds 1..=1_048_576.
 ingest_queue_capacity = 1024
 analysis_queue_capacity = 1024
-
 # Deployment environment stamped on every finding as `confidence`:
-# - "staging"    → `daemon_staging`    (medium confidence, default)
-# - "production" → `daemon_production` (high confidence)
-# Consumed by downstream tooling. The `confidence` value is designed for
-# a future IDE companion (perf-lint, planned) that will surface
-# production-observed findings louder than CI-observed ones.
+# - "staging"    -> `daemon_staging`    (medium confidence, default)
+# - "production" -> `daemon_production` (high confidence)
+# Consumed by downstream tooling, not by the quality gate.
 environment = "staging"
+# Serve the query API (`/api/*`). `false` keeps OTLP ingestion and
+# `/metrics` and drops every read and ack route, including the dashboard's
+# live mode.
+api_enabled = true
 
-# Optional TLS for OTLP gRPC and HTTP listeners. Both fields must be
-# set together (or both absent for plain TCP). The daemon warns if the
-# key file is readable by group or others on Unix.
+# --- Change these with care ------------------------------------------------
+# The four settings below are the ones that quietly change what the daemon
+# reports, or what it exposes, rather than how fast it runs.
+#
+# `sampling_rate` below 1.0 makes every count a sample of the traffic
+# instead of a measure of it, and a rare pattern can be missed entirely.
+# Nothing downstream can tell a sampled window from a complete one, so the
+# daemon warns at startup when it is lowered. Collector-side tail sampling
+# in front of the daemon has the same effect and cannot even be detected.
+# Prefer a second collector pipeline exporting to perf-sentinel unsampled.
+sampling_rate = 1.0
+#
+# `memory_high_water_pct` is cgroup v2 admission control: past that share of
+# the container memory limit, ingestion is refused before decoding rather
+# than letting the pod get OOMKilled. 0 disables the guard, and values 1..=5
+# are rejected because the 5-point hysteresis low bound would be
+# unreachable. Only meaningful with a container memory limit set.
+memory_high_water_pct = 0
+#
+# TLS for the OTLP gRPC and HTTP listeners. Both fields together or both
+# absent, and the daemon warns when the key file is readable by group or
+# others on Unix.
 # tls_cert_path = "/etc/tls/server-cert.pem"
 # tls_key_path = "/etc/tls/server-key.pem"
+#
+# `[daemon.cors] allowed_origins` opens the query API to browser origins.
+# See its block below before setting it.
+
+# --- Cross-service correlation (opt-in) ------------------------------------
+# Daemon-only output, batch `analyze` never produces it. Single-process: it
+# only sees what this daemon buffers, so it belongs on one instance that
+# receives every service you want correlated.
+# [daemon.correlation]
+# enabled = false
+# window_minutes = 10       # correlation window, in MINUTES here
+# lag_threshold_ms = 5000   # max lag between two correlated events
+# min_co_occurrences = 5    # pairs seen fewer times are dropped
+# min_confidence = 0.7      # 0.0..1.0, below this a pair is not reported
+# max_tracked_pairs = 10000 # memory ceiling for the pair table
+
+# --- Runtime acknowledgments (daemon-side, JSONL) --------------------------
+# Distinct from the CI baseline `.perf-sentinel-acknowledgments.toml`, which
+# stays read-only at runtime. See `docs/ACK-WORKFLOW.md` for which
+# acknowledgment belongs where.
+# [daemon.ack]
+# enabled = true                                   # routes answer 503 without a writable store
+# storage_path = "/var/lib/perf-sentinel/acks.jsonl"
+# api_key = "env:PERF_SENTINEL_ACK_API_KEY"        # env: form keeps the secret out of this file
+#                                                  # at least 12 characters, 16 recommended
+# toml_path = ".perf-sentinel-acknowledgments.toml"
+
+# --- Browser access to the query API ---------------------------------------
+# Empty by default, which means no cross-origin browser can read the API.
+# Entries are full origins (scheme + host + optional port, no trailing
+# slash). "*" is wildcard mode and cannot be combined with an explicit
+# origin, nor with `[daemon.ack] api_key`: the key travels on every
+# cross-origin request, so any origin could then use it.
+# [daemon.cors]
+# allowed_origins = ["https://dashboards.example.com"]
+
+# --- Per-window NDJSON archive (input for `disclose`) ----------------------
+# Only written when `path` is set. Requires `[green] enabled = true`, the
+# daemon refuses the pairing otherwise since an archive of windows with no
+# energy would make `disclose` output meaningless.
+# [daemon.archive]
+# path = "/var/lib/perf-sentinel/archive.ndjson"
+# max_size_mb = 100   # rotate past this size, >= 1
+# max_files = 12      # rotated files kept, >= 1
+
+# --- What your deployment topology changes ---------------------------------
+# The keys above are the same everywhere the binary runs. What differs is
+# whether some of them can work at all. Details:
+#   https://perf-sentinel.dev/docs/HELM-DEPLOYMENT  ("Workload modes")
+#
+# Single process, container or Deployment (recommended): everything above
+#   applies. The trace window is in memory and per process, so scale
+#   vertically first.
+#
+# StatefulSet with persistence: the only topology where `[daemon.ack]`
+#   storage and `[daemon.archive]` survive a restart, and therefore the only
+#   one where runtime acks work. On a Deployment or a DaemonSet the store
+#   path cannot even be resolved (scratch image, no HOME), the daemon logs a
+#   WARN at startup and the two ack write routes answer 503. Note that the
+#   Helm chart writes both paths itself unless you set
+#   `persistence.manageDaemonPaths: false`, and refuses to render if you
+#   declare them anyway.
+#
+# DaemonSet: one daemon per node splits the spans of a trace across pods
+#   unless an upstream collector routes by trace ID (OTel `loadbalancing`
+#   exporter, `routing_key: traceID`). Without it, N+1 groups fall under
+#   their threshold and the findings simply never appear, with no error and
+#   no metric that moves. `max_active_traces` and the queue capacities are
+#   then per pod, and `[daemon.correlation]` only ever sees one node's
+#   share of the traffic.

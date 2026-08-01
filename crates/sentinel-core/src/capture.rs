@@ -24,9 +24,10 @@ use crate::ingest::otlp::{OtlpGrpcService, OtlpSink, otlp_http_router_with_sink}
 /// what keeps a flood bounded in memory rather than a promise of throughput.
 const CHANNEL_CAPACITY: usize = 256;
 
-/// Per-request decode cap. Larger than the daemon's 1 MB default: a CI suite
-/// flushes its whole batch at JVM shutdown, and a rejected batch here means a
-/// silently incomplete trace file rather than a dropped window.
+/// Per-request decode cap, fixed here where the daemon makes it configurable.
+/// It matches that setting's default because a CI suite flushes its whole
+/// batch at JVM shutdown, and a rejected batch means a silently incomplete
+/// trace file rather than a dropped window.
 const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 
 /// Where and how to capture.
