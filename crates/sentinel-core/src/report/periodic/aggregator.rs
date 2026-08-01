@@ -395,6 +395,7 @@ impl Builder {
             Some((super::hasher::ARCHIVE_CHAIN_SEED.to_string(), 0));
         let mut warned_break = false;
         let mut chain_started = false;
+        let mut previous_in_scope = false;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -440,7 +441,7 @@ impl Builder {
                     }
                 }
                 ChainOutcome::Unchained => {
-                    self.count_break(in_scope);
+                    self.count_break(in_scope || previous_in_scope);
                     // No hash to chain onto, so the anchor is dropped and
                     // the next chained line re-establishes it.
                     expected = None;
@@ -448,13 +449,18 @@ impl Builder {
                 }
                 ChainOutcome::Break(hash) => {
                     chain_started = true;
-                    self.count_break(in_scope);
+                    // The current line reveals a removed predecessor. If
+                    // that predecessor was the last in-period line, the
+                    // break affects this report even when the revealing
+                    // line itself is just outside the boundary.
+                    self.count_break(in_scope || previous_in_scope);
                     // Resynchronise on this line's own hash and seq, so one
                     // edit reports one break rather than poisoning the tail.
                     expected = Some((hash, next_seq(&expected)));
                     warn_break(path, line_no, &mut warned_break);
                 }
             }
+            previous_in_scope = in_scope;
             let typed = parsed.map_or_else(
                 || serde_json::from_str::<ArchivedReport>(trimmed),
                 serde_json::from_value::<ArchivedReport>,
@@ -1573,6 +1579,25 @@ mod tests {
         assert_eq!(legacy.chain_unchained, 2);
         assert_eq!(legacy.chain_breaks, 0);
         assert_eq!(legacy.chain_verified, 0);
+    }
+
+    #[test]
+    fn a_break_revealed_just_after_the_period_still_affects_the_period() {
+        let in_period = Utc.with_ymd_and_hms(2026, 3, 30, 0, 0, 0).unwrap();
+        let removed = Utc.with_ymd_and_hms(2026, 3, 31, 0, 0, 0).unwrap();
+        let after = Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[
+            (in_period, plain_window()),
+            (removed, plain_window()),
+            (after, plain_window()),
+        ]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        std::fs::write(&path, format!("{}\n{}\n", lines[0], lines[2])).unwrap();
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 1);
+        assert_eq!(out.chain_breaks_outside, 0);
     }
 
     #[test]

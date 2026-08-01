@@ -305,8 +305,31 @@ pub struct Capture {
     stop_writer: tokio::sync::oneshot::Sender<()>,
     metrics: Arc<CaptureMetrics>,
     output: PathBuf,
+    output_identity: OutputIdentity,
     grace: Duration,
 }
+
+#[cfg(unix)]
+type OutputIdentity = (u64, u64);
+#[cfg(windows)]
+type OutputIdentity = (Option<u32>, Option<u64>);
+#[cfg(not(any(unix, windows)))]
+type OutputIdentity = ();
+
+#[cfg(unix)]
+fn output_identity(metadata: &std::fs::Metadata) -> OutputIdentity {
+    use std::os::unix::fs::MetadataExt as _;
+    (metadata.dev(), metadata.ino())
+}
+
+#[cfg(windows)]
+fn output_identity(metadata: &std::fs::Metadata) -> OutputIdentity {
+    use std::os::windows::fs::MetadataExt as _;
+    (metadata.volume_serial_number(), metadata.file_index())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn output_identity(_metadata: &std::fs::Metadata) -> OutputIdentity {}
 
 /// Bind both OTLP ports, create the output directory if it is missing, open
 /// the trace file, and start serving. Everything that can fail up front fails
@@ -341,6 +364,16 @@ pub async fn start(cfg: &CaptureConfig) -> Result<Capture, CaptureError> {
             path: cfg.output.clone(),
             source,
         })?;
+    let output_identity =
+        output_identity(
+            &file
+                .metadata()
+                .await
+                .map_err(|source| CaptureError::Output {
+                    path: cfg.output.clone(),
+                    source,
+                })?,
+        );
 
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (stop_writer, stop_writer_rx) = tokio::sync::oneshot::channel();
@@ -383,6 +416,7 @@ pub async fn start(cfg: &CaptureConfig) -> Result<Capture, CaptureError> {
         stop_writer,
         metrics,
         output: cfg.output.clone(),
+        output_identity,
         grace: cfg.grace,
     })
 }
@@ -425,13 +459,17 @@ impl Capture {
         // inode, so every count above is real while the path holds nothing.
         // Reporting success there would send the next step to a file that
         // was never going to be readable.
-        if !self.output.exists() {
+        let output_matches = std::fs::metadata(&self.output)
+            .map(|metadata| output_identity(&metadata) == self.output_identity)
+            .unwrap_or(false);
+        if !output_matches {
             return Err(CaptureError::Output {
                 path: self.output.clone(),
                 source: std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "the file was removed while the capture was writing to it, \
-                     which a build step cleaning its output directory does",
+                     or replaced by another file. A build step cleaning its \
+                     output directory can do this",
                 ),
             });
         }
@@ -791,6 +829,29 @@ mod tests {
             err.to_string().contains("removed while the capture"),
             "the message must name the cause: {err}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_replaced_output_file_fails_instead_of_reporting_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("traces.json");
+        let moved = dir.path().join("original-traces.json");
+        let cfg = CaptureConfig {
+            listen_addr: "127.0.0.1".to_string(),
+            port_grpc: free_port(),
+            port_http: free_port(),
+            output: path.clone(),
+            max_file_bytes: u64::MAX,
+            grace: Duration::from_millis(10),
+        };
+        let capture = start(&cfg).await.unwrap();
+        std::fs::rename(&path, moved).unwrap();
+        std::fs::write(&path, b"replacement").unwrap();
+
+        let err = capture.finish().await.unwrap_err();
+        assert!(matches!(err, CaptureError::Output { .. }));
+        assert!(err.to_string().contains("replaced by another file"));
     }
 
     #[tokio::test]
