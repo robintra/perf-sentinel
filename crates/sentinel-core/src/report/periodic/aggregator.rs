@@ -411,7 +411,7 @@ impl Builder {
             }
             // Parsed once: the chain check and the typed fold share this
             // value, instead of running two full JSON parses per line.
-            let parsed: Option<serde_json::Value> = serde_json::from_str(trimmed).ok();
+            let mut parsed: Option<serde_json::Value> = serde_json::from_str(trimmed).ok();
             let parsed_seq = parsed
                 .as_ref()
                 .and_then(|v| v.get("seq"))
@@ -427,7 +427,14 @@ impl Builder {
                     .unwrap_or_else(|| expected.as_ref().map_or(0, |(_, seq)| *seq))
                     .saturating_add(1)
             };
-            match verify_chain_value(parsed.as_ref(), expected.as_ref()) {
+            // An unparseable line is a crash-truncated fragment, not an
+            // edit. The anchor is kept, a destroyed window still surfaces
+            // as a break through its successor's `prev`.
+            match parsed.as_mut().map_or(ChainOutcome::Malformed, |value| {
+                verify_chain_value(value, expected.as_ref())
+            }) {
+                // The typed fold counts it under malformed_lines_skipped.
+                ChainOutcome::Malformed => {}
                 ChainOutcome::Verified(hash) => {
                     chain_started = true;
                     if in_scope {
@@ -464,7 +471,9 @@ impl Builder {
                     warn_break(path, line_no, &mut warned_break);
                 }
             }
-            previous_in_scope = in_scope;
+            if parsed.is_some() {
+                previous_in_scope = in_scope;
+            }
             let typed = parsed.map_or_else(
                 || serde_json::from_str::<ArchivedReport>(trimmed),
                 serde_json::from_value::<ArchivedReport>,
@@ -1081,24 +1090,27 @@ enum ChainOutcome {
     /// Edited, removed or reordered. Carries this line's own hash so the
     /// walk can resynchronise.
     Break(String),
+    /// Not JSON at all: a crash-truncated fragment, never chained.
+    Malformed,
 }
 
+/// Removes the line's `hash` field in place: the chain hashes the body
+/// without it, and the typed fold that consumes the value ignores it.
 fn verify_chain_value(
-    value: Option<&serde_json::Value>,
+    value: &mut serde_json::Value,
     expected: Option<&(String, u64)>,
 ) -> ChainOutcome {
-    let Some(value) = value else {
+    let Some(stated) = value
+        .as_object_mut()
+        .and_then(|obj| obj.remove("hash"))
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .map(String::from)
+    else {
         return ChainOutcome::Unchained;
     };
-    let Some(stated) = value.get("hash").and_then(serde_json::Value::as_str) else {
-        return ChainOutcome::Unchained;
-    };
-    let stated = stated.to_string();
-    let mut body = value.clone();
-    if let Some(obj) = body.as_object_mut() {
-        obj.remove("hash");
-    }
-    if super::hasher::archive_chain_hash(&body).ok().as_deref() != Some(stated.as_str()) {
+    let body = &*value;
+    if super::hasher::archive_chain_hash(body).ok().as_deref() != Some(stated.as_str()) {
         return ChainOutcome::Break(stated);
     }
     // Without an anchor the walk cannot say where this line belongs, so it
@@ -1559,6 +1571,25 @@ mod tests {
             tampered.chain_verified, 2,
             "the untouched windows stay attestable"
         );
+    }
+
+    #[test]
+    fn a_crash_truncated_fragment_is_not_a_break() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_chained_archive(&[(ts1, plain_window()), (ts2, plain_window())]);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        // A power loss mid-write leaves a newline-terminated partial line.
+        std::fs::write(
+            &path,
+            format!("{}\n{{\"ts\":\"2026-02-01T\n{}\n", lines[0], lines[1]),
+        )
+        .unwrap();
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.chain_breaks, 0, "a dropped window is not tampering");
+        assert_eq!(out.chain_verified, 2);
+        assert_eq!(out.malformed_lines_skipped, 1);
     }
 
     #[test]
