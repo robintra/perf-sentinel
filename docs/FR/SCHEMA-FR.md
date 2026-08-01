@@ -6,18 +6,18 @@ La v1.1 ajoute les tiers `canonical_waste` et `operational_waste` à `aggregate`
 
 ## Clés racine
 
-| clé               | type           | requise | notes                                                                             |
-|-------------------|----------------|---------|-----------------------------------------------------------------------------------|
-| `schema_version`  | string (enum)  | oui     | `"perf-sentinel-report/v1.6"` (accepte aussi `"…/v1.5"`, `"…/v1.4"`, `"…/v1.3"`, `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`)  |
-| `report_metadata` | object         | oui     | voir [Métadonnées de rapport](#métadonnées-de-rapport)                            |
-| `organisation`    | object         | oui     | voir [Organisation](#organisation)                                                |
-| `period`          | object         | oui     | voir [Période](#période)                                                          |
-| `scope_manifest`  | object         | oui     | voir [Manifeste de scope](#manifeste-de-scope)                                    |
-| `methodology`     | object         | oui     | voir [Méthodologie](#méthodologie)                                                |
-| `aggregate`       | object         | oui     | voir [Agrégat](#agrégat)                                                          |
-| `applications`    | array          | oui     | homogène : toutes les entrées G1 ou toutes G2, voir [Applications](#applications) |
-| `integrity`       | object         | oui     | voir [Intégrité](#intégrité)                                                      |
-| `notes`           | object         | oui     | voir [Notes](#notes)                                                              |
+| clé               | type          | requise | notes                                                                                                                |
+|-------------------|---------------|---------|----------------------------------------------------------------------------------------------------------------------|
+| `schema_version`  | string (enum) | oui     | `"perf-sentinel-report/v1.6"` (accepte aussi `"…/v1.5"`, `"…/v1.4"`, `"…/v1.3"`, `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`) |
+| `report_metadata` | object        | oui     | voir [Métadonnées de rapport](#métadonnées-de-rapport)                                                               |
+| `organisation`    | object        | oui     | voir [Organisation](#organisation)                                                                                   |
+| `period`          | object        | oui     | voir [Période](#période)                                                                                             |
+| `scope_manifest`  | object        | oui     | voir [Manifeste de scope](#manifeste-de-scope)                                                                       |
+| `methodology`     | object        | oui     | voir [Méthodologie](#méthodologie)                                                                                   |
+| `aggregate`       | object        | oui     | voir [Agrégat](#agrégat)                                                                                             |
+| `applications`    | array         | oui     | homogène : toutes les entrées G1 ou toutes G2, voir [Applications](#applications)                                    |
+| `integrity`       | object        | oui     | voir [Intégrité](#intégrité)                                                                                         |
+| `notes`           | object        | oui     | voir [Notes](#notes)                                                                                                 |
 
 Le schéma ne fixe pas `additionalProperties: false` ; de nouveaux champs peuvent être ajoutés dans un bump mineur SemVer sans casser les consommateurs qui ne lisent que l'ensemble documenté.
 
