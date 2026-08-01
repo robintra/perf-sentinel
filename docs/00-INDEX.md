@@ -47,6 +47,7 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 | [RUNBOOK.md](RUNBOOK.md)         | Incident runbook: symptom-driven troubleshooting for production deployments                   |
 | [ENERGY.md](ENERGY.md)           | Plain-language synthesis: how counts become kWh and gCO2, per configured option, with sources |
 | [METHODOLOGY.md](METHODOLOGY.md) | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`           |
+| [INSTANCE-TYPES.md](INSTANCE-TYPES.md) | Every `instance_type` carrying an embedded power profile, with its idle and max wattage       |
 | [LIMITATIONS.md](LIMITATIONS.md) | Known trade-offs, upstream constraints, detection boundaries                                  |
 
 ## Supply chain and release

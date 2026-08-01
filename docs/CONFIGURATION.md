@@ -454,7 +454,7 @@ default_provider = "aws"
 "ml-bench" = { provider = "aws", instance_type = "m8g.4xlarge" }          # Graviton 4
 ```
 
-Modern instance families covered include AWS m7i/c7i/r7i, m7a/c7a, m6a/c6a, m7g/c7g, m8g/c8g; GCP c3, c3d, c4, c4d, n2d, t2a; Azure Standard_Dv6, Standard_Dadsv6, Standard_Dpsv6 (Cobalt 100), Standard_Ev6. One CPU-named bare-metal entry covers Sierra Forest (`xeon-6780e`, system-level watts assuming full chip ownership).
+The full list of covered types, with their idle and max wattage, is [`INSTANCE-TYPES.md`](./INSTANCE-TYPES.md). Modern instance families covered include AWS m7i/c7i/r7i, m7a/c7a, m6a/c6a, m7g/c7g, m8g/c8g; GCP c3, c3d, c4, c4d, n2d, t2a; Azure Standard_Dv6, Standard_Dadsv6, Standard_Dpsv6 (Cobalt 100), Standard_Ev6. One CPU-named bare-metal entry covers Sierra Forest (`xeon-6780e`, system-level watts assuming full chip ownership).
 
 **Manual watts (on-premise or custom hardware):**
 
