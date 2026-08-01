@@ -1,0 +1,37 @@
+# Modelled energy for cloud VMs, which expose no RAPL and therefore cannot
+# be measured by Alumet, Kepler or Scaphandre. Usable as is:
+#
+#   perf-sentinel analyze --input traces.json --config perf-sentinel-energy-cloud.toml
+#
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
+#
+# This reads CPU utilization from a Prometheus you already run
+# (cloudwatch_exporter, GCP monitoring, Azure exporter) and applies the
+# embedded SPECpower table. The model tag is `cloud_specpower`, one rung
+# below the measured backends: it is an estimate, not a measurement.
+
+[green]
+enabled = true
+# No default. Without a region, a service whose spans carry no cloud.region
+# attribute gets no carbon figure at all.
+default_region = "eu-west-3"
+
+[green.cloud]
+prometheus_endpoint = "http://prometheus:9090"
+scrape_interval_secs = 15
+# Used for any service that does not name its own provider and instance type.
+default_provider = "aws"
+default_instance_type = "c5.4xlarge"
+cpu_metric = "aws_ec2_cpuutilization_average"
+# Credentials belong in PERF_SENTINEL_CLOUD_AUTH_HEADER rather than here,
+# it takes precedence over this file.
+
+# Per service, either an instance type looked up in the embedded SPECpower
+# table, or the two watt figures when your hardware is not in it.
+[green.cloud.services]
+"api-us" = { provider = "aws", instance_type = "c5.4xlarge" }
+"api-asia" = { provider = "gcp", instance_type = "n2-standard-8" }
+"analytics" = { provider = "azure", instance_type = "Standard_D8s_v3" }
+"on-prem-box" = { idle_watts = 45.0, max_watts = 120.0 }
