@@ -19,6 +19,31 @@ fn parse_empty_toml_gives_defaults() {
 }
 
 #[test]
+fn parse_daemon_correlation_section() {
+    // The whole section had no test, and its one conversion is the kind
+    // that breaks quietly: the TOML key is in minutes, the field is in
+    // milliseconds. A silent default here reads as "correlation found
+    // nothing" rather than as a config that was never applied.
+    let config = load_from_str(
+        "[daemon.correlation]\n\
+         enabled = true\n\
+         window_minutes = 10\n\
+         lag_threshold_ms = 4000\n\
+         min_co_occurrences = 7\n\
+         min_confidence = 0.8\n\
+         max_tracked_pairs = 500",
+    )
+    .unwrap();
+    let c = &config.daemon.correlation;
+    assert!(c.enabled, "opt-in flag must be read, it defaults to false");
+    assert_eq!(c.window_ms, 600_000, "10 minutes expressed in ms");
+    assert_eq!(c.lag_threshold_ms, 4_000);
+    assert_eq!(c.min_co_occurrences, 7);
+    assert!((c.min_confidence - 0.8).abs() < f64::EPSILON);
+    assert_eq!(c.max_tracked_pairs, 500);
+}
+
+#[test]
 fn parse_partial_toml() {
     let config = load_from_str("[detection]\nn_plus_one_min_occurrences = 10").unwrap();
     assert_eq!(config.detection.n_plus_one_threshold, 10);
