@@ -1031,14 +1031,17 @@ fn build_carbon_breakdown(
     database_gco2: Option<f64>,
     messaging_gco2: Option<f64>,
 ) -> Option<CarbonBreakdown> {
-    (operational_gco2 > 0.0 || embodied_gco2 > 0.0 || transport_gco2 > 0.0).then(|| {
-        CarbonBreakdown {
-            operational_kgco2eq: operational_gco2 / 1000.0,
-            embodied_kgco2eq: embodied_gco2 / 1000.0,
-            transport_kgco2eq: (transport_gco2 > 0.0).then_some(transport_gco2 / 1000.0),
-            database_kgco2eq_out_of_total: database_gco2.map(|g| g / 1000.0),
-            messaging_kgco2eq_out_of_total: messaging_gco2.map(|g| g / 1000.0),
-        }
+    (operational_gco2 > 0.0
+        || embodied_gco2 > 0.0
+        || transport_gco2 > 0.0
+        || database_gco2.is_some()
+        || messaging_gco2.is_some())
+    .then(|| CarbonBreakdown {
+        operational_kgco2eq: operational_gco2 / 1000.0,
+        embodied_kgco2eq: embodied_gco2 / 1000.0,
+        transport_kgco2eq: (transport_gco2 > 0.0).then_some(transport_gco2 / 1000.0),
+        database_kgco2eq_out_of_total: database_gco2.map(|g| g / 1000.0),
+        messaging_kgco2eq_out_of_total: messaging_gco2.map(|g| g / 1000.0),
     })
 }
 
@@ -1790,6 +1793,23 @@ mod tests {
         let bd = out.aggregate.carbon_breakdown.expect("breakdown present");
         assert!(bd.transport_kgco2eq.is_none());
         assert!(bd.embodied_kgco2eq > 0.0, "the other terms still publish");
+    }
+
+    #[test]
+    fn standalone_subsystem_carbon_emits_a_breakdown() {
+        for (database_gco2, messaging_gco2) in [(Some(2.0), None), (None, Some(3.0))] {
+            let breakdown = build_carbon_breakdown(0.0, 0.0, 0.0, database_gco2, messaging_gco2)
+                .expect("subsystem carbon emits a breakdown");
+
+            assert_eq!(
+                breakdown.database_kgco2eq_out_of_total,
+                database_gco2.map(|g| g / 1000.0)
+            );
+            assert_eq!(
+                breakdown.messaging_kgco2eq_out_of_total,
+                messaging_gco2.map(|g| g / 1000.0)
+            );
+        }
     }
 
     #[test]

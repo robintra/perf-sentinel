@@ -5,9 +5,9 @@
 
 // This crate contains no `unsafe` code and is meant to stay that way: the
 // analysis pipeline is pure data processing. `forbid` (not `deny`) so the
-// guarantee cannot be locally overridden by an inner `allow`. The single
-// `unsafe` FFI call in the workspace (libc::getrusage) lives in the CLI
-// crate, where it is isolated and documented with its SAFETY invariants.
+// guarantee cannot be locally overridden by an inner `allow`. Every
+// `unsafe` FFI call in the workspace lives in the CLI crate, where each
+// one is isolated and documented with its SAFETY invariants.
 #![forbid(unsafe_code)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::cast_possible_truncation)] // u128 -> u64 for elapsed_ms
