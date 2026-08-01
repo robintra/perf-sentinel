@@ -604,7 +604,9 @@ fn network_transport_contribution(
     pue: f64,
     ctx: &CarbonContext,
 ) -> f64 {
-    if !ctx.include_network_transport || span.event.event_type != crate::event::EventType::HttpOut {
+    // Unconditional: `include_network_transport` now only hides the term
+    // in the dashboards, so two reports stay comparable across the setting.
+    if span.event.event_type != crate::event::EventType::HttpOut {
         return 0.0;
     }
     let Some(bytes) = span.event.response_size_bytes else {

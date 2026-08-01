@@ -490,6 +490,7 @@ async fn handle_export_report_propagates_scoring_config_on_cold_start() {
         api_version: ApiVersion::V4,
         emission_factor_type: EmissionFactorType::Lifecycle,
         temporal_granularity: TemporalGranularity::Hourly,
+        ..ScoringConfig::default()
     };
 
     let mut state_owned = make_state().clone_for_test();
@@ -528,6 +529,7 @@ async fn handle_export_report_propagates_scoring_config_when_emaps_configured() 
         api_version: ApiVersion::V4,
         emission_factor_type: EmissionFactorType::Direct,
         temporal_granularity: TemporalGranularity::FifteenMinutes,
+        ..ScoringConfig::default()
     };
 
     let mut state_owned = make_state().clone_for_test();
@@ -1068,6 +1070,7 @@ async fn energy_endpoint_derives_electricity_maps_from_scoring_config() {
         api_version: ApiVersion::V4,
         emission_factor_type: EmissionFactorType::Lifecycle,
         temporal_granularity: TemporalGranularity::Hourly,
+        ..ScoringConfig::default()
     });
     let energy = fetch_energy(Arc::new(state)).await;
     let emaps = energy

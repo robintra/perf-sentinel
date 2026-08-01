@@ -387,6 +387,13 @@ pub struct CalibrationInputs {
     /// flag is the only place that surfaces the fact.
     #[serde(default)]
     pub calibration_applied: bool,
+    /// Coefficients the windows were scored with, as `key=value` strings
+    /// (`embodied_gco2_per_request`, `network_kwh_per_byte`,
+    /// `per_operation_coefficients`, `use_hourly_profiles`). They scale
+    /// the published figures and appear nowhere else. More than one entry
+    /// for a key means it changed mid-period. v1.6.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub scoring_coefficients: BTreeSet<String>,
     /// SCI methodology tags observed across the period's windows,
     /// `sci_v1_numerator` or its `+transport` variant. Says whether the
     /// numerator counted network transport, which two otherwise

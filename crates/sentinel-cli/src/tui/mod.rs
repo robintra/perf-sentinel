@@ -833,7 +833,16 @@ impl App {
                 "Operational: {:.6} g   Embodied: {:.6} g   Methodology: {methodology}",
                 carbon.operational_gco2, carbon.embodied_gco2,
             ))));
-            if let Some(transport) = carbon.transport_gco2 {
+            // `include_network_transport` is display-only: the term is
+            // always computed and always disclosed, this hides the line.
+            let show_transport = gs
+                .scoring_config
+                .as_ref()
+                .and_then(|c| c.show_network_transport)
+                .unwrap_or(true);
+            if let Some(transport) = carbon.transport_gco2
+                && show_transport
+            {
                 lines.push(Line::from(Span::raw(format!(
                     "Transport: {transport:.6} g (cross-region network bytes)"
                 ))));
