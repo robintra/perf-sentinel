@@ -378,9 +378,9 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # `kepler_ebpf` (sits between `scaphandre_rapl` and `cloud_specpower` in
 # the precedence chain).
 #
-# Prerequisites: Kepler installed and exposing /metrics. In Kubernetes,
-# point at an upstream Prometheus that scrapes the Kepler DaemonSet rather
-# than a single pod.
+# Prerequisites: Kepler installed and exposing /metrics. The current scraper
+# performs a direct GET, so the endpoint must return Kepler series themselves.
+# A Prometheus server's own /metrics endpoint returns only its internal metrics.
 #
 # [green.kepler]
 # endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"   # no default, required

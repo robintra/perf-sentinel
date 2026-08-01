@@ -579,7 +579,7 @@ perf-sentinel ships an opt-in integration with [Kepler](https://github.com/susta
 **Platform requirements.**
 
 - **Linux only**, any CPU architecture supported by Kepler (x86_64 and ARM64).
-- **Kepler installed and exposing `/metrics`.** Production deployments typically run Kepler as a Kubernetes `DaemonSet` per node; in that case point the endpoint at the node-local pod or, more robustly, at an upstream Prometheus that scrapes the whole DaemonSet (Prometheus-mediated mode is reserved as a follow-up, this release ships direct-scrape only).
+- **Kepler installed and exposing `/metrics`.** Production deployments typically run Kepler as a Kubernetes `DaemonSet` per node. This release performs a direct GET, so point at the node-local exporter or at a federation/proxy endpoint that directly exposes aggregated Kepler series. A Prometheus server's own `/metrics` endpoint exposes only Prometheus internals. Native PromQL mode is reserved for a follow-up.
 - **Kernel eBPF support** (kernel 5.4+ in practice).
 
 **Why this branch covers ARM64 where Scaphandre does not.** Kepler does not depend on RAPL. On x86_64 with RAPL access it uses the same counters Scaphandre does, on ARM64 it falls back to an eBPF + perf-counter model that produces a real (degraded-precision) signal. The ARM eBPF model is less accurate than the x86 RAPL path, see [Kepler issue #1556](https://github.com/sustainable-computing-io/kepler/issues/1556) for the upstream tracking of known caveats (tracepoint failures, weaker DRAM model). For ARM workloads the alternative was the `cloud_specpower` proxy at ±40%, Kepler at degraded precision is still a meaningful improvement.
