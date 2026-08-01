@@ -23,9 +23,10 @@ placé à côté de la configuration principale, puis charge
 `chemin/vers/.perf-sentinel.d/` et `custom.toml` reste la surcharge finale.
 Le fichier principal est facultatif uniquement sans option `--config`.
 Les valeurs par défaut sont utilisées uniquement si ni le fichier principal
-implicite ni aucun fragment n'existe. Tout fichier découvert qui ne peut pas
-être lu, parsé ou validé arrête la commande avec le code 75 au lieu d'ignorer
-silencieusement une configuration valide.
+implicite ni aucun fragment n'existe. Un fichier illisible ou une erreur de
+syntaxe TOML individuelle arrête la commande avec le code 75. Après application
+des surcharges, la configuration fusionnée doit aussi passer la désérialisation
+typée et la validation, sinon la commande s'arrête.
 
 Le nom d'un fragment doit suivre `NN-nom-minuscule.toml`, avec une priorité
 unique `NN` comprise entre `00` et `99`. Les fichiers sont chargés par priorité
@@ -310,7 +311,7 @@ metric_kind = "container"
 
 **Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler prend tout son sens sur ARM64 où Scaphandre est indisponible. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-kepler) pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
 
-**Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Dans un cluster multi-nœuds, l'`endpoint` doit pointer vers un Prometheus amont qui scrape l'ensemble du `DaemonSet` plutôt qu'un seul pod, sinon seule l'énergie d'un nœud sera visible. Le mode Prometheus-médié (requêtes PromQL) est réservé à une version ultérieure.
+**Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Le scraper actuel effectue un GET direct et la réponse doit exposer les séries Kepler elles-mêmes. L'endpoint `/metrics` d'un serveur Prometheus expose les métriques internes de Prometheus, pas les séries qu'il a scrapées. Pour un cluster multi-nœuds, exécutez un perf-sentinel par nœud ou fournissez un endpoint de fédération/proxy qui expose directement les séries Kepler agrégées au format d'exposition Prometheus. Le mode de requête PromQL natif est réservé à une version ultérieure.
 
 #### `[green.alumet]` (optionnel, opt-in)
 

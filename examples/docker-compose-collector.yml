@@ -46,7 +46,7 @@ services:
       - ./60-daemon-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
     # environment:
     #   # Inject secrets via env vars, never in the config file.
-    #   ELECTRICITY_MAPS_API_KEY: "${ELECTRICITY_MAPS_API_KEY}"
+    #   PERF_SENTINEL_EMAPS_TOKEN: "${PERF_SENTINEL_EMAPS_TOKEN}"
     ports:
       - "127.0.0.1:14318:4318"  # Prometheus /metrics + OTLP HTTP from collector
       - "127.0.0.1:14317:4317"  # OTLP gRPC from collector

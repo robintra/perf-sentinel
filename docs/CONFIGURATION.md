@@ -22,8 +22,9 @@ applies when `--config path/to/custom.toml` is used: fragments come from
 `path/to/.perf-sentinel.d/` and `custom.toml` remains the final override.
 The main file is optional only when `--config` is not supplied.
 Defaults are used only when neither the implicit main file nor any fragment
-exists. Any discovered file that cannot be read, parsed or validated stops the
-command with exit code 75 instead of silently discarding valid configuration.
+exists. An unreadable file or an individual TOML parse error stops the command
+with exit code 75. After all overrides are applied, the merged configuration
+must pass typed deserialization and validation or the command also stops.
 
 Fragment names must follow `NN-lowercase-name.toml`, where `NN` is a unique
 two-digit priority from `00` to `99`. Files load in ascending priority order.
@@ -302,7 +303,7 @@ metric_kind = "container"
 
 **Precedence vs Scaphandre.** Scaphandre RAPL outranks Kepler eBPF on x86_64 with RAPL access. The Kepler integration shines on ARM64 where Scaphandre is unavailable. See [docs/LIMITATIONS.md](LIMITATIONS.md#kepler-precision-bounds) for the ARM eBPF accuracy caveats (Kepler upstream issue #1556).
 
-**Production deployment shape.** Kepler typically runs as a Kubernetes `DaemonSet`, one pod per node. In a multi-node cluster the `endpoint` should point at an upstream Prometheus that scrapes the whole DaemonSet rather than a single pod, otherwise only one node's energy will be visible. Prometheus-mediated mode (PromQL queries) is reserved for a follow-up release.
+**Production deployment shape.** Kepler typically runs as a Kubernetes `DaemonSet`, one pod per node. The current scraper performs a direct GET and the response must expose the Kepler series themselves. A Prometheus server's own `/metrics` endpoint exposes Prometheus internals, not the series it scraped. For a multi-node cluster, run one perf-sentinel per node or provide a federation/proxy endpoint that directly exposes the aggregated Kepler series in Prometheus exposition format. Native PromQL query mode is reserved for a follow-up release.
 
 #### `[green.alumet]` (optional, opt-in)
 
