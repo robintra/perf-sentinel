@@ -419,6 +419,22 @@ impl Capture {
         })?;
         stats.rejected_backpressure = self.metrics.backpressure();
         stats.rejected_unusable = self.metrics.unusable();
+        // The file is opened before the wrapped command starts, and a build
+        // step can delete the directory under it: `mvn clean` does exactly
+        // that to `target/`. On Unix the writer keeps filling the unlinked
+        // inode, so every count above is real while the path holds nothing.
+        // Reporting success there would send the next step to a file that
+        // was never going to be readable.
+        if !self.output.exists() {
+            return Err(CaptureError::Output {
+                path: self.output.clone(),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "the file was removed while the capture was writing to it, \
+                     which a build step cleaning its output directory does",
+                ),
+            });
+        }
         if stats.is_incomplete() {
             tracing::warn!(
                 backpressure = stats.rejected_backpressure,
@@ -750,6 +766,31 @@ mod tests {
         let err = start(&cfg).await.unwrap_err();
         assert!(matches!(err, CaptureError::Output { .. }));
         assert!(err.to_string().contains("traces.json"));
+    }
+
+    #[tokio::test]
+    async fn a_deleted_output_file_fails_instead_of_reporting_success() {
+        // `capture -- mvn clean verify` removes `target/` after the file is
+        // open. Creating the directory up front took away the start-up
+        // failure that used to catch this, so the end of the run has to.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("target").join("traces.json");
+        let cfg = CaptureConfig {
+            listen_addr: "127.0.0.1".to_string(),
+            port_grpc: free_port(),
+            port_http: free_port(),
+            output: path.clone(),
+            max_file_bytes: u64::MAX,
+            grace: Duration::from_millis(10),
+        };
+        let capture = start(&cfg).await.unwrap();
+        std::fs::remove_dir_all(dir.path().join("target")).unwrap();
+        let err = capture.finish().await.unwrap_err();
+        assert!(matches!(err, CaptureError::Output { .. }));
+        assert!(
+            err.to_string().contains("removed while the capture"),
+            "the message must name the cause: {err}"
+        );
     }
 
     #[tokio::test]

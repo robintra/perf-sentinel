@@ -91,13 +91,11 @@ recovers the correct classification:
   regardless of ORM scope, sequential siblings, or variance, under the
   `looks_sanitized` guard. Use this when actionable `redundant_sql`
   findings are valuable signal that should not be silently absorbed
-  into `n_plus_one_sql`. This is the value to prefer on a stack whose
-  instrumentation names an ORM: the simulation lab runs all of its
-  stacks this way, because under `auto` the ORM scope alone reclassifies
-  15 cache-warmed identical `SELECT`s through Hibernate as an N+1. On a
-  bare driver, with no ORM scope to corroborate, prefer `auto` instead,
-  since `strict` leaves the lower occurrence counts to the redundant
-  detector.
+  into `n_plus_one_sql`. The simulation lab runs all of its stacks this
+  way, because under `auto` an ORM scope marker alone reclassifies a
+  cache-warmed repeat of the same query as an N+1. The change of verdict
+  only applies to moderate counts, since the high-occurrence bar above
+  fires under `strict` as well.
 - `"always"`: reclassify any sanitized group with at least
   `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
   may flip a real single-param redundancy.

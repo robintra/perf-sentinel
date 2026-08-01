@@ -95,13 +95,12 @@ restaure la classification correcte :
   séquentiels ou la variance, sous la garde `looks_sanitized`. À
   utiliser quand les findings `redundant_sql` sont un signal
   exploitable qui ne doit pas être absorbé silencieusement par
-  `n_plus_one_sql`. C'est la valeur à préférer sur une stack dont
-  l'instrumentation nomme un ORM : le laboratoire de simulation fait
-  tourner toutes ses stacks ainsi, parce que sous `auto` le scope ORM
-  suffit à reclassifier en N+1 quinze `SELECT` identiques servis par un
-  cache via Hibernate. Sur un driver nu, sans scope ORM pour
-  corroborer, préférez `auto`, puisque `strict` laisse les comptes
-  d'occurrences les plus faibles au détecteur de redondance.
+  `n_plus_one_sql`. Le laboratoire de simulation fait tourner toutes ses
+  stacks ainsi, parce que sous `auto` un marqueur de scope ORM suffit à
+  reclassifier en N+1 une répétition de la même requête servie par un
+  cache. Ce changement de verdict ne vaut que pour les comptes modérés,
+  la barre de haute occurrence ci-dessus se déclenchant aussi sous
+  `strict`.
 - `"always"` : reclassifie tout groupe sanitisé qui atteint
   `n_plus_one_min_occurrences` spans en `n_plus_one_sql`. Plus agressif,
   peut requalifier une vraie redondance à un seul paramètre.

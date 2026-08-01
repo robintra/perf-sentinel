@@ -34,7 +34,9 @@ fn example_config_covers_every_key_the_parser_accepts() {
     let mut in_struct = false;
     let mut missing: Vec<&str> = Vec::new();
     for line in parser.lines() {
-        if line.starts_with("struct ") || line.starts_with("pub(super) struct ") {
+        if line.trim_start_matches("pub ").starts_with("struct ")
+            || line.starts_with("pub(super) struct ")
+        {
             in_struct = true;
             continue;
         }
@@ -47,24 +49,10 @@ fn example_config_covers_every_key_the_parser_accepts() {
         let Some(field) = field_name(line) else {
             continue;
         };
-        // A field naming a subsection appears as a `[table.header]`
-        // rather than as `key = value`, and a map of tables appears as
-        // `[a.b.field."entry"]`, so accept every spelling.
-        let shown = example.lines().any(|l| {
-            let l = l
-                .trim_start()
-                .trim_start_matches("# ")
-                .trim_start_matches('#');
-            l.starts_with(&format!("{field} ="))
-                || l.starts_with(&format!("\"{field}\" ="))
-                || l.contains(&format!("{field} = "))
-                || l.starts_with(&format!("[{field}]"))
-                || l.contains(&format!(".{field}]"))
-                || l.contains(&format!(".{field}."))
-        });
-        if !shown {
-            missing.push(field);
+        if example_shows(&example, field) {
+            continue;
         }
+        missing.push(field);
     }
     assert!(
         missing.is_empty(),
@@ -72,13 +60,46 @@ fn example_config_covers_every_key_the_parser_accepts() {
     );
 }
 
+/// True when the example spells `field` out, as a key or as a table.
+///
+/// Every match is anchored on the left, on a line start or on the `.` or
+/// `[` that opens a TOML path segment. An unanchored search would accept
+/// `default_region = ` for the field `region`, which is how a missing key
+/// slips past a guard like this one.
+fn example_shows(example: &str, field: &str) -> bool {
+    example.lines().any(|l| {
+        let l = l
+            .trim_start()
+            .trim_start_matches("# ")
+            .trim_start_matches('#')
+            .trim_start();
+        // `key = value`, quoted or bare, at the start of the line or as an
+        // entry of an inline table (`{ key = ...`, `, key = ...`).
+        l.starts_with(&format!("{field} ="))
+            || l.starts_with(&format!("\"{field}\" ="))
+            || l.contains(&format!("{{ {field} = "))
+            || l.contains(&format!(", {field} = "))
+            // `[field]`, `[a.field]`, `[a.field."entry"]`.
+            || l.starts_with(&format!("[{field}]"))
+            || l.starts_with(&format!("[{field}."))
+            || l.contains(&format!(".{field}]"))
+            || l.contains(&format!(".{field}."))
+    })
+}
+
 /// Extract `name` from a `    name: Option<T>,` struct field line.
+///
+/// Digits are accepted: `embodied_carbon_per_request_gco2` is a real key,
+/// and dropping it here would exempt it from the check in silence.
 fn field_name(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("    ")?;
-    let rest = rest.strip_prefix("pub(super) ").unwrap_or(rest);
+    let rest = rest
+        .strip_prefix("pub(super) ")
+        .or_else(|| rest.strip_prefix("pub "))
+        .unwrap_or(rest);
     let (name, _) = rest.split_once(':')?;
     name.chars()
-        .all(|c| c.is_ascii_lowercase() || c == '_')
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         .then_some(name)
 }
 
@@ -91,7 +112,7 @@ fn parse_daemon_correlation_section() {
     let config = load_from_str(
         "[daemon.correlation]\n\
          enabled = true\n\
-         window_minutes = 10\n\
+         window_minutes = 3\n\
          lag_threshold_ms = 4000\n\
          min_co_occurrences = 7\n\
          min_confidence = 0.8\n\
@@ -100,7 +121,10 @@ fn parse_daemon_correlation_section() {
     .unwrap();
     let c = &config.daemon.correlation;
     assert!(c.enabled, "opt-in flag must be read, it defaults to false");
-    assert_eq!(c.window_ms, 600_000, "10 minutes expressed in ms");
+    // 3 minutes, not the 10 the default already yields: an expected value
+    // equal to the default would be satisfied by the ignored-key path this
+    // assertion exists to catch.
+    assert_eq!(c.window_ms, 180_000, "3 minutes expressed in ms");
     assert_eq!(c.lag_threshold_ms, 4_000);
     assert_eq!(c.min_co_occurrences, 7);
     assert!((c.min_confidence - 0.8).abs() < f64::EPSILON);
