@@ -2880,7 +2880,6 @@ fn transport_co2_cross_region_http() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: true,
         ..CarbonContext::default()
     };
 
@@ -2917,7 +2916,6 @@ fn transport_co2_same_region_zero() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: true,
         ..CarbonContext::default()
     };
 
@@ -2925,40 +2923,6 @@ fn transport_co2_same_region_zero() {
     assert!(
         summary.transport_gco2.is_none(),
         "transport_gco2 should be None for same-region calls"
-    );
-}
-
-#[test]
-fn transport_co2_is_counted_even_when_the_display_setting_is_off() {
-    use crate::test_helpers::make_http_event_with_size;
-    let mut event = make_http_event_with_size(
-        "t1",
-        "s1",
-        "http://order-api:8080/api/orders",
-        "2025-07-10T14:32:01.000Z",
-        Some(100_000),
-    );
-    event.cloud_region = Some(Arc::from("eu-west-3"));
-    let trace = make_trace(vec![event]);
-
-    let mut service_regions = HashMap::new();
-    service_regions.insert("order-api".to_string(), "us-east-1".to_string());
-
-    let ctx = CarbonContext {
-        default_region: Some("eu-west-3".to_string()),
-        service_regions,
-        use_hourly_profiles: false,
-        per_operation_coefficients: false,
-        // Off: hides the term in the dashboards, no longer excludes it
-        // from what the disclosure counts.
-        include_network_transport: false,
-        ..CarbonContext::default()
-    };
-
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
-    assert!(
-        summary.transport_gco2.is_some_and(|g| g > 0.0),
-        "a cross-region call must count, whatever the display setting"
     );
 }
 
@@ -2984,7 +2948,6 @@ fn transport_co2_no_response_size() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: true,
         ..CarbonContext::default()
     };
 
@@ -3016,7 +2979,6 @@ fn transport_co2_sql_excluded() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: true,
         ..CarbonContext::default()
     };
 
@@ -3051,7 +3013,6 @@ fn transport_co2_numerical_value() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: true,
         ..CarbonContext::default()
     };
 
@@ -3088,7 +3049,6 @@ fn transport_co2_uppercase_hostname_matches() {
         service_regions,
         use_hourly_profiles: false,
         per_operation_coefficients: false,
-        include_network_transport: true,
         ..CarbonContext::default()
     };
 

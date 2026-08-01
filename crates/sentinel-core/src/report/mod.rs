@@ -230,17 +230,17 @@ pub struct GreenSummary {
     /// Empty when green scoring is disabled or no events were analyzed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub regions: Vec<RegionBreakdown>,
-    /// Network transport CO₂ (gCO₂eq). Only present when
-    /// `[green] include_network_transport = true` and at least one
-    /// cross-region HTTP call had response size data.
+    /// Network transport CO₂ (gCO₂eq). Present when at least one
+    /// cross-region HTTP call carried response size data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
-    /// Active Electricity Maps scoring configuration (API version,
-    /// emission factor type, temporal granularity). Surfaced for
-    /// Scope 2 audit trails so reporters can verify which carbon
-    /// model produced the numbers without reading the operator's
-    /// TOML config. `None` when Electricity Maps is not configured.
-    /// Additive on pre-0.5.12 baselines via `skip_serializing_if`.
+    /// Settings that shaped the carbon numbers: the applied coefficients
+    /// on every run, plus the Electricity Maps dimensions when that API
+    /// is configured (read `electricity_maps` before naming it, presence
+    /// alone no longer implies it). Surfaced for Scope 2 audit trails so
+    /// reporters can verify which model produced the numbers without
+    /// reading the operator's TOML config. `None` when green scoring is
+    /// off. Additive on pre-0.5.12 baselines via `skip_serializing_if`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoring_config: Option<ScoringConfig>,
     /// Total energy consumed by the workload during the scoring window

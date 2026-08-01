@@ -1629,6 +1629,18 @@ fn config_include_network_transport_default_false() {
 }
 
 #[test]
+fn carbon_context_carries_the_transport_setting_as_display_only() {
+    // Off means "hide it in the CLI report and the TUI", never "leave it
+    // out of the numbers", so the flag must reach the sinks and nothing
+    // else. Two reports stay comparable across the setting.
+    let cfg = Config::default();
+    assert!(!cfg.green.include_network_transport);
+    let scoring = cfg.carbon_context().scoring_config.unwrap();
+    assert_eq!(scoring.show_network_transport, Some(false));
+    assert_eq!(scoring.electricity_maps, None);
+}
+
+#[test]
 fn config_network_energy_per_byte_kwh_default() {
     let cfg = Config::default();
     assert!(

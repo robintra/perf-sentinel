@@ -45,8 +45,7 @@ const HTTP_SMALL_THRESHOLD: u64 = 10 * 1024; // 10 KB
 const HTTP_LARGE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
 
 /// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, an upper
-/// bound for cross-region server traffic, applied only when
-/// `include_network_transport` is enabled. Sources and the power-model
+/// bound for cross-region server traffic. Sources and the power-model
 /// critique are in `docs/design/05-GREENOPS-AND-CARBON.md` § "Network
 /// transport energy".
 pub const DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH: f64 = 0.000_000_000_04;
@@ -114,8 +113,8 @@ pub const CO2_MODEL_V3_CAL: &str = "io_proxy_v3+cal";
 pub const METHODOLOGY_SCI_NUMERATOR: &str = "sci_v1_numerator";
 
 /// Methodology tag: SCI v1.0 numerator with network transport energy added.
-/// `(E x I) + M + T` where `T` is network transport CO2. Used when
-/// `[green] include_network_transport = true` and transport CO2 > 0.
+/// `(E x I) + M + T` where `T` is network transport CO2. Used whenever
+/// transport CO2 > 0, the term is counted on every run.
 pub const METHODOLOGY_SCI_NUMERATOR_TRANSPORT: &str = "sci_v1_numerator+transport";
 
 /// Methodology tag: avoidable CO2 via `operational * (avoidable_ops / accounted_ops)`.
@@ -289,8 +288,9 @@ pub struct CarbonReport {
     /// Region-independent.
     pub embodied_gco2: f64,
     /// Network transport CO₂ for cross-region HTTP calls (gCO₂eq).
-    /// Only present when `[green] include_network_transport = true`
-    /// and at least one cross-region HTTP call had response size data.
+    /// Present when at least one cross-region HTTP call carried response
+    /// size data. `[green] include_network_transport` only hides it in
+    /// the CLI report and the TUI, it does not change this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
     /// SCI v1.0 per-functional-unit intensity: `total / R`, R = 1 trace.
@@ -363,7 +363,6 @@ pub struct CarbonContext {
     pub energy_snapshot: Option<HashMap<String, EnergyEntry>>,
     /// SQL verb / HTTP size tier weighting (proxy model only).
     pub per_operation_coefficients: bool,
-    pub include_network_transport: bool,
     pub network_energy_per_byte_kwh: f64,
     /// User-supplied hourly profiles from `[green] hourly_profiles_file`.
     /// Keys are pre-lowercased region identifiers.
@@ -422,17 +421,23 @@ impl Default for DbEnergyContext {
     }
 }
 
-/// Active Electricity Maps scoring configuration. Three dimensions
-/// surfaced together because they all influence the carbon numbers:
-/// API version (v3 deprecated, v4 default), emission factor model
-/// (lifecycle default, direct opt-in), temporal granularity (hourly
-/// default, sub-hour opt-in). Built via
-/// [`ScoringConfig::from_electricity_maps`] at config load time.
+/// Audit trail of the settings that shaped the carbon numbers: the
+/// Electricity Maps dimensions when that API is configured, and the
+/// coefficients applied on every run. Built for each run by
+/// [`crate::config::Config::carbon_context`].
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ScoringConfig {
+    /// The three fields below describe the Electricity Maps API and are
+    /// meaningful only when [`ScoringConfig::electricity_maps`] is true.
+    /// They keep their defaults otherwise, they are not a claim.
     pub api_version: ApiVersion,
     pub emission_factor_type: EmissionFactorType,
     pub temporal_granularity: TemporalGranularity,
+    /// True when `[green.electricity_maps]` is configured. Absent on
+    /// windows written before the struct covered anything else, where a
+    /// present `scoring_config` did mean the API was configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub electricity_maps: Option<bool>,
     /// Coefficients that scale the published figures. Absent on windows
     /// written before they were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -460,6 +465,7 @@ impl ScoringConfig {
             api_version: ApiVersion::from_endpoint(&cfg.api_endpoint),
             emission_factor_type: cfg.emission_factor_type,
             temporal_granularity: cfg.temporal_granularity,
+            electricity_maps: Some(true),
             ..Self::default()
         }
     }
@@ -507,7 +513,6 @@ impl Default for CarbonContext {
             use_hourly_profiles: true,
             energy_snapshot: None,
             per_operation_coefficients: true,
-            include_network_transport: false,
             network_energy_per_byte_kwh: DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             custom_hourly_profiles: None,
             calibration: None,
@@ -2050,6 +2055,25 @@ mod tests {
         assert_eq!(cfg.api_version, ApiVersion::V4);
         assert_eq!(cfg.emission_factor_type, EmissionFactorType::Lifecycle);
         assert_eq!(cfg.temporal_granularity, TemporalGranularity::Hourly);
+    }
+
+    #[test]
+    fn scoring_config_only_claims_electricity_maps_when_built_from_it() {
+        // The three dimensions above keep their defaults on every run, so
+        // the flag is what the report sinks read before naming the API.
+        assert_eq!(ScoringConfig::default().electricity_maps, None);
+        let em = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
+            auth_token: "test-token".to_string(),
+            poll_interval: std::time::Duration::from_mins(5),
+            region_map: HashMap::new(),
+            emission_factor_type: EmissionFactorType::Lifecycle,
+            temporal_granularity: TemporalGranularity::Hourly,
+        };
+        assert_eq!(
+            ScoringConfig::from_electricity_maps(&em).electricity_maps,
+            Some(true)
+        );
     }
 
     #[test]
