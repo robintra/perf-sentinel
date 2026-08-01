@@ -1592,7 +1592,7 @@ mod tests {
             .collect();
         lines[1].as_object_mut().unwrap().remove("hash");
         lines[1]["report"]["green_summary"]["io_waste_ratio"] = serde_json::json!(0.01);
-        let rewritten: Vec<String> = lines.iter().map(std::string::ToString::to_string).collect();
+        let rewritten: Vec<String> = lines.iter().map(ToString::to_string).collect();
         std::fs::write(&path, rewritten.join("\n") + "\n").unwrap();
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
