@@ -1547,15 +1547,12 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
         Ok(Some(config)) => return config,
         Ok(None) => {}
         Err(error) => {
-            if path.is_some() {
-                if error.starts_with("read ") {
-                    eprintln!("Error reading config: {error}");
-                } else {
-                    eprintln!("Error parsing config: {error}");
-                }
-                std::process::exit(EXIT_TOOLING_ERROR);
+            if error.starts_with("read ") {
+                eprintln!("Error reading config: {error}");
+            } else {
+                eprintln!("Error parsing config: {error}");
             }
-            eprintln!("Warning: failed to load config: {error}");
+            std::process::exit(EXIT_TOOLING_ERROR);
         }
     }
     Config::default()

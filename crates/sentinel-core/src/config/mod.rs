@@ -554,20 +554,20 @@ const REMOVED_LEGACY_TOP_LEVEL_KEYS: &[(&str, &str)] = &[
 /// prints both pieces of information in one error.
 fn reject_legacy_top_level_keys(content: &str) -> Result<(), ConfigError> {
     let value: toml::Value = toml::from_str(content).map_err(ConfigError::Parse)?;
-    reject_legacy_top_level_value(&value)
+    reject_legacy_top_level_value(&value).map_err(ConfigError::Validation)
 }
 
-fn reject_legacy_top_level_value(value: &toml::Value) -> Result<(), ConfigError> {
+fn reject_legacy_top_level_value(value: &toml::Value) -> Result<(), String> {
     let toml::Value::Table(table) = value else {
         return Ok(());
     };
     for (legacy, replacement) in REMOVED_LEGACY_TOP_LEVEL_KEYS {
         if table.contains_key(*legacy) {
-            return Err(ConfigError::Validation(format!(
+            return Err(format!(
                 "config: top-level '{legacy}' was removed in 0.6.0; \
                  use '{replacement}' instead. \
                  See the 0.6.0 migration notes for the full list of renamed keys."
-            )));
+            ));
         }
     }
     Ok(())
@@ -605,15 +605,17 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     validate_raw_config(raw)
 }
 
-/// Load and deeply merge ordered TOML documents. Later documents override
-/// earlier scalar values while tables are merged recursively.
+/// Load and deeply merge ordered TOML documents. Two tables merge recursively.
+/// Any other later value replaces the earlier value at the same key.
 ///
 /// # Errors
 ///
-/// Returns a parse error naming the fragment, a merge error when the same
-/// key changes TOML type, or the regular configuration validation errors.
+/// Returns parse and validation errors naming the fragment that supplied the
+/// invalid value.
 pub fn load_from_fragments(fragments: &[(&str, &str)]) -> Result<Config, ConfigError> {
     let mut merged = toml::Value::Table(toml::Table::new());
+    let mut origins = HashMap::new();
+    let mut last_fragment = None;
     for (name, content) in fragments {
         let normalized = normalize_toml_path_strings(content);
         let value = match toml::from_str(normalized.as_ref()) {
@@ -636,11 +638,35 @@ pub fn load_from_fragments(fragments: &[(&str, &str)]) -> Result<Config, ConfigE
                 });
             }
         };
-        reject_legacy_top_level_value(&value)?;
-        merge_toml_value(&mut merged, value, "", name)?;
+        reject_legacy_top_level_value(&value).map_err(|message| {
+            ConfigError::FragmentValidation {
+                name: (*name).to_string(),
+                message,
+            }
+        })?;
+        merge_toml_value(&mut merged, value, "", name, &mut origins);
+        last_fragment = Some(*name);
     }
-    let raw: RawConfig = merged.try_into().map_err(ConfigError::Parse)?;
-    validate_raw_config(raw)
+    let raw: RawConfig = serde_path_to_error::deserialize(merged).map_err(|error| {
+        let name = origin_for_path(&origins, &error.path().to_string())
+            .or(last_fragment)
+            .unwrap_or("merged configuration")
+            .to_string();
+        ConfigError::FragmentParse {
+            name,
+            source: error.into_inner(),
+        }
+    })?;
+    validate_raw_config(raw).map_err(|error| match error {
+        ConfigError::Validation(message) => ConfigError::FragmentValidation {
+            name: origin_for_validation(&origins, &message)
+                .or(last_fragment)
+                .unwrap_or("merged configuration")
+                .to_string(),
+            message,
+        },
+        other => other,
+    })
 }
 
 fn merge_toml_value(
@@ -648,9 +674,13 @@ fn merge_toml_value(
     overlay: toml::Value,
     path: &str,
     fragment: &str,
-) -> Result<(), ConfigError> {
+    origins: &mut HashMap<String, String>,
+) {
     match (base, overlay) {
         (toml::Value::Table(base), toml::Value::Table(overlay)) => {
+            if !path.is_empty() {
+                origins.insert(path.to_string(), fragment.to_string());
+            }
             for (key, value) in overlay {
                 let child = if path.is_empty() {
                     key.clone()
@@ -658,36 +688,87 @@ fn merge_toml_value(
                     format!("{path}.{key}")
                 };
                 if let Some(existing) = base.get_mut(&key) {
-                    merge_toml_value(existing, value, &child, fragment)?;
+                    merge_toml_value(existing, value, &child, fragment, origins);
                 } else {
+                    record_toml_origins(&value, &child, fragment, origins);
                     base.insert(key, value);
                 }
             }
-            Ok(())
         }
-        (base, overlay) if toml_value_kind(base) == toml_value_kind(&overlay) => {
+        (base, overlay) => {
+            let prefix = format!("{path}.");
+            origins.retain(|key, _| key != path && !key.starts_with(&prefix));
+            record_toml_origins(&overlay, path, fragment, origins);
             *base = overlay;
-            Ok(())
         }
-        (base, overlay) => Err(ConfigError::Merge {
-            fragment: fragment.to_string(),
-            key: path.to_string(),
-            existing: toml_value_kind(base),
-            incoming: toml_value_kind(&overlay),
-        }),
     }
 }
 
-const fn toml_value_kind(value: &toml::Value) -> &'static str {
-    match value {
-        toml::Value::String(_) => "string",
-        toml::Value::Integer(_) => "integer",
-        toml::Value::Float(_) => "float",
-        toml::Value::Boolean(_) => "boolean",
-        toml::Value::Datetime(_) => "datetime",
-        toml::Value::Array(_) => "array",
-        toml::Value::Table(_) => "table",
+fn record_toml_origins(
+    value: &toml::Value,
+    path: &str,
+    fragment: &str,
+    origins: &mut HashMap<String, String>,
+) {
+    if !path.is_empty() {
+        origins.insert(path.to_string(), fragment.to_string());
     }
+    if let toml::Value::Table(table) = value {
+        for (key, value) in table {
+            let child = if path.is_empty() {
+                key.clone()
+            } else {
+                format!("{path}.{key}")
+            };
+            record_toml_origins(value, &child, fragment, origins);
+        }
+    }
+}
+
+fn origin_for_path<'a>(origins: &'a HashMap<String, String>, path: &str) -> Option<&'a str> {
+    origins
+        .iter()
+        .filter(|(candidate, _)| {
+            path == candidate.as_str()
+                || path
+                    .strip_prefix(candidate.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('.') || suffix.starts_with('['))
+        })
+        .max_by_key(|(candidate, _)| candidate.len())
+        .map(|(_, fragment)| fragment.as_str())
+}
+
+fn origin_for_validation<'a>(
+    origins: &'a HashMap<String, String>,
+    message: &str,
+) -> Option<&'a str> {
+    if let Some(rest) = message.strip_prefix('[')
+        && let Some((section, detail)) = rest.split_once(']')
+        && let Some(field) = first_config_identifier(detail)
+    {
+        return origin_for_path(origins, &format!("{section}.{field}"))
+            .or_else(|| origin_for_path(origins, section));
+    }
+    let field = first_config_identifier(message)?;
+    let field = match field {
+        "n_plus_one_threshold" => "n_plus_one_min_occurrences",
+        other => other,
+    };
+    origins
+        .iter()
+        .filter(|(path, _)| path == &field || path.ends_with(&format!(".{field}")))
+        .max_by_key(|(path, _)| path.len())
+        .map(|(_, fragment)| fragment.as_str())
+}
+
+fn first_config_identifier(input: &str) -> Option<&str> {
+    let identifier = input
+        .trim_start()
+        .split(|character: char| {
+            !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
+        })
+        .next()?;
+    (!identifier.is_empty()).then_some(identifier)
 }
 
 fn validate_raw_config(raw: RawConfig) -> Result<Config, ConfigError> {
@@ -740,16 +821,9 @@ pub enum ConfigError {
         #[source]
         source: toml::de::Error,
     },
-    /// A later fragment tried to replace a key with another TOML type.
-    #[error(
-        "config fragment {fragment} changes {key} from {existing} to {incoming}. Types must match"
-    )]
-    Merge {
-        fragment: String,
-        key: String,
-        existing: &'static str,
-        incoming: &'static str,
-    },
+    /// Configuration validation error attributed to one named fragment.
+    #[error("config fragment {name} validation error: {message}")]
+    FragmentValidation { name: String, message: String },
     /// Validation error (out-of-range values).
     #[error("config validation error: {0}")]
     Validation(String),
