@@ -430,7 +430,7 @@
             "transport_kgco2eq": {
               "type": "number",
               "minimum": 0,
-              "description": "Cross-region network transport, the least certain of the three terms. Its coefficient defaults to an upper bound (0.04 kWh/GB) and published figures span two orders of magnitude, so the report's uniform 2x bracket understates it. Read it as a ceiling, and exclude it when comparing periods that disagree on the include_network_transport setting."
+              "description": "Cross-region network transport, omitted when no window counted any. Omitted rather than zeroed because a zero would not distinguish include_network_transport being off from it being on with no cross-region traffic: both produce identical windows and the same sci_v1_numerator tag. The least certain of the three terms when present. Its coefficient defaults to an upper bound (0.04 kWh/GB) and published figures span two orders of magnitude, so the report's uniform 2x bracket understates it. Read it as a ceiling, and exclude it when comparing periods that disagree on the include_network_transport setting."
             }
           }
         },

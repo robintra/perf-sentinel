@@ -956,7 +956,7 @@ fn build_carbon_breakdown(
         CarbonBreakdown {
             operational_kgco2eq: operational_gco2 / 1000.0,
             embodied_kgco2eq: embodied_gco2 / 1000.0,
-            transport_kgco2eq: transport_gco2 / 1000.0,
+            transport_kgco2eq: (transport_gco2 > 0.0).then_some(transport_gco2 / 1000.0),
         }
     })
 }
@@ -1486,19 +1486,33 @@ mod tests {
         // The split must add up to the published total, otherwise a reader
         // cannot tell the reducible part from the rest.
         let bd = out.aggregate.carbon_breakdown.expect("breakdown present");
-        let sum = bd.operational_kgco2eq + bd.embodied_kgco2eq + bd.transport_kgco2eq;
+        let sum =
+            bd.operational_kgco2eq + bd.embodied_kgco2eq + bd.transport_kgco2eq.unwrap_or(0.0);
         assert!(
             (sum - out.aggregate.total_carbon_kgco2eq).abs() < 1e-9,
             "operational {} + embodied {} + transport {} must equal total {}",
             bd.operational_kgco2eq,
             bd.embodied_kgco2eq,
-            bd.transport_kgco2eq,
+            bd.transport_kgco2eq.unwrap_or(0.0),
             out.aggregate.total_carbon_kgco2eq
         );
         assert!(
-            bd.transport_kgco2eq > 0.0,
+            bd.transport_kgco2eq.is_some_and(|t| t > 0.0),
             "the window counting transport must show up in the split"
         );
+    }
+
+    #[test]
+    fn transport_is_omitted_rather_than_zeroed_when_nothing_counted_it() {
+        // With `include_network_transport` off, and with it on but no
+        // cross-region traffic, the windows are identical. Publishing 0.0
+        // would assert a measurement neither case made.
+        let ts = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_archive(&[(ts, plain_window())]);
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        let bd = out.aggregate.carbon_breakdown.expect("breakdown present");
+        assert!(bd.transport_kgco2eq.is_none());
+        assert!(bd.embodied_kgco2eq > 0.0, "the other terms still publish");
     }
 
     #[test]
