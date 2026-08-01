@@ -46,24 +46,58 @@ fn ordered_fragments_deep_merge_and_later_values_win() {
 }
 
 #[test]
-fn fragment_merge_rejects_a_key_type_change() {
-    let error = load_from_fragments(&[
-        ("10-green.toml", "[green]\nenabled = true\n"),
-        ("20-bad.toml", "green = \"yes\"\n"),
+fn fragment_merge_accepts_equivalent_numeric_types() {
+    let config = load_from_fragments(&[
+        ("10-base.toml", "[thresholds]\nio_waste_ratio_max = 1\n"),
+        (
+            "20-override.toml",
+            "[thresholds]\nio_waste_ratio_max = 0.5\n",
+        ),
     ])
-    .unwrap_err();
-    assert!(matches!(error, ConfigError::Merge { .. }));
-    assert!(
-        error
-            .to_string()
-            .contains("changes green from table to string")
-    );
+    .unwrap();
+    assert!((config.thresholds.io_waste_ratio_max - 0.5).abs() < f64::EPSILON);
 }
 
 #[test]
 fn fragment_parse_error_names_the_file() {
     let error = load_from_fragments(&[("30-broken.toml", "[green\n")]).unwrap_err();
     assert!(error.to_string().contains("30-broken.toml"));
+}
+
+#[test]
+fn fragment_typed_parse_error_names_its_source_file() {
+    let error = load_from_fragments(&[
+        ("20-bad.toml", "[daemon]\nlisten_port_http = \"4318\"\n"),
+        ("30-unrelated.toml", "[green]\nenabled = true\n"),
+    ])
+    .unwrap_err();
+    assert!(error.to_string().contains("20-bad.toml"));
+}
+
+#[test]
+fn fragment_validation_error_names_its_source_file() {
+    let error = load_from_fragments(&[
+        ("20-bad.toml", "[daemon]\nenvironment = \"prod\"\n"),
+        ("30-unrelated.toml", "[green]\nenabled = true\n"),
+    ])
+    .unwrap_err();
+    assert!(error.to_string().contains("20-bad.toml"));
+
+    let error = load_from_fragments(&[
+        (
+            "20-incomplete.toml",
+            "[green.alumet]\nendpoint = \"http://localhost:9091/metrics\"\n",
+        ),
+        ("30-unrelated.toml", "[green]\nenabled = true\n"),
+    ])
+    .unwrap_err();
+    assert!(error.to_string().contains("20-incomplete.toml"));
+}
+
+#[test]
+fn fragment_legacy_key_error_names_its_source_file() {
+    let error = load_from_fragments(&[("20-legacy.toml", "listen_port = 4318\n")]).unwrap_err();
+    assert!(error.to_string().contains("20-legacy.toml"));
 }
 
 #[test]
@@ -98,7 +132,6 @@ fn standardized_example_fragments_compose() {
         "33-green-kepler.toml",
         "34-green-redfish.toml",
         "40-green-electricity-maps.toml",
-        "60-daemon-docker.toml",
         "perf-sentinel.toml",
     ];
     let owned: Vec<_> = names
@@ -122,7 +155,14 @@ fn standardized_example_fragments_compose() {
     assert!(config.green.kepler.is_some());
     assert!(config.green.redfish.is_some());
     assert!(config.green.electricity_maps.is_some());
-    assert_eq!(config.daemon.listen_addr, "127.0.0.1");
+}
+
+#[test]
+fn docker_example_is_a_standalone_main_config() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/60-daemon-docker.toml");
+    let config = load_from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(config.daemon.listen_addr, "0.0.0.0");
 }
 
 #[test]

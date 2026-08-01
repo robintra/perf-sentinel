@@ -620,6 +620,31 @@ fn cli_analyze_invalid_config_explicit_path_fails() {
 }
 
 #[test]
+fn cli_analyze_invalid_implicit_fragment_fails_instead_of_using_defaults() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    fs::write(
+        dir.path().join(".perf-sentinel.toml"),
+        "[detection]\nn_plus_one_min_occurrences = 15\n",
+    )
+    .unwrap();
+    let fragments = dir.path().join(".perf-sentinel.d");
+    fs::create_dir(&fragments).unwrap();
+    fs::write(fragments.join("bad.toml"), "[detection]\n").unwrap();
+    let input = dir.path().join("traces.json");
+    fs::write(&input, "[]").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", input.to_str().unwrap()])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert_eq!(output.status.code(), Some(75));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid fragment name \"bad.toml\""));
+}
+
+#[test]
 fn cli_analyze_sarif_output() {
     let fixture_path = format!(
         "{}/../../tests/fixtures/n_plus_one_sql.json",

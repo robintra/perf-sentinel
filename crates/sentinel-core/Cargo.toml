@@ -31,6 +31,7 @@ jaeger-query = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_path_to_error = "0.1.20"
 # `float_roundtrip`: the disclosure `content_hash` is computed over the
 # serialized JSON, so a float must parse back to the exact same f64 on
 # verify-hash. The default serde_json parser can shift a value by 1 ULP,
