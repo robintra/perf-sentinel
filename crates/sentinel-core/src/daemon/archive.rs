@@ -157,6 +157,10 @@ async fn run_writer(
             tracing::warn!(error = %err, "archive write failed, dropping line");
             if let Err(err) = file.set_len(bytes_written) {
                 tracing::warn!(error = %err, "archive truncation after a failed write failed");
+                // The fragment stays: seal it and resync the count, or a
+                // later truncation would cut into a complete window.
+                let _ = terminate_incomplete_line(&mut file);
+                bytes_written = metadata_len(&path);
             }
             continue;
         }
