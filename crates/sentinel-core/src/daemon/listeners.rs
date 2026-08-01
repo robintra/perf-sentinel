@@ -357,8 +357,11 @@ fn build_http_router(
             metrics,
             // Same object the batch pipeline publishes: it carries the
             // applied coefficients and the transport display setting, not
-            // only the Electricity Maps dimensions.
-            scoring_config: config.carbon_context().scoring_config,
+            // only the Electricity Maps dimensions. Ungated when the EM
+            // backend is configured: the scraper polls regardless of
+            // `green.enabled`, and the API must not report it as absent.
+            scoring_config: (config.green.enabled || config.green.electricity_maps.is_some())
+                .then(|| config.scoring_config()),
             green_summary,
             ack_store,
             toml_acks,
