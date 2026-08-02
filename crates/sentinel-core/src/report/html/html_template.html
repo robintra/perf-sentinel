@@ -243,7 +243,9 @@
   .ps-hero-meta { display: flex; flex-wrap: wrap; gap: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
   /* correlations cards */
   #correlations-list { display: flex; flex-direction: column; gap: 10px; }
-  .ps-corr-card { display: flex; align-items: center; gap: 14px; border: 1px solid transparent; border-radius: var(--r); background: var(--surface); padding: 15px 18px; }
+  /* The meta column cannot shrink (nowrap), so on a narrow viewport it used to
+     push the card past the panel. Wrapping drops it to its own line instead. */
+  .ps-corr-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; border: 1px solid transparent; border-radius: var(--r); background: var(--surface); padding: 15px 18px; }
   .ps-corr-tag { padding: 3px 8px; border-radius: 5px; font-size: 11.5px; }
   .ps-corr-path { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
   .ps-corr-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
