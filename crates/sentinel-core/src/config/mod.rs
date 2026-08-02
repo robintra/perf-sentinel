@@ -185,9 +185,6 @@ pub struct GreenConfig {
     /// Whether to use per-operation energy coefficients (SQL verb weighting,
     /// HTTP payload size tiers) in the proxy model. Default: `true`.
     pub per_operation_coefficients: bool,
-    /// Whether to compute a network transport energy term for cross-region
-    /// HTTP calls. Default: `false` (opt-in).
-    pub include_network_transport: bool,
     /// Path to user-supplied hourly profiles JSON file. `None` when not
     /// configured (uses only embedded profiles).
     pub hourly_profiles_file: Option<String>,
@@ -381,7 +378,6 @@ impl Default for GreenConfig {
             cloud_energy: None,
             broker_static: None,
             per_operation_coefficients: true,
-            include_network_transport: false,
             hourly_profiles_file: None,
             custom_hourly_profiles: None,
             calibration_file: None,
@@ -461,7 +457,6 @@ impl Config {
             energy_snapshot: None,
             per_operation_coefficients: self.green.per_operation_coefficients,
             network_energy_per_byte_kwh: crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
-            include_network_transport: self.green.include_network_transport,
             custom_hourly_profiles: self.green.custom_hourly_profiles.clone(),
             calibration: self.green.calibration.clone(),
             real_time_intensity: None, // set per-tick in daemon via build_tick_ctx
@@ -495,7 +490,6 @@ impl Config {
             Some(crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH);
         scoring_config.per_operation_coefficients = Some(self.green.per_operation_coefficients);
         scoring_config.use_hourly_profiles = Some(self.green.use_hourly_profiles);
-        scoring_config.show_network_transport = Some(self.green.include_network_transport);
         scoring_config
     }
 }
