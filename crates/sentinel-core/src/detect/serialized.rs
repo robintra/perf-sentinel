@@ -84,21 +84,7 @@ fn serialized_impl<'a>(
             continue;
         }
 
-        // Build timed entries from parsed timestamps
-        let mut timed: Vec<TimedSpan<'_>> = Vec::with_capacity(child_indices.len());
-        for &idx in child_indices {
-            let span = &trace.spans[idx];
-            if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
-                let start_us = start_ms.saturating_mul(1000);
-                timed.push(TimedSpan {
-                    start_us,
-                    end_us: start_us.saturating_add(span.event.duration_us),
-                    template: span.template.as_ref(),
-                    duration_us: span.event.duration_us,
-                    span_idx: idx,
-                });
-            }
-        }
+        let mut timed = timed_children(trace, child_indices);
 
         if timed.len() < min_seq {
             continue;
@@ -117,19 +103,48 @@ fn serialized_impl<'a>(
         if let Some(finding) =
             evaluate_sequence(&timed, &best_seq, min_seq, trace, span_index, parent_id)
         {
-            let span_ids = if collect_spans {
-                best_seq
-                    .iter()
-                    .map(|&i| trace.spans[timed[i].span_idx].event.span_id.as_str())
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            let span_ids = chain_span_ids(trace, &timed, &best_seq, collect_spans);
             findings.push((finding, span_ids));
         }
     }
 
     findings
+}
+
+/// Parse the sibling timestamps into intervals. A span whose timestamp
+/// does not parse is dropped: it cannot be placed on the timeline.
+fn timed_children<'a>(trace: &'a Trace, child_indices: &[usize]) -> Vec<TimedSpan<'a>> {
+    let mut timed: Vec<TimedSpan<'a>> = Vec::with_capacity(child_indices.len());
+    for &idx in child_indices {
+        let span = &trace.spans[idx];
+        if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
+            let start_us = start_ms.saturating_mul(1000);
+            timed.push(TimedSpan {
+                start_us,
+                end_us: start_us.saturating_add(span.event.duration_us),
+                template: span.template.as_ref(),
+                duration_us: span.event.duration_us,
+                span_idx: idx,
+            });
+        }
+    }
+    timed
+}
+
+/// The chain's span ids, in chronological order. Empty on the detection
+/// path, which discards them.
+fn chain_span_ids<'a>(
+    trace: &'a Trace,
+    timed: &[TimedSpan<'_>],
+    seq: &[usize],
+    collect: bool,
+) -> Vec<&'a str> {
+    if !collect {
+        return Vec::new();
+    }
+    seq.iter()
+        .map(|&i| trace.spans[timed[i].span_idx].event.span_id.as_str())
+        .collect()
 }
 
 /// Find the longest non-overlapping subsequence via dynamic
