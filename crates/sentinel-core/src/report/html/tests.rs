@@ -2181,3 +2181,72 @@ fn embeds_correlations_when_report_carries_them() {
     // shell so the JS can reveal it without touching innerHTML.
     assert!(html.contains(r#"id="panel-correlations""#));
 }
+
+#[test]
+fn culprit_spans_name_the_serialized_chain_not_the_whole_trace() {
+    // The chain is four sequential children among five siblings: the one
+    // that straddles them must stay out, which is what no client-side rule
+    // could work out, since an embedded span carries no timestamp.
+    let mut spans = vec![span("t1", "root", None, "svc", "/ep", "GET /ep")];
+    let starts = [
+        ("c1", "2026-04-21T00:00:00.000Z", 10_000),
+        ("c2", "2026-04-21T00:00:00.020Z", 10_000),
+        ("c3", "2026-04-21T00:00:00.040Z", 10_000),
+        ("c4", "2026-04-21T00:00:00.060Z", 10_000),
+        // Overlaps every one of them, so it can only ever sit alone.
+        ("x1", "2026-04-21T00:00:00.005Z", 60_000),
+    ];
+    for (id, ts, dur) in starts {
+        let mut s = span(
+            "t1",
+            id,
+            Some("root"),
+            "svc",
+            "/ep",
+            &format!("SELECT {id}"),
+        );
+        s.event.timestamp = ts.into();
+        s.event.duration_us = dur;
+        spans.push(s);
+    }
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans,
+    };
+
+    let indices = crate::detect::TraceIndices::build(&trace);
+    let mut findings = crate::detect::serialized::detect_serialized(&trace, &indices, 3);
+    assert_eq!(findings.len(), 1, "one serialized finding expected");
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    let signature = findings[0].signature.clone();
+
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig {
+        serialized_min_sequential: 3,
+        ..crate::detect::DetectConfig::default()
+    });
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let value: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
+    let ids: Vec<&str> = value["culprit_spans"][format!("t1|{signature}")]
+        .as_array()
+        .expect("the chain is published under trace_id|signature")
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["c1", "c2", "c3", "c4"]);
+}
+
+#[test]
+fn culprit_spans_are_withheld_without_a_detection_config() {
+    // Re-running a detector under thresholds other than the ones that
+    // produced the findings would light the wrong spans, so a report
+    // that does not say which thresholds it used gets no highlight.
+    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+    let report = minimal_report(vec![f]);
+    let html = render(&report, &[], &opts("-", None)).0;
+    let value: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
+    assert!(value.get("culprit_spans").is_none());
+}

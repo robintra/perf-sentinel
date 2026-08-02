@@ -45,6 +45,22 @@ pub fn detect_serialized(
     indices: &TraceIndices<'_>,
     min_sequential: u32,
 ) -> Vec<Finding> {
+    detect_serialized_with_spans(trace, indices, min_sequential)
+        .into_iter()
+        .map(|(finding, _)| finding)
+        .collect()
+}
+
+/// Same detection, also returning the span ids of the chain behind each
+/// finding, in chronological order. The HTML sink uses them to highlight
+/// the reported chain: an embedded span carries no timestamp, so the
+/// browser cannot reconstruct it.
+#[must_use]
+pub(crate) fn detect_serialized_with_spans<'a>(
+    trace: &'a Trace,
+    indices: &TraceIndices<'_>,
+    min_sequential: u32,
+) -> Vec<(Finding, Vec<&'a str>)> {
     let min_seq = min_sequential as usize;
 
     let siblings = &indices.children_by_parent;
@@ -85,15 +101,15 @@ pub fn detect_serialized(
         // pass it to evaluate_sequence for threshold / template checks.
         let best_seq = longest_non_overlapping(&timed);
 
-        evaluate_sequence(
-            &timed,
-            &best_seq,
-            min_seq,
-            trace,
-            span_index,
-            parent_id,
-            &mut findings,
-        );
+        if let Some(finding) =
+            evaluate_sequence(&timed, &best_seq, min_seq, trace, span_index, parent_id)
+        {
+            let span_ids = best_seq
+                .iter()
+                .map(|&i| trace.spans[timed[i].span_idx].event.span_id.as_str())
+                .collect();
+            findings.push((finding, span_ids));
+        }
     }
 
     findings
@@ -217,17 +233,16 @@ fn evaluate_sequence(
     trace: &Trace,
     span_index: &HashMap<&str, usize>,
     parent_id: &str,
-    findings: &mut Vec<Finding>,
-) {
+) -> Option<Finding> {
     if seq.len() < min_seq {
-        return;
+        return None;
     }
 
     let distinct: HashSet<&str> = seq.iter().map(|&i| timed[i].template).collect();
 
     // False positive guard: skip if ALL calls share the same template (N+1 territory)
     if distinct.len() <= 1 {
-        return;
+        return None;
     }
 
     // Single pass: accumulate total duration and track max duration.
@@ -271,7 +286,7 @@ fn evaluate_sequence(
     );
 
     let template = parent_endpoint.clone();
-    findings.push(Finding {
+    Some(Finding {
         finding_type: FindingType::SerializedCalls,
         severity: Severity::Info,
         trace_id: trace.trace_id.clone(),
@@ -299,7 +314,7 @@ fn evaluate_sequence(
         instrumentation_scopes: Vec::new(),
         suggested_fix: None,
         signature: String::new(),
-    });
+    })
 }
 
 #[cfg(test)]

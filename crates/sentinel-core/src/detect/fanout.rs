@@ -13,6 +13,21 @@ use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity, TraceIn
 /// HashMap-build cost for traces that trigger both.
 #[must_use]
 pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32) -> Vec<Finding> {
+    detect_fanout_with_spans(trace, indices, max_fanout)
+        .into_iter()
+        .map(|(finding, _)| finding)
+        .collect()
+}
+
+/// Same detection, also returning the ids of the children that make up the
+/// fanout. The HTML sink highlights them, since the finding's template
+/// names the parent and would otherwise light the container alone.
+#[must_use]
+pub(crate) fn detect_fanout_with_spans<'a>(
+    trace: &'a Trace,
+    indices: &TraceIndices<'_>,
+    max_fanout: u32,
+) -> Vec<(Finding, Vec<&'a str>)> {
     let children_by_parent = &indices.children_by_parent;
     let span_index = &indices.span_index;
 
@@ -57,33 +72,40 @@ pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32)
         let template =
             parent_span.map_or_else(|| format!("parent:{parent_id}"), |s| s.template.to_string());
 
-        findings.push(Finding {
-            finding_type: FindingType::ExcessiveFanout,
-            severity,
-            trace_id: trace.trace_id.clone(),
-            service,
-            source_endpoint: endpoint,
-            pattern: Pattern {
-                template,
-                occurrences: count,
-                window_ms,
-                distinct_params: count,
-                ..Default::default()
-            },
-            suggestion: format!(
-                "Parent span has {count} children (threshold: {max_fanout}). \
+        let child_span_ids = child_indices
+            .iter()
+            .map(|&i| trace.spans[i].event.span_id.as_str())
+            .collect();
+        findings.push((
+            Finding {
+                finding_type: FindingType::ExcessiveFanout,
+                severity,
+                trace_id: trace.trace_id.clone(),
+                service,
+                source_endpoint: endpoint,
+                pattern: Pattern {
+                    template,
+                    occurrences: count,
+                    window_ms,
+                    distinct_params: count,
+                    ..Default::default()
+                },
+                suggestion: format!(
+                    "Parent span has {count} children (threshold: {max_fanout}). \
                  Consider batching child operations to reduce fanout."
-            ),
-            first_timestamp: first_ts,
-            last_timestamp: last_ts,
-            green_impact: None,
-            confidence: Confidence::default(),
-            classification_method: None,
-            code_location: None,
-            instrumentation_scopes: Vec::new(),
-            suggested_fix: None,
-            signature: String::new(),
-        });
+                ),
+                first_timestamp: first_ts,
+                last_timestamp: last_ts,
+                green_impact: None,
+                confidence: Confidence::default(),
+                classification_method: None,
+                code_location: None,
+                instrumentation_scopes: Vec::new(),
+                suggested_fix: None,
+                signature: String::new(),
+            },
+            child_span_ids,
+        ));
     }
 
     findings

@@ -42,7 +42,7 @@ use crate::ingest::pg_stat::PgStatReport;
 use crate::normalize::NormalizedEvent;
 use crate::report::Report;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 const TEMPLATE: &str = include_str!("html_template.html");
@@ -269,6 +269,11 @@ struct Payload<'a> {
     input_label: &'a str,
     report: &'a Report,
     embedded_traces: Vec<EmbeddedTrace<'a>>,
+    /// Spans to highlight for the findings whose culprit set the browser
+    /// cannot derive, keyed `trace_id|signature`. See
+    /// [`culprit_spans_by_finding`].
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    culprit_spans: BTreeMap<String, Vec<&'a str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     trimmed_traces: Option<TrimSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -461,6 +466,58 @@ fn is_unsafe_format_char(c: char) -> bool {
     )
 }
 
+/// Spans to highlight for `serialized_calls` and `excessive_fanout`.
+///
+/// Both name their parent in `pattern.template`, so the browser's template
+/// rule lights the container rather than the calls, and an embedded span
+/// carries no timestamp, so no client-side rule can rebuild a serialized
+/// chain. The detectors know the answer, so the sink asks them again over
+/// the traces it embeds and ships the ids.
+///
+/// Keyed `trace_id|signature`, the pair the tree is rendered from. A
+/// signature covers a pattern rather than a trace, so two chains under the
+/// same endpoint in one trace merge, which is what a finding that cannot
+/// tell them apart should highlight. Returns nothing when the report
+/// carries no `detection_config`: re-running a detector under thresholds
+/// other than the ones that produced the findings would light the wrong
+/// spans.
+fn culprit_spans_by_finding<'a>(
+    traces: &[&'a Trace],
+    detection_config: Option<&crate::detect::DetectConfig>,
+) -> BTreeMap<String, Vec<&'a str>> {
+    let mut out: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
+    let Some(cfg) = detection_config else {
+        return out;
+    };
+    for trace in traces {
+        let indices = crate::detect::TraceIndices::build(trace);
+        let found = crate::detect::serialized::detect_serialized_with_spans(
+            trace,
+            &indices,
+            cfg.serialized_min_sequential,
+        )
+        .into_iter()
+        .chain(crate::detect::fanout::detect_fanout_with_spans(
+            trace,
+            &indices,
+            cfg.max_fanout,
+        ));
+        for (finding, span_ids) in found {
+            let key = format!(
+                "{}|{}",
+                trace.trace_id,
+                crate::acknowledgments::compute_signature(&finding)
+            );
+            out.entry(key).or_default().extend(span_ids);
+        }
+    }
+    for ids in out.values_mut() {
+        ids.sort_unstable();
+        ids.dedup();
+    }
+    out
+}
+
 fn build_payload_with_label<'a>(
     report: &'a Report,
     full_top_offenders: &[crate::report::TopOffender],
@@ -493,6 +550,7 @@ fn build_payload_with_label<'a>(
         )
     };
 
+    let culprit_spans = culprit_spans_by_finding(&kept_refs, report.detection_config.as_ref());
     let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
 
     Payload {
@@ -500,6 +558,7 @@ fn build_payload_with_label<'a>(
         input_label,
         report,
         embedded_traces,
+        culprit_spans,
         trimmed_traces: trimmed,
         trimmed_findings,
         pg_stat: options.pg_stat.as_ref(),
@@ -682,10 +741,20 @@ fn trim_to_size_target<'a>(
     // Step 1: per-trace JSON sizes. We account for the surrounding
     // comma and the 2 literal bracket bytes of the JSON array via
     // `separator_overhead` below.
+    // Each trace also carries its own culprit-span entries, so they count
+    // against the budget with it rather than being unaccounted growth.
     let per_trace_lens: Vec<usize> = ordered
         .iter()
         .copied()
-        .map(|t| serde_json::to_string(&embed_trace(t)).map_or(usize::MAX, |s| s.len()))
+        .map(|t| {
+            let spans = serde_json::to_string(&embed_trace(t)).map_or(usize::MAX, |s| s.len());
+            let culprits = serde_json::to_string(&culprit_spans_by_finding(
+                std::slice::from_ref(&t),
+                report.detection_config.as_ref(),
+            ))
+            .map_or(0, |s| s.len());
+            spans.saturating_add(culprits)
+        })
         .collect();
 
     // Step 2: envelope size. Build a payload whose `embedded_traces`
@@ -700,6 +769,7 @@ fn trim_to_size_target<'a>(
         input_label,
         report,
         embedded_traces: Vec::new(),
+        culprit_spans: BTreeMap::new(),
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
         trimmed_findings,
         pg_stat: options.pg_stat.as_ref(),

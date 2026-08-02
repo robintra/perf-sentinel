@@ -2,6 +2,21 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The trace tree highlights the spans behind a `serialized_calls` or an `excessive_fanout` finding. Both name their parent in `pattern.template`, so the template rule lit the container rather than the calls, and for a serialized chain no client-side rule could do better: an embedded span carries no timestamp, so the browser cannot tell which siblings overlap. The sink now asks the two detectors again over the traces it embeds and ships the span ids under `culprit_spans`, keyed `trace_id|signature`, which costs nothing on any other finding type. The ids are withheld when the report carries no `detection_config`, since re-running a detector under thresholds other than the ones that produced the findings would light the wrong spans.
+
+### Changed
+
+- The findings list is sorted by descending severity, so the first page carries the worst rows rather than whichever type sorts first. The sort is stable, so the report's own type and trace order survives inside each severity band, and it happens on the filtered data, so the paginated list, the counter, the sidebar badge and the CSV export all agree. The Diff columns and the correlations already sorted this way.
+
+### Fixed
+
+- A tooltip widens to fit a code snippet instead of letting it spill past its border. The snippet is `white-space: nowrap`, deliberately, so a threshold key is never broken across two lines, and the box capped at 320 px could not contain a long one. `min-width: min-content` beats the cap, so the box grows to its widest unbreakable child.
+- The dashboard help icon moves out of the headings it sat in. It carries the help text as its `aria-label`, so a screen reader read the whole paragraph as part of the heading, and the heading's text no longer matched the label shown on the finding row.
+
 ## [0.9.25] - 2026-08-01
 
 ### Added

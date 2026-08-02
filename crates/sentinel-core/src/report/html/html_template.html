@@ -1052,6 +1052,9 @@
   var hasGreen = !!(greenSummary && greenSummary.co2);
   var embeddedTraces = payload.embedded_traces || [];
   var tracesById = indexTracesById(embeddedTraces);
+  // Spans the sink named for us, keyed "trace_id|signature". See
+  // culprit_spans_by_finding in report/html/mod.rs.
+  var culpritSpans = payload.culprit_spans || {};
 
   // -------- small DOM helpers (textContent only) --------
   function el(tag, cls, text) {
@@ -2813,10 +2816,9 @@
   // event type instead: the culprit is the whole set of calls (embedded
   // spans carry no timestamps, per-span precision is out of reach).
   // Whole-trace findings whose culprit set IS an event type: every
-  // outbound call for chatty, every query for pool saturation.
-  // serialized_calls is deliberately absent: its culprit is one specific
-  // chain of siblings, and an embedded span carries neither the chain nor
-  // a timestamp, so any rule here would light the wrong rows.
+  // outbound call for chatty, every query for pool saturation. The two
+  // whose culprits are neither a template nor an event type, serialized
+  // chains and fanout children, come from `culpritSpans` instead.
   var WHOLE_TRACE_HILITE = {
     chatty_service: "http_out",
     pool_saturation: "sql"
@@ -2824,6 +2826,15 @@
   var treeHasTplMatch = false;
   var treeTargetEvt = null;
   var treeChildren = {};
+  var treeCulprits = null;
+
+  function culpritSetFor(trace, finding) {
+    var ids = finding.signature ? culpritSpans[trace.trace_id + "|" + finding.signature] : null;
+    if (!ids || !ids.length) return null;
+    var set = {};
+    ids.forEach(function (id) { set[id] = true; });
+    return set;
+  }
 
   function renderTree(root, trace, finding) {
     var spans = trace.spans || [];
@@ -2833,8 +2844,12 @@
     }
     var tree = buildSpanTree(spans);
     var targetTpl = (finding.pattern && finding.pattern.template) || null;
-    treeHasTplMatch = !!targetTpl && spans.some(function (s) { return s.template === targetTpl; });
-    treeTargetEvt = treeHasTplMatch ? null
+    // Named spans win: the sink resolved them from the timestamps the
+    // embedded spans do not carry, so no client rule can do better.
+    treeCulprits = culpritSetFor(trace, finding);
+    treeHasTplMatch = !treeCulprits && !!targetTpl
+      && spans.some(function (s) { return s.template === targetTpl; });
+    treeTargetEvt = (treeCulprits || treeHasTplMatch) ? null
       : (WHOLE_TRACE_HILITE[finding.type || finding.finding_type] || null);
     treeChildren = tree.childrenByParent || {};
     // The highlight tint follows the finding severity (see [data-fsev] CSS).
@@ -2855,12 +2870,14 @@
     var row = el("div", "ps-span");
     // Event-rule mode marks leaves only: the container span above a
     // flood of calls is context, not a culprit.
-    var isFinding = treeHasTplMatch
-      ? (targetTpl && span.template === targetTpl)
-      : (treeTargetEvt && span.event_type === treeTargetEvt &&
-         !(treeChildren[span.span_id] || []).length);
+    var isFinding = treeCulprits
+      ? !!treeCulprits[span.span_id]
+      : treeHasTplMatch
+        ? (targetTpl && span.template === targetTpl)
+        : (treeTargetEvt && span.event_type === treeTargetEvt &&
+           !(treeChildren[span.span_id] || []).length);
     if (isFinding) row.classList.add("hilite");
-    else if (treeHasTplMatch || treeTargetEvt) row.classList.add("dim");
+    else if (treeCulprits || treeHasTplMatch || treeTargetEvt) row.classList.add("dim");
     // 10px base inset keeps depth-0 text off the rounded edge.
     row.style.paddingLeft = (10 + depth * 20) + "px";
 
