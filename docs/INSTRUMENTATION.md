@@ -593,6 +593,8 @@ perf-sentinel analyze --ci --input target/traces.json
 
 > **Prefix your existing test step, never add a second one.** `capture -- mvn verify` runs the tests once, it does not run them again. Adding a new pipeline stage next to the existing one would run the whole integration suite twice, for nothing.
 
+> **A cleaning goal cannot wrap a capture writing into what it cleans.** `capture --output target/traces.json -- mvn clean verify` fails by construction: `capture` opens the file before spawning the command, `clean` then unlinks `target/` under it, and the run ends with an error naming the deleted file rather than a trace count for an inode no path points at. Either drop `clean` from the wrapped command, as the recipe above does, or write the trace file outside the cleaned directory (`--output /tmp/traces.json`).
+
 Wrapping is the sturdier of the two: the ports are bound before the command starts, so no export can be lost to a start-up race, and the capture stops when the command exits rather than on a guessed delay. The wrapped command inherits stdout and stderr untouched, and its exit code is propagated, so a failing test run stays a failing job.
 
 The file is NDJSON, one OTLP request per line, the same shape the Collector `file` exporter produces, and format auto-detection reads it with no extra flag. `capture` writes to stderr only, and reports how many spans it received, which is how you tell "no anti-patterns" from "nothing was ever exported". An empty trace file is rejected by `analyze` rather than reported as a clean gate.
