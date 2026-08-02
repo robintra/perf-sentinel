@@ -812,46 +812,7 @@ impl App {
                 ),
             ]));
         }
-        // Structured CO2 report, mirroring the CLI `print_green_summary`
-        // carbon block so the Analyze view does not silently omit the
-        // headline carbon figures in carbon-configured deployments.
-        if let Some(carbon) = gs.co2.as_ref() {
-            // model/methodology are free `String`s on the daemon snapshot path
-            // (`query inspect` reads them from /api/export/report), so sanitize
-            // like the other daemon-sourced strings rendered above.
-            let model = sanitize_for_terminal(&carbon.total.model);
-            let methodology = sanitize_for_terminal(&carbon.total.methodology);
-            lines.push(Line::from(Span::raw(format!(
-                "Est. CO\u{2082}: {:.6} g (low {:.6}, high {:.6}, model {model})",
-                carbon.total.mid, carbon.total.low, carbon.total.high,
-            ))));
-            lines.push(Line::from(Span::raw(format!(
-                "Avoidable CO\u{2082}: {:.6} g (low {:.6}, high {:.6})",
-                carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
-            ))));
-            lines.push(Line::from(Span::raw(format!(
-                "Operational: {:.6} g   Embodied: {:.6} g   Methodology: {methodology}",
-                carbon.operational_gco2, carbon.embodied_gco2,
-            ))));
-            if let Some(transport) = carbon.transport_gco2 {
-                lines.push(Line::from(Span::raw(format!(
-                    "Transport: {transport:.6} g (cross-region network bytes)"
-                ))));
-            }
-        } else {
-            // Greyed rather than absent, so the reader sees why. A present
-            // scoring_config means green ran, so nothing was there to score.
-            lines.push(Line::from(Span::styled(
-                if summary.analysis.traces_analyzed == 0 {
-                    // The trace count, not scoring_config: a daemon stamps
-                    // that whenever Electricity Maps is configured.
-                    "Carbon: not computed (no traces analyzed)"
-                } else {
-                    "Carbon: not computed ([green] enabled = false)"
-                },
-                dim,
-            )));
-        }
+        push_carbon_lines(&mut lines, gs, summary.analysis.traces_analyzed, dim);
         push_subsystem_waste_lines(&mut lines, gs, dim);
         lines.push(Line::from(""));
 
@@ -886,49 +847,7 @@ impl App {
             lines.push(Line::from(""));
         }
 
-        let gate = &summary.quality_gate;
-        // An empty rule set means the gate was never evaluated, e.g. a daemon
-        // `/api/export/report` snapshot (which hardcodes passed=true, rules=[]).
-        // Render that honestly rather than a misleading green PASSED sitting
-        // next to live critical findings under `query inspect`.
-        let (gate_label, gate_color) = if gate.rules.is_empty() {
-            ("not evaluated", Color::DarkGray)
-        } else if gate.passed {
-            ("PASSED", Color::Green)
-        } else {
-            ("FAILED", Color::Red)
-        };
-        lines.push(Line::from(vec![
-            Span::styled(
-                "Quality gate: ".to_string(),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                gate_label.to_string(),
-                Style::default().fg(gate_color).add_modifier(Modifier::BOLD),
-            ),
-        ]));
-        for rule in &gate.rules {
-            let (rule_label, rule_color) = if rule.passed {
-                ("PASS", Color::Green)
-            } else {
-                ("FAIL", Color::Red)
-            };
-            lines.push(Line::from(vec![
-                Span::raw(format!(
-                    "  - {}: ",
-                    sentinel_core::quality_gate::rule_label(&rule.rule).map_or_else(
-                        || sanitize_for_terminal(&rule.rule).into_owned(),
-                        str::to_string
-                    )
-                )),
-                Span::styled(
-                    format!("{:.2} (actual {:.2}) ", rule.threshold, rule.actual),
-                    dim,
-                ),
-                Span::styled(rule_label.to_string(), Style::default().fg(rule_color)),
-            ]));
-        }
+        push_quality_gate_lines(&mut lines, &summary.quality_gate, dim);
 
         // Mandatory uncertainty disclaimer whenever CO2 estimates are shown,
         // matching the CLI report.
@@ -1355,6 +1274,106 @@ pub(crate) fn tab_label_style(active: bool) -> Style {
             .add_modifier(Modifier::BOLD | Modifier::REVERSED)
     } else {
         dim_style()
+    }
+}
+
+/// The carbon block, mirroring the CLI `print_green_summary` so the Analyze
+/// view never silently omits the headline figures, greyed with its cause when
+/// nothing was scored. Split out of `build_analyze_lines` to keep that
+/// function under the cognitive-complexity gate.
+fn push_carbon_lines(
+    lines: &mut Vec<Line<'static>>,
+    gs: &sentinel_core::report::GreenSummary,
+    traces_analyzed: usize,
+    dim: Style,
+) {
+    let Some(carbon) = gs.co2.as_ref() else {
+        // Greyed rather than absent, so the reader sees why. The trace count,
+        // not scoring_config: a daemon stamps that whenever Electricity Maps
+        // is configured.
+        lines.push(Line::from(Span::styled(
+            if traces_analyzed == 0 {
+                "Carbon: not computed (no traces analyzed)"
+            } else {
+                "Carbon: not computed ([green] enabled = false)"
+            },
+            dim,
+        )));
+        return;
+    };
+    // model/methodology are free `String`s on the daemon snapshot path
+    // (`query inspect` reads them from /api/export/report), so sanitize like
+    // the other daemon-sourced strings.
+    let model = sanitize_for_terminal(&carbon.total.model);
+    let methodology = sanitize_for_terminal(&carbon.total.methodology);
+    lines.push(Line::from(Span::raw(format!(
+        "Est. CO\u{2082}: {:.6} g (low {:.6}, high {:.6}, model {model})",
+        carbon.total.mid, carbon.total.low, carbon.total.high,
+    ))));
+    lines.push(Line::from(Span::raw(format!(
+        "Avoidable CO\u{2082}: {:.6} g (low {:.6}, high {:.6})",
+        carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
+    ))));
+    lines.push(Line::from(Span::raw(format!(
+        "Operational: {:.6} g   Embodied: {:.6} g   Methodology: {methodology}",
+        carbon.operational_gco2, carbon.embodied_gco2,
+    ))));
+    if let Some(transport) = carbon.transport_gco2 {
+        lines.push(Line::from(Span::raw(format!(
+            "Transport: {transport:.6} g (cross-region network bytes)"
+        ))));
+    }
+}
+
+/// The quality-gate verdict and its per-rule lines. Split out of
+/// `build_analyze_lines` to keep that function under the
+/// cognitive-complexity gate.
+fn push_quality_gate_lines(
+    lines: &mut Vec<Line<'static>>,
+    gate: &sentinel_core::report::QualityGate,
+    dim: Style,
+) {
+    // An empty rule set means the gate was never evaluated, e.g. a daemon
+    // `/api/export/report` snapshot (which hardcodes passed=true, rules=[]).
+    // Render that honestly rather than a misleading green PASSED sitting
+    // next to live critical findings under `query inspect`.
+    let (gate_label, gate_color) = if gate.rules.is_empty() {
+        ("not evaluated", Color::DarkGray)
+    } else if gate.passed {
+        ("PASSED", Color::Green)
+    } else {
+        ("FAILED", Color::Red)
+    };
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Quality gate: ".to_string(),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            gate_label.to_string(),
+            Style::default().fg(gate_color).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    for rule in &gate.rules {
+        let (rule_label, rule_color) = if rule.passed {
+            ("PASS", Color::Green)
+        } else {
+            ("FAIL", Color::Red)
+        };
+        lines.push(Line::from(vec![
+            Span::raw(format!(
+                "  - {}: ",
+                sentinel_core::quality_gate::rule_label(&rule.rule).map_or_else(
+                    || sanitize_for_terminal(&rule.rule).into_owned(),
+                    str::to_string
+                )
+            )),
+            Span::styled(
+                format!("{:.2} (actual {:.2}) ", rule.threshold, rule.actual),
+                dim,
+            ),
+            Span::styled(rule_label.to_string(), Style::default().fg(rule_color)),
+        ]));
     }
 }
 
