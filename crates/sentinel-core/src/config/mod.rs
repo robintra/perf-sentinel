@@ -876,15 +876,18 @@ pub enum ConfigError {
     /// TOML parsing error.
     #[error("config parse error: {0}")]
     Parse(#[from] toml::de::Error),
-    /// TOML parsing error in one named fragment.
-    #[error("config fragment {name} parse error: {source}")]
+    /// TOML parsing error attributed to one named file. The name is the
+    /// file itself, fragment or main config: the main `.perf-sentinel.toml`
+    /// travels the same loader and must not be called a fragment.
+    #[error("in {name}: {source}")]
     FragmentParse {
         name: String,
         #[source]
         source: toml::de::Error,
     },
-    /// Configuration validation error attributed to one named fragment.
-    #[error("config fragment {name} validation error: {message}")]
+    /// Validation error attributed to one named file, same naming rule as
+    /// [`ConfigError::FragmentParse`].
+    #[error("in {name}: {message}")]
     FragmentValidation { name: String, message: String },
     /// Validation error (out-of-range values).
     #[error("config validation error: {0}")]
