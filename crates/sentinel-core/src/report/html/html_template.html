@@ -116,7 +116,8 @@
   [data-nav].ps-tab-disabled:hover { color: var(--text-2); background: transparent; }
   [data-nav].ps-tab-disabled:hover > .ps-nav-dot { background: currentColor; opacity: .45; }
   .ps-tab-disabled .ps-nav-dot, .ps-tab-disabled .ps-nav-label { opacity: .45; }
-  .ps-nav-help { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--text-3); font-family: var(--font-mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+  .ps-nav-help { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--text-3); font-family: var(--font-mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: help; }
+  .ps-detail-h2 .ps-nav-help { margin-left: 9px; vertical-align: 3px; }
   /* Floating tip box appended to <body>: .ps-nav clips with overflow auto,
      a CSS-only ::after tooltip cannot escape the sidebar. */
   .ps-tipbox { position: fixed; z-index: 60; width: max-content; max-width: 320px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 12px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.9; pointer-events: none; }
@@ -1304,6 +1305,48 @@
     setAttr(pill, "data-sev", SEV_DATA[severity] || "info");
     return pill;
   }
+  // What each finding type means and how it is detected, shown behind
+  // the "?" on the detail title. Mechanisms mirror detect/ and
+  // docs/design/04-DETECTION.md; thresholds are named by config key, the
+  // report does not embed the values the producing run used.
+  var FINDING_HELP = {
+    n_plus_one_sql: "The same query shape fired once per row instead of once for the whole set. Flagged when a trace repeats one normalized SQL template at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`. Identical parameters classify as Redundant SQL instead.",
+    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Flagged when a trace repeats one normalized HTTP endpoint at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
+    n_plus_one_messaging: "One broker publish per item instead of a batch. Flagged when a trace repeats one destination at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
+    redundant_sql: "The exact same query, template and parameters alike, ran more than once in one trace, so the later results could not differ. Two identical calls flag at info, five or more raise a warning: a cache or a local variable would remove them.",
+    redundant_http: "The exact same HTTP call, endpoint and parameters alike, ran more than once in one trace. Two identical calls flag at info, five or more raise a warning.",
+    slow_sql: "A query template ran above `[detection] slow_query_threshold_ms`, at least `slow_query_min_occurrences` times. Critical past five times the threshold.",
+    slow_http: "An HTTP call ran above `[detection] slow_query_threshold_ms`, at least `slow_query_min_occurrences` times. Critical past five times the threshold.",
+    slow_messaging: "A broker publish ran above `[detection] slow_query_threshold_ms`, at least `slow_query_min_occurrences` times. Critical past five times the threshold.",
+    excessive_fanout: "One parent span fans out to more child operations than `[detection] max_fanout` allows. A structural shape rather than avoidable I/O: critical past three times the threshold.",
+    chatty_service: "One trace leaves the service through at least `[detection] chatty_service_min_calls` outbound HTTP calls. Batching or a coarser API is the usual fix. Critical past three times the threshold.",
+    pool_saturation: "The peak number of SQL queries in flight at the same instant reached `[detection] pool_saturation_concurrent_threshold`, enough to contend on the database connection pool. A tuning or architecture signal, not avoidable I/O.",
+    serialized_calls: "Sibling calls with distinct templates ran strictly one after another (longest non-overlapping chain, at least `[detection] serialized_min_sequential` long) with no visible data dependency: they could run in parallel. Always info, the heuristic cannot see hidden dependencies."
+  };
+  // Config-key name in the .toml vs field name in detection_config.
+  var DETECTION_KEY_FIELD = {
+    n_plus_one_threshold: "n_plus_one_threshold",
+    window_duration_ms: "window_ms",
+    slow_query_threshold_ms: "slow_threshold_ms",
+    slow_query_min_occurrences: "slow_min_occurrences",
+    max_fanout: "max_fanout",
+    chatty_service_min_calls: "chatty_service_min_calls",
+    pool_saturation_concurrent_threshold: "pool_saturation_concurrent_threshold",
+    serialized_min_sequential: "serialized_min_sequential"
+  };
+  // Inline the producing run's values next to the key names. Reports
+  // from older binaries carry no detection_config: keys alone then.
+  function findingHelpText(type) {
+    var text = FINDING_HELP[type];
+    var cfg = report.detection_config;
+    if (!text || !cfg) return text;
+    Object.keys(DETECTION_KEY_FIELD).forEach(function (key) {
+      var v = cfg[DETECTION_KEY_FIELD[key]];
+      if (v === undefined || v === null) return;
+      text = text.split(key + "`").join(key + " = " + v + "`");
+    });
+    return text;
+  }
   var TYPE_LABEL = {
     n_plus_one_sql: "N+1 SQL",
     n_plus_one_http: "N+1 HTTP",
@@ -1404,14 +1447,28 @@
     tabs.push({ key: key, label: label, disabledTip: tip });
   }
   // Floating tip box on hover, viewport-positioned so no ancestor clips it.
+  function sweepTips() {
+    document.querySelectorAll(".ps-tipbox").forEach(function (b) { b.remove(); });
+  }
+  var tipSweepWired = false;
   function wireTip(anchor, text) {
+    if (!tipSweepWired) {
+      tipSweepWired = true;
+      // Fixed-positioned tips do not follow scroll, and a re-render can
+      // orphan a hovered anchor: sweep on any scroll or click.
+      window.addEventListener("scroll", sweepTips, true);
+      document.addEventListener("click", sweepTips, true);
+    }
     var box = null;
     anchor.addEventListener("mouseenter", function () {
+      // Single tip at a time.
+      sweepTips();
       box = el("div", "ps-tipbox");
       proseInto(box, text);
       document.body.appendChild(box);
       var r = anchor.getBoundingClientRect();
-      box.style.left = Math.round(r.right + 10) + "px";
+      box.style.left =
+        Math.round(Math.min(r.right + 10, innerWidth - box.offsetWidth - 8)) + "px";
       var top = r.top + r.height / 2 - box.offsetHeight / 2;
       box.style.top = Math.round(Math.max(8, Math.min(top, innerHeight - box.offsetHeight - 8))) + "px";
     });
@@ -2276,7 +2333,15 @@
     var headRow = el("div", "ps-detail-head");
     headRow.appendChild(sevPill(f.severity));
     var titleWrap = el("div", "ps-detail-titlewrap");
-    titleWrap.appendChild(el("h2", "ps-detail-h2", typeLabel(f.type || f.finding_type)));
+    var h2 = el("h2", "ps-detail-h2", typeLabel(f.type || f.finding_type));
+    var helpText = findingHelpText(f.type || f.finding_type);
+    if (helpText) {
+      var h2help = el("span", "ps-nav-help", "?");
+      setAttr(h2help, "aria-label", helpText);
+      wireTip(h2help, helpText);
+      h2.appendChild(h2help);
+    }
+    titleWrap.appendChild(h2);
     var sub = findingSummary(f);
     if (sub) titleWrap.appendChild(el("p", "ps-detail-sub", sub));
     headRow.appendChild(titleWrap);
@@ -4541,17 +4606,16 @@
   }
 
   // A click halfway down the list opens the detail pane whose top may be
-  // scrolled out of view: bring it back under the sticky topbar. No-op
-  // when the pane top is already visible, and not wired to j/k, which
-  // must keep the list row in view instead.
+  // scrolled out of view: go back to the very top of the page, filter
+  // chips included. No-op when the pane top is already visible, and not
+  // wired to j/k, which must keep the list row in view instead.
   function scrollDetailToTop() {
     var pane = document.getElementById("explain-content");
     if (!pane) return;
     var bar = document.querySelector(".ps-topbar");
     var offset = (bar ? bar.offsetHeight : 0) + 8;
     if (pane.getBoundingClientRect().top >= offset) return;
-    var top = pane.getBoundingClientRect().top + window.scrollY - offset;
-    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   document.getElementById("pgstat-drill-clear").addEventListener("click", clearPgStatDrill);
