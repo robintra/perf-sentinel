@@ -123,6 +123,7 @@ async fn run_wrapped(
 }
 
 /// How long a signalled command tree gets to exit before it is killed.
+#[cfg(unix)]
 const TERM_GRACE: Duration = Duration::from_secs(5);
 
 /// Stop the wrapped command and everything it spawned, SIGTERM first so a
