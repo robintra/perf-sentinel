@@ -274,7 +274,7 @@ mod tests {
         let with_chain = compute_content_hash(&r).unwrap();
         assert_ne!(with_chain, with_tag, "the source chain must be covered");
 
-        r.integrity.trace_integrity_chain = serde_json::Value::Null;
+        r.integrity.trace_integrity_chain = Value::Null;
         assert_eq!(
             compute_content_hash(&r).unwrap(),
             with_tag,
