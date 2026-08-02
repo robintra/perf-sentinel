@@ -312,8 +312,25 @@ fn correlation_cards_land_on_and_announce_the_real_findings() {
         "endpointSeverity",
         "correlationSeverity",
     ] {
-        assert!(html.contains(needle), "correlation mechanism missing: {needle}");
+        assert!(
+            html.contains(needle),
+            "correlation mechanism missing: {needle}"
+        );
     }
+}
+
+#[test]
+fn tooltip_drops_below_its_anchor_when_centering_lacks_room() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    assert!(
+        html.contains("ps-tipbox-below"),
+        "the below-anchor tooltip mode must exist"
+    );
+    assert!(
+        html.contains("--tip-caret-x"),
+        "the caret must aim at the anchor in below mode"
+    );
 }
 
 #[test]

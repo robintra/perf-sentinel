@@ -124,6 +124,7 @@
      a CSS-only ::after tooltip cannot escape the sidebar. */
   .ps-tipbox { position: fixed; z-index: 60; width: max-content; max-width: 320px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 12px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.9; pointer-events: none; }
   .ps-tipbox::before { content: ""; position: absolute; left: -5px; top: 50%; width: 8px; height: 8px; transform: translateY(-50%) rotate(45deg); background: inherit; border-left: 1px solid var(--border-2); border-bottom: 1px solid var(--border-2); }
+  .ps-tipbox-below::before { left: var(--tip-caret-x, 20px); top: -5px; transform: rotate(45deg); border-bottom: 0; border-top: 1px solid var(--border-2); }
   .ps-tipbox .ps-code-inline { font-size: 10.5px; white-space: nowrap; }
   .ps-metric-sub .ps-code-inline { font-size: 10px; white-space: nowrap; }
   /* The run-context line (batch/CI, daemon staging/prod) and the version
@@ -1497,10 +1498,20 @@
       proseInto(box, text);
       document.body.appendChild(box);
       var r = anchor.getBoundingClientRect();
-      box.style.left =
-        Math.round(Math.min(r.right + 10, innerWidth - box.offsetWidth - 8)) + "px";
-      var top = r.top + r.height / 2 - box.offsetHeight / 2;
-      box.style.top = Math.round(Math.max(8, Math.min(top, innerHeight - box.offsetHeight - 8))) + "px";
+      var w = box.offsetWidth;
+      var h = box.offsetHeight;
+      var centeredTop = r.top + r.height / 2 - h / 2;
+      if (centeredTop < 8) {
+        // No room to center beside the anchor: drop below, caret up.
+        box.classList.add("ps-tipbox-below");
+        var left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8));
+        box.style.left = Math.round(left) + "px";
+        box.style.top = Math.round(r.bottom + 9) + "px";
+        box.style.setProperty("--tip-caret-x", Math.round(r.left + r.width / 2 - left - 4) + "px");
+      } else {
+        box.style.left = Math.round(Math.min(r.right + 10, innerWidth - w - 8)) + "px";
+        box.style.top = Math.round(Math.min(centeredTop, innerHeight - h - 8)) + "px";
+      }
     });
     anchor.addEventListener("mouseleave", function () {
       if (box) { box.remove(); box = null; }
