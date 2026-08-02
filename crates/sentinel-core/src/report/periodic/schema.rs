@@ -38,9 +38,9 @@
 //! v1.6 adds three `CalibrationInputs` fields that make the carbon
 //! parameters visible: `carbon_methodologies` (the SCI tags observed, which
 //! say whether transport is in the numerator) and the `M` term as a period
-//! total plus a per-request mean. Both settings behind them, `[green]
-//! include_network_transport` and `embodied_carbon_per_request_gco2`, change
-//! published figures and appeared nowhere in the report. Same
+//! total plus a per-request mean. `[green] embodied_carbon_per_request_gco2`
+//! changes published figures and appeared nowhere in the report, and
+//! `include_network_transport` used to before it was deprecated. Same
 //! `serde(default)` + `skip_serializing_if` rule, so an older report keeps
 //! its `content_hash` when re-hashed here.
 

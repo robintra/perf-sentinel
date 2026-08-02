@@ -119,7 +119,7 @@ default_region = "eu-west-3"       # default: none, and then a service with no
 # SCI v1.0 embodied carbon term `M = traces × embodied_per_request_gco2`,
 # region-independent. Default `0.001` g/req covers typical commodity hardware
 # amortization. Raise for GPU-heavy workloads.
-embodied_carbon_per_request_gco2 = 0.001   # default 0.001, must be > 0.0
+embodied_carbon_per_request_gco2 = 0.001   # default 0.001, 0.0 deprecated
 
 # Per-operation energy coefficients. Leave `true` unless you have specific
 # reasons to treat all I/O as equal.

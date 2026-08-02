@@ -296,8 +296,8 @@ pub struct CarbonReport {
     pub embodied_gco2: f64,
     /// Network transport CO₂ for cross-region HTTP calls (gCO₂eq).
     /// Present when at least one cross-region HTTP call carried response
-    /// size data. `[green] include_network_transport` only hides it in
-    /// the CLI report and the TUI, it does not change this field.
+    /// size data. Always computed and always displayed since 0.9.25,
+    /// `[green] include_network_transport` is deprecated and ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
     /// SCI v1.0 per-functional-unit intensity: `total / R`, R = 1 trace.
@@ -370,9 +370,10 @@ pub struct CarbonContext {
     pub energy_snapshot: Option<HashMap<String, EnergyEntry>>,
     /// SQL verb / HTTP size tier weighting (proxy model only).
     pub per_operation_coefficients: bool,
+    /// Energy per transported byte. Fixed since 0.9.25: every producer
+    /// writes [`DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`] so two disclosures
+    /// scale the same traffic identically.
     pub network_energy_per_byte_kwh: f64,
-    /// Whether dashboards should show the network transport term.
-    /// The term is always computed and retained in structured output.
     /// User-supplied hourly profiles from `[green] hourly_profiles_file`.
     /// Keys are pre-lowercased region identifiers.
     /// Takes precedence over embedded profiles. Wrapped in `Arc` so the
