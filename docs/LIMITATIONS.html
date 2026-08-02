@@ -385,7 +385,7 @@ high = mid × 2.0   (twice the midpoint)</code></pre></div>
 <div class="ps-code"><pre><code>co2.sci_per_trace.mid = co2.total.mid / analysis.traces_analyzed</code></pre></div>
 <p class="ps-p">The functional unit R is declared on <code class="ps-ic">co2.functional_unit</code> (<code class="ps-ic">"trace"</code>). Both views are kept because they answer different questions: the footprint sizes the absolute impact, the intensity normalizes it per unit of work. The <code class="ps-ic">methodology</code> field on each <code class="ps-ic">CarbonEstimate</code> tags the semantic:</p>
 <ul>
-<li><code class="ps-ic">co2.total.methodology = "sci_v1_numerator"</code>: the <code class="ps-ic">(E × I) + M</code> footprint over analyzed traces.</li>
+<li><code class="ps-ic">co2.total.methodology = "sci_v1_numerator+transport"</code>: the <code class="ps-ic">(E × I) + M + T</code> footprint over analyzed traces. Legacy reports can carry <code class="ps-ic">"sci_v1_numerator"</code>.</li>
 <li><code class="ps-ic">co2.sci_per_trace.methodology = "sci_v1_intensity"</code>: the per-R intensity <code class="ps-ic">((E × I) + M) / R</code>, R = 1 trace.</li>
 <li><code class="ps-ic">co2.avoidable.methodology = "sci_v1_operational_ratio"</code>: <code class="ps-ic">operational × (avoidable_io_ops / accounted_io_ops)</code>, a region-blind global ratio that excludes embodied carbon by design.</li>
 </ul>
@@ -503,7 +503,7 @@ high = mid × 2.0   (twice the midpoint)</code></pre></div>
 <p class="ps-p"><strong>Platform requirements.</strong></p>
 <ul>
 <li><strong>Linux only</strong>, any CPU architecture supported by Kepler (x86_64 and ARM64).</li>
-<li><strong>Kepler installed and exposing <code class="ps-ic">/metrics</code>.</strong> Production deployments typically run Kepler as a Kubernetes <code class="ps-ic">DaemonSet</code> per node; in that case point the endpoint at the node-local pod or, more robustly, at an upstream Prometheus that scrapes the whole DaemonSet (Prometheus-mediated mode is reserved as a follow-up, this release ships direct-scrape only).</li>
+<li><strong>Kepler installed and exposing <code class="ps-ic">/metrics</code>.</strong> Production deployments typically run Kepler as a Kubernetes <code class="ps-ic">DaemonSet</code> per node. This release performs a direct GET, so point at the node-local exporter or at a federation/proxy endpoint that directly exposes aggregated Kepler series. A Prometheus server's own <code class="ps-ic">/metrics</code> endpoint exposes only Prometheus internals. Native PromQL mode is reserved for a follow-up.</li>
 <li><strong>Kernel eBPF support</strong> (kernel 5.4+ in practice).</li>
 </ul>
 <p class="ps-p"><strong>Why this branch covers ARM64 where Scaphandre does not.</strong> Kepler does not depend on RAPL. On x86_64 with RAPL access it uses the same counters Scaphandre does, on ARM64 it falls back to an eBPF + perf-counter model that produces a real (degraded-precision) signal. The ARM eBPF model is less accurate than the x86 RAPL path, see <a href="https://github.com/sustainable-computing-io/kepler/issues/1556" target="_blank" rel="noopener" class="ps-ext">Kepler issue #1556</a> for the upstream tracking of known caveats (tracepoint failures, weaker DRAM model). For ARM workloads the alternative was the <code class="ps-ic">cloud_specpower</code> proxy at ±40%, Kepler at degraded precision is still a meaningful improvement.</p>
@@ -578,7 +578,7 @@ energy_per_op_kwh = (watts / 1000) * (interval_secs / 3600) / ops_in_window</cod
 </ul>
 <p class="ps-p">Set <code class="ps-ic">per_operation_coefficients = false</code> to disable this feature and use the flat energy constant for all operations.</p>
 <h3 id="network-transport-energy" class="ps-h3">Network transport energy</h3>
-<p class="ps-p">The optional network transport energy term estimates the energy cost of moving bytes between regions. The default coefficient (0.04 kWh/GB) is a conservative default below recent whole-network averages (Sustainable Web Design Model v4, 2024: 0.059 kWh/GB operational for networks) and an upper bound for cross-region server traffic, where inter-datacenter coefficients run as low as 0.001 kWh/Gb (Cloud Carbon Footprint).</p>
+<p class="ps-p">The optional network transport energy term estimates the energy cost of moving bytes between regions. The coefficient (0.04 kWh/GB, fixed since 0.9.25 so every disclosure scales transport identically) is a conservative value below recent whole-network averages (Sustainable Web Design Model v4, 2024: 0.059 kWh/GB operational for networks) and an upper bound for cross-region server traffic, where inter-datacenter coefficients run as low as 0.001 kWh/GB (Cloud Carbon Footprint). The disclosure publishes the term under that sourced 0.001-0.059 bracket beside the mid value.</p>
 <p class="ps-p">Key limitations:</p>
 <ul>
 <li><strong>Wide estimate range.</strong> Published values range from 0.06 to 0.08 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance and infrastructure.</li>
@@ -589,7 +589,7 @@ energy_per_op_kwh = (watts / 1000) * (interval_secs / 3600) / ops_in_window</cod
 <li><strong>Response body only.</strong> Only the response body size (<code class="ps-ic">http.response.body.size</code>) is counted. The request body (e.g., large POST payloads) is not available in standard OTel HTTP semantic conventions and is excluded. For write-heavy APIs this underestimates transport energy.</li>
 <li><strong>Caller's grid intensity used for network.</strong> Network infrastructure is distributed across many grids, but perf-sentinel uses the caller region's carbon intensity as a proxy. This is a known simplification consistent with the directional estimation approach.</li>
 </ul>
-<p class="ps-p">The feature is disabled by default (<code class="ps-ic">include_network_transport = false</code>) and must be explicitly opted into.</p>
+<p class="ps-p">The term is computed, displayed and disclosed on every run. <code class="ps-ic">include_network_transport</code> is deprecated and ignored since 0.9.25: two periods that disagreed on the setting were not comparable, the setting left no trace in the published figures, and a display toggle on a published figure had no remaining justification either.</p>
 <h2 id="chatty-service-detection" class="ps-h2">Chatty service detection</h2>
 <p class="ps-p">The chatty service detector only counts HTTP outbound spans (<code class="ps-ic">type: http_out</code>). A trace with 15 SQL calls to the same database is not "chatty" in the inter-service sense. The threshold is per-trace, not per-endpoint: a trace that fans out across 3 endpoints each making 6 calls (18 total) will trigger at the trace level even though no single endpoint is particularly chatty.</p>
 <p class="ps-p">Chatty service findings are NOT counted as avoidable I/O in the waste ratio. They represent an architectural concern (service decomposition granularity), not a batching opportunity.</p>
