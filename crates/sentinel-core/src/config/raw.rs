@@ -362,12 +362,19 @@ impl From<RawConfig> for Config {
                     ),
             },
             green: {
-                // Deprecated 0.9.25: the transport coefficient is fixed
-                // for disclosure comparability. Parsed, warned, ignored.
+                // Deprecated 0.9.25: transport is always counted, always
+                // displayed, and its coefficient is fixed for disclosure
+                // comparability. Both keys are parsed, warned, ignored.
                 if raw.green.network_energy_per_byte_kwh.is_some() {
                     tracing::warn!(
                         "[green] network_energy_per_byte_kwh is deprecated and ignored \
                          since 0.9.25, the transport coefficient is fixed"
+                    );
+                }
+                if raw.green.include_network_transport.is_some() {
+                    tracing::warn!(
+                        "[green] include_network_transport is deprecated and ignored \
+                         since 0.9.25, the transport term is always counted and displayed"
                     );
                 }
                 GreenConfig {
@@ -401,10 +408,6 @@ impl From<RawConfig> for Config {
                     .green
                     .per_operation_coefficients
                     .unwrap_or(green_defaults.per_operation_coefficients),
-                include_network_transport: raw
-                    .green
-                    .include_network_transport
-                    .unwrap_or(green_defaults.include_network_transport),
                 hourly_profiles_file: raw.green.hourly_profiles_file.clone(),
                 custom_hourly_profiles: raw.green.hourly_profiles_file.as_ref().and_then(|path| {
                     if has_control_char(path) {

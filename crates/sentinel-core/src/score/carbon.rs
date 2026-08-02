@@ -373,7 +373,6 @@ pub struct CarbonContext {
     pub network_energy_per_byte_kwh: f64,
     /// Whether dashboards should show the network transport term.
     /// The term is always computed and retained in structured output.
-    pub include_network_transport: bool,
     /// User-supplied hourly profiles from `[green] hourly_profiles_file`.
     /// Keys are pre-lowercased region identifiers.
     /// Takes precedence over embedded profiles. Wrapped in `Arc` so the
@@ -457,10 +456,6 @@ pub struct ScoringConfig {
     pub per_operation_coefficients: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_hourly_profiles: Option<bool>,
-    /// Display-only: hides the transport term in the dashboards. It does
-    /// not change what is computed or disclosed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub show_network_transport: Option<bool>,
 }
 
 impl ScoringConfig {
@@ -532,7 +527,6 @@ impl Default for CarbonContext {
             energy_snapshot: None,
             per_operation_coefficients: true,
             network_energy_per_byte_kwh: DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
-            include_network_transport: false,
             custom_hourly_profiles: None,
             calibration: None,
             real_time_intensity: None,

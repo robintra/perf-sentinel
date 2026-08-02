@@ -38,7 +38,6 @@ fn ordered_fragments_deep_merge_and_later_values_win() {
 
     assert_eq!(config.detection.n_plus_one_threshold, 11);
     assert_eq!(config.green.default_region.as_deref(), Some("eu-west-3"));
-    assert!(config.green.include_network_transport);
     assert_eq!(
         config.green.service_regions.get("api").map(String::as_str),
         Some("us-east-1")
@@ -235,6 +234,8 @@ fn fields_in_struct<'a>(source: &'a str, name: &str) -> Vec<&'a str> {
 
 #[test]
 fn example_config_covers_every_key_the_parser_accepts() {
+    // Parsed only to warn, the reference config must not advertise them.
+    const DEPRECATED: &[&str] = &["network_energy_per_byte_kwh", "include_network_transport"];
     // `examples/perf-sentinel.toml` calls itself the reference config, and
     // nothing checked that claim: it had drifted to 14 of the 31 daemon
     // keys, with whole sections missing. Adding a field to a *Section
@@ -264,6 +265,13 @@ fn example_config_covers_every_key_the_parser_accepts() {
         let Some(field) = field_name(line) else {
             continue;
         };
+        if DEPRECATED.contains(&field) {
+            assert!(
+                !example_shows(&example, field),
+                "deprecated key `{field}` is back in examples/perf-sentinel.toml"
+            );
+            continue;
+        }
         if example_shows(&example, field) {
             continue;
         }
@@ -1815,22 +1823,14 @@ fn config_per_operation_coefficients_default_true() {
 }
 
 #[test]
-fn config_include_network_transport_default_false() {
+fn carbon_context_scoring_config_carries_the_fixed_transport_coefficient() {
     let cfg = Config::default();
-    assert!(!cfg.green.include_network_transport);
-}
-
-#[test]
-fn carbon_context_carries_the_transport_setting_as_display_only() {
-    // Off means "hide it in the CLI report and the TUI", never "leave it
-    // out of the numbers", so the flag must reach the sinks and nothing
-    // else. Two reports stay comparable across the setting.
-    let cfg = Config::default();
-    assert!(!cfg.green.include_network_transport);
     let scoring = cfg.carbon_context().scoring_config.unwrap();
-    assert_eq!(scoring.show_network_transport, Some(false));
+    assert_eq!(
+        scoring.network_energy_per_byte_kwh,
+        Some(crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
+    );
     assert_eq!(scoring.electricity_maps, Some(false));
-    assert!(!cfg.carbon_context().include_network_transport);
 }
 
 #[test]
@@ -1841,13 +1841,14 @@ fn carbon_context_omits_scoring_config_when_green_scoring_is_disabled() {
 }
 
 #[test]
-fn config_network_energy_per_byte_kwh_is_parsed_and_ignored() {
-    // Deprecated 0.9.25: the key still parses (deny_unknown_fields would
-    // otherwise break old configs) but no longer reaches GreenConfig.
+fn deprecated_transport_keys_are_parsed_and_ignored() {
+    // Deprecated 0.9.25: both keys still parse (a hard unknown-key error
+    // would break old configs) but no longer reach GreenConfig.
     let toml = r"
 [green]
 enabled = true
 network_energy_per_byte_kwh = 0.00000000008
+include_network_transport = false
 ";
     let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
     assert!(cfg.green.enabled);
@@ -1861,16 +1862,6 @@ per_operation_coefficients = false
 ";
     let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
     assert!(!cfg.green.per_operation_coefficients);
-}
-
-#[test]
-fn config_include_network_transport_from_toml() {
-    let toml = r"
-[green]
-include_network_transport = true
-";
-    let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
-    assert!(cfg.green.include_network_transport);
 }
 
 // --- validate_http_authority error paths ---

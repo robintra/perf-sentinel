@@ -129,14 +129,12 @@ per_operation_coefficients = true   # default true
 # where available). When `true`, the model tag becomes `io_proxy_v2`.
 use_hourly_profiles = true   # default true
 
-# Show the network-transport term in the CLI report and the TUI. Display
-# only: the term is computed and disclosed on every run, so two periods
-# stay comparable whatever this says. It needs `response_size_bytes` on
-# your spans and counts nothing without it.
-include_network_transport = true   # default false
-# network_energy_per_byte_kwh = 0.00000000004 # DEPRECATED 0.9.25, ignored: the
-#     coefficient is fixed at 0.04 kWh/GB so every disclosure scales transport
-#     identically, with a sourced 0.001-0.059 kWh/GB bracket published beside it.
+# The network-transport term has no keys here on purpose. It is always
+# computed, displayed and disclosed, with a fixed 0.04 kWh/GB coefficient
+# and a published 0.001-0.059 kWh/GB bracket, so every disclosure scales
+# it identically. It needs `response_size_bytes` on your spans and counts
+# nothing without it. The pre-0.9.25 keys `include_network_transport` and
+# `network_energy_per_byte_kwh` still parse, with a warning, and do nothing.
 
 # User-supplied hourly profile file (CSV or JSON). Overrides the embedded
 # table for the listed regions. Useful when you have a PPA or private grid
