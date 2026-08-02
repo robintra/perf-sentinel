@@ -342,6 +342,8 @@ fn help_icons_open_a_plain_language_method_sheet() {
         "https://perf-sentinel.dev/docs/METHODOLOGY.html",
         "https://perf-sentinel.dev/docs/ENERGY.html",
         "Full methodology",
+        // The hover tooltip must teach the click, or nobody finds the sheet.
+        "Click the ? for the full method sheet",
     ] {
         assert!(html.contains(needle), "method sheet missing: {needle}");
     }
