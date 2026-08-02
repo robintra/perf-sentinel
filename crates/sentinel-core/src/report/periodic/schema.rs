@@ -563,7 +563,10 @@ pub struct CarbonBreakdown {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_kgco2eq: Option<f64>,
     /// Transport under the low and high bounds of the fixed coefficient
-    /// bracket. Present exactly when `transport_kgco2eq` is. v1.6.
+    /// bracket. Present when `transport_kgco2eq` is AND every window of
+    /// the period declared the fixed coefficient: the bracket only frames
+    /// that one, so a period holding a pre-0.9.25 window (which records no
+    /// coefficient at all) publishes the mid alone. v1.6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_kgco2eq_low: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

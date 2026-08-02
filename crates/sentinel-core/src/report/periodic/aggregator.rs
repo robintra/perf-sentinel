@@ -361,6 +361,9 @@ struct Builder {
     /// Distinct coefficient sets observed, as `"key=value"` strings. A
     /// set that changed mid-period yields more than one entry.
     scoring_coefficients: BTreeSet<String>,
+    /// Set once a window contributed transport under a coefficient that
+    /// is not the fixed one, or under none this binary can read.
+    transport_coefficient_uncertain: bool,
     /// Running sums of the three terms of the published total, in gCO2eq.
     embodied_gco2_total: f64,
     operational_gco2_total: f64,
@@ -536,6 +539,10 @@ impl Builder {
         self.fold_binary_version(&report.binary_version);
         self.fold_window_energy_model(&report.green_summary.energy_model);
         self.fold_carbon_methodology(report.green_summary.co2.as_ref());
+        self.fold_transport_coefficient(
+            report.green_summary.co2.as_ref(),
+            report.green_summary.scoring_config.as_ref(),
+        );
         self.fold_scoring_coefficients(report.green_summary.scoring_config.as_ref());
         self.fold_per_service_measured_ratio(&report.green_summary.per_service_measured_ratio);
         self.fold_per_service_energy_models(&report.green_summary.per_service_energy_model);
@@ -664,6 +671,29 @@ impl Builder {
     /// Record the coefficients one window was scored with. They scale the
     /// published figures and appear nowhere else, so a period that changed
     /// them shows both values rather than one.
+    /// Whether the low/high bracket can be published: it only frames the
+    /// fixed coefficient, so any window carrying transport under another
+    /// value, or under none we can read, disqualifies the whole period.
+    /// Absent is disqualifying, not default: windows archived before
+    /// 0.9.25 record no coefficient at all and could hold any value.
+    fn fold_transport_coefficient(
+        &mut self,
+        co2: Option<&crate::score::carbon::CarbonReport>,
+        cfg: Option<&crate::score::carbon::ScoringConfig>,
+    ) {
+        let contributed = co2.is_some_and(|c| c.transport_gco2.unwrap_or(0.0) > 0.0);
+        if !contributed {
+            return;
+        }
+        let applied = cfg.and_then(|c| c.network_energy_per_byte_kwh);
+        let is_default = applied.is_some_and(|v| {
+            (v - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH).abs() < f64::EPSILON
+        });
+        if !is_default {
+            self.transport_coefficient_uncertain = true;
+        }
+    }
+
     fn fold_scoring_coefficients(&mut self, cfg: Option<&crate::score::carbon::ScoringConfig>) {
         let Some(cfg) = cfg else { return };
         let mut push = |entry: String| {
@@ -954,7 +984,7 @@ impl Builder {
                     self.transport_gco2_total,
                     self.db_waste.energy_g,
                     self.msg_waste.energy_g,
-                    default_transport_coefficient_everywhere(&self.scoring_coefficients),
+                    !self.transport_coefficient_uncertain,
                 ),
                 aggregate_efficiency_score: canonical_waste.efficiency_score,
                 aggregate_waste_ratio: canonical_waste.waste_ratio,
@@ -1039,19 +1069,6 @@ fn messaging_waste_aggregate(
         canonical_waste_kwh: w.canonical_kwh,
         canonical_waste_kgco2eq: w.canonical_g.map(|g| g / 1000.0),
     })
-}
-
-/// Whether every window of the period was scored with the fixed transport
-/// coefficient. Pre-0.9.25 windows could carry any custom value, and the
-/// low/high bracket is only meaningful around the fixed one.
-fn default_transport_coefficient_everywhere(coefficients: &BTreeSet<String>) -> bool {
-    let default_entry = format!(
-        "network_kwh_per_byte={}",
-        crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH
-    );
-    !coefficients
-        .iter()
-        .any(|c| c.starts_with("network_kwh_per_byte=") && *c != default_entry)
 }
 
 /// Split the period total into its three terms, in kgCO2eq. One rule for
@@ -1887,18 +1904,57 @@ mod tests {
     }
 
     #[test]
-    fn transport_bracket_is_omitted_when_a_window_used_another_coefficient() {
-        // The bracket only means something around the fixed coefficient:
-        // a period holding a pre-0.9.25 custom one must not publish it.
-        let default_only: BTreeSet<String> = ["network_kwh_per_byte=0.00000000004".to_string()]
-            .into_iter()
-            .collect();
-        assert!(default_transport_coefficient_everywhere(&default_only));
-        assert!(default_transport_coefficient_everywhere(&BTreeSet::new()));
-        let custom: BTreeSet<String> = ["network_kwh_per_byte=0.0000000005".to_string()]
-            .into_iter()
-            .collect();
-        assert!(!default_transport_coefficient_everywhere(&custom));
+    fn transport_bracket_needs_every_window_to_declare_the_fixed_coefficient() {
+        use crate::score::carbon::{
+            CarbonEstimate, CarbonReport, DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH, ScoringConfig,
+        };
+        let estimate = || CarbonEstimate {
+            low: 0.0,
+            mid: 0.0,
+            high: 0.0,
+            model: String::new(),
+            methodology: String::new(),
+        };
+        let with_transport = |gco2: f64| CarbonReport {
+            total: estimate(),
+            avoidable: estimate(),
+            operational_gco2: 0.0,
+            embodied_gco2: 0.0,
+            transport_gco2: Some(gco2),
+            sci_per_trace: None,
+            functional_unit: String::new(),
+        };
+        let coefficient = |v: Option<f64>| ScoringConfig {
+            network_energy_per_byte_kwh: v,
+            ..ScoringConfig::default()
+        };
+
+        // A window declaring the fixed coefficient keeps the bracket.
+        let mut acc = Builder::default();
+        acc.fold_transport_coefficient(
+            Some(&with_transport(4.0)),
+            Some(&coefficient(Some(DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH))),
+        );
+        assert!(!acc.transport_coefficient_uncertain);
+
+        // A custom one disqualifies the period.
+        let mut acc = Builder::default();
+        acc.fold_transport_coefficient(Some(&with_transport(4.0)), Some(&coefficient(Some(5e-10))));
+        assert!(acc.transport_coefficient_uncertain);
+
+        // So does an absent one: pre-0.9.25 windows record no coefficient
+        // and could have been scored with anything.
+        let mut acc = Builder::default();
+        acc.fold_transport_coefficient(Some(&with_transport(4.0)), Some(&coefficient(None)));
+        assert!(acc.transport_coefficient_uncertain);
+        let mut acc = Builder::default();
+        acc.fold_transport_coefficient(Some(&with_transport(4.0)), None);
+        assert!(acc.transport_coefficient_uncertain);
+
+        // A window that contributed no transport says nothing either way.
+        let mut acc = Builder::default();
+        acc.fold_transport_coefficient(Some(&with_transport(0.0)), None);
+        assert!(!acc.transport_coefficient_uncertain);
 
         let with_bracket = build_carbon_breakdown(10.0, 0.0, 4.0, None, None, true).unwrap();
         assert!(with_bracket.transport_kgco2eq_low.is_some());
