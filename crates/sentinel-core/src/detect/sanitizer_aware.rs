@@ -17,7 +17,8 @@ use crate::normalize::NormalizedEvent;
 /// `redundant_sql` findings on legitimate repeated identical queries).
 /// `Auto` favors recall, `Strict` favors precision, `Always` and `Never`
 /// are the two ends of the dial.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SanitizerAwareMode {
     /// Reclassify when **either** the ORM scope signal **or** the timing
     /// variance signal fires. Default. Best recall on production stacks

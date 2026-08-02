@@ -445,8 +445,9 @@ impl Severity {
     }
 }
 
-/// Configuration for the detection stage.
-#[derive(Debug, Clone)]
+/// Configuration for the detection stage. Serialized into
+/// `Report.detection_config` so consumers see the producing run's values.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DetectConfig {
     pub n_plus_one_threshold: u32,
     pub window_ms: u64,

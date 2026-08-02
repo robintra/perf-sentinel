@@ -100,6 +100,11 @@ pub struct Report {
     /// `None` in batch and live outputs. Additive via `serde(default)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disclosure_waste: Option<DisclosureWaste>,
+    /// The `[detection]` thresholds the producing run detected with, so
+    /// consumers can state values, not only key names. Absent on
+    /// pre-0.9.25 baselines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detection_config: Option<crate::detect::DetectConfig>,
 }
 
 /// A finding paired with the acknowledgment that suppressed it.
