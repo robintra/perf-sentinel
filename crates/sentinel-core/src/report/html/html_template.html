@@ -116,13 +116,16 @@
   [data-nav].ps-tab-disabled:hover { color: var(--text-2); background: transparent; }
   [data-nav].ps-tab-disabled:hover > .ps-nav-dot { background: currentColor; opacity: .45; }
   .ps-tab-disabled .ps-nav-dot, .ps-tab-disabled .ps-nav-label { opacity: .45; }
-  .ps-nav-help { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--text-3); font-family: var(--font-mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: help; }
+  .ps-nav-help { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--text-3); font-family: var(--font-mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: help; padding-top: 1px; box-sizing: border-box; }
   .ps-detail-h2 .ps-nav-help { margin-left: 9px; vertical-align: 3px; }
+  #topbar-h1 .ps-nav-help { margin-left: 9px; vertical-align: 3px; }
+  .ps-metric-label .ps-nav-help { margin-left: 6px; width: 14px; height: 14px; font-size: 9px; vertical-align: 2px; }
   /* Floating tip box appended to <body>: .ps-nav clips with overflow auto,
      a CSS-only ::after tooltip cannot escape the sidebar. */
   .ps-tipbox { position: fixed; z-index: 60; width: max-content; max-width: 320px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 12px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.9; pointer-events: none; }
   .ps-tipbox::before { content: ""; position: absolute; left: -5px; top: 50%; width: 8px; height: 8px; transform: translateY(-50%) rotate(45deg); background: inherit; border-left: 1px solid var(--border-2); border-bottom: 1px solid var(--border-2); }
   .ps-tipbox .ps-code-inline { font-size: 10.5px; white-space: nowrap; }
+  .ps-metric-sub .ps-code-inline { font-size: 10px; white-space: nowrap; }
   /* The run-context line (batch/CI, daemon staging/prod) and the version
      line show in every mode. The dot only pulses in live/daemon mode. */
   .ps-sidebar-foot { display: flex; height: 62px; padding: 0 16px; border-top: 1px solid var(--border); flex-direction: column; justify-content: center; gap: 6px; }
@@ -1424,12 +1427,29 @@
     green: { title: "Carbon", eyebrow: "greenops" },
     acknowledgments: { title: "Acknowledgments", eyebrow: "acks" }
   };
+  // What each data tab shows and where the figures come from, behind a
+  // "?" beside the section title. Sourced from docs/METHODOLOGY.md and
+  // the module docs of the producing code.
+  var TAB_HELP = {
+    correlations: "A recurring co-occurrence between two findings from different services, computed by the daemon over its rolling window (opt-in via `[daemon.correlation]`). A pair is reported once it repeats at least `min_co_occurrences` times within `lag_threshold_ms` of each other. `conf` is the share of the source finding's occurrences followed by the target, `lag` the median delay between the two, and the trace count how many times the pair co-occurred.",
+    pgstat: "Server-side statistics from the PostgreSQL `pg_stat_statements` extension: cumulative per-template figures (calls, total and mean time) measured by the database itself, unlike findings, which come from traces. Loaded with `--pg-stat <file>` or `--pg-stat-prometheus <url>`, top entries per ranking. A SQL span in Explain whose template matches a row links to this tab.",
+    mysqlstat: "Server-side statistics from the MySQL Performance Schema (`events_statements_summary_by_digest`): cumulative per-digest figures measured by the database itself. Loaded with `--mysql-stat <file>`, with the same ranking switcher as pg_stat.",
+    green: "GreenOps scoring on the SCI v1.0 methodology: carbon is `(E x I) + M + T`, energy times grid intensity, plus embodied hardware, plus network transport, summed over the analyzed traffic. The model tag says whether the energy was measured (RAPL, BMC, SPECpower) or modeled from I/O counts. Each card carries its own help."
+  };
   function updateTopbarTitle(key) {
     var meta = ROUTE_META[key] || { title: key, eyebrow: "" };
     var eb = document.getElementById("topbar-eyebrow");
     var h1 = document.getElementById("topbar-h1");
     if (eb) eb.textContent = "// " + meta.eyebrow;
-    if (h1) h1.textContent = meta.title;
+    if (h1) {
+      h1.textContent = meta.title;
+      if (TAB_HELP[key]) {
+        var help = el("span", "ps-nav-help", "?");
+        setAttr(help, "aria-label", TAB_HELP[key]);
+        wireTip(help, TAB_HELP[key]);
+        h1.appendChild(help);
+      }
+    }
   }
 
   // -------- tabs (generic) --------
@@ -2675,11 +2695,23 @@
   // -------- green panel --------
   // Builds a metric card with a brand-toned value (Carbon panel uses
   // green numbers throughout).
-  function greenCard(label, value, sub, tone) {
+  function greenCard(label, value, sub, tone, help) {
     var card = metricCard(label, value, sub);
+    // Backticked segments in the sub render as code chips, like prose.
+    if (sub && sub.indexOf("`") !== -1) {
+      var subEl = card.querySelector(".ps-metric-sub");
+      subEl.textContent = "";
+      proseInto(subEl, sub);
+    }
     var v = card.querySelector(".ps-metric-value");
     if (v) setAttr(v, "data-tone", tone || "brand");
     setAttr(card, "data-grad", tone || "brand");
+    if (help) {
+      var icon = el("span", "ps-nav-help", "?");
+      setAttr(icon, "aria-label", help);
+      wireTip(icon, help);
+      card.querySelector(".ps-metric-label").appendChild(icon);
+    }
     return card;
   }
 
@@ -2734,17 +2766,22 @@
     metrics.appendChild(greenCard(
       "Total CO2",
       formatGco2(co2.total.mid),
-      "low " + formatGco2(co2.total.low) + " · high " + formatGco2(co2.total.high)
+      "low " + formatGco2(co2.total.low) + " · high " + formatGco2(co2.total.high),
+      null,
+      "The SCI v1.0 numerator summed over analyzed traces: operational `(E x I)` + embodied `M` + network transport `T`. The low/high bracket is log-symmetric (half, double): a directional estimate, not a wattmeter reading."
     ));
-    metrics.appendChild(greenCard("Operational CO2", formatGco2(co2.operational_gco2), "E × I"));
-    metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term"));
+    metrics.appendChild(greenCard("Operational CO2", formatGco2(co2.operational_gco2), "E × I", null,
+      "Carbon from actually running the workload: energy used times the grid carbon intensity of the resolved region. The only term a code fix can reduce."));
+    metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term", null,
+      "Hardware manufacturing carbon amortized over traffic: `[green] embodied_carbon_per_request_gco2` per request. Real, but irreducible by fixing an anti-pattern."));
     var avoidMid = co2.avoidable.mid;
     // Accent marks actionable savings; a zero amount has nothing to act on.
     metrics.appendChild(greenCard(
       "Avoidable",
       formatGco2(avoidMid),
       percent(avoidMid, co2.operational_gco2) + " of operational",
-      avoidMid > 0 ? "accent" : "neutral"
+      avoidMid > 0 ? "accent" : "neutral",
+      "The operational share attributable to avoidable I/O: operational carbon times avoidable ops over accounted ops. This is the number an anti-pattern fix shrinks."
     ));
     metrics.appendChild(greenCard(
       "I/O waste ratio",
@@ -2752,14 +2789,16 @@
       (greenSummary.total_sql_io_ops || 0) > 0
         ? "avoidable / total ops · SQL " + fmtNum(greenSummary.avoidable_sql_io_ops || 0) + " of " + fmtNum(greenSummary.total_sql_io_ops)
         : "avoidable / total ops",
-      bandTone(greenSummary.io_waste_ratio_band)
+      bandTone(greenSummary.io_waste_ratio_band),
+      "Avoidable I/O operations (N+1, redundant calls) over all I/O operations of the window. Bands: healthy under 10%, moderate to 30%, high to 50%, critical above."
     ));
     var topOff = greenSummary.top_offenders && greenSummary.top_offenders[0];
     metrics.appendChild(greenCard(
       "IIS score",
       topOff && Number.isFinite(topOff.io_intensity_score) ? topOff.io_intensity_score.toFixed(1) : "-",
       "I/O intensity per call",
-      bandTone(topOff && topOff.io_intensity_band)
+      bandTone(topOff && topOff.io_intensity_band),
+      "I/O Intensity Score of the worst endpoint: its I/O operations (SQL, outbound HTTP, publishes) per call. Bands at 2, 5 and 10."
     ));
     // Measured on the declared Alumet database cgroup, or estimated
     // from the modeled SQL energy; the model tag says which. Excluded
@@ -2774,20 +2813,22 @@
         Math.round((dbw.sql_waste_ratio || 0) * 100) + "% SQL · " +
         (dbw.model || "-") + (dbw.region ? " · " + dbw.region : "") +
         " · " + dbScope +
-        (dbw.model === "estimated" ? " · measured needs [green.alumet.database]" : "");
+        (dbw.model === "estimated" ? " · measured needs `[green.alumet.database]`" : "");
       metrics.appendChild(greenCard(
         "Database waste",
         dbValue,
         dbSub,
-        dbw.waste_kwh > 0 ? "accent" : "neutral"
+        dbw.waste_kwh > 0 ? "accent" : "neutral",
+        "Avoidable database-side energy: measured on the declared database cgroup (Alumet) or estimated from the modeled SQL energy times the SQL waste ratio, the model tag says which. Estimated re-presents a share of the report totals, measured is an additional, separate scope."
       ));
     } else {
       // Greyed rather than absent, so a reader sees why no figure exists.
       metrics.appendChild(greenCard(
         "Database waste",
         "-",
-        "not measured · no SQL activity, a measured reading needs [green.alumet.database]",
-        "muted"
+        "not measured · no SQL activity, a measured reading needs `[green.alumet.database]`",
+        "muted",
+        "Avoidable database-side energy: measured on the declared database cgroup (Alumet) or estimated from the modeled SQL energy times the SQL waste ratio, the model tag says which. Estimated re-presents a share of the report totals, measured is an additional, separate scope."
       ));
     }
 
@@ -2801,19 +2842,21 @@
         Math.round((mw.messaging_waste_ratio || 0) * 100) + "% messaging · " +
         (mw.model || "-") + (mw.region ? " · " + mw.region : "") +
         " · " + mwScope +
-        (mw.model === "estimated" ? " · measured needs [green.alumet.broker]" : "");
+        (mw.model === "estimated" ? " · measured needs `[green.alumet.broker]`" : "");
       metrics.appendChild(greenCard(
         "Broker waste",
         mwValue,
         mwSub,
-        mw.waste_kwh > 0 ? "accent" : "neutral"
+        mw.waste_kwh > 0 ? "accent" : "neutral",
+        "Same as database waste, for the message broker: measured cgroup (Alumet), declared cluster (SPECpower) or estimated from the modeled publish energy. Kept out of every total."
       ));
     } else {
       metrics.appendChild(greenCard(
         "Broker waste",
         "-",
         "not measured · no broker publish spans, or no broker energy backend",
-        "muted"
+        "muted",
+        "Same as database waste, for the message broker: measured cgroup (Alumet), declared cluster (SPECpower) or estimated from the modeled publish energy. Kept out of every total."
       ));
     }
 
