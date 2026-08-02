@@ -382,6 +382,76 @@ struct Builder {
     observed_days: BTreeSet<NaiveDate>,
 }
 
+/// The chain anchor: the previous line's hash and its sequence number.
+type ChainAnchor = Option<(String, u64)>;
+
+/// One line's worth of chain state, threaded through [`Builder::walk_chain_line`].
+struct ChainStep<'a> {
+    parsed: Option<&'a mut serde_json::Value>,
+    expected: &'a mut ChainAnchor,
+    chain_started: &'a mut bool,
+    in_scope: bool,
+    previous_in_scope: bool,
+    next_seq: &'a dyn Fn(&ChainAnchor) -> u64,
+    path: &'a Path,
+    line_no: usize,
+    warned_break: &'a mut bool,
+}
+
+impl Builder {
+    /// Advance the integrity chain by one archive line. Split out of
+    /// `process_file` so that loop stays under the complexity gate.
+    fn walk_chain_line(&mut self, step: ChainStep<'_>) {
+        // An unparseable line is a crash-truncated fragment, not an edit.
+        // The anchor is kept, a destroyed window still surfaces as a break
+        // through its successor's `prev`.
+        let outcome = step.parsed.map_or(ChainOutcome::Malformed, |value| {
+            verify_chain_value(value, step.expected.as_ref())
+        });
+        match outcome {
+            // The typed fold counts it under malformed_lines_skipped.
+            ChainOutcome::Malformed => {}
+            ChainOutcome::Verified(hash) => {
+                *step.chain_started = true;
+                if step.in_scope {
+                    self.chain_verified += 1;
+                }
+                let seq = (step.next_seq)(step.expected);
+                *step.expected = Some((hash, seq));
+            }
+            // Unchained is benign only before the file's chain starts:
+            // those lines predate chaining. Once a line has verified, a
+            // later one without a `hash` is a field that was removed,
+            // which is exactly the edit the chain exists to catch.
+            ChainOutcome::Unchained if !*step.chain_started => {
+                if step.in_scope {
+                    self.chain_unchained += 1;
+                }
+            }
+            ChainOutcome::Unchained => {
+                self.count_break(step.in_scope || step.previous_in_scope);
+                // No hash to chain onto, so the anchor is dropped and the
+                // next chained line re-establishes it.
+                *step.expected = None;
+                warn_break(step.path, step.line_no, step.warned_break);
+            }
+            ChainOutcome::Break(hash) => {
+                *step.chain_started = true;
+                // The current line reveals a removed predecessor. If that
+                // predecessor was the last in-period line, the break
+                // affects this report even when the revealing line itself
+                // is just outside the boundary.
+                self.count_break(step.in_scope || step.previous_in_scope);
+                // Resynchronise on this line's own hash and seq, so one
+                // edit reports one break rather than poisoning the tail.
+                let seq = (step.next_seq)(step.expected);
+                *step.expected = Some((hash, seq));
+                warn_break(step.path, step.line_no, step.warned_break);
+            }
+        }
+    }
+}
+
 impl Builder {
     fn process_file(
         &mut self,
@@ -430,50 +500,17 @@ impl Builder {
                     .unwrap_or_else(|| expected.as_ref().map_or(0, |(_, seq)| *seq))
                     .saturating_add(1)
             };
-            // An unparseable line is a crash-truncated fragment, not an
-            // edit. The anchor is kept, a destroyed window still surfaces
-            // as a break through its successor's `prev`.
-            match parsed.as_mut().map_or(ChainOutcome::Malformed, |value| {
-                verify_chain_value(value, expected.as_ref())
-            }) {
-                // The typed fold counts it under malformed_lines_skipped.
-                ChainOutcome::Malformed => {}
-                ChainOutcome::Verified(hash) => {
-                    chain_started = true;
-                    if in_scope {
-                        self.chain_verified += 1;
-                    }
-                    expected = Some((hash, next_seq(&expected)));
-                }
-                // Unchained is benign only before the file's chain starts:
-                // those lines predate chaining. Once a line has verified,
-                // a later one without a `hash` is a field that was removed,
-                // which is exactly the edit the chain exists to catch.
-                ChainOutcome::Unchained if !chain_started => {
-                    if in_scope {
-                        self.chain_unchained += 1;
-                    }
-                }
-                ChainOutcome::Unchained => {
-                    self.count_break(in_scope || previous_in_scope);
-                    // No hash to chain onto, so the anchor is dropped and
-                    // the next chained line re-establishes it.
-                    expected = None;
-                    warn_break(path, line_no, &mut warned_break);
-                }
-                ChainOutcome::Break(hash) => {
-                    chain_started = true;
-                    // The current line reveals a removed predecessor. If
-                    // that predecessor was the last in-period line, the
-                    // break affects this report even when the revealing
-                    // line itself is just outside the boundary.
-                    self.count_break(in_scope || previous_in_scope);
-                    // Resynchronise on this line's own hash and seq, so one
-                    // edit reports one break rather than poisoning the tail.
-                    expected = Some((hash, next_seq(&expected)));
-                    warn_break(path, line_no, &mut warned_break);
-                }
-            }
+            self.walk_chain_line(ChainStep {
+                parsed: parsed.as_mut(),
+                expected: &mut expected,
+                chain_started: &mut chain_started,
+                in_scope,
+                previous_in_scope,
+                next_seq: &next_seq,
+                path,
+                line_no,
+                warned_break: &mut warned_break,
+            });
             if parsed.is_some() {
                 previous_in_scope = in_scope;
             }

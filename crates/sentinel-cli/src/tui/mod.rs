@@ -852,30 +852,7 @@ impl App {
                 dim,
             )));
         }
-        match &gs.database_waste {
-            Some(db) => lines.push(Line::from(Span::raw(format!(
-                "Database waste: {:.6} kWh of {:.6} kWh (model {})",
-                db.waste_kwh,
-                db.energy_kwh,
-                sanitize_for_terminal(&db.model),
-            )))),
-            None => lines.push(Line::from(Span::styled(
-                "Database waste: not measured (no SQL activity, a measured reading needs [green.alumet.database])",
-                dim,
-            ))),
-        }
-        match &gs.messaging_waste {
-            Some(mw) => lines.push(Line::from(Span::raw(format!(
-                "Broker waste: {:.6} kWh of {:.6} kWh (model {})",
-                mw.waste_kwh,
-                mw.energy_kwh,
-                sanitize_for_terminal(&mw.model),
-            )))),
-            None => lines.push(Line::from(Span::styled(
-                "Broker waste: not measured (no broker publish spans, or no broker energy backend)",
-                dim,
-            ))),
-        }
+        push_subsystem_waste_lines(&mut lines, gs, dim);
         lines.push(Line::from(""));
 
         if !gs.top_offenders.is_empty() {
@@ -1378,6 +1355,40 @@ pub(crate) fn tab_label_style(active: bool) -> Style {
             .add_modifier(Modifier::BOLD | Modifier::REVERSED)
     } else {
         dim_style()
+    }
+}
+
+/// The database and broker waste lines, each greyed with its cause when
+/// the figure is absent. Split out of `build_analyze_lines` to keep that
+/// function under the cognitive-complexity gate.
+fn push_subsystem_waste_lines(
+    lines: &mut Vec<Line<'static>>,
+    gs: &sentinel_core::report::GreenSummary,
+    dim: Style,
+) {
+    match &gs.database_waste {
+        Some(db) => lines.push(Line::from(Span::raw(format!(
+            "Database waste: {:.6} kWh of {:.6} kWh (model {})",
+            db.waste_kwh,
+            db.energy_kwh,
+            sanitize_for_terminal(&db.model),
+        )))),
+        None => lines.push(Line::from(Span::styled(
+            "Database waste: not measured (no SQL activity, a measured reading needs [green.alumet.database])",
+            dim,
+        ))),
+    }
+    match &gs.messaging_waste {
+        Some(mw) => lines.push(Line::from(Span::raw(format!(
+            "Broker waste: {:.6} kWh of {:.6} kWh (model {})",
+            mw.waste_kwh,
+            mw.energy_kwh,
+            sanitize_for_terminal(&mw.model),
+        )))),
+        None => lines.push(Line::from(Span::styled(
+            "Broker waste: not measured (no broker publish spans, or no broker energy backend)",
+            dim,
+        ))),
     }
 }
 

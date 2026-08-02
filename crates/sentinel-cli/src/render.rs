@@ -698,6 +698,39 @@ fn format_region_line(region: &sentinel_core::score::carbon::RegionBreakdown) ->
     )
 }
 
+/// The three figures that can legitimately be absent. Each prints greyed
+/// with its cause rather than vanishing, so a reader sees why a number is
+/// missing instead of not knowing it exists.
+fn print_absent_aware_figures(
+    summary: &sentinel_core::report::GreenSummary,
+    traces_analyzed: usize,
+    dim: &str,
+    reset: &str,
+) {
+    match summary.co2.as_ref() {
+        Some(carbon) => print_carbon_summary(carbon),
+        // The trace count is the only honest discriminant: a daemon stamps
+        // scoring_config whenever Electricity Maps is configured, green
+        // scoring off included.
+        None if traces_analyzed == 0 => {
+            println!("  {dim}Carbon:            not computed (no traces analyzed){reset}");
+        }
+        None => println!("  {dim}Carbon:            not computed ([green] enabled = false){reset}"),
+    }
+    match &summary.database_waste {
+        Some(db) => println!("{}", format_database_waste_line(db)),
+        None => println!(
+            "  {dim}Database waste:    not measured (no SQL activity, a measured reading needs [green.alumet.database]){reset}"
+        ),
+    }
+    match &summary.messaging_waste {
+        Some(mw) => println!("{}", format_messaging_waste_line(mw)),
+        None => println!(
+            "  {dim}Broker waste:      not measured (no broker publish spans, or no broker energy backend){reset}"
+        ),
+    }
+}
+
 fn print_green_summary(
     summary: &sentinel_core::report::GreenSummary,
     traces_analyzed: usize,
@@ -732,33 +765,7 @@ fn print_green_summary(
         waste_level.short_label(),
     );
 
-    // Absent figures print greyed rather than disappearing, so a reader
-    // sees why a number is missing instead of not knowing it exists.
-    if let Some(carbon) = summary.co2.as_ref() {
-        print_carbon_summary(carbon);
-    } else if traces_analyzed == 0 {
-        // The trace count is the only honest discriminant here: a daemon
-        // stamps scoring_config whenever Electricity Maps is configured,
-        // green scoring off included.
-        println!("  {dim}Carbon:            not computed (no traces analyzed){reset}");
-    } else {
-        println!("  {dim}Carbon:            not computed ([green] enabled = false){reset}");
-    }
-
-    if let Some(db) = &summary.database_waste {
-        println!("{}", format_database_waste_line(db));
-    } else {
-        println!(
-            "  {dim}Database waste:    not measured (no SQL activity, a measured reading needs [green.alumet.database]){reset}"
-        );
-    }
-    if let Some(mw) = &summary.messaging_waste {
-        println!("{}", format_messaging_waste_line(mw));
-    } else {
-        println!(
-            "  {dim}Broker waste:      not measured (no broker publish spans, or no broker energy backend){reset}"
-        );
-    }
+    print_absent_aware_figures(summary, traces_analyzed, dim, reset);
 
     // Carbon scoring config header. Hidden when Electricity Maps is not
     // configured: `scoring_config` is built on every green-scored run, so its
