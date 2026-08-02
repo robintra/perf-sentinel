@@ -2337,9 +2337,6 @@
   // master list and the always-visible detail stay in sync.
   function selectFinding(idx) {
     if (idx < 0 || idx >= visibleFindings.length) return;
-    // The detail pane is about to be rebuilt: a tooltip anchored to the
-    // old "?" would never see its mouseleave.
-    sweepTips();
     // Re-selecting the same finding (same index AND same object) would
     // rebuild an already-correct detail pane. The object check keeps it
     // correct when a re-render shifts which finding sits at this index.
@@ -2600,6 +2597,10 @@
   }
 
   function openExplain(f) {
+    // The detail pane is about to be rebuilt: a tooltip anchored to the
+    // old "?" would never see its mouseleave. Swept here rather than in
+    // one caller, openExplain has four.
+    sweepTips();
     detailFinding = f;
     document.getElementById("explain-empty").style.display = "none";
     var content = document.getElementById("explain-content");
@@ -2796,12 +2797,14 @@
   // Whole-trace findings match no span template, so they highlight by
   // event type instead: the culprit is the whole set of calls (embedded
   // spans carry no timestamps, per-span precision is out of reach).
-  // "*" means every event type: detect_serialized chains siblings of any
-  // kind, so pinning it to http_out left SQL chains with nothing lit.
+  // Whole-trace findings whose culprit set IS an event type: every
+  // outbound call for chatty, every query for pool saturation.
+  // serialized_calls is deliberately absent: its culprit is one specific
+  // chain of siblings, and an embedded span carries neither the chain nor
+  // a timestamp, so any rule here would light the wrong rows.
   var WHOLE_TRACE_HILITE = {
     chatty_service: "http_out",
-    pool_saturation: "sql",
-    serialized_calls: "*"
+    pool_saturation: "sql"
   };
   var treeHasTplMatch = false;
   var treeTargetEvt = null;
@@ -2819,18 +2822,18 @@
     treeTargetEvt = treeHasTplMatch ? null
       : (WHOLE_TRACE_HILITE[finding.type || finding.finding_type] || null);
     treeChildren = tree.childrenByParent || {};
-    // Dimming every row with nothing lit is unreadable, so the event rule
-    // only applies when it actually matches a leaf.
-    if (treeTargetEvt && !spans.some(function (sp) {
-      return (treeTargetEvt === "*" || sp.event_type === treeTargetEvt) &&
-        !(tree.childrenByParent[sp.span_id] || []).length;
-    })) {
-      treeTargetEvt = null;
-    }
     // The highlight tint follows the finding severity (see [data-fsev] CSS).
     var host = root.closest ? root.closest(".ps-tree") : null;
     setAttr(host || root, "data-fsev", finding.severity || "");
     emitSpanTreeRows(root, spans, tree, targetTpl);
+    // Decided on what was actually rendered, not on the whole trace: the
+    // emitter caps rows and depth, so a matching span can exist and never
+    // reach the DOM. Dimming everything with nothing lit is unreadable.
+    if (!root.querySelector(".ps-span.hilite")) {
+      root.querySelectorAll(".ps-span.dim").forEach(function (row) {
+        row.classList.remove("dim");
+      });
+    }
   }
 
   function buildSpanRow(span, depth, targetTpl) {
@@ -2839,8 +2842,7 @@
     // flood of calls is context, not a culprit.
     var isFinding = treeHasTplMatch
       ? (targetTpl && span.template === targetTpl)
-      : (treeTargetEvt &&
-         (treeTargetEvt === "*" || span.event_type === treeTargetEvt) &&
+      : (treeTargetEvt && span.event_type === treeTargetEvt &&
          !(treeChildren[span.span_id] || []).length);
     if (isFinding) row.classList.add("hilite");
     else if (treeHasTplMatch || treeTargetEvt) row.classList.add("dim");
@@ -2979,9 +2981,9 @@
       document.getElementById("green-metrics").appendChild(greenCard(
         "Carbon",
         "-",
-        greenSummary && greenSummary.scoring_config
+        (report.analysis && report.analysis.traces_analyzed === 0)
           ? "No traces were analyzed in this run, so there is no operational, embodied or transport figure to show."
-          : "GreenOps scoring is off ([green] enabled = false), or no traces were analyzed: no operational, embodied or transport figure for this run.",
+          : "GreenOps scoring is off ([green] enabled = false): no operational, embodied or transport figure for this run.",
         "muted"
       ));
       return;
@@ -4839,11 +4841,12 @@
       ev.preventDefault();
       return;
     }
-    // The native dialog closes itself on Escape: stop here so the same
-    // keydown does not also clear the user's filter chips.
-    var topicDlg = document.getElementById("topic-help");
-    if (topicDlg && topicDlg.open) {
-      topicDlg.close();
+    // Any other open modal (topic help, ack, auth) closes itself on
+    // Escape: stop here so the same keydown does not also clear the
+    // user's filter chips underneath it.
+    var openDlg = document.querySelector("dialog[open]");
+    if (openDlg) {
+      openDlg.close();
       ev.preventDefault();
       return;
     }
@@ -5010,9 +5013,11 @@
     } else {
       var conf = findings.length ? findings[0].confidence : null;
       // A quiet daemon window has no finding to read the mode from, so
-      // fall back to the live handle like renderSidebarContext does.
-      var daemonRun = conf === "daemon_staging" || conf === "daemon_production" ||
-        !!(payload.daemon && payload.daemon.url);
+      // fall back to the live handle exactly like renderSidebarContext:
+      // only when the confidence itself says nothing.
+      var daemonRun = CONFIDENCE_CONTEXT[conf]
+        ? (conf === "daemon_staging" || conf === "daemon_production")
+        : !!(payload.daemon && payload.daemon.url);
       registerDisabledTab("correlations", "Correlations", daemonRun
         ? "The daemon reported no cross-trace correlation: `[daemon.correlation]` may be disabled in the config, or none was detected in the window."
         : "Cross-trace correlations are a daemon-only output (`perf-sentinel watch`). This report came from a batch run, which analyzes each trace alone.");
