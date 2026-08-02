@@ -42,6 +42,18 @@ use crate::score::carbon::{CarbonReport, RegionBreakdown, ScoringConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Read `detection_config` without ever failing the enclosing report: a
+/// shape this binary cannot parse becomes `None`.
+fn lenient_detection_config<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::detect::DetectConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
 /// A complete analysis report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Report {
@@ -102,8 +114,13 @@ pub struct Report {
     pub disclosure_waste: Option<DisclosureWaste>,
     /// The `[detection]` thresholds the producing run detected with, so
     /// consumers can state values, not only key names. Absent on
-    /// pre-0.9.25 baselines.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// pre-0.9.25 baselines, and on any baseline whose shape this binary
+    /// cannot read: the field is informational, so a renamed threshold or
+    /// an unknown enum variant degrades to `None` rather than failing the
+    /// whole report parse. Half-read thresholds would be worse than none,
+    /// consumers display them as the values that produced the findings.
+    #[serde(default, deserialize_with = "lenient_detection_config")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detection_config: Option<crate::detect::DetectConfig>,
 }
 

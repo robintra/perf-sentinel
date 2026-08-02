@@ -448,11 +448,12 @@ impl Severity {
 /// Configuration for the detection stage. Serialized into
 /// `Report.detection_config` so consumers see the producing run's values.
 ///
-/// `serde(default)`: the field is informational, so a baseline written by
-/// another version must never fail the whole `Report` parse over a
-/// renamed or dropped threshold.
+/// Deserialization stays strict on purpose: a partially drifted object
+/// must not silently become this binary's defaults, or the dashboard
+/// would state thresholds that never produced the findings. The
+/// tolerance lives one level up, on `Report::detection_config`, which
+/// degrades a shape it cannot read to `None`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
 pub struct DetectConfig {
     pub n_plus_one_threshold: u32,
     pub window_ms: u64,
