@@ -25,10 +25,13 @@ Output tapes/demo-monitor-advisor-unused.gif
 
 Set Shell "bash"
 Set FontSize 13
-Set Width 1600
+Set Width 1200
 # The Advisor tab holds only a title, a one-line description and the
 # hint, so a short viewport avoids a near-empty capture.
-Set Height 200
+# 16/9 rather than the 8:1 strip the content alone fills: the hint is one
+# long line, and a page-wide sliver reads as a cropping accident. The
+# empty space below is deliberate, so trim-bottom-png must NOT run here.
+Set Height 675
 Set TypingSpeed 100ms
 Set Padding 15
 Set Framerate 20
@@ -61,8 +64,10 @@ Show
 Type "perf-sentinel query --daemon http://127.0.0.1:14318 monitor --refresh 3"
 Sleep 800ms
 Enter
-# Opens on the Advisor tab, which now carries the tuning hint.
-Sleep 3s
+# Opens on the Advisor tab, which carries the tuning hint. Waits past a
+# full refresh cycle (3s): the first snapshot can predate the ingest, and
+# capturing it yields "No hints" on a daemon that does emit one.
+Sleep 7s
 Screenshot docs/img/monitor/advisor.png
 Sleep 1500ms
 
