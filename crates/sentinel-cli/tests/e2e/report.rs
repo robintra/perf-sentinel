@@ -876,8 +876,9 @@ fn cli_report_renders_correlations_from_daemon_shape() {
         corrs[0]["sample_trace_id"].as_str().unwrap(),
         "daemon-trace-1"
     );
-    // Live DOM behavior covered by the Playwright suite. Each side of the
-    // pair is its own click zone since 0.9.25.
+    // The rendered markup carries a click zone per side of the pair. The
+    // click behaviour itself is covered by browser test 24, which drives
+    // the same class.
     assert!(html.contains("ps-corr-side-link"));
 }
 

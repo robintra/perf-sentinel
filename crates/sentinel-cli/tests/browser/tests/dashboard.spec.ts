@@ -431,15 +431,17 @@ test("17. pg_stat actions stay grouped and right-aligned at every width", async 
   }
 });
 
-test("24. a correlation opens the target-side detail with its span highlighted", async ({ page }) => {
-  // sample_trace_id is the target-side finding's trace, so the synthetic
-  // finding must describe the target (type + severity, never "undefined"), and
-  // its template must be the one in that trace so the tree highlights the span.
+test("24. each side of a correlation opens its own finding", async ({ page }) => {
+  // Since 0.9.25 the card is split in two click zones: the source side
+  // opens the triggering finding, the target side the triggered one. The
+  // detail must never read "undefined", and the tree must light a span.
   await page.goto("/dashboard-demo.html#correlations");
   await page.waitForSelector("[role=tablist]");
-  const card = page.locator(".ps-correlation-clickable").first();
-  test.skip(await card.count() === 0, "demo fixture has no clickable correlation");
-  await card.click();
+  const zones = page.locator("#correlations-list .ps-corr-side-link");
+  const zoneCount = await zones.count();
+  expect(zoneCount, "the demo fixture must carry clickable correlation sides")
+    .toBeGreaterThan(0);
+  await zones.first().click();
   const h2 = page.locator("#explain-detail-head .ps-detail-h2");
   await expect(h2).toBeVisible();
   await expect(h2).not.toHaveText(/undefined/i);

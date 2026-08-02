@@ -325,24 +325,35 @@ fn correlation_cards_land_on_and_announce_the_real_findings() {
     );
 }
 
+/// Locks four decisions into the shipped template. These are string
+/// pins, not behaviour: the logic they guard runs in a browser and is
+/// covered by the Playwright suite. They exist so a refactor cannot
+/// silently undo a decision whose rationale is a paragraph long.
 #[test]
-fn whole_trace_highlight_and_modal_escape_do_not_regress() {
+fn template_pins_the_whole_trace_highlight_and_escape_decisions() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));
-    // serialized_calls chains siblings of any event type, so the rule is
-    // "*", and the event rule only dims when it lights something.
+    // serialized_calls has no event-type rule: its culprit is one chain
+    // of siblings, and an embedded span carries neither the chain nor a
+    // timestamp, so any rule here would light the wrong rows.
+    let table_start = html
+        .find("var WHOLE_TRACE_HILITE")
+        .expect("the whole-trace highlight table must exist");
+    let table = &html[table_start..];
+    let table = &table[..table.find("};").expect("unterminated table")];
     assert!(
-        html.contains(r#"serialized_calls: "*""#),
-        "serialized_calls must not be pinned to http_out"
+        !table.contains("serialized_calls"),
+        "serialized_calls must not carry an event-type highlight rule"
     );
+    // The dim stands down on what was rendered, not on the whole trace.
     assert!(
-        html.contains("treeTargetEvt = null;"),
-        "the event rule must stand down when nothing matches"
+        html.contains(r#"querySelector(".ps-span.hilite")"#),
+        "the stand-down must read the rendered rows"
     );
-    // Escape closes the method sheet without clearing the filter chips.
+    // Escape closes any open modal without clearing the filter chips.
     assert!(
-        html.contains("topicDlg && topicDlg.open"),
-        "the Escape ladder needs a topic-help tier"
+        html.contains(r#"querySelector("dialog[open]")"#),
+        "the Escape ladder must cover every modal, not just one"
     );
     // Only real tabs take the roving tabindex: disabled ones stay reachable.
     assert!(
