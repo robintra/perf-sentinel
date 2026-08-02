@@ -296,6 +296,7 @@ struct DaemonCorsSection {
     allowed_origins: Vec<String>,
 }
 
+#[allow(deprecated)] // the two transport fields are retained for API compatibility only
 impl From<RawConfig> for Config {
     #[allow(clippy::too_many_lines)] // Sectioned config-to-typed mapping: splitting would scatter field assignments across helpers
     fn from(raw: RawConfig) -> Self {
@@ -389,6 +390,11 @@ impl From<RawConfig> for Config {
                     );
                 }
                 GreenConfig {
+                // Deprecated, retained for API compatibility: both report
+                // what scoring applies, never what the TOML asked for.
+                include_network_transport: true,
+                network_energy_per_byte_kwh:
+                    crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
                 enabled: raw.green.enabled.unwrap_or(green_defaults.enabled),
                 // Lowercase default_region and service_regions keys so
                 // resolve_region's lowercase lookup matches regardless of

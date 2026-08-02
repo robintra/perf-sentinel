@@ -185,6 +185,23 @@ pub struct GreenConfig {
     /// Whether to use per-operation energy coefficients (SQL verb weighting,
     /// HTTP payload size tiers) in the proxy model. Default: `true`.
     pub per_operation_coefficients: bool,
+    /// Deprecated since 0.9.25, retained for API compatibility. The
+    /// transport term is always computed, displayed and disclosed, so
+    /// this always reads `true` whatever the TOML said.
+    #[deprecated(
+        since = "0.9.25",
+        note = "the transport term is always shown; this value has no effect"
+    )]
+    pub include_network_transport: bool,
+    /// Deprecated since 0.9.25, retained for API compatibility. The
+    /// coefficient is fixed, so this always reads
+    /// [`DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`](crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH),
+    /// the value scoring actually applies, whatever the TOML said.
+    #[deprecated(
+        since = "0.9.25",
+        note = "the transport coefficient is fixed; this value has no effect"
+    )]
+    pub network_energy_per_byte_kwh: f64,
     /// Path to user-supplied hourly profiles JSON file. `None` when not
     /// configured (uses only embedded profiles).
     pub hourly_profiles_file: Option<String>,
@@ -364,8 +381,13 @@ impl Default for DetectionConfig {
 }
 
 impl Default for GreenConfig {
+    // The two deprecated transport fields are set to what scoring
+    // actually applies, so a downstream reader is never misled.
+    #[allow(deprecated)]
     fn default() -> Self {
         Self {
+            include_network_transport: true,
+            network_energy_per_byte_kwh: crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             enabled: true,
             default_region: None,
             service_regions: HashMap::new(),
@@ -447,9 +469,11 @@ impl Config {
     /// this and patches in the measured energy snapshot per tick; the
     /// batch pipeline uses it as-is (no scrapers in batch mode).
     #[must_use]
+    #[allow(deprecated)] // the transport toggle is retained for API compatibility only
     pub fn carbon_context(&self) -> crate::score::carbon::CarbonContext {
         let scoring_config = self.green.enabled.then(|| self.scoring_config());
         crate::score::carbon::CarbonContext {
+            include_network_transport: true,
             default_region: self.green.default_region.clone(),
             service_regions: self.green.service_regions.clone(),
             embodied_per_request_gco2: self.green.embodied_carbon_per_request_gco2,
