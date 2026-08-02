@@ -634,6 +634,8 @@ fn network_transport_contribution(
     // grid intensity and PUE as a proxy for the network infrastructure's
     // actual grid mix, which is distributed and unknown. Documented in
     // LIMITATIONS.md.
-    let transport_energy = bytes as f64 * ctx.network_energy_per_byte_kwh;
+    // The constant, not the context field: no code path can make two
+    // disclosures scale the same traffic differently.
+    let transport_energy = bytes as f64 * crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH;
     transport_energy * intensity_used * pue
 }

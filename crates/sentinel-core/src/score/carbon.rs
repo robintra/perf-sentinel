@@ -370,9 +370,14 @@ pub struct CarbonContext {
     pub energy_snapshot: Option<HashMap<String, EnergyEntry>>,
     /// SQL verb / HTTP size tier weighting (proxy model only).
     pub per_operation_coefficients: bool,
-    /// Energy per transported byte. Fixed since 0.9.25: every producer
-    /// writes [`DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`] so two disclosures
-    /// scale the same traffic identically.
+    /// Deprecated since 0.9.25, retained for API compatibility. Scoring
+    /// reads [`DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`] directly, so no code
+    /// path can scale transport differently, and this field always holds
+    /// that same value.
+    #[deprecated(
+        since = "0.9.25",
+        note = "the transport coefficient is fixed; this value has no effect"
+    )]
     pub network_energy_per_byte_kwh: f64,
     /// Deprecated since 0.9.25, retained for API compatibility. The
     /// transport term is always computed and always displayed, so this
