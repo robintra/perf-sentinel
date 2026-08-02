@@ -771,6 +771,31 @@ fn origin_for_path<'a>(origins: &'a HashMap<String, String>, path: &str) -> Opti
         .map(|(_, fragment)| fragment.as_str())
 }
 
+/// Attribute a `[section] field ...` validation message to the fragment
+/// that set it. `None` when two fragments claim different fields of the
+/// message, which would make the attribution a guess.
+fn origin_for_sectioned_message<'a>(
+    origins: &'a HashMap<String, String>,
+    section: &str,
+    detail: &str,
+) -> Option<&'a str> {
+    let mut matched = None;
+    for field in detail.split(|character: char| {
+        !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
+    }) {
+        if field.is_empty() {
+            continue;
+        }
+        if let Some(fragment) = unique_origin_for_subtree(origins, &format!("{section}.{field}")) {
+            if matched.is_some_and(|existing| existing != fragment) {
+                return None;
+            }
+            matched = Some(fragment);
+        }
+    }
+    matched.or_else(|| unique_origin_for_subtree(origins, section))
+}
+
 fn origin_for_validation<'a>(
     origins: &'a HashMap<String, String>,
     message: &str,
@@ -778,23 +803,7 @@ fn origin_for_validation<'a>(
     if let Some(rest) = message.strip_prefix('[')
         && let Some((section, detail)) = rest.split_once(']')
     {
-        let mut matched = None;
-        for field in detail.split(|character: char| {
-            !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
-        }) {
-            if field.is_empty() {
-                continue;
-            }
-            if let Some(fragment) =
-                unique_origin_for_subtree(origins, &format!("{section}.{field}"))
-            {
-                if matched.is_some_and(|existing| existing != fragment) {
-                    return None;
-                }
-                matched = Some(fragment);
-            }
-        }
-        return matched.or_else(|| unique_origin_for_subtree(origins, section));
+        return origin_for_sectioned_message(origins, section, detail);
     }
     let field = first_config_identifier(message)?;
     let field = match field {
