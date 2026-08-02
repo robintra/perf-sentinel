@@ -41,9 +41,10 @@ keep their `content_hash` when re-hashed on this binary.
 coefficient is fixed at 0.04 kWh/GB so every disclosure scales it
 identically), `include_network_transport` is deprecated and ignored too
 (the term is always computed, displayed and disclosed), both still parse
-with a warning, and `embodied_carbon_per_request_gco2 = 0.0` is rejected
-at startup, since a zeroed coefficient erased the embodied term from the
-disclosure.
+with a warning, and `embodied_carbon_per_request_gco2 = 0.0` warns and
+falls back to the default, since a zeroed coefficient erased the embodied
+term from the disclosure. No key in this release turns an upgrade into a
+boot failure.
 
 `perf-sentinel capture` also creates the directory of `--output` when it is
 missing, which is what the documented CI recipe needs on a clean workspace.
