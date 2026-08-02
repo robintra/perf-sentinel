@@ -230,11 +230,11 @@ fn green_panel_greys_out_absent_figures_instead_of_hiding_them() {
         "the disabled-tab mechanism must exist"
     );
     assert!(
-        html.contains("daemon-only output (perf-sentinel watch)"),
+        html.contains("daemon-only output (`perf-sentinel watch`)"),
         "the batch-run cause must be named"
     );
     assert!(
-        html.contains("[daemon.correlation] may be disabled"),
+        html.contains("`[daemon.correlation]` may be disabled"),
         "the daemon-run cause must be named"
     );
 }
