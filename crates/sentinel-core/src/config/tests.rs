@@ -923,13 +923,12 @@ fn rejects_negative_embodied_carbon() {
 }
 
 #[test]
-fn accepts_zero_embodied_carbon() {
-    let toml = r"
-[green]
-embodied_carbon_per_request_gco2 = 0.0
-";
-    let config = load_from_str(toml).unwrap();
-    assert!((config.green.embodied_carbon_per_request_gco2 - 0.0).abs() < f64::EPSILON);
+fn rejects_zero_embodied_carbon() {
+    // A zeroed coefficient would erase the M term from the disclosure.
+    let result = load_from_str("[green]\nembodied_carbon_per_request_gco2 = 0.0");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("must be > 0.0"), "got: {err}");
 }
 
 #[test]
@@ -1842,38 +1841,16 @@ fn carbon_context_omits_scoring_config_when_green_scoring_is_disabled() {
 }
 
 #[test]
-fn config_network_energy_per_byte_kwh_default() {
-    let cfg = Config::default();
-    assert!(
-        (cfg.green.network_energy_per_byte_kwh
-            - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
-            .abs()
-            < f64::EPSILON
-    );
-}
-
-#[test]
-fn config_network_energy_per_byte_kwh_rejects_negative() {
+fn config_network_energy_per_byte_kwh_is_parsed_and_ignored() {
+    // Deprecated 0.9.25: the key still parses (deny_unknown_fields would
+    // otherwise break old configs) but no longer reaches GreenConfig.
     let toml = r"
 [green]
-network_energy_per_byte_kwh = -0.001
+enabled = true
+network_energy_per_byte_kwh = 0.00000000008
 ";
     let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
-    let err = cfg.validate().unwrap_err();
-    assert!(err.contains("network_energy_per_byte_kwh"), "error: {err}");
-}
-
-#[test]
-fn config_network_energy_per_byte_kwh_rejects_nan() {
-    let cfg = Config {
-        green: GreenConfig {
-            network_energy_per_byte_kwh: f64::NAN,
-            ..GreenConfig::default()
-        },
-        ..Config::default()
-    };
-    let err = cfg.validate().unwrap_err();
-    assert!(err.contains("network_energy_per_byte_kwh"), "error: {err}");
+    assert!(cfg.green.enabled);
 }
 
 #[test]
@@ -1891,11 +1868,9 @@ fn config_include_network_transport_from_toml() {
     let toml = r"
 [green]
 include_network_transport = true
-network_energy_per_byte_kwh = 0.00000000008
 ";
     let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
     assert!(cfg.green.include_network_transport);
-    assert!((cfg.green.network_energy_per_byte_kwh - 0.000_000_000_08).abs() < f64::EPSILON);
 }
 
 // --- validate_http_authority error paths ---

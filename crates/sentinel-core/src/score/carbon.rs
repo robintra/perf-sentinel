@@ -44,11 +44,18 @@ const HTTP_LARGE_COEFF: f64 = 2.0; // payload > 1 MB
 const HTTP_SMALL_THRESHOLD: u64 = 10 * 1024; // 10 KB
 const HTTP_LARGE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
 
-/// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, an upper
-/// bound for cross-region server traffic. Sources and the power-model
-/// critique are in `docs/design/05-GREENOPS-AND-CARBON.md` § "Network
-/// transport energy".
+/// Network transport energy per byte, 0.04 kWh/GB. Fixed since 0.9.25 so
+/// every disclosure scales transport identically. Sources in
+/// `docs/design/05-GREENOPS-AND-CARBON.md` § "Network transport energy".
 pub const DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH: f64 = 0.000_000_000_04;
+
+/// Bracket low bound, 0.001 kWh/GB (Cloud Carbon Footprint networking
+/// coefficient, inter-datacenter optical networks).
+pub const NETWORK_ENERGY_PER_BYTE_KWH_LOW: f64 = 0.000_000_000_001;
+
+/// Bracket high bound, 0.059 kWh/GB (Sustainable Web Design Model v4
+/// operational network segment, includes access networks, a ceiling).
+pub const NETWORK_ENERGY_PER_BYTE_KWH_HIGH: f64 = 0.000_000_000_059;
 
 /// Lower bound factor for the CO₂ confidence interval (`low = mid × 0.5`).
 /// 2x multiplicative uncertainty, log-symmetric.

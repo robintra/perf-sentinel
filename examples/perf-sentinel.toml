@@ -119,7 +119,7 @@ default_region = "eu-west-3"       # default: none, and then a service with no
 # SCI v1.0 embodied carbon term `M = traces × embodied_per_request_gco2`,
 # region-independent. Default `0.001` g/req covers typical commodity hardware
 # amortization. Raise for GPU-heavy workloads.
-embodied_carbon_per_request_gco2 = 0.001   # default 0.001, min 0.0
+embodied_carbon_per_request_gco2 = 0.001   # default 0.001, must be > 0.0
 
 # Per-operation energy coefficients. Leave `true` unless you have specific
 # reasons to treat all I/O as equal.
@@ -134,7 +134,9 @@ use_hourly_profiles = true   # default true
 # stay comparable whatever this says. It needs `response_size_bytes` on
 # your spans and counts nothing without it.
 include_network_transport = true   # default false
-# network_energy_per_byte_kwh = 0.00000000004 # 0.04 kWh / GB, default
+# network_energy_per_byte_kwh = 0.00000000004 # DEPRECATED 0.9.25, ignored: the
+#     coefficient is fixed at 0.04 kWh/GB so every disclosure scales transport
+#     identically, with a sourced 0.001-0.059 kWh/GB bracket published beside it.
 
 # User-supplied hourly profile file (CSV or JSON). Overrides the embedded
 # table for the listed regions. Useful when you have a PPA or private grid
