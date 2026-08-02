@@ -223,6 +223,20 @@ fn green_panel_greys_out_absent_figures_instead_of_hiding_them() {
         html.contains(r#"data-grad="muted"#) || html.contains("[data-grad=\"muted\"]"),
         "the muted card style must exist"
     );
+    // The Correlations entry greys out with a "?" tooltip instead of
+    // disappearing, and the tooltip names the mode-specific cause.
+    assert!(
+        html.contains("registerDisabledTab"),
+        "the disabled-tab mechanism must exist"
+    );
+    assert!(
+        html.contains("daemon-only output (perf-sentinel watch)"),
+        "the batch-run cause must be named"
+    );
+    assert!(
+        html.contains("[daemon.correlation] may be disabled"),
+        "the daemon-run cause must be named"
+    );
 }
 
 #[test]
