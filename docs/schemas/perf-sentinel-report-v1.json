@@ -452,12 +452,12 @@
             "transport_kgco2eq_low": {
               "type": "number",
               "minimum": 0,
-              "description": "The transport term under the bracket's low coefficient, 0.001 kWh/GB (Cloud Carbon Footprint networking coefficient, inter-datacenter optical networks). Present exactly when transport_kgco2eq is (v1.6+)."
+              "description": "The transport term under the bracket's low coefficient, 0.001 kWh/GB (Cloud Carbon Footprint networking coefficient, inter-datacenter optical networks). Present when transport_kgco2eq is and every window of the period declared the fixed coefficient; a period holding a window archived before the coefficient was recorded publishes the mid value alone (v1.6+)."
             },
             "transport_kgco2eq_high": {
               "type": "number",
               "minimum": 0,
-              "description": "The transport term under the bracket's high coefficient, 0.059 kWh/GB (Sustainable Web Design Model v4 operational network segment, includes access networks server traffic does not traverse, a ceiling). Present exactly when transport_kgco2eq is (v1.6+)."
+              "description": "The transport term under the bracket's high coefficient, 0.059 kWh/GB (Sustainable Web Design Model v4 operational network segment, includes access networks server traffic does not traverse, a ceiling). Present when transport_kgco2eq is and every window of the period declared the fixed coefficient; a period holding a window archived before the coefficient was recorded publishes the mid value alone (v1.6+)."
             }
           }
         },
