@@ -931,6 +931,29 @@ fn rejects_negative_embodied_carbon() {
 }
 
 #[test]
+#[allow(deprecated)]
+fn deprecated_transport_fields_stay_readable_and_report_what_applies() {
+    // 0.9.24 exposed both fields publicly, and 0.9.x is a
+    // cargo-compatible range: deleting them would break a downstream
+    // build on `cargo update`. They read the applied values, so anyone
+    // still using them computes the same transport figure as scoring.
+    let toml = r"
+[green]
+include_network_transport = false
+network_energy_per_byte_kwh = 0.00000000008
+";
+    let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+    assert!(cfg.green.include_network_transport);
+    assert!(
+        (cfg.green.network_energy_per_byte_kwh
+            - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
+            .abs()
+            < f64::EPSILON
+    );
+    assert!(cfg.carbon_context().include_network_transport);
+}
+
+#[test]
 fn zero_embodied_carbon_falls_back_to_the_default() {
     // Deprecated 0.9.25: a zeroed coefficient would erase the M term from
     // the disclosure, but an upgrade must warn, not refuse to start.

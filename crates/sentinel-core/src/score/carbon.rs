@@ -374,6 +374,14 @@ pub struct CarbonContext {
     /// writes [`DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`] so two disclosures
     /// scale the same traffic identically.
     pub network_energy_per_byte_kwh: f64,
+    /// Deprecated since 0.9.25, retained for API compatibility. The
+    /// transport term is always computed and always displayed, so this
+    /// always reads `true` and nothing reads it back.
+    #[deprecated(
+        since = "0.9.25",
+        note = "the transport term is always shown; this value has no effect"
+    )]
+    pub include_network_transport: bool,
     /// User-supplied hourly profiles from `[green] hourly_profiles_file`.
     /// Keys are pre-lowercased region identifiers.
     /// Takes precedence over embedded profiles. Wrapped in `Arc` so the
@@ -519,8 +527,10 @@ impl RealTimeIntensityEntry {
 }
 
 impl Default for CarbonContext {
+    #[allow(deprecated)] // the transport toggle is retained for API compatibility only
     fn default() -> Self {
         Self {
+            include_network_transport: true,
             default_region: None,
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
