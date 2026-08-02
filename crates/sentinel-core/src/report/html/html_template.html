@@ -445,6 +445,16 @@
   .ps-diff-section-header.empty { padding-bottom: 15px; }
   .ps-diff-section-header.red { color: var(--crit-fg); }
   .ps-diff-section-header.green { color: var(--ok-fg); }
+  /* Regression left, progress right: the tint guides the eye before the
+     text does. Same pastel pairs as the Overview severity cards, and the
+     New zone wears its worst severity (neutral when empty). */
+  .ps-diff-section-new[data-sev="critical"] { background-color: var(--crit-bg); }
+  .ps-diff-section-new[data-sev="warning"] { background-color: var(--warn-bg); }
+  .ps-diff-section-new[data-sev="info"] { background-color: var(--info-bg); }
+  .ps-diff-section-new[data-sev="critical"] .ps-diff-section-header { color: var(--crit-fg); }
+  .ps-diff-section-new[data-sev="warning"] .ps-diff-section-header { color: var(--warn-fg); }
+  .ps-diff-section-new[data-sev="info"] .ps-diff-section-header { color: var(--info-fg); }
+  .ps-diff-section-resolved { background-color: var(--ok-bg); }
   .ps-quality-gate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
   .ps-section-title { font-size: 14px; font-weight: 600; margin: 0; color: var(--text); }
   .ps-panel-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -756,12 +766,12 @@
       <button type="button" class="ps-copy-link-btn" id="diff-copy-link" data-copy-link-tab="diff">Copy link</button>
     </div>
     <div class="ps-diff-cols">
-      <div class="ps-card ps-diff-section">
+      <div class="ps-card ps-diff-section ps-diff-section-new">
         <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
         <div class="ps-list" id="diff-new-list"></div>
         <div class="ps-empty" id="diff-new-empty" style="display: none;"></div>
       </div>
-      <div class="ps-card ps-diff-section">
+      <div class="ps-card ps-diff-section ps-diff-section-resolved">
         <div class="ps-diff-section-header green" id="diff-resolved-header">Resolved findings (0)</div>
         <div class="ps-list" id="diff-resolved-list"></div>
         <div class="ps-empty" id="diff-resolved-empty" style="display: none;"></div>
@@ -3354,10 +3364,23 @@
   }
 
   // -------- diff panel --------
+  var SEV_RANK = { critical: 0, warning: 1, info: 2 };
+  function bySeverityDesc(a, b) {
+    return (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3);
+  }
   function renderDiffPanel() {
     if (!hasDiff) return;
-    renderDiffFindingsList("diff-new-list", diffData.new_findings || [], true);
-    renderDiffFindingsList("diff-resolved-list", diffData.resolved_findings || [], "resolved");
+    var fresh = (diffData.new_findings || []).slice().sort(bySeverityDesc);
+    var resolved = (diffData.resolved_findings || []).slice().sort(bySeverityDesc);
+    renderDiffFindingsList("diff-new-list", fresh, true);
+    renderDiffFindingsList("diff-resolved-list", resolved, "resolved");
+    // The zone wears the worst severity it contains, so the tint warns
+    // before the rows do. No new findings, no tint.
+    var section = document.querySelector(".ps-diff-section-new");
+    if (section) {
+      if (fresh.length) setAttr(section, "data-sev", fresh[0].severity);
+      else section.removeAttribute("data-sev");
+    }
     renderDiffSevTable(diffData.severity_changes || []);
     renderDiffEndpTable(diffData.endpoint_metric_deltas || []);
   }
