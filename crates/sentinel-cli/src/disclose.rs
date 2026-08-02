@@ -1910,11 +1910,13 @@ mod tests {
         aggregate.aggregate.total_requests = 1;
         aggregate.aggregate.carbon_breakdown =
             Some(sentinel_core::report::periodic::schema::CarbonBreakdown {
-                operational_kgco2eq: 0.0,
-                embodied_kgco2eq: 0.000_000_1,
+                operational_kgco2eq: None,
+                embodied_kgco2eq: Some(0.000_000_1),
                 database_kgco2eq_out_of_total: None,
                 messaging_kgco2eq_out_of_total: None,
                 transport_kgco2eq: None,
+                transport_kgco2eq_low: None,
+                transport_kgco2eq_high: None,
             });
         aggregate.embodied_gco2_total = 0.0001;
         let period = Period {

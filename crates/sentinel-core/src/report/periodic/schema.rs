@@ -533,12 +533,13 @@ impl TemporalCoverage {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CarbonBreakdown {
     /// SCI `O = E x I`, running the workload. Contains the avoidable part.
-    #[serde(default)]
-    pub operational_kgco2eq: f64,
+    /// Absent when zero, same rule as the transport term below.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_kgco2eq: Option<f64>,
     /// SCI `M`, amortised hardware. Scaled by
-    /// `[green] embodied_carbon_per_request_gco2`.
-    #[serde(default)]
-    pub embodied_kgco2eq: f64,
+    /// `[green] embodied_carbon_per_request_gco2`. Absent when zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embodied_kgco2eq: Option<f64>,
     /// Total carbon of the database and broker over the period when
     /// measured or declared as an external scope. Estimated fallback
     /// carbon is already in the service total and stays excluded here.
@@ -561,6 +562,12 @@ pub struct CarbonBreakdown {
     /// understates it. Read it as a ceiling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_kgco2eq: Option<f64>,
+    /// Transport under the low and high bounds of the fixed coefficient
+    /// bracket. Present exactly when `transport_kgco2eq` is. v1.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_kgco2eq_low: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_kgco2eq_high: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
