@@ -1346,7 +1346,7 @@
     slow_http: "An HTTP call ran above `[detection] slow_query_threshold_ms`, at least `slow_query_min_occurrences` times. Critical past five times the threshold.",
     slow_messaging: "A broker publish ran above `[detection] slow_query_threshold_ms`, at least `slow_query_min_occurrences` times. Critical past five times the threshold.",
     excessive_fanout: "One parent span fans out to more child operations than `[detection] max_fanout` allows. A structural shape rather than avoidable I/O: critical past three times the threshold.",
-    chatty_service: "One trace leaves the service through at least `[detection] chatty_service_min_calls` outbound HTTP calls. Batching or a coarser API is the usual fix. Critical past three times the threshold.",
+    chatty_service: "One trace leaves the service through more outbound HTTP calls than `[detection] chatty_service_min_calls` allows. Batching or a coarser API is the usual fix. Critical past three times the threshold.",
     pool_saturation: "The peak number of SQL queries in flight at the same instant reached `[detection] pool_saturation_concurrent_threshold`, enough to contend on the database connection pool. A tuning or architecture signal, not avoidable I/O.",
     serialized_calls: "Sibling calls with distinct templates ran strictly one after another (longest non-overlapping chain, at least `[detection] serialized_min_sequential` long) with no visible data dependency: they could run in parallel. Always info, the heuristic cannot see hidden dependencies."
   };
@@ -1797,7 +1797,10 @@
   var currentTab = null;
   function switchTab(key, fromKeyboard) {
     currentTab = key;
-    document.querySelectorAll(".ps-tab").forEach(function (btn) {
+    // Only real tabs get the roving tabindex and aria-selected: the
+    // disabled placeholders carry no role=tab and must stay reachable by
+    // keyboard, otherwise their "?" cause tooltip is mouse-only.
+    document.querySelectorAll("#tabs [role=\"tab\"]").forEach(function (btn) {
       var active = btn.dataset.tab === key;
       btn.classList.toggle("active", active);
       setAttr(btn, "aria-selected", active ? "true" : "false");
@@ -2334,6 +2337,9 @@
   // master list and the always-visible detail stay in sync.
   function selectFinding(idx) {
     if (idx < 0 || idx >= visibleFindings.length) return;
+    // The detail pane is about to be rebuilt: a tooltip anchored to the
+    // old "?" would never see its mouseleave.
+    sweepTips();
     // Re-selecting the same finding (same index AND same object) would
     // rebuild an already-correct detail pane. The object check keeps it
     // correct when a re-render shifts which finding sits at this index.
@@ -2790,10 +2796,12 @@
   // Whole-trace findings match no span template, so they highlight by
   // event type instead: the culprit is the whole set of calls (embedded
   // spans carry no timestamps, per-span precision is out of reach).
+  // "*" means every event type: detect_serialized chains siblings of any
+  // kind, so pinning it to http_out left SQL chains with nothing lit.
   var WHOLE_TRACE_HILITE = {
     chatty_service: "http_out",
     pool_saturation: "sql",
-    serialized_calls: "http_out"
+    serialized_calls: "*"
   };
   var treeHasTplMatch = false;
   var treeTargetEvt = null;
@@ -2811,6 +2819,14 @@
     treeTargetEvt = treeHasTplMatch ? null
       : (WHOLE_TRACE_HILITE[finding.type || finding.finding_type] || null);
     treeChildren = tree.childrenByParent || {};
+    // Dimming every row with nothing lit is unreadable, so the event rule
+    // only applies when it actually matches a leaf.
+    if (treeTargetEvt && !spans.some(function (sp) {
+      return (treeTargetEvt === "*" || sp.event_type === treeTargetEvt) &&
+        !(tree.childrenByParent[sp.span_id] || []).length;
+    })) {
+      treeTargetEvt = null;
+    }
     // The highlight tint follows the finding severity (see [data-fsev] CSS).
     var host = root.closest ? root.closest(".ps-tree") : null;
     setAttr(host || root, "data-fsev", finding.severity || "");
@@ -2823,7 +2839,8 @@
     // flood of calls is context, not a culprit.
     var isFinding = treeHasTplMatch
       ? (targetTpl && span.template === targetTpl)
-      : (treeTargetEvt && span.event_type === treeTargetEvt &&
+      : (treeTargetEvt &&
+         (treeTargetEvt === "*" || span.event_type === treeTargetEvt) &&
          !(treeChildren[span.span_id] || []).length);
     if (isFinding) row.classList.add("hilite");
     else if (treeHasTplMatch || treeTargetEvt) row.classList.add("dim");
@@ -2962,7 +2979,9 @@
       document.getElementById("green-metrics").appendChild(greenCard(
         "Carbon",
         "-",
-        "GreenOps scoring is disabled ([green] enabled = false): no operational, embodied or transport figure for this run",
+        greenSummary && greenSummary.scoring_config
+          ? "No traces were analyzed in this run, so there is no operational, embodied or transport figure to show."
+          : "GreenOps scoring is off ([green] enabled = false), or no traces were analyzed: no operational, embodied or transport figure for this run.",
         "muted"
       ));
       return;
@@ -3778,10 +3797,14 @@
     if (!hasCorrelations) return;
     var list = document.getElementById("correlations-list");
     list.textContent = "";
-    var ordered = correlations.slice().sort(function (a, b) {
-      var d = (SEV_RANK[correlationSeverity(a)] ?? 3) - (SEV_RANK[correlationSeverity(b)] ?? 3);
-      return d !== 0 ? d : (b.confidence || 0) - (a.confidence || 0);
-    });
+    // Decorate once: correlationSeverity scans the findings array, and a
+    // comparator would re-run it O(n log n) times.
+    var ordered = correlations
+      .map(function (c) { return { c: c, rank: SEV_RANK[correlationSeverity(c)] ?? 3 }; })
+      .sort(function (a, b) {
+        return a.rank !== b.rank ? a.rank - b.rank : (b.c.confidence || 0) - (a.c.confidence || 0);
+      })
+      .map(function (entry) { return entry.c; });
     ordered.forEach(function (c) {
       var src = c.source || {};
       var tgt = c.target || {};
@@ -4808,11 +4831,19 @@
     if (tag === "INPUT" || tag === "TEXTAREA") return true;
     return a.isContentEditable === true;
   }
-  /// Escape ladder: close cheatsheet, close search, clear filter chips.
+  /// Escape ladder: close a modal, close search, clear filter chips.
   /// Each tier returns as soon as it acts.
   function handleEscape(ev) {
     if (isCheatsheetOpen()) {
       closeCheatsheet();
+      ev.preventDefault();
+      return;
+    }
+    // The native dialog closes itself on Escape: stop here so the same
+    // keydown does not also clear the user's filter chips.
+    var topicDlg = document.getElementById("topic-help");
+    if (topicDlg && topicDlg.open) {
+      topicDlg.close();
       ev.preventDefault();
       return;
     }
@@ -4978,7 +5009,10 @@
       });
     } else {
       var conf = findings.length ? findings[0].confidence : null;
-      var daemonRun = conf === "daemon_staging" || conf === "daemon_production";
+      // A quiet daemon window has no finding to read the mode from, so
+      // fall back to the live handle like renderSidebarContext does.
+      var daemonRun = conf === "daemon_staging" || conf === "daemon_production" ||
+        !!(payload.daemon && payload.daemon.url);
       registerDisabledTab("correlations", "Correlations", daemonRun
         ? "The daemon reported no cross-trace correlation: `[daemon.correlation]` may be disabled in the config, or none was detected in the window."
         : "Cross-trace correlations are a daemon-only output (`perf-sentinel watch`). This report came from a batch run, which analyzes each trace alone.");

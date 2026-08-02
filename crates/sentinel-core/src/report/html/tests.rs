@@ -217,7 +217,7 @@ fn green_panel_greys_out_absent_figures_instead_of_hiding_them() {
         "absent broker figure must name its causes"
     );
     assert!(
-        html.contains("GreenOps scoring is disabled"),
+        html.contains("GreenOps scoring is off ([green] enabled = false)"),
         "the disabled Carbon tab must explain itself"
     );
     assert!(
@@ -322,6 +322,32 @@ fn correlation_cards_land_on_and_announce_the_real_findings() {
     assert!(
         html.contains("ps-corr-side-link"),
         "per-side click zones must exist"
+    );
+}
+
+#[test]
+fn whole_trace_highlight_and_modal_escape_do_not_regress() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    // serialized_calls chains siblings of any event type, so the rule is
+    // "*", and the event rule only dims when it lights something.
+    assert!(
+        html.contains(r#"serialized_calls: "*""#),
+        "serialized_calls must not be pinned to http_out"
+    );
+    assert!(
+        html.contains("treeTargetEvt = null;"),
+        "the event rule must stand down when nothing matches"
+    );
+    // Escape closes the method sheet without clearing the filter chips.
+    assert!(
+        html.contains("topicDlg && topicDlg.open"),
+        "the Escape ladder needs a topic-help tier"
+    );
+    // Only real tabs take the roving tabindex: disabled ones stay reachable.
+    assert!(
+        html.contains(r##"querySelectorAll("#tabs [role=\"tab\"]")"##),
+        "switchTab must not stamp tab semantics on disabled entries"
     );
 }
 
