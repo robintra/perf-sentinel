@@ -209,7 +209,7 @@ fn green_panel_greys_out_absent_figures_instead_of_hiding_them() {
     // An absent figure renders as a muted card naming the cause, and the
     // Carbon tab is registered even when green scoring is disabled.
     assert!(
-        html.contains("a measured reading needs [green.alumet.database]"),
+        html.contains("a measured reading needs `[green.alumet.database]`"),
         "absent database figure must say what produces one"
     );
     assert!(
@@ -268,6 +268,19 @@ fn finding_types_carry_a_help_tooltip_with_the_run_thresholds() {
         html.contains("report.detection_config"),
         "the tooltip must read the embedded detection config"
     );
+    // Each data tab explains itself behind a "?" on the section title,
+    // and every carbon card carries its own help text.
+    for needle in [
+        "var TAB_HELP",
+        "share of the source finding's occurrences followed by the target",
+        "`pg_stat_statements` extension",
+        "events_statements_summary_by_digest",
+        "SCI v1.0 methodology",
+        "The only term a code fix can reduce",
+        "I/O Intensity Score of the worst endpoint",
+    ] {
+        assert!(html.contains(needle), "tab/card help missing: {needle}");
+    }
 }
 
 #[test]
