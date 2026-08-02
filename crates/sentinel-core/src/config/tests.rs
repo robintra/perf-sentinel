@@ -951,6 +951,12 @@ network_energy_per_byte_kwh = 0.00000000008
             < f64::EPSILON
     );
     assert!(cfg.carbon_context().include_network_transport);
+    assert!(
+        (cfg.carbon_context().network_energy_per_byte_kwh
+            - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
+            .abs()
+            < f64::EPSILON
+    );
 }
 
 #[test]
