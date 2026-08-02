@@ -204,7 +204,7 @@ Limitations principales :
 - **Corps de réponse uniquement.** Seule la taille du corps de réponse (`http.response.body.size`) est comptée. Le corps de requête (ex. payloads POST volumineux) n'est pas disponible dans les conventions sémantiques OTel HTTP standard et est exclu. Pour les APIs à écriture intensive, cela sous-estime l'énergie de transport.
 - **Intensité réseau du caller.** L'infrastructure réseau est distribuée sur plusieurs grids, mais perf-sentinel utilise l'intensité carbone de la région du caller comme proxy. C'est une simplification connue, cohérente avec l'approche d'estimation directionnelle.
 
-Le terme est calculé et publié à chaque run, quoi que dise `include_network_transport` : deux périodes en désaccord sur ce réglage n'étaient pas comparables, et le réglage ne laissait aucune trace dans les chiffres publiés. Ce que le réglage fait encore, c'est masquer le terme dans le rapport CLI et le TUI, et il est désactivé par défaut parce que ce chiffre est souvent négligeable devant l'énergie de calcul et attire plus d'attention qu'il n'en mérite.
+Le terme est calculé, affiché et publié à chaque run. `include_network_transport` est dépréciée et ignorée depuis la 0.9.25 : deux périodes en désaccord sur ce réglage n'étaient pas comparables, le réglage ne laissait aucune trace dans les chiffres publiés, et un interrupteur d'affichage sur un chiffre publié n'avait plus non plus de justification.
 
 ## Détection des services bavards (chatty service)
 

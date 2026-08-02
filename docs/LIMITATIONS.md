@@ -702,7 +702,7 @@ Key limitations:
 - **Response body only.** Only the response body size (`http.response.body.size`) is counted. The request body (e.g., large POST payloads) is not available in standard OTel HTTP semantic conventions and is excluded. For write-heavy APIs this underestimates transport energy.
 - **Caller's grid intensity used for network.** Network infrastructure is distributed across many grids, but perf-sentinel uses the caller region's carbon intensity as a proxy. This is a known simplification consistent with the directional estimation approach.
 
-The term is computed and disclosed on every run, whatever `include_network_transport` says: two periods that disagreed on the setting were not comparable, and the setting left no trace in the published figures. What the setting still does is hide the term in the CLI report and the TUI, so it is off by default because the number is often negligible next to compute energy and invites more attention than it deserves.
+The term is computed, displayed and disclosed on every run. `include_network_transport` is deprecated and ignored since 0.9.25: two periods that disagreed on the setting were not comparable, the setting left no trace in the published figures, and a display toggle on a published figure had no remaining justification either.
 
 ## Chatty service detection
 
