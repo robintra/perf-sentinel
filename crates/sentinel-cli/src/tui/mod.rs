@@ -838,6 +838,36 @@ impl App {
                     "Transport: {transport:.6} g (cross-region network bytes)"
                 ))));
             }
+        } else {
+            // Greyed rather than absent, so the reader sees why.
+            lines.push(Line::from(Span::styled(
+                "Carbon: not computed ([green] enabled = false)",
+                dim,
+            )));
+        }
+        match &gs.database_waste {
+            Some(db) => lines.push(Line::from(Span::raw(format!(
+                "Database waste: {:.6} kWh of {:.6} kWh (model {})",
+                db.waste_kwh,
+                db.energy_kwh,
+                sanitize_for_terminal(&db.model),
+            )))),
+            None => lines.push(Line::from(Span::styled(
+                "Database waste: not measured (no SQL activity, a measured reading needs [green.alumet.database])",
+                dim,
+            ))),
+        }
+        match &gs.messaging_waste {
+            Some(mw) => lines.push(Line::from(Span::raw(format!(
+                "Broker waste: {:.6} kWh of {:.6} kWh (model {})",
+                mw.waste_kwh,
+                mw.energy_kwh,
+                sanitize_for_terminal(&mw.model),
+            )))),
+            None => lines.push(Line::from(Span::styled(
+                "Broker waste: not measured (no broker publish spans, or no broker energy backend)",
+                dim,
+            ))),
         }
         lines.push(Line::from(""));
 
