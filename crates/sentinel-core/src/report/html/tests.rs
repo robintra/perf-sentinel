@@ -284,6 +284,24 @@ fn finding_types_carry_a_help_tooltip_with_the_run_thresholds() {
 }
 
 #[test]
+fn diff_columns_sort_by_severity_and_tint_by_the_worst() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    assert!(
+        html.contains("bySeverityDesc"),
+        "diff lists must sort by decreasing severity"
+    );
+    assert!(
+        html.contains(r#".ps-diff-section-new[data-sev="critical"]"#),
+        "the New zone must tint by its worst severity"
+    );
+    assert!(
+        html.contains(".ps-diff-section-resolved { background-color: var(--ok-bg); }"),
+        "the Resolved zone stays green"
+    );
+}
+
+#[test]
 fn green_panel_carries_broker_waste_card() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));
