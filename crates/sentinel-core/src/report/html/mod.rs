@@ -598,6 +598,7 @@ fn slim_report_for_embed(
         warning_details: report.warning_details.clone(),
         acknowledged_findings: report.acknowledged_findings.clone(),
         binary_version: report.binary_version.clone(),
+        detection_config: report.detection_config.clone(),
         disclosure_waste: report.disclosure_waste.clone(),
     };
     (embed, trimmed_findings)

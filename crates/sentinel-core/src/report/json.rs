@@ -89,6 +89,7 @@ mod tests {
             warning_details: vec![],
             acknowledged_findings: vec![],
             binary_version: String::new(),
+            detection_config: None,
             disclosure_waste: None,
         };
 

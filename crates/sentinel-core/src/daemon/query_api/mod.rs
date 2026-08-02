@@ -663,6 +663,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             warning_details,
             acknowledged_findings: Vec::new(),
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            detection_config: Some(state.detect_config.clone()),
             disclosure_waste: None,
         });
     }
@@ -747,6 +748,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         warning_details,
         acknowledged_findings: vec![],
         binary_version: env!("CARGO_PKG_VERSION").to_string(),
+        detection_config: Some(state.detect_config.clone()),
         disclosure_waste: None,
     };
 

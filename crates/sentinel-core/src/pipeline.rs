@@ -92,6 +92,7 @@ pub fn analyze_with_traces(
         // Batch analyze does not feed the periodic disclosure (that path is
         // daemon-archive-sourced), so the canonical avoidable tiers are only
         // computed at archive time, not here.
+        detection_config: Some(detect_config),
         disclosure_waste: None,
     };
 

@@ -991,6 +991,7 @@ async fn process_traces(
             warning_details: vec![],
             acknowledged_findings: vec![],
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            detection_config: Some(ctx.detect_config.clone()),
             disclosure_waste,
         };
         let archive = super::archive::OwnedArchive {
