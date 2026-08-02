@@ -104,6 +104,7 @@ fn minimal_report(findings: Vec<Finding>) -> Report {
         warning_details: vec![],
         acknowledged_findings: vec![],
         binary_version: String::new(),
+        detection_config: None,
         disclosure_waste: None,
     }
 }
@@ -236,6 +237,36 @@ fn green_panel_greys_out_absent_figures_instead_of_hiding_them() {
     assert!(
         html.contains("`[daemon.correlation]` may be disabled"),
         "the daemon-run cause must be named"
+    );
+}
+
+#[test]
+fn finding_types_carry_a_help_tooltip_with_the_run_thresholds() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    // One help text per finding type, and the substitution that inlines
+    // the producing run's [detection] values next to the key names.
+    for key in [
+        "n_plus_one_sql:",
+        "redundant_sql:",
+        "slow_sql:",
+        "excessive_fanout:",
+        "chatty_service:",
+        "pool_saturation:",
+        "serialized_calls:",
+    ] {
+        assert!(
+            html.contains(&format!("\n    {key}")),
+            "FINDING_HELP entry missing: {key}"
+        );
+    }
+    assert!(
+        html.contains("function findingHelpText"),
+        "the value-substitution helper must exist"
+    );
+    assert!(
+        html.contains("report.detection_config"),
+        "the tooltip must read the embedded detection config"
     );
 }
 
