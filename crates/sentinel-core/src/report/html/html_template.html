@@ -122,7 +122,9 @@
   .ps-metric-label .ps-nav-help { margin-left: 6px; width: 14px; height: 14px; font-size: 9px; vertical-align: 2px; }
   /* Floating tip box appended to <body>: .ps-nav clips with overflow auto,
      a CSS-only ::after tooltip cannot escape the sidebar. */
-  .ps-tipbox { position: fixed; z-index: 60; width: max-content; max-width: 320px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 12px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.9; pointer-events: none; }
+  /* min-width beats max-width, so a nowrap code snippet widens the box
+     instead of spilling out of it. */
+  .ps-tipbox { position: fixed; z-index: 60; width: max-content; max-width: 320px; min-width: min-content; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 12px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.9; pointer-events: none; }
   .ps-tipbox::before { content: ""; position: absolute; left: -5px; top: 50%; width: 8px; height: 8px; transform: translateY(-50%) rotate(45deg); background: inherit; border-left: 1px solid var(--border-2); border-bottom: 1px solid var(--border-2); }
   .ps-tipbox-more { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border-2); font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); }
   .ps-tipbox-below::before { left: var(--tip-caret-x, 20px); top: -5px; transform: rotate(45deg); border-bottom: 0; border-top: 1px solid var(--border-2); }
