@@ -460,6 +460,12 @@
   .ps-diff-section-new[data-sev="warning"] .ps-diff-section-header { color: var(--warn-fg); }
   .ps-diff-section-new[data-sev="info"] .ps-diff-section-header { color: var(--info-fg); }
   .ps-diff-section-resolved { background-color: var(--ok-bg); }
+  /* The diff zones tint a whole column, not a badge, so the shared severity
+     backgrounds read too bright on dark. Light mode needs no correction. */
+  :root[data-theme="dark"] .ps-diff-section-new[data-sev="critical"] { background-color: color-mix(in srgb, var(--crit-bg) 72%, #000); }
+  :root[data-theme="dark"] .ps-diff-section-new[data-sev="warning"] { background-color: color-mix(in srgb, var(--warn-bg) 72%, #000); }
+  :root[data-theme="dark"] .ps-diff-section-new[data-sev="info"] { background-color: color-mix(in srgb, var(--info-bg) 72%, #000); }
+  :root[data-theme="dark"] .ps-diff-section-resolved { background-color: color-mix(in srgb, var(--ok-bg) 72%, #000); }
   .ps-quality-gate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
   .ps-section-title { font-size: 14px; font-weight: 600; margin: 0; color: var(--text); }
   .ps-panel-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
