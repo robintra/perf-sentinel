@@ -430,8 +430,7 @@
         "total_energy_kwh": { "type": "number", "minimum": 0 },
         "carbon_breakdown": {
           "type": "object",
-          "required": ["operational_kgco2eq", "embodied_kgco2eq"],
-          "description": "The three SCI terms total_carbon_kgco2eq is made of, which differ in what an operator can act on (v1.6+). operational carries the avoidable share the waste tiers quantify; embodied amortises manufactured hardware and transport covers cross-region network energy, both irreducible by fixing an anti-pattern. The three sum to the total, up to rounding. Omitted when no window carried a carbon figure.",
+          "description": "The three SCI terms total_carbon_kgco2eq is made of, which differ in what an operator can act on (v1.6+). operational carries the avoidable share the waste tiers quantify; embodied amortises manufactured hardware and transport covers cross-region network energy, both irreducible by fixing an anti-pattern. The three sum to the total, up to rounding, an absent term counting as zero. Omitted entirely when no window carried a carbon figure, and each term is omitted rather than zeroed when nothing measured it, so an unmeasured term never reads as measured at zero.",
           "properties": {
             "operational_kgco2eq": { "type": "number", "minimum": 0 },
             "embodied_kgco2eq": { "type": "number", "minimum": 0 },
@@ -448,7 +447,17 @@
             "transport_kgco2eq": {
               "type": "number",
               "minimum": 0,
-              "description": "Cross-region network transport, omitted when its value is zero. The methodology still records that transport is part of the numerator. The least certain of the three terms when present. Its coefficient defaults to an upper bound (0.04 kWh/GB) and published figures span two orders of magnitude, so the report's uniform 2x bracket understates it. Read it as a ceiling."
+              "description": "Cross-region network transport, omitted when its value is zero. The methodology still records that transport is part of the numerator. The least certain of the three terms when present: its coefficient (0.04 kWh/GB) is fixed since 0.9.25 rather than configurable, so every disclosure scales transport identically, and the low/high companions below express the sourced coefficient bracket in place of the report's uniform 2x."
+            },
+            "transport_kgco2eq_low": {
+              "type": "number",
+              "minimum": 0,
+              "description": "The transport term under the bracket's low coefficient, 0.001 kWh/GB (Cloud Carbon Footprint networking coefficient, inter-datacenter optical networks). Present exactly when transport_kgco2eq is (v1.6+)."
+            },
+            "transport_kgco2eq_high": {
+              "type": "number",
+              "minimum": 0,
+              "description": "The transport term under the bracket's high coefficient, 0.059 kWh/GB (Sustainable Web Design Model v4 operational network segment, includes access networks server traffic does not traverse, a ceiling). Present exactly when transport_kgco2eq is (v1.6+)."
             }
           }
         },

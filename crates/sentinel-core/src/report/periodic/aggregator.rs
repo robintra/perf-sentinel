@@ -1040,10 +1040,9 @@ fn messaging_waste_aggregate(
     })
 }
 
-/// Split the period total into its three terms, in kgCO2eq.
-///
-/// Omitted when no window carried a carbon figure, so an absent split
-/// never reads as three measured zeroes.
+/// Split the period total into its three terms, in kgCO2eq. One rule for
+/// every term: absent when zero, so unmeasured never reads as zero.
+/// Transport is linear in its coefficient, so low/high are mid rescaled.
 fn build_carbon_breakdown(
     operational_gco2: f64,
     embodied_gco2: f64,
@@ -1051,15 +1050,24 @@ fn build_carbon_breakdown(
     database_gco2: Option<f64>,
     messaging_gco2: Option<f64>,
 ) -> Option<CarbonBreakdown> {
+    use crate::score::carbon::{
+        DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH, NETWORK_ENERGY_PER_BYTE_KWH_HIGH,
+        NETWORK_ENERGY_PER_BYTE_KWH_LOW,
+    };
+    let transport = (transport_gco2 > 0.0).then_some(transport_gco2 / 1000.0);
     (operational_gco2 > 0.0
         || embodied_gco2 > 0.0
-        || transport_gco2 > 0.0
+        || transport.is_some()
         || database_gco2.is_some()
         || messaging_gco2.is_some())
     .then(|| CarbonBreakdown {
-        operational_kgco2eq: operational_gco2 / 1000.0,
-        embodied_kgco2eq: embodied_gco2 / 1000.0,
-        transport_kgco2eq: (transport_gco2 > 0.0).then_some(transport_gco2 / 1000.0),
+        operational_kgco2eq: (operational_gco2 > 0.0).then_some(operational_gco2 / 1000.0),
+        embodied_kgco2eq: (embodied_gco2 > 0.0).then_some(embodied_gco2 / 1000.0),
+        transport_kgco2eq: transport,
+        transport_kgco2eq_low: transport
+            .map(|t| t * (NETWORK_ENERGY_PER_BYTE_KWH_LOW / DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)),
+        transport_kgco2eq_high: transport
+            .map(|t| t * (NETWORK_ENERGY_PER_BYTE_KWH_HIGH / DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)),
         database_kgco2eq_out_of_total: database_gco2.map(|g| g / 1000.0),
         messaging_kgco2eq_out_of_total: messaging_gco2.map(|g| g / 1000.0),
     })
@@ -1672,14 +1680,15 @@ mod tests {
         // The split must add up to the published total, otherwise a reader
         // cannot tell the reducible part from the rest.
         let bd = out.aggregate.carbon_breakdown.expect("breakdown present");
-        let sum =
-            bd.operational_kgco2eq + bd.embodied_kgco2eq + bd.transport_kgco2eq.unwrap_or(0.0);
+        let sum = bd.operational_kgco2eq.unwrap_or(0.0)
+            + bd.embodied_kgco2eq.unwrap_or(0.0)
+            + bd.transport_kgco2eq.unwrap_or(0.0);
         assert!(
             (sum - out.aggregate.total_carbon_kgco2eq).abs() < 1e-9,
-            "operational {} + embodied {} + transport {} must equal total {}",
+            "operational {:?} + embodied {:?} + transport {:?} must equal total {}",
             bd.operational_kgco2eq,
             bd.embodied_kgco2eq,
-            bd.transport_kgco2eq.unwrap_or(0.0),
+            bd.transport_kgco2eq,
             out.aggregate.total_carbon_kgco2eq
         );
         assert!(
@@ -1852,7 +1861,10 @@ mod tests {
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         let bd = out.aggregate.carbon_breakdown.expect("breakdown present");
         assert!(bd.transport_kgco2eq.is_none());
-        assert!(bd.embodied_kgco2eq > 0.0, "the other terms still publish");
+        assert!(
+            bd.embodied_kgco2eq.unwrap_or(0.0) > 0.0,
+            "the other terms still publish"
+        );
     }
 
     #[test]
@@ -1860,6 +1872,10 @@ mod tests {
         for (database_gco2, messaging_gco2) in [(Some(2.0), None), (None, Some(3.0))] {
             let breakdown = build_carbon_breakdown(0.0, 0.0, 0.0, database_gco2, messaging_gco2)
                 .expect("subsystem carbon emits a breakdown");
+
+            // Unmeasured terms are omitted, never published as 0.0.
+            assert!(breakdown.operational_kgco2eq.is_none());
+            assert!(breakdown.embodied_kgco2eq.is_none());
 
             assert_eq!(
                 breakdown.database_kgco2eq_out_of_total,

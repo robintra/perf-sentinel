@@ -144,9 +144,11 @@ fn nested_carbon_and_chain_objects_require_their_core_fields() {
     let path = workspace_doc("docs/schemas/perf-sentinel-report-v1.json");
     let schema: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    // Every carbon_breakdown term is optional since 0.9.25: absent when
+    // zero, so unmeasured never reads as measured at zero.
     assert_eq!(
         schema["$defs"]["Aggregate"]["properties"]["carbon_breakdown"]["required"],
-        serde_json::json!(["operational_kgco2eq", "embodied_kgco2eq"])
+        serde_json::Value::Null
     );
     assert_eq!(
         schema["$defs"]["Integrity"]["properties"]["trace_integrity_chain"]["required"],
