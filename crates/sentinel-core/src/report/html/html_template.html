@@ -109,7 +109,7 @@
   [data-nav][aria-selected="true"] > .ps-nav-dot { background: var(--brand); opacity: 1; }
   .ps-nav-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; flex: none; }
   .ps-nav-label { flex: 1; }
-  .ps-nav-badge { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+  .ps-nav-badge { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); min-width: 16px; display: inline-flex; justify-content: center; flex: none; }
   /* A feature this report cannot show: greyed entry, never removed.
      Same [data-nav] base look, hover affordances neutralized. */
   [data-nav].ps-tab-disabled { cursor: default; }
@@ -119,7 +119,9 @@
   .ps-nav-help { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--text-3); font-family: var(--font-mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
   /* Floating tip box appended to <body>: .ps-nav clips with overflow auto,
      a CSS-only ::after tooltip cannot escape the sidebar. */
-  .ps-tipbox { position: fixed; z-index: 60; width: 250px; background: var(--surface-3); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 9px 11px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.5; pointer-events: none; }
+  .ps-tipbox { position: fixed; z-index: 60; width: max-content; max-width: 320px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 12px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.9; pointer-events: none; }
+  .ps-tipbox::before { content: ""; position: absolute; left: -5px; top: 50%; width: 8px; height: 8px; transform: translateY(-50%) rotate(45deg); background: inherit; border-left: 1px solid var(--border-2); border-bottom: 1px solid var(--border-2); }
+  .ps-tipbox .ps-code-inline { font-size: 10.5px; white-space: nowrap; }
   /* The run-context line (batch/CI, daemon staging/prod) and the version
      line show in every mode. The dot only pulses in live/daemon mode. */
   .ps-sidebar-foot { display: flex; height: 62px; padding: 0 16px; border-top: 1px solid var(--border); flex-direction: column; justify-content: center; gap: 6px; }
@@ -1405,7 +1407,8 @@
   function wireTip(anchor, text) {
     var box = null;
     anchor.addEventListener("mouseenter", function () {
-      box = el("div", "ps-tipbox", text);
+      box = el("div", "ps-tipbox");
+      proseInto(box, text);
       document.body.appendChild(box);
       var r = anchor.getBoundingClientRect();
       box.style.left = Math.round(r.right + 10) + "px";
@@ -4568,11 +4571,17 @@
         // the number is identical across rankings (see rank_pg_stat).
         return activePgStatEntries().length;
       });
+    } else {
+      registerDisabledTab("pgstat", "pg_stat",
+        "No `pg_stat_statements` data in this report. Pass `--pg-stat <file>` or `--pg-stat-prometheus <url>` to `perf-sentinel report` to enable this tab.");
     }
     if (hasMysqlStat) {
       registerTab("mysqlstat", "mysql_stat", function () {
         return activeMysqlStatEntries().length;
       });
+    } else {
+      registerDisabledTab("mysqlstat", "mysql_stat",
+        "No MySQL Performance Schema data in this report. Pass `--mysql-stat <file>` (an `events_statements_summary_by_digest` export) to `perf-sentinel report` to enable this tab.");
     }
     if (hasDiff) {
       registerTab("diff", "Diff", function () {
@@ -4580,6 +4589,10 @@
           (diffData.new_findings || []).length + (diffData.resolved_findings || []).length
         );
       });
+    }
+    if (!hasDiff) {
+      registerDisabledTab("diff", "Diff",
+        "No baseline to compare against. Pass `--before <baseline.json>` (from `analyze --format json`) to `perf-sentinel report` to enable this tab.");
     }
     if (hasCorrelations) {
       registerTab("correlations", "Correlations", function () {
@@ -4589,8 +4602,8 @@
       var conf = findings.length ? findings[0].confidence : null;
       var daemonRun = conf === "daemon_staging" || conf === "daemon_production";
       registerDisabledTab("correlations", "Correlations", daemonRun
-        ? "The daemon reported no cross-trace correlation: [daemon.correlation] may be disabled in the config, or none was detected in the window."
-        : "Cross-trace correlations are a daemon-only output (perf-sentinel watch). This report came from a batch run, which analyzes each trace alone.");
+        ? "The daemon reported no cross-trace correlation: `[daemon.correlation]` may be disabled in the config, or none was detected in the window."
+        : "Cross-trace correlations are a daemon-only output (`perf-sentinel watch`). This report came from a batch run, which analyzes each trace alone.");
     }
     // Always registered: a disabled Carbon tab explains itself instead
     // of disappearing.
