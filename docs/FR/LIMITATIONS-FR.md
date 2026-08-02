@@ -192,7 +192,7 @@ Mettre `per_operation_coefficients = false` pour désactiver cette fonctionnalit
 
 ### Énergie de transport réseau
 
-Le terme optionnel d'énergie de transport réseau estime le coût énergétique du transfert d'octets entre régions. Le coefficient par défaut (0.04 kWh/Go) est un défaut prudent sous les moyennes réseau récentes (Sustainable Web Design Model v4, 2024 : 0.059 kWh/Go opérationnel pour les réseaux) et une borne haute pour le trafic serveur inter-régions, où les coefficients inter-datacenters descendent à 0.001 kWh/Gb (Cloud Carbon Footprint).
+Le terme optionnel d'énergie de transport réseau estime le coût énergétique du transfert d'octets entre régions. Le coefficient (0.04 kWh/Go, fixe depuis la 0.9.25 pour que chaque divulgation mette le transport à la même échelle) est une valeur prudente sous les moyennes réseau récentes (Sustainable Web Design Model v4, 2024 : 0.059 kWh/Go opérationnel pour les réseaux) et une borne haute pour le trafic serveur inter-régions, où les coefficients inter-datacenters descendent à 0.001 kWh/Go (Cloud Carbon Footprint). La divulgation publie le terme sous cette fourchette sourcée 0.001-0.059 à côté de la valeur médiane.
 
 Limitations principales :
 
