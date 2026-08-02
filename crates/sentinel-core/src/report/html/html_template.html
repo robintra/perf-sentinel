@@ -3551,22 +3551,42 @@
   // matching the Rust struct shape: `source` and `target` are
   // `CorrelationEndpoint { finding_type, service, template }`,
   // timing is `median_lag_ms` and `co_occurrence_count`.
+  // A correlation carries no severity of its own: borrow the matched
+  // real finding's per side (warn when unmatched, cards always were).
+  function endpointSeverity(endpoint) {
+    var real = findRealFindingForCorrelation(endpoint || {});
+    return real ? real.severity : null;
+  }
+  // Sort key: the worst side of the pair.
+  function correlationSeverity(c) {
+    var a = SEV_RANK[endpointSeverity(c.source)] ?? 3;
+    var b = SEV_RANK[endpointSeverity(c.target)] ?? 3;
+    var worst = Math.min(a, b);
+    return Object.keys(SEV_RANK).find(function (k) { return SEV_RANK[k] === worst; }) || null;
+  }
+  function corrTag(endpoint, sev) {
+    var tag = el("span", "ps-corr-tag", typeLabel((endpoint || {}).finding_type || "cross-trace").toUpperCase());
+    setAttr(tag, "data-sev", sev === "critical" ? "crit" : sev === "info" ? "info" : "warn");
+    return tag;
+  }
   function renderCorrelationsPanel() {
     if (!hasCorrelations) return;
     var list = document.getElementById("correlations-list");
     list.textContent = "";
-    correlations.forEach(function (c) {
+    var ordered = correlations.slice().sort(function (a, b) {
+      var d = (SEV_RANK[correlationSeverity(a)] ?? 3) - (SEV_RANK[correlationSeverity(b)] ?? 3);
+      return d !== 0 ? d : (b.confidence || 0) - (a.confidence || 0);
+    });
+    ordered.forEach(function (c) {
       var src = c.source || {};
       var tgt = c.target || {};
-      // One bordered card per correlation: a warn tag, the mono
-      // service path, and a right-aligned conf/lag/traces summary.
+      // Both sides tagged with type and borrowed severity, so the card
+      // reads as the causal pair the click will land on (target side).
       var card = el("div", "ps-corr-card ps-correlation-row");
-      var tag = el("span", "ps-corr-tag", typeLabel(src.finding_type || "cross-trace").toUpperCase());
-      setAttr(tag, "data-sev", "warn");
-      card.appendChild(tag);
-      card.appendChild(
-        el("span", "ps-corr-path", (src.service || "?") + " → " + (tgt.service || "?"))
-      );
+      card.appendChild(corrTag(src, endpointSeverity(src)));
+      card.appendChild(el("span", "ps-corr-path", (src.service || "?") + " →"));
+      card.appendChild(corrTag(tgt, endpointSeverity(tgt)));
+      card.appendChild(el("span", "ps-corr-path", tgt.service || "?"));
       var conf = Math.round((c.confidence || 0) * 100);
       var lag = (c.median_lag_ms || 0).toFixed(0);
       var n = c.co_occurrence_count || 0;
@@ -3579,8 +3599,11 @@
       if (c.sample_trace_id) {
         card.classList.add("ps-correlation-clickable");
         card.addEventListener("click", function () {
-          // Off-list synthetic finding: open in the Findings detail pane.
-          openExternalFindingDetail(syntheticFindingFromCorrelation(c));
+          // Prefer the real finding when the snapshot still holds it, so
+          // the list row selects. Synthetic detail when it aged out.
+          var real = findRealFindingForCorrelation(c.target || {});
+          if (real) gotoFinding(real);
+          else openExternalFindingDetail(syntheticFindingFromCorrelation(c));
         });
       } else {
         card.style.cursor = "default";
@@ -3588,6 +3611,20 @@
       list.appendChild(card);
     });
     syncCorrelationsEmpty();
+  }
+
+  function findRealFindingForCorrelation(endpoint) {
+    var sameKind = findings.filter(function (f) {
+      return (f.type || f.finding_type) === endpoint.finding_type &&
+        f.service === endpoint.service;
+    });
+    var exact = sameKind.filter(function (f) {
+      return ((f.pattern && f.pattern.template) || "") === (endpoint.template || "");
+    });
+    if (exact.length) return exact[0];
+    // Template drifted (renormalized between versions, or absent on the
+    // endpoint): type+service is safe only when unambiguous.
+    return sameKind.length === 1 ? sameKind[0] : null;
   }
 
   function syntheticFindingFromCorrelation(c) {

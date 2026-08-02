@@ -302,6 +302,21 @@ fn diff_columns_sort_by_severity_and_tint_by_the_worst() {
 }
 
 #[test]
+fn correlation_cards_land_on_and_announce_the_real_findings() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    for needle in [
+        // Click resolves the matching real finding before the synthetic.
+        "findRealFindingForCorrelation",
+        // Both sides tagged with the borrowed severity, worst side sorts.
+        "endpointSeverity",
+        "correlationSeverity",
+    ] {
+        assert!(html.contains(needle), "correlation mechanism missing: {needle}");
+    }
+}
+
+#[test]
 fn green_panel_carries_broker_waste_card() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));
