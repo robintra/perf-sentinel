@@ -471,8 +471,9 @@
   .ps-copy-link-btn.ps-copied::before {
     -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>') center / contain no-repeat;
     mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>') center / contain no-repeat; }
-  .ps-correlation-clickable { cursor: pointer; transition: box-shadow .12s; }
-  .ps-correlation-clickable:hover { background: var(--surface); box-shadow: 0 0 0 1.5px var(--btn-bd); }
+  .ps-corr-side { display: inline-flex; align-items: center; gap: 10px; padding: 5px 9px; margin: -5px -9px; border-radius: 9px; }
+  .ps-corr-side-link { cursor: pointer; transition: background .12s, box-shadow .12s; }
+  .ps-corr-side-link:hover { background: var(--accent-bg); box-shadow: 0 0 0 1.5px var(--btn-bd); }
   .ps-show-more { display: block; padding: 12px 14px; font-size: 12px; border: 0; border-radius: 8px; margin: 0 10px 10px; background: var(--surface-2); color: var(--brand-text); cursor: pointer; font-family: var(--font-mono); width: calc(100% - 20px); text-align: center; transition: box-shadow .12s; }
   .ps-show-more:hover { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--btn-bd); }
 
@@ -3591,34 +3592,40 @@
     ordered.forEach(function (c) {
       var src = c.source || {};
       var tgt = c.target || {};
-      // Both sides tagged with type and borrowed severity, so the card
-      // reads as the causal pair the click will land on (target side).
+      // Each side of the causal pair is its own click zone: source opens
+      // the triggering finding, target the triggered one. A side with no
+      // matching finding in this report stays inert.
       var card = el("div", "ps-corr-card ps-correlation-row");
-      card.appendChild(corrTag(src, endpointSeverity(src)));
-      card.appendChild(el("span", "ps-corr-path", (src.service || "?") + " →"));
-      card.appendChild(corrTag(tgt, endpointSeverity(tgt)));
-      card.appendChild(el("span", "ps-corr-path", tgt.service || "?"));
+      var srcReal = findRealFindingForCorrelation(src);
+      var srcZone = el("span", "ps-corr-side");
+      srcZone.appendChild(corrTag(src, srcReal ? srcReal.severity : null));
+      srcZone.appendChild(el("span", "ps-corr-path", src.service || "?"));
+      if (srcReal) {
+        srcZone.classList.add("ps-corr-side-link");
+        setAttr(srcZone, "role", "button");
+        srcZone.addEventListener("click", function () { gotoFinding(srcReal); });
+      }
+      card.appendChild(srcZone);
+      card.appendChild(el("span", "ps-corr-path", "→"));
+      var tgtReal = findRealFindingForCorrelation(tgt);
+      var tgtZone = el("span", "ps-corr-side");
+      tgtZone.appendChild(corrTag(tgt, tgtReal ? tgtReal.severity : null));
+      tgtZone.appendChild(el("span", "ps-corr-path", tgt.service || "?"));
+      if (tgtReal || c.sample_trace_id) {
+        tgtZone.classList.add("ps-corr-side-link");
+        setAttr(tgtZone, "role", "button");
+        tgtZone.addEventListener("click", function () {
+          if (tgtReal) gotoFinding(tgtReal);
+          else openExternalFindingDetail(syntheticFindingFromCorrelation(c));
+        });
+      }
+      card.appendChild(tgtZone);
       var conf = Math.round((c.confidence || 0) * 100);
       var lag = (c.median_lag_ms || 0).toFixed(0);
       var n = c.co_occurrence_count || 0;
       card.appendChild(
         el("span", "ps-corr-meta", "conf " + conf + "% · lag " + lag + " ms · " + n + " traces")
       );
-      // Daemon-produced correlations carry sample_trace_id. When set,
-      // clicking jumps to the finding detail. openExplain falls back to
-      // the shared empty state when the trace is not embedded.
-      if (c.sample_trace_id) {
-        card.classList.add("ps-correlation-clickable");
-        card.addEventListener("click", function () {
-          // Prefer the real finding when the snapshot still holds it, so
-          // the list row selects. Synthetic detail when it aged out.
-          var real = findRealFindingForCorrelation(c.target || {});
-          if (real) gotoFinding(real);
-          else openExternalFindingDetail(syntheticFindingFromCorrelation(c));
-        });
-      } else {
-        card.style.cursor = "default";
-      }
       list.appendChild(card);
     });
     syncCorrelationsEmpty();
