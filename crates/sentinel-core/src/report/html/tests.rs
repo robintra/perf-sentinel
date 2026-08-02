@@ -326,6 +326,28 @@ fn correlation_cards_land_on_and_announce_the_real_findings() {
 }
 
 #[test]
+fn help_icons_open_a_plain_language_method_sheet() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    // One sheet per finding type and carbon topic, values substituted,
+    // and the deep link goes to the published English methodology.
+    for needle in [
+        "var HELP_DEEP",
+        r#"id="topic-help""#,
+        "What it measures",
+        "How it is computed",
+        "the classic lazy-loading",
+        "weighted interval scheduling",
+        "log-symmetric bracket",
+        "https://perf-sentinel.dev/docs/METHODOLOGY.html",
+        "https://perf-sentinel.dev/docs/ENERGY.html",
+        "Full methodology",
+    ] {
+        assert!(html.contains(needle), "method sheet missing: {needle}");
+    }
+}
+
+#[test]
 fn tooltip_drops_below_its_anchor_when_centering_lacks_room() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));

@@ -485,6 +485,10 @@
   /* -------- modals (native <dialog>) -------- */
   dialog.ps-modal { position: fixed; inset: 0; margin: auto; max-width: 460px; width: calc(100% - 40px); height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); color: var(--text); border-radius: 16px; border: 0; padding: 22px 24px; box-shadow: 0 24px 70px rgba(0,0,0,.25); }
   dialog.ps-modal::backdrop { background: rgba(0,0,0,.55); }
+  dialog.ps-modal-wide { max-width: 560px; }
+  #topic-help-body h3 { margin: 14px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); font-family: var(--font-mono); }
+  #topic-help-body p { margin: 0; font-size: 12.5px; line-height: 1.75; color: var(--text); }
+  #topic-help-link { display: inline-block; margin-top: 16px; }
   dialog.ps-modal h2 { margin: 0 0 16px 0; font-size: 15px; font-weight: 600; }
   .ps-modal-close { position: absolute; top: 14px; right: 16px; background: transparent; border: none; color: var(--text-2); font-family: var(--font-mono); font-size: 12px; cursor: pointer; line-height: 1; padding: 4px 8px; }
   .ps-modal-close:hover { color: var(--text); }
@@ -849,6 +853,13 @@
     <thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
     <tbody id="cheatsheet-body"></tbody>
   </table>
+</dialog>
+
+<dialog id="topic-help" class="ps-modal ps-modal-wide" aria-labelledby="topic-help-title">
+  <button type="button" class="ps-modal-close" id="topic-help-close" aria-label="Close">x</button>
+  <h2 id="topic-help-title"></h2>
+  <div id="topic-help-body"></div>
+  <a id="topic-help-link" class="ps-fix-link" target="_blank" rel="noopener noreferrer">Full methodology ↗</a>
 </dialog>
 
 <dialog id="auth-modal" class="ps-modal" aria-labelledby="auth-modal-title">
@@ -1351,8 +1362,7 @@
   };
   // Inline the producing run's values next to the key names. Reports
   // from older binaries carry no detection_config: keys alone then.
-  function findingHelpText(type) {
-    var text = FINDING_HELP[type];
+  function substituteDetectionValues(text) {
     var cfg = report.detection_config;
     if (!text || !cfg) return text;
     Object.keys(DETECTION_KEY_FIELD).forEach(function (key) {
@@ -1361,6 +1371,168 @@
       text = text.split(key + "`").join(key + " = " + v + "`");
     });
     return text;
+  }
+  function findingHelpText(type) {
+    return substituteDetectionValues(FINDING_HELP[type]);
+  }
+  // Deep, plain-language method sheets behind a CLICK on the same "?"
+  // (hover keeps the short tooltip). Faithful to docs/METHODOLOGY.md and
+  // the detector docs, no source knowledge required. Links go to the
+  // published English docs, the site has no docs mirror in French.
+  var METHO_URL = "https://perf-sentinel.dev/docs/METHODOLOGY.html";
+  var ENERGY_URL = "https://perf-sentinel.dev/docs/ENERGY.html";
+  var HELP_DEEP = {
+    n_plus_one_sql: { t: "N+1 SQL", u: METHO_URL, s: [
+      ["What it measures", "One query per row instead of one query for the whole set, the classic lazy-loading pattern: fetching 50 orders then firing 50 `SELECT * FROM order_item WHERE order_id = ?` instead of a single query for all 50."],
+      ["How it is computed", "Literals are normalized away (`WHERE id = 42` becomes `WHERE id = ?`), so queries share a shape. The SQL spans of a trace are grouped by shape, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms`, with as many distinct parameter sets, one query per row. Ten occurrences or more raise it to critical. The same shape with identical parameters is a different smell, Redundant SQL: the results could not differ."],
+      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, and `sanitizer_aware_classification`, which can keep already-parameterized safe patterns out of the count."],
+      ["Limits", "The detector counts what the trace shows: a driver that batches the queries under the hood, or repeats spread beyond the window, are invisible to it."]
+    ]},
+    n_plus_one_http: { t: "N+1 HTTP", u: METHO_URL, s: [
+      ["What it measures", "One outbound HTTP call per item instead of one bulk call: fetching a list, then calling `GET /api/users/{id}` once per element."],
+      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. The trace's outbound HTTP spans are grouped by template, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms` with as many distinct parameter sets. Ten or more is critical."],
+      ["What tunes it", "`[detection] n_plus_one_threshold` and `window_duration_ms`."],
+      ["Limits", "Same-shape calls that a client coalesces or caches downstream still count as distinct occurrences here."]
+    ]},
+    n_plus_one_messaging: { t: "N+1 messaging", u: METHO_URL, s: [
+      ["What it measures", "One broker publish per item instead of a batched publish."],
+      ["How it is computed", "Publish spans are grouped by destination, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms` with as many distinct parameter sets."],
+      ["What tunes it", "`[detection] n_plus_one_threshold` and `window_duration_ms`."],
+      ["Limits", "A client library may already batch the publishes it buffers before the broker sees them, so the occurrence count is an upper bound on the real waste."]
+    ]},
+    redundant_sql: { t: "Redundant SQL", u: METHO_URL, s: [
+      ["What it measures", "The exact same query, shape and parameters alike, executed more than once in one trace: the later results could not differ from the first."],
+      ["How it is computed", "Spans are grouped by shape plus the full parameter set. Two identical executions flag at info, five or more raise a warning, the usual signature of a loop bug or a missing cache. Distinct parameters classify as N+1 instead."],
+      ["What tunes it", "Nothing: even two identical queries in one request are worth a look."],
+      ["Limits", "The detector cannot know the data changed between the two executions, a deliberate re-read after a write looks redundant to it."]
+    ]},
+    redundant_http: { t: "Redundant HTTP", u: METHO_URL, s: [
+      ["What it measures", "The exact same HTTP call, endpoint and parameters alike, fired more than once in one trace."],
+      ["How it is computed", "Outbound spans are grouped by template plus the full parameter set. Two identical calls flag at info, five or more raise a warning. A local variable or a per-request cache removes them."],
+      ["What tunes it", "Nothing: exact duplicates always flag."],
+      ["Limits", "A response that legitimately changes between the two calls is invisible to the detector."]
+    ]},
+    slow_sql: { t: "Slow SQL", u: METHO_URL, s: [
+      ["What it measures", "A query shape whose executions run above your latency budget."],
+      ["How it is computed", "A shape flags when it runs above `slow_query_threshold_ms` at least `slow_query_min_occurrences` times, so a single outlier does not page anyone. Five times the threshold raises it to critical. Batch runs also compute cross-trace p50/p95/p99 per shape."],
+      ["What tunes it", "`[detection] slow_query_threshold_ms` and `slow_query_min_occurrences`."],
+      ["Limits", "The threshold is absolute and yours to calibrate, the detector has no notion of what is normal for this query."]
+    ]},
+    slow_http: { t: "Slow HTTP", u: METHO_URL, s: [
+      ["What it measures", "An outbound HTTP endpoint whose calls run above your latency budget."],
+      ["How it is computed", "A template flags when it runs above `slow_query_threshold_ms` at least `slow_query_min_occurrences` times. Five times the threshold raises it to critical."],
+      ["What tunes it", "`[detection] slow_query_threshold_ms` and `slow_query_min_occurrences`."],
+      ["Limits", "Slow findings measure duration, not waste: they carry no avoidable I/O and do not enter the waste ratio."]
+    ]},
+    slow_messaging: { t: "Slow messaging", u: METHO_URL, s: [
+      ["What it measures", "A broker publish destination whose publishes run above your latency budget."],
+      ["How it is computed", "A destination flags when publishes run above `slow_query_threshold_ms` at least `slow_query_min_occurrences` times. Five times the threshold is critical."],
+      ["What tunes it", "`[detection] slow_query_threshold_ms` and `slow_query_min_occurrences`."],
+      ["Limits", "Publish latency includes broker acknowledgment behavior, which the trace cannot decompose."]
+    ]},
+    excessive_fanout: { t: "Excessive fanout", u: METHO_URL, s: [
+      ["What it measures", "One parent operation spawning more child calls than a healthy design should need, an aggregator hammering every downstream at once."],
+      ["How it is computed", "Spans are grouped by parent, and a parent flags past `max_fanout` children. Three times the threshold raises it to critical."],
+      ["What tunes it", "`[detection] max_fanout`."],
+      ["Limits", "A structural signal, not avoidable I/O: the fix is architectural (composition, caching, a coarser API), so it does not enter the waste ratio."]
+    ]},
+    chatty_service: { t: "Chatty service", u: METHO_URL, s: [
+      ["What it measures", "A single request leaving the service through an unreasonable number of outbound HTTP calls, wherever they go."],
+      ["How it is computed", "The trace's outbound HTTP spans are counted, and the trace flags past `chatty_service_min_calls`. Three times the threshold raises it to critical."],
+      ["What tunes it", "`[detection] chatty_service_min_calls`."],
+      ["Limits", "Whole-trace: it says the conversation is too chatty, not which single call to remove. The trace tree highlights all of them."]
+    ]},
+    pool_saturation: { t: "Pool saturation", u: METHO_URL, s: [
+      ["What it measures", "How many SQL queries were in flight at the same instant, the pressure your database connection pool actually felt."],
+      ["How it is computed", "Query start and end timestamps are swept chronologically to find the peak concurrency, which flags at `pool_saturation_concurrent_threshold`."],
+      ["What tunes it", "`[detection] pool_saturation_concurrent_threshold`."],
+      ["Limits", "High concurrency is not avoidable I/O: it signals pool sizing or architectural contention, so it stays out of the waste ratio."]
+    ]},
+    serialized_calls: { t: "Serialized calls", u: METHO_URL, s: [
+      ["What it measures", "Sibling calls that ran strictly one after another although nothing visible forces the order: they could run in parallel and the user waits for the sum instead of the max."],
+      ["How it is computed", "Siblings under one parent are sorted by end time and the longest chain of non-overlapping calls with distinct templates is extracted (weighted interval scheduling). It flags at `serialized_min_sequential` links."],
+      ["What tunes it", "`[detection] serialized_min_sequential`."],
+      ["Limits", "Always info on purpose: the trace cannot see a data dependency between the calls, so a legitimate pipeline looks identical to a missed parallelization."]
+    ]},
+    total_co2: { t: "Total CO2", u: METHO_URL + "#uncertainty-bracket", s: [
+      ["What it measures", "Everything the analyzed traffic emitted, by the SCI v1.0 numerator: operational `(E x I)` plus embodied `M` plus network transport `T`, summed over traces and scored per region when spans carry `cloud.region`."],
+      ["How the bracket works", "low is half the mid value, high is double: a log-symmetric bracket that says the estimate is trusted to a factor of two, not to a percent. The model tag says how the energy figure was obtained, measured by an energy backend or modeled from I/O counts."],
+      ["Limits", "A directional estimate for comparing runs and finding waste, not a wattmeter reading, and the project says so in its methodology."]
+    ]},
+    operational_co2: { t: "Operational CO2", u: METHO_URL + "#energy-per-operation", s: [
+      ["What it measures", "The carbon of actually running the workload: energy used times the grid carbon intensity of the resolved region."],
+      ["How it is computed", "Energy is either measured (RAPL via Scaphandre, Kepler or Alumet, BMC via Redfish, or the embedded SPECpower table for cloud instances) or modeled from I/O counts with per-operation coefficients. Intensity comes from the embedded per-region table, hourly profiles, or Electricity Maps live when configured."],
+      ["Why it matters", "The only SCI term a code fix can reduce: the avoidable share lives here."]
+    ]},
+    embodied_co2: { t: "Embodied CO2", u: METHO_URL + "#background-energy-and-sci-primer", s: [
+      ["What it measures", "The manufacturing carbon of the hardware, amortized over the requests it serves: the SCI `M` term."],
+      ["How it is computed", "`[green] embodied_carbon_per_request_gco2` (strictly positive, no hardware has zero embodied carbon) times the number of requests. The applied coefficient is published with every disclosure."],
+      ["Limits", "Real but irreducible by fixing an anti-pattern: it shrinks by serving more with less hardware, not by removing a query."]
+    ]},
+    avoidable_co2: { t: "Avoidable", u: METHO_URL + "#aggregation-over-a-period", s: [
+      ["What it measures", "The slice of operational carbon your team can actually delete by fixing the avoidable anti-patterns (N+1, redundant calls)."],
+      ["How it is computed", "Operational carbon times the ratio of avoidable I/O operations over accounted ones, the `sci_v1_operational_ratio` methodology. Region-blind and excluding embodied by construction."],
+      ["Why it matters", "This is the number a fix shrinks, and the honest one to celebrate: the total also moves with traffic, this one moves with code quality."]
+    ]},
+    waste_ratio: { t: "I/O waste ratio", u: METHO_URL + "#io-intensity-score-iis", s: [
+      ["What it measures", "Which share of all I/O operations (SQL, outbound HTTP, publishes) belongs to avoidable anti-patterns."],
+      ["How it is computed", "Avoidable I/O operations, deduplicated across findings so one span never counts twice, divided by total I/O operations. Bands: healthy under 10%, moderate to 30%, high to 50%, critical above."],
+      ["Limits", "Counts operations, not bytes or milliseconds: a tiny redundant query and a huge one weigh the same here."]
+    ]},
+    iis: { t: "IIS score", u: METHO_URL + "#io-intensity-score-iis", s: [
+      ["What it measures", "How I/O-hungry an endpoint is: its I/O operations per call, averaged over the window. The card shows the worst endpoint."],
+      ["How it is computed", "Per (service, endpoint) pair, total I/O operations divided by invocations. Bands at 2, 5 and 10, and the top offenders ranking orders endpoints by it."],
+      ["Limits", "A relative ranking signal: it tells you where to look first, not how many joules the endpoint burns."]
+    ]},
+    db_waste: { t: "Database waste", u: ENERGY_URL, s: [
+      ["What it measures", "The avoidable share of the database's own energy, the side of an N+1 the application trace cannot see."],
+      ["How it is computed", "Measured mode: the declared database cgroup's energy (Alumet) times the SQL waste ratio, a CPU-only lower bound that is genuinely additional to the report totals. Estimated mode, on every run without a measured reading: the modeled energy of the window's SQL spans times the same ratio, a re-presented share of the totals, never additional. The model tag says which mode produced the figure."],
+      ["Limits", "Kept out of every total because the database is a different scope than the instrumented services, and the two modes err in different directions."]
+    ]},
+    broker_waste: { t: "Broker waste", u: ENERGY_URL, s: [
+      ["What it measures", "The avoidable share of the message broker's energy, the twin of database waste for publishes."],
+      ["How it is computed", "Measured on the broker cgroup (Alumet), declared from a provisioned cluster via the embedded SPECpower table, or estimated from the modeled publish energy times the messaging waste ratio. The model tag says which."],
+      ["Limits", "A measurement under-counts (CPU only), a declaration bounds compute at full load without storage or network: the error direction depends on the source, and the figure stays out of every total."]
+    ]},
+    green_tab: { t: "GreenOps methodology", u: METHO_URL + "#pipeline-at-a-glance", s: [
+      ["The pipeline in one breath", "Count the I/O operations each endpoint performs, turn them into energy (measured by a backend when configured, a per-operation model otherwise), multiply by the grid carbon intensity of each region, then assemble the SCI v1.0 terms: operational plus embodied plus transport."],
+      ["Measured vs modeled", "Every figure carries a model tag naming its source: RAPL, BMC, SPECpower, or the I/O proxy with its factor-of-two bracket. Measured and modeled figures are never silently mixed."],
+      ["What it is for", "A directional waste counter to compare runs and target fixes, published with its uncertainty, not a wattmeter and not a regulatory instrument. The methodology page details every constant and its academic source."]
+    ]}
+  };
+  function openTopicHelp(key) {
+    var d = HELP_DEEP[key];
+    var dlg = document.getElementById("topic-help");
+    if (!d || !dlg) return;
+    document.getElementById("topic-help-title").textContent = d.t;
+    var body = document.getElementById("topic-help-body");
+    body.textContent = "";
+    d.s.forEach(function (sec) {
+      body.appendChild(el("h3", null, sec[0]));
+      var para = el("p");
+      proseInto(para, substituteDetectionValues(sec[1]));
+      body.appendChild(para);
+    });
+    document.getElementById("topic-help-link").href = d.u;
+    topicHelpPriorFocus = document.activeElement;
+    dlg.showModal();
+    var closeBtn = document.getElementById("topic-help-close");
+    if (closeBtn) closeBtn.focus();
+  }
+  var topicHelpPriorFocus = null;
+  function wireTopicHelpDialog() {
+    var dlg = document.getElementById("topic-help");
+    if (!dlg) return;
+    var close = function () { if (dlg.open) dlg.close(); };
+    var closeBtn = document.getElementById("topic-help-close");
+    if (closeBtn) closeBtn.addEventListener("click", close);
+    dlg.addEventListener("close", function () {
+      if (topicHelpPriorFocus && topicHelpPriorFocus.focus) topicHelpPriorFocus.focus();
+      topicHelpPriorFocus = null;
+    });
+    dlg.addEventListener("click", function (ev) {
+      if (ev.target === dlg) close();
+    });
   }
   var TYPE_LABEL = {
     n_plus_one_sql: "N+1 SQL",
@@ -1458,7 +1630,7 @@
       if (TAB_HELP[key]) {
         var help = el("span", "ps-nav-help", "?");
         setAttr(help, "aria-label", TAB_HELP[key]);
-        wireTip(help, TAB_HELP[key]);
+        wireTip(help, TAB_HELP[key], key === "green" ? "green_tab" : null);
         h1.appendChild(help);
       }
     }
@@ -1483,7 +1655,7 @@
     document.querySelectorAll(".ps-tipbox").forEach(function (b) { b.remove(); });
   }
   var tipSweepWired = false;
-  function wireTip(anchor, text) {
+  function wireTip(anchor, text, deepKey) {
     if (!tipSweepWired) {
       tipSweepWired = true;
       // Fixed-positioned tips do not follow scroll, and a re-render can
@@ -1517,6 +1689,14 @@
     anchor.addEventListener("mouseleave", function () {
       if (box) { box.remove(); box = null; }
     });
+    // Hover is the summary, click the method sheet.
+    if (deepKey) {
+      anchor.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        sweepTips();
+        openTopicHelp(deepKey);
+      });
+    }
   }
   function tabIsRegistered(key) { return !!registeredTabs[key]; }
   function renderTabs() {
@@ -2380,7 +2560,7 @@
     if (helpText) {
       var h2help = el("span", "ps-nav-help", "?");
       setAttr(h2help, "aria-label", helpText);
-      wireTip(h2help, helpText);
+      wireTip(h2help, helpText, f.type || f.finding_type);
       h2.appendChild(h2help);
     }
     titleWrap.appendChild(h2);
@@ -2717,7 +2897,7 @@
   // -------- green panel --------
   // Builds a metric card with a brand-toned value (Carbon panel uses
   // green numbers throughout).
-  function greenCard(label, value, sub, tone, help) {
+  function greenCard(label, value, sub, tone, help, deepKey) {
     var card = metricCard(label, value, sub);
     // Backticked segments in the sub render as code chips, like prose.
     if (sub && sub.indexOf("`") !== -1) {
@@ -2731,7 +2911,7 @@
     if (help) {
       var icon = el("span", "ps-nav-help", "?");
       setAttr(icon, "aria-label", help);
-      wireTip(icon, help);
+      wireTip(icon, help, deepKey);
       card.querySelector(".ps-metric-label").appendChild(icon);
     }
     return card;
@@ -2790,12 +2970,13 @@
       formatGco2(co2.total.mid),
       "low " + formatGco2(co2.total.low) + " · high " + formatGco2(co2.total.high),
       null,
-      "The SCI v1.0 numerator summed over analyzed traces: operational `(E x I)` + embodied `M` + network transport `T`. The low/high bracket is log-symmetric (half, double): a directional estimate, not a wattmeter reading."
+      "The SCI v1.0 numerator summed over analyzed traces: operational `(E x I)` + embodied `M` + network transport `T`. The low/high bracket is log-symmetric (half, double): a directional estimate, not a wattmeter reading.",
+      "total_co2"
     ));
     metrics.appendChild(greenCard("Operational CO2", formatGco2(co2.operational_gco2), "E × I", null,
-      "Carbon from actually running the workload: energy used times the grid carbon intensity of the resolved region. The only term a code fix can reduce."));
+      "Carbon from actually running the workload: energy used times the grid carbon intensity of the resolved region. The only term a code fix can reduce.", "operational_co2"));
     metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term", null,
-      "Hardware manufacturing carbon amortized over traffic: `[green] embodied_carbon_per_request_gco2` per request. Real, but irreducible by fixing an anti-pattern."));
+      "Hardware manufacturing carbon amortized over traffic: `[green] embodied_carbon_per_request_gco2` per request. Real, but irreducible by fixing an anti-pattern.", "embodied_co2"));
     var avoidMid = co2.avoidable.mid;
     // Accent marks actionable savings; a zero amount has nothing to act on.
     metrics.appendChild(greenCard(
@@ -2803,7 +2984,8 @@
       formatGco2(avoidMid),
       percent(avoidMid, co2.operational_gco2) + " of operational",
       avoidMid > 0 ? "accent" : "neutral",
-      "The operational share attributable to avoidable I/O: operational carbon times avoidable ops over accounted ops. This is the number an anti-pattern fix shrinks."
+      "The operational share attributable to avoidable I/O: operational carbon times avoidable ops over accounted ops. This is the number an anti-pattern fix shrinks.",
+      "avoidable_co2"
     ));
     metrics.appendChild(greenCard(
       "I/O waste ratio",
@@ -2812,7 +2994,8 @@
         ? "avoidable / total ops · SQL " + fmtNum(greenSummary.avoidable_sql_io_ops || 0) + " of " + fmtNum(greenSummary.total_sql_io_ops)
         : "avoidable / total ops",
       bandTone(greenSummary.io_waste_ratio_band),
-      "Avoidable I/O operations (N+1, redundant calls) over all I/O operations of the window. Bands: healthy under 10%, moderate to 30%, high to 50%, critical above."
+      "Avoidable I/O operations (N+1, redundant calls) over all I/O operations of the window. Bands: healthy under 10%, moderate to 30%, high to 50%, critical above.",
+      "waste_ratio"
     ));
     var topOff = greenSummary.top_offenders && greenSummary.top_offenders[0];
     metrics.appendChild(greenCard(
@@ -2820,7 +3003,8 @@
       topOff && Number.isFinite(topOff.io_intensity_score) ? topOff.io_intensity_score.toFixed(1) : "-",
       "I/O intensity per call",
       bandTone(topOff && topOff.io_intensity_band),
-      "I/O Intensity Score of the worst endpoint: its I/O operations (SQL, outbound HTTP, publishes) per call. Bands at 2, 5 and 10."
+      "I/O Intensity Score of the worst endpoint: its I/O operations (SQL, outbound HTTP, publishes) per call. Bands at 2, 5 and 10.",
+      "iis"
     ));
     // Measured on the declared Alumet database cgroup, or estimated
     // from the modeled SQL energy; the model tag says which. Excluded
@@ -2841,7 +3025,8 @@
         dbValue,
         dbSub,
         dbw.waste_kwh > 0 ? "accent" : "neutral",
-        "Avoidable database-side energy: measured on the declared database cgroup (Alumet) or estimated from the modeled SQL energy times the SQL waste ratio, the model tag says which. Estimated re-presents a share of the report totals, measured is an additional, separate scope."
+        "Avoidable database-side energy: measured on the declared database cgroup (Alumet) or estimated from the modeled SQL energy times the SQL waste ratio, the model tag says which. Estimated re-presents a share of the report totals, measured is an additional, separate scope.",
+        "db_waste"
       ));
     } else {
       // Greyed rather than absent, so a reader sees why no figure exists.
@@ -2850,7 +3035,8 @@
         "-",
         "not measured · no SQL activity, a measured reading needs `[green.alumet.database]`",
         "muted",
-        "Avoidable database-side energy: measured on the declared database cgroup (Alumet) or estimated from the modeled SQL energy times the SQL waste ratio, the model tag says which. Estimated re-presents a share of the report totals, measured is an additional, separate scope."
+        "Avoidable database-side energy: measured on the declared database cgroup (Alumet) or estimated from the modeled SQL energy times the SQL waste ratio, the model tag says which. Estimated re-presents a share of the report totals, measured is an additional, separate scope.",
+        "db_waste"
       ));
     }
 
@@ -2870,7 +3056,8 @@
         mwValue,
         mwSub,
         mw.waste_kwh > 0 ? "accent" : "neutral",
-        "Same as database waste, for the message broker: measured cgroup (Alumet), declared cluster (SPECpower) or estimated from the modeled publish energy. Kept out of every total."
+        "Same as database waste, for the message broker: measured cgroup (Alumet), declared cluster (SPECpower) or estimated from the modeled publish energy. Kept out of every total.",
+        "broker_waste"
       ));
     } else {
       metrics.appendChild(greenCard(
@@ -2878,7 +3065,8 @@
         "-",
         "not measured · no broker publish spans, or no broker energy backend",
         "muted",
-        "Same as database waste, for the message broker: measured cgroup (Alumet), declared cluster (SPECpower) or estimated from the modeled publish energy. Kept out of every total."
+        "Same as database waste, for the message broker: measured cgroup (Alumet), declared cluster (SPECpower) or estimated from the modeled publish energy. Kept out of every total.",
+        "broker_waste"
       ));
     }
 
@@ -5565,6 +5753,7 @@
   initSearchInputs();
   populateCheatsheet();
   wireCheatsheetDialog();
+  wireTopicHelpDialog();
   wireShowMoreButton();
   wireExportButtons();
   wireCopyLinkButtons();
