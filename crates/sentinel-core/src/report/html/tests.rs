@@ -202,6 +202,30 @@ fn green_panel_carries_database_waste_card() {
 }
 
 #[test]
+fn green_panel_greys_out_absent_figures_instead_of_hiding_them() {
+    let report = minimal_report(vec![]);
+    let (html, _) = render(&report, &[], &opts("traces.json", None));
+    // An absent figure renders as a muted card naming the cause, and the
+    // Carbon tab is registered even when green scoring is disabled.
+    assert!(
+        html.contains("a measured reading needs [green.alumet.database]"),
+        "absent database figure must say what produces one"
+    );
+    assert!(
+        html.contains("no broker publish spans, or no broker energy backend"),
+        "absent broker figure must name its causes"
+    );
+    assert!(
+        html.contains("GreenOps scoring is disabled"),
+        "the disabled Carbon tab must explain itself"
+    );
+    assert!(
+        html.contains(r#"data-grad="muted"#) || html.contains("[data-grad=\"muted\"]"),
+        "the muted card style must exist"
+    );
+}
+
+#[test]
 fn green_panel_carries_broker_waste_card() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));

@@ -724,15 +724,27 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         waste_level.short_label(),
     );
 
+    // Absent figures print greyed rather than disappearing, so a reader
+    // sees why a number is missing instead of not knowing it exists.
     if let Some(carbon) = summary.co2.as_ref() {
         print_carbon_summary(carbon);
+    } else {
+        println!("  {dim}Carbon:            not computed ([green] enabled = false){reset}");
     }
 
     if let Some(db) = &summary.database_waste {
         println!("{}", format_database_waste_line(db));
+    } else {
+        println!(
+            "  {dim}Database waste:    not measured (no SQL activity, a measured reading needs [green.alumet.database]){reset}"
+        );
     }
     if let Some(mw) = &summary.messaging_waste {
         println!("{}", format_messaging_waste_line(mw));
+    } else {
+        println!(
+            "  {dim}Broker waste:      not measured (no broker publish spans, or no broker energy backend){reset}"
+        );
     }
 
     // Carbon scoring config header. Hidden when Electricity Maps is not
