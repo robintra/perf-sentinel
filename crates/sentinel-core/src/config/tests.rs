@@ -1,4 +1,5 @@
 use super::*;
+use crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH;
 
 #[test]
 fn default_config_has_safe_defaults() {
@@ -945,15 +946,12 @@ network_energy_per_byte_kwh = 0.00000000008
     let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
     assert!(cfg.green.include_network_transport);
     assert!(
-        (cfg.green.network_energy_per_byte_kwh
-            - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
-            .abs()
+        (cfg.green.network_energy_per_byte_kwh - DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH).abs()
             < f64::EPSILON
     );
     assert!(cfg.carbon_context().include_network_transport);
     assert!(
-        (cfg.carbon_context().network_energy_per_byte_kwh
-            - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
+        (cfg.carbon_context().network_energy_per_byte_kwh - DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
             .abs()
             < f64::EPSILON
     );
@@ -965,8 +963,7 @@ fn zero_embodied_carbon_falls_back_to_the_default() {
     // the disclosure, but an upgrade must warn, not refuse to start.
     let config = load_from_str("[green]\nembodied_carbon_per_request_gco2 = 0.0").unwrap();
     assert!(
-        (config.green.embodied_carbon_per_request_gco2
-            - crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2)
+        (config.green.embodied_carbon_per_request_gco2 - DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2)
             .abs()
             < f64::EPSILON
     );
@@ -1861,7 +1858,7 @@ fn carbon_context_scoring_config_carries_the_fixed_transport_coefficient() {
     let scoring = cfg.carbon_context().scoring_config.unwrap();
     assert_eq!(
         scoring.network_energy_per_byte_kwh,
-        Some(crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
+        Some(DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
     );
     assert_eq!(scoring.electricity_maps, Some(false));
 }

@@ -253,7 +253,7 @@ mod tests {
     /// `python3 scripts/generate-instance-types-doc.py`.
     #[test]
     fn instance_types_doc_matches_the_table() {
-        fn rows(doc: &str) -> std::collections::HashMap<&str, (f64, f64)> {
+        fn rows(doc: &str) -> HashMap<&str, (f64, f64)> {
             doc.lines()
                 .filter_map(|line| {
                     let mut columns = line.split('|').map(str::trim);

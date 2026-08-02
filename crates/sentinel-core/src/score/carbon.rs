@@ -2086,18 +2086,24 @@ mod tests {
         assert_eq!(cfg.temporal_granularity, TemporalGranularity::Hourly);
     }
 
-    #[test]
-    fn scoring_config_only_claims_electricity_maps_when_built_from_it() {
-        let legacy = ScoringConfig::default();
-        assert!(legacy.uses_electricity_maps());
-        let em = ElectricityMapsConfig {
+    /// A v4 Electricity Maps config, the shape both endpoint-detection
+    /// tests need. Shared so the two cannot drift apart.
+    fn v4_electricity_maps_config() -> ElectricityMapsConfig {
+        ElectricityMapsConfig {
             api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
             auth_token: "test-token".to_string(),
             poll_interval: std::time::Duration::from_mins(5),
             region_map: HashMap::new(),
             emission_factor_type: EmissionFactorType::Lifecycle,
             temporal_granularity: TemporalGranularity::Hourly,
-        };
+        }
+    }
+
+    #[test]
+    fn scoring_config_only_claims_electricity_maps_when_built_from_it() {
+        let legacy = ScoringConfig::default();
+        assert!(legacy.uses_electricity_maps());
+        let em = v4_electricity_maps_config();
         assert_eq!(
             ScoringConfig::from_electricity_maps(&em).electricity_maps,
             Some(true)
@@ -2171,14 +2177,7 @@ mod tests {
     fn scoring_config_from_electricity_maps_v4_default_endpoint() {
         // Lock the v4 path so a future short-circuit on V3 in
         // `from_electricity_maps` cannot regress the default detection.
-        let cfg = ElectricityMapsConfig {
-            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
-            auth_token: "test-token".to_string(),
-            poll_interval: std::time::Duration::from_mins(5),
-            region_map: HashMap::new(),
-            emission_factor_type: EmissionFactorType::Lifecycle,
-            temporal_granularity: TemporalGranularity::Hourly,
-        };
+        let cfg = v4_electricity_maps_config();
         let scoring = ScoringConfig::from_electricity_maps(&cfg);
         assert_eq!(scoring.api_version, ApiVersion::V4);
         assert_eq!(scoring.emission_factor_type, EmissionFactorType::Lifecycle);
