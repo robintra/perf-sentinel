@@ -954,6 +954,7 @@ impl Builder {
                     self.transport_gco2_total,
                     self.db_waste.energy_g,
                     self.msg_waste.energy_g,
+                    default_transport_coefficient_everywhere(&self.scoring_coefficients),
                 ),
                 aggregate_efficiency_score: canonical_waste.efficiency_score,
                 aggregate_waste_ratio: canonical_waste.waste_ratio,
@@ -1040,15 +1041,30 @@ fn messaging_waste_aggregate(
     })
 }
 
+/// Whether every window of the period was scored with the fixed transport
+/// coefficient. Pre-0.9.25 windows could carry any custom value, and the
+/// low/high bracket is only meaningful around the fixed one.
+fn default_transport_coefficient_everywhere(coefficients: &BTreeSet<String>) -> bool {
+    let default_entry = format!(
+        "network_kwh_per_byte={}",
+        crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH
+    );
+    !coefficients
+        .iter()
+        .any(|c| c.starts_with("network_kwh_per_byte=") && *c != default_entry)
+}
+
 /// Split the period total into its three terms, in kgCO2eq. One rule for
 /// every term: absent when zero, so unmeasured never reads as zero.
-/// Transport is linear in its coefficient, so low/high are mid rescaled.
+/// Transport is linear in its coefficient, so low/high are mid rescaled,
+/// and omitted when a window used another coefficient than the fixed one.
 fn build_carbon_breakdown(
     operational_gco2: f64,
     embodied_gco2: f64,
     transport_gco2: f64,
     database_gco2: Option<f64>,
     messaging_gco2: Option<f64>,
+    fixed_coefficient: bool,
 ) -> Option<CarbonBreakdown> {
     use crate::score::carbon::{
         DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH, NETWORK_ENERGY_PER_BYTE_KWH_HIGH,
@@ -1065,8 +1081,10 @@ fn build_carbon_breakdown(
         embodied_kgco2eq: (embodied_gco2 > 0.0).then_some(embodied_gco2 / 1000.0),
         transport_kgco2eq: transport,
         transport_kgco2eq_low: transport
+            .filter(|_| fixed_coefficient)
             .map(|t| t * (NETWORK_ENERGY_PER_BYTE_KWH_LOW / DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)),
         transport_kgco2eq_high: transport
+            .filter(|_| fixed_coefficient)
             .map(|t| t * (NETWORK_ENERGY_PER_BYTE_KWH_HIGH / DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)),
         database_kgco2eq_out_of_total: database_gco2.map(|g| g / 1000.0),
         messaging_kgco2eq_out_of_total: messaging_gco2.map(|g| g / 1000.0),
@@ -1869,10 +1887,36 @@ mod tests {
     }
 
     #[test]
+    fn transport_bracket_is_omitted_when_a_window_used_another_coefficient() {
+        // The bracket only means something around the fixed coefficient:
+        // a period holding a pre-0.9.25 custom one must not publish it.
+        let default_only: BTreeSet<String> = ["network_kwh_per_byte=0.00000000004".to_string()]
+            .into_iter()
+            .collect();
+        assert!(default_transport_coefficient_everywhere(&default_only));
+        assert!(default_transport_coefficient_everywhere(&BTreeSet::new()));
+        let custom: BTreeSet<String> = ["network_kwh_per_byte=0.0000000005".to_string()]
+            .into_iter()
+            .collect();
+        assert!(!default_transport_coefficient_everywhere(&custom));
+
+        let with_bracket = build_carbon_breakdown(10.0, 0.0, 4.0, None, None, true).unwrap();
+        assert!(with_bracket.transport_kgco2eq_low.is_some());
+        let without = build_carbon_breakdown(10.0, 0.0, 4.0, None, None, false).unwrap();
+        assert!(
+            without.transport_kgco2eq.is_some(),
+            "the mid still publishes"
+        );
+        assert!(without.transport_kgco2eq_low.is_none());
+        assert!(without.transport_kgco2eq_high.is_none());
+    }
+
+    #[test]
     fn standalone_subsystem_carbon_emits_a_breakdown() {
         for (database_gco2, messaging_gco2) in [(Some(2.0), None), (None, Some(3.0))] {
-            let breakdown = build_carbon_breakdown(0.0, 0.0, 0.0, database_gco2, messaging_gco2)
-                .expect("subsystem carbon emits a breakdown");
+            let breakdown =
+                build_carbon_breakdown(0.0, 0.0, 0.0, database_gco2, messaging_gco2, true)
+                    .expect("subsystem carbon emits a breakdown");
 
             // Unmeasured terms are omitted, never published as 0.0.
             assert!(breakdown.operational_kgco2eq.is_none());
