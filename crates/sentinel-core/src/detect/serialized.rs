@@ -45,7 +45,7 @@ pub fn detect_serialized(
     indices: &TraceIndices<'_>,
     min_sequential: u32,
 ) -> Vec<Finding> {
-    detect_serialized_with_spans(trace, indices, min_sequential)
+    serialized_impl(trace, indices, min_sequential, false)
         .into_iter()
         .map(|(finding, _)| finding)
         .collect()
@@ -60,6 +60,17 @@ pub(crate) fn detect_serialized_with_spans<'a>(
     trace: &'a Trace,
     indices: &TraceIndices<'_>,
     min_sequential: u32,
+) -> Vec<(Finding, Vec<&'a str>)> {
+    serialized_impl(trace, indices, min_sequential, true)
+}
+
+/// `collect_spans` stays off on the detection path, which discards the
+/// ids: only the HTML sink needs them.
+fn serialized_impl<'a>(
+    trace: &'a Trace,
+    indices: &TraceIndices<'_>,
+    min_sequential: u32,
+    collect_spans: bool,
 ) -> Vec<(Finding, Vec<&'a str>)> {
     let min_seq = min_sequential as usize;
 
@@ -93,9 +104,11 @@ pub(crate) fn detect_serialized_with_spans<'a>(
             continue;
         }
 
-        // Sort by end time for the DP approach. Order between equal-end
-        // spans is irrelevant downstream so the unstable variant suffices.
-        timed.sort_unstable_by_key(|s| s.end_us);
+        // Sort by end time for the DP approach. The span index breaks ties
+        // so equal-end siblings land in a defined order: the selected chain
+        // is published as span ids, so which of two identical candidates is
+        // highlighted must not depend on the sort's internals.
+        timed.sort_unstable_by_key(|s| (s.end_us, s.span_idx));
 
         // Find the longest non-overlapping subsequence via DP, then
         // pass it to evaluate_sequence for threshold / template checks.
@@ -104,10 +117,14 @@ pub(crate) fn detect_serialized_with_spans<'a>(
         if let Some(finding) =
             evaluate_sequence(&timed, &best_seq, min_seq, trace, span_index, parent_id)
         {
-            let span_ids = best_seq
-                .iter()
-                .map(|&i| trace.spans[timed[i].span_idx].event.span_id.as_str())
-                .collect();
+            let span_ids = if collect_spans {
+                best_seq
+                    .iter()
+                    .map(|&i| trace.spans[timed[i].span_idx].event.span_id.as_str())
+                    .collect()
+            } else {
+                Vec::new()
+            };
             findings.push((finding, span_ids));
         }
     }

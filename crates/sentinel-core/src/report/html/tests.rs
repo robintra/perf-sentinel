@@ -2182,71 +2182,211 @@ fn embeds_correlations_when_report_carries_them() {
     assert!(html.contains(r#"id="panel-correlations""#));
 }
 
-#[test]
-fn culprit_spans_name_the_serialized_chain_not_the_whole_trace() {
-    // The chain is four sequential children among five siblings: the one
-    // that straddles them must stay out, which is what no client-side rule
-    // could work out, since an embedded span carries no timestamp.
-    let mut spans = vec![span("t1", "root", None, "svc", "/ep", "GET /ep")];
-    let starts = [
-        ("c1", "2026-04-21T00:00:00.000Z", 10_000),
-        ("c2", "2026-04-21T00:00:00.020Z", 10_000),
-        ("c3", "2026-04-21T00:00:00.040Z", 10_000),
-        ("c4", "2026-04-21T00:00:00.060Z", 10_000),
-        // Overlaps every one of them, so it can only ever sit alone.
-        ("x1", "2026-04-21T00:00:00.005Z", 60_000),
-    ];
-    for (id, ts, dur) in starts {
+/// A parent with four sequential children plus one span straddling them
+/// all, so the longest non-overlapping run is unambiguous.
+fn serialized_chain(
+    trace_id: &str,
+    parent: &str,
+    prefix: &str,
+    base_ms: u32,
+) -> Vec<NormalizedEvent> {
+    let mut out = vec![span(
+        trace_id,
+        parent,
+        Some("root"),
+        "svc",
+        "/ep",
+        "GET /ep",
+    )];
+    for (n, offset) in [0_u32, 20, 40, 60].into_iter().enumerate() {
+        let id = format!("{prefix}{n}");
         let mut s = span(
-            "t1",
-            id,
-            Some("root"),
+            trace_id,
+            &id,
+            Some(parent),
             "svc",
             "/ep",
             &format!("SELECT {id}"),
         );
-        s.event.timestamp = ts.into();
-        s.event.duration_us = dur;
-        spans.push(s);
+        s.event.timestamp = format!("2026-04-21T00:00:{:02}.{:03}Z", base_ms / 1000, offset);
+        s.event.duration_us = 10_000;
+        out.push(s);
+    }
+    let mut straddle = span(
+        trace_id,
+        &format!("{prefix}x"),
+        Some(parent),
+        "svc",
+        "/ep",
+        "SELECT straddle",
+    );
+    straddle.event.timestamp = format!("2026-04-21T00:00:{:02}.005Z", base_ms / 1000);
+    straddle.event.duration_us = 60_000;
+    out.push(straddle);
+    out
+}
+
+fn serialized_report(trace: &Trace, min_sequential: u32) -> Report {
+    let indices = crate::detect::TraceIndices::build(trace);
+    let mut findings =
+        crate::detect::serialized::detect_serialized(trace, &indices, min_sequential);
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig {
+        serialized_min_sequential: min_sequential,
+        ..crate::detect::DetectConfig::default()
+    });
+    report
+}
+
+fn culprit_map(html: &str) -> serde_json::Value {
+    let value: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(html)).expect("payload parses");
+    value
+        .get("culprit_spans")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn culprit_key_of(f: &Finding) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        f.trace_id, f.signature, f.first_timestamp, f.last_timestamp
+    )
+}
+
+#[test]
+fn culprit_spans_name_the_serialized_chain_not_the_whole_trace() {
+    // The straddling sibling must stay out, which is what no client-side
+    // rule could work out: an embedded span carries no timestamp.
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: serialized_chain("t1", "p1", "c", 0),
+    };
+    let report = serialized_report(&trace, 3);
+    assert_eq!(report.findings.len(), 1, "one serialized finding expected");
+    let key = culprit_key_of(&report.findings[0]);
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let map = culprit_map(&html);
+    let ids: Vec<&str> = map[&key]
+        .as_array()
+        .expect("the chain is published under its finding key")
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["c0", "c1", "c2", "c3"]);
+}
+
+#[test]
+fn two_chains_sharing_a_signature_keep_their_own_spans() {
+    // `serialized_calls` takes both its service and its endpoint from the
+    // parent span, so two chains on one route hash identically. Keying on
+    // the signature alone would light each finding with the other's spans.
+    let mut spans = serialized_chain("t1", "p1", "a", 0);
+    spans.extend(serialized_chain("t1", "p2", "b", 10_000));
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans,
+    };
+    let report = serialized_report(&trace, 3);
+    assert_eq!(report.findings.len(), 2, "one finding per parent");
+    let signatures: HashSet<&str> = report
+        .findings
+        .iter()
+        .map(|f| f.signature.as_str())
+        .collect();
+    assert_eq!(signatures.len(), 1, "the two findings share a signature");
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let map = culprit_map(&html);
+    for f in &report.findings {
+        let ids: Vec<&str> = map[&culprit_key_of(f)]
+            .as_array()
+            .expect("each finding keeps its own entry")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 4, "four spans, not the eight of both chains");
+        let prefix = ids[0].chars().next().unwrap();
+        assert!(
+            ids.iter().all(|id| id.starts_with(prefix)),
+            "spans of one parent only, got {ids:?}"
+        );
+    }
+}
+
+#[test]
+fn culprit_spans_name_every_child_of_a_fanout_parent() {
+    let mut spans = vec![span("t1", "root", None, "svc", "/ep", "GET /ep")];
+    for i in 0..6 {
+        spans.push(span(
+            "t1",
+            &format!("kid{i}"),
+            Some("root"),
+            "svc",
+            "/ep",
+            &format!("SELECT {i}"),
+        ));
     }
     let trace = Trace {
         trace_id: "t1".into(),
         spans,
     };
-
     let indices = crate::detect::TraceIndices::build(&trace);
-    let mut findings = crate::detect::serialized::detect_serialized(&trace, &indices, 3);
-    assert_eq!(findings.len(), 1, "one serialized finding expected");
+    let mut findings = crate::detect::fanout::detect_fanout(&trace, &indices, 3);
+    assert_eq!(findings.len(), 1, "one fanout finding expected");
     crate::acknowledgments::enrich_with_signatures(&mut findings);
-    let signature = findings[0].signature.clone();
-
     let mut report = minimal_report(findings);
     report.detection_config = Some(crate::detect::DetectConfig {
-        serialized_min_sequential: 3,
+        max_fanout: 3,
         ..crate::detect::DetectConfig::default()
     });
 
     let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
-    let value: serde_json::Value =
-        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
-    let ids: Vec<&str> = value["culprit_spans"][format!("t1|{signature}")]
+    let map = culprit_map(&html);
+    let ids: Vec<&str> = map[&culprit_key_of(&report.findings[0])]
         .as_array()
-        .expect("the chain is published under trace_id|signature")
+        .expect("the children are published under the finding key")
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
-    assert_eq!(ids, vec!["c1", "c2", "c3", "c4"]);
+    assert_eq!(ids, vec!["kid0", "kid1", "kid2", "kid3", "kid4", "kid5"]);
+    assert!(
+        !ids.contains(&"root"),
+        "the parent is context, not a culprit"
+    );
 }
 
 #[test]
 fn culprit_spans_are_withheld_without_a_detection_config() {
     // Re-running a detector under thresholds other than the ones that
-    // produced the findings would light the wrong spans, so a report
-    // that does not say which thresholds it used gets no highlight.
-    let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
-    let report = minimal_report(vec![f]);
-    let html = render(&report, &[], &opts("-", None)).0;
-    let value: serde_json::Value =
-        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
-    assert!(value.get("culprit_spans").is_none());
+    // produced the findings would light the wrong spans, so a report that
+    // does not say which thresholds it used gets no highlight, even though
+    // this trace does carry a chain the detector would find.
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: serialized_chain("t1", "p1", "c", 0),
+    };
+    let mut report = serialized_report(&trace, 3);
+    assert_eq!(report.findings.len(), 1, "the chain is there to be found");
+    report.detection_config = None;
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    assert!(culprit_map(&html).is_null());
+}
+
+#[test]
+fn culprit_spans_skip_a_finding_the_report_no_longer_carries() {
+    // An acknowledged finding is stripped before render, so its spans must
+    // not ship: no view can key on them and they cost embed budget.
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: serialized_chain("t1", "p1", "c", 0),
+    };
+    let mut report = serialized_report(&trace, 3);
+    report.findings.clear();
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    assert!(culprit_map(&html).is_null());
 }

@@ -1283,7 +1283,7 @@ pub(crate) fn tab_label_style(active: bool) -> Style {
 /// function under the cognitive-complexity gate.
 fn push_carbon_lines(
     lines: &mut Vec<Line<'static>>,
-    gs: &sentinel_core::report::GreenSummary,
+    gs: &GreenSummary,
     traces_analyzed: usize,
     dim: Style,
 ) {
@@ -1328,11 +1328,7 @@ fn push_carbon_lines(
 /// The quality-gate verdict and its per-rule lines. Split out of
 /// `build_analyze_lines` to keep that function under the
 /// cognitive-complexity gate.
-fn push_quality_gate_lines(
-    lines: &mut Vec<Line<'static>>,
-    gate: &sentinel_core::report::QualityGate,
-    dim: Style,
-) {
+fn push_quality_gate_lines(lines: &mut Vec<Line<'static>>, gate: &QualityGate, dim: Style) {
     // An empty rule set means the gate was never evaluated, e.g. a daemon
     // `/api/export/report` snapshot (which hardcodes passed=true, rules=[]).
     // Render that honestly rather than a misleading green PASSED sitting
@@ -1380,11 +1376,7 @@ fn push_quality_gate_lines(
 /// The database and broker waste lines, each greyed with its cause when
 /// the figure is absent. Split out of `build_analyze_lines` to keep that
 /// function under the cognitive-complexity gate.
-fn push_subsystem_waste_lines(
-    lines: &mut Vec<Line<'static>>,
-    gs: &sentinel_core::report::GreenSummary,
-    dim: Style,
-) {
+fn push_subsystem_waste_lines(lines: &mut Vec<Line<'static>>, gs: &GreenSummary, dim: Style) {
     match &gs.database_waste {
         Some(db) => lines.push(Line::from(Span::raw(format!(
             "Database waste: {:.6} kWh of {:.6} kWh (model {})",

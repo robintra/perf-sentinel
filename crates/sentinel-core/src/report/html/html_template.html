@@ -585,7 +585,8 @@
 
   /* -------- accessibility -------- */
   button:focus-visible, [data-nav]:focus-visible, .ps-chip:focus-visible, a:focus-visible,
-  .ps-row:focus-visible, .ps-table th[data-sortable]:focus-visible {
+  .ps-row:focus-visible, .ps-table th[data-sortable]:focus-visible,
+  .ps-nav-help:focus-visible {
     outline: 2px solid var(--brand); outline-offset: 2px; }
   input.ps-search:focus-visible { outline: none; }
   .ps-search-box:focus-within { border-color: var(--brand); }
@@ -1052,9 +1053,15 @@
   var hasGreen = !!(greenSummary && greenSummary.co2);
   var embeddedTraces = payload.embedded_traces || [];
   var tracesById = indexTracesById(embeddedTraces);
-  // Spans the sink named for us, keyed "trace_id|signature". See
-  // culprit_spans_by_finding in report/html/mod.rs.
+  // Spans the sink named for us. See culprit_spans_by_finding and
+  // culprit_key in report/html/mod.rs for the key.
   var culpritSpans = payload.culprit_spans || {};
+  // Shared severity ranking: the Overview impact list, the findings list,
+  // the diff columns and the correlations all order by it.
+  var SEV_RANK = { critical: 0, warning: 1, info: 2 };
+  function bySeverityDesc(a, b) {
+    return (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3);
+  }
 
   // -------- small DOM helpers (textContent only) --------
   function el(tag, cls, text) {
@@ -1637,6 +1644,9 @@
     if (h1) {
       h1.textContent = meta.title;
       var row = h1.parentElement;
+      // Removing a hovered anchor would strand its tip: it never sees a
+      // mouseleave. Same discipline as openExplain.
+      sweepTips();
       row.querySelectorAll(".ps-nav-help").forEach(function (n) { n.remove(); });
       if (TAB_HELP[key]) {
         var help = el("span", "ps-nav-help", "?");
@@ -1674,8 +1684,13 @@
       window.addEventListener("scroll", sweepTips, true);
       document.addEventListener("click", sweepTips, true);
     }
+    // The icon sits beside its heading rather than inside it, so nothing
+    // folds the help text into the heading name any more: make it a real
+    // control instead, reachable by tab and readable on focus.
+    setAttr(anchor, "role", "button");
+    setAttr(anchor, "tabindex", "0");
     var box = null;
-    anchor.addEventListener("mouseenter", function () {
+    function showTip() {
       // Single tip at a time.
       sweepTips();
       box = el("div", "ps-tipbox");
@@ -1697,16 +1712,30 @@
         box.style.top = Math.round(r.bottom + 9) + "px";
         box.style.setProperty("--tip-caret-x", Math.round(r.left + r.width / 2 - left - 4) + "px");
       } else {
-        box.style.left = Math.round(Math.min(r.right + 10, innerWidth - w - 8)) + "px";
+        // Clamped low as well as high: a nowrap snippet can push the box
+        // past the viewport width, and a negative left clips its first
+        // characters off the screen.
+        box.style.left = Math.round(Math.max(8, Math.min(r.right + 10, innerWidth - w - 8))) + "px";
         box.style.top = Math.round(Math.min(centeredTop, innerHeight - h - 8)) + "px";
       }
-    });
-    anchor.addEventListener("mouseleave", function () {
+    }
+    function hideTip() {
       if (box) { box.remove(); box = null; }
-    });
+    }
+    anchor.addEventListener("mouseenter", showTip);
+    anchor.addEventListener("mouseleave", hideTip);
+    anchor.addEventListener("focus", showTip);
+    anchor.addEventListener("blur", hideTip);
     // Hover is the summary, click the method sheet.
     if (deepKey) {
       anchor.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        sweepTips();
+        openTopicHelp(deepKey);
+      });
+      anchor.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        ev.preventDefault();
         ev.stopPropagation();
         sweepTips();
         openTopicHelp(deepKey);
@@ -2081,7 +2110,6 @@
     // The payload keeps the deterministic detector order (the contract of
     // every sink), so rank by real impact here: severity, then avoidable
     // I/O, then IIS.
-    var SEV_RANK = { critical: 0, warning: 1, info: 2 };
     var topByImpact = findings.slice().sort(function (a, b) {
       var sa = SEV_RANK[a.severity] ?? 3, sb = SEV_RANK[b.severity] ?? 3;
       if (sa !== sb) return sa - sb;
@@ -2377,10 +2405,6 @@
   // here rather than hiding rendered rows: hiding would only ever search the
   // first page and cap the match count at LIST_CAP. The other panels render
   // every row, so they filter in the DOM (see applySearchFilter).
-  var SEV_RANK = { critical: 0, warning: 1, info: 2 };
-  function bySeverityDesc(a, b) {
-    return (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3);
-  }
   function applyFilters() {
     var term = globalSearchTerm();
     // Sorted by severity so the first page carries the worst rows, and stable,
@@ -2741,7 +2765,11 @@
   // Collapse key: spans with the same event type and normalized template
   // (e.g. the N near-identical N+1 queries) fold into one row.
   function collapseKey(span) {
-    return (span.event_type || "") + "|" + (span.template || span.target || "");
+    // Culprit membership joins the key: that rule is per span id, so a
+    // group mixing named and unnamed siblings would let members[0] speak
+    // for spans the finding never reported.
+    var culprit = treeCulprits ? (treeCulprits[span.span_id] ? "1" : "0") : "";
+    return (span.event_type || "") + "|" + (span.template || span.target || "") + "|" + culprit;
   }
   function isLeafIdx(idx, spans, tree) {
     var kids = tree.childrenByParent[spans[idx].span_id];
@@ -2829,9 +2857,16 @@
   var treeCulprits = null;
 
   function culpritSetFor(trace, finding) {
-    var ids = finding.signature ? culpritSpans[trace.trace_id + "|" + finding.signature] : null;
+    if (!finding.signature) return null;
+    // Same key the sink builds: the signature covers a pattern rather than
+    // an occurrence, so the time bounds separate two chains on one route.
+    var key = trace.trace_id + "|" + finding.signature + "|" +
+      (finding.first_timestamp || "") + "|" + (finding.last_timestamp || "");
+    var ids = culpritSpans[key];
     if (!ids || !ids.length) return null;
-    var set = {};
+    // Null prototype: a span id is a free-form string on the JSON, Zipkin
+    // and Jaeger ingest paths, so "constructor" must not read as a member.
+    var set = Object.create(null);
     ids.forEach(function (id) { set[id] = true; });
     return set;
   }

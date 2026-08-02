@@ -13,7 +13,7 @@ use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity, TraceIn
 /// HashMap-build cost for traces that trigger both.
 #[must_use]
 pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32) -> Vec<Finding> {
-    detect_fanout_with_spans(trace, indices, max_fanout)
+    fanout_impl(trace, indices, max_fanout, false)
         .into_iter()
         .map(|(finding, _)| finding)
         .collect()
@@ -27,6 +27,18 @@ pub(crate) fn detect_fanout_with_spans<'a>(
     trace: &'a Trace,
     indices: &TraceIndices<'_>,
     max_fanout: u32,
+) -> Vec<(Finding, Vec<&'a str>)> {
+    fanout_impl(trace, indices, max_fanout, true)
+}
+
+/// `collect_spans` stays off on the detection path: a fanout finding
+/// exists because the child count is large, so building that id list per
+/// finding only to drop it would allocate most on the widest traces.
+fn fanout_impl<'a>(
+    trace: &'a Trace,
+    indices: &TraceIndices<'_>,
+    max_fanout: u32,
+    collect_spans: bool,
 ) -> Vec<(Finding, Vec<&'a str>)> {
     let children_by_parent = &indices.children_by_parent;
     let span_index = &indices.span_index;
@@ -72,10 +84,14 @@ pub(crate) fn detect_fanout_with_spans<'a>(
         let template =
             parent_span.map_or_else(|| format!("parent:{parent_id}"), |s| s.template.to_string());
 
-        let child_span_ids = child_indices
-            .iter()
-            .map(|&i| trace.spans[i].event.span_id.as_str())
-            .collect();
+        let child_span_ids = if collect_spans {
+            child_indices
+                .iter()
+                .map(|&i| trace.spans[i].event.span_id.as_str())
+                .collect()
+        } else {
+            Vec::new()
+        };
         findings.push((
             Finding {
                 finding_type: FindingType::ExcessiveFanout,

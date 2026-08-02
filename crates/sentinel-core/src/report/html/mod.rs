@@ -466,6 +466,16 @@ fn is_unsafe_format_char(c: char) -> bool {
     )
 }
 
+/// The key the browser rebuilds from an embedded finding to find its spans.
+///
+/// The signature alone is not enough: it covers a pattern rather than an
+/// occurrence, and `serialized_calls` derives both its service and its
+/// endpoint from the parent span, so two chains under two parents on the
+/// same route hash identically. The time bounds are what separate them.
+fn culprit_key(trace_id: &str, signature: &str, first: &str, last: &str) -> String {
+    format!("{trace_id}|{signature}|{first}|{last}")
+}
+
 /// Spans to highlight for `serialized_calls` and `excessive_fanout`.
 ///
 /// Both name their parent in `pattern.template`, so the browser's template
@@ -474,48 +484,101 @@ fn is_unsafe_format_char(c: char) -> bool {
 /// chain. The detectors know the answer, so the sink asks them again over
 /// the traces it embeds and ships the ids.
 ///
-/// Keyed `trace_id|signature`, the pair the tree is rendered from. A
-/// signature covers a pattern rather than a trace, so two chains under the
-/// same endpoint in one trace merge, which is what a finding that cannot
-/// tell them apart should highlight. Returns nothing when the report
-/// carries no `detection_config`: re-running a detector under thresholds
-/// other than the ones that produced the findings would light the wrong
-/// spans.
-fn culprit_spans_by_finding<'a>(
-    traces: &[&'a Trace],
-    detection_config: Option<&crate::detect::DetectConfig>,
-) -> BTreeMap<String, Vec<&'a str>> {
-    let mut out: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
-    let Some(cfg) = detection_config else {
-        return out;
-    };
-    for trace in traces {
+/// Each rerun result is matched back to a published finding and dropped
+/// when it has none, so an acknowledged or trimmed finding never ships
+/// spans no view can key on. A key claimed by two findings is dropped
+/// too: they are indistinguishable to the browser, and lighting the union
+/// would attribute one chain's spans to the other. Returns nothing when
+/// the report carries no `detection_config`, since re-running a detector
+/// under thresholds other than the ones that produced the findings would
+/// light the wrong spans.
+struct CulpritIndex {
+    serialized_min_sequential: u32,
+    max_fanout: u32,
+    /// Rerun key to the key the browser builds. The browser key carries
+    /// the signature the report ships rather than a recomputed one.
+    published: HashMap<String, String>,
+    /// Rerun keys claimed by more than one published finding.
+    ambiguous: HashSet<String>,
+}
+
+impl CulpritIndex {
+    /// `None` when nothing can be published: no `detection_config`, or no
+    /// finding of a type this highlights.
+    fn build(report: &Report) -> Option<Self> {
+        use crate::detect::FindingType;
+
+        let cfg = report.detection_config.as_ref()?;
+        let mut published: HashMap<String, String> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        for f in &report.findings {
+            if !matches!(
+                f.finding_type,
+                FindingType::SerializedCalls | FindingType::ExcessiveFanout
+            ) {
+                continue;
+            }
+            let rerun_key = culprit_key(
+                &f.trace_id,
+                &crate::acknowledgments::compute_signature(f),
+                &f.first_timestamp,
+                &f.last_timestamp,
+            );
+            let browser_key = culprit_key(
+                &f.trace_id,
+                &f.signature,
+                &f.first_timestamp,
+                &f.last_timestamp,
+            );
+            if published.insert(rerun_key.clone(), browser_key).is_some() {
+                ambiguous.insert(rerun_key);
+            }
+        }
+        (!published.is_empty()).then_some(Self {
+            serialized_min_sequential: cfg.serialized_min_sequential,
+            max_fanout: cfg.max_fanout,
+            published,
+            ambiguous,
+        })
+    }
+
+    fn for_trace<'a>(&self, trace: &'a Trace) -> BTreeMap<String, Vec<&'a str>> {
+        let mut out: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
+        let mut claimed_twice: HashSet<String> = HashSet::new();
         let indices = crate::detect::TraceIndices::build(trace);
         let found = crate::detect::serialized::detect_serialized_with_spans(
             trace,
             &indices,
-            cfg.serialized_min_sequential,
+            self.serialized_min_sequential,
         )
         .into_iter()
         .chain(crate::detect::fanout::detect_fanout_with_spans(
             trace,
             &indices,
-            cfg.max_fanout,
+            self.max_fanout,
         ));
         for (finding, span_ids) in found {
-            let key = format!(
-                "{}|{}",
-                trace.trace_id,
-                crate::acknowledgments::compute_signature(&finding)
+            let rerun_key = culprit_key(
+                &finding.trace_id,
+                &crate::acknowledgments::compute_signature(&finding),
+                &finding.first_timestamp,
+                &finding.last_timestamp,
             );
-            out.entry(key).or_default().extend(span_ids);
+            if self.ambiguous.contains(&rerun_key) || claimed_twice.contains(&rerun_key) {
+                continue;
+            }
+            let Some(browser_key) = self.published.get(&rerun_key) else {
+                continue;
+            };
+            if out.insert(browser_key.clone(), span_ids).is_some() {
+                // Two chains reached the same published finding, so it
+                // cannot say which one it reports.
+                out.remove(browser_key);
+                claimed_twice.insert(rerun_key);
+            }
         }
+        out
     }
-    for ids in out.values_mut() {
-        ids.sort_unstable();
-        ids.dedup();
-    }
-    out
 }
 
 fn build_payload_with_label<'a>(
@@ -532,6 +595,19 @@ fn build_payload_with_label<'a>(
     let ordered = order_candidates_by_iis(&report.findings, full_top_offenders, traces);
     let total = ordered.len();
 
+    // One detection pass over the candidate set, reused for the size
+    // budget below and for the payload, rather than one per stage.
+    let index = CulpritIndex::build(report);
+    let mut culprits_by_trace: HashMap<&str, BTreeMap<String, Vec<&'a str>>> = index
+        .as_ref()
+        .map(|idx| {
+            ordered
+                .iter()
+                .map(|t| (t.trace_id.as_str(), idx.for_trace(t)))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let (kept_refs, trimmed) = if let Some(cap) = options.max_traces_embedded {
         let take = cap.min(total);
         let summary = if take < total {
@@ -547,10 +623,15 @@ fn build_payload_with_label<'a>(
             options,
             input_label,
             trimmed_findings.clone(),
+            &culprits_by_trace,
         )
     };
 
-    let culprit_spans = culprit_spans_by_finding(&kept_refs, report.detection_config.as_ref());
+    let culprit_spans = kept_refs
+        .iter()
+        .filter_map(|t| culprits_by_trace.remove(t.trace_id.as_str()))
+        .flatten()
+        .collect();
     let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
 
     Payload {
@@ -730,6 +811,7 @@ fn trim_to_size_target<'a>(
     options: &'a RenderOptions,
     input_label: &'a str,
     trimmed_findings: Option<TrimSummary>,
+    culprits_by_trace: &HashMap<&str, BTreeMap<String, Vec<&'a str>>>,
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
 
@@ -741,18 +823,18 @@ fn trim_to_size_target<'a>(
     // Step 1: per-trace JSON sizes. We account for the surrounding
     // comma and the 2 literal bracket bytes of the JSON array via
     // `separator_overhead` below.
-    // Each trace also carries its own culprit-span entries, so they count
-    // against the budget with it rather than being unaccounted growth.
+    // Each trace also carries its own culprit-span entries, already
+    // computed by the caller, so they count against the budget with it
+    // rather than being unaccounted growth.
     let per_trace_lens: Vec<usize> = ordered
         .iter()
         .copied()
         .map(|t| {
             let spans = serde_json::to_string(&embed_trace(t)).map_or(usize::MAX, |s| s.len());
-            let culprits = serde_json::to_string(&culprit_spans_by_finding(
-                std::slice::from_ref(&t),
-                report.detection_config.as_ref(),
-            ))
-            .map_or(0, |s| s.len());
+            let culprits = culprits_by_trace
+                .get(t.trace_id.as_str())
+                .and_then(|m| serde_json::to_string(m).ok())
+                .map_or(0, |s| s.len());
             spans.saturating_add(culprits)
         })
         .collect();
