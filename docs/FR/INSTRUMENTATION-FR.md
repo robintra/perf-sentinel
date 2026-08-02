@@ -575,6 +575,8 @@ perf-sentinel analyze --ci --input target/traces.json
 
 > **Préfixez votre étape de test existante, n'en ajoutez jamais une seconde.** `capture -- mvn verify` lance les tests une fois, il ne les relance pas. Ajouter une nouvelle étape à côté de l'existante ferait tourner toute la suite d'intégration deux fois, pour rien.
 
+> **Un objectif de nettoyage ne peut pas envelopper une capture qui écrit dans ce qu'il nettoie.** `capture --output target/traces.json -- mvn clean verify` échoue par construction : `capture` ouvre le fichier avant de lancer la commande, `clean` supprime ensuite `target/` sous lui, et le run se termine par une erreur nommant le fichier disparu plutôt que par un compte de spans pour un inode qu'aucun chemin ne désigne. Retirez `clean` de la commande enveloppée, comme le fait la recette ci-dessus, ou écrivez le fichier de traces hors du répertoire nettoyé (`--output /tmp/traces.json`).
+
 L'enveloppe est la plus solide des deux : les ports sont liés avant que la commande démarre, aucun export ne peut donc se perdre dans une course au démarrage, et la capture s'arrête à la fin de la commande plutôt que sur un délai deviné. La commande enveloppée hérite de stdout et stderr sans altération, et son code de sortie est propagé, un échec de tests reste donc un échec de job.
 
 Le fichier est du NDJSON, une requête OTLP par ligne, exactement la forme que produit l'exporteur `file` du Collector, et la détection automatique de format le lit sans aucun flag. `capture` n'écrit que sur stderr, et annonce combien de spans il a reçus, ce qui permet de distinguer "aucun anti-pattern" de "rien n'a jamais été exporté". Un fichier de traces vide est rejeté par `analyze` au lieu d'être présenté comme une gate au vert.
