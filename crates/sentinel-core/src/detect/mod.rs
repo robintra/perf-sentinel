@@ -447,7 +447,12 @@ impl Severity {
 
 /// Configuration for the detection stage. Serialized into
 /// `Report.detection_config` so consumers see the producing run's values.
+///
+/// `serde(default)`: the field is informational, so a baseline written by
+/// another version must never fail the whole `Report` parse over a
+/// renamed or dropped threshold.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct DetectConfig {
     pub n_plus_one_threshold: u32,
     pub window_ms: u64,
@@ -458,6 +463,12 @@ pub struct DetectConfig {
     pub pool_saturation_concurrent_threshold: u32,
     pub serialized_min_sequential: u32,
     pub sanitizer_aware_classification: sanitizer_aware::SanitizerAwareMode,
+}
+
+impl Default for DetectConfig {
+    fn default() -> Self {
+        Self::from(&crate::config::Config::default())
+    }
 }
 
 impl From<&crate::config::Config> for DetectConfig {
