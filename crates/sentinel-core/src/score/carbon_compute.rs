@@ -593,10 +593,10 @@ fn accumulate_span_into_region(
 }
 
 /// Compute the network transport CO₂ contribution for a single span.
-/// Returns 0 unless transport accounting is enabled, the span is an
-/// HTTP-out call with a `response_size_bytes`, the callee's region is
-/// mapped via `ctx.service_regions`, and the caller's region differs
-/// from the callee's (cross-region only).
+/// Always accounted since 0.9.25, so this returns 0 only when the span
+/// is not an HTTP-out call with a `response_size_bytes`, the callee's
+/// region is unmapped in `ctx.service_regions`, or caller and callee
+/// share a region (cross-region traffic only).
 fn network_transport_contribution(
     span: &crate::normalize::NormalizedEvent,
     caller_region: &str,
@@ -604,8 +604,8 @@ fn network_transport_contribution(
     pue: f64,
     ctx: &CarbonContext,
 ) -> f64 {
-    // Unconditional: `include_network_transport` now only hides the term
-    // in the dashboards, so two reports stay comparable across the setting.
+    // Unconditional since 0.9.25: no setting gates the term, so two
+    // reports of the same traffic always carry the same transport figure.
     if span.event.event_type != crate::event::EventType::HttpOut {
         return 0.0;
     }
