@@ -468,6 +468,20 @@ impl Config {
     /// Returns a context with `energy_snapshot: None`. The daemon clones
     /// this and patches in the measured energy snapshot per tick; the
     /// batch pipeline uses it as-is (no scrapers in batch mode).
+    /// The embodied coefficient scoring actually applies. Zero is
+    /// deprecated (no hardware has zero embodied carbon) and clamped
+    /// here rather than in the TOML layer alone, so a `Config` built by
+    /// hand cannot erase the SCI `M` term either.
+    #[must_use]
+    pub fn effective_embodied_per_request_gco2(&self) -> f64 {
+        let declared = self.green.embodied_carbon_per_request_gco2;
+        if declared > 0.0 {
+            declared
+        } else {
+            DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2
+        }
+    }
+
     #[must_use]
     #[allow(deprecated)] // the transport toggle is retained for API compatibility only
     pub fn carbon_context(&self) -> crate::score::carbon::CarbonContext {
@@ -476,7 +490,7 @@ impl Config {
             include_network_transport: true,
             default_region: self.green.default_region.clone(),
             service_regions: self.green.service_regions.clone(),
-            embodied_per_request_gco2: self.green.embodied_carbon_per_request_gco2,
+            embodied_per_request_gco2: self.effective_embodied_per_request_gco2(),
             use_hourly_profiles: self.green.use_hourly_profiles,
             energy_snapshot: None,
             per_operation_coefficients: self.green.per_operation_coefficients,
@@ -508,8 +522,7 @@ impl Config {
             },
             crate::score::carbon::ScoringConfig::from_electricity_maps,
         );
-        scoring_config.embodied_per_request_gco2 =
-            Some(self.green.embodied_carbon_per_request_gco2);
+        scoring_config.embodied_per_request_gco2 = Some(self.effective_embodied_per_request_gco2());
         scoring_config.network_energy_per_byte_kwh =
             Some(crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH);
         scoring_config.per_operation_coefficients = Some(self.green.per_operation_coefficients);
