@@ -317,6 +317,12 @@ fn correlation_cards_land_on_and_announce_the_real_findings() {
             "correlation mechanism missing: {needle}"
         );
     }
+    // Each side of the pair is its own click zone: source opens the
+    // triggering finding, target the triggered one.
+    assert!(
+        html.contains("ps-corr-side-link"),
+        "per-side click zones must exist"
+    );
 }
 
 #[test]
