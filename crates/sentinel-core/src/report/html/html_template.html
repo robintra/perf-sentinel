@@ -2371,14 +2371,20 @@
   // here rather than hiding rendered rows: hiding would only ever search the
   // first page and cap the match count at LIST_CAP. The other panels render
   // every row, so they filter in the DOM (see applySearchFilter).
+  var SEV_RANK = { critical: 0, warning: 1, info: 2 };
+  function bySeverityDesc(a, b) {
+    return (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3);
+  }
   function applyFilters() {
     var term = globalSearchTerm();
+    // Sorted by severity so the first page carries the worst rows, and stable,
+    // so the report's own type/trace order survives inside each band.
     return findings.filter(function (f) {
       if (filterState.severity && f.severity !== filterState.severity) return false;
       if (filterState.service && f.service !== filterState.service) return false;
       if (findingHiddenByAck(f)) return false;
       return findingMatchesSearch(f, term);
-    });
+    }).sort(bySeverityDesc);
   }
 
   function renderFindingsList() {
@@ -3594,10 +3600,6 @@
   }
 
   // -------- diff panel --------
-  var SEV_RANK = { critical: 0, warning: 1, info: 2 };
-  function bySeverityDesc(a, b) {
-    return (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3);
-  }
   function renderDiffPanel() {
     if (!hasDiff) return;
     var fresh = (diffData.new_findings || []).slice().sort(bySeverityDesc);
