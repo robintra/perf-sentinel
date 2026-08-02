@@ -931,12 +931,16 @@ fn rejects_negative_embodied_carbon() {
 }
 
 #[test]
-fn rejects_zero_embodied_carbon() {
-    // A zeroed coefficient would erase the M term from the disclosure.
-    let result = load_from_str("[green]\nembodied_carbon_per_request_gco2 = 0.0");
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("must be > 0.0"), "got: {err}");
+fn zero_embodied_carbon_falls_back_to_the_default() {
+    // Deprecated 0.9.25: a zeroed coefficient would erase the M term from
+    // the disclosure, but an upgrade must warn, not refuse to start.
+    let config = load_from_str("[green]\nembodied_carbon_per_request_gco2 = 0.0").unwrap();
+    assert!(
+        (config.green.embodied_carbon_per_request_gco2
+            - crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2)
+            .abs()
+            < f64::EPSILON
+    );
 }
 
 #[test]

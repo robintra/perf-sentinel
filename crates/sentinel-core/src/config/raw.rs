@@ -14,6 +14,8 @@ use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
 use crate::score::scaphandre::{ProcessMatcher, ScaphandreConfig};
 
+use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
+
 use super::validate::has_control_char;
 use super::{
     Config, DEFAULT_FULCIO_URL, DEFAULT_REKOR_URL, DaemonAckConfig, DaemonArchiveConfig,
@@ -377,6 +379,15 @@ impl From<RawConfig> for Config {
                          since 0.9.25, the transport term is always counted and displayed"
                     );
                 }
+                // Zero is no longer a way to opt the SCI M term out of a
+                // published figure. Warned and clamped, never fatal.
+                if raw.green.embodied_carbon_per_request_gco2 == Some(0.0) {
+                    tracing::warn!(
+                        "[green] embodied_carbon_per_request_gco2 = 0.0 is no longer honoured \
+                         since 0.9.25, no hardware has zero embodied carbon: using the default \
+                         {DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2}"
+                    );
+                }
                 GreenConfig {
                 enabled: raw.green.enabled.unwrap_or(green_defaults.enabled),
                 // Lowercase default_region and service_regions keys so
@@ -393,6 +404,9 @@ impl From<RawConfig> for Config {
                 embodied_carbon_per_request_gco2: raw
                     .green
                     .embodied_carbon_per_request_gco2
+                    // Only an exact zero is swallowed: negative and NaN
+                    // must still reach validation and fail loudly.
+                    .filter(|v| *v != 0.0)
                     .unwrap_or(green_defaults.embodied_carbon_per_request_gco2),
                 use_hourly_profiles: raw
                     .green

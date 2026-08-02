@@ -589,11 +589,9 @@ impl Config {
                 "embodied_carbon_per_request_gco2 must be finite, got {value}"
             ));
         }
-        // Strictly positive: no hardware has zero embodied carbon, and a
-        // zeroed coefficient would erase the M term from the disclosure.
-        if value <= 0.0 {
+        if value < 0.0 {
             return Err(format!(
-                "embodied_carbon_per_request_gco2 must be > 0.0, got {value}"
+                "embodied_carbon_per_request_gco2 must be >= 0.0, got {value}"
             ));
         }
         Ok(())
