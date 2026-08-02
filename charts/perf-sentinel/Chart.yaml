@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.9.25
-appVersion: "0.9.25"
+version: 0.9.26
+appVersion: "0.9.26"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,6 +36,12 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "appVersion 0.9.26: the HTML report highlights the spans behind a serialized_calls or excessive_fanout finding instead of the parent span that contains them. Both findings take their template from that parent, and a serialized chain cannot be rebuilt in a browser since an embedded span carries no timestamp, so the report now ships the span ids the detectors selected, matched back to the findings it publishes. No chart-visible change: this is the report perf-sentinel report produces, which the daemon this chart deploys does not render."
+    - kind: changed
+      description: "appVersion 0.9.26: the findings list in the HTML report sorts by descending severity, so the first page carries the worst rows. The sort is stable, so the deterministic detector order survives inside each severity band, and the paginated list, the counter, the sidebar badge and the CSV export all agree on it."
+    - kind: fixed
+      description: "appVersion 0.9.26: the help icon on every finding type, data tab and carbon card of the HTML report becomes a real control, reachable by tab, showing its summary on focus and opening its method sheet on Enter or Space. Its tooltip also widens to fit a code snippet rather than spilling past its border, and is clamped at the left viewport edge. No daemon-visible change."
     - kind: added
       description: "appVersion 0.9.25: the daemon hash-chains the windows it archives when [daemon.archive] is configured. Each NDJSON line records the hash of its own content, the hash of the previous line and its position in the file, so a window edited, removed, reordered or truncated after it was written becomes detectable, and disclose publishes the verdict as windows verified, windows written before chaining existed, and breaks found. Archives written by earlier versions stay readable and count as unchained rather than broken. Each window is now flushed as it is written, so an ungraceful pod kill no longer leaves a half-written line that would read as tampering on restart. Tamper-evidence after the fact, not proof of a sincere source: whoever controls the daemon and its files can regenerate a consistent chain."
     - kind: changed
@@ -184,7 +190,7 @@ annotations:
       description: "Chart 0.2.60: the chart now ships operator-facing alerting and disruption protection, both opt-in and off by default. An opt-in PrometheusRule (prometheusRule.enabled) packages the daemon's loss and saturation alerts (daemon unreachable via absent(perf_sentinel_active_traces), OTLP rejection, analysis shedding, analysis-queue saturation, findings store near cap, correlator-pair eviction, service-cardinality overflow, plus opt-in per-backend energy-scraper staleness under prometheusRule.energyScrapers), each alert naming the [daemon] knob to raise, with a prometheusRule.additionalRules passthrough for custom rules. An opt-in PodDisruptionBudget (podDisruptionBudget.enabled, default maxUnavailable 1 rather than minAvailable 1 so it does not wedge node drains on the single-replica daemon) adds voluntary-disruption protection. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.9.25
+      image: ghcr.io/robintra/perf-sentinel:0.9.26
       platforms:
         - linux/amd64
         - linux/arm64

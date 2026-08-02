@@ -10,6 +10,25 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.26]
+
+`appVersion` moves to `0.9.26`. No template change, no values change and no
+new `config.toml` key: this release is entirely on the HTML report that
+`perf-sentinel report` produces, which the daemon this chart deploys does
+not render.
+
+**The trace tree names the spans behind a finding.** A `serialized_calls`
+or `excessive_fanout` finding now highlights the calls it reports rather
+than the parent span that contains them. Both take their template from
+that parent, and a serialized chain cannot be reconstructed in a browser
+since an embedded span carries no timestamp, so the report ships the span
+ids the detectors selected. The findings list also sorts by descending
+severity, and the help icon on every finding type, data tab and carbon
+card becomes reachable by keyboard.
+
+Nothing here changes what the daemon exports, stores or alerts on. An
+upgrade rolls one new image and needs no values change.
+
 ## [0.9.25]
 
 `appVersion` moves to `0.9.25`. No template changes and no new `config.toml`

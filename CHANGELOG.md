@@ -2,7 +2,7 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.9.26] - 2026-08-02
 
 ### Added
 
@@ -18,6 +18,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 - The dashboard help icon moves out of the headings it sat in. It carries the help text as its `aria-label`, so a screen reader read the whole paragraph as part of the heading, and the heading's text no longer matched the label shown on the finding row. Out of the heading it is no longer named by anything, so it becomes a real control: reachable by tab, showing its summary on focus and opening its method sheet on Enter or Space, which it never did before.
 - A tooltip is clamped at the left edge as well as the right. Now that a code snippet can push it past 320 px, an anchor near the right of a narrow viewport produced a negative offset that cut the first characters of every line off screen.
 - Switching tabs no longer strands a tooltip anchored to the topbar help icon. The icon is rebuilt on every route change, so a hovered one was removed without ever seeing its `mouseleave`, and a keyboard route change left the box floating over the dashboard.
+- `perf-sentinel capture` no longer warns about an unused constant on the Windows build. The termination grace period only applies to the Unix signal path, so the constant is gated with it.
 
 ## [0.9.25] - 2026-08-01
 
