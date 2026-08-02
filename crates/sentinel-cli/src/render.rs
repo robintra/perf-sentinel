@@ -303,7 +303,11 @@ pub(crate) fn format_colored_report_with_acks(
         print_findings(&report.findings, force_color);
     }
 
-    print_green_summary(&report.green_summary, force_color);
+    print_green_summary(
+        &report.green_summary,
+        report.analysis.traces_analyzed,
+        force_color,
+    );
     // Demo never enforces the gate (always exits 0), so flag its verdict as
     // informational. Only `cmd_demo` renders with the "demo" title.
     print_quality_gate(&report.quality_gate, force_color, title == "demo");
@@ -694,7 +698,11 @@ fn format_region_line(region: &sentinel_core::score::carbon::RegionBreakdown) ->
     )
 }
 
-fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
+fn print_green_summary(
+    summary: &sentinel_core::report::GreenSummary,
+    traces_analyzed: usize,
+    force_color: bool,
+) {
     let colors = ansi_colors(force_color);
     let AnsiColors {
         bold,
@@ -728,14 +736,13 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     // sees why a number is missing instead of not knowing it exists.
     if let Some(carbon) = summary.co2.as_ref() {
         print_carbon_summary(carbon);
-    } else if summary.scoring_config.is_some() {
-        // scoring_config is stamped whenever green scoring ran, so its
-        // presence separates "nothing to score" from "green is off".
+    } else if traces_analyzed == 0 {
+        // The trace count is the only honest discriminant here: a daemon
+        // stamps scoring_config whenever Electricity Maps is configured,
+        // green scoring off included.
         println!("  {dim}Carbon:            not computed (no traces analyzed){reset}");
     } else {
-        println!(
-            "  {dim}Carbon:            not computed ([green] enabled = false, or no traces analyzed){reset}"
-        );
+        println!("  {dim}Carbon:            not computed ([green] enabled = false){reset}");
     }
 
     if let Some(db) = &summary.database_waste {
@@ -1771,7 +1778,11 @@ mod tests {
         let raw = std::fs::read_to_string(&fixture_path).expect("fixture readable");
         let report: Report = serde_json::from_str(&raw).expect("fixture parses as Report");
         eprintln!("--- print_green_summary on 3-state fixture ---");
-        print_green_summary(&report.green_summary, false);
+        print_green_summary(
+            &report.green_summary,
+            report.analysis.traces_analyzed,
+            false,
+        );
         eprintln!("--- end ---");
     }
 
@@ -1875,7 +1886,7 @@ mod tests {
             eprintln!("=== {label} ===");
             let mut summary = GreenSummary::disabled(0);
             summary.scoring_config = Some(cfg);
-            print_green_summary(&summary, false);
+            print_green_summary(&summary, 1, false);
         }
     }
 
@@ -1960,7 +1971,7 @@ mod tests {
         summary.total_sql_io_ops = 6;
         summary.avoidable_sql_io_ops = 5;
         summary.database_waste = Some(estimated);
-        print_green_summary(&summary, false);
+        print_green_summary(&summary, 1, false);
     }
 
     #[test]

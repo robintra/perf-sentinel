@@ -842,10 +842,12 @@ impl App {
             // Greyed rather than absent, so the reader sees why. A present
             // scoring_config means green ran, so nothing was there to score.
             lines.push(Line::from(Span::styled(
-                if gs.scoring_config.is_some() {
+                if summary.analysis.traces_analyzed == 0 {
+                    // The trace count, not scoring_config: a daemon stamps
+                    // that whenever Electricity Maps is configured.
                     "Carbon: not computed (no traces analyzed)"
                 } else {
-                    "Carbon: not computed ([green] enabled = false, or no traces analyzed)"
+                    "Carbon: not computed ([green] enabled = false)"
                 },
                 dim,
             )));
