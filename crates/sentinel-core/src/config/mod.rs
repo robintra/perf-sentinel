@@ -188,10 +188,6 @@ pub struct GreenConfig {
     /// Whether to compute a network transport energy term for cross-region
     /// HTTP calls. Default: `false` (opt-in).
     pub include_network_transport: bool,
-    /// Energy per byte for network transport (kWh/byte).
-    /// Default: 0.04 kWh/GB, a conservative upper bound below recent
-    /// whole-network averages (see `DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`).
-    pub network_energy_per_byte_kwh: f64,
     /// Path to user-supplied hourly profiles JSON file. `None` when not
     /// configured (uses only embedded profiles).
     pub hourly_profiles_file: Option<String>,
@@ -386,7 +382,6 @@ impl Default for GreenConfig {
             broker_static: None,
             per_operation_coefficients: true,
             include_network_transport: false,
-            network_energy_per_byte_kwh: crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             hourly_profiles_file: None,
             custom_hourly_profiles: None,
             calibration_file: None,
@@ -465,7 +460,7 @@ impl Config {
             use_hourly_profiles: self.green.use_hourly_profiles,
             energy_snapshot: None,
             per_operation_coefficients: self.green.per_operation_coefficients,
-            network_energy_per_byte_kwh: self.green.network_energy_per_byte_kwh,
+            network_energy_per_byte_kwh: crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             include_network_transport: self.green.include_network_transport,
             custom_hourly_profiles: self.green.custom_hourly_profiles.clone(),
             calibration: self.green.calibration.clone(),
@@ -496,7 +491,8 @@ impl Config {
         );
         scoring_config.embodied_per_request_gco2 =
             Some(self.green.embodied_carbon_per_request_gco2);
-        scoring_config.network_energy_per_byte_kwh = Some(self.green.network_energy_per_byte_kwh);
+        scoring_config.network_energy_per_byte_kwh =
+            Some(crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH);
         scoring_config.per_operation_coefficients = Some(self.green.per_operation_coefficients);
         scoring_config.use_hourly_profiles = Some(self.green.use_hourly_profiles);
         scoring_config.show_network_transport = Some(self.green.include_network_transport);

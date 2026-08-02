@@ -361,7 +361,16 @@ impl From<RawConfig> for Config {
                         raw.detection.sanitizer_aware_classification.as_deref(),
                     ),
             },
-            green: GreenConfig {
+            green: {
+                // Deprecated 0.9.25: the transport coefficient is fixed
+                // for disclosure comparability. Parsed, warned, ignored.
+                if raw.green.network_energy_per_byte_kwh.is_some() {
+                    tracing::warn!(
+                        "[green] network_energy_per_byte_kwh is deprecated and ignored \
+                         since 0.9.25, the transport coefficient is fixed"
+                    );
+                }
+                GreenConfig {
                 enabled: raw.green.enabled.unwrap_or(green_defaults.enabled),
                 // Lowercase default_region and service_regions keys so
                 // resolve_region's lowercase lookup matches regardless of
@@ -396,10 +405,6 @@ impl From<RawConfig> for Config {
                     .green
                     .include_network_transport
                     .unwrap_or(green_defaults.include_network_transport),
-                network_energy_per_byte_kwh: raw
-                    .green
-                    .network_energy_per_byte_kwh
-                    .unwrap_or(green_defaults.network_energy_per_byte_kwh),
                 hourly_profiles_file: raw.green.hourly_profiles_file.clone(),
                 custom_hourly_profiles: raw.green.hourly_profiles_file.as_ref().and_then(|path| {
                     if has_control_char(path) {
@@ -442,6 +447,7 @@ impl From<RawConfig> for Config {
                     }
                 }),
                 electricity_maps: convert_electricity_maps_section(&raw.green.electricity_maps),
+                }
             },
             daemon: DaemonConfig {
                 listen_addr: raw

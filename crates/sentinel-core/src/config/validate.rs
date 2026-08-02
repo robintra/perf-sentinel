@@ -576,7 +576,6 @@ impl Config {
         if let Some(cfg) = &self.green.broker_static {
             validate_broker_static(cfg)?;
         }
-        Self::validate_network_energy(self.green.network_energy_per_byte_kwh)?;
         self.validate_hourly_profiles_file()?;
         if let Some(cfg) = &self.green.electricity_maps {
             Self::validate_electricity_maps(cfg)?;
@@ -590,9 +589,11 @@ impl Config {
                 "embodied_carbon_per_request_gco2 must be finite, got {value}"
             ));
         }
-        if value < 0.0 {
+        // Strictly positive: no hardware has zero embodied carbon, and a
+        // zeroed coefficient would erase the M term from the disclosure.
+        if value <= 0.0 {
             return Err(format!(
-                "embodied_carbon_per_request_gco2 must be >= 0.0, got {value}"
+                "embodied_carbon_per_request_gco2 must be > 0.0, got {value}"
             ));
         }
         Ok(())
@@ -642,15 +643,6 @@ impl Config {
                      expected ASCII alphanumeric + '-' or '_', length 1-64"
                 ));
             }
-        }
-        Ok(())
-    }
-
-    fn validate_network_energy(value: f64) -> Result<(), String> {
-        if !value.is_finite() || value < 0.0 {
-            return Err(format!(
-                "network_energy_per_byte_kwh must be finite and >= 0.0, got {value}"
-            ));
         }
         Ok(())
     }
