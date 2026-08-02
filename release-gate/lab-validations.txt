@@ -75,3 +75,4 @@ v0.9.24	df70118	2026-07-31	PASS
 # taking the gate from 60 to 61 scenarios. limit-saturation-curve stays red on the 256 MiB
 # container limit and fails identically on the published 0.9.23 image, so it is an environment
 # limit rather than a regression, confirmed by A/B against that image.
+v0.9.25	eb90ceb	2026-08-02	PASS
