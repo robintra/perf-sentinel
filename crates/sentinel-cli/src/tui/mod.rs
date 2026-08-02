@@ -839,9 +839,14 @@ impl App {
                 ))));
             }
         } else {
-            // Greyed rather than absent, so the reader sees why.
+            // Greyed rather than absent, so the reader sees why. A present
+            // scoring_config means green ran, so nothing was there to score.
             lines.push(Line::from(Span::styled(
-                "Carbon: not computed ([green] enabled = false)",
+                if gs.scoring_config.is_some() {
+                    "Carbon: not computed (no traces analyzed)"
+                } else {
+                    "Carbon: not computed ([green] enabled = false, or no traces analyzed)"
+                },
                 dim,
             )));
         }

@@ -728,8 +728,14 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     // sees why a number is missing instead of not knowing it exists.
     if let Some(carbon) = summary.co2.as_ref() {
         print_carbon_summary(carbon);
+    } else if summary.scoring_config.is_some() {
+        // scoring_config is stamped whenever green scoring ran, so its
+        // presence separates "nothing to score" from "green is off".
+        println!("  {dim}Carbon:            not computed (no traces analyzed){reset}");
     } else {
-        println!("  {dim}Carbon:            not computed ([green] enabled = false){reset}");
+        println!(
+            "  {dim}Carbon:            not computed ([green] enabled = false, or no traces analyzed){reset}"
+        );
     }
 
     if let Some(db) = &summary.database_waste {
