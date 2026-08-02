@@ -1806,7 +1806,10 @@
       renderFindingsList();
       idx = visibleFindings.indexOf(f);
     }
-    if (idx >= 0) selectFinding(idx);
+    if (idx >= 0) {
+      selectFinding(idx);
+      scrollDetailToTop();
+    }
   }
 
   // Opens the detail pane for a finding that is NOT in the master list
@@ -2162,6 +2165,7 @@
         return;
       }
       selectFinding(idx);
+      scrollDetailToTop();
     });
     return row;
   }
@@ -4465,6 +4469,20 @@
     if (selectedIndex >= 0 && selectedIndex < rows.length) {
       rows[selectedIndex].scrollIntoView({ block: "nearest" });
     }
+  }
+
+  // A click halfway down the list opens the detail pane whose top may be
+  // scrolled out of view: bring it back under the sticky topbar. No-op
+  // when the pane top is already visible, and not wired to j/k, which
+  // must keep the list row in view instead.
+  function scrollDetailToTop() {
+    var pane = document.getElementById("explain-content");
+    if (!pane) return;
+    var bar = document.querySelector(".ps-topbar");
+    var offset = (bar ? bar.offsetHeight : 0) + 8;
+    if (pane.getBoundingClientRect().top >= offset) return;
+    var top = pane.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }
 
   document.getElementById("pgstat-drill-clear").addEventListener("click", clearPgStatDrill);
