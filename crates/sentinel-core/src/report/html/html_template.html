@@ -117,8 +117,9 @@
   [data-nav].ps-tab-disabled:hover > .ps-nav-dot { background: currentColor; opacity: .45; }
   .ps-tab-disabled .ps-nav-dot, .ps-tab-disabled .ps-nav-label { opacity: .45; }
   .ps-nav-help { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--text-3); font-family: var(--font-mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: help; padding-top: 1px; box-sizing: border-box; }
-  .ps-detail-h2 .ps-nav-help { margin-left: 9px; vertical-align: 3px; }
-  #topbar-h1 .ps-nav-help { margin-left: 9px; vertical-align: 3px; }
+  /* The help icon sits beside a heading, never inside it: it carries an
+     aria-label and would otherwise be read as part of the heading. */
+  .ps-title-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .ps-metric-label .ps-nav-help { margin-left: 6px; width: 14px; height: 14px; font-size: 9px; vertical-align: 2px; }
   /* Floating tip box appended to <body>: .ps-nav clips with overflow auto,
      a CSS-only ::after tooltip cannot escape the sidebar. */
@@ -663,7 +664,7 @@
     <header class="ps-topbar">
       <div class="ps-topbar-title">
         <span class="ps-topbar-eyebrow" id="topbar-eyebrow"></span>
-        <h1 class="ps-topbar-h1" id="topbar-h1">Overview</h1>
+        <div class="ps-title-row"><h1 class="ps-topbar-h1" id="topbar-h1">Overview</h1></div>
       </div>
       <div class="ps-topbar-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
         <div class="ps-search-box" id="topbar-search-box">
@@ -1632,11 +1633,13 @@
     if (eb) eb.textContent = "// " + meta.eyebrow;
     if (h1) {
       h1.textContent = meta.title;
+      var row = h1.parentElement;
+      row.querySelectorAll(".ps-nav-help").forEach(function (n) { n.remove(); });
       if (TAB_HELP[key]) {
         var help = el("span", "ps-nav-help", "?");
         setAttr(help, "aria-label", TAB_HELP[key]);
         wireTip(help, TAB_HELP[key], key === "green" ? "green_tab" : null);
-        h1.appendChild(help);
+        row.appendChild(help);
       }
     }
   }
@@ -2573,15 +2576,17 @@
     var headRow = el("div", "ps-detail-head");
     headRow.appendChild(sevPill(f.severity));
     var titleWrap = el("div", "ps-detail-titlewrap");
+    var titleRow = el("div", "ps-title-row");
     var h2 = el("h2", "ps-detail-h2", typeLabel(f.type || f.finding_type));
+    titleRow.appendChild(h2);
     var helpText = findingHelpText(f.type || f.finding_type);
     if (helpText) {
       var h2help = el("span", "ps-nav-help", "?");
       setAttr(h2help, "aria-label", helpText);
       wireTip(h2help, helpText, f.type || f.finding_type);
-      h2.appendChild(h2help);
+      titleRow.appendChild(h2help);
     }
-    titleWrap.appendChild(h2);
+    titleWrap.appendChild(titleRow);
     var sub = findingSummary(f);
     if (sub) titleWrap.appendChild(el("p", "ps-detail-sub", sub));
     headRow.appendChild(titleWrap);
