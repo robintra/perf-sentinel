@@ -31,8 +31,17 @@ half-written line.
 the carbon parameters that scale their own figures (the SCI methodology tags
 observed and the embodied term, as a period total and a per-request mean), a
 split of the carbon total into its operational, embodied and transport terms,
-and the source-chain verdict above. Older reports keep their `content_hash`
-when re-hashed on this binary.
+and the source-chain verdict above. Every term of that split is omitted rather
+than published as zero when nothing measured it, and the transport term also
+ships under a sourced 0.001-0.059 kWh/GB coefficient bracket. Older reports
+keep their `content_hash` when re-hashed on this binary.
+
+**Two `[green]` keys tighten** in a mounted `config.toml`:
+`network_energy_per_byte_kwh` is deprecated and ignored (the transport
+coefficient is fixed at 0.04 kWh/GB so every disclosure scales it
+identically, the key still parses with a warning) and
+`embodied_carbon_per_request_gco2 = 0.0` is rejected at startup, since a
+zeroed coefficient erased the embodied term from the disclosure.
 
 `perf-sentinel capture` also creates the directory of `--output` when it is
 missing, which is what the documented CI recipe needs on a clean workspace.
