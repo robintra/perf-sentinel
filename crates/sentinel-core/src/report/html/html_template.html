@@ -2449,10 +2449,17 @@
     }
   }
 
-  // Whole-trace findings (chatty_service, pool_saturation, serialized_calls)
-  // match no span template: dimming every row with nothing highlighted is
-  // unreadable, so dim only when at least one span actually matches.
+  // Whole-trace findings match no span template, so they highlight by
+  // event type instead: the culprit is the whole set of calls (embedded
+  // spans carry no timestamps, per-span precision is out of reach).
+  var WHOLE_TRACE_HILITE = {
+    chatty_service: "http_out",
+    pool_saturation: "sql",
+    serialized_calls: "http_out"
+  };
   var treeHasTplMatch = false;
+  var treeTargetEvt = null;
+  var treeChildren = {};
 
   function renderTree(root, trace, finding) {
     var spans = trace.spans || [];
@@ -2463,6 +2470,9 @@
     var tree = buildSpanTree(spans);
     var targetTpl = (finding.pattern && finding.pattern.template) || null;
     treeHasTplMatch = !!targetTpl && spans.some(function (s) { return s.template === targetTpl; });
+    treeTargetEvt = treeHasTplMatch ? null
+      : (WHOLE_TRACE_HILITE[finding.type || finding.finding_type] || null);
+    treeChildren = tree.childrenByParent || {};
     // The highlight tint follows the finding severity (see [data-fsev] CSS).
     var host = root.closest ? root.closest(".ps-tree") : null;
     setAttr(host || root, "data-fsev", finding.severity || "");
@@ -2471,9 +2481,14 @@
 
   function buildSpanRow(span, depth, targetTpl) {
     var row = el("div", "ps-span");
-    var isFinding = treeHasTplMatch && targetTpl && span.template === targetTpl;
+    // Event-rule mode marks leaves only: the container span above a
+    // flood of calls is context, not a culprit.
+    var isFinding = treeHasTplMatch
+      ? (targetTpl && span.template === targetTpl)
+      : (treeTargetEvt && span.event_type === treeTargetEvt &&
+         !(treeChildren[span.span_id] || []).length);
     if (isFinding) row.classList.add("hilite");
-    else if (treeHasTplMatch) row.classList.add("dim");
+    else if (treeHasTplMatch || treeTargetEvt) row.classList.add("dim");
     // 10px base inset keeps depth-0 text off the rounded edge.
     row.style.paddingLeft = (10 + depth * 20) + "px";
 
