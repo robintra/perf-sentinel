@@ -409,7 +409,9 @@
   .ps-pgstat-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
   /* -------- footer -------- */
-  .ps-footer { margin-top: auto; min-height: 62px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+  /* Sticky like the topbar: the shortcut hints stay readable mid-scroll. */
+  .ps-footer { position: sticky; bottom: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); margin-top: auto; min-height: 62px; padding: 0 28px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+  :root[data-density="compact"] .ps-footer { padding-left: 22px; padding-right: 22px; }
   .ps-credit { margin-left: auto; }
   /* Single thin underline (a border-bottom would double the generic link line). */
   .ps-credit a, .ps-footer a { color: var(--brand-text); text-decoration: underline; text-decoration-thickness: .5px; text-decoration-color: color-mix(in srgb, var(--brand-text) 55%, transparent); }
@@ -576,7 +578,11 @@
     .ps-overview-cols, .ps-diff-cols, .ps-triage { grid-template-columns: 1fr; }
     .ps-meta-grid { grid-template-columns: repeat(2, 1fr); }
     .ps-search-box { flex: 1 1 auto; min-width: 0; }
-    .ps-footer { min-height: 0; padding: 18px 0 14px; }
+    .ps-footer { min-height: 0; padding: 18px 22px 14px; }
+  }
+  /* On short viewports a pinned footer costs too much reading space. */
+  @media (max-height: 700px) {
+    .ps-footer { position: static; background: transparent; backdrop-filter: none; }
   }
 </style>
 </head>
@@ -793,16 +799,15 @@
   </div>
 
       <div style="height: 28px; flex: none;"></div>
-      <footer class="ps-footer">
-        <span class="ps-kbd">j/k</span> navigate
-        <span class="ps-kbd">enter</span> open
-        <span class="ps-kbd">/</span> search
-        <span class="ps-kbd">esc</span> back
-        <button type="button" class="ps-kbd" id="footer-shortcuts" style="cursor: pointer; background: transparent;">?</button> shortcuts
-        <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">perf-sentinel</a> &middot; design &amp; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
-      </footer>
-
     </div>
+    <footer class="ps-footer">
+      <span class="ps-kbd">j/k</span> navigate
+      <span class="ps-kbd">enter</span> open
+      <span class="ps-kbd">/</span> search
+      <span class="ps-kbd">esc</span> back
+      <button type="button" class="ps-kbd" id="footer-shortcuts" style="cursor: pointer; background: transparent;">?</button> shortcuts
+      <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">perf-sentinel</a> &middot; design &amp; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
+    </footer>
   </main>
 </div>
 
