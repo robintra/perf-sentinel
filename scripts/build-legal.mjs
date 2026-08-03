@@ -1,6 +1,6 @@
-// Generates the standalone legal pages, FR + EN:
-//   FR: mentions-legales.html, confidentialite.html
-//   EN: legal-notice.html, privacy-policy.html
+// Generates the standalone legal pages plus the 404, FR + EN:
+//   FR: mentions-legales.html, confidentialite.html, fr/404.html
+//   EN: legal-notice.html, privacy-policy.html, 404.html
 // Lifts the vitrine <style> verbatim so the chrome (theme vars, fonts, footer,
 // hovers) stays identical without duplicating CSS. Each page has a language
 // toggle linking to its counterpart and persisting ps-lang.
@@ -79,11 +79,11 @@ const tailScript = (lang) => {
   return `<script>(function(){var r=document.querySelector('[data-ps-root]'),b=document.getElementById('themeBtn');var TN=${names};var TI={system:'${ICON_SYSTEM}',light:'${ICON_SUN}',dark:'${ICON_MOON}'};var mq=null;try{mq=window.matchMedia('(prefers-color-scheme: dark)')}catch(e){}function getMode(){var v=null;try{v=localStorage.getItem('ps-theme')}catch(e){}return v==='dark'||v==='light'||v==='system'?v:'system'}function resT(m){return m==='system'?(mq&&mq.matches?'dark':'light'):m}function applyMode(m){r.setAttribute('data-theme',resT(m));if(b){b.innerHTML='<span class="ps-th-ico">'+TI[m]+'</span><span class="ps-th-lbl">'+TN[m]+'</span>';var a=${aria}+TN[m]+')';b.title=a;b.setAttribute('aria-label',a)}}applyMode(getMode());if(b)b.addEventListener('click',function(){var o=['system','light','dark'],n=o[(o.indexOf(getMode())+1)%3];try{localStorage.setItem('ps-theme',n)}catch(e){}applyMode(n)});if(mq){try{mq.addEventListener('change',function(){if(getMode()==='system')r.setAttribute('data-theme',resT('system'))})}catch(e){}}var lb=document.querySelector('[data-lang-switch]');if(lb)lb.addEventListener('click',function(){try{localStorage.setItem('ps-lang','${OTHER[lang]}');}catch(e){}});})();</script>`;
 };
 
-function page(lang, otherHref, title, desc, main) {
+function page(lang, otherHref, title, desc, main, { robots = 'index,follow', head = '' } = {}) {
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">` +
-    `<title>${title} · perf-sentinel</title><meta name="description" content="${desc}"><meta name="robots" content="index,follow">` +
+    `<title>${title} · perf-sentinel</title><meta name="description" content="${desc}"><meta name="robots" content="${robots}">` +
     `<meta property="og:type" content="website"><meta property="og:title" content="${title} · perf-sentinel"><meta property="og:description" content="${desc}"><meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="427"><meta property="og:image:alt" content="perf-sentinel"><meta name="theme-color" content="#0BA671"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png">` +
-    `<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css">${STYLE}${legalCss}</head>` +
+    `<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css">${STYLE}${legalCss}${head}</head>` +
     `<body><div data-ps-root data-theme="light">${initScript}<div style="min-height:100vh;display:flex;flex-direction:column;background-color:var(--bg);color:var(--text)">` +
     `${header(lang, otherHref)}<main class="legal-main" style="flex:1 0 auto">${main}</main>${footer(lang)}</div></div>${tailScript(lang)}</body></html>`;
 }
@@ -133,8 +133,31 @@ const confidEN =
   `<h2>External links</h2><p>The site links to third-party services (GitHub, crates.io, docs.rs, LinkedIn) which have their own privacy policies. The publisher is not responsible for their practices.</p>` +
   `<h2>Your rights</h2><p>Under the GDPR, you have the right to access, rectify and erase your data. As the site holds no personal data about you, such requests mainly concern the host. For any question: ${EMAIL}. You may also lodge a complaint with the CNIL, the French data-protection authority (<a href="https://www.cnil.fr" target="_blank" rel="noopener">cnil.fr</a>).</p>`;
 
+// 404. GitHub Pages only serves the root /404.html, so the English one carries
+// a redirect to the FR twin for readers whose resolved language is French.
+const NF = {
+  fr: { title: 'Page introuvable', desc: 'Cette page du site perf-sentinel n’existe pas ou a été déplacée.', h1: 'Cette page n’existe pas', p: 'Le lien est peut-être cassé, ou la page a été déplacée depuis.', home: 'Accueil', docs: 'Documentation' },
+  en: { title: 'Page not found', desc: 'This perf-sentinel page does not exist or has moved.', h1: 'This page does not exist', p: 'The link may be broken, or the page has moved since.', home: 'Home', docs: 'Documentation' },
+};
+const notFound = (lang) => {
+  const n = NF[lang];
+  return `<div style="text-align:center">` +
+    `<div style="font-family:'JetBrains Mono',monospace;font-size:clamp(52px,10vw,108px);line-height:1;font-weight:600;letter-spacing:-.03em;word-spacing:-.35em;color:var(--accent)">// 404</div>` +
+    `<h1 style="margin:22px 0 0;font-size:clamp(24px,3vw,32px);line-height:1.2;letter-spacing:-.018em">${n.h1}</h1>` +
+    `<p style="margin:14px auto 0;max-width:460px">${n.p}</p>` +
+    `<div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:32px">` +
+    `<a data-plain href="/" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px">${n.home}</a>` +
+    `<a data-plain href="/guide" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px">${n.docs}</a>` +
+    `</div></div>`;
+};
+// Centers the block in whatever height the viewport leaves between header and footer.
+const nfCss = `<style>.legal-main{display:flex;align-items:center;justify-content:center;padding:48px 28px}</style>`;
+const frRedirect = `<script>(function(){var l=null;try{l=localStorage.getItem('ps-lang')}catch(e){}if(l!=='fr'&&l!=='en')l=(navigator.language||'').toLowerCase().indexOf('fr')===0?'fr':'en';if(l==='fr')location.replace('/fr/404');})();</script>`;
+
+writeFileSync(join(SITE, '404.html'), page('en', '/fr/404', NF.en.title, NF.en.desc, notFound('en'), { robots: 'noindex,follow', head: nfCss + frRedirect }));
+writeFileSync(join(SITE, 'fr', '404.html'), page('fr', '/404', NF.fr.title, NF.fr.desc, notFound('fr'), { robots: 'noindex,follow', head: nfCss }));
 writeFileSync(join(SITE, 'mentions-legales.html'), page('fr', '/legal-notice', 'Mentions légales', 'Mentions légales du site perf-sentinel : éditeur, directeur de la publication et hébergeur.', mentionsFR));
 writeFileSync(join(SITE, 'legal-notice.html'), page('en', '/mentions-legales', 'Legal notice', 'Legal notice for the perf-sentinel site: publisher, publication director and host.', mentionsEN));
 writeFileSync(join(SITE, 'confidentialite.html'), page('fr', '/privacy-policy', 'Politique de confidentialité', 'Politique de confidentialité du site perf-sentinel : aucun cookie, aucun traceur, aucune collecte de données.', confidFR));
 writeFileSync(join(SITE, 'privacy-policy.html'), page('en', '/confidentialite', 'Privacy policy', 'Privacy policy for the perf-sentinel site: no cookies, no trackers, no data collection.', confidEN));
-console.log('wrote mentions-legales + legal-notice + confidentialite + privacy-policy');
+console.log('wrote mentions-legales + legal-notice + confidentialite + privacy-policy + 404 (en, fr)');
