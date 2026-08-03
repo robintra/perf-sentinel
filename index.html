@@ -888,28 +888,28 @@
         <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonCmpTitle }}</div>
         <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);max-width:680px">{{ carbonCmpSub }}</p>
         <div data-grid="cards2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px">
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px">
+          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px">
             <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:#5b9bd5">{{ carbonTdEyebrow }}</div>
             <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonTdTitle }}</div>
-            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px">
+            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px;margin-bottom:20px">
               <sc-for list="{{ carbonTdPoints }}" as="pt" hint-placeholder-count="3">
                 <div style="display:flex;gap:10px;font-size:14px;color:var(--text-2);line-height:1.5"><span style="color:var(--text-2);flex:none">•</span>{{ pt.t }}</div>
               </sc-for>
             </div>
-            <div style="margin-top:20px;padding-top:15px;border-top:1px solid var(--border)">
+            <div style="margin-top:auto;padding-top:15px;border-top:1px solid var(--border)">
               <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
               <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonTdResultA }}<span style="color:var(--coral)">{{ carbonTdResultB }}</span>{{ carbonTdResultC }}<span style="color:var(--coral)">{{ carbonTdResultD }}</span>.</div>
             </div>
           </div>
-          <div style="background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:14px;padding:24px 26px">
+          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:14px;padding:24px 26px">
             <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--accent)">{{ carbonBuEyebrow }}</div>
             <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonBuTitle }}</div>
-            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px">
+            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px;margin-bottom:20px">
               <sc-for list="{{ carbonBuPoints }}" as="pt" hint-placeholder-count="3">
                 <div style="display:flex;gap:10px;font-size:14px;color:var(--text);line-height:1.5"><span style="color:var(--accent);flex:none">✓</span>{{ pt.t }}</div>
               </sc-for>
             </div>
-            <div style="margin-top:20px;padding-top:15px;border-top:1px solid var(--border)">
+            <div style="margin-top:auto;padding-top:15px;border-top:1px solid var(--border)">
               <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
               <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonBuResultA }}<span style="color:var(--accent)">{{ carbonBuResultB }}</span>{{ carbonBuResultC }}<span style="color:var(--accent)">{{ carbonBuResultD }}</span>.</div>
             </div>
