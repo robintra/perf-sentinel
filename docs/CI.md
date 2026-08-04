@@ -211,7 +211,12 @@ branch must still refresh the baseline, otherwise every PR that follows
 loses its Diff tab on top of being blocked. While a known trunk finding
 is being fixed, acknowledge it in
 `.perf-sentinel-acknowledgments.toml` with an `expires_at`, which
-unblocks the queue without touching a threshold. See
+unblocks the queue without touching a threshold. Give the entry its
+`service` and `source_endpoint` while you are at it: once the fix
+lands, the trunk run reports the entry under the
+`unmatched_acknowledgment` warning as removable, which is how a fix to
+an acked problem surfaces at all, since acked findings sit on neither
+side of the Diff. See
 [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
 
 If GitHub Pages is not enabled, the template falls back to the
@@ -553,7 +558,7 @@ The comparison is a set difference over finding identities, not a comparison of 
   <img alt="How the Diff classifies a finding" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification.svg">
 </picture>
 
-Two consequences worth internalizing before reading a Diff tab. A finding both sides carry falls in neither column, so a pull request is never blamed for a regression it inherited from the trunk. And a scenario that only one side ran lands its findings in a column anyway, always in the flattering direction: renaming a scenario, dropping an endpoint from the campaign or changing a URL shape shows up as Resolved with no code change behind it.
+Three consequences worth internalizing before reading a Diff tab. A finding both sides carry falls in neither column, so a pull request is never blamed for a regression it inherited from the trunk. A scenario that only one side ran lands its findings in a column anyway, always in the flattering direction: renaming a scenario, dropping an endpoint from the campaign or changing a URL shape shows up as Resolved with no code change behind it. And an acknowledged finding is filtered from both sides, so the pull request that genuinely fixes it resolves nothing here: for an acked problem, the `unmatched_acknowledgment` warning is the signal, not the Resolved column (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md)).
 
 Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
 
