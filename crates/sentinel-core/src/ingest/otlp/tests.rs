@@ -2744,6 +2744,31 @@ mod http_handler {
     }
 
     #[tokio::test]
+    async fn otlp_http_accepts_deflate_request() {
+        // HTTP deflate is the zlib format, flate2's ZlibEncoder.
+        let (tx, mut rx) = mpsc::channel(8);
+        let router = otlp_http_router(tx, 1_048_576, None);
+
+        let body = build_minimal_request_bytes();
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&body).expect("deflate encode");
+        let deflated = encoder.finish().expect("deflate finish");
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, "application/x-protobuf")
+            .header(header::CONTENT_ENCODING, "deflate")
+            .body(Body::from(deflated))
+            .expect("build request");
+
+        let response = router.oneshot(req).await.expect("router runs");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let events = rx.recv().await.expect("event batch sent");
+        assert_eq!(events.len(), 1);
+    }
+
+    #[tokio::test]
     async fn otlp_http_accepts_uncompressed_request() {
         let (tx, mut rx) = mpsc::channel(8);
         let router = otlp_http_router(tx, 1_048_576, None);
