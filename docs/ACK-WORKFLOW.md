@@ -113,6 +113,15 @@ wins. The rationale: the TOML baseline is shipped via PR review and
 represents an immutable team-level decision; the daemon JSONL is a
 mutable, runtime-only override.
 
+One boundary to have clear before reaching for either surface: a
+daemon ack never reaches CI. The JSONL lives on that daemon's disk, so
+acking from the dashboard, the TUI or `ack create` silences that one
+daemon and nothing else. A CI gate, the Diff baseline and the
+`unmatched_acknowledgment` warning all read the TOML alone. To unblock
+a pipeline, copy the signature into the TOML and open a PR. The
+signatures are identical on both sides, so the dashboard is a fine
+place to copy one from.
+
 A `POST /api/findings/{sig}/ack` for a signature already covered by
 TOML returns HTTP 409 to avoid silent shadowing. The `ack create` CLI
 maps this to exit 2 with a hint pointing at `ack revoke`.
@@ -160,7 +169,7 @@ acknowledgment requires a running daemon to persist.
 | Environment-specific suppression          | Daemon (one per environment)         |
 | Onboarding cleanup of pre-existing        | TOML (bulk via editor)               |
 | Single ack at 3am from PagerDuty          | Daemon CLI                           |
-| Click Ack from MR review on the CI report | Daemon (HTML live mode, since 0.5.23)|
+| Click Ack from MR review on the CI report | Daemon (HTML live mode, since 0.5.23), then TOML via PR: a daemon ack alone never unblocks CI |
 | Audit findings in a terminal session      | Daemon (TUI, since 0.5.24)           |
 
 ## Observability
