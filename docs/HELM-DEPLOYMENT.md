@@ -19,7 +19,7 @@ For a non-Helm alternative, see the raw manifests in
 - [Install from a local checkout](#install-from-a-local-checkout): for contributors and bisecting.
 - [Cutting a new chart release](#cutting-a-new-chart-release): maintainer task, points to RELEASE-PROCEDURE.
 - [Workload modes](#workload-modes): the three `workload.kind` values to pick from.
-- [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus secrets, TLS and NetworkPolicy.
+- [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus [fragments](#config-fragments), secrets, TLS and NetworkPolicy.
 - [Observability](#observability): Prometheus ServiceMonitor, Grafana dashboard, alerts and exemplars.
 - [Upgrading](#upgrading): `helm upgrade` flow.
 - [Uninstalling](#uninstalling): `helm uninstall` flow.
@@ -507,6 +507,55 @@ config:
 ```
 
 Full field reference: [`docs/CONFIGURATION.md`](./CONFIGURATION.md).
+
+### Config fragments
+
+`config.toml` is one document. `config.fragments` is a map of additional TOML
+documents, rendered into a second ConfigMap and mounted as a directory at
+`/etc/perf-sentinel/.perf-sentinel.d/`. The daemon merges them in ascending
+filename priority, then applies `config.toml` last as the final override
+([Configuration fragments](./CONFIGURATION.md#configuration-fragments)).
+
+```yaml
+config:
+  toml: |
+    [green]
+    enabled = true
+    default_region = "eu-west-3"
+  fragments:
+    33-green-kepler.toml: |
+      [green.kepler]
+      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+      metric_kind = "container"
+
+      [green.kepler.service_mappings]
+      "order-svc" = "order-svc"
+```
+
+This is how the ready-to-copy files in `examples/` reach a cluster: keep the
+filename, its `NN` prefix already carries the merge order. `examples/helm/`
+ships one values overlay per energy backend, stackable on the base values with
+a second `-f`.
+
+Two rules are enforced at render time, because the daemon enforces them at
+startup and the image is `FROM scratch`, so a boot failure leaves no shell to
+read the error in:
+
+- **Names.** `NN-lowercase-name.toml`, `NN` two digits, the rest `[a-z0-9-]`
+  with no leading, trailing or doubled dash. No two fragments may share an
+  `NN`, since their merge order would be undefined.
+- **Reserved keys.** `listen_port_*`, `[daemon.ack]`, `[daemon.archive]` and
+  turning `[green]` off belong in `config.toml`. The chart cross-checks those
+  against `service.ports.*`, the probes and the PVC reading `config.toml`
+  alone, so a fragment redefining one would pass a green check and produce a
+  pod that listens where nothing routes, or a TOML with a table defined twice.
+
+Editing any fragment moves the `checksum/config` annotation, so `helm upgrade`
+rolls the pods. The directory is mounted whole rather than per key, so adding
+or removing a fragment reaches a running pod too.
+
+Secrets never go in a fragment: it renders into a ConfigMap, readable by anyone
+holding `get` on the namespace. Use the Secret pattern below.
 
 ### Secrets
 
