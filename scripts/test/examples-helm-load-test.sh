@@ -9,16 +9,22 @@
 # target/debug/perf-sentinel, so `cargo build --bin perf-sentinel` first.
 #
 # `helm template` proving a values file renders says nothing about whether the
-# daemon accepts what came out: a fragment missing a required key renders fine
-# and CrashLoopBackOffs on a FROM scratch image with no shell to read the error
-# in. So this renders both ConfigMaps for every values-green-*.yaml overlay,
-# projects them the way kubelet does (real files under a timestamped directory,
-# a `..data` symlink, one relative symlink per key) and loads the result with
-# the real binary.
+# daemon accepts what came out: a fragment that parses but does not validate
+# renders fine and CrashLoopBackOffs on a FROM scratch image with no shell to
+# read the error in. So this renders both ConfigMaps for every
+# values-green-*.yaml overlay, projects them the way kubelet does (real files
+# under a timestamped directory, a `..data` symlink, one relative symlink per
+# key) and loads the result with the real binary.
 #
 # The symlink layout is the part a render can never prove: the loader walks
 # .perf-sentinel.d/ with read_dir and has to skip `..data` and the timestamped
 # directory on its own.
+#
+# What this does NOT catch: a `[green.*]` section missing the `endpoint` that
+# activates it converts to None during raw-to-typed conversion, so no validation
+# runs and the load succeeds. Dropping `metric_name` from an active backend is
+# caught, dropping `endpoint` is not. The parity check at the end covers the
+# missing-field case that this cannot.
 #
 # Exit codes:
 #   0 - every example loads
@@ -78,12 +84,32 @@ for overlay in "" "$REPO"/examples/helm/values-green-*.yaml; do
   fi
   sed -n '/perf-sentinel.toml: |/,$p' "$WORK/main.yaml" | tail -n +2 | sed 's/^    //' \
     > "$mnt/.perf-sentinel.toml"
+  # The extraction is a sed range over a rendered template, so a template
+  # reshuffle can silently produce nothing. `analyze` happily runs on defaults
+  # and prints a full report, so without this the whole harness would go green
+  # while loading none of the chart's config.
+  if [ ! -s "$mnt/.perf-sentinel.toml" ]; then
+    echo "FAIL $name (extracted config.toml is empty, the ConfigMap shape changed)"
+    failures=$((failures + 1)); continue
+  fi
 
   # --show-only errors out on a template that renders nothing, which is the
-  # correct output when an example declares no fragments.
+  # correct output when an example declares no fragments. Count what the
+  # example declares so a projection that writes nothing is caught below,
+  # rather than reported as a pass over config.toml alone.
+  want=0
   if helm template t "$CHART" "${args[@]}" -s templates/configmap-fragments.yaml \
      > "$WORK/frag.yaml" 2>&1; then
-    split_configmap "$WORK/frag.yaml" "$frag_dir/$STAMP"
+    if ! split_configmap "$WORK/frag.yaml" "$frag_dir/$STAMP"; then
+      echo "FAIL $name (projecting the fragments ConfigMap failed)"
+      failures=$((failures + 1)); continue
+    fi
+    want=$(grep -cE '^  [0-9]{2}-[a-z0-9-]+\.toml: \|$' "$WORK/frag.yaml")
+  fi
+  got=$(find "$frag_dir/$STAMP" -name '*.toml' -type f | wc -l | tr -d ' ')
+  if [ "$want" != "$got" ]; then
+    echo "FAIL $name (declares $want fragment(s), projected $got)"
+    failures=$((failures + 1)); continue
   fi
 
   (cd "$frag_dir" && ln -s "$STAMP" ..data &&
@@ -114,6 +140,39 @@ for overlay in "" "$REPO"/examples/helm/values-green-*.yaml; do
   fi
 done
 
+# --- The loader really reads the projected directory -------------------------
+#
+# Everything above proves the examples load. None of it proves the fragments
+# were part of that load: config.toml alone produces the same successful report,
+# so a projection that silently wrote nothing, or a mount path the daemon never
+# looks at, would read as a pass.
+#
+# So plant a fragment that cannot parse into the same kubelet-shaped directory
+# and require the binary to reject it *by name*. Only a loader that opened
+# .perf-sentinel.d/ can produce that message.
+#
+# A syntax error, not an unknown key: an unrecognised field inside a
+# [green.*] table is accepted silently, so it would prove nothing.
+probe="$WORK/probe/etc/perf-sentinel"
+mkdir -p "$probe/.perf-sentinel.d/$STAMP"
+helm template t "$CHART" -f "$BASE" -s templates/configmap.yaml > "$WORK/probe-main.yaml" 2>&1
+sed -n '/perf-sentinel.toml: |/,$p' "$WORK/probe-main.yaml" | tail -n +2 | sed 's/^    //' \
+  > "$probe/.perf-sentinel.toml"
+printf '[green.kepler\nendpoint = "http://k:9102/metrics"\n' \
+  > "$probe/.perf-sentinel.d/$STAMP/50-canary.toml"
+(cd "$probe/.perf-sentinel.d" && ln -s "$STAMP" ..data &&
+ ln -s "..data/50-canary.toml" 50-canary.toml)
+
+out=$("$BIN" analyze --input "$FIXTURE" --config "$probe/.perf-sentinel.toml" 2>&1)
+if grep -q "50-canary.toml" <<<"$out"; then
+  echo "PASS the daemon reads .perf-sentinel.d/ through the kubelet symlink layout"
+else
+  echo "FAIL the daemon never read .perf-sentinel.d/: a broken fragment planted there"
+  echo "     was not rejected, so every PASS above covers config.toml only."
+  echo "     got: $(head -2 <<<"$out")"
+  failures=$((failures + 1))
+fi
+
 # --- Field parity with the examples/ fragments -------------------------------
 #
 # Each values-green-*.yaml is the Kubernetes port of the examples/NN-*.toml of
@@ -135,7 +194,9 @@ done
 EXEMPT='^(\[green\]|enabled|default_region|api_key)$'
 
 mentioned() {
-  grep -oE '^[[:space:]]*#?[[:space:]]*(\[[a-z._"|-]+\]|[a-z_]+ *=)' "$1" \
+  # Digits belong in the class: a table such as [green.cloud.services."api-us2"]
+  # would otherwise be invisible on both sides and drop out of the diff.
+  grep -oE '^[[:space:]]*#?[[:space:]]*(\[[a-z0-9._"|-]+\]|[a-z_][a-z0-9_]* *=)' "$1" \
     | sed 's/^[[:space:]]*//; s/^# *//; s/ *=$//; s/[[:space:]]*$//' \
     | grep -v '^$' | sort -u
 }

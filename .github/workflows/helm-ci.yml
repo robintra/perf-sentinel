@@ -5,6 +5,11 @@ on:
     paths:
       - 'charts/**'
       - 'examples/helm/**'
+      # The parity half of examples-load compares examples/helm/ against the
+      # numbered fragments, so a change to either side has to trigger it. Both
+      # are listed: without the second line, adding a key to a .toml would
+      # merge green while the overlay it mirrors silently fell behind.
+      - 'examples/[0-9][0-9]-*.toml'
       - '.github/workflows/helm-ci.yml'
       - 'scripts/check-chart-version-bumped.sh'
       - 'scripts/check-chart-appversion-annotation.sh'

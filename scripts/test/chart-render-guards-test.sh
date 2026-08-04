@@ -271,8 +271,10 @@ listen_port_http = 9999')"
 
 # 24. Same for the tables the chart appends itself under persistence: TOML
 #     rejects a table defined twice, so the pod would never parse its config.
+#     Persistence is part of the scenario, not incidental to it: that is the
+#     only configuration where the chart writes those tables (see 26d).
 expect_fail "fails on [daemon.ack] set from a fragment" "daemon.ack" \
-  --set-string "$(frag 30-ack.toml '[daemon.ack]
+  "${PERSIST[@]}" --set-string "$(frag 30-ack.toml '[daemon.ack]
 storage_path = "/var/lib/perf-sentinel/acks.jsonl"')"
 
 # 25. Turning green off from a fragment leaves configmap.yaml appending an
@@ -283,8 +285,56 @@ enabled = false')"
 
 # 26. The dotted-key spelling opens the same key and a header-only regex
 #     misses it.
-expect_fail "fails on green.enabled = false set from a fragment" "green.enabled = false" \
+expect_fail "fails on green.enabled = false set from a fragment" "dotted key or an inline table" \
   --set-string "$(frag 30-green.toml 'green.enabled = false')"
+
+# 26b. TOML allows whitespace inside a table header and quotes around a key
+#      name, and an inline table replaces the header entirely. A byte-exact
+#      regex sees none of those, so the fragment content is normalised before
+#      matching. Each spelling below reached a rendered pod before that.
+expect_fail "fails on a spaced [ green ] header" "enabled = false" \
+  --set-string "$(frag 30-green.toml '[ green ]
+enabled = false')"
+
+expect_fail "fails on the green inline table" "dotted key or an inline table" \
+  --set-string "$(frag 30-green.toml 'green = { enabled = false }')"
+
+expect_fail "fails on a listen port in an inline table" "listen_port_" \
+  --set-string "$(frag 30-daemon.toml 'daemon = { listen_port_http = 9999 }')"
+
+expect_fail "fails on a quoted listen_port key" "listen_port_" \
+  --set-string "$(frag 30-daemon.toml '[daemon]
+"listen_port_http" = 9999')"
+
+expect_fail "fails on a spaced [ daemon.ack ] header" "daemon.ack" \
+  "${PERSIST[@]}" --set-string "$(frag 30-ack.toml '[ daemon.ack ]
+storage_path = "/var/lib/perf-sentinel/acks.jsonl"')"
+
+# 26c. Normalising must not over-fire. A reserved key named in a comment is
+#      prose, not config, and comments are stripped before matching.
+expect_render "accepts a comment naming a reserved key" 'true' \
+  --set-string "$(frag 30-green-kepler.toml '[green.kepler]
+# listen_port_http stays in config.toml
+endpoint = "http://kepler:9102/metrics"')"
+
+# 26d. The ack/archive guard only exists because the chart appends those tables
+#      itself. Without persistence, or with manageDaemonPaths off, the operator
+#      owns them and a fragment is a fine place to put them. Firing there would
+#      refuse valid input while naming a flag that changes nothing.
+expect_render "accepts an archive fragment without persistence" 'true' \
+  --set-string "$(frag 30-archive.toml '[daemon.archive]
+path = "/tmp/a.ndjson"')"
+
+expect_render "accepts an archive fragment when manageDaemonPaths is off" 'true' \
+  "${PERSIST[@]}" --set workload.statefulset.persistence.manageDaemonPaths=false \
+  --set-string "$(frag 30-archive.toml '[daemon.archive]
+path = "/var/lib/perf-sentinel/archive.ndjson"')"
+
+# 26e. enabled = false is legitimate outside [green]: the guard must target the
+#      table it protects, not the key name.
+expect_render "accepts enabled = false outside [green]" 'true' \
+  --set-string "$(frag 30-correlation.toml '[daemon.correlation]
+enabled = false')"
 
 # 27. Fragments reach the pod: the volume, the mount and a checksum covering
 #     both ConfigMaps. Without the mount the ConfigMap renders and nothing
@@ -306,13 +356,21 @@ endpoint = "http://alumet:9090/metrics"')"
 
 # 28. Editing a fragment must roll the pods. Same config.toml, different
 #     fragment: the checksum/config annotation has to move.
+#     Captured with `if !` rather than a bare assignment: under `set -e` a
+#     failing render would abort the whole harness here, with no FAIL line, no
+#     summary, and scenario 29 never reached.
 checksum_of() {
   helm template t "$CHART_DIR" --show-only templates/deployment.yaml "$@" 2>&1 |
     grep "checksum/config:"
 }
-before=$(checksum_of --set-string "$(frag 30-green-alumet.toml 'a = 1')")
-after=$(checksum_of --set-string "$(frag 30-green-alumet.toml 'a = 2')")
-if [ -n "$before" ] && [ "$before" != "$after" ]; then
+before=""; after=""
+if ! before=$(checksum_of --set-string "$(frag 30-green-alumet.toml 'a = 1')"); then
+  before=""
+fi
+if ! after=$(checksum_of --set-string "$(frag 30-green-alumet.toml 'a = 2')"); then
+  after=""
+fi
+if [ -n "$before" ] && [ -n "$after" ] && [ "$before" != "$after" ]; then
   report pass "a fragment edit moves checksum/config"
 else
   report fail "a fragment edit moves checksum/config"
@@ -322,11 +380,63 @@ fi
 #     write to the same config. The chart appends [daemon.ack] and
 #     [daemon.archive] to config.toml while the fragment mounts separately:
 #     both must survive, and the fragment must not have opened those tables.
+#     Asserting on the StatefulSet too, not just the ConfigMap: checking only
+#     the appended tables would stay green against a chart with the fragments
+#     volume and mount deleted, pinning none of the interaction.
 expect_render "appends the daemon tables with a fragment mounted" \
   '[ "$(grep -c "^\s*\[daemon\.ack\]" <<<"$out")" = 1 ] &&
    [ "$(grep -c "^\s*\[daemon\.archive\]" <<<"$out")" = 1 ]' \
   "${PERSIST[@]}" --set-string "$(frag 30-green-alumet.toml '[green.alumet]
 endpoint = "http://alumet:9090/metrics"')"
+
+# 30. The fragments ConfigMap name must keep its suffix and still tell two
+#     releases apart. Suffixing before truncating drops "-fragments" on a long
+#     release name and collides with the config ConfigMap; truncating too short
+#     makes two releases that differ late share one fragments ConfigMap and
+#     overwrite each other's energy backends. Helm caps release names at 53.
+fragments_naming() {
+  local long out1 out2 names1
+  long=$(printf 'b%.0s' $(seq 1 52))
+  if ! out1=$(helm template "${long}1" "$CHART_DIR" \
+       --set-string "$(frag 30-g.toml '[green]
+enabled = true')" 2>&1); then
+    report fail "fragments ConfigMap name survives a 53-char release (render failed)"
+    return
+  fi
+  out2=$(helm template "${long}2" "$CHART_DIR" \
+       --set-string "$(frag 30-g.toml '[green]
+enabled = true')" 2>&1) || true
+  names1=$(grep -E "^  name: b" <<<"$out1" | sed 's/^ *name: //' | sort -u)
+  if ! grep -q -- "-fragments$" <<<"$names1"; then
+    report fail "fragments ConfigMap name keeps its suffix on a long release"
+  elif [ "$(wc -l <<<"$names1")" -lt 2 ]; then
+    report fail "fragments ConfigMap collides with the config ConfigMap"
+  elif [ "$(grep -- '-fragments$' <<<"$names1")" = \
+         "$(grep -E '^  name: b' <<<"$out2" | sed 's/^ *name: //' | grep -- '-fragments$')" ]; then
+    report fail "two releases share one fragments ConfigMap"
+  else
+    report pass "fragments ConfigMap name keeps its suffix and stays per-release"
+  fi
+}
+fragments_naming
+
+persist_sts() {
+  local out
+  if ! out=$(helm template t "$CHART_DIR" --show-only templates/statefulset.yaml \
+             "${PERSIST[@]}" --set-string "$(frag 30-green-alumet.toml '[green.alumet]
+endpoint = "http://alumet:9090/metrics"')" 2>&1); then
+    report fail "mounts fragments and the PVC on the same pod (render failed)"
+    return
+  fi
+  if grep -q "mountPath: /etc/perf-sentinel/.perf-sentinel.d" <<<"$out" &&
+     grep -qF "t-perf-sentinel-fragments" <<<"$out" &&
+     grep -q "mountPath: /var/lib/perf-sentinel" <<<"$out"; then
+    report pass "mounts fragments and the PVC on the same pod"
+  else
+    report fail "mounts fragments and the PVC on the same pod"
+  fi
+}
+persist_sts
 
 if [ "$failures" -eq 0 ]; then
   echo "All scenarios passed."
