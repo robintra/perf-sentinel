@@ -72,12 +72,19 @@ Resolved image reference. Falls back to .Chart.AppVersion when no tag is set.
 {{- end -}}
 
 {{/*
-Hash of the rendered ConfigMap, used as a podTemplate annotation so that
-`helm upgrade` rolls the pods when .perf-sentinel.toml changes.
+Hash of the rendered ConfigMaps, used as a podTemplate annotation so that
+`helm upgrade` rolls the pods when .perf-sentinel.toml or any fragment
+changes. The fragments template renders empty when config.fragments is
+unset, so a release that never used fragments keeps a stable hash.
 */}}
 {{- define "perf-sentinel.configChecksum" -}}
 {{- $cm := include (print $.Template.BasePath "/configmap.yaml") . -}}
-{{- $cm | sha256sum -}}
+{{- /* Trimmed, not appended raw: the fragments template still emits its
+       trailing newline when it renders nothing, and concatenating that would
+       move the checksum on a release that uses no fragments, rolling every
+       pod on upgrade for a config that did not change. */}}
+{{- $frag := include (print $.Template.BasePath "/configmap-fragments.yaml") . | trim -}}
+{{- printf "%s%s" $cm $frag | sha256sum -}}
 {{- end -}}
 
 {{/*
@@ -114,6 +121,15 @@ within the DNS-1123 label limit even for long release names.
 */}}
 {{- define "perf-sentinel.configMapName" -}}
 {{- printf "%s-config" (include "perf-sentinel.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Name of the fragments ConfigMap, mounted as a directory at
+/etc/perf-sentinel/.perf-sentinel.d/. Truncated at 54 before the suffix so
+the whole name still fits the 63-char DNS-1123 label limit.
+*/}}
+{{- define "perf-sentinel.fragmentsConfigMapName" -}}
+{{- printf "%s-fragments" (include "perf-sentinel.fullname" . | trunc 52 | trimSuffix "-") -}}
 {{- end -}}
 
 
@@ -179,6 +195,16 @@ containers:
         mountPath: /etc/perf-sentinel/.perf-sentinel.toml
         subPath: perf-sentinel.toml
         readOnly: true
+      {{- if .Values.config.fragments }}
+      {{- /* Mounted as a whole directory, not per-key subPaths, so that a
+             `helm upgrade` adding or removing a fragment reaches a running
+             pod. The daemon skips the `..data` symlink and the timestamped
+             directory kubelet projects here: both fail its `.toml` extension
+             filter before the name is ever parsed. */}}
+      - name: config-fragments
+        mountPath: /etc/perf-sentinel/.perf-sentinel.d
+        readOnly: true
+      {{- end }}
       - name: tmp
         mountPath: /tmp
       {{- if eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
@@ -192,6 +218,11 @@ volumes:
   - name: config
     configMap:
       name: {{ include "perf-sentinel.configMapName" . }}
+  {{- if .Values.config.fragments }}
+  - name: config-fragments
+    configMap:
+      name: {{ include "perf-sentinel.fragmentsConfigMapName" . }}
+  {{- end }}
   - name: tmp
     emptyDir: {}
   {{- with .Values.extraVolumes }}

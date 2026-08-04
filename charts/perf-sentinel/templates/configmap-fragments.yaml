@@ -1,0 +1,60 @@
+{{- $fragments := .Values.config.fragments }}
+{{- if $fragments }}
+
+{{- /* The daemon reads .perf-sentinel.d/ with `read_dir` and hard-fails on the
+       first name it cannot parse (main.rs, fragment_priority): NN must be two
+       ASCII digits and the slug lowercase [a-z0-9-] with no leading, trailing
+       or doubled dash. A ConfigMap key is far more permissive than that, so a
+       plausible-looking `green-alumet.toml` or `1-x.toml` would render, mount,
+       and CrashLoopBackOff the pod with a message nobody reads until they
+       exec into a container that has no shell. Fail at render instead. */}}
+{{- $seen := dict }}
+{{- range $name, $content := $fragments }}
+{{- if not (regexMatch "^[0-9]{2}-[a-z0-9]+(-[a-z0-9]+)*\\.toml$" $name) }}
+{{- fail (printf "configmap-fragments.yaml: invalid fragment name %q under config.fragments. The daemon expects NN-lowercase-name.toml, with NN two digits and the name in [a-z0-9-] (no leading, trailing or doubled dash). Example: 30-green-alumet.toml." $name) }}
+{{- end }}
+{{- $priority := substr 0 2 $name }}
+{{- if hasKey $seen $priority }}
+{{- fail (printf "configmap-fragments.yaml: duplicate fragment priority %s: %s and %s. The daemon refuses to start on two fragments sharing a priority, because their merge order would be undefined. Renumber one of them." $priority (get $seen $priority) $name) }}
+{{- end }}
+{{- $_ := set $seen $priority $name }}
+
+{{- /* Fragments load before config.toml, so anything they set that config.toml
+       does not restate wins. Four families of keys are cross-checked against
+       the rest of the release in configmap.yaml (Service ports, probes, the
+       PVC-backed ack and archive paths) and that check only reads config.toml.
+       Allowing them here would let a fragment silently move the bind port away
+       from the Service, or reopen a table the chart is about to append to.
+       Keep those in config.toml, where the guards can see them. */}}
+{{- if regexMatch "(?m)^[ \t]*(daemon\\.)?listen_port_(http|grpc)[ \t]*=" $content }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s sets a listen_port_* key. The chart cross-checks the bind ports against service.ports.* and the probes, and that check reads config.toml only, so a port set here would move the daemon away from where the Service routes. Set it under config.toml." $name) }}
+{{- end }}
+{{- if regexMatch "(?m)^[ \t]*(\\[daemon\\.(ack|archive)\\]|(daemon\\.)?(ack|archive)([\\. \t]|[ \t]*=))" $content }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s declares [daemon.ack] or [daemon.archive]. With persistence enabled the chart appends both tables to config.toml, and TOML rejects a table defined twice. Set them under config.toml, or turn workload.statefulset.persistence.manageDaemonPaths off and own both paths there." $name) }}
+{{- end }}
+{{- range regexSplit "(?m)^[ \t]*\\[" $content -1 }}
+{{- if and (hasPrefix "green]" .) (regexMatch "(?m)^[ \t]*enabled[ \t]*=[ \t]*false" .) }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s sets [green] enabled = false. The chart decides whether to append [daemon.archive] from config.toml alone, and the daemon refuses an archive with green scoring off. Set it under config.toml." $name) }}
+{{- end }}
+{{- end }}
+{{- if regexMatch "(?m)^[ \t]*green\\.enabled[ \t]*=[ \t]*false" $content }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s sets green.enabled = false. Same reason as the table spelling: set it under config.toml." $name) }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "perf-sentinel.fragmentsConfigMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "perf-sentinel.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{- range $name, $content := $fragments }}
+  {{ $name }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}
