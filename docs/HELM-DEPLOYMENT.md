@@ -430,6 +430,25 @@ and the disclosure archive survive pod restarts and rescheduling. CI
 TOML acks (`.perf-sentinel-acknowledgments.toml`) are read-only at
 runtime and do not need a PVC, only the daemon-side JSONL does.
 
+> **Mounting the CI ack TOML: use `subPath`.** A ConfigMap projects
+> every key as a symlink (`key -> ..data/key`), and the loader refuses
+> to follow a symlink, a hardening against a hostile link pointing at a
+> sensitive file. A plain ConfigMap mount therefore makes the daemon
+> refuse to start, with `caused by: Acknowledgments file is a symlink,
+> refusing to follow` under the startup error. Mount with `subPath`,
+> which materialises a real file:
+>
+> ```yaml
+> volumeMounts:
+>   - name: ci-acks
+>     mountPath: /etc/perf-sentinel/acknowledgments.toml
+>     subPath: acknowledgments.toml
+> ```
+>
+> Point `[daemon.ack] toml_path` at that path. The trade-off of
+> `subPath` is that the file no longer updates in place when the
+> ConfigMap changes, which suits an ack baseline shipped by PR anyway.
+
 ```yaml
 workload:
   kind: StatefulSet

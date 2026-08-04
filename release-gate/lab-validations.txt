@@ -99,3 +99,21 @@ v0.9.25	eb90ceb	2026-08-02	PASS
 # frame expanding toward the 16 MiB max_payload_size ceiling) is NOT exercised by that
 # ramp, which batches 50 traces per export. memory_high_water_pct remains 0 by default.
 v0.9.28	0aba69d	2026-08-04	PASS
+# v0.9.28 delta on the batch acknowledgment path, complements the 0aba69d line above.
+# Product 55410d48 (the three commits through 4ec50b5a are docs-only), lab scenario
+# ack-lifecycle-warning, 68th. Covers the full ack life cycle on real artefacts: an
+# active entry suppressing a finding stays silent, a fixed one reports as removable
+# naming its endpoint, an unexercised one refuses to conclude, and an entry without
+# service/source_endpoint keeps both readings. The unexercised leg keeps the service
+# busy on OTHER endpoints on purpose, so a check keyed on the service rather than on
+# the (service, endpoint) pair would fail it. The blocking guard is that no warning is
+# derived from a pre-computed report: verified on a replayed analyze JSON and on a
+# non-empty daemon /api/export/report snapshot, the first capture being empty and
+# discarded rather than passing the guard vacuously. A positive control is committed
+# beside both silence checks for the same reason. Against 0.9.26 the scenario fails 5
+# legs including that control, so it cannot go green on a version lacking the feature.
+# Found outside the delta and identical on 0.9.26, therefore not a regression: a
+# ConfigMap-mounted ack TOML crashes the daemon at startup, since a ConfigMap projects
+# its keys as symlinks and the loader refuses to follow one. Fixed on this branch by
+# printing the error source chain, and documented as a subPath mount in HELM-DEPLOYMENT.
+v0.9.28	52a3ea3	2026-08-04	PASS

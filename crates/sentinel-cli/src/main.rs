@@ -2346,6 +2346,15 @@ async fn cmd_watch(
     );
     if let Err(e) = sentinel_core::daemon::run(config).await {
         eprintln!("Daemon error: {e}");
+        // Walk the source chain: the top-level variants name the failing
+        // resource, the cause underneath is what tells a missing file from
+        // a refused symlink, and a FROM scratch image has no shell to
+        // investigate with.
+        let mut cause = std::error::Error::source(&e);
+        while let Some(err) = cause {
+            eprintln!("  caused by: {err}");
+            cause = err.source();
+        }
         std::process::exit(1);
     }
 }
