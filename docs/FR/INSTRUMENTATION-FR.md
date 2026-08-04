@@ -258,9 +258,9 @@ service:
       exporters: [otlp/perf-sentinel, otlp/jaeger]   # envoyer aux deux
 ```
 
-Le collecteur OTel envoie ses exports compressés en gzip par défaut. perf-sentinel accepte nativement les payloads gzip, deflate et non compressés sur les deux endpoints, OTLP/gRPC (`:4317`) et OTLP/HTTP (`POST /v1/traces`), aucun override `compression: none` n'est requis. Le payload décompressé reste soumis à la limite `[daemon] max_payload_size` (1 Mo par défaut).
+Le collecteur OTel envoie ses exports compressés en gzip par défaut, et les deux endpoints les acceptent, OTLP/gRPC (`:4317`) et OTLP/HTTP (`POST /v1/traces`), aucun override `compression: none` n'est requis. Les encodages acceptés sont gzip, deflate et non compressé. Tout autre encodage configurable sur l'exporteur, dont `snappy` et `zstd`, est refusé par une erreur permanente et doit être ramené à `gzip` ou `none`. Le payload décompressé reste soumis à la limite `[daemon] max_payload_size` (16 Mio par défaut), et un lot au-dessus est refusé par un `ResourceExhausted` que seuls les logs du collecteur rapportent. Sur un pod à mémoire plafonnée, cette limite borne désormais des tampons de décodage et non des octets réellement téléversés, donc c'est `[daemon] memory_high_water_pct` (désactivé par défaut) qui empêche l'admission d'une rafale d'exports compressés, voir `docs/FR/CONFIGURATION-FR.md`.
 
-Jusqu'à la 0.9.26 incluse, l'endpoint gRPC répondait à un export compressé par `Unimplemented: Content is compressed with 'gzip' which isn't supported`, que le collecteur traite comme une erreur permanente et sur laquelle il jette le lot. Sur ces versions, il faut soit poser `compression: none` sur l'exporteur, soit le pointer vers l'endpoint HTTP.
+Jusqu'à la 0.9.26 incluse, l'endpoint gRPC refusait tout export compressé. Le collecteur le journalise en ``rpc error: code = Unimplemented desc = Content is compressed with `gzip` which isn't supported``, le traite comme une erreur permanente et jette le lot, la perte n'apparaît donc nulle part ailleurs. Sur ces versions, il faut soit poser `compression: none` sur l'exporteur, soit le pointer vers l'endpoint HTTP, qui accepte le gzip depuis la 0.5.5.
 
 Cette approche est recommandée pour les déploiements en production car :
 - Zero modification de code dans vos services
