@@ -19,6 +19,19 @@
 #   - The agent reachable from the perf-sentinel pod, so a Service in front of
 #     the DaemonSet rather than a hostPort.
 #
+# /!\ One endpoint, one node. Alumet runs per node and the Service below is a
+# ClusterIP, so each scrape is load-balanced to one arbitrary agent and returns
+# that node's cgroups only. On a single-node cluster that is the whole cluster.
+# On a multi-node cluster the energy attributed jumps between nodes and
+# under-reports without ever failing. The scraper reads any endpoint serving
+# Prometheus text format, so a Prometheus federation endpoint already scraping
+# every agent is the way to cover a whole cluster:
+#
+#   endpoint = "http://prometheus-server.monitoring.svc:9090/federate?match[]={__name__=~\"attributed_energy_.*\"}"
+#
+# Confirm the federated exposition keeps `metric_name` and `label_key` intact
+# before trusting the figures: that depends on your Prometheus relabeling.
+#
 # Two deliberate differences from the .toml, both forced by the cluster:
 #   - `endpoint` uses in-cluster DNS instead of localhost, since it resolves
 #     from the perf-sentinel pod rather than from a shared host.

@@ -20,6 +20,24 @@
 #   - The exporter reachable from the perf-sentinel pod. A NetworkPolicy that
 #     isolates kube-system needs an egress rule for this.
 #
+# /!\ One endpoint, one node. Kepler is a DaemonSet and the Service below is a
+# ClusterIP, so each scrape is load-balanced to one arbitrary pod and returns
+# that node's containers only. On a single-node cluster (kind, minikube, a dev
+# box) that is the whole cluster and the figures are complete. On a multi-node
+# cluster the energy attributed jumps between nodes and under-reports without
+# ever failing, which is the worst failure mode a measurement can have.
+#
+# The scraper reads any endpoint serving Prometheus text format and looks up
+# the metric by name and label, so pointing it at a Prometheus federation
+# endpoint that already scrapes every Kepler pod is the way to cover a whole
+# cluster:
+#
+#   endpoint = "http://prometheus-server.monitoring.svc:9090/federate?match[]={__name__=~\"kepler_container_.*\"}"
+#
+# Confirm on your own cluster that the federated exposition keeps the metric
+# name and the container_name label intact before trusting the figures: that
+# depends on your Prometheus relabeling, not on this chart.
+#
 # One deliberate difference from the .toml: `[green] enabled` and
 # `default_region` are not repeated here. The base values already set them in
 # config.toml, which is merged after this fragment and would win anyway. The

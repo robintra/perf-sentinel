@@ -328,10 +328,11 @@ config:
   # render rather than let that reach a pod. The ready-to-copy fragments in
   # `examples/` already carry conforming names, paste them as-is.
   #
-  # Ports, `[daemon.ack]`, `[daemon.archive]` and turning `[green]` off stay
-  # in `config.toml`: those are the keys the chart cross-checks against the
-  # Service, the probes and the PVC, and a fragment redefining one would
-  # bypass that check. The render rejects them here.
+  # Ports and turning `[green]` off stay in `config.toml`, and so do
+  # `[daemon.ack]` / `[daemon.archive]` when persistence has the chart writing
+  # them: those are the keys the chart cross-checks against the Service, the
+  # probes and the PVC, and a fragment redefining one would bypass that check.
+  # The render rejects them here, whichever TOML spelling is used.
   #
   # Secrets must never land here either. Use extraEnvFrom + a Secret.
   #
