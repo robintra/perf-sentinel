@@ -1,49 +1,61 @@
 # Live grid carbon intensity from the Electricity Maps API, instead of the
-# embedded hourly profiles. Kubernetes port of
-# examples/40-green-electricity-maps.toml.
+# embedded hourly profiles.
+# Kubernetes port of examples/40-green-electricity-maps.toml.
 #
 # Stack on the base values, never alone:
 #   helm install perf-sentinel ../../charts/perf-sentinel \
 #     --namespace observability \
 #     -f values-perf-sentinel.yaml -f values-green-electricity-maps.yaml
 #
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
+#
 # This is not an energy backend and does not replace one: it changes the
 # gCO2/kWh applied to whatever energy figure you already have, so it composes
-# with any values-green-*.yaml above. Priority 40 puts it after them.
+# with any values-green-*.yaml. Priority 40 puts it after them.
 #
-# It is also the one section that reaches the public internet on its own, and
-# only because you gave it a key. Any scrape failure falls back to the embedded
+# It is also the one section that reaches the network on its own, and only
+# because you put a key in it. Any scrape failure falls back to the embedded
 # profile, so a dead API or a blocked egress degrades the model tag rather than
-# the run, and nothing in the logs shouts about it. Check the model tag in the
-# report to confirm it is live.
+# the run, and nothing shouts about it. Read the model tag in the report to
+# confirm it is live.
+#
+# Two deliberate differences from the .toml:
+#   - `api_key` is not set here. A fragment renders into a ConfigMap, readable
+#     by anyone holding `get` on the namespace. PERF_SENTINEL_EMAPS_TOKEN below
+#     takes precedence over the file anyway, and setting the field logs a
+#     warning telling you to do exactly that.
+#   - `[green] enabled` and `default_region` are not repeated here. The base
+#     values already set them in config.toml, which is merged after this
+#     fragment and would win anyway.
 
 config:
   fragments:
     40-green-electricity-maps.toml: |
-      [green.electricity_maps]
-      # No api_key here on purpose: a fragment is a ConfigMap, readable by
-      # anyone holding get on the namespace. The token comes from
-      # PERF_SENTINEL_EMAPS_TOKEN below, which takes precedence over this file
-      # anyway. There is no "env:VAR" indirection, a value in that shape would
-      # be used literally.
-      #
-      # Default 300, bounds 60..86400. The free tier is about 30 requests per
-      # zone per month, so it needs 3600 or more.
-      poll_interval_secs = 3600
-      # Map your region IDs to Electricity Maps zone IDs. At least one entry is
-      # required. Region IDs are the ones your spans carry in cloud.region, or
-      # the default_region from config.toml.
-      region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "ap-southeast-1" = "SG" }
-      # "lifecycle" (default) includes construction and fuel supply chain,
-      # "direct" counts combustion only.
-      emission_factor_type = "lifecycle"
-
-      # Region per service, for spans that carry no cloud.region attribute.
+      # Region per service, when the spans carry no cloud.region attribute.
       [green.service_regions]
       "order-svc" = "us-east-1"
       "chat-svc" = "ap-southeast-1"
 
-# Required. Create the Secret before installing:
+      [green.electricity_maps]
+      # api_key comes from PERF_SENTINEL_EMAPS_TOKEN, see the Secret below.
+      # There is no "env:VAR" indirection, a value in that shape is used
+      # literally.
+      #
+      # The free tier is about 30 requests per zone per month, so it needs
+      # 3600 or more.
+      poll_interval_secs = 3600   # default 300, bounds 60..86400
+      # Map your region IDs to Electricity Maps zone IDs. Region IDs are the
+      # ones your spans carry in cloud.region, or the default_region set in
+      # config.toml.
+      region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "ap-southeast-1" = "SG" }   # no default, at least one entry required
+      # "lifecycle" (default) includes construction and fuel supply chain,
+      # "direct" counts combustion only.
+      emission_factor_type = "lifecycle"   # default "lifecycle", or "direct"
+
+# Required: without the token the section stays inert and the embedded hourly
+# profiles are used. Create the Secret before installing:
 #   kubectl -n observability create secret generic perf-sentinel-secrets \
 #     --from-literal=PERF_SENTINEL_EMAPS_TOKEN=your-api-key
 extraEnvFrom:
