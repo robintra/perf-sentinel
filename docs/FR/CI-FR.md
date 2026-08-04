@@ -272,36 +272,34 @@ compare toujours les traces de la PR contre le dernier état mergé.
   <img alt="Baseline et placement du gate en CI" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow.svg">
 </picture>
 
-Deux propriétés de ce flux surprennent. Un dépôt où le workflow
-baseline n'a jamais tourné n'a aucun `baseline.json`, le fetch renvoie
-404, et le rapport se rend sans tab Diff : le passage sur le tronc est
-l'événement d'amorçage, scénario par scénario. Et rien n'est transporté
-entre deux pushes d'une même PR, puisque chaque exécution se compare au
-même baseline de tronc et non à l'exécution précédente, ce qui est
-justement ce qui fait montrer au Diff tout le delta qu'introduit la PR
-plutôt que le delta de son dernier commit.
+Deux propriétés découlent de ce flux. Le premier passage sur le tronc
+est l'événement d'amorçage : avant lui, le fetch renvoie 404 et le
+rapport se rend sans tab Diff, et un scénario tout neuf reste en
+Nouveau jusqu'à son premier run de tronc. Et rien n'est transporté
+entre deux pushes d'une même PR : chaque exécution se compare au
+baseline du tronc, donc le Diff montre tout le delta qu'introduit la
+PR, pas celui de son dernier commit.
 
-C'est aussi la raison pour laquelle le workflow baseline se termine par
-`analyze --ci`, après la publication et non avant. Le Diff répond à
-"qu'est-ce que cette PR a changé", donc un finding présent des deux
-côtés ne tombe dans aucune colonne et aucune PR n'est jamais accusée
-d'une régression dont elle a hérité. Le quality gate répond à une autre
-question, "cet état est-il acceptable", sur des seuils absolus et sans
-aucun baseline. Une régression mergée sur la branche par défaut est
-donc invisible au Diff et fait échouer le gate de la prochaine PR sans
-rapport dont les tests d'intégration touchent le même endpoint. Poser
-le gate sur l'état mergé ramène l'alarme sur le merge qui l'a causée.
-Publier d'abord est délibéré : une branche par défaut rouge doit quand
-même rafraîchir le baseline, sinon toutes les PRs suivantes perdent
-leur tab Diff en plus d'être bloquées. Le temps qu'un finding de trunk
-connu soit corrigé, il faut l'acquitter dans
-`.perf-sentinel-acknowledgments.toml` avec un `expires_at`, ce qui
-débloque la file sans toucher à un seuil. Donnez à l'entrée son
-`service` et son `source_endpoint` par la même occasion : une fois la
-correction mergée, le run de tronc rapporte l'entrée comme supprimable
-sous le warning `unmatched_acknowledgment`, et c'est ainsi qu'une
-correction d'un problème acquitté devient visible, puisque les findings
-acquittés ne figurent d'aucun côté du Diff. Voir
+Le workflow baseline se termine par `analyze --ci`, après la
+publication. Les deux étapes répondent à des questions différentes :
+
+- le Diff montre ce qu'une PR a changé. Un finding présent des deux
+  côtés ne tombe dans aucune colonne, donc personne n'est accusé d'une
+  régression héritée, et personne n'en est alerté non plus.
+- le gate vérifie qu'un état est acceptable, sur des seuils absolus,
+  sans aucun baseline.
+
+Sans gate sur le tronc, une régression mergée est invisible dans tous
+les Diff et ressort comme le gate rouge de la prochaine PR sans rapport
+qui exerce le même endpoint. Poser le gate sur l'état mergé ramène
+l'alarme sur le merge fautif. La publication tourne toujours d'abord :
+un tronc rouge doit continuer à rafraîchir le baseline, sinon toutes
+les PRs suivantes perdent leur tab Diff en plus d'être bloquées.
+
+Le temps que le correctif arrive, acquittez le finding avec un
+`expires_at`, ce qui débloque la file sans toucher à un seuil. Posez
+aussi son `service` et son `source_endpoint`, pour que le run de tronc
+rapporte l'entrée comme supprimable une fois la correction mergée. Voir
 [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
 
 Si GitHub Pages n'est pas activé, le template retombe sur le sticky
@@ -671,7 +669,11 @@ La comparaison est une différence d'ensembles sur les identités de findings, p
   <img alt="Classement d'un finding par le Diff" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification.svg">
 </picture>
 
-Trois conséquences à intégrer avant de lire une tab Diff. Un finding que les deux côtés portent ne tombe dans aucune colonne, donc une PR n'est jamais accusée d'une régression héritée du tronc. Un scénario qu'un seul côté a exécuté place quand même ses findings dans une colonne, toujours dans le sens flatteur : renommer un scénario, retirer un endpoint de la campagne ou changer une forme d'URL apparaît en Résolu sans aucun changement de code derrière. Et un finding acquitté est filtré des deux côtés, donc la PR qui le corrige vraiment ne résout rien ici : pour un problème acquitté, le signal est le warning `unmatched_acknowledgment`, pas la colonne Résolu (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md)).
+Trois conséquences :
+
+- Un finding présent des deux côtés ne tombe dans aucune colonne, donc une PR n'est jamais accusée d'une régression héritée.
+- L'asymétrie de couverture ne fait que flatter. Un scénario renommé, retiré ou non exécuté place ses findings en Résolu sans aucun changement de code derrière.
+- Un finding acquitté est filtré des deux côtés, donc sa vraie correction ne résout rien ici. Le signal, c'est le warning `unmatched_acknowledgment`, voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
 
 Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.
 

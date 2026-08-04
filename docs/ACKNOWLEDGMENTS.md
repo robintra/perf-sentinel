@@ -123,25 +123,19 @@ Three findings produce three different signatures. Two findings produced by the 
 
 ### Knowing when to remove an entry
 
-An acknowledgment that is still active but suppressed nothing is reported as a warning, so a fix does not go unnoticed and the file does not silently rot:
+An active entry that suppressed nothing in a run is reported under the stable warning kind `unmatched_acknowledgment`. It appears in the CLI output, in `warning_details` of the JSON, and in the `diff` output (after side). It is the only reliable "fixed" signal for an acked problem: an acked finding is filtered from CI baselines, so its fix never shows up as resolved in a diff.
 
-```
-Warnings:
-  [unmatched_acknowledgment] acknowledgment 4f3c... matched no finding in this run:
-  the problem is either fixed, and the entry can be removed, or the scenario that
-  produced it did not run
-```
+What the message says depends on the optional `service` and `source_endpoint` fields of the entry:
 
-The `unmatched_acknowledgment` kind is stable, so it can be alerted on or aggregated across runs, and it appears in `warning_details` in the JSON output. This is the signal that answers "did the pull request that just touched this code fix the problem we accepted six months ago", which no diff against a baseline can answer reliably: acknowledging a finding removes it from a baseline produced with filtering on, so the later real fix has nothing left to make disappear.
+| Entry | This run | Message | What to do |
+|---|---|---|---|
+| both fields set | endpoint did I/O, no finding | "the problem looks fixed" | remove the entry, ideally in the fixing PR |
+| both fields set | endpoint emitted no I/O | "this proves nothing" | keep it: not exercised, or the fix removed the I/O |
+| fields absent | (cannot tell) | both readings | add the fields, or re-run the campaign to confirm |
 
-Whether the message can say more depends on the optional `service` and `source_endpoint` fields. Without them, an entry carries only an opaque signature, so nothing can tell a fix apart from a scenario that did not run, and the message states both readings rather than inviting you to delete an entry that still protects you. With them, the run's per-endpoint I/O op counts settle it:
+Fill both fields verbatim from the same JSON the signature came from (`.findings[].service`, `.findings[].source_endpoint`).
 
-- the endpoint **was exercised and did I/O** without the finding firing: "the problem looks fixed and the entry can be removed",
-- the endpoint **emitted no I/O in the run** (not exercised, or a fix removed its I/O outright): "this proves nothing, keep the entry".
-
-Fill the two fields from the same JSON you copied the signature from (`.findings[].service`, `.findings[].source_endpoint`), verbatim. Entries written before these fields existed keep the indeterminate message. An expired entry is inactive and is never reported this way, its finding is simply back in the gate.
-
-The warning is derived only from a fresh analysis of traces. Re-rendering a saved report or a daemon snapshot (`report --input export.json`) never emits it: such a report may already be ack-filtered, so "matched nothing" would mean "consumed on the previous pass", and its I/O op counts describe another run. The `diff` subcommand carries the after run's warnings in its text and JSON output under `warning_details`, so a diff-only CI surface sees them too.
+Two boundaries. The warning only comes from a fresh analysis of traces: re-rendering a saved report or a daemon snapshot never emits it, since that report may already be ack-filtered and its I/O counts describe another run. And an expired entry is never reported: it is inactive, its finding is already back in the gate.
 
 ## CLI flags
 
