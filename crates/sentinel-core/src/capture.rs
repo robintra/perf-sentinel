@@ -30,6 +30,12 @@ const CHANNEL_CAPACITY: usize = 256;
 /// trace file rather than a dropped window.
 const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 
+/// In-flight decode bounds, the same shape the daemon listener carries. A
+/// compressed export expands to `MAX_PAYLOAD_BYTES` from a fraction of that on
+/// the wire, so the ceiling has to come from a request count, not from traffic.
+const GRPC_MAX_CONCURRENT_STREAMS: u32 = 64;
+const GRPC_MAX_CONCURRENT_REQUESTS: usize = 16;
+
 /// Where and how to capture.
 pub struct CaptureConfig {
     pub listen_addr: String,
@@ -267,6 +273,12 @@ fn spawn_grpc(
     tokio::spawn(async move {
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         if let Err(e) = tonic::transport::Server::builder()
+            .timeout(Duration::from_mins(1))
+            .max_concurrent_streams(Some(GRPC_MAX_CONCURRENT_STREAMS))
+            .concurrency_limit_per_connection(GRPC_MAX_CONCURRENT_STREAMS as usize)
+            .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+                GRPC_MAX_CONCURRENT_REQUESTS,
+            ))
             .add_service(
                 // Same gzip default as the daemon listener, see listeners.rs.
                 TraceServiceServer::new(service)
@@ -528,8 +540,7 @@ mod tests {
     use super::*;
     use crate::ingest::IngestSource;
 
-    /// One SQL CLIENT span, the shape an OTLP exporter puts on the wire.
-    const SAMPLE: &str = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc"}}]},"scopeSpans":[{"spans":[{"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{"key":"db.statement","value":{"stringValue":"SELECT 1"}},{"key":"db.system","value":{"stringValue":"postgresql"}}]}]}]}]}"#;
+    use crate::ingest::otlp::SAMPLE_EXPORT_JSON as SAMPLE;
 
     fn sample_request() -> ExportTraceServiceRequest {
         serde_json::from_str(SAMPLE).unwrap()
