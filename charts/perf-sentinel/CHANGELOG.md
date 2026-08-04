@@ -10,6 +10,51 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.27]
+
+Chart-only release, `appVersion` stays on `0.9.26`. The daemon has loaded
+ordered TOML fragments from `.perf-sentinel.d/` since application 0.9.25; the
+chart had no way to fill that directory, so the `examples/*.toml` energy
+backends could only reach a cluster pasted into one large `config.toml`.
+
+**`config.fragments` mounts ordered TOML documents.** A map of
+`NN-name.toml` keys renders into a second ConfigMap, mounted as a directory at
+`/etc/perf-sentinel/.perf-sentinel.d/`. The daemon merges them in ascending
+priority, then applies `config.toml` last as the override. The directory is
+mounted whole rather than per key, so adding or removing a fragment reaches a
+running pod, and the `checksum/config` annotation now covers both ConfigMaps so
+editing either rolls the pods. Additive: at equal chart version, a values file
+with no `config.fragments` renders identically to 0.9.26, `checksum/config`
+included, with no second ConfigMap and no extra volume. The checksum only folds
+in the fragments template once it renders something, so upgrading does not roll
+pods over a config that did not change.
+
+**Two render-time guards, because the daemon fails at startup and the image
+has no shell.** Fragment names must be `NN-lowercase-name.toml` with two-digit
+`NN`, a `[a-z0-9-]` slug and no shared priority, exactly what the loader
+accepts. And `listen_port_*`, `[daemon.ack]`, `[daemon.archive]` and turning
+`[green]` off are rejected in a fragment: the chart cross-checks those against
+`service.ports.*`, the probes and the PVC reading `config.toml` alone, so a
+fragment redefining one would pass a green check and still produce a pod
+listening where nothing routes, or a TOML with a table opened twice. Twelve
+scenarios in `scripts/test/chart-render-guards-test.sh` pin them.
+
+**One values overlay per energy backend in `examples/helm/`.** `alumet`,
+`cloud`, `scaphandre`, `kepler`, `redfish` and `electricity-maps`, each the
+Kubernetes port of the `examples/` file of the same number, stackable on the
+base values with a second `-f`. Endpoints resolve through in-cluster DNS rather
+than `localhost`, credentials move to a Secret, and each names its Kubernetes
+prerequisite. `values-perf-sentinel.yaml` itself stays backend-free and regains
+`n_plus_one_messaging_warning_max`, which the bundled `config.toml` has carried
+since 0.9.23 and the example had drifted from.
+
+**`scripts/test/examples-helm-load-test.sh`.** Renders every example, projects
+both ConfigMaps the way kubelet does (real files under a timestamped directory,
+a `..data` symlink, one relative symlink per key) and loads the result with a
+real binary. `helm template` proving a values file renders says nothing about
+whether the daemon accepts what came out, and a fragment missing a required key
+renders fine and CrashLoopBackOffs.
+
 ## [0.9.26]
 
 `appVersion` moves to `0.9.26`. No template change, no values change and no
