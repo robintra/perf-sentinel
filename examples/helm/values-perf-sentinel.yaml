@@ -25,6 +25,7 @@ config:
     [thresholds]
     n_plus_one_sql_critical_max = 0
     n_plus_one_http_warning_max = 3
+    n_plus_one_messaging_warning_max = 3
     io_waste_ratio_max = 0.30
 
     [detection]
@@ -53,6 +54,22 @@ config:
     enabled = true
     window_minutes = 10
     lag_threshold_ms = 2000
+
+  # No energy backend here on purpose. Without one the carbon figures come
+  # from the embedded model, which needs no scraper and no extra service.
+  #
+  # To measure instead of model, stack one of the values-green-*.yaml overlays
+  # in this directory on top of this file. Each carries a single
+  # `config.fragments` entry mirroring the file of the same number in
+  # `examples/`, mounted at /etc/perf-sentinel/.perf-sentinel.d/ and merged
+  # ahead of the config.toml above:
+  #
+  #   helm install perf-sentinel ../../charts/perf-sentinel \
+  #     --namespace observability \
+  #     -f values-perf-sentinel.yaml -f values-green-kepler.yaml
+  #
+  # Pick exactly one. Stacking two would run both scrapers and attribute the
+  # same joules twice.
 
 # Example: how to inject a scraper token via a Secret. Uncomment and
 # create the Secret first:
