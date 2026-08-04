@@ -67,6 +67,9 @@ acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-05-02"
 reason = "Cache invalidation pattern, intentional. See ADR-0042."
 expires_at = "2026-12-31"  # Optional, omit for permanent.
+# Optional: lets the unmatched warning tell "fixed" from "did not run".
+service = "order-service"
+source_endpoint = "POST /api/orders"
 
 [[acknowledged]]
 signature = "slow_sql:report-service:GET__api_reports:deadbeefdeadbeefdeadbeefdeadbeef"
@@ -85,6 +88,8 @@ reason = "Long-running aggregation, accepted by product."
 | `acknowledged_at` | yes      | ISO 8601 date `YYYY-MM-DD`. Free text, not validated.                     |
 | `reason`          | yes      | Free text. Keep it short and link to ADR / Jira / Slack thread.           |
 | `expires_at`      | no       | ISO 8601 date `YYYY-MM-DD`. Validated at load time. Omit for a permanent ack. |
+| `service`         | no       | The finding's `service`, verbatim. With `source_endpoint`, lets the unmatched warning say whether the endpoint was exercised. |
+| `source_endpoint` | no       | The finding's `source_endpoint`, verbatim (e.g. `GET /api/orders`).       |
 
 A missing required field fails the run with a clear error so a typo does not silently widen the acked set.
 
@@ -129,7 +134,12 @@ Warnings:
 
 The `unmatched_acknowledgment` kind is stable, so it can be alerted on or aggregated across runs, and it appears in `warning_details` in the JSON output. This is the signal that answers "did the pull request that just touched this code fix the problem we accepted six months ago", which no diff against a baseline can answer reliably: acknowledging a finding removes it from a baseline produced with filtering on, so the later real fix has nothing left to make disappear.
 
-The message states both readings on purpose. An entry carries a signature and no endpoint, so nothing here can tell a fix apart from a scenario that did not run, and claiming otherwise would invite deleting an entry that still protects you. Confirm with the run's per-endpoint I/O op counts, or by re-running the campaign that produced the finding, before removing the line. An expired entry is inactive and is never reported this way, its finding is simply back in the gate.
+Whether the message can say more depends on the optional `service` and `source_endpoint` fields. Without them, an entry carries only an opaque signature, so nothing can tell a fix apart from a scenario that did not run, and the message states both readings rather than inviting you to delete an entry that still protects you. With them, the run's per-endpoint I/O op counts settle it:
+
+- the endpoint **was exercised** and the finding did not fire: "the problem looks fixed and the entry can be removed",
+- the endpoint **was not exercised**: "this proves nothing, keep the entry".
+
+Fill the two fields from the same JSON you copied the signature from (`.findings[].service`, `.findings[].source_endpoint`), verbatim. Entries written before these fields existed keep the indeterminate message. An expired entry is inactive and is never reported this way, its finding is simply back in the gate.
 
 ## CLI flags
 
