@@ -14,7 +14,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 - [Installation depuis un checkout local](#installation-depuis-un-checkout-local) : pour les contributeurs et le bisect.
 - [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : tâche mainteneur, renvoie vers RELEASE-PROCEDURE.
 - [Modes de workload](#modes-de-workload) : trois valeurs de `workload.kind` au choix.
-- [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus secrets, TLS et NetworkPolicy.
+- [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus [fragments](#fragments-de-configuration), secrets, TLS et NetworkPolicy.
 - [Observabilité](#observabilité) : Prometheus ServiceMonitor, tableau de bord Grafana, alertes et exemplars.
 - [Mise à jour](#mise-à-jour) : flux `helm upgrade`.
 - [Désinstallation](#désinstallation) : flux `helm uninstall`.
@@ -398,6 +398,37 @@ config:
 ```
 
 Référence complète des champs : [`docs/FR/CONFIGURATION-FR.md`](./CONFIGURATION-FR.md).
+
+### Fragments de configuration
+
+`config.toml` est un document unique. `config.fragments` est une map de documents TOML supplémentaires, rendus dans une seconde ConfigMap et montés comme répertoire sur `/etc/perf-sentinel/.perf-sentinel.d/`. Le daemon les fusionne par priorité de nom croissante, puis applique `config.toml` en dernier comme override final ([Fragments de configuration](./CONFIGURATION-FR.md#fragments-de-configuration)).
+
+```yaml
+config:
+  toml: |
+    [green]
+    enabled = true
+    default_region = "eu-west-3"
+  fragments:
+    33-green-kepler.toml: |
+      [green.kepler]
+      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+      metric_kind = "container"
+
+      [green.kepler.service_mappings]
+      "order-svc" = "order-svc"
+```
+
+C'est ainsi que les fichiers prêts à copier de `examples/` atteignent un cluster : gardez le nom de fichier, son préfixe `NN` porte déjà l'ordre de fusion. `examples/helm/` fournit un overlay de values par backend énergétique, empilable sur les values de base avec un second `-f`.
+
+Deux règles sont vérifiées au rendu, parce que le daemon les applique au démarrage et que l'image est `FROM scratch` : un échec de boot ne laisse aucun shell pour aller lire l'erreur.
+
+- **Noms.** `NN-lowercase-name.toml`, `NN` sur deux chiffres, le reste en `[a-z0-9-]` sans tiret initial, final ni doublé. Deux fragments ne peuvent pas partager un `NN`, leur ordre de fusion serait indéfini.
+- **Clés réservées.** `listen_port_*`, `[daemon.ack]`, `[daemon.archive]` et la désactivation de `[green]` restent dans `config.toml`. Le chart les croise avec `service.ports.*`, les probes et le PVC en ne lisant que `config.toml` : un fragment qui en redéfinirait une passerait un contrôle au vert tout en produisant un pod qui écoute là où rien ne route, ou un TOML dont une table est ouverte deux fois.
+
+Éditer un fragment déplace l'annotation `checksum/config`, donc `helm upgrade` fait rouler les pods. Le répertoire est monté en entier plutôt que clé par clé, donc ajouter ou retirer un fragment atteint aussi un pod déjà en cours d'exécution.
+
+Aucun secret dans un fragment : il est rendu dans une ConfigMap, lisible par quiconque dispose de `get` sur le namespace. Utilisez le motif Secret ci-dessous.
 
 ### Secrets
 
