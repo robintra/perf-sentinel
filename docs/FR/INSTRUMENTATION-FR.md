@@ -258,7 +258,9 @@ service:
       exporters: [otlp/perf-sentinel, otlp/jaeger]   # envoyer aux deux
 ```
 
-Le collecteur OTel envoie ses exports compressés en gzip par défaut. perf-sentinel accepte nativement les payloads gzippés et non compressés sur l'endpoint OTLP/HTTP (`POST /v1/traces`), aucun override `compression: none` n'est requis. Le body décompressé reste soumis à la limite `[daemon] max_payload_size` (1 Mo par défaut).
+Le collecteur OTel envoie ses exports compressés en gzip par défaut. perf-sentinel accepte nativement les payloads gzip, deflate et non compressés sur les deux endpoints, OTLP/gRPC (`:4317`) et OTLP/HTTP (`POST /v1/traces`), aucun override `compression: none` n'est requis. Le payload décompressé reste soumis à la limite `[daemon] max_payload_size` (1 Mo par défaut).
+
+Jusqu'à la 0.9.26 incluse, l'endpoint gRPC répondait à un export compressé par `Unimplemented: Content is compressed with 'gzip' which isn't supported`, que le collecteur traite comme une erreur permanente et sur laquelle il jette le lot. Sur ces versions, il faut soit poser `compression: none` sur l'exporteur, soit le pointer vers l'endpoint HTTP.
 
 Cette approche est recommandée pour les déploiements en production car :
 - Zero modification de code dans vos services
