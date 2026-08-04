@@ -544,11 +544,17 @@ read the error in:
 - **Names.** `NN-lowercase-name.toml`, `NN` two digits, the rest `[a-z0-9-]`
   with no leading, trailing or doubled dash. No two fragments may share an
   `NN`, since their merge order would be undefined.
-- **Reserved keys.** `listen_port_*`, `[daemon.ack]`, `[daemon.archive]` and
-  turning `[green]` off belong in `config.toml`. The chart cross-checks those
-  against `service.ports.*`, the probes and the PVC reading `config.toml`
-  alone, so a fragment redefining one would pass a green check and produce a
-  pod that listens where nothing routes, or a TOML with a table defined twice.
+- **Reserved keys.** `listen_port_*` and turning `[green]` off belong in
+  `config.toml`, always. `[daemon.ack]` and `[daemon.archive]` are refused only
+  when persistence has the chart writing them itself, which is the one case
+  where a fragment would open a table TOML already has; without persistence, or
+  with `manageDaemonPaths=false`, you own both paths and a fragment is a fine
+  place for them. The chart cross-checks these against `service.ports.*`, the
+  probes and the PVC reading `config.toml` alone, so a fragment redefining one
+  would pass a green check and produce a pod that listens where nothing routes.
+  The check folds the spellings TOML allows into one first, so a spaced header
+  (`[ green ]`), a quoted key name or an inline table is caught like the plain
+  form, and a reserved key merely named in a comment is not.
 
 Editing any fragment moves the `checksum/config` annotation, so `helm upgrade`
 rolls the pods. The directory is mounted whole rather than per key, so adding

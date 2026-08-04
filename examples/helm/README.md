@@ -137,10 +137,13 @@ gCO2/kWh applied to the energy you already have.
 ascending `NN` order, then applies `config.toml` last as the override
 (`docs/CONFIGURATION.md#configuration-fragments`).
 
-Four families of keys stay in `config.toml`, and the chart fails the render if
-a fragment sets one: `listen_port_*`, `[daemon.ack]`, `[daemon.archive]`, and
-turning `[green]` off. Those are cross-checked against the Service, the probes
-and the PVC, and that check only reads `config.toml`.
+Some keys stay in `config.toml`, and the chart fails the render if a fragment
+sets one: `listen_port_*` and turning `[green]` off always, `[daemon.ack]` and
+`[daemon.archive]` only when persistence has the chart writing them itself.
+Those are cross-checked against the Service, the probes and the PVC, and that
+check only reads `config.toml`. The spellings TOML allows are folded into one
+before matching, so `[ green ]`, `"listen_port_http"` and
+`green = { enabled = false }` are caught like the plain forms.
 
 Names are enforced at render time because the daemon enforces them at startup:
 `NN` is two digits, the rest lowercase `[a-z0-9-]`, and no two fragments may

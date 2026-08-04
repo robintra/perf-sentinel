@@ -23,6 +23,20 @@
 #   - Scaphandre needs /proc and /sys/class/powercap from the host, so its own
 #     pod runs privileged. That is a property of Scaphandre, not of this chart.
 #
+# /!\ One endpoint, one node. Scaphandre is a DaemonSet and the Service below is
+# a ClusterIP, so each scrape is load-balanced to one arbitrary pod and returns
+# that node's processes only. On a single-node cluster that is the whole
+# cluster. On a multi-node cluster the energy attributed jumps between nodes and
+# under-reports without ever failing. The scraper reads any endpoint serving
+# Prometheus text format, so a Prometheus federation endpoint already scraping
+# every agent is the way to cover a whole cluster:
+#
+#   endpoint = "http://prometheus-server.monitoring.svc:9090/federate?match[]={__name__=~\"scaph_.*\"}"
+#
+# Confirm the federated exposition keeps the process labels the matchers below
+# rely on before trusting the figures: that depends on your Prometheus
+# relabeling, not on this chart.
+#
 # Two deliberate differences from the .toml, both forced by the cluster:
 #   - `endpoint` uses in-cluster DNS instead of localhost, since it resolves
 #     from the perf-sentinel pod rather than from a shared host.

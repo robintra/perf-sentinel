@@ -32,12 +32,19 @@ pods over a config that did not change.
 **Two render-time guards, because the daemon fails at startup and the image
 has no shell.** Fragment names must be `NN-lowercase-name.toml` with two-digit
 `NN`, a `[a-z0-9-]` slug and no shared priority, exactly what the loader
-accepts. And `listen_port_*`, `[daemon.ack]`, `[daemon.archive]` and turning
-`[green]` off are rejected in a fragment: the chart cross-checks those against
+accepts. And `listen_port_*` and turning `[green]` off are rejected in a
+fragment, as are `[daemon.ack]` / `[daemon.archive]` when persistence has the
+chart writing them itself: the chart cross-checks those against
 `service.ports.*`, the probes and the PVC reading `config.toml` alone, so a
 fragment redefining one would pass a green check and still produce a pod
-listening where nothing routes, or a TOML with a table opened twice. Twelve
-scenarios in `scripts/test/chart-render-guards-test.sh` pin them.
+listening where nothing routes, or a TOML with a table opened twice. The
+fragment is normalised before matching (comments dropped, header whitespace and
+key quoting folded away), so a spaced `[ green ]`, a quoted `"listen_port_http"`
+and an inline `green = { enabled = false }` are caught like the plain spelling,
+while a reserved key merely named in a comment is not. Without persistence, or
+with `manageDaemonPaths=false`, the operator owns the ack and archive paths and
+a fragment carrying them renders. Twenty-two scenarios in
+`scripts/test/chart-render-guards-test.sh` pin the whole surface.
 
 **One values overlay per energy backend in `examples/helm/`.** `alumet`,
 `cloud`, `scaphandre`, `kepler`, `redfish` and `electricity-maps`, each the
@@ -52,8 +59,11 @@ since 0.9.23 and the example had drifted from.
 both ConfigMaps the way kubelet does (real files under a timestamped directory,
 a `..data` symlink, one relative symlink per key) and loads the result with a
 real binary. `helm template` proving a values file renders says nothing about
-whether the daemon accepts what came out, and a fragment missing a required key
-renders fine and CrashLoopBackOffs.
+whether the daemon accepts what came out, and a fragment that parses but does
+not validate renders fine and CrashLoopBackOffs. It also plants an unparseable
+fragment in that directory and requires the binary to reject it by name, since
+every other assertion in the script is satisfied by `config.toml` alone and
+would stay green if the fragments were never read.
 
 ## [0.9.26]
 
