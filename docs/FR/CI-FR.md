@@ -296,7 +296,12 @@ même rafraîchir le baseline, sinon toutes les PRs suivantes perdent
 leur tab Diff en plus d'être bloquées. Le temps qu'un finding de trunk
 connu soit corrigé, il faut l'acquitter dans
 `.perf-sentinel-acknowledgments.toml` avec un `expires_at`, ce qui
-débloque la file sans toucher à un seuil. Voir
+débloque la file sans toucher à un seuil. Donnez à l'entrée son
+`service` et son `source_endpoint` par la même occasion : une fois la
+correction mergée, le run de tronc rapporte l'entrée comme supprimable
+sous le warning `unmatched_acknowledgment`, et c'est ainsi qu'une
+correction d'un problème acquitté devient visible, puisque les findings
+acquittés ne figurent d'aucun côté du Diff. Voir
 [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
 
 Si GitHub Pages n'est pas activé, le template retombe sur le sticky
@@ -666,7 +671,7 @@ La comparaison est une différence d'ensembles sur les identités de findings, p
   <img alt="Classement d'un finding par le Diff" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification.svg">
 </picture>
 
-Deux conséquences à intégrer avant de lire une tab Diff. Un finding que les deux côtés portent ne tombe dans aucune colonne, donc une PR n'est jamais accusée d'une régression héritée du tronc. Et un scénario qu'un seul côté a exécuté place quand même ses findings dans une colonne, toujours dans le sens flatteur : renommer un scénario, retirer un endpoint de la campagne ou changer une forme d'URL apparaît en Résolu sans aucun changement de code derrière.
+Trois conséquences à intégrer avant de lire une tab Diff. Un finding que les deux côtés portent ne tombe dans aucune colonne, donc une PR n'est jamais accusée d'une régression héritée du tronc. Un scénario qu'un seul côté a exécuté place quand même ses findings dans une colonne, toujours dans le sens flatteur : renommer un scénario, retirer un endpoint de la campagne ou changer une forme d'URL apparaît en Résolu sans aucun changement de code derrière. Et un finding acquitté est filtré des deux côtés, donc la PR qui le corrige vraiment ne résout rien ici : pour un problème acquitté, le signal est le warning `unmatched_acknowledgment`, pas la colonne Résolu (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md)).
 
 Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.
 

@@ -301,7 +301,8 @@ perf-sentinel:
 #         # Without it a regression merges silently and fails the
 #         # pipeline of the next unrelated MR touching that endpoint.
 #         # Acknowledge a known finding with an expires_at rather than
-#         # loosening a threshold.
+#         # loosening a threshold. Once fixed, the run reports the entry
+#         # as removable under the unmatched_acknowledgment warning.
 #         "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
 #           --input "${PERF_SENTINEL_TRACES}" \
 #           --config "${PERF_SENTINEL_CONFIG}" \

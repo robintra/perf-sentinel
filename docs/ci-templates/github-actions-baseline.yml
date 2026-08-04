@@ -132,7 +132,8 @@ jobs:
       # suite, so this costs one process, not a second integration run.
       # Acknowledge a known trunk finding in
       # `.perf-sentinel-acknowledgments.toml` with an `expires_at` rather
-      # than loosening a threshold.
+      # than loosening a threshold. Once fixed, the run reports the entry
+      # as removable under the `unmatched_acknowledgment` warning.
       - name: Quality gate on the merged state
         run: |
           set -euo pipefail
