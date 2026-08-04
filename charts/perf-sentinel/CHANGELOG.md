@@ -10,6 +10,21 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
 version, to know which daemon image ships.
 
+## [0.9.28]
+
+Version bump only, `appVersion` moves to `0.9.28` and no template changes. The
+daemon image it now deploys accepts gzip and deflate compressed OTLP gRPC
+exports.
+
+**Why it matters for a cluster.** The OTel Collector's OTLP exporter compresses
+with gzip by default, and the daemon's gRPC listener answered it with a
+non-retryable `Unimplemented`, so a collector left at its defaults had every
+batch dropped. Nothing in the cluster said so: the pod stayed ready, `/health`
+kept answering and the `/metrics` counters this chart's ServiceMonitor scrapes
+stayed at zero, which reads as an idle daemon rather than a rejecting one. The
+OTLP HTTP port was never affected. On a chart pinned to an earlier
+`appVersion`, set `compression: none` on the collector's exporter.
+
 ## [0.9.27]
 
 Chart-only release, `appVersion` stays on `0.9.26`. The daemon has loaded
