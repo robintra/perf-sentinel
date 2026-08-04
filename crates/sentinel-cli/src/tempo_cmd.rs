@@ -71,6 +71,7 @@ pub(crate) async fn cmd_tempo(
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
     emit_report_and_gate(&mut report, format, ci, "tempo", show_acknowledged);
 }

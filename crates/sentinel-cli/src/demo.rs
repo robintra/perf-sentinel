@@ -29,7 +29,7 @@ pub(crate) fn cmd_demo(
 
     // The TUI and HTML paths both need the correlated traces, not just the
     // report, so go through the same loader the analyze/report commands use.
-    let (mut report, traces) = load_report_from_input(DEMO_DATA.as_bytes(), &config);
+    let (mut report, traces, _) = load_report_from_input(DEMO_DATA.as_bytes(), &config);
 
     // Cross-trace correlations are a daemon-only signal; the batch pipeline
     // never produces them. Seed illustrative ones so the demo can show the
@@ -133,7 +133,7 @@ fn demo_diff(
     config: &Config,
 ) -> sentinel_core::diff::DiffReport {
     const DEMO_BASELINE: &str = include_str!("demo_baseline_data.json");
-    let (baseline, _) = load_report_from_input(DEMO_BASELINE.as_bytes(), config);
+    let (baseline, _, _) = load_report_from_input(DEMO_BASELINE.as_bytes(), config);
     sentinel_core::diff::diff_runs(&baseline, current)
 }
 

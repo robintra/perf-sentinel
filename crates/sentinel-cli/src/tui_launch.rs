@@ -102,12 +102,13 @@ pub(crate) fn cmd_inspect(
     // snapshot dumped via /api/export/report) lights up the Findings and
     // Correlations panels. The Detail panel falls back to a per-trace
     // stub with no spans because Reports don't carry raw spans.
-    let (mut report, traces) = load_report_from_input(&raw, &config);
+    let (mut report, traces, origin) = load_report_from_input(&raw, &config);
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        origin,
     );
     launch_unified_tui(report, traces, detect_config, tui::View::Inspect, None);
 }
@@ -124,12 +125,13 @@ pub(crate) fn cmd_analyze_tui(
     let config = load_config(config_path);
     let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let (mut report, traces) = load_report_from_input(&raw, &config);
+    let (mut report, traces, origin) = load_report_from_input(&raw, &config);
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        origin,
     );
     launch_unified_tui(report, traces, detect_config, tui::View::Analyze, None);
 }
@@ -146,7 +148,7 @@ pub(crate) fn cmd_explain_tui(
     let config = load_config(config_path);
     let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let (mut report, traces) = load_report_from_input(&raw, &config);
+    let (mut report, traces, origin) = load_report_from_input(&raw, &config);
     // Validate the trace exists before entering the TUI, mirroring the
     // non-interactive `explain`'s clear error path including the
     // available-IDs hint. Checked before ack filtering so a trace whose
@@ -172,7 +174,7 @@ pub(crate) fn cmd_explain_tui(
     // Apply acknowledgments (default file in cwd) so the shared Inspect and
     // Analyze views show the same finding population as `inspect` and
     // `analyze --tui`.
-    apply_acknowledgments_or_exit(&mut report, &config, None, false);
+    apply_acknowledgments_or_exit(&mut report, &config, None, false, origin);
     launch_unified_tui(
         report,
         traces,

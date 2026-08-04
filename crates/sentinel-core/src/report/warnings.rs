@@ -38,8 +38,9 @@ pub const TUNING: &str = "tuning";
 
 /// Stable kind for an active acknowledgment that suppressed nothing in
 /// this run: either the problem was fixed, or its scenario did not run.
-/// An entry carries a signature and no endpoint, so the two readings
-/// cannot be told apart here.
+/// When the entry carries the optional `service` and `source_endpoint`
+/// fields, the run's per-endpoint I/O ops split the two readings,
+/// otherwise the message keeps both. Only emitted on fresh analyses.
 pub const UNMATCHED_ACKNOWLEDGMENT: &str = "unmatched_acknowledgment";
 
 /// Operator-facing snapshot warning with a stable category.

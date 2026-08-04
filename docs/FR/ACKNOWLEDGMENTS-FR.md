@@ -133,14 +133,16 @@ Warnings:
   produced it did not run
 ```
 
-Le `kind` `unmatched_acknowledgment` est stable, donc alertable et agrégeable d'un run à l'autre, et il apparaît dans `warning_details` de la sortie JSON. C'est le signal qui répond à « la PR qui vient de passer sur ce code a-t-elle corrigé le problème qu'on avait accepté il y a six mois », ce qu'aucun diff contre une baseline ne peut dire de façon fiable : acquitter un finding le retire d'une baseline produite avec le filtrage actif, donc la vraie correction qui suit n'a plus rien à faire disparaître.
+Le `kind` `unmatched_acknowledgment` est stable, donc alertable et agrégeable d'un run à l'autre, et il apparaît dans `warning_details` de la sortie JSON. C'est le signal qui répond à "la PR qui vient de passer sur ce code a-t-elle corrigé le problème qu'on avait accepté il y a six mois", ce qu'aucun diff contre une baseline ne peut dire de façon fiable : acquitter un finding le retire d'une baseline produite avec le filtrage actif, donc la vraie correction qui suit n'a plus rien à faire disparaître.
 
 Ce que le message peut dire de plus dépend des champs optionnels `service` et `source_endpoint`. Sans eux, une entrée ne porte qu'une signature opaque, donc rien ne distingue une correction d'un scénario qui n'a pas tourné, et le message énonce les deux lectures plutôt que d'inviter à supprimer une entrée qui vous protège encore. Avec eux, les comptes d'opérations I/O par endpoint du run tranchent :
 
-- l'endpoint **a été exercé** et le finding n'a pas tiré : "the problem looks fixed and the entry can be removed",
-- l'endpoint **n'a pas été exercé** : "this proves nothing, keep the entry".
+- l'endpoint **a été exercé avec de l'I/O** sans que le finding tire : "the problem looks fixed and the entry can be removed",
+- l'endpoint **n'a émis aucune I/O dans le run** (pas exercé, ou une correction a retiré ses I/O) : "this proves nothing, keep the entry".
 
 Remplissez les deux champs depuis le même JSON où vous avez copié la signature (`.findings[].service`, `.findings[].source_endpoint`), tels quels. Les entrées écrites avant l'existence de ces champs gardent le message indéterminé. Une entrée expirée est inactive et n'est jamais rapportée ainsi, son finding est simplement revenu dans la gate.
+
+Le warning n'est dérivé que d'une analyse fraîche de traces. Rejouer un rapport sauvegardé ou un snapshot du daemon (`report --input export.json`) ne l'émet jamais : un tel rapport peut déjà être filtré par les acquittements, "n'a rien matché" y voudrait dire "consommé à la passe précédente", et ses comptes d'I/O décrivent un autre run. La sous-commande `diff` transporte les warnings du run after dans sa sortie texte et JSON sous `warning_details`, donc une CI qui ne lit que le diff les voit aussi.
 
 ## Flags CLI
 

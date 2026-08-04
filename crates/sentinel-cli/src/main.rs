@@ -1760,6 +1760,7 @@ fn apply_acknowledgments_or_exit(
     config: &Config,
     override_path: Option<&std::path::Path>,
     no_acknowledgments: bool,
+    origin: sentinel_core::acknowledgments::ReportOrigin,
 ) {
     if no_acknowledgments {
         return;
@@ -1769,7 +1770,13 @@ fn apply_acknowledgments_or_exit(
         eprintln!("Error loading acknowledgments {}: {e}", path.display());
         std::process::exit(EXIT_TOOLING_ERROR);
     });
-    sentinel_core::acknowledgments::apply_to_report(report, &acks, config, chrono::Utc::now());
+    sentinel_core::acknowledgments::apply_to_report(
+        report,
+        &acks,
+        config,
+        chrono::Utc::now(),
+        origin,
+    );
 }
 
 fn cmd_analyze(
@@ -1795,6 +1802,7 @@ fn cmd_analyze(
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
     emit_report_and_gate(&mut report, format, ci, "report", show_acknowledged);
 }
@@ -1829,12 +1837,14 @@ fn cmd_diff(
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
     apply_acknowledgments_or_exit(
         &mut after_report,
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
 
     let diff = sentinel_core::diff::diff_runs(&before_report, &after_report);
@@ -1918,12 +1928,15 @@ fn load_report_from_input(
 ) -> (
     sentinel_core::report::Report,
     Vec<sentinel_core::correlate::Trace>,
+    sentinel_core::acknowledgments::ReportOrigin,
 ) {
+    use sentinel_core::acknowledgments::ReportOrigin;
+    let fresh = |(report, traces)| (report, traces, ReportOrigin::FreshAnalysis);
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
     match first_byte {
         Some(b'[') => {
             let events = ingest_json_or_exit(raw, limits::MAX_BATCH_INPUT_BYTES);
-            pipeline::analyze_with_traces(events, config)
+            fresh(pipeline::analyze_with_traces(events, config))
         }
         Some(b'{') => {
             if sentinel_core::ingest::json::exceeds_max_depth(raw) {
@@ -1935,11 +1948,11 @@ fn load_report_from_input(
             }
             if let Ok(mut report) = serde_json::from_slice::<sentinel_core::report::Report>(raw) {
                 sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
-                return (report, Vec::new());
+                return (report, Vec::new(), ReportOrigin::Precomputed);
             }
             let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
             match ingest.ingest(raw) {
-                Ok(events) => pipeline::analyze_with_traces(events, config),
+                Ok(events) => fresh(pipeline::analyze_with_traces(events, config)),
                 Err(e) => {
                     eprintln!(
                         "Error: --input top-level object is neither a pre-computed Report JSON, an OTLP/JSON export, nor a Jaeger export. Underlying error: {e}"
@@ -1993,6 +2006,7 @@ fn load_diff_against_baseline(
         config,
         acknowledgments_path,
         no_acknowledgments,
+        sentinel_core::acknowledgments::ReportOrigin::Precomputed,
     );
     sentinel_core::diff::diff_runs(&baseline, current)
 }
@@ -2031,12 +2045,13 @@ async fn cmd_report(
     let raw_bytes = read_events(effective_input, limits::MAX_BATCH_INPUT_BYTES);
     let raw = strip_bom(&raw_bytes);
 
-    let (mut report, traces) = load_report_from_input(raw, &config);
+    let (mut report, traces, origin) = load_report_from_input(raw, &config);
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
         acknowledgments_path,
         no_acknowledgments,
+        origin,
     );
     // The HTML JS template does not yet visually distinguish ack rows, so
     // keep `acknowledged_findings` in the embedded payload only when the

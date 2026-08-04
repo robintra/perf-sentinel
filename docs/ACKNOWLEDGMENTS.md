@@ -136,10 +136,12 @@ The `unmatched_acknowledgment` kind is stable, so it can be alerted on or aggreg
 
 Whether the message can say more depends on the optional `service` and `source_endpoint` fields. Without them, an entry carries only an opaque signature, so nothing can tell a fix apart from a scenario that did not run, and the message states both readings rather than inviting you to delete an entry that still protects you. With them, the run's per-endpoint I/O op counts settle it:
 
-- the endpoint **was exercised** and the finding did not fire: "the problem looks fixed and the entry can be removed",
-- the endpoint **was not exercised**: "this proves nothing, keep the entry".
+- the endpoint **was exercised and did I/O** without the finding firing: "the problem looks fixed and the entry can be removed",
+- the endpoint **emitted no I/O in the run** (not exercised, or a fix removed its I/O outright): "this proves nothing, keep the entry".
 
 Fill the two fields from the same JSON you copied the signature from (`.findings[].service`, `.findings[].source_endpoint`), verbatim. Entries written before these fields existed keep the indeterminate message. An expired entry is inactive and is never reported this way, its finding is simply back in the gate.
+
+The warning is derived only from a fresh analysis of traces. Re-rendering a saved report or a daemon snapshot (`report --input export.json`) never emits it: such a report may already be ack-filtered, so "matched nothing" would mean "consumed on the previous pass", and its I/O op counts describe another run. The `diff` subcommand carries the after run's warnings in its text and JSON output under `warning_details`, so a diff-only CI surface sees them too.
 
 ## CLI flags
 
