@@ -1,0 +1,51 @@
+---
+title: The two acknowledgment stores
+---
+flowchart LR
+    subgraph write_toml["Team decision, via PR"]
+        direction TB
+        gen["analyze --format json | jq<br/><i>generates the entry</i>"]
+        pr["Pull request review"]
+        gen --> pr
+    end
+
+    toml[(".perf-sentinel-acknowledgments.toml<br/><i>versioned in the repo</i>")]
+
+    subgraph write_jsonl["Operator, against a live daemon"]
+        direction TB
+        cli["ack create"]
+        tui["query inspect, key a"]
+        html["HTML report --daemon-url"]
+        api["POST /api/findings/{sig}/ack"]
+    end
+
+    jsonl[("acks.jsonl<br/><i>on that daemon's disk</i>")]
+
+    subgraph reads_ci["Batch reads (CI)"]
+        direction TB
+        gate["analyze --ci gate"]
+        base["Diff baseline"]
+        warn["unmatched_acknowledgment"]
+    end
+
+    daemon_reads["Daemon reads<br/><i>/api/findings, dashboard</i>"]
+
+    pr --> toml
+    cli --> jsonl
+    tui --> jsonl
+    html --> jsonl
+    api --> jsonl
+
+    toml --> reads_ci
+    toml -- "wins on conflict" --> daemon_reads
+    jsonl --> daemon_reads
+
+    note["A daemon ack silences that daemon only.<br/>To unblock CI, put the signature in the TOML"]
+    jsonl -.-> note
+
+    style write_toml fill:#2d4a3e,stroke:#4ade80
+    style write_jsonl fill:#2d3b4a,stroke:#60a5fa
+    style toml fill:#2d4a3e,stroke:#4ade80
+    style jsonl fill:#2d3b4a,stroke:#60a5fa
+    style reads_ci fill:#3b2d4a,stroke:#a78bfa
+    style note fill:#4a3b2d,stroke:#fbbf24
