@@ -8,6 +8,14 @@ different operational scenarios and can be used side-by-side. This
 page explains how each works, when to pick which, and how the CLI
 helper introduced in 0.5.22 plugs into the daemon side.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores_dark.svg">
+  <img alt="The two acknowledgment stores, their writers and their readers" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores.svg">
+</picture>
+
+The asymmetry the diagram makes visible: the daemon reads both stores,
+CI reads only the TOML.
+
 > **What is a finding signature.** A signature is a stable identifier
 > for a finding, built by hashing `(finding_type, service, normalised
 > endpoint template, normalised query, URL or destination template)` with SHA-256

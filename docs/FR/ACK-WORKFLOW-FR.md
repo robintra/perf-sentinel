@@ -8,6 +8,14 @@ des scénarios opérationnels différents et peuvent cohabiter. Cette
 page explique comment chacun fonctionne, quand choisir lequel, et
 comment le helper CLI introduit en 0.5.22 s'intègre côté daemon.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores_dark.svg">
+  <img alt="Les deux magasins d'acquittements, leurs écrivains et leurs lecteurs" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores.svg">
+</picture>
+
+L'asymétrie que le schéma rend visible : le daemon lit les deux
+magasins, la CI ne lit que le TOML.
+
 > **Qu'est-ce qu'une signature de finding.** Une signature est un
 > identifiant stable pour un finding, construit en hashant `(type de
 > finding, service, template d'endpoint normalisé, template normalisé
