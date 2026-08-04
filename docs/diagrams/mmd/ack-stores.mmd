@@ -15,11 +15,11 @@ flowchart LR
         direction TB
         cli["ack create"]
         tui["query inspect, key a"]
-        html["HTML report in live mode<br/><i>built by batch report --daemon-url,<br/>buttons post to the daemon</i>"]
+        html["Ack buttons of the live HTML<br/><i>file built by batch report --daemon-url,<br/>the click posts to the daemon</i>"]
         api["POST /api/findings/{sig}/ack"]
     end
 
-    jsonl[("acks.jsonl<br/><i>on that daemon's disk</i>")]
+    jsonl[("acks.jsonl<br/><i>on that daemon's disk,<br/>one per daemon</i>")]
 
     subgraph reads_batch["Reads: batch, no daemon involved"]
         direction TB
