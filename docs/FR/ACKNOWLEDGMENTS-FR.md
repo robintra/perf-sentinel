@@ -128,11 +128,11 @@ Une entrée active qui n'a rien supprimé dans un run est rapportée sous le kin
 
 Ce que dit le message dépend des champs optionnels `service` et `source_endpoint` de l'entrée :
 
-| Entrée | Ce run | Message | Quoi faire |
-|---|---|---|---|
-| les deux champs remplis | endpoint avec I/O, aucun finding | "the problem looks fixed" | retirer l'entrée, idéalement dans la PR du correctif |
-| les deux champs remplis | endpoint sans aucune I/O | "this proves nothing" | la garder : pas exercé, ou le correctif a retiré les I/O |
-| champs absents | (indécidable) | les deux lectures | ajouter les champs, ou rejouer la campagne pour confirmer |
+| Entrée                  | Ce run                           | Message                   | Quoi faire                                                |
+|-------------------------|----------------------------------|---------------------------|-----------------------------------------------------------|
+| les deux champs remplis | endpoint avec I/O, aucun finding | "the problem looks fixed" | retirer l'entrée, idéalement dans la PR du correctif      |
+| les deux champs remplis | endpoint sans aucune I/O         | "this proves nothing"     | la garder : pas exercé, ou le correctif a retiré les I/O  |
+| champs absents          | (indécidable)                    | les deux lectures         | ajouter les champs, ou rejouer la campagne pour confirmer |
 
 Remplissez les deux champs tels quels, depuis le même JSON que la signature (`.findings[].service`, `.findings[].source_endpoint`).
 

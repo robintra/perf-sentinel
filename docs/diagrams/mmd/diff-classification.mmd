@@ -8,9 +8,9 @@ flowchart TD
     in_run_yes{"Present in<br/>the PR run?"}
     in_run_no{"Present in<br/>the PR run?"}
 
-    silent["Neither column<br/><i>inherited from the trunk,<br/>no author is blamed for it</i>"]
-    resolved["Resolved<br/><i>plain absence, which is a fix<br/>ONLY if this run exercised<br/>that endpoint</i>"]
-    new_f["New<br/><i>on a brand-new endpoint this is<br/>a first observation, not a regression</i>"]
+    silent["Neither column<br/><i>inherited from the trunk</i>"]
+    resolved["Resolved<br/><i>a fix ONLY if this run<br/>exercised the endpoint</i>"]
+    new_f["New<br/><i>a first observation<br/>on a new endpoint</i>"]
     nothing["Nothing to report"]
 
     key --> in_base
@@ -21,10 +21,10 @@ flowchart TD
     in_run_no -- "yes" --> new_f
     in_run_no -- "no" --> nothing
 
-    trap["Coverage asymmetry only ever flatters:<br/>a scenario the PR renamed, dropped or<br/>never ran lands its findings in Resolved<br/>with no code change behind it.<br/>The gate turning green is the proof,<br/>the Diff is the story"]
+    trap["A renamed, dropped or skipped<br/>scenario lands in Resolved with<br/>no code change behind it.<br/>The gate is the proof"]
     resolved -.-> trap
 
-    acked["An acknowledged finding never enters<br/>either side, so its fix cannot show here.<br/>The unmatched_acknowledgment warning is<br/>what reports it, and with service +<br/>source_endpoint on the entry it tells<br/>'looks fixed' from 'did not run'"]
+    acked["An acked finding enters neither side.<br/>Its fix is reported by the<br/>unmatched_acknowledgment warning"]
     key -.-> acked
 
     style silent fill:#2d3b4a,stroke:#60a5fa

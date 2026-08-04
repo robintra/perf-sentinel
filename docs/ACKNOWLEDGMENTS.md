@@ -127,11 +127,11 @@ An active entry that suppressed nothing in a run is reported under the stable wa
 
 What the message says depends on the optional `service` and `source_endpoint` fields of the entry:
 
-| Entry | This run | Message | What to do |
-|---|---|---|---|
-| both fields set | endpoint did I/O, no finding | "the problem looks fixed" | remove the entry, ideally in the fixing PR |
-| both fields set | endpoint emitted no I/O | "this proves nothing" | keep it: not exercised, or the fix removed the I/O |
-| fields absent | (cannot tell) | both readings | add the fields, or re-run the campaign to confirm |
+| Entry           | This run                     | Message                   | What to do                                         |
+|-----------------|------------------------------|---------------------------|----------------------------------------------------|
+| both fields set | endpoint did I/O, no finding | "the problem looks fixed" | remove the entry, ideally in the fixing PR         |
+| both fields set | endpoint emitted no I/O      | "this proves nothing"     | keep it: not exercised, or the fix removed the I/O |
+| fields absent   | (cannot tell)                | both readings             | add the fields, or re-run the campaign to confirm  |
 
 Fill both fields verbatim from the same JSON the signature came from (`.findings[].service`, `.findings[].source_endpoint`).
 
