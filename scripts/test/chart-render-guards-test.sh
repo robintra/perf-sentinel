@@ -44,6 +44,33 @@ render_config() {
   helm template t "$CHART_DIR" --show-only templates/configmap.yaml "$@" 2>&1
 }
 
+# Same for the fragments ConfigMap. Needed for the success cases: the failure
+# cases abort the whole render and are observable through render_config.
+render_fragments() {
+  helm template t "$CHART_DIR" --show-only templates/configmap-fragments.yaml "$@" 2>&1
+}
+
+# expect_render against the fragments ConfigMap.
+expect_fragments() {
+  local desc="$1" predicate="$2"; shift 2
+  local out
+  if ! out=$(render_fragments "$@"); then
+    report fail "$desc (render failed: $(head -1 <<<"$out"))"
+    return
+  fi
+  if eval "$predicate"; then
+    report pass "$desc"
+  else
+    report fail "$desc"
+  fi
+}
+
+# Shorthand for a --set-string on one fragment. Helm needs the dots in the key
+# escaped, otherwise `30-green-alumet.toml` reads as three nested maps.
+frag() {
+  printf 'config.fragments.%s=%s' "${1//./\\.}" "$2"
+}
+
 # Assert the render succeeds and its output satisfies a predicate given as
 # a shell snippet reading $out.
 expect_render() {
@@ -188,6 +215,118 @@ expect_fail "fails on DaemonSet without trace-ID routing" "spanRoutingByTraceId"
 # 16. Opt-in accepted: the operator asserts the collector routes by trace ID.
 expect_render "accepts DaemonSet when trace-ID routing is asserted" 'true' \
   --set workload.kind=DaemonSet --set workload.daemonset.spanRoutingByTraceId=true
+
+# --- Config fragments -------------------------------------------------------
+# The daemon reads .perf-sentinel.d/ at startup and hard-fails on a name it
+# cannot parse or on two fragments sharing a priority. On a FROM scratch image
+# that failure is a CrashLoopBackOff nobody can exec into, so every rule the
+# loader enforces is mirrored here (templates/configmap-fragments.yaml).
+
+# 17. A conforming fragment renders into its own ConfigMap.
+expect_fragments "renders a conforming fragment" \
+  'grep -q "30-green-alumet.toml: |" <<<"$out" &&
+   grep -q "endpoint = \"http://alumet:9090/metrics\"" <<<"$out"' \
+  --set-string "$(frag 30-green-alumet.toml '[green.alumet]
+endpoint = "http://alumet:9090/metrics"')"
+
+# 18. No fragments, no ConfigMap and no mount. Rendered whole rather than with
+#     --show-only, which errors out on a template that produces nothing.
+if out=$(helm template t "$CHART_DIR" 2>&1) &&
+   ! grep -qF "t-perf-sentinel-fragments" <<<"$out" &&
+   ! grep -qF "config-fragments" <<<"$out"; then
+  report pass "renders no fragments ConfigMap and no mount when unset"
+else
+  report fail "renders no fragments ConfigMap and no mount when unset"
+fi
+
+# 19. Missing NN prefix. The loader rejects it, the chart must too.
+expect_fail "fails on a fragment with no NN prefix" "NN-lowercase-name.toml" \
+  --set-string "$(frag green-alumet.toml '[green]
+enabled = true')"
+
+# 20. One-digit priority: fragment_priority requires exactly two.
+expect_fail "fails on a one-digit priority" "NN-lowercase-name.toml" \
+  --set-string "$(frag 3-green.toml '[green]
+enabled = true')"
+
+# 21. Uppercase in the slug, which the loader's [a-z0-9-] check rejects.
+expect_fail "fails on an uppercase fragment name" "NN-lowercase-name.toml" \
+  --set-string "$(frag 30-Green.toml '[green]
+enabled = true')"
+
+# 22. Two fragments on the same priority: the loader calls the merge order
+#     undefined and refuses to start.
+expect_fail "fails on a duplicate fragment priority" "duplicate fragment priority 30" \
+  --set-string "$(frag 30-green-alumet.toml '[green.alumet]
+endpoint = "http://alumet:9090/metrics"')" \
+  --set-string "$(frag 30-green-kepler.toml '[green.kepler]
+endpoint = "http://kepler:9102/metrics"')"
+
+# 23. A bind port set from a fragment. configmap.yaml cross-checks the ports
+#     against the Service reading config.toml only, so this would move the
+#     daemon away from where the Service routes with the guard still green.
+expect_fail "fails on a listen_port_* set from a fragment" "listen_port_" \
+  --set-string "$(frag 30-daemon.toml '[daemon]
+listen_port_http = 9999')"
+
+# 24. Same for the tables the chart appends itself under persistence: TOML
+#     rejects a table defined twice, so the pod would never parse its config.
+expect_fail "fails on [daemon.ack] set from a fragment" "daemon.ack" \
+  --set-string "$(frag 30-ack.toml '[daemon.ack]
+storage_path = "/var/lib/perf-sentinel/acks.jsonl"')"
+
+# 25. Turning green off from a fragment leaves configmap.yaml appending an
+#     archive the daemon then refuses to pair with green scoring off.
+expect_fail "fails on [green] enabled = false set from a fragment" "green.*enabled = false" \
+  --set-string "$(frag 30-green.toml '[green]
+enabled = false')"
+
+# 26. The dotted-key spelling opens the same key and a header-only regex
+#     misses it.
+expect_fail "fails on green.enabled = false set from a fragment" "green.enabled = false" \
+  --set-string "$(frag 30-green.toml 'green.enabled = false')"
+
+# 27. Fragments reach the pod: the volume, the mount and a checksum covering
+#     both ConfigMaps. Without the mount the ConfigMap renders and nothing
+#     reads it, which is the failure mode this whole feature exists to avoid.
+expect_mounted() {
+  local out
+  out=$(helm template t "$CHART_DIR" --show-only templates/deployment.yaml "$@" 2>&1) || {
+    report fail "mounts the fragments directory (render failed)"; return
+  }
+  if grep -q "mountPath: /etc/perf-sentinel/.perf-sentinel.d" <<<"$out" &&
+     grep -q "name: t-perf-sentinel-fragments" <<<"$out"; then
+    report pass "mounts the fragments directory"
+  else
+    report fail "mounts the fragments directory"
+  fi
+}
+expect_mounted --set-string "$(frag 30-green-alumet.toml '[green.alumet]
+endpoint = "http://alumet:9090/metrics"')"
+
+# 28. Editing a fragment must roll the pods. Same config.toml, different
+#     fragment: the checksum/config annotation has to move.
+checksum_of() {
+  helm template t "$CHART_DIR" --show-only templates/deployment.yaml "$@" 2>&1 |
+    grep "checksum/config:"
+}
+before=$(checksum_of --set-string "$(frag 30-green-alumet.toml 'a = 1')")
+after=$(checksum_of --set-string "$(frag 30-green-alumet.toml 'a = 2')")
+if [ -n "$before" ] && [ "$before" != "$after" ]; then
+  report pass "a fragment edit moves checksum/config"
+else
+  report fail "a fragment edit moves checksum/config"
+fi
+
+# 29. Fragments alongside persistence, the one combination where two features
+#     write to the same config. The chart appends [daemon.ack] and
+#     [daemon.archive] to config.toml while the fragment mounts separately:
+#     both must survive, and the fragment must not have opened those tables.
+expect_render "appends the daemon tables with a fragment mounted" \
+  '[ "$(grep -c "^\s*\[daemon\.ack\]" <<<"$out")" = 1 ] &&
+   [ "$(grep -c "^\s*\[daemon\.archive\]" <<<"$out")" = 1 ]' \
+  "${PERSIST[@]}" --set-string "$(frag 30-green-alumet.toml '[green.alumet]
+endpoint = "http://alumet:9090/metrics"')"
 
 if [ "$failures" -eq 0 ]; then
   echo "All scenarios passed."

@@ -197,7 +197,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "toml": { "type": "string" }
+        "toml": { "type": "string" },
+        "fragments": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
       },
       "required": ["toml"]
     },

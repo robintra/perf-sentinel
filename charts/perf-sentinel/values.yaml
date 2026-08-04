@@ -318,6 +318,34 @@ config:
     # window_minutes = 10
     # lag_threshold_ms = 2000
 
+  # -- Ordered TOML fragments, rendered into a second ConfigMap and mounted
+  # read-only at /etc/perf-sentinel/.perf-sentinel.d/. The daemon loads them
+  # by ascending filename priority, then applies `config.toml` above as the
+  # final override (docs/CONFIGURATION.md#configuration-fragments).
+  #
+  # Each key must be named `NN-lowercase-name.toml` and each `NN` must be
+  # unique: the daemon refuses to start otherwise, and the chart fails the
+  # render rather than let that reach a pod. The ready-to-copy fragments in
+  # `examples/` already carry conforming names, paste them as-is.
+  #
+  # Ports, `[daemon.ack]`, `[daemon.archive]` and turning `[green]` off stay
+  # in `config.toml`: those are the keys the chart cross-checks against the
+  # Service, the probes and the PVC, and a fragment redefining one would
+  # bypass that check. The render rejects them here.
+  #
+  # Secrets must never land here either. Use extraEnvFrom + a Secret.
+  #
+  # fragments:
+  #   30-green-alumet.toml: |
+  #     [green.alumet]
+  #     endpoint = "http://alumet.observability.svc:9091/metrics"
+  #     # No defaults, both required. Read them off your own exporter:
+  #     #   curl -s <endpoint> | grep -i energy
+  #     metric_name = "attributed_energy_cpu_alumet"
+  #     label_key = "name"
+  #     service_mappings = { "order-svc" = "order-pod" }
+  fragments: {}
+
 # Pod-level annotations and labels. `checksum/config` is injected by the
 # template, so do not set it here.
 podAnnotations: {}
