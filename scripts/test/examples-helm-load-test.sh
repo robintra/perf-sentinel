@@ -114,8 +114,51 @@ for overlay in "" "$REPO"/examples/helm/values-green-*.yaml; do
   fi
 done
 
+# --- Field parity with the examples/ fragments -------------------------------
+#
+# Each values-green-*.yaml is the Kubernetes port of the examples/NN-*.toml of
+# the same name, and the pair drifts silently: the .toml gains a key, the
+# overlay does not, and nobody notices until an operator copies the overlay and
+# wonders where the setting went. That is how examples/helm/ fell four months
+# behind examples/ before this script existed.
+#
+# So every key and table the .toml mentions, set or commented, must appear in
+# the overlay. Values are free to differ, and have to: localhost becomes
+# in-cluster DNS. Only the field has to survive the port.
+#
+# Exempt, and each overlay says why in its header:
+#   [green], enabled, default_region  the base values set them in config.toml,
+#                                     merged after the fragment, so a copy here
+#                                     would be silently overridden
+#   api_key                           a fragment renders into a ConfigMap; the
+#                                     token goes through a Secret instead
+EXEMPT='^(\[green\]|enabled|default_region|api_key)$'
+
+mentioned() {
+  grep -oE '^[[:space:]]*#?[[:space:]]*(\[[a-z._"|-]+\]|[a-z_]+ *=)' "$1" \
+    | sed 's/^[[:space:]]*//; s/^# *//; s/ *=$//; s/[[:space:]]*$//' \
+    | grep -v '^$' | sort -u
+}
+
+for toml in "$REPO"/examples/[0-9][0-9]-green-*.toml; do
+  backend=$(basename "$toml" .toml | sed 's/^[0-9]*-green-//')
+  overlay="$REPO/examples/helm/values-green-$backend.yaml"
+  if [ ! -f "$overlay" ]; then
+    echo "FAIL $(basename "$toml") has no values-green-$backend.yaml overlay"
+    failures=$((failures + 1)); continue
+  fi
+  missing=$(comm -23 <(mentioned "$toml") <(mentioned "$overlay") | grep -Ev "$EXEMPT")
+  if [ -n "$missing" ]; then
+    echo "FAIL $(basename "$overlay") drops fields carried by $(basename "$toml"):"
+    sed 's/^/         /' <<<"$missing"
+    failures=$((failures + 1))
+  else
+    echo "PASS $(basename "$overlay") carries every field of $(basename "$toml")"
+  fi
+done
+
 if [ "$failures" -eq 0 ]; then
-  echo "Every Helm example loads."
+  echo "Every Helm example loads and mirrors its examples/ fragment."
   exit 0
 fi
 echo "$failures example(s) failed." >&2
