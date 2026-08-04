@@ -76,3 +76,26 @@ v0.9.24	df70118	2026-07-31	PASS
 # container limit and fails identically on the published 0.9.23 image, so it is an environment
 # limit rather than a regression, confirmed by A/B against that image.
 v0.9.25	eb90ceb	2026-08-02	PASS
+# v0.9.28 closed a total, silent ingest outage: the OTLP gRPC listener declared no accepted
+# encoding, so a collector left at its defaults (gzip) had every batch dropped on a
+# non-retryable Unimplemented while the pod stayed ready and every counter stayed at zero.
+# The lab had never caught it because it had a gRPC path and a compressed path but never
+# both at once: its only exporter to the daemon was otlphttp, and the two gRPC producers
+# sent uncompressed. Not a compression: none workaround, which had been removed months
+# earlier. Closed by a 67th scenario, otlp-compression-matrix, plus a --compression flag on
+# tracegen. Every verdict carries an A/B against the published 0.9.26 image: gzip gRPC
+# ingests 360 spans where 0.9.26 drops 360, reproduced in-cluster with the lab collector
+# repinned to :14317 (357 spans and 20 findings against 0, and 17 Permanent error lines).
+# The capture concurrency bounds added in this release throttle nothing: 15/15 on both
+# binaries with a byte-identical span census, the two reports differing only on a pid and
+# on machine noise. Scope was deliberately narrowed to 37 of 67 scenarios after auditing
+# the 23 dependency bumps: only syn crosses a semver boundary and it is a compile-time
+# proc-macro parser that never reaches the binary, leaving regex 1.13.1 match offsets as
+# the sole runtime risk, which the 32 targeted scenarios cover. This is a narrowing of the
+# gate, not a coverage regression against the 61 scenarios of v0.9.25. Two limits stated
+# rather than buried: limit-saturation-curve stays red on the 256 MiB container limit and
+# OOMs at the same point on 0.9.26 (194 MiB, 340 s) as on 0.9.28 (188 MiB, 330 s), an
+# environment limit confirmed by A/B, and the decompression amplification corner (a small
+# frame expanding toward the 16 MiB max_payload_size ceiling) is NOT exercised by that
+# ramp, which batches 50 traces per export. memory_high_water_pct remains 0 by default.
+v0.9.28	0aba69d	2026-08-04	PASS
