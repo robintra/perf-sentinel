@@ -122,34 +122,35 @@ a pipeline, copy the signature into the TOML and open a PR. The
 signatures are identical on both sides, so the dashboard is a fine
 place to copy one from.
 
-### Promoting a daemon ack to CI
+### Writing a TOML entry without transcribing it
 
-A dev acks a finding from the staging dashboard at 3am, the CI gate
-still fails the next morning. Read the signature back from the daemon:
+Nothing needs copying by hand. The JSON report already carries every
+field an entry takes, so one command appends a complete block. Adjust
+the `select(...)` to pick your finding:
 
 ```bash
-perf-sentinel ack --daemon http://staging:4318 list --output json \
-  | jq -r '.[] | "\(.signature)  \(.reason)"'
-# n_plus_one_sql:order-svc:GET__api_orders:0123...  batch reporting, ADR-0042
-```
-
-Then add it to the repo file and open a PR:
-
-```toml
+perf-sentinel analyze --input traces.json --format json \
+  | jq -r --arg by "$(git config user.email)" \
+          --arg why "Intentional, see ADR-0042" \
+          --arg on "$(date +%F)" '
+      .findings[]
+      | select(.type == "n_plus_one_sql" and .service == "order-svc")
+      | "
 [[acknowledged]]
-signature = "n_plus_one_sql:order-svc:GET__api_orders:0123456789abcdef0123456789abcdef"
-acknowledged_by = "team-architecture"
-acknowledged_at = "2026-05-04"
-reason = "Intentional fanout for batch reporting endpoint. See ADR-0042."
-expires_at = "2026-11-30"
-service = "order-svc"
-source_endpoint = "GET /api/orders"
+signature = \"\(.signature)\"
+acknowledged_by = \"\($by)\"
+acknowledged_at = \"\($on)\"
+reason = \"\($why)\"
+service = \"\(.service)\"
+source_endpoint = \"\(.source_endpoint)\""' \
+  >> .perf-sentinel-acknowledgments.toml
 ```
 
-The daemon entry can stay: TOML wins on conflict, and a fresh
-`ack create` on the same signature would now return 409. Setting
-`service` and `source_endpoint` is what lets a later CI run report the
-entry as removable once the fix lands.
+Review the appended block, add an `expires_at` if the decision is
+temporary, then open the PR. Same recipe when promoting an ack made on
+a daemon: read the signature with
+`perf-sentinel ack --daemon <url> list --output json` and select on it.
+The daemon entry can stay, TOML wins on conflict.
 
 A `POST /api/findings/{sig}/ack` for a signature already covered by
 TOML returns HTTP 409 to avoid silent shadowing. The `ack create` CLI
