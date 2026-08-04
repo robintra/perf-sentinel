@@ -1945,5 +1945,11 @@ pub fn otlp_http_router_with_sink(
 
 // ── Tests ───────────────────────────────────────────────────────────
 
+/// One SQL CLIENT span, the shape an OTLP exporter puts on the wire. Shared by
+/// the capture and daemon listener tests, which both need a request the
+/// pipeline turns into exactly one event. Both live behind `daemon`.
+#[cfg(all(test, feature = "daemon"))]
+pub(crate) const SAMPLE_EXPORT_JSON: &str = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc"}}]},"scopeSpans":[{"spans":[{"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{"key":"db.statement","value":{"stringValue":"SELECT 1"}},{"key":"db.system","value":{"stringValue":"postgresql"}}]}]}]}]}"#;
+
 #[cfg(test)]
 mod tests;
