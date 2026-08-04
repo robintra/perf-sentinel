@@ -1135,6 +1135,8 @@ fn toml_baseline_fixture(sig: &str) -> ResolvedTomlAck {
             acknowledged_at: "2026-05-04".to_string(),
             reason: "permanent baseline".to_string(),
             expires_at: None,
+            service: None,
+            source_endpoint: None,
         },
         expires_at_dt: None,
     }

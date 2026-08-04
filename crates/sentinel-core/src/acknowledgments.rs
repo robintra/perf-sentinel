@@ -48,6 +48,14 @@ pub struct Acknowledgment {
     /// `None` means the ack is permanent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// Optional service of the acked finding (`.findings[].service`).
+    /// With `source_endpoint`, lets an unmatched ack say whether its
+    /// endpoint was exercised by the run at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    /// Optional endpoint of the acked finding (`.findings[].source_endpoint`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_endpoint: Option<String>,
 }
 
 /// Container for the deserialized TOML file.
@@ -252,26 +260,62 @@ pub fn apply_to_report(
 
         // An ack that suppressed nothing is the "maybe fixed" signal.
         // Sorted so two runs of the same report stay diffable.
-        let mut unmatched: Vec<&str> = active
-            .keys()
-            .filter(|sig| !matched.contains(*sig))
+        let mut unmatched: Vec<&Acknowledgment> = active
+            .values()
+            .filter(|a| !matched.contains(a.signature.as_str()))
             .copied()
             .collect();
-        unmatched.sort_unstable();
-        for sig in unmatched {
-            report.warning_details.push(Warning::from_untrusted(
-                warnings::UNMATCHED_ACKNOWLEDGMENT,
-                &format!(
-                    "acknowledgment {sig} matched no finding in this run: \
-                     the problem is either fixed, and the entry can be removed, \
-                     or the scenario that produced it did not run"
-                ),
-            ));
-        }
+        unmatched.sort_unstable_by(|a, b| a.signature.cmp(&b.signature));
+        let observed: HashSet<(&str, &str)> = report
+            .per_endpoint_io_ops
+            .iter()
+            .map(|e| (e.service.as_str(), e.endpoint.as_str()))
+            .collect();
+        let messages: Vec<String> = unmatched
+            .iter()
+            .map(|ack| unmatched_message(ack, &observed))
+            .collect();
+        report.warning_details.extend(
+            messages
+                .iter()
+                .map(|m| Warning::from_untrusted(warnings::UNMATCHED_ACKNOWLEDGMENT, m)),
+        );
     }
 
     report.quality_gate =
         quality_gate::evaluate(&report.findings, &report.green_summary, &config.thresholds);
+}
+
+/// Message for an active ack that suppressed nothing. When the entry
+/// names its service and endpoint, the run's per-endpoint I/O ops say
+/// whether that endpoint was exercised, which splits "fixed" from
+/// "scenario did not run". Entries without the fields keep the
+/// indeterminate double reading.
+fn unmatched_message(ack: &Acknowledgment, observed: &HashSet<(&str, &str)>) -> String {
+    let sig = &ack.signature;
+    match (&ack.service, &ack.source_endpoint) {
+        (Some(service), Some(endpoint)) => {
+            if observed.contains(&(service.as_str(), endpoint.as_str())) {
+                format!(
+                    "acknowledgment {sig} matched no finding in this run: \
+                     {service} {endpoint} was exercised and the finding did not \
+                     fire, the problem looks fixed and the entry can be removed"
+                )
+            } else {
+                format!(
+                    "acknowledgment {sig} matched no finding in this run: \
+                     {service} {endpoint} was not exercised, so this proves \
+                     nothing, keep the entry"
+                )
+            }
+        }
+        _ => format!(
+            "acknowledgment {sig} matched no finding in this run: \
+             the problem is either fixed, and the entry can be removed, \
+             or the scenario that produced it did not run (add service and \
+             source_endpoint to the entry to tell the two apart)"
+        ),
+    }
 }
 
 pub(crate) fn is_ack_active(ack: &Acknowledgment, now: DateTime<Utc>) -> bool {
@@ -355,6 +399,8 @@ mod tests {
             acknowledged_at: "2026-05-02".to_string(),
             reason: "test".to_string(),
             expires_at: expires_at.map(str::to_string),
+            service: None,
+            source_endpoint: None,
         }
     }
 
@@ -507,6 +553,8 @@ mod tests {
             acknowledged_at: "2020-01-01".to_string(),
             reason: "from a previous run".to_string(),
             expires_at: None,
+            service: None,
+            source_endpoint: None,
         };
         let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
         enrich_with_signatures(&mut findings);
@@ -689,6 +737,50 @@ expires_at = "not-a-date"
             unmatched[0].message.contains("deadbeef"),
             "the warning must name the entry to remove, got: {}",
             unmatched[0].message
+        );
+    }
+
+    /// With service and endpoint on the entry, an exercised endpoint that
+    /// produced no finding reads as fixed, an absent one proves nothing.
+    #[test]
+    fn apply_to_report_unmatched_ack_splits_fixed_from_not_run() {
+        let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
+        enrich_with_signatures(&mut findings);
+        let mut report = empty_report(findings);
+        report.per_endpoint_io_ops = vec![crate::report::PerEndpointIoOps {
+            service: "order-service".to_string(),
+            endpoint: "GET /api/orders".to_string(),
+            io_ops: 12,
+        }];
+        let located = |sig: &str, endpoint: &str| Acknowledgment {
+            service: Some("order-service".to_string()),
+            source_endpoint: Some(endpoint.to_string()),
+            ..ack(sig, None)
+        };
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![
+                located("aaaa-exercised", "GET /api/orders"),
+                located("bbbb-not-run", "GET /api/legacy/export"),
+            ],
+        };
+        apply_to_report(&mut report, &acks, &Config::default(), now_2026_05_02());
+
+        let messages: Vec<&str> = report
+            .warning_details
+            .iter()
+            .filter(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .map(|w| w.message.as_str())
+            .collect();
+        assert_eq!(messages.len(), 2);
+        assert!(
+            messages[0].contains("aaaa-exercised") && messages[0].contains("looks fixed"),
+            "exercised endpoint must read as fixed, got: {}",
+            messages[0]
+        );
+        assert!(
+            messages[1].contains("bbbb-not-run") && messages[1].contains("proves nothing"),
+            "absent endpoint must prove nothing, got: {}",
+            messages[1]
         );
     }
 

@@ -980,6 +980,8 @@ mod tests {
                 acknowledged_at: "2026-05-03".to_string(),
                 reason: "intentional cache invalidation".to_string(),
                 expires_at: None,
+                service: None,
+                source_endpoint: None,
             },
         };
         let result = acknowledged_finding_to_result(&ack);

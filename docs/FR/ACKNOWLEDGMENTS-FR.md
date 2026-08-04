@@ -68,6 +68,9 @@ acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-05-02"
 reason = "Pattern d'invalidation de cache, intentionnel. Voir ADR-0042."
 expires_at = "2026-12-31"  # Optionnel, omettre pour rendre l'ack permanent.
+# Optionnel : permet au warning unmatched de distinguer "corrigé" de "pas rejoué".
+service = "order-service"
+source_endpoint = "POST /api/orders"
 
 [[acknowledged]]
 signature = "slow_sql:report-service:GET__api_reports:deadbeefdeadbeefdeadbeefdeadbeef"
@@ -86,6 +89,8 @@ reason = "Agrégation longue, accepté par le produit."
 | `acknowledged_at` | oui    | Date ISO 8601 `YYYY-MM-DD`. Texte libre, non validé.                               |
 | `reason`          | oui    | Texte libre. Court, avec lien vers ADR / Jira / thread Slack.                      |
 | `expires_at`      | non    | Date ISO 8601 `YYYY-MM-DD`. Validée au chargement. Omettre pour un ack permanent.  |
+| `service`         | non    | Le `service` du finding, tel quel. Avec `source_endpoint`, permet au warning unmatched de dire si l'endpoint a été exercé. |
+| `source_endpoint` | non    | Le `source_endpoint` du finding, tel quel (ex. `GET /api/orders`).                 |
 
 Un champ requis manquant fait échouer le run avec une erreur claire, donc une coquille n'élargit pas silencieusement l'ensemble acquitté.
 
@@ -130,7 +135,12 @@ Warnings:
 
 Le `kind` `unmatched_acknowledgment` est stable, donc alertable et agrégeable d'un run à l'autre, et il apparaît dans `warning_details` de la sortie JSON. C'est le signal qui répond à « la PR qui vient de passer sur ce code a-t-elle corrigé le problème qu'on avait accepté il y a six mois », ce qu'aucun diff contre une baseline ne peut dire de façon fiable : acquitter un finding le retire d'une baseline produite avec le filtrage actif, donc la vraie correction qui suit n'a plus rien à faire disparaître.
 
-Le message énonce les deux lectures à dessein. Une entrée porte une signature et aucun endpoint, donc rien ici ne distingue une correction d'un scénario qui n'a pas tourné, et prétendre le contraire inviterait à supprimer une entrée qui vous protège encore. Confirmez avec les comptes d'opérations I/O par endpoint du run, ou en rejouant la campagne qui a produit le finding, avant de retirer la ligne. Une entrée expirée est inactive et n'est jamais rapportée ainsi, son finding est simplement revenu dans la gate.
+Ce que le message peut dire de plus dépend des champs optionnels `service` et `source_endpoint`. Sans eux, une entrée ne porte qu'une signature opaque, donc rien ne distingue une correction d'un scénario qui n'a pas tourné, et le message énonce les deux lectures plutôt que d'inviter à supprimer une entrée qui vous protège encore. Avec eux, les comptes d'opérations I/O par endpoint du run tranchent :
+
+- l'endpoint **a été exercé** et le finding n'a pas tiré : "the problem looks fixed and the entry can be removed",
+- l'endpoint **n'a pas été exercé** : "this proves nothing, keep the entry".
+
+Remplissez les deux champs depuis le même JSON où vous avez copié la signature (`.findings[].service`, `.findings[].source_endpoint`), tels quels. Les entrées écrites avant l'existence de ces champs gardent le message indéterminé. Une entrée expirée est inactive et n'est jamais rapportée ainsi, son finding est simplement revenu dans la gate.
 
 ## Flags CLI
 
