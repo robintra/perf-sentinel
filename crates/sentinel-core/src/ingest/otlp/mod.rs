@@ -1943,6 +1943,25 @@ pub fn otlp_http_router_with_sink(
     ))
 }
 
+/// Mount an [`OtlpGrpcService`] with the encodings and the decode cap every
+/// gRPC listener shares. Divergence here breaks one transport silently, which
+/// is how the pre-0.9.28 listener dropped every batch from a default
+/// Collector. The cap applies to the decompressed message.
+#[cfg(feature = "daemon")]
+#[must_use]
+pub fn trace_service(
+    service: OtlpGrpcService,
+    max_payload: usize,
+) -> opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer<
+    OtlpGrpcService,
+> {
+    use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
+    TraceServiceServer::new(service)
+        .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+        .accept_compressed(tonic::codec::CompressionEncoding::Deflate)
+        .max_decoding_message_size(max_payload)
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 /// One SQL CLIENT span, the shape an OTLP exporter puts on the wire. Shared by
