@@ -1,0 +1,44 @@
+# Measured container energy from Kepler v0.10+. Kubernetes port of
+# examples/33-green-kepler.toml.
+#
+# Stack on the base values, never alone:
+#   helm install perf-sentinel ../../charts/perf-sentinel \
+#     --namespace observability \
+#     -f values-perf-sentinel.yaml -f values-green-kepler.yaml
+#
+# Kepler is the most Kubernetes-native of the measured backends: it already
+# ships as a DaemonSet and labels its metrics by container. On nodes without
+# readable RAPL it falls back to its own estimator, so check which mode yours
+# reports before publishing the figures as measurements.
+#
+# Prerequisites:
+#   - Kepler installed, commonly in kube-system, with its /metrics Service.
+#   - The exporter reachable from the perf-sentinel pod. A NetworkPolicy that
+#     isolates kube-system needs an egress rule for this.
+
+config:
+  fragments:
+    33-green-kepler.toml: |
+      [green.kepler]
+      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+      scrape_interval_secs = 5
+      # "container" reads container_name, "process" reads the 15-byte Linux
+      # comm. Keep "container" on Kubernetes: comm is truncated and shared
+      # across pods running the same runtime.
+      metric_kind = "container"
+
+      # Map each service to its container_name label. This is the container
+      # name from the pod spec, not the pod name and not the Deployment name:
+      #   kubectl -n kube-system exec ds/kepler -- \
+      #     curl -s localhost:9102/metrics | grep container_name
+      [green.kepler.service_mappings]
+      "order-svc" = "order-svc"
+      "payment-svc" = "payment-svc"
+
+# Credentials, when the exporter is behind auth. Create the Secret first:
+#   kubectl -n observability create secret generic perf-sentinel-secrets \
+#     --from-literal=PERF_SENTINEL_KEPLER_AUTH_HEADER='Authorization: Bearer ...'
+#
+# extraEnvFrom:
+#   - secretRef:
+#       name: perf-sentinel-secrets

@@ -1,0 +1,55 @@
+# Measured chassis power from bare-metal Redfish BMCs. Kubernetes port of
+# examples/34-green-redfish.toml.
+#
+# Stack on the base values, never alone:
+#   helm install perf-sentinel ../../charts/perf-sentinel \
+#     --namespace observability \
+#     -f values-perf-sentinel.yaml -f values-green-redfish.yaml
+#
+# This is the only backend whose target sits outside the cluster: BMCs live on
+# a management network. Two consequences.
+#
+#   - The chart's NetworkPolicy only covers ingress, so it does not block this.
+#     If you run your own egress policy, it needs a rule for the BMC subnet or
+#     the scraper silently reports nothing.
+#   - Chassis power is per machine, not per service. Each mapped service gets
+#     its chassis-level coefficient, so two services on one chassis are
+#     attributed from the same figure. Prefer Alumet or Kepler when you need
+#     per-service resolution and RAPL is readable.
+
+config:
+  fragments:
+    34-green-redfish.toml: |
+      [green.redfish]
+      # Bounds 15..3600. BMCs are slow and rate-limit aggressively, do not
+      # push this down to the 5s the in-cluster scrapers use.
+      scrape_interval_secs = 60
+      # Reserved. Setting this currently stops the scraper, so leave it unset.
+      # ca_bundle_path = "/etc/ssl/bmc-ca.pem"
+
+      # At least one endpoint is required to activate the scraper. Both fields
+      # are required: "legacy_power" for /Power, "environment_metrics" for
+      # /EnvironmentMetrics. Which one your BMC serves depends on its firmware
+      # generation, not on the vendor.
+      [green.redfish.endpoints."chassis-legacy-1"]
+      url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+      schema = "legacy_power"
+
+      [green.redfish.endpoints."chassis-modern-1"]
+      url = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/EnvironmentMetrics"
+      schema = "environment_metrics"
+
+      # Map each service to a chassis ID declared above.
+      [green.redfish.service_mappings]
+      "order-svc" = "chassis-legacy-1"
+      "payment-svc" = "chassis-legacy-1"
+      "chat-svc" = "chassis-modern-1"
+
+# BMC credentials. Required in practice, a Redfish endpoint is never open.
+# Create the Secret first:
+#   kubectl -n observability create secret generic perf-sentinel-secrets \
+#     --from-literal=PERF_SENTINEL_REDFISH_AUTH_HEADER="Authorization: Basic $(printf 'user:pass' | base64)"
+#
+# extraEnvFrom:
+#   - secretRef:
+#       name: perf-sentinel-secrets

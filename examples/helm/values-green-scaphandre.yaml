@@ -1,0 +1,47 @@
+# Measured per-process energy from Scaphandre. Kubernetes port of
+# examples/32-green-scaphandre.toml.
+#
+# Stack on the base values, never alone:
+#   helm install perf-sentinel ../../charts/perf-sentinel \
+#     --namespace observability \
+#     -f values-perf-sentinel.yaml -f values-green-scaphandre.yaml
+#
+# Prefer Alumet for new deployments, this backend is kept for hosts already
+# running Scaphandre.
+#
+# Prerequisites:
+#   - Scaphandre as a DaemonSet with the prometheus exporter, fronted by a
+#     Service so the perf-sentinel pod can reach it.
+#   - Linux nodes with Intel RAPL readable, which rules out most managed node
+#     pools: use values-green-cloud.yaml there.
+#   - Scaphandre needs /proc and /sys/class/powercap from the host, so its own
+#     pod runs privileged. That is a property of Scaphandre, not of this chart.
+
+config:
+  fragments:
+    32-green-scaphandre.toml: |
+      [green.scaphandre]
+      # In-cluster DNS. The upstream example says localhost because it assumes
+      # one host; from a pod that would resolve to perf-sentinel itself.
+      endpoint = "http://scaphandre.observability.svc:8080/metrics"
+      scrape_interval_secs = 5
+
+      # Map each service to exactly one Scaphandre process. The matchers run
+      # against the process exe path and cmdline as the node sees them, so a
+      # containerized JVM still shows up as bin/java: narrow with
+      # cmdline_contains whenever several services share a runtime.
+      [green.scaphandre.process_map."order-svc"]
+      exe_contains = "bin/java"
+      cmdline_contains = "order-svc.jar"
+
+      [green.scaphandre.process_map."payment-svc"]
+      exe_contains = "bin/java"
+      cmdline_contains = "payment-svc.jar"
+
+# Credentials, when the exporter is behind auth. Create the Secret first:
+#   kubectl -n observability create secret generic perf-sentinel-secrets \
+#     --from-literal=PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER='Authorization: Bearer ...'
+#
+# extraEnvFrom:
+#   - secretRef:
+#       name: perf-sentinel-secrets
