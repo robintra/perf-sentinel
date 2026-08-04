@@ -96,6 +96,61 @@ canonical in-cluster pattern for a quick start. For production:
 See `docs/HELM-DEPLOYMENT.md` and `docs/CONFIGURATION.md` for the full
 surface.
 
+## GreenOps energy backends
+
+`values-perf-sentinel.yaml` installs with the embedded carbon model, which
+needs no scraper and no extra service. To measure energy instead of modelling
+it, stack one overlay on top of the base values:
+
+```bash
+helm install perf-sentinel ../../charts/perf-sentinel \
+  --namespace observability \
+  -f values-perf-sentinel.yaml -f values-green-kepler.yaml
+```
+
+Each overlay is the Kubernetes port of the file of the same number in
+`examples/`, adjusted on three points: endpoints resolve through in-cluster DNS
+rather than `localhost`, credentials move to a Secret, and the notes name the
+Kubernetes prerequisite rather than the host one.
+
+| Overlay                              | Fragment                         | Energy figure              | Needs                               |
+|--------------------------------------|----------------------------------|----------------------------|-------------------------------------|
+| `values-green-alumet.yaml`           | `30-green-alumet.toml`           | measured, per service      | Alumet DaemonSet, readable RAPL     |
+| `values-green-cloud.yaml`            | `31-green-cloud.toml`            | modelled from CPU          | a Prometheus with cloud CPU series  |
+| `values-green-scaphandre.yaml`       | `32-green-scaphandre.toml`       | measured, per process      | Scaphandre DaemonSet, readable RAPL |
+| `values-green-kepler.yaml`           | `33-green-kepler.toml`           | measured, per container    | Kepler v0.10+ DaemonSet             |
+| `values-green-redfish.yaml`          | `34-green-redfish.toml`          | measured, per chassis      | BMC reachable, egress off-cluster   |
+| `values-green-electricity-maps.yaml` | `40-green-electricity-maps.toml` | grid intensity, not energy | an API key, public egress           |
+
+Pick exactly one energy backend: stacking two runs both scrapers and attributes
+the same joules twice. On a managed node pool, that choice is made for you,
+since no RAPL means `values-green-cloud.yaml`. The Electricity Maps overlay is
+not an energy backend and composes with any of them, it only changes the
+gCO2/kWh applied to the energy you already have.
+
+### How the overlays reach the daemon
+
+`config.toml` is one document mounted at
+`/etc/perf-sentinel/.perf-sentinel.toml`. `config.fragments` is a map of
+`NN-name.toml` files mounted as a directory at
+`/etc/perf-sentinel/.perf-sentinel.d/`. The daemon merges the fragments in
+ascending `NN` order, then applies `config.toml` last as the override
+(`docs/CONFIGURATION.md#configuration-fragments`).
+
+Four families of keys stay in `config.toml`, and the chart fails the render if
+a fragment sets one: `listen_port_*`, `[daemon.ack]`, `[daemon.archive]`, and
+turning `[green]` off. Those are cross-checked against the Service, the probes
+and the PVC, and that check only reads `config.toml`.
+
+Names are enforced at render time because the daemon enforces them at startup:
+`NN` is two digits, the rest lowercase `[a-z0-9-]`, and no two fragments may
+share an `NN`. A pod failing those rules crashes on boot, and the image is
+`FROM scratch`, so there is no shell to go read the error in.
+
+`scripts/test/examples-helm-load-test.sh` renders every file in this directory,
+projects it the way kubelet does and loads it with a real binary. Run it after
+editing an example: a values file that renders is not a config that boots.
+
 ## Adjusting to your topology
 
 - **Single-region, Zipkin-only apps**: keep the `zipkin` receiver and

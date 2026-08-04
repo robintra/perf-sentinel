@@ -1,0 +1,52 @@
+# Measured per-service energy from an Alumet agent. Kubernetes port of
+# examples/30-green-alumet.toml.
+#
+# Stack on the base values, never alone:
+#   helm install perf-sentinel ../../charts/perf-sentinel \
+#     --namespace observability \
+#     -f values-perf-sentinel.yaml -f values-green-alumet.yaml
+#
+# Prerequisites:
+#   - An Alumet agent as a DaemonSet, running `rapl` + `k8s` +
+#     `energy-attribution` + `prometheus-exporter`. `rapl` alone measures the
+#     whole machine and cannot attribute per service.
+#   - Nodes where RAPL is readable. That rules out most managed cloud node
+#     pools, which expose no MSR: use values-green-cloud.yaml there.
+#   - The agent reachable from the perf-sentinel pod, so a Service in front of
+#     the DaemonSet rather than a hostPort.
+
+config:
+  fragments:
+    30-green-alumet.toml: |
+      [green.alumet]
+      # In-cluster DNS. The upstream example says localhost because it assumes
+      # one host; from a pod that would resolve to perf-sentinel itself.
+      endpoint = "http://alumet.observability.svc:9091/metrics"
+      scrape_interval_secs = 5
+      # No defaults, both required. The exporter names metrics after a prefix,
+      # a suffix and an attribution formula you choose, so read them off your
+      # own endpoint rather than trusting this line:
+      #   kubectl -n observability exec deploy/alumet -- \
+      #     curl -s localhost:9091/metrics | grep -i energy
+      metric_name = "attributed_energy_cpu_alumet"
+      label_key = "name"
+      # /!\ Must equal the poll_interval of the Alumet source feeding the
+      # metric. Alumet publishes the joules of one interval as a gauge, so a
+      # mismatch rescales energy and carbon silently.
+      energy_interval_secs = 1.0
+      # Map each service name to the label value carrying its energy. Under
+      # the k8s plugin that label is usually the pod name.
+      service_mappings = { "order-svc" = "order-svc-pod", "payment-svc" = "payment-svc-pod" }
+
+      # Optional: attribute the database cgroup too, which turns the estimated
+      # database waste figure into a measured one.
+      # [green.alumet.database]
+      # label_value = "postgres-0"
+
+# Credentials, when the exporter is behind auth. Create the Secret first:
+#   kubectl -n observability create secret generic perf-sentinel-secrets \
+#     --from-literal=PERF_SENTINEL_ALUMET_AUTH_HEADER='Authorization: Bearer ...'
+#
+# extraEnvFrom:
+#   - secretRef:
+#       name: perf-sentinel-secrets
