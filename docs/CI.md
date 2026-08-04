@@ -257,7 +257,7 @@ here to keep the template compact.
 **Dependencies**. The deploy uses plain `git` against the `gh-pages`
 branch, authenticated with the built-in `GITHUB_TOKEN` and a
 `contents: write` permission. The baseline and cleanup workflows
-declare it out of the box; the main workflow ships with
+declare it out of the box. The main workflow ships with
 `contents: read` and you raise it to `write` when enabling the publish
 blocks (step 6 above). No third-party deploy action is required, which
 keeps the template free of supply-chain surface for the upload path.
