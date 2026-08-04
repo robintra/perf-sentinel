@@ -356,6 +356,17 @@ workload:
 Le seul mode où les acks runtime (`POST /api/findings/{sig}/ack`, depuis 0.5.20) fonctionnent. Activer la persistance monte un PVC sur `/var/lib/perf-sentinel`, et le chart pointe lui-même `[daemon.ack] storage_path` et `[daemon.archive] path` dessus, de sorte que l'audit trail des acks et l'archive de divulgation survivent aux redémarrages et aux replanifications de pod. Les acks TOML CI
 (`.perf-sentinel-acknowledgments.toml`) sont en lecture seule au runtime et n'ont pas besoin de PVC, seul le JSONL côté daemon en a besoin.
 
+> **Monter le TOML d'acks CI : utilisez `subPath`.** Une ConfigMap projette chaque clé sous forme de symlink (`clé -> ..data/clé`), et le loader refuse de suivre un symlink, un durcissement contre un lien hostile pointant vers un fichier sensible. Un montage ConfigMap classique fait donc refuser le démarrage au daemon, avec `caused by: Acknowledgments file is a symlink, refusing to follow` sous l'erreur de démarrage. Montez avec `subPath`, qui matérialise un vrai fichier :
+>
+> ```yaml
+> volumeMounts:
+>   - name: ci-acks
+>     mountPath: /etc/perf-sentinel/acknowledgments.toml
+>     subPath: acknowledgments.toml
+> ```
+>
+> Pointez `[daemon.ack] toml_path` sur ce chemin. La contrepartie de `subPath` est que le fichier ne se met plus à jour en place quand la ConfigMap change, ce qui convient de toute façon à une baseline d'acks livrée par PR.
+
 ```yaml
 workload:
   kind: StatefulSet
