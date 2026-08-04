@@ -268,7 +268,6 @@ fn spawn_grpc(
     tx: mpsc::Sender<ExportTraceServiceRequest>,
     metrics: Arc<CaptureMetrics>,
 ) -> tokio::task::JoinHandle<()> {
-    use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
     let service = OtlpGrpcService::new_raw(tx, Some(metrics));
     tokio::spawn(async move {
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
@@ -279,13 +278,10 @@ fn spawn_grpc(
             .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
                 GRPC_MAX_CONCURRENT_REQUESTS,
             ))
-            .add_service(
-                // Same gzip default as the daemon listener, see listeners.rs.
-                TraceServiceServer::new(service)
-                    .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
-                    .accept_compressed(tonic::codec::CompressionEncoding::Deflate)
-                    .max_decoding_message_size(MAX_PAYLOAD_BYTES),
-            )
+            .add_service(crate::ingest::otlp::trace_service(
+                service,
+                MAX_PAYLOAD_BYTES,
+            ))
             .serve_with_incoming(incoming)
             .await
         {

@@ -144,7 +144,6 @@ fn spawn_grpc_listener(
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics;
     let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics_sink));
     tokio::spawn(async move {
-        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
         // Pre-decode memory gate: the interceptor runs on request
         // metadata BEFORE tonic decodes the protobuf message, so a
         // saturation flood is refused without materializing payloads
@@ -174,13 +173,7 @@ fn spawn_grpc_listener(
                 GRPC_MAX_CONCURRENT_REQUESTS,
             ))
             .add_service(tonic::service::interceptor::InterceptedService::new(
-                // The Collector's OTLP exporter gzips by default, and tonic
-                // answers a non-retryable Unimplemented without these. The size
-                // cap below applies to the decompressed message.
-                TraceServiceServer::new(grpc_service)
-                    .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
-                    .accept_compressed(tonic::codec::CompressionEncoding::Deflate)
-                    .max_decoding_message_size(max_payload),
+                crate::ingest::otlp::trace_service(grpc_service, max_payload),
                 memory_gate,
             ))
             .serve_with_incoming(incoming)
