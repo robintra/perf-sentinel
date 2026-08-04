@@ -122,6 +122,35 @@ a pipeline, copy the signature into the TOML and open a PR. The
 signatures are identical on both sides, so the dashboard is a fine
 place to copy one from.
 
+### Promoting a daemon ack to CI
+
+A dev acks a finding from the staging dashboard at 3am, the CI gate
+still fails the next morning. Read the signature back from the daemon:
+
+```bash
+perf-sentinel ack --daemon http://staging:4318 list --output json \
+  | jq -r '.[] | "\(.signature)  \(.reason)"'
+# n_plus_one_sql:order-svc:GET__api_orders:0123...  batch reporting, ADR-0042
+```
+
+Then add it to the repo file and open a PR:
+
+```toml
+[[acknowledged]]
+signature = "n_plus_one_sql:order-svc:GET__api_orders:0123456789abcdef0123456789abcdef"
+acknowledged_by = "team-architecture"
+acknowledged_at = "2026-05-04"
+reason = "Intentional fanout for batch reporting endpoint. See ADR-0042."
+expires_at = "2026-11-30"
+service = "order-svc"
+source_endpoint = "GET /api/orders"
+```
+
+The daemon entry can stay: TOML wins on conflict, and a fresh
+`ack create` on the same signature would now return 409. Setting
+`service` and `source_endpoint` is what lets a later CI run report the
+entry as removable once the fix lands.
+
 A `POST /api/findings/{sig}/ack` for a signature already covered by
 TOML returns HTTP 409 to avoid silent shadowing. The `ack create` CLI
 maps this to exit 2 with a hint pointing at `ack revoke`.
