@@ -344,7 +344,7 @@ garder le template compact.
 **Dépendances**. Le deploy utilise du `git` en clair contre la branche
 `gh-pages`, authentifié par le `GITHUB_TOKEN` intégré et une permission
 `contents: write`. Les workflows baseline et cleanup la déclarent par
-défaut ; le workflow principal est livré en `contents: read` et vous
+défaut. Le workflow principal est livré en `contents: read` et vous
 la passez à `write` en activant les blocs de publication (étape 6
 ci-dessus). Aucune action tierce de deploy n'est requise, ce qui garde
 le template exempt de surface supply-chain pour le chemin d'upload.
