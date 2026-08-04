@@ -10,6 +10,7 @@ on:
       - 'scripts/check-chart-appversion-annotation.sh'
       - 'scripts/test/check-chart-version-bumped-test.sh'
       - 'scripts/test/chart-render-guards-test.sh'
+      - 'scripts/test/examples-helm-load-test.sh'
   workflow_dispatch:
     inputs:
       ref:
@@ -110,11 +111,23 @@ jobs:
           sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
           kubeconform -v
 
-      - name: helm template -f values-perf-sentinel.yaml | kubeconform
+      # The base values on their own, then each green overlay stacked on it,
+      # which is how examples/helm/README.md tells operators to install them.
+      # An overlay is never rendered alone: it carries a config.fragments entry
+      # and nothing else, and would inherit the chart defaults instead.
+      - name: helm template example values | kubeconform
         run: |
-          helm template test charts/perf-sentinel/ \
-            -f examples/helm/values-perf-sentinel.yaml \
-            | kubeconform -strict -summary -ignore-missing-schemas
+          set -euo pipefail
+          render() {
+            echo "::group::helm template $*"
+            helm template test charts/perf-sentinel/ "$@" \
+              | kubeconform -strict -summary -ignore-missing-schemas
+            echo "::endgroup::"
+          }
+          render -f examples/helm/values-perf-sentinel.yaml
+          for overlay in examples/helm/values-green-*.yaml; do
+            render -f examples/helm/values-perf-sentinel.yaml -f "$overlay"
+          done
 
   # Guards against chart edits that forget to bump Chart.yaml:version.
   # Skipped automatically when the PR does not touch the chart, or only
@@ -189,6 +202,37 @@ jobs:
 
       - name: Run self-test harness
         run: scripts/test/chart-render-guards-test.sh
+
+  # kubeconform above proves the rendered manifests are valid Kubernetes. It
+  # says nothing about whether the daemon accepts the TOML inside them: a
+  # fragment missing a required key renders fine, mounts fine, and
+  # CrashLoopBackOffs on an image with no shell to read the error in. So load
+  # every published example with a real binary, through the exact symlink
+  # layout kubelet projects for a ConfigMap directory.
+  examples-load:
+    name: Example values boot-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          rustflags: ""
+          cache-key: examples-load
+
+      # Debug, not release: this only exercises config loading, and the
+      # examples are checked for what the daemon accepts, not how fast.
+      - name: Build the binary
+        run: cargo build --bin perf-sentinel
+
+      - name: Load every example
+        run: scripts/test/examples-helm-load-test.sh
 
   # Misconfiguration scan of the rendered manifests. helm lint and kubeconform
   # above cover style and schema, this covers Kubernetes security posture
