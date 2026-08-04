@@ -716,39 +716,59 @@ mod grpc_compression_tests {
     use opentelemetry_proto::tonic::collector::trace::v1::trace_service_client::TraceServiceClient;
     use tonic::codec::CompressionEncoding;
 
-    /// One SQL CLIENT span, the shape an OTLP exporter puts on the wire.
-    const SAMPLE: &str = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc"}}]},"scopeSpans":[{"spans":[{"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{"key":"db.statement","value":{"stringValue":"SELECT 1"}},{"key":"db.system","value":{"stringValue":"postgresql"}}]}]}]}]}"#;
+    use crate::ingest::otlp::SAMPLE_EXPORT_JSON;
+
+    /// Fail loudly instead of hanging a CI run when a step never completes.
+    async fn within<T>(label: &str, f: impl Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(10), f)
+            .await
+            .unwrap_or_else(|_| panic!("listener test step timed out: {label}"))
+    }
+
+    /// Bind a listener on an ephemeral port and connect a client that sends
+    /// under `encoding`. Returns the client and the ingest receiver.
+    async fn client_and_ingest(
+        encoding: CompressionEncoding,
+        max_payload: usize,
+    ) -> (
+        TraceServiceClient<tonic::transport::Channel>,
+        mpsc::Receiver<Vec<SpanEvent>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = mpsc::channel(4);
+        let server = spawn_grpc_listener(
+            listener,
+            addr,
+            None,
+            tx,
+            max_payload,
+            Arc::new(MetricsState::new()),
+        );
+        let client = within(
+            "connect",
+            TraceServiceClient::connect(format!("http://{addr}")),
+        )
+        .await
+        .expect("gRPC client connects to the listener")
+        .send_compressed(encoding);
+        (client, rx, server)
+    }
 
     /// A compressed export must be decoded, not answered with the
     /// non-retryable Unimplemented tonic returns when no encoding is
     /// accepted. The Collector's OTLP exporter gzips by default, so this
     /// is the nominal path, not an exotic one.
     async fn export_compressed(encoding: CompressionEncoding) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (tx, mut rx) = mpsc::channel(4);
-        let server = spawn_grpc_listener(
-            listener,
-            addr,
-            None,
-            tx,
-            1024 * 1024,
-            Arc::new(MetricsState::new()),
-        );
-
-        let request: ExportTraceServiceRequest = serde_json::from_str(SAMPLE).unwrap();
-        let mut client = TraceServiceClient::connect(format!("http://{addr}"))
-            .await
-            .expect("gRPC client connects to the listener")
-            .send_compressed(encoding);
-        client
-            .export(request)
+        let (mut client, mut rx, server) = client_and_ingest(encoding, 1024 * 1024).await;
+        let request: ExportTraceServiceRequest = serde_json::from_str(SAMPLE_EXPORT_JSON).unwrap();
+        within("export", client.export(request))
             .await
             .expect("a compressed export must be accepted");
 
-        let events = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+        let events = within("ingest", rx.recv())
             .await
-            .expect("the span must reach the pipeline before the timeout")
             .expect("the ingest channel stays open");
         assert_eq!(events.len(), 1, "one SQL span in, one event out");
         server.abort();
@@ -762,6 +782,49 @@ mod grpc_compression_tests {
     #[tokio::test]
     async fn grpc_listener_accepts_deflate_compressed_export() {
         export_compressed(CompressionEncoding::Deflate).await;
+    }
+
+    /// `max_payload_size` must cap the message after decompression, which is
+    /// what keeps a compression bomb from expanding inside the daemon. Only
+    /// tonic's internals enforce it, so pin the behavior rather than the
+    /// comment: a few KB on the wire that inflate past the cap are refused.
+    #[tokio::test]
+    async fn grpc_listener_caps_the_decompressed_size_not_the_wire_size() {
+        const CAP: usize = 64 * 1024;
+        let (mut client, _rx, server) = client_and_ingest(CompressionEncoding::Gzip, CAP).await;
+
+        // Copies of the same span: highly compressible, so the frame stays far
+        // under CAP while the decoded message runs past it.
+        let one: ExportTraceServiceRequest = serde_json::from_str(SAMPLE_EXPORT_JSON).unwrap();
+        let mut request = one.clone();
+        request.resource_spans = std::iter::repeat_n(one.resource_spans, 2000)
+            .flatten()
+            .collect();
+        // Both halves matter: over the cap decoded, under it on the wire.
+        // Without the second one the refusal could come from the frame-length
+        // check that runs before decompression, and the test would pass while
+        // proving nothing about the decompressed bound.
+        let encoded = <ExportTraceServiceRequest as prost::Message>::encode_to_vec(&request);
+        assert!(
+            encoded.len() > CAP,
+            "the decoded message must exceed the cap"
+        );
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, &encoded).unwrap();
+        assert!(
+            gz.finish().unwrap().len() < CAP,
+            "the compressed frame must stay under the cap"
+        );
+
+        let status = within("export", client.export(request))
+            .await
+            .expect_err("a message over the cap must be refused after decompression");
+        assert_eq!(
+            status.code(),
+            tonic::Code::ResourceExhausted,
+            "expected the decode size limit, got: {status:?}"
+        );
+        server.abort();
     }
 }
 
