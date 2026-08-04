@@ -147,9 +147,24 @@ Names are enforced at render time because the daemon enforces them at startup:
 share an `NN`. A pod failing those rules crashes on boot, and the image is
 `FROM scratch`, so there is no shell to go read the error in.
 
-`scripts/test/examples-helm-load-test.sh` renders every file in this directory,
-projects it the way kubelet does and loads it with a real binary. Run it after
-editing an example: a values file that renders is not a config that boots.
+### Keeping the overlays in step with `examples/`
+
+Each `values-green-*.yaml` mirrors the `examples/NN-*.toml` of the same name
+field for field, comments and defaults included. Values are allowed to differ,
+and have to: `localhost` becomes in-cluster DNS. Three fields are deliberately
+absent from every overlay, and each says so in its header:
+
+- `[green] enabled` and `default_region` live in the base `config.toml`, which
+  is merged *after* the fragment, so a copy here would be silently overridden.
+- `api_key` (Electricity Maps) goes through a Secret, since a fragment renders
+  into a ConfigMap readable by anyone holding `get` on the namespace.
+
+`scripts/test/examples-helm-load-test.sh` enforces both halves: it renders every
+file in this directory, projects it the way kubelet does and loads it with a
+real binary, then checks that no overlay has dropped a field its `.toml` still
+carries. Run it after editing either side. A values file that renders is not a
+config that boots, and an overlay that boots is not one that still matches its
+fragment.
 
 ## Adjusting to your topology
 
