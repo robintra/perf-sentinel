@@ -183,6 +183,23 @@ https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/
 The baseline is refreshed on every push to `main`, so the Diff tab
 always compares the PR's traces against the latest merged state.
 
+That is also why the baseline workflow ends on `analyze --ci`, after
+the publish rather than before it. The Diff answers "what did this PR
+change", so a finding present on both sides sits in neither column and
+no PR is ever blamed for a regression it inherited. The quality gate
+answers a different question, "is this state acceptable", on absolute
+thresholds and with no baseline at all. A regression merged into the
+default branch is therefore invisible on the Diff and fails the gate of
+the next unrelated PR whose integration tests happen to exercise the
+same endpoint. Gating the merged state moves that alarm back to the
+merge that caused it. Publishing first is deliberate: a red default
+branch must still refresh the baseline, otherwise every PR that follows
+loses its Diff tab on top of being blocked. While a known trunk finding
+is being fixed, acknowledge it in
+`.perf-sentinel-acknowledgments.toml` with an `expires_at`, which
+unblocks the queue without touching a threshold. See
+[ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
+
 If GitHub Pages is not enabled, the template falls back to the
 markdown-only sticky comment. No behaviour change for existing
 adopters.

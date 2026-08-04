@@ -121,3 +121,22 @@ jobs:
               git push
             }
           fi
+
+      # Last step on purpose: the baseline is published above whatever the
+      # gate says, otherwise a red trunk would strip the Diff tab from every
+      # PR that follows. Running the gate here is what keeps a regression
+      # from being merged silently and then failing the pipeline of the next
+      # unrelated PR that happens to exercise the same endpoint.
+      #
+      # `analyze` re-reads the same trace file rather than re-running the
+      # suite, so this costs one process, not a second integration run.
+      # Acknowledge a known trunk finding in
+      # `.perf-sentinel-acknowledgments.toml` with an `expires_at` rather
+      # than loosening a threshold.
+      - name: Quality gate on the merged state
+        run: |
+          set -euo pipefail
+          perf-sentinel analyze \
+            --input "${PERF_SENTINEL_TRACES}" \
+            --config "${PERF_SENTINEL_CONFIG}" \
+            --ci
