@@ -1,4 +1,5 @@
 {{- $fragments := .Values.config.fragments }}
+{{- $persist := eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
 {{- if $fragments }}
 
 {{- /* The daemon reads .perf-sentinel.d/ with `read_dir` and hard-fails on the
@@ -20,25 +21,52 @@
 {{- $_ := set $seen $priority $name }}
 
 {{- /* Fragments load before config.toml, so anything they set that config.toml
-       does not restate wins. Four families of keys are cross-checked against
+       does not restate wins. Three families of keys are cross-checked against
        the rest of the release in configmap.yaml (Service ports, probes, the
        PVC-backed ack and archive paths) and that check only reads config.toml.
        Allowing them here would let a fragment silently move the bind port away
        from the Service, or reopen a table the chart is about to append to.
-       Keep those in config.toml, where the guards can see them. */}}
-{{- if regexMatch "(?m)^[ \t]*(daemon\\.)?listen_port_(http|grpc)[ \t]*=" $content }}
-{{- fail (printf "configmap-fragments.yaml: fragment %s sets a listen_port_* key. The chart cross-checks the bind ports against service.ports.* and the probes, and that check reads config.toml only, so a port set here would move the daemon away from where the Service routes. Set it under config.toml." $name) }}
+
+       Matching them means reading TOML with a regex, which is only safe if the
+       several spellings TOML allows are folded into one first. Comments go
+       (a key named in prose is not a key), header whitespace goes (`[ green ]`
+       is `[green]`), and quotes around key names go (`"listen_port_http"` is
+       `listen_port_http`). Dropping every quote also mangles string values,
+       which is harmless: nothing below matches on a value. Stripping `#`
+       inside a quoted string truncates that line early, which can only lose a
+       match, never invent one, and no reserved key is reachable past a `#` in
+       a value. */}}
+{{- $probe := regexReplaceAll "(?m)#.*$" $content "" }}
+{{- $probe = regexReplaceAll "\\[[ \t]+" $probe "[" }}
+{{- $probe = regexReplaceAll "[ \t]+\\]" $probe "]" }}
+{{- $probe = regexReplaceAll "\"" $probe "" }}
+
+{{- /* No spelling of a bind port is legitimate in a fragment, so match the key
+       anywhere rather than enumerating line, dotted and inline-table forms. */}}
+{{- if regexMatch "listen_port_(http|grpc)" $probe }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s sets a listen_port_* key. The chart cross-checks the bind ports against service.ports.* and the probes, and that check reads config.toml only, so a port set here would move the daemon away from where the Service routes and the probes would fail. Set it under config.toml." $name) }}
 {{- end }}
-{{- if regexMatch "(?m)^[ \t]*(\\[daemon\\.(ack|archive)\\]|(daemon\\.)?(ack|archive)([\\. \t]|[ \t]*=))" $content }}
-{{- fail (printf "configmap-fragments.yaml: fragment %s declares [daemon.ack] or [daemon.archive]. With persistence enabled the chart appends both tables to config.toml, and TOML rejects a table defined twice. Set them under config.toml, or turn workload.statefulset.persistence.manageDaemonPaths off and own both paths there." $name) }}
+
+{{- /* Only a problem when the chart writes those tables itself. Without
+       persistence, or with manageDaemonPaths off, the operator owns them and a
+       fragment is a fine place to put them, so the guard would be refusing
+       valid input and pointing at a flag that changes nothing. */}}
+{{- if and $persist $.Values.workload.statefulset.persistence.manageDaemonPaths }}
+{{- if or (regexMatch "(?m)^[ \t]*(\\[daemon\\.(ack|archive)\\]|(daemon\\.)?(ack|archive)([\\. \t]|[ \t]*=))" $probe) (regexMatch "daemon[ \t]*=[ \t]*\\{[^}]*(ack|archive)" $probe) }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s declares [daemon.ack] or [daemon.archive], and persistence has the chart appending both tables to config.toml. TOML rejects a table defined twice. Set workload.statefulset.persistence.manageDaemonPaths=false and own both paths yourself, or move them to config.toml." $name) }}
 {{- end }}
-{{- range regexSplit "(?m)^[ \t]*\\[" $content -1 }}
+{{- end }}
+
+{{- /* Green scoring off decides whether configmap.yaml appends an archive, and
+       it reads config.toml alone. All three spellings, since the daemon
+       refuses to start on archive-plus-green-off whichever one is used. */}}
+{{- range regexSplit "(?m)^[ \t]*\\[" $probe -1 }}
 {{- if and (hasPrefix "green]" .) (regexMatch "(?m)^[ \t]*enabled[ \t]*=[ \t]*false" .) }}
 {{- fail (printf "configmap-fragments.yaml: fragment %s sets [green] enabled = false. The chart decides whether to append [daemon.archive] from config.toml alone, and the daemon refuses an archive with green scoring off. Set it under config.toml." $name) }}
 {{- end }}
 {{- end }}
-{{- if regexMatch "(?m)^[ \t]*green\\.enabled[ \t]*=[ \t]*false" $content }}
-{{- fail (printf "configmap-fragments.yaml: fragment %s sets green.enabled = false. Same reason as the table spelling: set it under config.toml." $name) }}
+{{- if or (regexMatch "(?m)^[ \t]*green\\.enabled[ \t]*=[ \t]*false" $probe) (regexMatch "green[ \t]*=[ \t]*\\{[^}]*enabled[ \t]*=[ \t]*false" $probe) }}
+{{- fail (printf "configmap-fragments.yaml: fragment %s turns [green] enabled off through a dotted key or an inline table. Same reason as the table spelling: set it under config.toml." $name) }}
 {{- end }}
 {{- end }}
 apiVersion: v1

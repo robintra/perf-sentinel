@@ -79,10 +79,14 @@ unset, so a release that never used fragments keeps a stable hash.
 */}}
 {{- define "perf-sentinel.configChecksum" -}}
 {{- $cm := include (print $.Template.BasePath "/configmap.yaml") . -}}
-{{- /* Trimmed, not appended raw: the fragments template still emits its
-       trailing newline when it renders nothing, and concatenating that would
-       move the checksum on a release that uses no fragments, rolling every
-       pod on upgrade for a config that did not change. */}}
+{{- /* Trimmed, not appended raw: the fragments template still emits a trailing
+       newline when it renders nothing, and folding that in would change the
+       hash of a release that declares no fragments. This does not save an
+       upgrade from rolling, the hashed ConfigMap carries the helm.sh/chart
+       label so every chart bump moves the checksum anyway. What it buys is a
+       readable diff: at equal chart version, adding this feature leaves the
+       rendered manifest byte-identical, which is how the no-fragments path was
+       shown to be untouched. */}}
 {{- $frag := include (print $.Template.BasePath "/configmap-fragments.yaml") . | trim -}}
 {{- printf "%s%s" $cm $frag | sha256sum -}}
 {{- end -}}
@@ -125,11 +129,16 @@ within the DNS-1123 label limit even for long release names.
 
 {{/*
 Name of the fragments ConfigMap, mounted as a directory at
-/etc/perf-sentinel/.perf-sentinel.d/. Truncated at 54 before the suffix so
-the whole name still fits the 63-char DNS-1123 label limit.
+/etc/perf-sentinel/.perf-sentinel.d/.
+
+63 minus len("-fragments"), so the suffix always survives: suffixing before
+truncating would drop it on a long release name and hand this ConfigMap the
+same name as the config one. 53 is also exactly Helm's own cap on release
+names, so two distinct releases always differ within the kept prefix and
+cannot share a fragments ConfigMap to overwrite each other through.
 */}}
 {{- define "perf-sentinel.fragmentsConfigMapName" -}}
-{{- printf "%s-fragments" (include "perf-sentinel.fullname" . | trunc 52 | trimSuffix "-") -}}
+{{- printf "%s-fragments" (include "perf-sentinel.fullname" . | trunc 53 | trimSuffix "-") -}}
 {{- end -}}
 
 
@@ -196,9 +205,14 @@ containers:
         subPath: perf-sentinel.toml
         readOnly: true
       {{- if .Values.config.fragments }}
-      {{- /* Mounted as a whole directory, not per-key subPaths, so that a
-             `helm upgrade` adding or removing a fragment reaches a running
-             pod. The daemon skips the `..data` symlink and the timestamped
+      {{- /* Mounted as a whole directory, not per-key subPaths. A subPath mount
+             is resolved once at start and never refreshed, so adding a
+             fragment would leave the file invisible until the pod is deleted
+             by hand; the directory form is at least consistent with what the
+             ConfigMap holds. The daemon reads its config once at startup
+             either way, so the reload still comes from the pod roll that
+             checksum/config triggers, not from kubelet refreshing the files.
+             The daemon skips the `..data` symlink and the timestamped
              directory kubelet projects here: both fail its `.toml` extension
              filter before the name is ever parsed. */}}
       - name: config-fragments
