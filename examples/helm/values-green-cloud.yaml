@@ -1,49 +1,63 @@
-# Modelled energy for cloud VMs. Kubernetes port of
-# examples/31-green-cloud.toml.
+# Modelled energy for cloud VMs, which expose no RAPL and therefore cannot be
+# measured by Alumet, Kepler or Scaphandre.
+# Kubernetes port of examples/31-green-cloud.toml.
 #
 # Stack on the base values, never alone:
 #   helm install perf-sentinel ../../charts/perf-sentinel \
 #     --namespace observability \
 #     -f values-perf-sentinel.yaml -f values-green-cloud.yaml
 #
-# This is the backend for managed node pools, which expose no RAPL and
-# therefore cannot be measured by Alumet, Kepler or Scaphandre. It reads CPU
-# utilization from a Prometheus you already run (cloudwatch_exporter, GCP
-# monitoring, Azure exporter) and applies the embedded SPECpower table. The
-# model tag is `cloud_specpower`, one rung below the measured backends: an
-# estimate, not a measurement, and the disclosure says so.
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
+#
+# This reads CPU utilization from a Prometheus you already run
+# (cloudwatch_exporter, GCP monitoring, Azure exporter) and applies the
+# embedded SPECpower table. The model tag is `cloud_specpower`, one rung below
+# the measured backends: it is an estimate, not a measurement, and the
+# disclosure says so.
+#
+# Two deliberate differences from the .toml, both forced by the cluster:
+#   - `prometheus_endpoint` uses in-cluster DNS, since it resolves from the
+#     perf-sentinel pod. Name the Prometheus holding your cloud exporter
+#     series, which is often not the one scraping perf-sentinel itself.
+#   - `[green] enabled` and `default_region` are not repeated here. The base
+#     values already set them in config.toml, which is merged after this
+#     fragment and would win anyway.
 
 config:
   fragments:
     31-green-cloud.toml: |
       [green.cloud]
-      # In-cluster DNS, not localhost: this resolves from the perf-sentinel
-      # pod. Name the Prometheus that holds your cloud exporter series, which
-      # is often not the one scraping perf-sentinel itself.
-      prometheus_endpoint = "http://prometheus-server.monitoring.svc:9090"
-      scrape_interval_secs = 15
-      # Fallbacks for any service not named below.
-      #   provider: "aws", "gcp" or "azure". Anything else is rejected at
-      #     startup.
-      #   instance_type: looked up in the embedded SPECpower table. An unknown
-      #     one warns at startup and coarsens to a provider average rather than
-      #     failing, and that warning is how you check yours. Full list:
+      prometheus_endpoint = "http://prometheus-server.monitoring.svc:9090"   # no default, required
+      scrape_interval_secs = 15   # default 15
+      # Fallbacks for any service below that names neither.
+      #   provider: "aws", "gcp" or "azure". Any other value is rejected at startup.
+      #   instance_type: looked up in the embedded SPECpower table. An unknown one
+      #     warns at startup and falls back to a provider average, the figure just
+      #     gets coarser, and that warning is how you check yours. Full list:
       #     https://github.com/robintra/perf-sentinel/blob/main/docs/INSTANCE-TYPES.md
       default_provider = "aws"
       default_instance_type = "c5.4xlarge"
-      # Omit cpu_metric and the query is derived from the provider. Set it only
-      # when your exporter names the series differently.
-      # cpu_metric = "aws_ec2_cpuutilization_average"
+      # Omit `cpu_metric` and the query is derived from the provider:
+      # aws_ec2_cpuutilization_average, the GCP instance/cpu/utilization series, or
+      # azure_compute_virtualmachines_percentage_cpu_average. Set it only when your
+      # exporter names the series differently.
+      # cpu_metric = "aws_ec2_cpuutilization_average"   # default unset
+      # Credentials belong in PERF_SENTINEL_CLOUD_AUTH_HEADER rather than here,
+      # it takes precedence over this file.
 
-      # Per service, either an instance type from the SPECpower table, or the
-      # two watt figures when your hardware is not in it. The second form is
-      # exact rather than approximated, use it for on-prem nodes.
+      # Per service, either an instance type looked up in the embedded SPECpower
+      # table, or the two watt figures when your hardware is not in it. Use the
+      # second form for on-prem or for a machine the table does not cover, it is
+      # exact rather than approximated.
       [green.cloud.services]
-      "order-svc" = { provider = "aws", instance_type = "m7i.4xlarge" }
-      "payment-svc" = { provider = "aws", instance_type = "c5.4xlarge" }
-      "chat-svc" = { idle_watts = 45.0, max_watts = 120.0 }
+      "api-us" = { provider = "aws", instance_type = "m7i.4xlarge" }
+      "api-asia" = { provider = "gcp", instance_type = "c4d-standard-8" }
+      "analytics" = { provider = "azure", instance_type = "Standard_D8s_v6" }
+      "on-prem-box" = { idle_watts = 45.0, max_watts = 120.0 }
 
-# Credentials, when Prometheus is behind auth. Create the Secret first:
+# Credentials, when Prometheus sits behind auth. Create the Secret first:
 #   kubectl -n observability create secret generic perf-sentinel-secrets \
 #     --from-literal=PERF_SENTINEL_CLOUD_AUTH_HEADER='Authorization: Bearer ...'
 #

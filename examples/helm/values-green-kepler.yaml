@@ -1,10 +1,14 @@
-# Measured container energy from Kepler v0.10+. Kubernetes port of
-# examples/33-green-kepler.toml.
+# Measured container or process energy from one Kepler v0.10+ /metrics endpoint.
+# Kubernetes port of examples/33-green-kepler.toml.
 #
 # Stack on the base values, never alone:
 #   helm install perf-sentinel ../../charts/perf-sentinel \
 #     --namespace observability \
 #     -f values-perf-sentinel.yaml -f values-green-kepler.yaml
+#
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
 #
 # Kepler is the most Kubernetes-native of the measured backends: it already
 # ships as a DaemonSet and labels its metrics by container. On nodes without
@@ -15,27 +19,40 @@
 #   - Kepler installed, commonly in kube-system, with its /metrics Service.
 #   - The exporter reachable from the perf-sentinel pod. A NetworkPolicy that
 #     isolates kube-system needs an egress rule for this.
+#
+# One deliberate difference from the .toml: `[green] enabled` and
+# `default_region` are not repeated here. The base values already set them in
+# config.toml, which is merged after this fragment and would win anyway. The
+# endpoint needs no adjustment, the upstream example is already in-cluster.
 
 config:
   fragments:
     33-green-kepler.toml: |
       [green.kepler]
-      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
-      scrape_interval_secs = 5
-      # "container" reads container_name, "process" reads the 15-byte Linux
-      # comm. Keep "container" on Kubernetes: comm is truncated and shared
-      # across pods running the same runtime.
-      metric_kind = "container"
+      # Prometheus /metrics URL. No default, required to activate the scraper.
+      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"   # no default, required
+      scrape_interval_secs = 5   # default 5, bounds 1..3600
+      # "container" reads container_name. "process" reads the 15-byte Linux comm.
+      # Keep "container" on Kubernetes: comm is truncated and shared across pods
+      # running the same runtime.
+      metric_kind = "container"   # default "container", or "process"
+      # Credentials belong in PERF_SENTINEL_KEPLER_AUTH_HEADER, which wins over
+      # this optional field.
+      # auth_header = "Authorization: Bearer TOKEN"   # default unset
 
-      # Map each service to its container_name label. This is the container
-      # name from the pod spec, not the pod name and not the Deployment name:
+      # Default empty. Map each service to its container_name or comm label.
+      # container_name is the container name from the pod spec, not the pod name
+      # and not the Deployment name:
       #   kubectl -n kube-system exec ds/kepler -- \
       #     curl -s localhost:9102/metrics | grep container_name
       [green.kepler.service_mappings]
-      "order-svc" = "order-svc"
-      "payment-svc" = "payment-svc"
+      "order-svc" = "order-svc-deployment"
+      "chat-svc" = "chat"
 
-# Credentials, when the exporter is behind auth. Create the Secret first:
+# Credentials, when the exporter sits behind auth. The env var wins over the
+# `auth_header` field above, which is deliberately left commented: a fragment
+# renders into a ConfigMap, readable by anyone holding `get` on the namespace.
+# Create the Secret first:
 #   kubectl -n observability create secret generic perf-sentinel-secrets \
 #     --from-literal=PERF_SENTINEL_KEPLER_AUTH_HEADER='Authorization: Bearer ...'
 #

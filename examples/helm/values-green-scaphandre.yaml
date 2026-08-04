@@ -1,13 +1,19 @@
-# Measured per-process energy from Scaphandre. Kubernetes port of
-# examples/32-green-scaphandre.toml.
+# Measured per-process energy from Scaphandre on Linux nodes with Intel RAPL.
+# Kubernetes port of examples/32-green-scaphandre.toml.
 #
 # Stack on the base values, never alone:
 #   helm install perf-sentinel ../../charts/perf-sentinel \
 #     --namespace observability \
 #     -f values-perf-sentinel.yaml -f values-green-scaphandre.yaml
 #
-# Prefer Alumet for new deployments, this backend is kept for hosts already
-# running Scaphandre.
+# Everything not listed here keeps its default. Full key list, defaults and
+# ranges: examples/perf-sentinel.toml, or
+# https://perf-sentinel.dev/docs/CONFIGURATION
+#
+# Prefer Alumet for new deployments: both read the same RAPL counters, but
+# Alumet attributes per cgroup rather than per process, and `alumet_rapl`
+# outranks `scaphandre_rapl` whenever both feed the same service. This backend
+# is kept for nodes already running Scaphandre.
 #
 # Prerequisites:
 #   - Scaphandre as a DaemonSet with the prometheus exporter, fronted by a
@@ -16,29 +22,41 @@
 #     pools: use values-green-cloud.yaml there.
 #   - Scaphandre needs /proc and /sys/class/powercap from the host, so its own
 #     pod runs privileged. That is a property of Scaphandre, not of this chart.
+#
+# Two deliberate differences from the .toml, both forced by the cluster:
+#   - `endpoint` uses in-cluster DNS instead of localhost, since it resolves
+#     from the perf-sentinel pod rather than from a shared host.
+#   - `[green] enabled` and `default_region` are not repeated here. The base
+#     values already set them in config.toml, which is merged after this
+#     fragment and would win anyway.
 
 config:
   fragments:
     32-green-scaphandre.toml: |
       [green.scaphandre]
-      # In-cluster DNS. The upstream example says localhost because it assumes
-      # one host; from a pod that would resolve to perf-sentinel itself.
-      endpoint = "http://scaphandre.observability.svc:8080/metrics"
-      scrape_interval_secs = 5
+      # Prometheus /metrics URL. No default, required to activate the scraper.
+      endpoint = "http://scaphandre.observability.svc:8080/metrics"   # no default, required
+      scrape_interval_secs = 5   # default 5, bounds 1..3600
+      # Credentials belong in PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER, which wins over
+      # this optional field.
+      # auth_header = "Authorization: Bearer TOKEN"   # default unset
 
-      # Map each service to exactly one Scaphandre process. The matchers run
-      # against the process exe path and cmdline as the node sees them, so a
-      # containerized JVM still shows up as bin/java: narrow with
+      # Default empty. Map each service to exactly one Scaphandre process. The
+      # matchers run against the process exe path and cmdline as the node sees
+      # them, so a containerized JVM still shows up as bin/java: narrow with
       # cmdline_contains whenever several services share a runtime.
       [green.scaphandre.process_map."order-svc"]
-      exe_contains = "bin/java"
-      cmdline_contains = "order-svc.jar"
+      exe_contains = "bin/java"             # no default, required
+      cmdline_contains = "order-svc.jar"    # default unset, narrows shared runtimes
 
-      [green.scaphandre.process_map."payment-svc"]
-      exe_contains = "bin/java"
-      cmdline_contains = "payment-svc.jar"
+      # A compiled binary needs no narrowing: its exe path is already unique.
+      [green.scaphandre.process_map."native-svc"]
+      exe_contains = "/opt/native-svc/bin/native-svc"   # no default, required
 
-# Credentials, when the exporter is behind auth. Create the Secret first:
+# Credentials, when the exporter sits behind auth. The env var wins over the
+# `auth_header` field above, which is deliberately left commented: a fragment
+# renders into a ConfigMap, readable by anyone holding `get` on the namespace.
+# Create the Secret first:
 #   kubectl -n observability create secret generic perf-sentinel-secrets \
 #     --from-literal=PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER='Authorization: Bearer ...'
 #
