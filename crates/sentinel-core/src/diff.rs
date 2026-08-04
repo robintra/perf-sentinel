@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::detect::{Finding, FindingType, Severity};
-use crate::report::{PerEndpointIoOps, Report};
+use crate::report::{PerEndpointIoOps, Report, Warning};
 
 /// Stable identity tuple for matching findings between two runs.
 ///
@@ -53,6 +53,11 @@ pub struct DiffReport {
     /// Per-endpoint I/O op deltas. Ordered with the largest regressions
     /// first (most positive delta), then improvements last.
     pub endpoint_metric_deltas: Vec<EndpointDelta>,
+    /// Warnings carried over from the `after` run (e.g.
+    /// `unmatched_acknowledgment`), so a diff-only CI surface does not
+    /// drop them. Additive, absent when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warning_details: Vec<Warning>,
 }
 
 /// A finding whose worst severity changed between the two runs.
@@ -148,6 +153,7 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
         resolved_findings,
         severity_changes,
         endpoint_metric_deltas,
+        warning_details: after.warning_details.clone(),
     }
 }
 
@@ -336,6 +342,23 @@ mod tests {
             endpoint: ep.to_string(),
             io_ops: ops,
         }
+    }
+
+    /// The after run's warnings (e.g. `unmatched_acknowledgment`) must
+    /// survive into the diff, which is the only output a diff-only CI
+    /// surface reads. The before run's warnings describe the baseline
+    /// and stay out.
+    #[test]
+    fn diff_carries_the_after_runs_warnings() {
+        let mut before = make_report(vec![], vec![]);
+        before.warning_details = vec![Warning::new("cold_start", "stale baseline warning")];
+        let mut after = make_report(vec![], vec![]);
+        after.warning_details = vec![Warning::new(
+            "unmatched_acknowledgment",
+            "acknowledgment deadbeef matched no finding in this run",
+        )];
+        let diff = diff_runs(&before, &after);
+        assert_eq!(diff.warning_details, after.warning_details);
     }
 
     #[test]

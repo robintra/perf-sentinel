@@ -33,6 +33,16 @@ use crate::report::{AcknowledgedFinding, Report, Warning, warnings};
 /// silently exhaust process memory.
 pub const MAX_ACKNOWLEDGMENTS_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Where the report handed to [`apply_to_report`] comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportOrigin {
+    /// Traces analyzed by this process, findings unfiltered.
+    FreshAnalysis,
+    /// A parsed Report JSON (baseline file, daemon snapshot), possibly
+    /// already ack-filtered and with foreign or absent I/O op counts.
+    Precomputed,
+}
+
 /// A single acknowledgment entry deserialized from the TOML file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Acknowledgment {
@@ -212,11 +222,18 @@ pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, Acknowledgment
 ///
 /// Acks with an `expires_at` strictly before `now` are treated as inactive
 /// and the corresponding finding is preserved in `report.findings`.
+///
+/// `origin` gates the unmatched-ack warnings: they are only derivable
+/// from a fresh analysis. A pre-computed report may already be
+/// ack-filtered, so an entry matching nothing there means "consumed on
+/// the previous pass", not "fixed", and its `per_endpoint_io_ops` (empty
+/// on daemon snapshots) describes another run entirely.
 pub fn apply_to_report(
     report: &mut Report,
     acks: &AcknowledgmentsFile,
     config: &Config,
     now: DateTime<Utc>,
+    origin: ReportOrigin,
 ) {
     // Drop any prior ack pairs from the source Report. The caller may
     // have loaded a baseline that already carried `acknowledged_findings`
@@ -260,26 +277,29 @@ pub fn apply_to_report(
 
         // An ack that suppressed nothing is the "maybe fixed" signal.
         // Sorted so two runs of the same report stay diffable.
-        let mut unmatched: Vec<&Acknowledgment> = active
-            .values()
-            .filter(|a| !matched.contains(a.signature.as_str()))
-            .copied()
-            .collect();
-        unmatched.sort_unstable_by(|a, b| a.signature.cmp(&b.signature));
-        let observed: HashSet<(&str, &str)> = report
-            .per_endpoint_io_ops
-            .iter()
-            .map(|e| (e.service.as_str(), e.endpoint.as_str()))
-            .collect();
-        let messages: Vec<String> = unmatched
-            .iter()
-            .map(|ack| unmatched_message(ack, &observed))
-            .collect();
-        report.warning_details.extend(
-            messages
+        if origin == ReportOrigin::FreshAnalysis {
+            let mut unmatched: Vec<&Acknowledgment> = active
+                .values()
+                .filter(|a| !matched.contains(a.signature.as_str()))
+                .copied()
+                .collect();
+            unmatched.sort_unstable_by(|a, b| a.signature.cmp(&b.signature));
+            let observed: HashSet<(&str, &str)> = report
+                .per_endpoint_io_ops
                 .iter()
-                .map(|m| Warning::from_untrusted(warnings::UNMATCHED_ACKNOWLEDGMENT, m)),
-        );
+                .map(|e| (e.service.as_str(), e.endpoint.as_str()))
+                .collect();
+            let new_warnings: Vec<Warning> = unmatched
+                .iter()
+                .map(|ack| {
+                    Warning::from_untrusted(
+                        warnings::UNMATCHED_ACKNOWLEDGMENT,
+                        &unmatched_message(ack, &observed),
+                    )
+                })
+                .collect();
+            report.warning_details.extend(new_warnings);
+        }
     }
 
     report.quality_gate =
@@ -288,9 +308,11 @@ pub fn apply_to_report(
 
 /// Message for an active ack that suppressed nothing. When the entry
 /// names its service and endpoint, the run's per-endpoint I/O ops say
-/// whether that endpoint was exercised, which splits "fixed" from
-/// "scenario did not run". Entries without the fields keep the
-/// indeterminate double reading.
+/// whether that endpoint did I/O, which splits "fixed" from "scenario
+/// did not run". The counts only hold endpoints that emitted I/O spans,
+/// so absence stays ambiguous (not exercised, or a fix that removed the
+/// I/O outright) and the message says so. Entries without the fields
+/// keep the indeterminate double reading.
 fn unmatched_message(ack: &Acknowledgment, observed: &HashSet<(&str, &str)>) -> String {
     let sig = &ack.signature;
     match (&ack.service, &ack.source_endpoint) {
@@ -304,8 +326,9 @@ fn unmatched_message(ack: &Acknowledgment, observed: &HashSet<(&str, &str)>) -> 
             } else {
                 format!(
                     "acknowledgment {sig} matched no finding in this run: \
-                     {service} {endpoint} was not exercised, so this proves \
-                     nothing, keep the entry"
+                     {service} {endpoint} emitted no I/O in this run (not \
+                     exercised, or its I/O was removed outright), so this \
+                     proves nothing, keep the entry"
                 )
             }
         }
@@ -565,7 +588,13 @@ mod tests {
         });
         let acks = AcknowledgmentsFile::default();
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert!(
             report.acknowledged_findings.is_empty(),
             "stale ack pair must be cleared on entry"
@@ -673,7 +702,13 @@ expires_at = "not-a-date"
             acknowledged: vec![ack(&target_sig, None)],
         };
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert_eq!(report.findings.len(), 2);
         assert_eq!(report.acknowledged_findings.len(), 1);
         assert_eq!(
@@ -694,7 +729,13 @@ expires_at = "not-a-date"
             )],
         };
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert_eq!(report.findings.len(), 1);
         assert!(report.acknowledged_findings.is_empty());
     }
@@ -709,7 +750,13 @@ expires_at = "not-a-date"
             acknowledged: vec![ack(&target_sig, Some("2020-01-01"))],
         };
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert_eq!(report.findings.len(), 1);
         assert!(report.acknowledged_findings.is_empty());
     }
@@ -724,7 +771,13 @@ expires_at = "not-a-date"
         let acks = AcknowledgmentsFile {
             acknowledged: vec![ack("deadbeef", None)],
         };
-        apply_to_report(&mut report, &acks, &Config::default(), now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
 
         assert_eq!(report.findings.len(), 1, "the unrelated finding survives");
         let unmatched: Vec<&Warning> = report
@@ -737,6 +790,41 @@ expires_at = "not-a-date"
             unmatched[0].message.contains("deadbeef"),
             "the warning must name the entry to remove, got: {}",
             unmatched[0].message
+        );
+    }
+
+    /// A pre-computed report may already be ack-filtered and its I/O op
+    /// counts describe another run, so no unmatched warning may be derived
+    /// from it, not even the indeterminate one.
+    #[test]
+    fn apply_to_report_precomputed_origin_emits_no_unmatched_warning() {
+        let mut report = empty_report(vec![]);
+        report.per_endpoint_io_ops = vec![crate::report::PerEndpointIoOps {
+            service: "order-service".to_string(),
+            endpoint: "GET /api/orders".to_string(),
+            io_ops: 12,
+        }];
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![Acknowledgment {
+                service: Some("order-service".to_string()),
+                source_endpoint: Some("GET /api/orders".to_string()),
+                ..ack("deadbeef", None)
+            }],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::Precomputed,
+        );
+        assert!(
+            !report
+                .warning_details
+                .iter()
+                .any(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT),
+            "a precomputed report must not claim anything, got: {:?}",
+            report.warning_details
         );
     }
 
@@ -763,7 +851,13 @@ expires_at = "not-a-date"
                 located("bbbb-not-run", "GET /api/legacy/export"),
             ],
         };
-        apply_to_report(&mut report, &acks, &Config::default(), now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
 
         let messages: Vec<&str> = report
             .warning_details
@@ -798,7 +892,13 @@ expires_at = "not-a-date"
                 ack("expired-and-unmatched", Some("2020-01-01")),
             ],
         };
-        apply_to_report(&mut report, &acks, &Config::default(), now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
 
         assert_eq!(report.acknowledged_findings.len(), 1);
         assert!(
@@ -820,8 +920,20 @@ expires_at = "not-a-date"
             acknowledged: vec![ack("deadbeef", None)],
         };
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
 
         assert_eq!(
             report
@@ -843,7 +955,13 @@ expires_at = "not-a-date"
             acknowledged: vec![ack(&target_sig, Some("2030-01-01"))],
         };
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert!(report.findings.is_empty());
         assert_eq!(report.acknowledged_findings.len(), 1);
     }
@@ -858,7 +976,13 @@ expires_at = "not-a-date"
             acknowledged: vec![ack(&target_sig, None)],
         };
         let config = Config::default();
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert_eq!(report.acknowledged_findings.len(), 1);
     }
 
@@ -880,7 +1004,13 @@ expires_at = "not-a-date"
         let acks = AcknowledgmentsFile {
             acknowledged: vec![ack(&target_sig, None)],
         };
-        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(
+            &mut report,
+            &acks,
+            &config,
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
         assert!(
             report.quality_gate.passed,
             "gate must flip green after the offending finding is acked"

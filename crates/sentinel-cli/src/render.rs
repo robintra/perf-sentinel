@@ -975,6 +975,14 @@ fn write_diff_text(
     )?;
     writeln!(writer)?;
 
+    if !diff.warning_details.is_empty() {
+        writeln!(writer, "{bold}{yellow}Warnings (after run):{reset}")?;
+        for w in &diff.warning_details {
+            writeln!(writer, "  [{}] {}", w.kind, w.message)?;
+        }
+        writeln!(writer)?;
+    }
+
     write_new_findings_section(writer, &diff.new_findings, colors)?;
     write_resolved_findings_section(writer, &diff.resolved_findings, colors)?;
     write_severity_changes_section(writer, &diff.severity_changes, colors)?;
@@ -1275,6 +1283,7 @@ mod tests {
             resolved_findings: vec![],
             severity_changes: vec![],
             endpoint_metric_deltas: vec![],
+            warning_details: vec![],
         }
     }
 
@@ -1325,6 +1334,7 @@ mod tests {
             resolved_findings: vec![],
             severity_changes: vec![],
             endpoint_metric_deltas: vec![],
+            warning_details: vec![],
         }
     }
 
@@ -1501,6 +1511,7 @@ mod tests {
             resolved_findings: vec![sample_finding()],
             severity_changes: vec![],
             endpoint_metric_deltas: vec![],
+            warning_details: vec![],
         };
         let out = render_text(&diff);
         assert!(
