@@ -124,25 +124,19 @@ Trois findings produisent trois signatures différentes. Deux findings produits 
 
 ### Savoir quand retirer une entrée
 
-Un acquittement encore actif mais qui n'a rien supprimé est rapporté en warning, pour qu'une correction ne passe pas inaperçue et que le fichier ne pourrisse pas en silence :
+Une entrée active qui n'a rien supprimé dans un run est rapportée sous le kind stable `unmatched_acknowledgment`. Il apparaît dans la sortie CLI, dans `warning_details` du JSON, et dans la sortie de `diff` (côté after). C'est le seul signal "corrigé" fiable pour un problème acquitté : un finding acquitté est filtré des baselines CI, sa correction n'apparaît donc jamais en résolu dans un diff.
 
-```
-Warnings:
-  [unmatched_acknowledgment] acknowledgment 4f3c... matched no finding in this run:
-  the problem is either fixed, and the entry can be removed, or the scenario that
-  produced it did not run
-```
+Ce que dit le message dépend des champs optionnels `service` et `source_endpoint` de l'entrée :
 
-Le `kind` `unmatched_acknowledgment` est stable, donc alertable et agrégeable d'un run à l'autre, et il apparaît dans `warning_details` de la sortie JSON. C'est le signal qui répond à "la PR qui vient de passer sur ce code a-t-elle corrigé le problème qu'on avait accepté il y a six mois", ce qu'aucun diff contre une baseline ne peut dire de façon fiable : acquitter un finding le retire d'une baseline produite avec le filtrage actif, donc la vraie correction qui suit n'a plus rien à faire disparaître.
+| Entrée | Ce run | Message | Quoi faire |
+|---|---|---|---|
+| les deux champs remplis | endpoint avec I/O, aucun finding | "the problem looks fixed" | retirer l'entrée, idéalement dans la PR du correctif |
+| les deux champs remplis | endpoint sans aucune I/O | "this proves nothing" | la garder : pas exercé, ou le correctif a retiré les I/O |
+| champs absents | (indécidable) | les deux lectures | ajouter les champs, ou rejouer la campagne pour confirmer |
 
-Ce que le message peut dire de plus dépend des champs optionnels `service` et `source_endpoint`. Sans eux, une entrée ne porte qu'une signature opaque, donc rien ne distingue une correction d'un scénario qui n'a pas tourné, et le message énonce les deux lectures plutôt que d'inviter à supprimer une entrée qui vous protège encore. Avec eux, les comptes d'opérations I/O par endpoint du run tranchent :
+Remplissez les deux champs tels quels, depuis le même JSON que la signature (`.findings[].service`, `.findings[].source_endpoint`).
 
-- l'endpoint **a été exercé avec de l'I/O** sans que le finding tire : "the problem looks fixed and the entry can be removed",
-- l'endpoint **n'a émis aucune I/O dans le run** (pas exercé, ou une correction a retiré ses I/O) : "this proves nothing, keep the entry".
-
-Remplissez les deux champs depuis le même JSON où vous avez copié la signature (`.findings[].service`, `.findings[].source_endpoint`), tels quels. Les entrées écrites avant l'existence de ces champs gardent le message indéterminé. Une entrée expirée est inactive et n'est jamais rapportée ainsi, son finding est simplement revenu dans la gate.
-
-Le warning n'est dérivé que d'une analyse fraîche de traces. Rejouer un rapport sauvegardé ou un snapshot du daemon (`report --input export.json`) ne l'émet jamais : un tel rapport peut déjà être filtré par les acquittements, "n'a rien matché" y voudrait dire "consommé à la passe précédente", et ses comptes d'I/O décrivent un autre run. La sous-commande `diff` transporte les warnings du run after dans sa sortie texte et JSON sous `warning_details`, donc une CI qui ne lit que le diff les voit aussi.
+Deux limites. Le warning ne vient que d'une analyse fraîche de traces : rejouer un rapport sauvegardé ou un snapshot du daemon ne l'émet jamais, ce rapport peut déjà être filtré et ses comptes d'I/O décrivent un autre run. Et une entrée expirée n'est jamais rapportée : elle est inactive, son finding est déjà revenu dans la gate.
 
 ## Flags CLI
 

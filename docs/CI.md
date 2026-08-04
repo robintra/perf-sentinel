@@ -188,35 +188,34 @@ always compares the PR's traces against the latest merged state.
   <img alt="Baseline and gate placement in CI" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow.svg">
 </picture>
 
-Two properties of that flow surprise people. A repository where the
-baseline workflow has never run has no `baseline.json` at all, the
-fetch 404s, and the report renders without a Diff tab: the trunk run is
-the seeding event, per scenario. And nothing is carried between two
-pushes of the same pull request, because every run compares against the
-same trunk baseline rather than against the previous run, which is what
-makes the Diff show the whole delta a pull request introduces instead of
-the delta of its last commit.
+Two properties follow from that flow. The first trunk run is the
+seeding event: until then the fetch 404s and the report renders without
+a Diff tab, and a brand-new scenario likewise reads as New until its
+first trunk run. And nothing is carried between two pushes of the same
+pull request: every run compares against the trunk baseline, so the
+Diff shows the whole delta the pull request introduces, not the delta
+of its last commit.
 
-That is also why the baseline workflow ends on `analyze --ci`, after
-the publish rather than before it. The Diff answers "what did this PR
-change", so a finding present on both sides sits in neither column and
-no PR is ever blamed for a regression it inherited. The quality gate
-answers a different question, "is this state acceptable", on absolute
-thresholds and with no baseline at all. A regression merged into the
-default branch is therefore invisible on the Diff and fails the gate of
-the next unrelated PR whose integration tests happen to exercise the
-same endpoint. Gating the merged state moves that alarm back to the
-merge that caused it. Publishing first is deliberate: a red default
-branch must still refresh the baseline, otherwise every PR that follows
-loses its Diff tab on top of being blocked. While a known trunk finding
-is being fixed, acknowledge it in
-`.perf-sentinel-acknowledgments.toml` with an `expires_at`, which
-unblocks the queue without touching a threshold. Give the entry its
-`service` and `source_endpoint` while you are at it: once the fix
-lands, the trunk run reports the entry under the
-`unmatched_acknowledgment` warning as removable, which is how a fix to
-an acked problem surfaces at all, since acked findings sit on neither
-side of the Diff. See
+The baseline workflow ends on `analyze --ci`, after the publish. The
+two steps answer different questions:
+
+- the Diff shows what a pull request changed. A finding on both sides
+  sits in neither column, so no one is blamed for an inherited
+  regression, and no one is alerted by it either.
+- the gate checks whether a state is acceptable, on absolute
+  thresholds, with no baseline.
+
+Without a gate on the trunk, a merged regression is invisible in every
+Diff and surfaces as the failing gate of the next unrelated pull
+request that exercises the same endpoint. Gating the merged state moves
+that alarm to the merge that caused it. The publish still runs first:
+a red trunk must keep refreshing the baseline, or every following pull
+request loses its Diff tab on top of being blocked.
+
+While the fix is in flight, acknowledge the finding with an
+`expires_at`, which unblocks the queue without touching a threshold.
+Set its `service` and `source_endpoint` too, so the trunk run reports
+the entry as removable once the fix lands. See
 [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
 
 If GitHub Pages is not enabled, the template falls back to the
@@ -558,7 +557,11 @@ The comparison is a set difference over finding identities, not a comparison of 
   <img alt="How the Diff classifies a finding" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification.svg">
 </picture>
 
-Three consequences worth internalizing before reading a Diff tab. A finding both sides carry falls in neither column, so a pull request is never blamed for a regression it inherited from the trunk. A scenario that only one side ran lands its findings in a column anyway, always in the flattering direction: renaming a scenario, dropping an endpoint from the campaign or changing a URL shape shows up as Resolved with no code change behind it. And an acknowledged finding is filtered from both sides, so the pull request that genuinely fixes it resolves nothing here: for an acked problem, the `unmatched_acknowledgment` warning is the signal, not the Resolved column (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md)).
+Three things follow:
+
+- A finding on both sides sits in neither column, so a pull request is never blamed for an inherited regression.
+- Coverage asymmetry only flatters. A scenario renamed, dropped or not run lands its findings in Resolved with no code change behind it.
+- An acked finding is filtered from both sides, so its real fix resolves nothing here. The `unmatched_acknowledgment` warning is that signal, see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
 
 Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
 
