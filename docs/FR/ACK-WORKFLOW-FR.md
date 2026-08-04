@@ -126,6 +126,37 @@ débloquer une pipeline, copiez la signature dans le TOML et ouvrez une
 PR. Les signatures sont identiques des deux côtés, le dashboard est
 donc un bon endroit d'où la copier.
 
+### Promouvoir un ack daemon vers la CI
+
+Un dev acquitte un finding depuis le dashboard de staging à 3h du
+matin, la gate CI échoue quand même le lendemain. Relire la signature
+depuis le daemon :
+
+```bash
+perf-sentinel ack --daemon http://staging:4318 list --output json \
+  | jq -r '.[] | "\(.signature)  \(.reason)"'
+# n_plus_one_sql:order-svc:GET__api_orders:0123...  batch reporting, ADR-0042
+```
+
+Puis l'ajouter au fichier du repo et ouvrir une PR :
+
+```toml
+[[acknowledged]]
+signature = "n_plus_one_sql:order-svc:GET__api_orders:0123456789abcdef0123456789abcdef"
+acknowledged_by = "team-architecture"
+acknowledged_at = "2026-05-04"
+reason = "Fanout intentionnel sur l'endpoint de reporting batch. Voir ADR-0042."
+expires_at = "2026-11-30"
+service = "order-svc"
+source_endpoint = "GET /api/orders"
+```
+
+L'entrée daemon peut rester : le TOML gagne en cas de conflit, et un
+nouveau `ack create` sur la même signature renverrait désormais 409.
+Poser `service` et `source_endpoint` est ce qui permettra à un run CI
+ultérieur de signaler l'entrée comme supprimable une fois la correction
+livrée.
+
 Un `POST /api/findings/{sig}/ack` sur une signature déjà couverte par
 TOML retourne HTTP 409 pour éviter un shadowing silencieux. Le CLI
 `ack create` mappe ça à exit 2 avec un hint qui pointe vers
