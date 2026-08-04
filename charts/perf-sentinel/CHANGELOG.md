@@ -6,15 +6,15 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version, replacing the earlier independent `0.2.x` chart
 line. The two are not locked together: an application release bumps
 both, while a chart-only release bumps `version` alone and leaves
-`appVersion` on the last application release, as `0.9.16` and `0.9.18`
-through `0.9.21` did. Read `appVersion` in `Chart.yaml`, never the chart
-version, to know which daemon image ships.
+`appVersion` on the last application release, as `0.9.16`, `0.9.18`
+through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
+the chart version, to know which daemon image ships.
 
 ## [0.9.28]
 
 Version bump only, `appVersion` moves to `0.9.28` and no template changes. The
-daemon image it now deploys accepts gzip and deflate compressed OTLP gRPC
-exports.
+daemon image it now deploys accepts gzip and deflate compressed OTLP exports on
+both ports.
 
 **Why it matters for a cluster.** The OTel Collector's OTLP exporter compresses
 with gzip by default, and the daemon's gRPC listener answered it with a
@@ -22,8 +22,15 @@ non-retryable `Unimplemented`, so a collector left at its defaults had every
 batch dropped. Nothing in the cluster said so: the pod stayed ready, `/health`
 kept answering and the `/metrics` counters this chart's ServiceMonitor scrapes
 stayed at zero, which reads as an idle daemon rather than a rejecting one. The
-OTLP HTTP port was never affected. On a chart pinned to an earlier
-`appVersion`, set `compression: none` on the collector's exporter.
+OTLP HTTP port already accepted gzip and now takes deflate as well, so the two
+ports accept the same encodings. `snappy` and `zstd` are still refused on both
+and have to be changed back to `gzip` or `none`.
+
+**One sizing note.** `[daemon] max_payload_size` now caps what a compressed
+export expands to rather than what a client uploaded, so on a pod with a memory
+limit, raise `[daemon] memory_high_water_pct` off its default before accepting
+compressed ingest. On a chart pinned to an earlier `appVersion`, set
+`compression: none` on the collector's exporter.
 
 ## [0.9.27]
 

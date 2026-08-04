@@ -258,9 +258,9 @@ service:
       exporters: [otlp/perf-sentinel, otlp/jaeger]   # send to both
 ```
 
-The OTel Collector ships gzip-compressed exports by default. perf-sentinel accepts gzip, deflate and uncompressed payloads on both endpoints, OTLP/gRPC (`:4317`) and OTLP/HTTP (`POST /v1/traces`), no `compression: none` override required. The decompressed payload still respects the `[daemon] max_payload_size` limit (1 MB by default).
+The OTel Collector ships gzip-compressed exports by default, and both endpoints accept them, OTLP/gRPC (`:4317`) and OTLP/HTTP (`POST /v1/traces`), so no `compression: none` override is required. gzip, deflate and uncompressed are the accepted encodings. Any other one the exporter can be set to, `snappy` and `zstd` among them, is refused with a permanent error and has to be changed back to `gzip` or `none`. The decompressed payload respects the `[daemon] max_payload_size` limit (16 MiB by default), and a batch above it is refused with `ResourceExhausted`, which only the Collector's own logs report. On a memory-capped pod, that limit now bounds decode buffers rather than uploaded bytes, so `[daemon] memory_high_water_pct` (off by default) is what keeps a burst of compressed exports from being admitted, see `docs/CONFIGURATION.md`.
 
-Up to and including 0.9.26, the gRPC endpoint answered a compressed export with `Unimplemented: Content is compressed with 'gzip' which isn't supported`, which the Collector treats as permanent and drops the batch on. On those versions, either set `compression: none` on the exporter or point it at the HTTP endpoint.
+Up to and including 0.9.26, the gRPC endpoint refused every compressed export. The Collector logs it as ``rpc error: code = Unimplemented desc = Content is compressed with `gzip` which isn't supported``, treats it as permanent and drops the batch, so the loss shows up nowhere else. On those versions, either set `compression: none` on the exporter or point it at the HTTP endpoint, which has accepted gzip since 0.5.5.
 
 This approach is recommended for production deployments because:
 - Zero code changes in your services
