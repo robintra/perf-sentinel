@@ -742,7 +742,11 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let mut client = client.expect("capture gRPC listener never came up");
+        // Gzip like a default-configured Collector, pinning the capture
+        // listener's accept_compressed path.
+        let mut client = client
+            .expect("capture gRPC listener never came up")
+            .send_compressed(tonic::codec::CompressionEncoding::Gzip);
         within("grpc export", client.export(sample_request()))
             .await
             .unwrap();

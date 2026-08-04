@@ -714,47 +714,16 @@ mod grpc_compression_tests {
     use super::*;
     use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
     use opentelemetry_proto::tonic::collector::trace::v1::trace_service_client::TraceServiceClient;
-    use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
-    use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
     use tonic::codec::CompressionEncoding;
 
-    fn sql_export_request() -> ExportTraceServiceRequest {
-        let attribute = |key: &str, value: &str| KeyValue {
-            key: key.to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::StringValue(value.to_string())),
-            }),
-            ..Default::default()
-        };
-        let span = Span {
-            trace_id: vec![1; 16],
-            span_id: vec![2; 8],
-            name: "db.query".to_string(),
-            start_time_unix_nano: 1_000_000_000,
-            end_time_unix_nano: 1_005_000_000,
-            attributes: vec![
-                attribute("db.system", "postgresql"),
-                attribute("db.statement", "SELECT * FROM users WHERE id = 1"),
-            ],
-            ..Default::default()
-        };
-        ExportTraceServiceRequest {
-            resource_spans: vec![ResourceSpans {
-                scope_spans: vec![ScopeSpans {
-                    spans: vec![span],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            }],
-        }
-    }
+    /// One SQL CLIENT span, the shape an OTLP exporter puts on the wire.
+    const SAMPLE: &str = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc"}}]},"scopeSpans":[{"spans":[{"traceId":"0af7651916cd43dd8448eb211c80319c","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{"key":"db.statement","value":{"stringValue":"SELECT 1"}},{"key":"db.system","value":{"stringValue":"postgresql"}}]}]}]}]}"#;
 
-    /// A gzip-compressed export must be decoded, not answered with the
+    /// A compressed export must be decoded, not answered with the
     /// non-retryable Unimplemented tonic returns when no encoding is
     /// accepted. The Collector's OTLP exporter gzips by default, so this
     /// is the nominal path, not an exotic one.
-    #[tokio::test]
-    async fn grpc_listener_accepts_gzip_compressed_export() {
+    async fn export_compressed(encoding: CompressionEncoding) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (tx, mut rx) = mpsc::channel(4);
@@ -767,18 +736,32 @@ mod grpc_compression_tests {
             Arc::new(MetricsState::new()),
         );
 
+        let request: ExportTraceServiceRequest = serde_json::from_str(SAMPLE).unwrap();
         let mut client = TraceServiceClient::connect(format!("http://{addr}"))
             .await
             .expect("gRPC client connects to the listener")
-            .send_compressed(CompressionEncoding::Gzip);
+            .send_compressed(encoding);
         client
-            .export(sql_export_request())
+            .export(request)
             .await
-            .expect("a gzip-compressed export must be accepted");
+            .expect("a compressed export must be accepted");
 
-        let events = rx.recv().await.expect("the span reaches the pipeline");
+        let events = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("the span must reach the pipeline before the timeout")
+            .expect("the ingest channel stays open");
         assert_eq!(events.len(), 1, "one SQL span in, one event out");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn grpc_listener_accepts_gzip_compressed_export() {
+        export_compressed(CompressionEncoding::Gzip).await;
+    }
+
+    #[tokio::test]
+    async fn grpc_listener_accepts_deflate_compressed_export() {
+        export_compressed(CompressionEncoding::Deflate).await;
     }
 }
 
