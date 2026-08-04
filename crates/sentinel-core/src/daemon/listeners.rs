@@ -174,7 +174,13 @@ fn spawn_grpc_listener(
                 GRPC_MAX_CONCURRENT_REQUESTS,
             ))
             .add_service(tonic::service::interceptor::InterceptedService::new(
-                TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
+                // The Collector's OTLP exporter gzips by default, and tonic
+                // answers a non-retryable Unimplemented without these. The size
+                // cap below applies to the decompressed message.
+                TraceServiceServer::new(grpc_service)
+                    .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+                    .accept_compressed(tonic::codec::CompressionEncoding::Deflate)
+                    .max_decoding_message_size(max_payload),
                 memory_gate,
             ))
             .serve_with_incoming(incoming)
@@ -700,6 +706,79 @@ pub(super) fn setup_emaps_scraper(config: &Config) -> ScraperSetup<ElectricityMa
         state: Some(state),
         handle: Some(handle),
         staleness_ms,
+    }
+}
+
+#[cfg(test)]
+mod grpc_compression_tests {
+    use super::*;
+    use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+    use opentelemetry_proto::tonic::collector::trace::v1::trace_service_client::TraceServiceClient;
+    use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
+    use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
+    use tonic::codec::CompressionEncoding;
+
+    fn sql_export_request() -> ExportTraceServiceRequest {
+        let attribute = |key: &str, value: &str| KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue(value.to_string())),
+            }),
+            ..Default::default()
+        };
+        let span = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![2; 8],
+            name: "db.query".to_string(),
+            start_time_unix_nano: 1_000_000_000,
+            end_time_unix_nano: 1_005_000_000,
+            attributes: vec![
+                attribute("db.system", "postgresql"),
+                attribute("db.statement", "SELECT * FROM users WHERE id = 1"),
+            ],
+            ..Default::default()
+        };
+        ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![span],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        }
+    }
+
+    /// A gzip-compressed export must be decoded, not answered with the
+    /// non-retryable Unimplemented tonic returns when no encoding is
+    /// accepted. The Collector's OTLP exporter gzips by default, so this
+    /// is the nominal path, not an exotic one.
+    #[tokio::test]
+    async fn grpc_listener_accepts_gzip_compressed_export() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, mut rx) = mpsc::channel(4);
+        let server = spawn_grpc_listener(
+            listener,
+            addr,
+            None,
+            tx,
+            1024 * 1024,
+            Arc::new(MetricsState::new()),
+        );
+
+        let mut client = TraceServiceClient::connect(format!("http://{addr}"))
+            .await
+            .expect("gRPC client connects to the listener")
+            .send_compressed(CompressionEncoding::Gzip);
+        client
+            .export(sql_export_request())
+            .await
+            .expect("a gzip-compressed export must be accepted");
+
+        let events = rx.recv().await.expect("the span reaches the pipeline");
+        assert_eq!(events.len(), 1, "one SQL span in, one event out");
+        server.abort();
     }
 }
 

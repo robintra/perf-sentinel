@@ -21,7 +21,7 @@ workspace = true
 # Enable daemon mode: Scaphandre RAPL scraper, cloud SPECpower scraper,
 # and the `watch` command event loop. Without this feature, only batch
 # analysis (`analyze`, `explain`, `demo`, `bench`, `pg-stat`) is available.
-daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http", "dep:dirs", "dep:subtle", "dep:libc"]
+daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http", "dep:dirs", "dep:subtle", "dep:libc", "tonic/gzip", "tonic/deflate"]
 # Enable `perf-sentinel tempo` subcommand for querying Grafana Tempo API.
 tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
 # Enable `perf-sentinel jaeger-query` subcommand for querying any
@@ -47,6 +47,9 @@ tokio = { version = "1.52.4", features = ["rt", "rt-multi-thread", "sync", "time
 # (`Request`, `Response`, `Status`, `async_trait`) plus opentelemetry-proto
 # message types which depend on prost (via gen-tonic-messages). The actual
 # gRPC/HTTP listeners only run when the daemon feature is enabled at runtime.
+# The gzip/deflate encodings the OTLP gRPC listener accepts ride on the daemon
+# feature, they both resolve to flate2, which tower-http already pulls there.
+# zstd is left out, it would pull zstd-sys (C bindings) into a static musl binary.
 tonic = "0.14.6"
 prost = "0.14.4"
 # with-serde (already on via the default `full` feature) is pinned explicitly:

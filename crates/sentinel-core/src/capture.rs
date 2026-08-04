@@ -268,7 +268,11 @@ fn spawn_grpc(
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
         if let Err(e) = tonic::transport::Server::builder()
             .add_service(
-                TraceServiceServer::new(service).max_decoding_message_size(MAX_PAYLOAD_BYTES),
+                // Same gzip default as the daemon listener, see listeners.rs.
+                TraceServiceServer::new(service)
+                    .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+                    .accept_compressed(tonic::codec::CompressionEncoding::Deflate)
+                    .max_decoding_message_size(MAX_PAYLOAD_BYTES),
             )
             .serve_with_incoming(incoming)
             .await
