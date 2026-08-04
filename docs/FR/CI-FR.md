@@ -267,6 +267,24 @@ https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/
 Le baseline est rafraîchi à chaque push vers `main`, donc la tab Diff
 compare toujours les traces de la PR contre le dernier état mergé.
 
+C'est aussi la raison pour laquelle le workflow baseline se termine par
+`analyze --ci`, après la publication et non avant. Le Diff répond à
+"qu'est-ce que cette PR a changé", donc un finding présent des deux
+côtés ne tombe dans aucune colonne et aucune PR n'est jamais accusée
+d'une régression dont elle a hérité. Le quality gate répond à une autre
+question, "cet état est-il acceptable", sur des seuils absolus et sans
+aucun baseline. Une régression mergée sur la branche par défaut est
+donc invisible au Diff et fait échouer le gate de la prochaine PR sans
+rapport dont les tests d'intégration touchent le même endpoint. Poser
+le gate sur l'état mergé ramène l'alarme sur le merge qui l'a causée.
+Publier d'abord est délibéré : une branche par défaut rouge doit quand
+même rafraîchir le baseline, sinon toutes les PRs suivantes perdent
+leur tab Diff en plus d'être bloquées. Le temps qu'un finding de trunk
+connu soit corrigé, il faut l'acquitter dans
+`.perf-sentinel-acknowledgments.toml` avec un `expires_at`, ce qui
+débloque la file sans toucher à un seuil. Voir
+[ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
+
 Si GitHub Pages n'est pas activé, le template retombe sur le sticky
 comment markdown seulement. Aucun changement de comportement pour les
 adoptants existants.

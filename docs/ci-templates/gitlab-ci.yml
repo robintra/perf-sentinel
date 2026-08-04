@@ -296,6 +296,16 @@ perf-sentinel:
 #           --config "${PERF_SENTINEL_CONFIG}" \
 #           --format json \
 #           > public/perf-sentinel-reports/baseline.json
+#         # Gate the merged state, after publishing so a red default
+#         # branch never strips the Diff tab from the MRs that follow.
+#         # Without it a regression merges silently and fails the
+#         # pipeline of the next unrelated MR touching that endpoint.
+#         # Acknowledge a known finding with an expires_at rather than
+#         # loosening a threshold.
+#         "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
+#           --input "${PERF_SENTINEL_TRACES}" \
+#           --config "${PERF_SENTINEL_CONFIG}" \
+#           --ci
 #       fi
 #   artifacts:
 #     paths: [public]
