@@ -13,8 +13,12 @@ helper introduced in 0.5.22 plugs into the daemon side.
   <img alt="The two acknowledgment stores, their writers and their readers" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores.svg">
 </picture>
 
-The asymmetry the diagram makes visible: the daemon reads both stores,
-CI reads only the TOML.
+Two things the diagram makes visible. The daemon reads both stores
+while batch reads only the TOML. And the HTML dashboard is always
+produced by batch `report`, the daemon serves no HTML at all:
+`--daemon-url` only makes that generated file talk to a daemon from the
+browser, which is what puts Ack buttons on it. A static report has no
+ack path, it has no one to post to.
 
 > **What is a finding signature.** A signature is a stable identifier
 > for a finding, built by hashing `(finding_type, service, normalised

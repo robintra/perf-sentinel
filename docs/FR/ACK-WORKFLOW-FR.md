@@ -13,8 +13,13 @@ comment le helper CLI introduit en 0.5.22 s'intègre côté daemon.
   <img alt="Les deux magasins d'acquittements, leurs écrivains et leurs lecteurs" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores.svg">
 </picture>
 
-L'asymétrie que le schéma rend visible : le daemon lit les deux
-magasins, la CI ne lit que le TOML.
+Deux choses que le schéma rend visibles. Le daemon lit les deux
+magasins, le batch ne lit que le TOML. Et le dashboard HTML est
+toujours produit par le `report` batch, le daemon ne sert aucun HTML :
+`--daemon-url` fait seulement que le fichier généré dialogue avec un
+daemon depuis le navigateur, ce qui lui ajoute les boutons Ack. Un
+rapport statique n'a aucun chemin d'acquittement, il n'a personne à qui
+poster.
 
 > **Qu'est-ce qu'une signature de finding.** Une signature est un
 > identifiant stable pour un finding, construit en hashant `(type de

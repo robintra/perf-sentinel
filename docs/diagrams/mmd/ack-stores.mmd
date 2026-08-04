@@ -2,7 +2,7 @@
 title: The two acknowledgment stores
 ---
 flowchart LR
-    subgraph write_toml["Team decision, via PR"]
+    subgraph write_toml["Writes: team decision, via PR"]
         direction TB
         gen["analyze --format json | jq<br/><i>generates the entry</i>"]
         pr["Pull request review"]
@@ -11,24 +11,25 @@ flowchart LR
 
     toml[(".perf-sentinel-acknowledgments.toml<br/><i>versioned in the repo</i>")]
 
-    subgraph write_jsonl["Operator, against a live daemon"]
+    subgraph write_jsonl["Writes: operator, needs a running daemon"]
         direction TB
         cli["ack create"]
         tui["query inspect, key a"]
-        html["HTML report --daemon-url"]
+        html["HTML report in live mode<br/><i>built by batch report --daemon-url,<br/>buttons post to the daemon</i>"]
         api["POST /api/findings/{sig}/ack"]
     end
 
     jsonl[("acks.jsonl<br/><i>on that daemon's disk</i>")]
 
-    subgraph reads_ci["Batch reads (CI)"]
+    subgraph reads_batch["Reads: batch, no daemon involved"]
         direction TB
         gate["analyze --ci gate"]
-        base["Diff baseline"]
+        rep["report<br/><i>the HTML dashboard</i>"]
+        base["diff baseline"]
         warn["unmatched_acknowledgment"]
     end
 
-    daemon_reads["Daemon reads<br/><i>/api/findings, dashboard</i>"]
+    daemon_reads["Reads: daemon<br/><i>/api/findings, live mode</i>"]
 
     pr --> toml
     cli --> jsonl
@@ -36,7 +37,7 @@ flowchart LR
     html --> jsonl
     api --> jsonl
 
-    toml --> reads_ci
+    toml --> reads_batch
     toml -- "wins on conflict" --> daemon_reads
     jsonl --> daemon_reads
 
@@ -47,5 +48,5 @@ flowchart LR
     style write_jsonl fill:#2d3b4a,stroke:#60a5fa
     style toml fill:#2d4a3e,stroke:#4ade80
     style jsonl fill:#2d3b4a,stroke:#60a5fa
-    style reads_ci fill:#3b2d4a,stroke:#a78bfa
+    style reads_batch fill:#3b2d4a,stroke:#a78bfa
     style note fill:#4a3b2d,stroke:#fbbf24
