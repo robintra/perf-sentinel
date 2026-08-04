@@ -1,0 +1,31 @@
+---
+title: How the Diff classifies a finding
+---
+flowchart TD
+    key["One finding identity<br/><i>(type, service,<br/>source_endpoint, template)</i>"]
+
+    in_base{"Present in<br/>baseline.json?"}
+    in_run_yes{"Present in<br/>the PR run?"}
+    in_run_no{"Present in<br/>the PR run?"}
+
+    silent["Neither column<br/><i>inherited from the trunk,<br/>no author is blamed for it</i>"]
+    resolved["Resolved<br/><i>plain absence, which is a fix<br/>ONLY if this run exercised<br/>that endpoint</i>"]
+    new_f["New<br/><i>on a brand-new endpoint this is<br/>a first observation, not a regression</i>"]
+    nothing["Nothing to report"]
+
+    key --> in_base
+    in_base -- "yes" --> in_run_yes
+    in_base -- "no" --> in_run_no
+    in_run_yes -- "yes" --> silent
+    in_run_yes -- "no" --> resolved
+    in_run_no -- "yes" --> new_f
+    in_run_no -- "no" --> nothing
+
+    trap["Coverage asymmetry only ever flatters:<br/>a scenario the PR renamed, dropped or<br/>never ran lands its findings in Resolved<br/>with no code change behind it.<br/>The gate turning green is the proof,<br/>the Diff is the story"]
+    resolved -.-> trap
+
+    style silent fill:#2d3b4a,stroke:#60a5fa
+    style resolved fill:#2d4a3e,stroke:#4ade80
+    style new_f fill:#4a2d2d,stroke:#f87171
+    style nothing fill:#3b3b3b,stroke:#9ca3af
+    style trap fill:#4a3b2d,stroke:#fbbf24

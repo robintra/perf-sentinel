@@ -267,6 +267,20 @@ https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/
 Le baseline est rafraîchi à chaque push vers `main`, donc la tab Diff
 compare toujours les traces de la PR contre le dernier état mergé.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow_dark.svg">
+  <img alt="Baseline et placement du gate en CI" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow.svg">
+</picture>
+
+Deux propriétés de ce flux surprennent. Un dépôt où le workflow
+baseline n'a jamais tourné n'a aucun `baseline.json`, le fetch renvoie
+404, et le rapport se rend sans tab Diff : le passage sur le tronc est
+l'événement d'amorçage, scénario par scénario. Et rien n'est transporté
+entre deux pushes d'une même PR, puisque chaque exécution se compare au
+même baseline de tronc et non à l'exécution précédente, ce qui est
+justement ce qui fait montrer au Diff tout le delta qu'introduit la PR
+plutôt que le delta de son dernier commit.
+
 C'est aussi la raison pour laquelle le workflow baseline se termine par
 `analyze --ci`, après la publication et non avant. Le Diff répond à
 "qu'est-ce que cette PR a changé", donc un finding présent des deux
@@ -644,6 +658,15 @@ l'empreinte.
 ## Détection de régressions sur PR (sous-commande `diff`)
 
 La sous-commande `diff` compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est un check PR qui compare les traces de la branche PR à celles de la branche de base.
+
+La comparaison est une différence d'ensembles sur les identités de findings, pas une comparaison d'exécutions de tests. Rien ne lui indique quels scénarios chaque côté a exécutés, donc le sens d'une colonne dépend de ce que les deux campagnes ont couvert :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification_dark.svg">
+  <img alt="Classement d'un finding par le Diff" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification.svg">
+</picture>
+
+Deux conséquences à intégrer avant de lire une tab Diff. Un finding que les deux côtés portent ne tombe dans aucune colonne, donc une PR n'est jamais accusée d'une régression héritée du tronc. Et un scénario qu'un seul côté a exécuté place quand même ses findings dans une colonne, toujours dans le sens flatteur : renommer un scénario, retirer un endpoint de la campagne ou changer une forme d'URL apparaît en Résolu sans aucun changement de code derrière.
 
 Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.
 

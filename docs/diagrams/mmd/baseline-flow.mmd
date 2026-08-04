@@ -1,0 +1,41 @@
+---
+title: Baseline and gate placement in CI
+---
+flowchart LR
+    subgraph trunk["Default branch (every push)"]
+        direction TB
+        it_main["Integration tests<br/><i>the suite present ON main</i>"]
+        an_main["analyze --format json"]
+        pub["Publish baseline.json<br/><i>gh-pages, or GitLab Pages root</i>"]
+        gate_main["analyze --ci<br/><i>after the publish, so a red<br/>trunk still refreshes it</i>"]
+        it_main --> an_main --> pub --> gate_main
+    end
+
+    store[("baseline.json<br/><i>10 to 50 KB<br/>overwritten each push</i>")]
+
+    subgraph pr["Pull request (every push)"]
+        direction TB
+        it_pr["Integration tests<br/><i>the suite present ON the branch</i>"]
+        fetch["curl baseline.json<br/><i>404 tolerated:<br/>no Diff tab, report still renders</i>"]
+        rep["report --before baseline.json"]
+        diff_tab["Diff tab<br/><i>informational</i>"]
+        gate_pr["analyze --ci<br/><i>absolute thresholds,<br/>no baseline involved</i>"]
+        block["Blocks the merge"]
+        it_pr --> rep
+        it_pr --> gate_pr --> block
+        fetch --> rep --> diff_tab
+    end
+
+    pub -.-> store
+    store -.-> fetch
+
+    note["A brand-new scenario has no<br/>counterpart on the trunk, so its<br/>findings can only read as New until<br/>the branch merges and the next<br/>trunk run folds it into the baseline"]
+    it_pr -.-> note
+
+    style trunk fill:#2d3b4a,stroke:#60a5fa
+    style pr fill:#2d4a3e,stroke:#4ade80
+    style store fill:#3b2d4a,stroke:#a78bfa
+    style gate_main fill:#4a2d2d,stroke:#f87171
+    style gate_pr fill:#4a2d2d,stroke:#f87171
+    style block fill:#4a2d2d,stroke:#f87171
+    style note fill:#4a3b2d,stroke:#fbbf24

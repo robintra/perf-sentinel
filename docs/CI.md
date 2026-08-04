@@ -183,6 +183,20 @@ https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/
 The baseline is refreshed on every push to `main`, so the Diff tab
 always compares the PR's traces against the latest merged state.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow_dark.svg">
+  <img alt="Baseline and gate placement in CI" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow.svg">
+</picture>
+
+Two properties of that flow surprise people. A repository where the
+baseline workflow has never run has no `baseline.json` at all, the
+fetch 404s, and the report renders without a Diff tab: the trunk run is
+the seeding event, per scenario. And nothing is carried between two
+pushes of the same pull request, because every run compares against the
+same trunk baseline rather than against the previous run, which is what
+makes the Diff show the whole delta a pull request introduces instead of
+the delta of its last commit.
+
 That is also why the baseline workflow ends on `analyze --ci`, after
 the publish rather than before it. The Diff answers "what did this PR
 change", so a finding present on both sides sits in neither column and
@@ -531,6 +545,15 @@ configuration (e.g. keep last N builds) to cap the footprint.
 ## PR regression detection (`diff` subcommand)
 
 The `diff` subcommand compares two trace sets and emits a delta report listing new findings, resolved findings, severity changes and per-endpoint I/O op count deltas. The natural fit is a PR check that compares the PR branch's traces against the base branch's traces.
+
+The comparison is a set difference over finding identities, not a comparison of test runs. Nothing tells it which scenarios each side executed, so what a column means depends on what the two suites happened to cover:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification_dark.svg">
+  <img alt="How the Diff classifies a finding" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/diff-classification.svg">
+</picture>
+
+Two consequences worth internalizing before reading a Diff tab. A finding both sides carry falls in neither column, so a pull request is never blamed for a regression it inherited from the trunk. And a scenario that only one side ran lands its findings in a column anyway, always in the flattering direction: renaming a scenario, dropping an endpoint from the campaign or changing a URL shape shows up as Resolved with no code change behind it.
 
 Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
 
