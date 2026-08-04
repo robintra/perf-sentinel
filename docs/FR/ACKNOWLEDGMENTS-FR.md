@@ -117,6 +117,21 @@ Trois findings produisent trois signatures différentes. Deux findings produits 
 
 `git log .perf-sentinel-acknowledgments.toml` donne l'historique d'audit complet.
 
+### Savoir quand retirer une entrée
+
+Un acquittement encore actif mais qui n'a rien supprimé est rapporté en warning, pour qu'une correction ne passe pas inaperçue et que le fichier ne pourrisse pas en silence :
+
+```
+Warnings:
+  [unmatched_acknowledgment] acknowledgment 4f3c... matched no finding in this run:
+  the problem is either fixed, and the entry can be removed, or the scenario that
+  produced it did not run
+```
+
+Le `kind` `unmatched_acknowledgment` est stable, donc alertable et agrégeable d'un run à l'autre, et il apparaît dans `warning_details` de la sortie JSON. C'est le signal qui répond à « la PR qui vient de passer sur ce code a-t-elle corrigé le problème qu'on avait accepté il y a six mois », ce qu'aucun diff contre une baseline ne peut dire de façon fiable : acquitter un finding le retire d'une baseline produite avec le filtrage actif, donc la vraie correction qui suit n'a plus rien à faire disparaître.
+
+Le message énonce les deux lectures à dessein. Une entrée porte une signature et aucun endpoint, donc rien ici ne distingue une correction d'un scénario qui n'a pas tourné, et prétendre le contraire inviterait à supprimer une entrée qui vous protège encore. Confirmez avec les comptes d'opérations I/O par endpoint du run, ou en rejouant la campagne qui a produit le finding, avant de retirer la ligne. Une entrée expirée est inactive et n'est jamais rapportée ainsi, son finding est simplement revenu dans la gate.
+
 ## Flags CLI
 
 Les flags fonctionnent uniformément sur `analyze`, `report`, `inspect`, `diff`.

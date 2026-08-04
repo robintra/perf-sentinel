@@ -36,6 +36,12 @@ pub const INGESTION_DROPS: &str = "ingestion_drops";
 /// one exists; two rules point at fixed caps or instrumentation instead.
 pub const TUNING: &str = "tuning";
 
+/// Stable kind for an active acknowledgment that suppressed nothing in
+/// this run: either the problem was fixed, or its scenario did not run.
+/// An entry carries a signature and no endpoint, so the two readings
+/// cannot be told apart here.
+pub const UNMATCHED_ACKNOWLEDGMENT: &str = "unmatched_acknowledgment";
+
 /// Operator-facing snapshot warning with a stable category.
 ///
 /// `kind` is suitable for alerting and aggregation across runs (e.g.

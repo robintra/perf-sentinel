@@ -116,6 +116,21 @@ Three findings produce three different signatures. Two findings produced by the 
 
 `git log .perf-sentinel-acknowledgments.toml` gives you the full audit history.
 
+### Knowing when to remove an entry
+
+An acknowledgment that is still active but suppressed nothing is reported as a warning, so a fix does not go unnoticed and the file does not silently rot:
+
+```
+Warnings:
+  [unmatched_acknowledgment] acknowledgment 4f3c... matched no finding in this run:
+  the problem is either fixed, and the entry can be removed, or the scenario that
+  produced it did not run
+```
+
+The `unmatched_acknowledgment` kind is stable, so it can be alerted on or aggregated across runs, and it appears in `warning_details` in the JSON output. This is the signal that answers "did the pull request that just touched this code fix the problem we accepted six months ago", which no diff against a baseline can answer reliably: acknowledging a finding removes it from a baseline produced with filtering on, so the later real fix has nothing left to make disappear.
+
+The message states both readings on purpose. An entry carries a signature and no endpoint, so nothing here can tell a fix apart from a scenario that did not run, and claiming otherwise would invite deleting an entry that still protects you. Confirm with the run's per-endpoint I/O op counts, or by re-running the campaign that produced the finding, before removing the line. An expired entry is inactive and is never reported this way, its finding is simply back in the gate.
+
 ## CLI flags
 
 The flags work uniformly on `analyze`, `report`, `inspect`, `diff`.

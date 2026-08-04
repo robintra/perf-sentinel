@@ -13,7 +13,7 @@
 //! review).
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::Read;
 use std::path::Path;
@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::detect::Finding;
 use crate::quality_gate;
-use crate::report::{AcknowledgedFinding, Report};
+use crate::report::{AcknowledgedFinding, Report, Warning, warnings};
 
 /// Hard cap on the size of `.perf-sentinel-acknowledgments.toml`. Mirrors
 /// the trace-ingest payload-cap discipline so a stray
@@ -215,6 +215,11 @@ pub fn apply_to_report(
     // from a previous `--show-acknowledged` run, which we do not want to
     // double-count or treat as authoritative.
     report.acknowledged_findings.clear();
+    // Same reasoning for the warnings this function owns: a baseline
+    // loaded from a previous run may already carry them.
+    report
+        .warning_details
+        .retain(|w| w.kind != warnings::UNMATCHED_ACKNOWLEDGMENT);
 
     let active: HashMap<&str, &Acknowledgment> = acks
         .acknowledged
@@ -224,6 +229,7 @@ pub fn apply_to_report(
         .collect();
 
     if !active.is_empty() {
+        let mut matched: HashSet<&str> = HashSet::with_capacity(active.len());
         let original = std::mem::take(&mut report.findings);
         let mut kept = Vec::with_capacity(original.len());
         for finding in original {
@@ -232,7 +238,8 @@ pub fn apply_to_report(
             } else {
                 Cow::Borrowed(finding.signature.as_str())
             };
-            if let Some(ack) = active.get(sig.as_ref()) {
+            if let Some((ack_sig, ack)) = active.get_key_value(sig.as_ref()) {
+                matched.insert(ack_sig);
                 report.acknowledged_findings.push(AcknowledgedFinding {
                     finding,
                     acknowledgment: (*ack).clone(),
@@ -242,6 +249,25 @@ pub fn apply_to_report(
             }
         }
         report.findings = kept;
+
+        // An ack that suppressed nothing is the "maybe fixed" signal.
+        // Sorted so two runs of the same report stay diffable.
+        let mut unmatched: Vec<&str> = active
+            .keys()
+            .filter(|sig| !matched.contains(*sig))
+            .copied()
+            .collect();
+        unmatched.sort_unstable();
+        for sig in unmatched {
+            report.warning_details.push(Warning::from_untrusted(
+                warnings::UNMATCHED_ACKNOWLEDGMENT,
+                &format!(
+                    "acknowledgment {sig} matched no finding in this run: \
+                     the problem is either fixed, and the entry can be removed, \
+                     or the scenario that produced it did not run"
+                ),
+            ));
+        }
     }
 
     report.quality_gate =
@@ -638,6 +664,81 @@ expires_at = "not-a-date"
         apply_to_report(&mut report, &acks, &config, now_2026_05_02());
         assert_eq!(report.findings.len(), 1);
         assert!(report.acknowledged_findings.is_empty());
+    }
+
+    /// The signal a fix produces: the entry is still active, nothing in
+    /// the run carries its signature, so it is reported as removable.
+    #[test]
+    fn apply_to_report_reports_an_ack_that_matched_nothing() {
+        let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
+        enrich_with_signatures(&mut findings);
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![ack("deadbeef", None)],
+        };
+        apply_to_report(&mut report, &acks, &Config::default(), now_2026_05_02());
+
+        assert_eq!(report.findings.len(), 1, "the unrelated finding survives");
+        let unmatched: Vec<&Warning> = report
+            .warning_details
+            .iter()
+            .filter(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .collect();
+        assert_eq!(unmatched.len(), 1);
+        assert!(
+            unmatched[0].message.contains("deadbeef"),
+            "the warning must name the entry to remove, got: {}",
+            unmatched[0].message
+        );
+    }
+
+    /// An ack doing its job is not noise, and an expired one is inactive,
+    /// so neither may be reported as removable.
+    #[test]
+    fn apply_to_report_does_not_report_matched_or_expired_acks() {
+        let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
+        enrich_with_signatures(&mut findings);
+        let target_sig = findings[0].signature.clone();
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![
+                ack(&target_sig, None),
+                ack("expired-and-unmatched", Some("2020-01-01")),
+            ],
+        };
+        apply_to_report(&mut report, &acks, &Config::default(), now_2026_05_02());
+
+        assert_eq!(report.acknowledged_findings.len(), 1);
+        assert!(
+            !report
+                .warning_details
+                .iter()
+                .any(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT),
+            "got: {:?}",
+            report.warning_details
+        );
+    }
+
+    /// Re-applying over a baseline that already carries the warnings must
+    /// not stack them, the same reason ack pairs are cleared on entry.
+    #[test]
+    fn apply_to_report_does_not_accumulate_unmatched_warnings() {
+        let mut report = empty_report(vec![]);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![ack("deadbeef", None)],
+        };
+        let config = Config::default();
+        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+
+        assert_eq!(
+            report
+                .warning_details
+                .iter()
+                .filter(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+                .count(),
+            1
+        );
     }
 
     #[test]
