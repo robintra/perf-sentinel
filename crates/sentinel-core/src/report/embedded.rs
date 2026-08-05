@@ -30,6 +30,18 @@ impl EmbeddedTrace {
             spans: trace.spans.iter().map(EmbeddedSpan::from_event).collect(),
         }
     }
+
+    /// Rebuild a masked [`Trace`] for consumers that render span trees
+    /// from a report rather than from live input (the TUI on a daemon
+    /// snapshot). The raw target was never embedded, so the template
+    /// stands in for it and the absent fields stay neutral.
+    #[must_use]
+    pub fn to_trace(&self) -> Trace {
+        Trace {
+            trace_id: self.trace_id.clone(),
+            spans: self.spans.iter().map(EmbeddedSpan::to_normalized).collect(),
+        }
+    }
 }
 
 /// A single span of an [`EmbeddedTrace`].
@@ -66,6 +78,39 @@ impl EmbeddedSpan {
             template: event.template.to_string(),
             duration_us: event.event.duration_us,
             status_code: event.event.status_code,
+        }
+    }
+
+    /// The masked counterpart of [`Self::from_event`]: same shape, the
+    /// template in place of the raw target.
+    fn to_normalized(&self) -> NormalizedEvent {
+        NormalizedEvent {
+            event: crate::event::SpanEvent {
+                timestamp: String::new(),
+                trace_id: String::new(),
+                span_id: self.span_id.clone(),
+                parent_span_id: self.parent_span_id.clone(),
+                link_trace_id: None,
+                service: self.service.as_str().into(),
+                cloud_region: None,
+                event_type: self.event_type.clone(),
+                operation: self.operation.clone(),
+                target: self.template.clone(),
+                duration_us: self.duration_us,
+                source: crate::event::EventSource {
+                    endpoint: self.endpoint.clone(),
+                    method: String::new(),
+                },
+                status_code: self.status_code,
+                response_size_bytes: None,
+                code_function: None,
+                code_filepath: None,
+                code_lineno: None,
+                code_namespace: None,
+                instrumentation_scopes: Vec::new(),
+            },
+            template: self.template.as_str().into(),
+            params: vec![],
         }
     }
 }
@@ -121,6 +166,29 @@ mod tests {
         let span = EmbeddedSpan::from_event(&event("s1", "x", "x"));
         let json = serde_json::to_string(&span).expect("serializes");
         assert!(json.contains(r#""event_type":"sql""#), "got {json}");
+    }
+
+    #[test]
+    fn to_trace_rebuilds_masked_spans() {
+        let raw = "select * from users where email = 'a@b.c'";
+        let embedded = EmbeddedTrace::from_trace(&Trace {
+            trace_id: "t1".to_string(),
+            spans: vec![event("s1", raw, "select * from users where email = ?")],
+        });
+        let back = embedded.to_trace();
+        assert_eq!(back.trace_id, "t1");
+        assert_eq!(back.spans.len(), 1);
+        let span = &back.spans[0];
+        assert_eq!(span.event.span_id, "s1");
+        assert_eq!(span.event.duration_us, 1_200);
+        assert_eq!(
+            span.event.target, "select * from users where email = ?",
+            "the template stands in for the never-embedded raw target"
+        );
+        assert_eq!(
+            span.template.as_ref(),
+            "select * from users where email = ?"
+        );
     }
 
     #[test]
