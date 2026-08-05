@@ -382,7 +382,7 @@ the finding itself plus daemon-side occurrence metadata. Detection is
 per trace, so a recurring pattern is detected once per trace that
 exhibits it. The buffer keeps those instances, and this listing folds
 them by canonical signature (the same key acknowledgments use) so one
-distinct problem is one row (since 0.9.29). The fold happens at read
+distinct problem is one row (since 0.10.0). The fold happens at read
 time: `/api/findings/{trace_id}` still answers with the raw per-trace
 detections, and the quality gate still counts them individually.
 `limit` applies to the folded rows, so a pattern recurring on 100 traces
@@ -415,11 +415,11 @@ HTTP 400 with an axum-generated error body.
 - `stored_at_ms`: integer Unix timestamp in milliseconds of the most
   recent detection folded into this entry.
 - `first_seen_ms`: integer Unix timestamp in milliseconds of the oldest
-  retained detection of this signature (since 0.9.29). On an endpoint
+  retained detection of this signature (since 0.10.0). On an endpoint
   that does not fold (`/api/findings/{trace_id}`), it equals
   `stored_at_ms`.
 - `seen_count`: how many per-trace detections this entry folds, `1` on
-  the non-folding endpoints (since 0.9.29). It counts the detections
+  the non-folding endpoints (since 0.10.0). It counts the detections
   still held in the ring buffer, not every one ever made, so it falls as
   older detections age out past `max_retained_findings` and it resets
   when the daemon restarts. Read it as "how present is this problem in
