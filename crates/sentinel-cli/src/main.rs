@@ -157,6 +157,11 @@ enum Commands {
         /// Include acknowledged findings in the output, alongside ack metadata.
         #[arg(long)]
         show_acknowledged: bool,
+        /// Order the findings: severity (worst first) or impact (highest
+        /// aggregate avoidable I/O per signature first). Omit to keep the
+        /// canonical detector order.
+        #[arg(long, value_enum, value_name = "KEY")]
+        sort: Option<render::FindingsSort>,
         /// Launch the interactive TUI instead of printing the report.
         /// Opens on the Analyze view. Enter drills down to Inspect then
         /// Explain, Esc walks back up.
@@ -868,6 +873,12 @@ enum QueryAction {
         /// Output format: text (colored, default) or json.
         #[arg(long, value_enum, default_value = "text")]
         format: QueryOutputFormat,
+        /// Order the rows: severity (worst first) or impact (highest
+        /// estimated aggregate avoidable I/O first, `seen_count` x the
+        /// representative detection's avoidable ops). Text output only,
+        /// omit to keep the daemon's newest-first order.
+        #[arg(long, value_enum, value_name = "KEY")]
+        sort: Option<render::FindingsSort>,
     },
     /// Show the explain tree for a trace from daemon memory.
     Explain {
@@ -1098,6 +1109,7 @@ async fn dispatch_command(command: Commands) {
             acknowledgments,
             no_acknowledgments,
             show_acknowledged,
+            sort,
             #[cfg(feature = "tui")]
             tui,
         } => {
@@ -1119,6 +1131,7 @@ async fn dispatch_command(command: Commands) {
                 acknowledgments.as_deref(),
                 no_acknowledgments,
                 show_acknowledged,
+                sort,
             );
         }
         Commands::Explain {
@@ -1784,6 +1797,7 @@ fn apply_acknowledgments_or_exit(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_analyze(
     input: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
@@ -1792,6 +1806,7 @@ fn cmd_analyze(
     acknowledgments_path: Option<&std::path::Path>,
     no_acknowledgments: bool,
     show_acknowledged: bool,
+    sort: Option<render::FindingsSort>,
 ) {
     let config = load_config(config_path);
     let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
@@ -1809,6 +1824,10 @@ fn cmd_analyze(
         no_acknowledgments,
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
+    // After the acks so a masked finding does not weigh in the aggregate.
+    if let Some(mode) = sort {
+        render::sort_findings(&mut report.findings, mode);
+    }
     emit_report_and_gate(&mut report, format, ci, "report", show_acknowledged);
 }
 
