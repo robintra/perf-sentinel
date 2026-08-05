@@ -50,11 +50,14 @@ const GRPC_MAX_CONCURRENT_REQUESTS: usize = 32;
 /// Assemble the optional TLS acceptor and spawn the gRPC, HTTP (or HTTPS),
 /// and JSON socket listeners. All three handles are returned so the caller
 /// can abort them on Ctrl-C.
+// Wiring, not logic: same call-through shape as `build_http_router` below.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn spawn_listeners(
     config: &Config,
     tx: mpsc::Sender<Vec<SpanEvent>>,
     window: Arc<Mutex<TraceWindow>>,
     findings_store: Arc<findings_store::FindingsStore>,
+    traces_store: Arc<super::traces_store::TracesStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
@@ -103,6 +106,7 @@ pub(super) async fn spawn_listeners(
         tx.clone(),
         window,
         findings_store,
+        traces_store,
         correlator,
         metrics,
         green_summary,
@@ -327,6 +331,7 @@ fn build_http_router(
     tx: mpsc::Sender<Vec<SpanEvent>>,
     window: Arc<Mutex<TraceWindow>>,
     findings_store: Arc<findings_store::FindingsStore>,
+    traces_store: Arc<super::traces_store::TracesStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
@@ -368,6 +373,7 @@ fn build_http_router(
 
         let query_state = Arc::new(query_api::QueryApiState {
             findings_store,
+            traces_store,
             window,
             detect_config: DetectConfig::from(config),
             start_time: std::time::Instant::now(),

@@ -295,6 +295,7 @@ mod tests {
             },
             per_endpoint_io_ops: per_endpoint,
             correlations: vec![],
+            embedded_traces: vec![],
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],

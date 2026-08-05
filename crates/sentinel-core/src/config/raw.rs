@@ -258,6 +258,7 @@ pub(super) struct DaemonSection {
     tls_cert_path: Option<String>,
     tls_key_path: Option<String>,
     max_retained_findings: Option<usize>,
+    max_retained_traces: Option<usize>,
     ingest_queue_capacity: Option<usize>,
     analysis_queue_capacity: Option<usize>,
     memory_high_water_pct: Option<u8>,
@@ -523,6 +524,10 @@ impl From<RawConfig> for Config {
                     .daemon
                     .max_retained_findings
                     .unwrap_or(daemon_defaults.max_retained_findings),
+                max_retained_traces: raw
+                    .daemon
+                    .max_retained_traces
+                    .unwrap_or(daemon_defaults.max_retained_traces),
                 ingest_queue_capacity: raw
                     .daemon
                     .ingest_queue_capacity

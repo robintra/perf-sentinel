@@ -9,6 +9,7 @@ pub mod archive;
 pub mod findings_store;
 pub mod health;
 pub mod query_api;
+pub mod traces_store;
 
 mod event_loop;
 #[cfg(unix)]
@@ -195,6 +196,11 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let findings_store = Arc::new(findings_store::FindingsStore::new(
         config.daemon.max_retained_findings,
     ));
+    // Masked span trees for the findings the store keeps, so an exported
+    // report still draws a tree once the correlation window has moved on.
+    let traces_store = Arc::new(traces_store::TracesStore::new(
+        config.daemon.max_retained_traces,
+    ));
     let correlator = setup_correlator(&config);
     // Shared cell mutated by the event loop after each batch and read
     // by the /api/export/report handler. Initialized to disabled(0):
@@ -207,6 +213,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         tx.clone(),
         window.clone(),
         findings_store.clone(),
+        traces_store.clone(),
         correlator.clone(),
         metrics.clone(),
         green_summary_cell.clone(),
@@ -336,6 +343,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         &window,
         metrics,
         findings_store,
+        traces_store,
         correlator,
         &detect_config,
         &energy_sources,

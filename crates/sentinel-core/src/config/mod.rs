@@ -259,6 +259,12 @@ pub struct DaemonConfig {
     pub environment: DaemonEnvironment,
     /// Maximum number of findings retained by the daemon query API.
     pub max_retained_findings: usize,
+    /// Maximum number of traces whose masked spans are retained for
+    /// `/api/export/report`, so an exported report still draws a span
+    /// tree. Zero disables retention. Costs memory in proportion to
+    /// `max_events_per_trace`, which is why the default is small next to
+    /// `max_retained_findings`.
+    pub max_retained_traces: usize,
     /// Capacity of the ingestion channel: span-event batches buffered
     /// between the listeners and the event loop. Provides ingestion
     /// backpressure once full.
@@ -439,6 +445,7 @@ impl Default for DaemonConfig {
             max_payload_size: 16 * 1024 * 1024,
             environment: DaemonEnvironment::Staging,
             max_retained_findings: 10_000,
+            max_retained_traces: 50,
             ingest_queue_capacity: 1024,
             analysis_queue_capacity: 1024,
             memory_high_water_pct: 0,

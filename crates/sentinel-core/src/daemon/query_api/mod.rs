@@ -52,6 +52,9 @@ pub const MAX_ACKS_RESPONSE: usize = 1000;
 /// Shared state for query API route handlers.
 pub struct QueryApiState {
     pub findings_store: Arc<FindingsStore>,
+    /// Masked span trees for the retained findings, so the exported
+    /// report still draws one once the correlation window has moved on.
+    pub traces_store: Arc<super::traces_store::TracesStore>,
     pub window: Arc<tokio::sync::Mutex<TraceWindow>>,
     pub detect_config: DetectConfig,
     pub start_time: std::time::Instant,
@@ -677,6 +680,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             green_summary,
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
+            embedded_traces: vec![],
             warnings: vec!["daemon has not yet processed any events".to_string()],
             warning_details,
             acknowledged_findings: Vec::new(),
@@ -756,6 +760,12 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
 
     let warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
 
+    // Span trees for the exported findings. The correlation window has
+    // usually dropped them by now, which is why they are retained
+    // separately, and why a trace older than the retention simply comes
+    // back absent.
+    let embedded_traces = state.traces_store.snapshot_for(&findings).await;
+
     let report = Report {
         analysis: export_analysis(events_usize, traces_usize),
         findings,
@@ -763,6 +773,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         quality_gate,
         per_endpoint_io_ops: vec![],
         correlations,
+        embedded_traces,
         warnings: vec![],
         warning_details,
         acknowledged_findings: vec![],

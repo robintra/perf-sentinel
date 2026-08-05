@@ -128,6 +128,7 @@ struct AnalysisWorkerCtx {
     confidence: Confidence,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
+    traces_store: Arc<super::traces_store::TracesStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     green_summary_cell: Arc<RwLock<GreenSummary>>,
     archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
@@ -150,6 +151,7 @@ pub(super) async fn run_event_loop(
     window: &Arc<Mutex<TraceWindow>>,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
+    traces_store: Arc<super::traces_store::TracesStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     detect_config: &DetectConfig,
     energy_sources: &EnergySources<'_>,
@@ -171,6 +173,7 @@ pub(super) async fn run_event_loop(
             confidence: loop_cfg.confidence,
             metrics: metrics.clone(),
             findings_store,
+            traces_store,
             correlator,
             green_summary_cell,
             archive_tx,
@@ -288,6 +291,7 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
                 metrics: &wctx.metrics,
                 confidence: wctx.confidence,
                 findings_store: &wctx.findings_store,
+                traces_store: &wctx.traces_store,
                 correlator: wctx.correlator.as_deref(),
                 green_summary_cell: &wctx.green_summary_cell,
                 archive_tx: wctx.archive_tx.as_ref(),
@@ -811,6 +815,7 @@ struct ProcessTracesCtx<'a> {
     metrics: &'a MetricsState,
     confidence: Confidence,
     findings_store: &'a findings_store::FindingsStore,
+    traces_store: &'a super::traces_store::TracesStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
     archive_tx: Option<&'a mpsc::Sender<super::archive::OwnedArchive>>,
@@ -925,6 +930,7 @@ async fn process_traces(
     let now_ms = current_time_ms();
     if !findings.is_empty() {
         ctx.findings_store.push_batch(&findings, now_ms).await;
+        ctx.traces_store.retain_for(&trace_structs, &findings).await;
         // Refresh the ring-buffer occupancy gauge (paired with the
         // max_retained_findings cap for the Grafana headroom panel).
         #[allow(clippy::cast_precision_loss)] // bounded by max_retained_findings
@@ -988,6 +994,7 @@ async fn process_traces(
             },
             per_endpoint_io_ops,
             correlations: vec![],
+            embedded_traces: vec![],
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],
@@ -1070,6 +1077,14 @@ mod tests {
 
     /// Build a `ProcessTracesCtx` for tests with sensible defaults.
     /// The sticky slot is leaked per call: test-only, a few bytes each.
+    /// Zero-capacity store shared by the `process_traces` tests: they
+    /// assert on findings and metrics, retention has its own suite.
+    fn noop_traces_store() -> &'static crate::daemon::traces_store::TracesStore {
+        static STORE: std::sync::OnceLock<crate::daemon::traces_store::TracesStore> =
+            std::sync::OnceLock::new();
+        STORE.get_or_init(|| crate::daemon::traces_store::TracesStore::new(0))
+    }
+
     fn test_ctx<'a>(
         detect_config: &'a DetectConfig,
         carbon_ctx: &'a score::carbon::CarbonContext,
@@ -1080,6 +1095,7 @@ mod tests {
     ) -> ProcessTracesCtx<'a> {
         ProcessTracesCtx {
             detect_config,
+            traces_store: noop_traces_store(),
             green_enabled,
             carbon_ctx,
             metrics,
@@ -1888,6 +1904,7 @@ mod tests {
     ) -> AnalysisWorkerCtx {
         AnalysisWorkerCtx {
             detect_config: default_detect_config(),
+            traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(0)),
             green_enabled: true,
             confidence: Confidence::DaemonStaging,
             metrics: metrics.clone(),

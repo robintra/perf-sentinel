@@ -101,6 +101,7 @@ fn minimal_report(findings: Vec<Finding>) -> Report {
         },
         per_endpoint_io_ops: vec![],
         correlations: vec![],
+        embedded_traces: vec![],
         warnings: vec![],
         warning_details: vec![],
         acknowledged_findings: vec![],
@@ -2390,4 +2391,57 @@ fn culprit_spans_skip_a_finding_the_report_no_longer_carries() {
 
     let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
     assert!(culprit_map(&html).is_null());
+}
+
+#[test]
+fn report_carried_traces_render_when_no_trace_is_handed_over() {
+    // The `report --input <daemon snapshot>` path: the sink gets no
+    // `Trace`, the spans travel inside the report itself.
+    let f = finding("t1", "svc", "/ep", "select 1");
+    let mut report = minimal_report(vec![f]);
+    report.embedded_traces = vec![crate::report::EmbeddedTrace::from_trace(&Trace {
+        trace_id: "t1".into(),
+        spans: vec![span("t1", "s1", None, "svc", "/ep", "select 1")],
+    })];
+
+    let (html, stats) = render(&report, &[], &opts("daemon.json", None));
+    let payload: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
+    let embedded = payload["embedded_traces"]
+        .as_array()
+        .expect("embedded_traces array");
+    assert_eq!(embedded.len(), 1, "the report's own trace must be embedded");
+    assert_eq!(embedded[0]["trace_id"], "t1");
+    assert_eq!(stats.kept, 1);
+    // Not shipped twice: the payload's report copy drops them.
+    assert!(
+        payload["report"]["embedded_traces"].is_null(),
+        "the embedded report must not repeat the spans"
+    );
+}
+
+#[test]
+fn handed_over_traces_win_over_the_report_copy() {
+    let f = finding("t1", "svc", "/ep", "select 1");
+    let mut report = minimal_report(vec![f]);
+    report.embedded_traces = vec![crate::report::EmbeddedTrace::from_trace(&Trace {
+        trace_id: "stale".into(),
+        spans: vec![span("stale", "s9", None, "svc", "/ep", "select 1")],
+    })];
+    let live = Trace {
+        trace_id: "t1".into(),
+        spans: vec![span("t1", "s1", None, "svc", "/ep", "select 1")],
+    };
+
+    let (html, _) = render(&report, &[live], &opts("-", None));
+    let payload: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
+    let embedded = payload["embedded_traces"]
+        .as_array()
+        .expect("embedded_traces array");
+    assert_eq!(embedded.len(), 1);
+    assert_eq!(
+        embedded[0]["trace_id"], "t1",
+        "the traces the caller handed over take precedence"
+    );
 }
