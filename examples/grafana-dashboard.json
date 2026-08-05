@@ -606,7 +606,7 @@
     },
     {
       "title": "Energy ingestion freshness",
-      "description": "Seconds since each energy backend last returned a sample. Only the backends you configured report here, the others stay flat at zero. When an age climbs past its scrape interval the readings are stale and carbon attribution silently falls back to the built-in estimate, so the numbers stay plausible while no longer being measured. Alumet is the recommended backend and leads the precedence chain.",
+      "description": "Seconds since each CONFIGURED energy backend last returned a sample. A backend you did not configure draws nothing at all: its series is gated on perf_sentinel_energy_backend_configured, because every energy gauge is pre-registered at zero and a successful scrape also sets the staleness gauge to zero, so without the gate 'not configured' and 'healthy' were the same flat line and an unconfigured install drew five of them per replica. Zero therefore means fresh. When an age climbs past its scrape interval the readings are stale and carbon attribution silently falls back to the built-in estimate, so the numbers stay plausible while no longer being measured.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -620,34 +620,35 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\"}",
+          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"alumet\"} == 1)",
           "legendFormat": "alumet {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\"}",
+          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"scaphandre\"} == 1)",
           "refId": "B",
           "legendFormat": "scaphandre {{instance}}"
         },
         {
-          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\"}",
+          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"kepler\"} == 1)",
           "legendFormat": "kepler {{instance}}",
           "refId": "C"
         },
         {
-          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\"}",
+          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"redfish\"} == 1)",
           "legendFormat": "redfish {{instance}}",
           "refId": "D"
         },
         {
-          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\"}",
+          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"cloud_energy\"} == 1)",
           "refId": "E",
           "legendFormat": "cloud_energy {{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "noValue": "No measured-energy backend configured. Carbon figures come from the built-in I/O proxy. See docs/ENERGY.md to plug in Alumet, Scaphandre, Kepler, Redfish or cloud SPECpower."
         }
       }
     },

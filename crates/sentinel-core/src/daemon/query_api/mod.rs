@@ -119,6 +119,22 @@ pub struct EnergyBackendsConfigured {
     pub cloud_energy: bool,
 }
 
+impl EnergyBackendsConfigured {
+    /// The flags paired with the label values `/metrics` publishes, the
+    /// single place mapping the fields to those names so the gauge and
+    /// `/api/energy` cannot drift apart.
+    #[must_use]
+    pub fn as_labelled(&self) -> [(&'static str, bool); 5] {
+        [
+            ("alumet", self.alumet),
+            ("scaphandre", self.scaphandre),
+            ("kepler", self.kepler),
+            ("redfish", self.redfish),
+            ("cloud_energy", self.cloud_energy),
+        ]
+    }
+}
+
 /// Build the query API router.
 pub fn query_api_router(state: Arc<QueryApiState>) -> Router {
     Router::new()

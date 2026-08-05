@@ -347,6 +347,25 @@ fn build_http_router(
     let health_router = super::health::health_route();
     let mut http_router = otlp_router.merge(metrics_router).merge(health_router);
     if config.daemon.api_enabled {
+        // Publish which backends are configured, so /metrics can tell
+        // "not configured" from "configured and healthy". Every other
+        // energy gauge is pre-registered at zero and a successful scrape
+        // sets the staleness gauge to zero too, which makes the two
+        // states identical on the wire without this.
+        let energy_backends_configured = query_api::EnergyBackendsConfigured {
+            alumet: config.green.alumet.is_some(),
+            scaphandre: config.green.scaphandre.is_some(),
+            kepler: config.green.kepler.is_some(),
+            redfish: config.green.redfish.is_some(),
+            cloud_energy: config.green.cloud_energy.is_some(),
+        };
+        for (backend, configured) in energy_backends_configured.as_labelled() {
+            metrics
+                .energy_backend_configured
+                .with_label_values(&[backend])
+                .set(if configured { 1.0 } else { 0.0 });
+        }
+
         let query_state = Arc::new(query_api::QueryApiState {
             findings_store,
             window,
@@ -367,13 +386,7 @@ fn build_http_router(
             ack_api_key: config.daemon.ack.api_key.clone(),
             daemon_config: config.daemon.clone(),
             thresholds: config.thresholds.clone(),
-            energy_backends: query_api::EnergyBackendsConfigured {
-                alumet: config.green.alumet.is_some(),
-                scaphandre: config.green.scaphandre.is_some(),
-                kepler: config.green.kepler.is_some(),
-                redfish: config.green.redfish.is_some(),
-                cloud_energy: config.green.cloud_energy.is_some(),
-            },
+            energy_backends: energy_backends_configured,
         });
         // CORS scoped to /api/* only, never to OTLP/metrics/health.
         // Locked by `cors_layer_does_not_leak_to_otlp_or_metrics_or_health_routes`.

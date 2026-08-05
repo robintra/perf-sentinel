@@ -240,6 +240,19 @@ l'endpoint `[green.scaphandre]` configuré, toutes les
 `scrape_interval_secs`). Enregistrés uniquement quand le daemon est
 compilé avec la feature `daemon`.
 
+| Metric                                     | Type  | Labels    | Description                                                                                                                                    |
+|--------------------------------------------|-------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_energy_backend_configured`  | gauge | `backend` | `1` quand ce backend est configuré, `0` sinon. Positionné une fois au démarrage, une série par backend (`alumet`, `scaphandre`, `kepler`, `redfish`, `cloud_energy`). |
+
+À lire avant toute autre métrique énergie. Chaque gauge énergie est
+pré-enregistrée à zéro que le backend existe ou non, et un scrape réussi
+remet `last_scrape_age_seconds` à zéro : « non configuré » et « configuré
+et en parfaite santé » sont donc le même zéro plat sur le fil. Filtrez
+sur cette gauge pour les distinguer, dans un dashboard
+(`... and on(job, instance) (perf_sentinel_energy_backend_configured{backend="alumet"} == 1)`)
+ou dans une alerte qui ne doit se déclencher que pour un backend
+réellement en service.
+
 | Metric                                             | Type    | Labels   | Description                                                                                  |
 |----------------------------------------------------|---------|----------|----------------------------------------------------------------------------------------------|
 | `perf_sentinel_scaphandre_scrape_total`            | counter | `status` | Total des tentatives de scrape Scaphandre depuis le démarrage, partitionné par issue.        |
