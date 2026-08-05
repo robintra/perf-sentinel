@@ -72,7 +72,7 @@
     {
       "type": "table",
       "title": "Findings",
-      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. The table sorts by it by default, click any header to re-sort.",
+      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. Click that header to rank by it. The default order stays Traces desc, which ranks every row: findings that waste no I/O (the slow_* family) have no Ops/trace, so their impact cell is blank and sorting on it would place them arbitrarily.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -284,7 +284,7 @@
         "showHeader": true,
         "sortBy": [
           {
-            "displayName": "Est. impact (ops)",
+            "displayName": "Traces",
             "desc": true
           }
         ]
