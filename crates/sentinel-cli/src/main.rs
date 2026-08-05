@@ -2311,8 +2311,27 @@ fn cmd_explain(
 
     // A Report JSON (a daemon snapshot) carries no raw events, but since
     // 0.10.0 it can carry masked span trees: rebuild the tree from them,
-    // the same source the dashboard and the TUI draw from.
-    let tree = if let Ok(report) = serde_json::from_slice::<sentinel_core::report::Report>(&raw) {
+    // the same source the dashboard and the TUI draw from. Detected on the
+    // top-level `findings` key, which no trace-export format has, so a
+    // report that fails to deserialize surfaces its own error instead of
+    // falling through to a misleading "unrecognized input" from the
+    // event path.
+    let looks_like_report = serde_json::from_slice::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|v| v.get("findings").map(|_| ()))
+        .is_some();
+    let tree = if looks_like_report {
+        let report = match serde_json::from_slice::<sentinel_core::report::Report>(&raw) {
+            Ok(report) => report,
+            Err(e) => {
+                eprintln!(
+                    "Error: this looks like a Report JSON but could not be read: {e}\n\
+                     A report written by a newer perf-sentinel can carry values this \
+                     binary does not know."
+                );
+                std::process::exit(EXIT_TOOLING_ERROR);
+            }
+        };
         let Some(embedded) = report
             .embedded_traces
             .iter()
