@@ -388,8 +388,13 @@ curl -sS http://127.0.0.1:4318/api/energy
 ### GET /api/findings
 
 Retourne un tableau JSON des findings récents, du plus récent au plus
-ancien. Chaque élément encapsule le finding lui-même plus un timestamp
-d'ingestion côté daemon.
+ancien. Chaque élément encapsule le finding lui-même plus des métadonnées
+d'occurrence côté daemon. Les entrées sont coalescées par signature
+canonique (la même clé que les acquittements) : la détection est par
+trace, un pattern récurrent listerait donc une ligne identique par trace
+et pourrait remplir tout le store en évinçant les findings plus rares.
+Une entrée par problème distinct est conservée, rafraîchie en place avec
+sa dernière instance et un décompte d'occurrences (depuis 0.9.29).
 
 **Paramètres de requête :**
 
@@ -407,10 +412,15 @@ axum.
 **Forme de la réponse :** tableau de `StoredFinding`. Chaque
 `StoredFinding` contient :
 
-- `finding` : le finding détecté. Voir
-  [le schéma `Finding`](#schéma-finding) ci-dessous.
-- `stored_at_ms` : timestamp Unix entier en millisecondes, enregistré au
-  moment où le daemon a inséré ce finding dans le ring buffer.
+- `finding` : la dernière instance détectée de cette signature (son
+  `trace_id` et ses timestamps décrivent l'occurrence la plus récente).
+  Voir [le schéma `Finding`](#schéma-finding) ci-dessous.
+- `stored_at_ms` : timestamp Unix entier en millisecondes du dernier
+  enregistrement de cette signature par le daemon.
+- `first_seen_ms` : timestamp Unix entier en millisecondes du premier
+  enregistrement de cette signature (depuis 0.9.29).
+- `seen_count` : combien d'instances par trace cette entrée coalesce
+  (depuis 0.9.29).
 
 **Exemple :**
 
@@ -498,10 +508,13 @@ v0.4.1 :
 
 ### GET /api/findings/{trace_id}
 
-Retourne tous les findings dont le `trace_id` matche le segment de
-chemin, sous forme de tableau JSON. Même forme d'élément que
+Retourne tous les findings dont la DERNIÈRE instance matche le segment
+de chemin, sous forme de tableau JSON. Même forme d'élément que
 `/api/findings`. Le cap dur de 1000 entrées s'applique (traces
-pathologiques avec des centaines de clusters N+1).
+pathologiques avec des centaines de clusters N+1). Depuis la coalescence
+(0.9.29), une trace dont le finding a récidivé sur une trace plus
+récente ne liste plus ici, `/api/explain/{trace_id}` reste la vue
+exhaustive par trace.
 
 **Paramètre de chemin :** `trace_id` (string, match exact). Le segment
 est URL-décodé par axum avant comparaison.

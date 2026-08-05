@@ -274,6 +274,8 @@ fn stored_finding_serde_roundtrip() {
     let stored = StoredFinding {
         finding,
         stored_at_ms: 12345,
+        first_seen_ms: 0,
+        seen_count: 1,
     };
     let json = serde_json::to_string(&stored).unwrap();
     let back: StoredFinding = serde_json::from_str(&json).unwrap();
@@ -319,6 +321,8 @@ async fn correlations_returns_active_correlations_when_correlator_present() {
 async fn findings_limit_is_capped() {
     let state = make_state();
     // Push more findings than the hard cap (MAX_FINDINGS_LIMIT = 1000).
+    // Distinct templates: the store coalesces by signature, and same-
+    // signature instances would collapse into one entry.
     let findings: Vec<detect::Finding> = (0..50)
         .map(|i| {
             let mut f = crate::test_helpers::make_finding(
@@ -326,6 +330,7 @@ async fn findings_limit_is_capped() {
                 detect::Severity::Warning,
             );
             f.trace_id = format!("trace-{i}");
+            f.pattern.template = format!("SELECT {i}");
             f
         })
         .collect();
@@ -1522,6 +1527,8 @@ fn finding_response_does_not_collide_with_stored_finding_fields() {
         stored: StoredFinding {
             finding,
             stored_at_ms: 1234,
+            first_seen_ms: 0,
+            seen_count: 1,
         },
         acknowledged_by: Some(AckSource::Daemon {
             by: "alice".to_string(),
