@@ -842,43 +842,68 @@ fn embed_trace_ref(t: &Trace) -> EmbeddedTraceRef<'_> {
 
 /// Traces a snapshot-style report carries itself, filtered to the
 /// findings the payload shows (an acknowledged finding's tree must not
-/// ship), then bounded like the handed-over path: the explicit
-/// `--max-traces-embedded` cap when set, half the JSON size budget
-/// otherwise. Newest first, their findings are the likeliest opened.
+/// ship) and ranked like the page ranks findings: worst referencing
+/// severity first, newest flush as the tie-break, so the trees kept are
+/// the ones the top rows point at. Bounded by the explicit
+/// `--max-traces-embedded` cap when set, otherwise by what the size
+/// target leaves after the rest of the payload, measured rather than
+/// assumed so the findings' own budget share cannot overlap it. A trace
+/// too large for the remaining budget is skipped, not fatal: one
+/// oversized tree must not empty the embed.
 fn select_report_carried_traces(
     report_embed: &Report,
     report: &Report,
     options: &RenderOptions,
 ) -> (Vec<EmbeddedTrace>, Option<TrimSummary>) {
-    let visible: HashSet<&str> = report_embed
-        .findings
-        .iter()
-        .map(|f| f.trace_id.as_str())
-        .collect();
-    let referenced: Vec<&EmbeddedTrace> = report
+    // Worst severity referencing each visible trace. Severity orders
+    // Critical < Warning < Info, so worst = min.
+    let mut severity_by_trace: HashMap<&str, crate::detect::Severity> = HashMap::new();
+    for f in &report_embed.findings {
+        severity_by_trace
+            .entry(f.trace_id.as_str())
+            .and_modify(|s| {
+                if f.severity < *s {
+                    s.clone_from(&f.severity);
+                }
+            })
+            .or_insert_with(|| f.severity.clone());
+    }
+    let mut ranked: Vec<(crate::detect::Severity, usize, &EmbeddedTrace)> = report
         .embedded_traces
         .iter()
-        .filter(|t| visible.contains(t.trace_id.as_str()))
+        .enumerate()
+        .filter_map(|(pos, t)| {
+            severity_by_trace
+                .get(t.trace_id.as_str())
+                .map(|sev| (sev.clone(), pos, t))
+        })
         .collect();
-    let total = referenced.len();
+    let total = ranked.len();
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
 
     let kept: Vec<EmbeddedTrace> = if let Some(cap) = options.max_traces_embedded {
-        referenced.into_iter().take(cap).cloned().collect()
-    } else {
-        let budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len()) / 2;
-        let mut spent = 0usize;
-        let mut newest_first: Vec<EmbeddedTrace> = referenced
+        ranked
             .into_iter()
-            .rev()
-            .take_while(|t| {
+            .take(cap)
+            .map(|(_, _, t)| t.clone())
+            .collect()
+    } else {
+        let json_budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len());
+        let used = serde_json::to_string(report_embed).map_or(usize::MAX, |s| s.len());
+        let budget = json_budget.saturating_sub(used);
+        let mut spent = 0usize;
+        ranked
+            .into_iter()
+            .filter(|(_, _, t)| {
                 let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
-                spent = spent.saturating_add(size);
-                spent <= budget
+                if spent.saturating_add(size) > budget {
+                    return false;
+                }
+                spent += size;
+                true
             })
-            .cloned()
-            .collect();
-        newest_first.reverse();
-        newest_first
+            .map(|(_, _, t)| t.clone())
+            .collect()
     };
     let trimmed = (kept.len() < total).then_some(TrimSummary {
         kept: kept.len(),
