@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Batch runs count the spans they filter, so a thin report can be told apart from unusable instrumentation. The daemon has counted its OTLP drops since 0.8.7, but `analyze`, `diff` and `report` threw the same tally away, and the CI path, the one place a false green costs the most, is a batch path: a SQL span shipped without `db.statement` (the .NET default until `SetDbStatementForText` is on) produced no finding, no counter and no warning, and the gate passed on nothing. On OTLP input the JSON report now carries `analysis.ingest`, spans received, filtered per stable reason, and a usable-span ratio computed over I/O-shaped spans only, so internal spans and the deliberate drops (`non_sql_datastore`, `merged_db_span`) do not depress it, the same exclusions the daemon's zero-retention warning applies. The text report prints the tally whenever spans were filtered. An optional `[thresholds] min_usable_span_ratio` turns the ratio into a fifth quality-gate rule that fails the gate below the threshold even with zero findings. The rule is skipped, not passed, when the input carries no tally (native, Jaeger, Zipkin) or no I/O-shaped span, so its absence stays visible. Tempo fetches and the Jaeger and Zipkin paths still carry no per-reason classification, that follow-up is noted in `docs/LIMITATIONS.md`.
+
 ## [0.9.28] - 2026-08-04
 
 Version `0.9.27` was a chart-only release, so the application line goes from

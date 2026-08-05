@@ -10,6 +10,7 @@
 
 use crate::event::SpanEvent;
 use crate::ingest::IngestSource;
+use crate::ingest::otlp::SpanConversionStats;
 
 /// Defense-in-depth nesting cap for the native ingest path. The native
 /// span-event format is flat (top-level array of objects, each with at
@@ -114,10 +115,21 @@ impl JsonIngest {
     }
 }
 
-impl IngestSource for JsonIngest {
-    type Error = JsonIngestError;
-
-    fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error> {
+impl JsonIngest {
+    /// [`IngestSource::ingest`] plus the OTLP span-filter tally. The tally
+    /// is `Some` only on the OTLP arm: native, Jaeger and Zipkin carry no
+    /// per-reason classification (a known follow-up), so a `None` here
+    /// means "not counted", never "nothing filtered".
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`IngestSource::ingest`]: empty input, an
+    /// oversized or over-deep payload, and format or parse failures all
+    /// return a [`JsonIngestError`].
+    pub fn ingest_with_stats(
+        &self,
+        raw: &[u8],
+    ) -> Result<(Vec<SpanEvent>, Option<SpanConversionStats>), JsonIngestError> {
         // An empty file is the routine outcome of a capture that received
         // nothing, and `EOF while parsing a value at line 1 column 0` tells
         // that user nothing. It stays an error rather than an empty report:
@@ -144,96 +156,124 @@ impl IngestSource for JsonIngest {
 
         match detect_format(raw) {
             InputFormat::Otlp => {
-                // Deserialize each document (a single pretty-printed request or
-                // the Collector file exporter's NDJSON, one request per line)
-                // straight into the typed ExportTraceServiceRequest: that keeps
-                // strict duplicate-key rejection, positioned parse errors, and
-                // streaming memory. Only a document that trips protojson's
-                // omitted-`values` case (empty arrayValue/kvlistValue) is
-                // re-parsed through a normalized Value, so the common case pays
-                // nothing. convert_otlp_request sanitizes each event, same code
-                // path as the daemon listeners.
-                type OtlpRequest =
-                    opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
-                let mut events = Vec::new();
-                let mut parsed_any = false;
-                let mut offset = 0;
-                while offset < raw.len() {
-                    let mut stream = serde_json::Deserializer::from_slice(&raw[offset..])
-                        .into_iter::<OtlpRequest>();
-                    match stream.next() {
-                        None => break,
-                        Some(Ok(request)) => {
-                            parsed_any = true;
-                            events.extend(crate::ingest::otlp::convert_otlp_request(&request));
-                            offset += stream.byte_offset();
-                        }
-                        // Empty list (`{"arrayValue":{}}`) and valueless attribute
-                        // (`{"key":"k","value":{}}`, seen from the Java stdout
-                        // exporter): normalize_otlp_json repairs both, retry this
-                        // document only.
-                        Some(Err(e)) if is_recoverable_attribute_shape(&e) => {
-                            let mut retry = serde_json::Deserializer::from_slice(&raw[offset..])
-                                .into_iter::<serde_json::Value>();
-                            let Some(Ok(mut value)) = retry.next() else {
-                                return Err(JsonIngestError::Parse(e));
-                            };
-                            normalize_otlp_json(&mut value);
-                            // Surface the original error, not the retry's:
-                            // `from_value` carries no line or column.
-                            let request: OtlpRequest = serde_json::from_value(value)
-                                .map_err(|_| JsonIngestError::Parse(e))?;
-                            parsed_any = true;
-                            events.extend(crate::ingest::otlp::convert_otlp_request(&request));
-                            offset += retry.byte_offset();
-                        }
-                        // A truncated trailing document is routine on a live or
-                        // rotated Collector file-exporter dump (exporter still
-                        // writing, file rotated mid-line). Tolerate it once at
-                        // least one request parsed; mid-stream garbage (non-EOF
-                        // errors) and a truncated-only payload still fail.
-                        Some(Err(e)) if e.is_eof() && parsed_any => {
-                            tracing::warn!(
-                                "ignoring truncated trailing OTLP JSON document \
-                                 (live or rotated file-exporter dump?)"
-                            );
-                            break;
-                        }
-                        Some(Err(e)) => return Err(JsonIngestError::Parse(e)),
-                    }
-                }
-                Ok(events)
+                let (events, stats) = Self::ingest_otlp(raw)?;
+                Ok((events, Some(stats)))
             }
             InputFormat::Jaeger => {
                 let ingest = crate::ingest::jaeger::JaegerIngest::new(self.max_size);
                 ingest
                     .ingest(raw)
+                    .map(|events| (events, None))
                     .map_err(|e| JsonIngestError::Format(e.to_string()))
             }
             InputFormat::Zipkin => {
                 let ingest = crate::ingest::zipkin::ZipkinIngest::new(self.max_size);
                 ingest
                     .ingest(raw)
+                    .map(|events| (events, None))
                     .map_err(|e| JsonIngestError::Format(e.to_string()))
             }
-            InputFormat::Native => {
-                let mut events: Vec<SpanEvent> =
-                    serde_json::from_slice(raw).map_err(JsonIngestError::Parse)?;
-                // Sanitize cloud.region at the JSON ingest boundary, symmetric
-                // with the OTLP path. Invalid values (empty, > 64 bytes, non-ASCII
-                // alphanumeric plus `-`/`_`) are replaced with None to prevent
-                // log-forging through downstream tracing::debug! format strings.
-                for event in &mut events {
-                    if let Some(region) = event.cloud_region.as_deref()
-                        && !crate::score::carbon::is_valid_region_id(region)
-                    {
-                        event.cloud_region = None;
-                    }
-                    crate::event::sanitize_span_event(event);
+            InputFormat::Native => Self::ingest_native(raw).map(|events| (events, None)),
+        }
+    }
+
+    /// The OTLP arm of [`Self::ingest_with_stats`], with the per-request
+    /// filter tallies merged over the whole document stream.
+    ///
+    /// Deserializes each document (a single pretty-printed request or
+    /// the Collector file exporter's NDJSON, one request per line)
+    /// straight into the typed `ExportTraceServiceRequest`: that keeps
+    /// strict duplicate-key rejection, positioned parse errors, and
+    /// streaming memory. Only a document that trips protojson's
+    /// omitted-`values` case (empty arrayValue/kvlistValue) is
+    /// re-parsed through a normalized Value, so the common case pays
+    /// nothing. `convert_otlp_request_counted` sanitizes each event, same
+    /// code path as the daemon listeners.
+    fn ingest_otlp(raw: &[u8]) -> Result<(Vec<SpanEvent>, SpanConversionStats), JsonIngestError> {
+        type OtlpRequest =
+            opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+        let mut events = Vec::new();
+        let mut stats = SpanConversionStats::default();
+        let mut parsed_any = false;
+        let mut offset = 0;
+        while offset < raw.len() {
+            let mut stream =
+                serde_json::Deserializer::from_slice(&raw[offset..]).into_iter::<OtlpRequest>();
+            match stream.next() {
+                None => break,
+                Some(Ok(request)) => {
+                    parsed_any = true;
+                    let (converted, request_stats) =
+                        crate::ingest::otlp::convert_otlp_request_counted(&request);
+                    events.extend(converted);
+                    stats.merge(&request_stats);
+                    offset += stream.byte_offset();
                 }
-                Ok(events)
+                // Empty list (`{"arrayValue":{}}`) and valueless attribute
+                // (`{"key":"k","value":{}}`, seen from the Java stdout
+                // exporter): normalize_otlp_json repairs both, retry this
+                // document only.
+                Some(Err(e)) if is_recoverable_attribute_shape(&e) => {
+                    let mut retry = serde_json::Deserializer::from_slice(&raw[offset..])
+                        .into_iter::<serde_json::Value>();
+                    let Some(Ok(mut value)) = retry.next() else {
+                        return Err(JsonIngestError::Parse(e));
+                    };
+                    normalize_otlp_json(&mut value);
+                    // Surface the original error, not the retry's:
+                    // `from_value` carries no line or column.
+                    let request: OtlpRequest =
+                        serde_json::from_value(value).map_err(|_| JsonIngestError::Parse(e))?;
+                    parsed_any = true;
+                    let (converted, request_stats) =
+                        crate::ingest::otlp::convert_otlp_request_counted(&request);
+                    events.extend(converted);
+                    stats.merge(&request_stats);
+                    offset += retry.byte_offset();
+                }
+                // A truncated trailing document is routine on a live or
+                // rotated Collector file-exporter dump (exporter still
+                // writing, file rotated mid-line). Tolerate it once at
+                // least one request parsed; mid-stream garbage (non-EOF
+                // errors) and a truncated-only payload still fail.
+                Some(Err(e)) if e.is_eof() && parsed_any => {
+                    tracing::warn!(
+                        "ignoring truncated trailing OTLP JSON document \
+                         (live or rotated file-exporter dump?)"
+                    );
+                    break;
+                }
+                Some(Err(e)) => return Err(JsonIngestError::Parse(e)),
             }
         }
+        Ok((events, stats))
+    }
+
+    /// The native arm of [`Self::ingest_with_stats`].
+    fn ingest_native(raw: &[u8]) -> Result<Vec<SpanEvent>, JsonIngestError> {
+        let mut events: Vec<SpanEvent> =
+            serde_json::from_slice(raw).map_err(JsonIngestError::Parse)?;
+        // Sanitize cloud.region at the JSON ingest boundary, symmetric
+        // with the OTLP path. Invalid values (empty, > 64 bytes, non-ASCII
+        // alphanumeric plus `-`/`_`) are replaced with None to prevent
+        // log-forging through downstream tracing::debug! format strings.
+        for event in &mut events {
+            if let Some(region) = event.cloud_region.as_deref()
+                && !crate::score::carbon::is_valid_region_id(region)
+            {
+                event.cloud_region = None;
+            }
+            crate::event::sanitize_span_event(event);
+        }
+        Ok(events)
+    }
+}
+
+impl IngestSource for JsonIngest {
+    type Error = JsonIngestError;
+
+    fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error> {
+        self.ingest_with_stats(raw).map(|(events, _stats)| events)
     }
 }
 
@@ -720,6 +760,32 @@ mod tests {
             ingest.ingest(json.as_bytes()),
             Err(JsonIngestError::Parse(_))
         );
+    }
+
+    #[test]
+    fn ingest_with_stats_counts_otlp_filtered_spans() {
+        // One usable SQL span in one request, one SERVER span without a
+        // full URL in another (filtered as not_io). The tally must merge
+        // across the NDJSON documents.
+        let usable = otlp_request_json("5b8efff798038103d269b633813fc60c", "SELECT 1");
+        let server_no_url = r#"{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"svc"}}]},"scopeSpans":[{"spans":[{"traceId":"1bf7651916cd43dd8448eb211c80319d","spanId":"eee19b7ec3c1b175","name":"GET /x","kind":2,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[]}]}]}]}"#;
+        let json = format!("{usable}\n{server_no_url}\n");
+        let ingest = JsonIngest::new(1_048_576);
+        let (events, stats) = ingest.ingest_with_stats(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        let stats = stats.expect("OTLP input carries a tally");
+        assert_eq!(stats.received, 2);
+        assert_eq!(stats.retained(), 1);
+        assert_eq!(stats.filtered_not_io, 1);
+    }
+
+    #[test]
+    fn ingest_with_stats_none_on_native_input() {
+        let json = native_event_with_cloud_region("eu-west-3");
+        let ingest = JsonIngest::new(1_048_576);
+        let (events, stats) = ingest.ingest_with_stats(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(stats.is_none(), "native input has no OTLP tally");
     }
 
     #[test]

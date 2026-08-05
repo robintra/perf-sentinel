@@ -78,6 +78,7 @@ fn minimal_report(findings: Vec<Finding>) -> Report {
             duration_ms: 10,
             events_processed: 1,
             traces_analyzed: 1,
+            ingest: None,
         },
         findings,
         green_summary: GreenSummary {
@@ -135,7 +136,7 @@ fn renders_minimal_report_to_valid_html() {
     let events = crate::ingest::json::JsonIngest::new(cfg.daemon.max_payload_size)
         .ingest(&raw)
         .expect("fixture parses");
-    let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);
+    let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg, None);
 
     assert_eq!(report.findings.len(), 3, "fixture must yield 3 findings");
     let types: std::collections::BTreeSet<FindingType> = report

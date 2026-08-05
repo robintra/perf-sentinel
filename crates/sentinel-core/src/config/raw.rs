@@ -67,6 +67,7 @@ struct ThresholdsSection {
     n_plus_one_http_warning_max: Option<u32>,
     n_plus_one_messaging_warning_max: Option<u32>,
     io_waste_ratio_max: Option<f64>,
+    min_usable_span_ratio: Option<f64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -325,6 +326,8 @@ impl From<RawConfig> for Config {
                     .thresholds
                     .io_waste_ratio_max
                     .unwrap_or(thresholds_defaults.io_waste_ratio_max),
+                // Opt-in rule: absent key stays None (disabled), no default.
+                min_usable_span_ratio: raw.thresholds.min_usable_span_ratio,
             },
             detection: DetectionConfig {
                 n_plus_one_threshold: raw

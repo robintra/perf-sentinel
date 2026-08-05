@@ -613,6 +613,20 @@ async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergySt
 /// - Response size bounded (~3.5 MB worst case), sized for the
 ///   documented loopback posture.
 ///
+/// [`Analysis`] block for a daemon export snapshot: lifetime counters,
+/// `duration_ms` explicitly zero (see the handler contract), and no
+/// ingest tally. The daemon's span tally lives in the cumulative
+/// Prometheus pair, not in a per-export snapshot, so `analysis.ingest`
+/// stays `None` and the usable-span gate rule is skipped, see /metrics.
+fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis {
+    Analysis {
+        duration_ms: 0,
+        events_processed,
+        traces_analyzed,
+        ingest: None,
+    }
+}
+
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
 /// `report::build_report(...)` and call it from both.
@@ -649,13 +663,14 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         )];
         warning_details.extend(sampling_rate_warning(&state.daemon_config));
         return Json(Report {
-            analysis: Analysis {
-                duration_ms: 0,
-                events_processed: 0,
-                traces_analyzed: 0,
-            },
+            analysis: export_analysis(0, 0),
             findings: Vec::new(),
-            quality_gate: crate::quality_gate::evaluate(&[], &green_summary, &state.thresholds),
+            quality_gate: crate::quality_gate::evaluate(
+                &[],
+                &green_summary,
+                &state.thresholds,
+                None,
+            ),
             green_summary,
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
@@ -705,7 +720,8 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     green_summary
         .scoring_config
         .clone_from(&state.scoring_config);
-    let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, &state.thresholds);
+    let quality_gate =
+        crate::quality_gate::evaluate(&findings, &green_summary, &state.thresholds, None);
 
     // usize::try_from guards 32-bit targets where a 5-billion-event
     // counter would overflow a usize. On 64-bit the fallback branch is
@@ -732,13 +748,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     let warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
 
     let report = Report {
-        analysis: Analysis {
-            // Explicitly zero rather than the daemon uptime, see the
-            // doc comment above for the rationale.
-            duration_ms: 0,
-            events_processed: events_usize,
-            traces_analyzed: traces_usize,
-        },
+        analysis: export_analysis(events_usize, traces_usize),
         findings,
         green_summary,
         quality_gate,

@@ -3846,3 +3846,76 @@ fn doctrine_layer_stitches_without_db_system() {
     assert_eq!(stats.filtered_merged_db_span, 3);
     assert_eq!(stats.filtered_missing_db_statement, 0);
 }
+
+// ── SpanConversionStats arithmetic (merge, retained, usable ratio) ──
+
+#[test]
+fn stats_merge_sums_every_field() {
+    let mut a = SpanConversionStats {
+        received: 10,
+        filtered_not_io: 1,
+        filtered_missing_db_statement: 2,
+        filtered_missing_http_url: 3,
+        filtered_non_sql_datastore: 1,
+        filtered_merged_db_span: 1,
+    };
+    let b = SpanConversionStats {
+        received: 5,
+        filtered_not_io: 1,
+        filtered_missing_db_statement: 1,
+        filtered_missing_http_url: 0,
+        filtered_non_sql_datastore: 0,
+        filtered_merged_db_span: 1,
+    };
+    a.merge(&b);
+    assert_eq!(a.received, 15);
+    assert_eq!(a.filtered_not_io, 2);
+    assert_eq!(a.filtered_missing_db_statement, 3);
+    assert_eq!(a.filtered_missing_http_url, 3);
+    assert_eq!(a.filtered_non_sql_datastore, 1);
+    assert_eq!(a.filtered_merged_db_span, 2);
+    assert_eq!(a.retained(), 4);
+}
+
+#[test]
+fn usable_ratio_counts_only_io_shaped_spans() {
+    // 10 received: 4 not_io, 1 deliberate merged, 2 missing statements,
+    // 3 retained. Denominator = retained + attribute gaps = 5, not 10:
+    // internal spans and deliberate drops must not depress the ratio.
+    let stats = SpanConversionStats {
+        received: 10,
+        filtered_not_io: 4,
+        filtered_missing_db_statement: 2,
+        filtered_missing_http_url: 0,
+        filtered_non_sql_datastore: 0,
+        filtered_merged_db_span: 1,
+    };
+    let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");
+    assert!((ratio - 3.0 / 5.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn usable_ratio_none_without_io_shaped_spans() {
+    // Only internal spans: nothing to judge, the ratio must be None so
+    // the gate rule stays silent instead of passing (or failing) on 0/0.
+    let stats = SpanConversionStats {
+        received: 7,
+        filtered_not_io: 7,
+        ..SpanConversionStats::default()
+    };
+    assert!(stats.usable_span_ratio().is_none());
+}
+
+#[test]
+fn usable_ratio_zero_when_every_io_span_is_unusable() {
+    // The false-green scenario itself: SQL spans arrive but none carries
+    // db.statement. The ratio must be 0.0, not None, so a configured
+    // min_usable_span_ratio fails the gate.
+    let stats = SpanConversionStats {
+        received: 5,
+        filtered_missing_db_statement: 5,
+        ..SpanConversionStats::default()
+    };
+    let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");
+    assert!(ratio.abs() < f64::EPSILON);
+}

@@ -19,6 +19,7 @@ pub fn empty_report() -> Report {
             duration_ms: 0,
             events_processed: 0,
             traces_analyzed: 0,
+            ingest: None,
         },
         findings: vec![],
         green_summary: GreenSummary::disabled(0),

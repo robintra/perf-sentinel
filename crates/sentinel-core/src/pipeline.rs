@@ -5,6 +5,7 @@ use crate::correlate;
 use crate::detect;
 use crate::detect::{Confidence, DetectConfig};
 use crate::event::SpanEvent;
+use crate::ingest::otlp::SpanConversionStats;
 use crate::normalize;
 use crate::report::{Analysis, Report};
 use crate::score;
@@ -12,17 +13,23 @@ use crate::score;
 /// Run the full analysis pipeline on a batch of events.
 #[must_use]
 pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
-    analyze_with_traces(events, config).0
+    analyze_with_traces(events, config, None).0
 }
 
 /// Run the full analysis pipeline, returning both the report and the correlated traces.
 ///
 /// Use this when you need the intermediate `Trace` structures (e.g., for tree building
 /// in the TUI inspect mode) without re-running normalization and correlation.
+///
+/// `ingest_stats` is the OTLP span-filter tally from
+/// [`crate::ingest::json::JsonIngest::ingest_with_stats`]. When `Some` it
+/// lands in `analysis.ingest` and feeds the opt-in `min_usable_span_ratio`
+/// gate rule; pass `None` when the input carried no tally.
 #[must_use]
 pub fn analyze_with_traces(
     events: Vec<SpanEvent>,
     config: &Config,
+    ingest_stats: Option<SpanConversionStats>,
 ) -> (Report, Vec<correlate::Trace>) {
     let start = std::time::Instant::now();
     let event_count = events.len();
@@ -70,13 +77,20 @@ pub fn analyze_with_traces(
     // into `.perf-sentinel-acknowledgments.toml` without having to recompute.
     crate::acknowledgments::enrich_with_signatures(&mut findings);
 
-    let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, &config.thresholds);
+    let ingest = ingest_stats.map(crate::report::IngestStats::from);
+    let quality_gate = crate::quality_gate::evaluate(
+        &findings,
+        &green_summary,
+        &config.thresholds,
+        ingest.as_ref(),
+    );
 
     let report = Report {
         analysis: Analysis {
             duration_ms: start.elapsed().as_millis() as u64,
             events_processed: event_count,
             traces_analyzed: trace_count,
+            ingest,
         },
         findings,
         green_summary,
@@ -330,6 +344,46 @@ mod tests {
         };
         let report = analyze(vec![], &config);
         assert!(report.green_summary.co2.is_none());
+    }
+
+    // --- ingest stats propagation ---
+
+    #[test]
+    fn ingest_stats_land_in_analysis_and_gate() {
+        // 4 of 5 I/O-shaped spans unusable: analysis.ingest carries the
+        // tally and a configured min_usable_span_ratio fails the gate on
+        // an otherwise finding-free run (the false-green scenario).
+        let stats = SpanConversionStats {
+            received: 10,
+            filtered_not_io: 5,
+            filtered_missing_db_statement: 4,
+            ..SpanConversionStats::default()
+        };
+        let config = Config {
+            thresholds: crate::config::ThresholdsConfig {
+                min_usable_span_ratio: Some(0.9),
+                ..crate::config::ThresholdsConfig::default()
+            },
+            ..Config::default()
+        };
+        let (report, _) = analyze_with_traces(vec![], &config, Some(stats));
+        let ingest = report.analysis.ingest.expect("tally propagated");
+        assert_eq!(ingest.spans_received, 10);
+        assert_eq!(ingest.spans_filtered, 9);
+        assert!((ingest.usable_span_ratio.unwrap() - 0.2).abs() < f64::EPSILON);
+        assert!(!report.quality_gate.passed, "0.2 < 0.9 must fail the gate");
+    }
+
+    #[test]
+    fn no_ingest_stats_keeps_report_shape_unchanged() {
+        let config = Config::default();
+        let report = analyze(vec![], &config);
+        assert!(report.analysis.ingest.is_none());
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(
+            json["analysis"].get("ingest").is_none(),
+            "absent tally must not serialize"
+        );
     }
 
     // --- batch mode stamps a batch confidence (local or CI) ---

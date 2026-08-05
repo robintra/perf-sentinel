@@ -975,6 +975,7 @@ async fn process_traces(
                 duration_ms: 0,
                 events_processed,
                 traces_analyzed: trace_count,
+                ingest: None,
             },
             // Move owned data into the archive; aggregator consumes
             // findings, green_summary, and per_endpoint_io_ops. Other

@@ -302,8 +302,12 @@ pub fn apply_to_report(
         }
     }
 
-    report.quality_gate =
-        quality_gate::evaluate(&report.findings, &report.green_summary, &config.thresholds);
+    report.quality_gate = quality_gate::evaluate(
+        &report.findings,
+        &report.green_summary,
+        &config.thresholds,
+        report.analysis.ingest.as_ref(),
+    );
 }
 
 /// Message for an active ack that suppressed nothing. When the entry
@@ -397,6 +401,7 @@ mod tests {
                 duration_ms: 0,
                 events_processed: findings.len(),
                 traces_analyzed: 1,
+                ingest: None,
             },
             findings,
             green_summary: GreenSummary::disabled(0),
@@ -995,8 +1000,12 @@ expires_at = "not-a-date"
         enrich_with_signatures(&mut findings);
         let target_sig = findings[0].signature.clone();
         let config = Config::default();
-        let pre_gate =
-            quality_gate::evaluate(&findings, &GreenSummary::disabled(0), &config.thresholds);
+        let pre_gate = quality_gate::evaluate(
+            &findings,
+            &GreenSummary::disabled(0),
+            &config.thresholds,
+            None,
+        );
         assert!(!pre_gate.passed, "baseline gate must fail before ack");
 
         let mut report = empty_report(findings);

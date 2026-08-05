@@ -1544,6 +1544,7 @@ mod tests {
                 duration_ms: 10,
                 events_processed: traces,
                 traces_analyzed: traces,
+                ingest: None,
             },
             findings,
             green_summary: GreenSummary {

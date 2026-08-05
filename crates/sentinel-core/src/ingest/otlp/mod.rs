@@ -68,6 +68,50 @@ impl SpanConversionStats {
         }
     }
 
+    /// Fold another request's tally into this one. The batch JSON path
+    /// ingests one file that may carry many requests (Collector NDJSON),
+    /// while the daemon records per request, so only batch accumulates.
+    pub fn merge(&mut self, other: &Self) {
+        self.received += other.received;
+        self.filtered_not_io += other.filtered_not_io;
+        self.filtered_missing_db_statement += other.filtered_missing_db_statement;
+        self.filtered_missing_http_url += other.filtered_missing_http_url;
+        self.filtered_non_sql_datastore += other.filtered_non_sql_datastore;
+        self.filtered_merged_db_span += other.filtered_merged_db_span;
+    }
+
+    /// Spans that survived the filter: `received` minus every filtered tally.
+    #[must_use]
+    pub fn retained(&self) -> u64 {
+        self.received.saturating_sub(
+            self.filtered_not_io
+                + self.filtered_missing_db_statement
+                + self.filtered_missing_http_url
+                + self.filtered_non_sql_datastore
+                + self.filtered_merged_db_span,
+        )
+    }
+
+    /// Share of I/O-shaped spans that were analyzable: retained over
+    /// retained plus the attribute-gap drops (missing `db.statement`,
+    /// missing `http.url`). Non-I/O spans and the deliberate drops
+    /// (`NonSqlDatastore`, `MergedDbSpan`) stay out of the denominator,
+    /// mirroring the daemon's `instrumentation_gap_filtered` reasoning:
+    /// a fleet exporting all its internal spans is healthy, a SQL span
+    /// shipped without its query text is an instrumentation gap.
+    /// `None` when no I/O-shaped span was seen (nothing to judge).
+    #[must_use]
+    pub fn usable_span_ratio(&self) -> Option<f64> {
+        let retained = self.retained();
+        let denominator =
+            retained + self.filtered_missing_db_statement + self.filtered_missing_http_url;
+        if denominator == 0 {
+            return None;
+        }
+        #[allow(clippy::cast_precision_loss)] // span counts are far below 2^52
+        Some(retained as f64 / denominator as f64)
+    }
+
     /// The filtered tallies keyed by their reason, the single place
     /// that zips the named fields back to the enum (consumed by the
     /// metrics sink). Kept next to [`Self::count_filtered`] so the two

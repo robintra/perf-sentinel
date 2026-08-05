@@ -42,7 +42,6 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use render::emit_report_and_gate;
 use sentinel_core::config::Config;
-use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
 use sentinel_core::pipeline;
 use std::io::Read;
@@ -1727,10 +1726,16 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
 /// exiting with `EXIT_TOOLING_ERROR` on failure: malformed or corrupted
 /// trace input is a tooling problem, not a quality-gate breach. Shared
 /// across all CLI subcommands that ingest trace files.
-fn ingest_json_or_exit(raw: &[u8], max_size: usize) -> Vec<sentinel_core::event::SpanEvent> {
+fn ingest_json_or_exit(
+    raw: &[u8],
+    max_size: usize,
+) -> (
+    Vec<sentinel_core::event::SpanEvent>,
+    Option<sentinel_core::ingest::otlp::SpanConversionStats>,
+) {
     let ingest = JsonIngest::new(max_size);
-    match ingest.ingest(raw) {
-        Ok(events) => events,
+    match ingest.ingest_with_stats(raw) {
+        Ok(events_and_stats) => events_and_stats,
         Err(e) => {
             eprintln!("Error ingesting events: {e}");
             std::process::exit(EXIT_TOOLING_ERROR);
@@ -1791,12 +1796,12 @@ fn cmd_analyze(
     let config = load_config(config_path);
     let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
 
-    let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (events, ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
     // Free the raw bytes before analysis: holding a multi-hundred-MB
     // input buffer through the whole pipeline doubles peak RSS.
     drop(raw);
 
-    let mut report = pipeline::analyze(events, &config);
+    let mut report = pipeline::analyze_with_traces(events, &config, ingest_stats).0;
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
@@ -1820,14 +1825,16 @@ fn cmd_diff(
     // Run analyze on both trace files with the SAME config so per-endpoint
     // counts and severity assignments are comparable.
     let before_raw = read_events(Some(before), limits::MAX_BATCH_INPUT_BYTES);
-    let before_events = ingest_json_or_exit(&before_raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (before_events, before_stats) =
+        ingest_json_or_exit(&before_raw, limits::MAX_BATCH_INPUT_BYTES);
     drop(before_raw);
-    let mut before_report = pipeline::analyze(before_events, &config);
+    let mut before_report = pipeline::analyze_with_traces(before_events, &config, before_stats).0;
 
     let after_raw = read_events(Some(after), limits::MAX_BATCH_INPUT_BYTES);
-    let after_events = ingest_json_or_exit(&after_raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (after_events, after_stats) =
+        ingest_json_or_exit(&after_raw, limits::MAX_BATCH_INPUT_BYTES);
     drop(after_raw);
-    let mut after_report = pipeline::analyze(after_events, &config);
+    let mut after_report = pipeline::analyze_with_traces(after_events, &config, after_stats).0;
 
     // Apply the same ack file to both runs so the diff stays meaningful:
     // an ack present on both sides masks the finding from both, an ack
@@ -1935,8 +1942,10 @@ fn load_report_from_input(
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
     match first_byte {
         Some(b'[') => {
-            let events = ingest_json_or_exit(raw, limits::MAX_BATCH_INPUT_BYTES);
-            fresh(pipeline::analyze_with_traces(events, config))
+            // A top-level array is native or Zipkin, formats with no OTLP
+            // filter tally, so the stats half is always None here.
+            let (events, ingest_stats) = ingest_json_or_exit(raw, limits::MAX_BATCH_INPUT_BYTES);
+            fresh(pipeline::analyze_with_traces(events, config, ingest_stats))
         }
         Some(b'{') => {
             if sentinel_core::ingest::json::exceeds_max_depth(raw) {
@@ -1951,8 +1960,10 @@ fn load_report_from_input(
                 return (report, Vec::new(), ReportOrigin::Precomputed);
             }
             let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
-            match ingest.ingest(raw) {
-                Ok(events) => fresh(pipeline::analyze_with_traces(events, config)),
+            match ingest.ingest_with_stats(raw) {
+                Ok((events, ingest_stats)) => {
+                    fresh(pipeline::analyze_with_traces(events, config, ingest_stats))
+                }
                 Err(e) => {
                     eprintln!(
                         "Error: --input top-level object is neither a pre-computed Report JSON, an OTLP/JSON export, nor a Jaeger export. Underlying error: {e}"
@@ -2168,7 +2179,7 @@ fn cmd_calibrate(
     let _config = load_config(config_path);
     let raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
 
-    let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
 
     // Cap the energy CSV size the same way `read_events` caps trace files.
     // A 10 GB CSV passed as `--measured-energy` would otherwise load
@@ -2278,7 +2289,7 @@ fn cmd_explain(
     let config = load_config(config_path);
     let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
 
-    let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
 
     let normalized = sentinel_core::normalize::normalize_all(events);
     let traces = sentinel_core::correlate::correlate(normalized);
@@ -2402,6 +2413,7 @@ mod tests {
                 duration_ms: 1,
                 events_processed: event_count,
                 traces_analyzed: 1,
+                ingest: None,
             },
             findings,
             green_summary: GreenSummary {
@@ -2580,6 +2592,7 @@ mod tests {
                 duration_ms: 1,
                 events_processed: 10,
                 traces_analyzed: 1,
+                ingest: None,
             },
             findings: vec![],
             green_summary: GreenSummary {
