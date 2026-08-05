@@ -63,6 +63,7 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
             severity,
             limit,
             format,
+            sort,
         } => {
             let path = build_findings_path(
                 limit,
@@ -71,7 +72,7 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
                 severity.as_deref(),
             );
             let body = fetch(&path).await;
-            render_findings_response(&body, format, daemon_url);
+            render_findings_response(&body, format, daemon_url, sort);
         }
         QueryAction::Explain { trace_id, format } => {
             let body = fetch(&format!("/api/explain/{trace_id}")).await;
@@ -140,16 +141,52 @@ fn print_pretty_json(body: &[u8]) {
     );
 }
 
-fn render_findings_response(body: &[u8], format: QueryOutputFormat, daemon_url: &str) {
+fn render_findings_response(
+    body: &[u8],
+    format: QueryOutputFormat,
+    daemon_url: &str,
+    sort: Option<crate::render::FindingsSort>,
+) {
     match format {
         QueryOutputFormat::Json => print_pretty_json(body),
-        QueryOutputFormat::Text => print_findings_text(body, daemon_url),
+        QueryOutputFormat::Text => print_findings_text(body, daemon_url, sort),
     }
 }
 
-fn print_findings_text(body: &[u8], daemon_url: &str) {
-    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
+/// Estimated aggregate avoidable I/O of a folded row: the store keeps
+/// one representative per signature, so the exact per-detection sum is
+/// gone and `seen_count x` the representative's ops stands in for it.
+fn stored_impact(sf: &sentinel_core::daemon::findings_store::StoredFinding) -> u64 {
+    let ops = sf
+        .finding
+        .green_impact
+        .as_ref()
+        .map_or(0u64, |gi| gi.estimated_extra_io_ops as u64);
+    sf.seen_count.saturating_mul(ops)
+}
+
+/// Same keys and directions as `analyze --sort` and the dashboard:
+/// descending primary, the other axis as the tie-break.
+fn sort_stored(
+    stored: &mut [sentinel_core::daemon::findings_store::StoredFinding],
+    mode: crate::render::FindingsSort,
+) {
+    stored.sort_by(|a, b| {
+        let by_severity = a.finding.severity.cmp(&b.finding.severity);
+        let by_impact = stored_impact(b).cmp(&stored_impact(a));
+        match mode {
+            crate::render::FindingsSort::Severity => by_severity.then(by_impact),
+            crate::render::FindingsSort::Impact => by_impact.then(by_severity),
+        }
+    });
+}
+
+fn print_findings_text(body: &[u8], daemon_url: &str, sort: Option<crate::render::FindingsSort>) {
+    let mut stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
         serde_json::from_slice(body).unwrap_or_default();
+    if let Some(mode) = sort {
+        sort_stored(&mut stored, mode);
+    }
     // The store coalesces by signature, so a row can stand for many traces.
     let recurring: Vec<(String, u64)> = stored
         .iter()
@@ -546,4 +583,51 @@ async fn fetch_report(
     timeout: std::time::Duration,
 ) -> Option<sentinel_core::report::Report> {
     fetch_json(client, base_url, "/api/export/report", timeout).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sentinel_core::daemon::findings_store::StoredFinding;
+
+    fn stored(severity: &str, seen: u64, ops: usize) -> StoredFinding {
+        serde_json::from_value(serde_json::json!({
+            "finding": {
+                "type": "redundant_sql",
+                "severity": severity,
+                "trace_id": "t1",
+                "service": "svc",
+                "source_endpoint": "GET /x",
+                "pattern": { "template": "select 1", "occurrences": 2, "window_ms": 100, "distinct_params": 1 },
+                "suggestion": "dedupe",
+                "first_timestamp": "2026-08-05T10:00:00Z",
+                "last_timestamp": "2026-08-05T10:00:01Z",
+                "green_impact": {
+                    "estimated_extra_io_ops": ops,
+                    "io_intensity_score": 1.0,
+                    "io_intensity_band": "moderate"
+                },
+                "confidence": "daemon_staging"
+            },
+            "stored_at_ms": 1_000,
+            "seen_count": seen,
+        }))
+        .expect("StoredFinding deserializes")
+    }
+
+    #[test]
+    fn impact_sort_puts_the_frequent_info_first() {
+        let mut rows = vec![stored("critical", 1, 9), stored("info", 40, 2)];
+        sort_stored(&mut rows, crate::render::FindingsSort::Impact);
+        assert_eq!(
+            rows[0].finding.severity,
+            sentinel_core::detect::Severity::Info
+        );
+        assert_eq!(stored_impact(&rows[0]), 80);
+        sort_stored(&mut rows, crate::render::FindingsSort::Severity);
+        assert_eq!(
+            rows[0].finding.severity,
+            sentinel_core::detect::Severity::Critical
+        );
+    }
 }
