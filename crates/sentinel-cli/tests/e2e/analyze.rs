@@ -1334,31 +1334,54 @@ fn cli_analyze_ingest_tally_reported_without_threshold() {
 
 #[test]
 fn cli_analyze_sort_impact_reorders_and_recurrence_folds() {
-    // mixed.json carries several findings; --sort impact must put the
-    // highest aggregate avoidable I/O first whatever the severity says,
-    // and a recurring signature prints one full block plus stubs.
+    // The fixture is built so the two orders disagree: one warning n+1 on
+    // a single trace (5 avoidable ops) against an info redundant repeated
+    // on ten traces (10 in aggregate).
     let fixture = format!(
-        "{}/../../tests/fixtures/mixed.json",
+        "{}/../../tests/fixtures/recurring_findings.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["analyze", "--input", &fixture, "--sort", "impact"])
-        .output()
-        .expect("failed to run perf-sentinel");
+    let run = |sort: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+            .args(["analyze", "--input", &fixture, "--sort", sort])
+            .output()
+            .expect("failed to run perf-sentinel");
+        assert!(
+            output.status.success(),
+            "analyze --sort {sort} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    let by_severity = run("severity");
+    let first_severity = by_severity
+        .lines()
+        .find(|l| l.trim_start().starts_with('['))
+        .expect("a finding block");
     assert!(
-        output.status.success(),
-        "analyze --sort impact failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        first_severity.contains("[WARNING]") && first_severity.contains("N+1 SQL"),
+        "severity order must lead with the worst unitary finding, got: {first_severity}"
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let by_impact = run("impact");
+    let first_impact = by_impact
+        .lines()
+        .find(|l| l.trim_start().starts_with('['))
+        .expect("a finding block");
     assert!(
-        stdout.contains("Found"),
-        "expected the findings header, got:\n{stdout}"
+        first_impact.contains("[INFO]") && first_impact.contains("Redundant SQL"),
+        "impact order must lead with the highest aggregate waste, got: {first_impact}"
     );
-    // The flag must be accepted and severity must also parse.
-    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["analyze", "--input", &fixture, "--sort", "severity"])
-        .output()
-        .expect("failed to run perf-sentinel");
-    assert!(output.status.success());
+
+    // The fold: one full block plus stubs, and the tally on the block.
+    assert!(
+        by_impact.contains("Recurrence: detected in 10 traces"),
+        "the full block must carry the recurrence tally:\n{by_impact}"
+    );
+    let stubs = by_impact.matches("repeat of #").count();
+    assert_eq!(
+        stubs, 9,
+        "ten detections of one signature must print as one block plus nine stubs"
+    );
 }
