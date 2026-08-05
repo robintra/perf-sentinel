@@ -325,7 +325,6 @@
   .ps-fin-right-sub { color: var(--text-3); font-size: 11.5px; }
   .ps-fin-topline { display: flex; align-items: center; gap: 8px; }
   .ps-fin-metric { margin-left: auto; }
-  .ps-fin-seen { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
   .ps-fin-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ps-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .ps-detail-titlewrap { flex: 1; min-width: 0; }
@@ -1067,12 +1066,6 @@
   // Spans the sink named for us. See culprit_spans_by_finding and
   // culprit_key in report/html/mod.rs for the key.
   var culpritSpans = payload.culprit_spans || {};
-  // Daemon snapshots coalesce findings by signature, so one row can stand
-  // for many traces. Empty on batch reports.
-  var seenBySig = Object.create(null);
-  (report.finding_occurrences || []).forEach(function (o) {
-    if (o && o.signature) seenBySig[o.signature] = o.seen_count || 0;
-  });
   // Shared severity ranking: the Overview impact list, the findings list,
   // the diff columns and the correlations all order by it.
   var SEV_RANK = { critical: 0, warning: 1, info: 2 };
@@ -2549,14 +2542,6 @@
     var topLine = el("div", "ps-fin-topline");
     topLine.appendChild(sevPill(f.severity));
     topLine.appendChild(el("span", "ps-fin-type", typeLabel(f.type || f.finding_type)));
-    // Distinct from the ×N metric: that counts spans inside one trace,
-    // this counts the retained traces sharing this signature.
-    var seen = (f.signature && seenBySig[f.signature]) || 0;
-    if (seen > 1) {
-      var seenEl = el("span", "ps-fin-seen", seen + " traces");
-      seenEl.title = "This problem was detected on " + seen + " retained traces";
-      topLine.appendChild(seenEl);
-    }
     var occ = (f.pattern && f.pattern.occurrences) || 0;
     if (occ) topLine.appendChild(el("span", "ps-fin-right ps-fin-metric", "×" + occ));
     row.appendChild(topLine);

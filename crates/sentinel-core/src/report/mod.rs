@@ -80,16 +80,6 @@ pub struct Report {
     /// `perf-sentinel report --input <daemon.json>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub correlations: Vec<CrossTraceCorrelation>,
-    /// Per-signature recurrence tallies, daemon-only like
-    /// [`Self::correlations`]. [`Self::findings`] carries one entry per
-    /// per-trace detection, so a recurring pattern appears several
-    /// times; this says which of those rows are the same problem, keyed
-    /// by `signature`, for signatures seen more than once. Empty on
-    /// batch reports, which carry the same repetition but no tally:
-    /// `analyze` sees one window, so its `findings` already ARE the
-    /// whole story.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub finding_occurrences: Vec<FindingOccurrence>,
     /// Snapshot- or analysis-level warnings surfaced to consumers. The
     /// daemon's `/api/export/report` cold-start path populates this with
     /// `"daemon has not yet processed any events"` so consumers can
@@ -206,23 +196,6 @@ pub struct DisclosureDbWaste {
 /// can never drift, the same reasoning as `MessagingWasteAggregate`.
 pub type DisclosureMsgWaste = DisclosureDbWaste;
 
-/// How many per-trace detections the daemon store coalesced under one
-/// finding signature, and when the first of them landed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FindingOccurrence {
-    /// Canonical signature of the finding this tally belongs to, the
-    /// same key acknowledgments use.
-    pub signature: String,
-    /// Number of per-trace detections carrying this signature. Counts
-    /// what the daemon still retains, so it falls as older detections
-    /// age out of the ring buffer and resets on restart, never a
-    /// lifetime total.
-    pub seen_count: u64,
-    /// Unix timestamp (ms) of the oldest detection the store still
-    /// retains for this signature.
-    pub first_seen_ms: u64,
-}
-
 /// Analysis metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Analysis {
@@ -247,16 +220,22 @@ pub struct Analysis {
 pub struct IngestStats {
     /// Every span present in the input, before any filtering.
     pub spans_received: u64,
-    /// Spans skipped as non-analyzable, all reasons together.
+    /// Spans that produced no event at all. Excludes the merged
+    /// PHP-style split spans: their statement survives inside another
+    /// event, so counting them as dropped would overstate the loss on
+    /// every surface. They stay visible under
+    /// `filtered_merged_db_span`.
     pub spans_filtered: u64,
     pub filtered_not_io: u64,
     pub filtered_missing_db_statement: u64,
     pub filtered_missing_http_url: u64,
     pub filtered_non_sql_datastore: u64,
     pub filtered_merged_db_span: u64,
-    /// Share of I/O-shaped spans that were analyzable (retained over
-    /// retained plus the attribute-gap drops). `None` when no I/O-shaped
-    /// span was seen. Semantics owned by
+    /// Worst analyzable share across the I/O kinds that were seen, each
+    /// computed as retained over retained plus its attribute-gap drops.
+    /// `None` when no kind reached
+    /// [`crate::ingest::otlp::MIN_RATIO_SAMPLE`] spans, too small a
+    /// sample to judge. Semantics owned by
     /// [`crate::ingest::otlp::SpanConversionStats::usable_span_ratio`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usable_span_ratio: Option<f64>,
@@ -266,7 +245,9 @@ impl From<crate::ingest::otlp::SpanConversionStats> for IngestStats {
     fn from(stats: crate::ingest::otlp::SpanConversionStats) -> Self {
         Self {
             spans_received: stats.received,
-            spans_filtered: stats.received.saturating_sub(stats.retained()),
+            spans_filtered: stats
+                .received
+                .saturating_sub(stats.retained() + stats.filtered_merged_db_span),
             filtered_not_io: stats.filtered_not_io,
             filtered_missing_db_statement: stats.filtered_missing_db_statement,
             filtered_missing_http_url: stats.filtered_missing_http_url,

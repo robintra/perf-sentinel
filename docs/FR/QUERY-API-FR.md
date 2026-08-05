@@ -415,11 +415,16 @@ axum.
 **Forme de la réponse :** tableau de `StoredFinding`. Chaque
 `StoredFinding` contient :
 
-- `finding` : la dernière instance détectée de cette signature (son
-  `trace_id` et ses timestamps décrivent l'occurrence la plus récente),
-  portant la PIRE sévérité parmi les détections repliées, puisque la
-  sévérité est dérivée par trace. Voir
-  [le schéma `Finding`](#schéma-finding) ci-dessous.
+- `finding` : la détection de PIRE sévérité de cette signature, en
+  entier. La sévérité est dérivée par trace (12 répétitions = critique,
+  6 = warning), la ligne porte donc le `trace_id` et le
+  `pattern.occurrences` qui ont valu sa sévérité, et suivre ce
+  `trace_id` reproduit le finding. Voir
+  [le schéma `Finding`](#schéma-finding) ci-dessous. Le filtre
+  `severity` s'applique à cette pire sévérité : un problème critique
+  quelque part n'apparaît donc pas aussi sous `?severity=warning`, et
+  `seen_count` compte toutes les détections de la signature, quelle que
+  soit la sévérité de chacune.
 - `stored_at_ms` : timestamp Unix entier en millisecondes de la
   détection la plus récente repliée dans cette entrée.
 - `first_seen_ms` : timestamp Unix entier en millisecondes de la plus
@@ -706,8 +711,6 @@ Snapshot de l'état interne courant du daemon sous forme de JSON `Report`, avec 
 La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depuis le démarrage). Le champ `green_summary` est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config), donc le snapshot porte une photo CO2 vivante. Le bandeau de chips et le tab GreenOps du dashboard HTML apparaissent naturellement sur les daemons configurés avec Electricity Maps. La quality gate est évaluée sur le snapshot, contre les findings vivants et les seuils figés au démarrage du daemon, donc `quality_gate.passed` porte le même verdict que celui du pipeline batch sur cet état. Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour le récit complet du chemin d'audit.
 
 **Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les probes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans warning et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) reste préservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier event ingéré et le premier eviction tick.
-
-**Décomptes de récurrence.** Les `findings` exportés sont les détections brutes par trace, comme `analyze --format json` : un consommateur qui recalcule le quality gate à partir d'eux retrouve le verdict livré dans la même réponse. `finding_occurrences` dit lesquelles de ces lignes sont le même problème. `finding_occurrences` porte le décompte de chaque signature vue plus d'une fois, sous la forme `{ signature, seen_count, first_seen_ms }` (depuis 0.9.29). C'est un champ daemon-only comme `correlations`, absent des rapports batch où chaque finding est détecté une fois par run. Le dashboard HTML le rejoint par signature et étiquette la ligne avec le nombre de traces.
 
 **Métrique Prometheus.** Chaque requête incrémente `perf_sentinel_export_report_requests_total`, les opérateurs peuvent donc dashboarder ou alerter sur la fréquence des snapshots.
 

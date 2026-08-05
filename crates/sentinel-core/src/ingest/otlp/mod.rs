@@ -81,13 +81,18 @@ pub struct SpanConversionStats {
 }
 
 impl SpanConversionStats {
-    fn count_retained(&mut self, event_type: &crate::event::EventType) {
+    /// `carried_url` tells an HTTP call from an RPC one: both convert to
+    /// `HttpOut`, but only the HTTP branch reads a URL, so only it can
+    /// ever be missing one. Counting RPC in the numerator of a ratio
+    /// whose denominator is `http.url` gaps lets gRPC traffic mask a
+    /// stripped-URL HTTP surface.
+    fn count_retained(&mut self, event_type: &crate::event::EventType, carried_url: bool) {
         match event_type {
             crate::event::EventType::Sql => self.retained_sql += 1,
-            crate::event::EventType::HttpOut => self.retained_http += 1,
-            // Messaging has no attribute-gap filter reason, so it has no
-            // usable ratio to contribute to.
-            crate::event::EventType::Messaging => {}
+            crate::event::EventType::HttpOut if carried_url => self.retained_http += 1,
+            // RPC-derived outbound calls and messaging publishes have no
+            // attribute-gap filter reason, so they join no usable ratio.
+            crate::event::EventType::HttpOut | crate::event::EventType::Messaging => {}
         }
     }
 
@@ -1427,7 +1432,9 @@ fn convert_resource_spans<'a>(
                 consumer_index,
             ) {
                 Ok(event) => {
-                    stats.count_retained(&event.event_type);
+                    let carried_url =
+                        cached_attrs.is_some_and(|c| c.http_url.or(c.url_full).is_some());
+                    stats.count_retained(&event.event_type, carried_url);
                     events.push(event);
                 }
                 Err(reason) => stats.count_filtered(reason),

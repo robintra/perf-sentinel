@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::ack::{self, AckAction, AckEntry, AckError, AckStore};
-use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding, coalesce_by_signature};
+use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding};
 use crate::acknowledgments::{Acknowledgment, compute_signature};
 use crate::correlate::Trace;
 use crate::correlate::window::TraceWindow;
@@ -600,22 +600,6 @@ async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergySt
     Json(EnergyStatusResponse { backends })
 }
 
-/// Snapshot the daemon's in-memory state as a [`Report`], in the same
-/// JSON shape as `analyze --format json` (pipeable into
-/// `perf-sentinel report --input -`).
-///
-/// Contract highlights (full semantics in
-/// `docs/design/06-INGESTION-AND-DAEMON.md` § "/api/export/report
-/// snapshot semantics"):
-/// - `green_summary` is a **per-batch view** (most recent batch only);
-///   `analysis.events_processed` / `traces_analyzed` are lifetime
-///   counters; `analysis.duration_ms` is `0`.
-/// - Cold start returns `200 OK` with an empty envelope, gated on the
-///   double counter check (`events_processed > 0` AND
-///   `traces_analyzed > 0`).
-/// - Response size bounded (~3.5 MB worst case), sized for the
-///   documented loopback posture.
-///
 /// [`Analysis`] block for a daemon export snapshot: lifetime counters,
 /// `duration_ms` explicitly zero (see the handler contract), and no
 /// ingest tally. The daemon's span tally lives in the cumulative
@@ -628,21 +612,6 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
         traces_analyzed,
         ingest: None,
     }
-}
-
-/// Recurrence tallies from folded entries, so a reader can tell that
-/// several exported rows are one problem. Single sightings are omitted
-/// as noise, and an unsigned finding cannot be keyed back.
-fn occurrence_tallies(coalesced: &[StoredFinding]) -> Vec<crate::report::FindingOccurrence> {
-    coalesced
-        .iter()
-        .filter(|s| s.seen_count > 1 && !s.finding.signature.is_empty())
-        .map(|s| crate::report::FindingOccurrence {
-            signature: s.finding.signature.clone(),
-            seen_count: s.seen_count,
-            first_seen_ms: s.first_seen_ms,
-        })
-        .collect()
 }
 
 /// TODO: the `Report` assembly below duplicates the one in
@@ -692,7 +661,6 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             green_summary,
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
-            finding_occurrences: vec![],
             warnings: vec!["daemon has not yet processed any events".to_string()],
             warning_details,
             acknowledged_findings: Vec::new(),
@@ -719,9 +687,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     // that reloads it re-derives the gate from `findings` (see
     // `acknowledgments::apply_to_report`). Exporting a folded list beside
     // a gate counted on instances makes that recompute disagree with the
-    // verdict shipped in the same payload. The recurrence is carried
-    // alongside instead, in `finding_occurrences`.
-    let finding_occurrences = occurrence_tallies(&coalesce_by_signature(&stored));
+    // verdict shipped in the same payload.
     let findings: Vec<detect::Finding> = stored.into_iter().map(|s| s.finding).collect();
 
     // Snapshot correlations, sorted + capped identically to
@@ -781,7 +747,6 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         quality_gate,
         per_endpoint_io_ops: vec![],
         correlations,
-        finding_occurrences,
         warnings: vec![],
         warning_details,
         acknowledged_findings: vec![],

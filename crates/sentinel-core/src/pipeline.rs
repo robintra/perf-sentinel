@@ -84,6 +84,9 @@ pub fn analyze_with_traces(
         &config.thresholds,
         ingest.as_ref(),
     );
+    let warning_details = skipped_usable_span_rule_warning(&config.thresholds, ingest.as_ref())
+        .into_iter()
+        .collect();
 
     let report = Report {
         analysis: Analysis {
@@ -99,9 +102,8 @@ pub fn analyze_with_traces(
         // Batch mode does not run the cross-trace correlator, whose
         // rolling window only exists in the daemon. Always empty here.
         correlations: vec![],
-        finding_occurrences: vec![],
         warnings: vec![],
-        warning_details: vec![],
+        warning_details,
         acknowledged_findings: vec![],
         binary_version: env!("CARGO_PKG_VERSION").to_string(),
         // Batch analyze does not feed the periodic disclosure (that path is
@@ -112,6 +114,37 @@ pub fn analyze_with_traces(
     };
 
     (report, traces)
+}
+
+/// A configured `min_usable_span_ratio` that could not be evaluated is
+/// worth saying out loud: the rule exists to stop a false green, so
+/// silently skipping it reproduces exactly what it guards against. The
+/// sample floor and a non-OTLP input are the two ways that happens.
+fn skipped_usable_span_rule_warning(
+    thresholds: &crate::config::ThresholdsConfig,
+    ingest: Option<&crate::report::IngestStats>,
+) -> Option<crate::report::Warning> {
+    let threshold = thresholds.min_usable_span_ratio?;
+    if ingest.is_some_and(|i| i.usable_span_ratio.is_some()) {
+        return None;
+    }
+    let cause = match ingest {
+        Some(i) => format!(
+            "no I/O kind reached the {} span sample floor (received {}, filtered {})",
+            crate::ingest::otlp::MIN_RATIO_SAMPLE,
+            i.spans_received,
+            i.spans_filtered
+        ),
+        None => {
+            "the input carries no OTLP span tally (native, Jaeger, Zipkin or Tempo)".to_string()
+        }
+    };
+    Some(crate::report::Warning::new(
+        crate::report::warnings::TUNING,
+        format!(
+            "min_usable_span_ratio = {threshold} was not evaluated: {cause}. The quality gate says nothing about instrumentation quality for this run."
+        ),
+    ))
 }
 
 /// Detect a CI environment. GitHub Actions, GitLab, Travis and most runners
@@ -345,6 +378,47 @@ mod tests {
         };
         let report = analyze(vec![], &config);
         assert!(report.green_summary.co2.is_none());
+    }
+
+    #[test]
+    fn configured_rule_that_cannot_run_emits_a_warning() {
+        // Silently skipping the rule reproduces the false green it
+        // guards against, so the run must say the gate stayed silent.
+        let config = Config {
+            thresholds: crate::config::ThresholdsConfig {
+                min_usable_span_ratio: Some(0.9),
+                ..crate::config::ThresholdsConfig::default()
+            },
+            ..Config::default()
+        };
+        // Under the sample floor: 5 I/O-shaped spans.
+        let stats = SpanConversionStats {
+            received: 5,
+            filtered_missing_db_statement: 2,
+            retained_sql: 3,
+            ..SpanConversionStats::default()
+        };
+        let (report, _) = analyze_with_traces(vec![], &config, Some(stats));
+        assert!(
+            report.analysis.ingest.unwrap().usable_span_ratio.is_none(),
+            "the floor must suppress the ratio"
+        );
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.message.contains("min_usable_span_ratio"))
+            .expect("a configured rule that cannot run is reported");
+        assert!(
+            warning.message.contains("sample floor"),
+            "{}",
+            warning.message
+        );
+    }
+
+    #[test]
+    fn no_warning_when_the_rule_is_not_configured() {
+        let report = analyze(vec![], &Config::default());
+        assert!(report.warning_details.is_empty());
     }
 
     // --- ingest stats propagation ---
