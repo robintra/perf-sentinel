@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [0.10.0] - 2026-08-05
 
+### Changed
+
+- The HTML report hands over a usable `trace_id`. It carried one all along, in the embedded payload, but no view ever showed it whole: the trace breadcrumb truncated it to a 12-character prefix and the CSV export omitted the field entirely, so the one thing an operator needs to go look at a trace elsewhere was the one thing the report would not give them. The breadcrumb keeps a short form, since 32 hex characters would crowd out the service and endpoint beside it, and gains a `Copy trace_id` button that copies the full id plus a title attribute carrying it, reusing the deep-link clipboard helper with its `execCommand` fallback (a report opened over `file://` has no async clipboard). `trace_id` is now a CSV column. The empty-tree message also stopped blaming the embed cap for reports that never carried spans: a Report JSON, a daemon snapshot or a saved baseline, holds findings but no spans, so it now says that and points at `query --daemon <URL> explain <trace_id>`, with the id and its copy button right below.
+
 ### Fixed
 
 - A blank `db.statement` is treated as a missing one. Instrumentations do emit the key with an empty value (a redacting layer that keeps the attribute), and only the dd-trace fallback path rejected blanks: the OTel path took `""` at face value, produced a SQL event with an empty target, normalized it to an empty template and grouped every blank span on the endpoint into one `redundant_sql` finding advising the team to cache an operation with no name. Found on a real capture where those artifacts were 10 of 205 findings and, more to the point, all three of the run's only non-`info` findings, so the entire warning-level signal was noise. The span is now the `missing_db_statement` gap it always was, which is what the retention metrics and `min_usable_span_ratio` exist to surface. A blank legacy `db.statement` also stops shadowing a populated stable `db.query.text`. Blank-checked rather than trimmed, so a non-blank statement keeps its exact bytes and its acknowledgment signature.
