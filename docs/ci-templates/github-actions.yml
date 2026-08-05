@@ -18,7 +18,10 @@
 #        - or point the application at a Collector running the `file`
 #          exporter, if a Collector is already part of the job.
 #   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
-#      [thresholds] section to set quality-gate severity floors.
+#      [thresholds] section to set quality-gate severity floors. On OTLP
+#      input, `min_usable_span_ratio` also fails the gate when the spans
+#      arrive without the attributes the detectors need, so a broken
+#      instrumentation cannot pass as a clean run.
 #   4. Action SHAs: every `uses:` below is pinned to a 40-character commit
 #      SHA (with the human-readable version tag in a trailing comment).
 #      Verify each SHA against the upstream repo before committing this

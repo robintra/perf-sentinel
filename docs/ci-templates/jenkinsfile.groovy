@@ -22,7 +22,10 @@
 //      integration test stage. The Java reference setup uses an OTel Java
 //      Agent with the file exporter writing to target/traces.json.
 //   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
-//      [thresholds] section to set quality-gate severity floors.
+//      [thresholds] section to set quality-gate severity floors. On OTLP
+//      input, `min_usable_span_ratio` also fails the gate when the spans
+//      arrive without the attributes the detectors need, so a broken
+//      instrumentation cannot pass as a clean run.
 //
 // Required Jenkins plugins:
 //   - Warnings Next Generation >= 9.11.0 (publishes SARIF as a structured
