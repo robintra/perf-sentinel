@@ -2408,13 +2408,14 @@ mod tests {
         rules: Vec<QualityRule>,
     ) -> Report {
         let event_count = if findings.is_empty() { 4 } else { 10 };
+        // `Analysis` is `#[non_exhaustive]`, so a sibling crate fills it
+        // field by field rather than with a struct literal.
+        let mut analysis = Analysis::default();
+        analysis.duration_ms = 1;
+        analysis.events_processed = event_count;
+        analysis.traces_analyzed = 1;
         Report {
-            analysis: Analysis {
-                duration_ms: 1,
-                events_processed: event_count,
-                traces_analyzed: 1,
-                ingest: None,
-            },
+            analysis,
             findings,
             green_summary: GreenSummary {
                 total_io_ops: event_count,
@@ -2587,13 +2588,12 @@ mod tests {
 
     #[test]
     fn report_with_co2_data() {
+        let mut analysis = Analysis::default();
+        analysis.duration_ms = 1;
+        analysis.events_processed = 10;
+        analysis.traces_analyzed = 1;
         let report = Report {
-            analysis: Analysis {
-                duration_ms: 1,
-                events_processed: 10,
-                traces_analyzed: 1,
-                ingest: None,
-            },
+            analysis,
             findings: vec![],
             green_summary: GreenSummary {
                 total_io_ops: 10,

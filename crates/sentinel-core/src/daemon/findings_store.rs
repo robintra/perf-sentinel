@@ -22,6 +22,10 @@ use crate::detect::Finding;
 /// [`coalesce_by_signature`] the entry stands for every folded
 /// detection of that signature, see that function for which fields it
 /// merges.
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct StoredFinding {
     /// The detected finding. On a coalesced entry, the most recent
@@ -97,6 +101,10 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
 }
 
 /// Query filter for the findings store.
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
 #[derive(Debug, Default)]
 pub struct FindingsFilter {
     /// Optional service name filter. Matches the finding's `service` field.

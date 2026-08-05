@@ -116,6 +116,10 @@ impl Default for DaemonArchiveConfig {
 }
 
 /// Quality-gate thresholds. Maps 1:1 to `[thresholds]` in TOML.
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ThresholdsConfig {
     /// Maximum allowed critical N+1 SQL findings before quality gate fails.
@@ -138,6 +142,10 @@ pub struct ThresholdsConfig {
 }
 
 /// Per-detector knobs. Maps 1:1 to `[detection]` in TOML.
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct DetectionConfig {
     /// N+1 detection threshold: minimum repeated similar queries to flag.
