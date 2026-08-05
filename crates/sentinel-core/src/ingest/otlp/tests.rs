@@ -3964,3 +3964,52 @@ fn usable_ratio_zero_when_every_io_span_is_unusable() {
     let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");
     assert!(ratio.abs() < f64::EPSILON);
 }
+
+// ── Blank db.statement is a gap, not an empty query ──────────────────
+
+#[test]
+fn blank_db_statement_counts_as_a_missing_statement() {
+    // Found on a real capture: a redacting instrumentation kept the key
+    // and emptied the value. Taken at face value it became a SQL event
+    // with an empty target, which normalized to an empty template and
+    // surfaced as `redundant_sql` advising the team to cache an
+    // operation with no name.
+    for blank in ["", "   "] {
+        let span = make_bare_span(
+            &[9; 8],
+            vec![
+                make_kv("db.system", "postgresql"),
+                make_kv("db.statement", blank),
+            ],
+        );
+        let req = make_request("order-svc", vec![span]);
+        let (events, stats) = convert_otlp_request_counted(&req);
+        assert!(
+            events.is_empty(),
+            "a blank statement must not produce an event, got {events:?}"
+        );
+        assert_eq!(
+            stats.filtered_missing_db_statement, 1,
+            "it is the instrumentation gap the retention metrics exist to show"
+        );
+    }
+}
+
+#[test]
+fn blank_db_statement_falls_through_to_db_query_text() {
+    // The stable semconv key wins when the legacy one is present but
+    // blank, rather than the blank shadowing it.
+    let span = make_bare_span(
+        &[10; 8],
+        vec![
+            make_kv("db.system", "postgresql"),
+            make_kv("db.statement", ""),
+            make_kv("db.query.text", "SELECT 1"),
+        ],
+    );
+    let req = make_request("order-svc", vec![span]);
+    let (events, stats) = convert_otlp_request_counted(&req);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].target, "SELECT 1");
+    assert_eq!(stats.filtered_missing_db_statement, 0);
+}
