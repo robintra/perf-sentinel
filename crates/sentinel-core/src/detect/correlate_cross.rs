@@ -132,8 +132,9 @@ const MAX_SAMPLE_TRACE_ID_BYTES: usize = 128;
 /// Internal state for a correlation pair.
 struct PairState {
     /// Co-occurrences in the current half-window bucket. The window
-    /// count is `count_prev + count_cur`, a sliding-window estimate
-    /// accurate to half a window. A single lifetime counter kept
+    /// count is `count_prev + count_cur`, covering between half a
+    /// window and one window, never more: a conservative estimate that
+    /// keeps `confidence` in `[0, 1]`. A single lifetime counter kept
     /// growing while `source_total` only spanned the window, so every
     /// long-lived pair saturated at confidence 1.0.
     count_cur: u32,
@@ -164,30 +165,29 @@ struct PairState {
 }
 
 impl PairState {
-    /// Co-occurrences over roughly the last window (two half-window
-    /// buckets, so the estimate lags the true sliding window by at most
-    /// half a window).
+    /// Co-occurrences over the last half-to-full window (two aligned
+    /// half-window buckets). Never covers more than one window, so the
+    /// numerator cannot outgrow the window-scoped `source_total`.
     fn windowed_co_occurrences(&self) -> u32 {
         self.count_prev.saturating_add(self.count_cur)
     }
 
-    /// Advance the half-window buckets to cover `now_ms`. One step
-    /// shifts current into previous, a gap of a full window clears both.
+    /// Advance the half-window buckets to cover `now_ms`. Aligned
+    /// stepping (`bucket_start += steps * half`), not a reset to `now`:
+    /// re-anchoring stretched a bucket toward a full window and the
+    /// two-bucket sum toward two, overstating pairs against
+    /// `min_co_occurrences` and the confidence denominator.
     fn rotate_buckets(&mut self, now_ms: u64, half_window_ms: u64) {
         if half_window_ms == 0 {
             return;
         }
-        let elapsed = now_ms.saturating_sub(self.bucket_start_ms);
-        if elapsed < half_window_ms {
+        let steps = now_ms.saturating_sub(self.bucket_start_ms) / half_window_ms;
+        if steps == 0 {
             return;
         }
-        if elapsed >= half_window_ms * 2 {
-            self.count_prev = 0;
-        } else {
-            self.count_prev = self.count_cur;
-        }
+        self.count_prev = if steps == 1 { self.count_cur } else { 0 };
         self.count_cur = 0;
-        self.bucket_start_ms = now_ms;
+        self.bucket_start_ms += steps * half_window_ms;
     }
 
     /// Append a lag sample using Algorithm R reservoir sampling:
@@ -352,6 +352,14 @@ impl CrossTraceCorrelator {
         self.evict_stale(cutoff);
         self.pair_counts
             .retain(|_, state| state.last_seen_ms >= cutoff);
+        // Rotate every pair, not only the ones recorded this batch:
+        // write-only rotation left a quiesced pair's counts frozen for
+        // reads and for the eviction ranking a full window after its
+        // traffic stopped, pegging dead pairs at confidence 1.0.
+        let half_window_ms = self.config.window_ms / 2;
+        for state in self.pair_counts.values_mut() {
+            state.rotate_buckets(now_ms, half_window_ms);
+        }
 
         let mut refused = std::collections::HashSet::new();
         for finding in findings {
@@ -985,6 +993,70 @@ mod tests {
             pair.confidence < 0.9,
             "a pair co-occurring on half its sources must not read as certain, got {}",
             pair.confidence
+        );
+    }
+
+    #[test]
+    fn quiesced_pair_decays_while_unrelated_traffic_continues() {
+        // Any batch rotates every pair, so a quiet pair's counts age
+        // out in lockstep with its window occurrences: one window after
+        // the last co-occurrence, nothing of it survives, however busy
+        // the rest of the daemon is. Write-only rotation used to keep
+        // the frozen count readable while its sources aged away.
+        let window_ms = CorrelationConfig::default().window_ms;
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            lag_threshold_ms: 1_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000), 0);
+        assert_eq!(correlator.ingest(std::slice::from_ref(&fb), 1_020), 0);
+        assert_eq!(correlator.active_correlations().len(), 1);
+
+        // The pair goes quiet, unrelated services keep the daemon busy.
+        let fc = make_finding("svc-c", FindingType::SlowSql, "other");
+        let t = 1_020 + window_ms + 1;
+        assert_eq!(correlator.ingest(std::slice::from_ref(&fc), t), 0);
+        assert!(
+            correlator.active_correlations().is_empty(),
+            "a pair with no co-occurrence in the last window must not survive"
+        );
+    }
+
+    #[test]
+    fn windowed_count_never_covers_more_than_one_window() {
+        // Re-anchoring bucket_start to `now` stretched the two-bucket
+        // sum toward two windows, overstating pairs against
+        // min_co_occurrences. Aligned stepping bounds it to one.
+        let window_ms = CorrelationConfig::default().window_ms;
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            lag_threshold_ms: 1_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        // One co-occurrence every 0.95 half-window: a true window holds
+        // at most 3 of them.
+        let interval = window_ms / 2 * 95 / 100;
+        for round in 0..10u64 {
+            let t = 1_000 + round * interval;
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), t), 0);
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fb), t + 20), 0);
+        }
+        let correlations = correlator.active_correlations();
+        let pair = correlations
+            .iter()
+            .find(|c| c.source.service == "svc-a")
+            .expect("pair");
+        assert!(
+            pair.co_occurrence_count <= 3,
+            "windowed count must not exceed one window's worth, got {}",
+            pair.co_occurrence_count
         );
     }
 
