@@ -348,7 +348,9 @@
   .ps-meta-cell-value.brand { color: var(--brand-text); }
   .ps-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-3); }
   .ps-eyebrow.brand { color: var(--brand-text); }
-  .ps-codeblock { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--text); background: var(--surface-2); border: 0; border-radius: 10px; padding: 14px 16px; overflow: auto; white-space: pre; }
+  /* pre-wrap, not pre: long templates wrap at the <wbr> addCommaBreaks
+     inserts. overflow stays for a single unbreakable token. */
+  .ps-codeblock { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--text); background: var(--surface-2); border: 0; border-radius: 10px; padding: 14px 16px; overflow: auto; white-space: pre-wrap; }
   .ps-section { display: flex; flex-direction: column; gap: 8px; }
 
   /* -------- explain tree -------- */
@@ -1318,6 +1320,27 @@
     }
     target.appendChild(frag);
   }
+  // Break opportunity after each comma. <wbr> rather than a zero-width
+  // space: it adds nothing to the text copied out of the block.
+  function addCommaBreaks(root) {
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    var texts = [];
+    while (walker.nextNode()) texts.push(walker.currentNode);
+    texts.forEach(function (node) {
+      var parts = node.nodeValue.split(",");
+      if (parts.length < 2) return;
+      var frag = document.createDocumentFragment();
+      parts.forEach(function (part, i) {
+        if (i > 0) {
+          frag.appendChild(document.createTextNode(","));
+          frag.appendChild(document.createElement("wbr"));
+        }
+        if (part) frag.appendChild(document.createTextNode(part));
+      });
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+
   // Inline-code in prose: `token` segments become monospace chips, the
   // rest is plain text. Each chip is syntax-highlighted through the same
   // language-agnostic highlighter as the code blocks, so method calls,
@@ -2706,6 +2729,7 @@
       sec.appendChild(el("span", "ps-eyebrow", "// normalized template"));
       var code = el("code", "ps-codeblock");
       highlightInto(code, tpl);
+      addCommaBreaks(code);
       sec.appendChild(code);
       head.appendChild(sec);
     }
