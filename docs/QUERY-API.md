@@ -402,11 +402,16 @@ HTTP 400 with an axum-generated error body.
 
 **Response shape:** array of `StoredFinding`. Each `StoredFinding` has:
 
-- `finding`: the latest detected instance of this signature (its
-  `trace_id` and timestamps describe the most recent occurrence),
-  carrying the WORST severity across the folded detections, since
-  severity is derived per trace. See
-  [`Finding` schema](#finding-schema) below.
+- `finding`: the WORST-severity detection of this signature, whole.
+  Severity is derived per trace (12 repeats is critical, 6 is a
+  warning), so the row carries the `trace_id` and the
+  `pattern.occurrences` that earned its severity, and following that
+  `trace_id` reproduces the finding. See
+  [`Finding` schema](#finding-schema) below. The `severity` filter
+  applies to that worst severity, so a problem that is critical
+  somewhere does not also appear under `?severity=warning`, and
+  `seen_count` counts every detection of the signature whatever
+  severity each one carried.
 - `stored_at_ms`: integer Unix timestamp in milliseconds of the most
   recent detection folded into this entry.
 - `first_seen_ms`: integer Unix timestamp in milliseconds of the oldest
@@ -687,8 +692,6 @@ Snapshot the daemon's current in-memory state as a `Report` JSON, identical in s
 The `analysis` section reflects daemon-lifetime counters (cumulative since daemon start). The `green_summary` field is refreshed by the event loop after each batch (regions, top offenders, avoidable I/O ratio, CO2 numbers, scoring config), so the snapshot carries a live CO2 picture. The chip banner and the GreenOps tab in the HTML dashboard surface naturally on Electricity-Maps-configured daemons. The quality gate is evaluated on the snapshot, against the live findings and the thresholds frozen at daemon startup, so `quality_gate.passed` carries the same verdict the batch pipeline would give on that state. See `docs/design/05-GREENOPS-AND-CARBON.md` for the full audit-trail story.
 
 **Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `200 OK` with an empty Report envelope: `findings: []`, `green_summary: GreenSummary::disabled(0)`, and `warnings: ["daemon has not yet processed any events"]`. Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health issue. The empty envelope lets clients distinguish "cold start" from "events seen, zero findings" (the latter returns `200` with no warning string and `analysis.events_processed > 0`) without a status code mismatch. The double-counter guard (`events_processed_total > 0` AND `traces_analyzed_total > 0`) is preserved internally so the snapshot stays self-consistent during the `trace_ttl_ms / 2` window between the first event ingest and the first eviction tick.
-
-**Recurrence tallies.** The exported `findings` are raw per-trace detections, like `analyze --format json`, so a consumer that re-derives the quality gate from them reproduces the verdict shipped in the same payload. `finding_occurrences` says which of those rows are the same problem. `finding_occurrences` carries the count for every signature seen more than once, as `{ signature, seen_count, first_seen_ms }` (since 0.9.29). It is a daemon-only field like `correlations`, absent from batch reports where each finding is detected once per run. The HTML dashboard joins it back by signature and labels the row with the number of traces.
 
 **Prometheus metric.** Each request bumps `perf_sentinel_export_report_requests_total` so operators can dashboard or alert on Report snapshot frequency.
 

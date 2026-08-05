@@ -727,16 +727,6 @@ fn slim_report_for_embed(
     // Exhaustive literal, not `report.clone()`: it makes the dropped
     // `per_endpoint_io_ops` explicit (never cloning the big vec) and turns
     // a future new `Report` field into a compile error here.
-    // Tallies only for findings that survived the trim, they key by
-    // signature and a dangling one would be dead payload weight.
-    let embedded_sigs: std::collections::HashSet<&str> =
-        findings.iter().map(|f| f.signature.as_str()).collect();
-    let finding_occurrences: Vec<_> = report
-        .finding_occurrences
-        .iter()
-        .filter(|o| embedded_sigs.contains(o.signature.as_str()))
-        .cloned()
-        .collect();
     let embed = Report {
         analysis: report.analysis.clone(),
         findings,
@@ -744,7 +734,6 @@ fn slim_report_for_embed(
         quality_gate: report.quality_gate.clone(),
         per_endpoint_io_ops: Vec::new(),
         correlations: report.correlations.clone(),
-        finding_occurrences,
         warnings: report.warnings.clone(),
         warning_details: report.warning_details.clone(),
         acknowledged_findings: report.acknowledged_findings.clone(),

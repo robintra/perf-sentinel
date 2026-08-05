@@ -281,11 +281,23 @@ Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande 
 
    ```bash
    curl -s 'http://perf-sentinel:4318/api/findings?severity=critical&limit=200' \
-     | jq '[.[].finding | {finding_type, service}]
+     | jq '[.[] | {finding_type: .finding.finding_type, service: .finding.service, seen: (.seen_count // 1)}]
           | group_by(.service, .finding_type)
-          | map({key: "\(.[0].service)/\(.[0].finding_type)", count: length})
-          | sort_by(-.count)'
+          | map({key: "\(.[0].service)/\(.[0].finding_type)",
+                 problems: length,
+                 detections: (map(.seen) | add)})
+          | sort_by(-.detections)'
    ```
+
+   Depuis 0.9.29 cet endpoint retourne une ligne par problème distinct,
+   pas une par détection : classer sur le nombre de lignes classe donc
+   par variété plutôt que par volume, et un service dont le pic tient à
+   un seul pattern récurrent sur 200 traces finirait dernier. Classez
+   sur `seen_count`, comme ci-dessus, pour classer par fréquence de
+   déclenchement ; `problems` dit toujours combien de problèmes
+   distincts porte un service. `seen_count` compte les détections encore
+   retenues dans le ring buffer, il baisse donc à mesure que les plus
+   anciennes en sortent.
 
 2. **Récupérer un `trace_id` d'exemplar** pour chaque top pattern. Dans Grafana, le ◆ sur la métrique est cliquable ; en ligne de commande :
 

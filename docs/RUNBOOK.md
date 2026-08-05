@@ -279,7 +279,7 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 
    ```bash
    curl -s 'http://perf-sentinel:4318/api/findings?severity=critical&limit=200' \
-     | jq '[.[] | {finding_type: .finding.finding_type, service: .finding.service, seen: .seen_count}]
+     | jq '[.[] | {finding_type: .finding.finding_type, service: .finding.service, seen: (.seen_count // 1)}]
           | group_by(.service, .finding_type)
           | map({key: "\(.[0].service)/\(.[0].finding_type)",
                  problems: length,
