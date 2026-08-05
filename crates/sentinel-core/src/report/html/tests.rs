@@ -1616,8 +1616,8 @@ fn detail_pane_no_trace_states_present() {
     // message surfaced as a toast so clicking it does not navigate away
     // from the Diff tab and wipe the user's active diff filter.
     assert!(
-        TEMPLATE.contains("Trace not embedded (cap reached)"),
-        "cap-reached message missing"
+        TEMPLATE.contains("Trace not embedded (trimmed to fit the size budget)"),
+        "trimmed-traces message missing"
     );
     assert!(
         TEMPLATE.contains("This finding was resolved."),
