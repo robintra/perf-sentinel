@@ -539,6 +539,23 @@ pub(crate) enum FindingsSort {
     Impact,
 }
 
+/// The one place the sort contract lives, so the surfaces the CHANGELOG
+/// promises are in parity cannot drift: descending primary key, the
+/// other axis as the tie-break. Severity orders Critical < Warning <
+/// Info, so ascending severity is worst-first.
+pub(crate) fn compare_severity_impact(
+    mode: FindingsSort,
+    a: (&Severity, u64),
+    b: (&Severity, u64),
+) -> std::cmp::Ordering {
+    let by_severity = a.0.cmp(b.0);
+    let by_impact = b.1.cmp(&a.1);
+    match mode {
+        FindingsSort::Severity => by_severity.then(by_impact),
+        FindingsSort::Impact => by_impact.then(by_severity),
+    }
+}
+
 /// Stable sort, so the canonical detector order survives inside ties.
 pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mode: FindingsSort) {
     let index = build_recurrence_index(findings);
@@ -546,12 +563,11 @@ pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mod
         index.get(&recurrence_key(f)).map_or(0, |s| s.total_ops)
     };
     findings.sort_by(|a, b| {
-        let by_severity = a.severity.cmp(&b.severity);
-        let by_impact = agg(b).cmp(&agg(a));
-        match mode {
-            FindingsSort::Severity => by_severity.then(by_impact),
-            FindingsSort::Impact => by_impact.then(by_severity),
-        }
+        compare_severity_impact(
+            mode,
+            (&a.severity, agg(a) as u64),
+            (&b.severity, agg(b) as u64),
+        )
     });
 }
 
