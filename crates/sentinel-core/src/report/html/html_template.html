@@ -2644,14 +2644,18 @@
     }
   }
 
+  // Whether the findings were produced by a daemon. Read from their
+  // confidence stamp, not from payload.daemon: --daemon-url only wires
+  // the ack buttons and says nothing about where the data came from.
+  function isDaemonProducedRun() {
+    var conf = findings.length ? findings[0].confidence : null;
+    return conf === "daemon_staging" || conf === "daemon_production";
+  }
+
   // Denominator for "% of I/O". Zero on a daemon snapshot, where findings
   // span the store window but green_summary covers the last batch only.
   function ioShareBase() {
-    var conf = findings.length ? findings[0].confidence : null;
-    if ((payload.daemon && payload.daemon.url) ||
-        conf === "daemon_staging" || conf === "daemon_production") {
-      return 0;
-    }
+    if (isDaemonProducedRun()) return 0;
     return (greenSummary && greenSummary.total_io_ops) || 0;
   }
 
@@ -2779,14 +2783,17 @@
     if (trace) {
       renderTree(treeRoot, trace, f);
     } else {
-      // Two different causes, and pointing at the cap when the source
-      // never carried spans sends the reader tuning a flag that changes
-      // nothing. The breadcrumb above already carries the id and its
-      // copy button.
+      // Three causes, each with its own real knob: naming the wrong one
+      // sends the reader tuning a flag that changes nothing. The
+      // breadcrumb above already carries the id and its copy button.
       notEmbedded.style.display = "";
-      notEmbedded.textContent = embeddedTraces.length === 0
-        ? "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id above against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>."
-        : "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+      if (embeddedTraces.length === 0) {
+        notEmbedded.textContent = "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id above against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
+      } else if (isDaemonProducedRun()) {
+        notEmbedded.textContent = "Trace not in this snapshot: it aged out of the daemon's trace retention ([daemon] max_retained_traces). Recent findings keep their trees; for this one, use the trace_id above against the live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
+      } else {
+        notEmbedded.textContent = "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+      }
     }
 
     var fix = document.getElementById("explain-fix");
@@ -2845,12 +2852,14 @@
         var key = recurrenceKey(other);
         var acc = recurrenceIndex[key];
         if (!acc) {
-          recurrenceIndex[key] = { count: 1, first: other.first_timestamp, last: other.last_timestamp };
+          recurrenceIndex[key] = { count: 1, first: other.first_timestamp || "", last: other.last_timestamp || "" };
           return;
         }
         acc.count += 1;
-        if (other.first_timestamp && other.first_timestamp < acc.first) acc.first = other.first_timestamp;
-        if (other.last_timestamp && other.last_timestamp > acc.last) acc.last = other.last_timestamp;
+        // `!acc.first` matters: an empty-string seed loses every later
+        // `< ""` comparison and would permanently drop the line.
+        if (other.first_timestamp && (!acc.first || other.first_timestamp < acc.first)) acc.first = other.first_timestamp;
+        if (other.last_timestamp && (!acc.last || other.last_timestamp > acc.last)) acc.last = other.last_timestamp;
       });
     }
     return recurrenceIndex[recurrenceKey(f)] || { count: 1, first: f.first_timestamp, last: f.last_timestamp };
