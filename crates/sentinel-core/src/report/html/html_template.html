@@ -335,6 +335,8 @@
   /* Space the detail sections evenly (title -> meta -> template, breadcrumb -> tree -> pg_stat -> fix). */
   #explain-detail-head, #explain-content { display: flex; flex-direction: column; gap: 18px; }
   .ps-detail-empty { color: var(--text-3); font-size: 13px; }
+  .ps-copy-trace { margin-left: 10px; padding: 2px 9px; font-size: 10.5px; vertical-align: middle; }
+  .ps-trace-id-line { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); word-break: break-all; }
   .ps-detail-head { display: flex; align-items: flex-start; gap: 12px; }
   .ps-detail-h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
   .ps-detail-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--text-2); }
@@ -2626,6 +2628,36 @@
     return Number.isFinite(gi.io_intensity_score) ? "IIS " + gi.io_intensity_score.toFixed(1) : "-";
   }
 
+  // Display form: enough to recognize a trace, short enough to leave room
+  // for the service and endpoint beside it. The full id travels through
+  // the copy button and the title attribute.
+  function shortTraceId(traceId) {
+    if (!traceId) return "-";
+    return traceId.length > 12 ? traceId.slice(0, 12) + "…" : traceId;
+  }
+
+  // A 32-hex id that wraps across lines is painful to select by hand, and
+  // selecting it is the whole point: it goes straight into an `explain`
+  // command. Reuses the deep-link clipboard helper, execCommand fallback
+  // included, since a report opened over file:// has no async clipboard.
+  function appendCopyTraceIdButton(host, traceId) {
+    if (!traceId) return;
+    var btn = el("button", "ps-copy-link-btn ps-copy-trace", "Copy trace_id");
+    btn.type = "button";
+    btn.addEventListener("click", function () { copyTextToClipboard(btn, traceId); });
+    host.appendChild(btn);
+  }
+
+  // Same affordance on the no-tree path: the id is the only thing that
+  // still lets a reader go look at the trace elsewhere.
+  function appendTraceIdLine(host, f) {
+    if (!f.trace_id) return;
+    var line = el("div", "ps-trace-id-line", "trace_id = " + shortTraceId(f.trace_id));
+    line.title = "trace_id = " + f.trace_id;
+    appendCopyTraceIdButton(line, f.trace_id);
+    host.appendChild(line);
+  }
+
   function renderDetailHead(f) {
     var head = document.getElementById("explain-detail-head");
     head.textContent = "";
@@ -2686,22 +2718,30 @@
 
     var trace = tracesById[f.trace_id];
     if (!trace) {
-      // Trace dropped by the size cap: keep the header, hide the tree.
+      // Two different causes, and pointing at the cap when the source
+      // never carried spans sends the reader tuning a flag that changes
+      // nothing.
       content.style.display = "none";
       notEmbedded.style.display = "";
-      notEmbedded.textContent =
-        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+      notEmbedded.textContent = embeddedTraces.length === 0
+        ? "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id below against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>."
+        : "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+      appendTraceIdLine(notEmbedded, f);
       return;
     }
 
     content.style.display = "";
     var breadcrumb = document.getElementById("explain-breadcrumb");
-    var shortTraceId = (f.trace_id || "").slice(0, 12);
     breadcrumb.textContent = "";
+    // Shown short so 32 hex characters do not eat the line, copied whole
+    // by the button: a truncated id is useless in an `explain` command,
+    // and the full one wrapped over two lines is painful to select.
     highlightEndpoint(
       breadcrumb,
-      "trace_id = " + shortTraceId + " · " + (f.service || "-") + " · " + (f.source_endpoint || "-")
+      "trace_id = " + shortTraceId(f.trace_id) + " · " + (f.service || "-") + " · " + (f.source_endpoint || "-")
     );
+    if (f.trace_id) breadcrumb.title = "trace_id = " + f.trace_id;
+    appendCopyTraceIdButton(breadcrumb, f.trace_id);
 
     var treeRoot = document.getElementById("explain-tree");
     treeRoot.textContent = "";
@@ -4504,8 +4544,11 @@
   }
 
   function exportFindingsCsv() {
+    // trace_id first among the identifiers: the export's main downstream
+    // use is feeding an id back into `explain` or a trace backend, and it
+    // was the one field the table never showed in full.
     var header = [
-      "severity", "type", "service", "endpoint", "template",
+      "severity", "type", "service", "endpoint", "trace_id", "template",
       "occurrences", "first_timestamp", "last_timestamp",
       "code_function", "code_filepath", "code_lineno",
       "suggested_fix_framework", "suggested_fix_recommendation",
@@ -4521,6 +4564,7 @@
         f.type || f.finding_type || "",
         f.service || "",
         f.source_endpoint || "",
+        f.trace_id || "",
         p.template || "",
         p.occurrences ?? "",
         f.first_timestamp || "",
@@ -5214,10 +5258,6 @@
 
   // -------- copy-link buttons --------
   function copyCurrentLink(btn) {
-    // Capture the label once so repeat clicks inside the flash window
-    // do not end up restoring "Copied" as the baseline.
-    if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
-    var baseLabel = btn.dataset.baseLabel;
     var href = location.href;
     // The copied link also restores any active table sort.
     var tsort = tableSortHashValue();
@@ -5225,6 +5265,16 @@
       href = href.replace(/([&#])tsort=[^&]*/g, "$1").replace(/[&#]$/, "");
       href += "&tsort=" + encodeURIComponent(tsort);
     }
+    copyTextToClipboard(btn, href);
+  }
+
+  // Copy `text`, flashing the button label. Shared by the per-tab deep
+  // links and the trace_id button.
+  function copyTextToClipboard(btn, text) {
+    // Capture the label once so repeat clicks inside the flash window
+    // do not end up restoring "Copied" as the baseline.
+    if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
+    var baseLabel = btn.dataset.baseLabel;
 
     function flashCopied() {
       btn.textContent = "Copied";
@@ -5243,7 +5293,7 @@
     function fallbackCopy() {
       try {
         var ta = document.createElement("textarea");
-        ta.value = href;
+        ta.value = text;
         ta.setAttribute("readonly", "");
         ta.style.position = "absolute";
         ta.style.left = "-9999px";
@@ -5254,15 +5304,15 @@
         if (ok) {
           flashCopied();
         } else {
-          console.error("copyCurrentLink: execCommand('copy') returned false");
+          console.error("copyTextToClipboard: execCommand('copy') returned false");
         }
       } catch (err) {
-        console.error("copyCurrentLink fallback failed", err);
+        console.error("copyTextToClipboard fallback failed", err);
       }
     }
 
     if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      navigator.clipboard.writeText(href).then(flashCopied, function (err) {
+      navigator.clipboard.writeText(text).then(flashCopied, function (err) {
         console.error("navigator.clipboard.writeText rejected", err);
         fallbackCopy();
       });
