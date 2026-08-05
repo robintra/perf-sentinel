@@ -185,6 +185,10 @@ max_payload_size = 16777216        # default 16777216 (16 MiB), bounds 1024..104
 # Findings kept in memory for `/api/findings`. 0 disables the store and the
 # ack routes that read it.
 max_retained_findings = 10000      # default 10000, bounds 0..10000000
+# Traces whose masked spans are kept so `/api/export/report` still carries a
+# span tree. Costs memory in proportion to max_events_per_trace, hence the
+# much smaller cap. 0 keeps none: the exported report then has findings only.
+max_retained_traces = 50           # default 50
 # Bounded queues. Raise under bursty load to cut backpressure and shedding.
 ingest_queue_capacity = 1024       # default 1024, bounds 1..1048576
 analysis_queue_capacity = 1024     # default 1024, bounds 1..1048576

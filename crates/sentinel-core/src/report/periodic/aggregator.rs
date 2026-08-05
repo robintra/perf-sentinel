@@ -1568,6 +1568,7 @@ mod tests {
                 })
                 .collect(),
             correlations: vec![],
+            embedded_traces: vec![],
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],

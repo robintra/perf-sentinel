@@ -14,6 +14,7 @@ fn make_state_with_correlator(
 
     Arc::new(QueryApiState {
         findings_store: Arc::new(FindingsStore::new(100)),
+        traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(50)),
         window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
             WindowConfig::default(),
         ))),
@@ -378,6 +379,78 @@ async fn handle_export_report_returns_200_with_empty_envelope_on_cold_start() {
     assert_eq!(
         report.warnings,
         vec!["daemon has not yet processed any events".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn handle_export_report_carries_the_retained_span_trees() {
+    // The correlation window has long dropped these spans: without the
+    // traces store the exported report would carry findings the
+    // dashboard cannot draw a tree for.
+    let state = make_state();
+    state.metrics.events_processed_total.inc_by(6.0);
+    state.metrics.traces_analyzed_total.inc_by(1.0);
+
+    let mut finding = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    finding.trace_id = "trace-a".to_string();
+    let trace = crate::correlate::Trace {
+        trace_id: "trace-a".to_string(),
+        spans: vec![crate::normalize::normalize(crate::event::SpanEvent {
+            timestamp: "2026-08-05T10:00:00Z".to_string(),
+            trace_id: "trace-a".to_string(),
+            span_id: "span-1".to_string(),
+            parent_span_id: None,
+            link_trace_id: None,
+            service: "order-svc".into(),
+            cloud_region: None,
+            event_type: crate::event::EventType::Sql,
+            operation: "SELECT".to_string(),
+            target: "select * from item where id = 42".to_string(),
+            duration_us: 900,
+            source: crate::event::EventSource {
+                endpoint: "POST /api/orders".to_string(),
+                method: "POST".to_string(),
+            },
+            status_code: None,
+            response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
+            instrumentation_scopes: Vec::new(),
+        })],
+    };
+    state
+        .findings_store
+        .push_batch(std::slice::from_ref(&finding), 1000)
+        .await;
+    state
+        .traces_store
+        .retain_for(&[trace], std::slice::from_ref(&finding))
+        .await;
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+
+    assert_eq!(report.embedded_traces.len(), 1);
+    assert_eq!(report.embedded_traces[0].trace_id, "trace-a");
+    assert_eq!(report.embedded_traces[0].spans.len(), 1);
+    let raw = String::from_utf8_lossy(&body);
+    assert!(
+        !raw.contains("id = 42"),
+        "the raw statement must not leave the daemon, only its template"
     );
 }
 
@@ -1611,6 +1684,7 @@ impl QueryApiState {
     fn clone_for_test(&self) -> Self {
         Self {
             findings_store: Arc::clone(&self.findings_store),
+            traces_store: Arc::clone(&self.traces_store),
             window: Arc::clone(&self.window),
             detect_config: self.detect_config.clone(),
             start_time: self.start_time,

@@ -36,11 +36,9 @@
 
 use crate::correlate::Trace;
 use crate::diff::DiffReport;
-use crate::event::EventType;
 use crate::ingest::mysql_stat::MySqlStatReport;
 use crate::ingest::pg_stat::PgStatReport;
-use crate::normalize::NormalizedEvent;
-use crate::report::Report;
+use crate::report::{EmbeddedTrace, Report};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -218,7 +216,7 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
     // Trace ranking reads the un-slimmed `top_offenders` so the ordering
     // is accurate even past the embed cap; the payload serializes the
     // slim report.
-    let payload = build_payload_with_label(
+    let mut payload = build_payload_with_label(
         &report_embed,
         &report.green_summary.top_offenders,
         traces,
@@ -226,6 +224,13 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
         &sanitized_label,
         trimmed_findings,
     );
+    // A report handed over without its input (a daemon snapshot) carries
+    // its own masked spans, already capped by the producer. Culprit
+    // highlighting is not rebuilt here, it needs the raw `Trace`, so the
+    // browser falls back to deriving what it can.
+    if payload.embedded_traces.is_empty() {
+        payload.embedded_traces.clone_from(&report.embedded_traces);
+    }
     let kept = payload.embedded_traces.len();
     let total = payload.trimmed_traces.as_ref().map_or(kept, |s| s.total);
     // Serialization of our fixed-shape payload cannot fail: all nested
@@ -268,7 +273,7 @@ struct Payload<'a> {
     version: &'static str,
     input_label: &'a str,
     report: &'a Report,
-    embedded_traces: Vec<EmbeddedTrace<'a>>,
+    embedded_traces: Vec<EmbeddedTrace>,
     /// Spans to highlight for the findings whose culprit set the browser
     /// cannot derive, keyed `trace_id|signature`. See
     /// [`culprit_spans_by_finding`].
@@ -295,27 +300,6 @@ struct Payload<'a> {
 #[derive(Debug, Serialize)]
 struct DaemonHandle<'a> {
     url: &'a str,
-}
-
-#[derive(Debug, Serialize)]
-struct EmbeddedTrace<'a> {
-    trace_id: &'a str,
-    spans: Vec<EmbeddedSpan<'a>>,
-}
-
-#[derive(Debug, Serialize)]
-struct EmbeddedSpan<'a> {
-    span_id: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent_span_id: Option<&'a str>,
-    service: &'a str,
-    endpoint: &'a str,
-    event_type: &'static str,
-    operation: &'a str,
-    template: &'a str,
-    duration_us: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    status_code: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -632,7 +616,11 @@ fn build_payload_with_label<'a>(
         .filter_map(|t| culprits_by_trace.remove(t.trace_id.as_str()))
         .flatten()
         .collect();
-    let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
+    let embedded_traces = kept_refs
+        .iter()
+        .copied()
+        .map(EmbeddedTrace::from_trace)
+        .collect();
 
     Payload {
         version: PAYLOAD_VERSION,
@@ -734,6 +722,9 @@ fn slim_report_for_embed(
         quality_gate: report.quality_gate.clone(),
         per_endpoint_io_ops: Vec::new(),
         correlations: report.correlations.clone(),
+        // Dropped: `Payload::embedded_traces` already carries the spans,
+        // keeping them here would ship every tree twice.
+        embedded_traces: Vec::new(),
         warnings: report.warnings.clone(),
         warning_details: report.warning_details.clone(),
         acknowledged_findings: report.acknowledged_findings.clone(),
@@ -830,7 +821,8 @@ fn trim_to_size_target<'a>(
         .iter()
         .copied()
         .map(|t| {
-            let spans = serde_json::to_string(&embed_trace(t)).map_or(usize::MAX, |s| s.len());
+            let spans = serde_json::to_string(&EmbeddedTrace::from_trace(t))
+                .map_or(usize::MAX, |s| s.len());
             let culprits = culprits_by_trace
                 .get(t.trace_id.as_str())
                 .and_then(|m| serde_json::to_string(m).ok())
@@ -896,35 +888,6 @@ fn trim_to_size_target<'a>(
         None
     };
     (kept, trimmed)
-}
-
-fn embed_trace(t: &Trace) -> EmbeddedTrace<'_> {
-    EmbeddedTrace {
-        trace_id: t.trace_id.as_str(),
-        spans: t.spans.iter().map(embed_span).collect(),
-    }
-}
-
-fn embed_span(e: &NormalizedEvent) -> EmbeddedSpan<'_> {
-    EmbeddedSpan {
-        span_id: e.event.span_id.as_str(),
-        parent_span_id: e.event.parent_span_id.as_deref(),
-        service: e.event.service.as_ref(),
-        endpoint: e.event.source.endpoint.as_str(),
-        event_type: match e.event.event_type {
-            EventType::Sql => "sql",
-            EventType::HttpOut => "http_out",
-            EventType::Messaging => "messaging",
-        },
-        operation: e.event.operation.as_str(),
-        // Only the masked template is embedded. The raw event.target (the
-        // original db.statement / URL) carries literals and must never reach
-        // the HTML payload. The JS falls back template-first, so dropping it
-        // loses nothing observable.
-        template: e.template.as_ref(),
-        duration_us: e.event.duration_us,
-        status_code: e.event.status_code,
-    }
 }
 
 #[cfg(test)]

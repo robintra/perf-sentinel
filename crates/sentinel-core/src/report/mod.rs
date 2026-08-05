@@ -24,6 +24,7 @@
 //! the default (empty vec), so production pipelines should validate
 //! baseline shapes upstream when they care.
 
+pub mod embedded;
 pub mod html;
 pub mod interpret;
 pub mod json;
@@ -32,6 +33,7 @@ pub mod periodic;
 pub mod sarif;
 pub mod warnings;
 
+pub use self::embedded::{EmbeddedSpan, EmbeddedTrace};
 pub use self::warnings::Warning;
 
 use crate::correlate::Trace;
@@ -80,6 +82,13 @@ pub struct Report {
     /// `perf-sentinel report --input <daemon.json>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub correlations: Vec<CrossTraceCorrelation>,
+    /// Masked spans for the findings' traces, so a report that travels
+    /// without its input still draws a span tree. Populated by the
+    /// daemon's `/api/export/report`, empty in batch output, where the
+    /// HTML sink reads the traces it was handed directly. Additive via
+    /// `skip_serializing_if`, so archived reports stay byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub embedded_traces: Vec<EmbeddedTrace>,
     /// Snapshot- or analysis-level warnings surfaced to consumers. The
     /// daemon's `/api/export/report` cold-start path populates this with
     /// `"daemon has not yet processed any events"` so consumers can
