@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [0.10.0] - 2026-08-05
 
+### Added
+
+- A Grafana dashboard that reads the query API, for the question the metrics dashboard structurally cannot answer. `perf_sentinel_findings_total` carries only `type` and `severity` labels, deliberately, because a per-service or per-endpoint label would blow up `/metrics` cardinality, so Prometheus says how many findings and of what kind but never which operation on which endpoint. `examples/grafana-findings-dashboard.json` reads `/api/findings` and `/api/acks` through the Infinity plugin, with `examples/grafana-infinity-datasource.yaml` provisioning the datasource. Grafana's backend performs the request, so an in-cluster Grafana reaches the Service over the cluster network: no port-forward, no Ingress, nothing exposed outside. Two constraints are documented rather than papered over: the daemon has no embedded IAM, so whoever opens the folder reads your SQL templates and endpoint names, and an enabled NetworkPolicy must list Grafana as a peer or the datasource times out silently. Filtering uses the table's column headers rather than a dashboard variable, so no request can ask the API for a severity it does not know.
+
 This release bumps the minor rather than the patch: `perf-sentinel-core` is
 published on crates.io, and several public structs gained fields, so a
 downstream crate pinned to `"0.9"` would have broken on a version number that

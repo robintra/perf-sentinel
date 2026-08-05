@@ -20,7 +20,7 @@ For a non-Helm alternative, see the raw manifests in
 - [Cutting a new chart release](#cutting-a-new-chart-release): maintainer task, points to RELEASE-PROCEDURE.
 - [Workload modes](#workload-modes): the three `workload.kind` values to pick from.
 - [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus [fragments](#config-fragments), secrets, TLS, NetworkPolicy and the optional [Ingress](#ingress).
-- [Observability](#observability): Prometheus ServiceMonitor, Grafana dashboard, alerts and exemplars.
+- [Observability](#observability): Prometheus ServiceMonitor, the Grafana dashboards (metrics and [the findings table](#grafana-on-the-query-api-findings-table)), alerts and exemplars.
 - [Upgrading](#upgrading): `helm upgrade` flow.
 - [Uninstalling](#uninstalling): `helm uninstall` flow.
 - [End-to-end example](#end-to-end-example): worked example composing the chart with the upstream OpenTelemetry Collector chart.
@@ -877,6 +877,47 @@ kubectl -n observability label configmap perf-sentinel-grafana \
 
 The label key (`grafana_dashboard` here) must match your Grafana
 sidecar's configured `dashboards.sidecar.label`.
+
+### Grafana on the query API (findings table)
+
+The dashboard above reads Prometheus, which answers "how many findings
+and of what kind": `perf_sentinel_findings_total` carries only `type` and
+`severity` labels, deliberately, because a per-service or per-endpoint
+label would blow up `/metrics` cardinality. It can never show which
+operation on which endpoint. That lives behind the query API.
+
+A second dashboard reads it directly through the
+[Infinity plugin](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
+(`yesoreyeram-infinity-datasource`, install it first, it does not ship
+with Grafana):
+
+- [`examples/grafana-infinity-datasource.yaml`](../examples/grafana-infinity-datasource.yaml),
+  the provisioned datasource. Set the namespace in the URL.
+- [`examples/grafana-findings-dashboard.json`](../examples/grafana-findings-dashboard.json),
+  title `perf-sentinel findings`, uid `perf-sentinel-findings`: a
+  filterable table of findings plus the runtime acknowledgments.
+
+**No port-forward and no Ingress.** Grafana's backend performs the
+request, so an in-cluster Grafana reaches the Service over the cluster
+network. This is the answer to "I need a `kubectl port-forward` every
+time I want to look at the findings", and it exposes nothing outside the
+cluster.
+
+Two things to settle before you ship it. First, the daemon has no
+embedded IAM: whoever opens this dashboard's folder reads your SQL
+templates and endpoint names, so scope the folder to the people allowed
+to see them. Second, if `networkPolicy.enabled=true`, add Grafana as a
+peer under `networkPolicy.ingress.fromNamespaceSelectors` or
+`.fromPodSelectors`, otherwise the datasource times out with no useful
+error, because a NetworkPolicy denies silently.
+
+The table shows one row per distinct problem rather than one per
+detection, since `/api/findings` folds by the signature acknowledgments
+use, and its `Traces` column is that fold's count. It counts detections
+still held in the daemon's ring buffer, so it falls as older ones age out
+and resets when the daemon restarts. Filtering is done with the column
+headers rather than a dashboard variable, so no request can ask the API
+for a severity it does not know.
 
 ### Alerting rules (PrometheusRule)
 

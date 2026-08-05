@@ -1,0 +1,50 @@
+# Grafana datasource for the perf-sentinel query API, via the Infinity plugin
+# (yesoreyeram-infinity-datasource, install it first: it does not ship with
+# Grafana). Pairs with examples/grafana-findings-dashboard.json.
+#
+# WHY THIS EXISTS. The Prometheus dashboard (examples/grafana-dashboard.json)
+# answers "how many findings and of what kind": `perf_sentinel_findings_total`
+# carries only `type` and `severity` labels, deliberately, because a
+# per-service or per-endpoint label would blow up /metrics cardinality. It can
+# never show you WHICH query on WHICH endpoint. That lives behind the query
+# API, and this datasource is how Grafana reads it.
+#
+# NO PORT-FORWARD, NO INGRESS. Grafana's backend performs the request, so an
+# in-cluster Grafana reaches the Service directly over the cluster network.
+# Adjust the namespace below and nothing else needs exposing.
+#
+# TWO THINGS TO KNOW BEFORE YOU SHIP THIS.
+#
+# 1. The daemon has no embedded IAM. Anyone who can open this Grafana folder
+#    reads your SQL templates and endpoint names. That is a data-exposure
+#    decision, not a technical one: scope the folder accordingly.
+# 2. If `networkPolicy.enabled=true` in the Helm chart, add Grafana as a peer
+#    under `networkPolicy.ingress.fromNamespaceSelectors` or
+#    `.fromPodSelectors`. Without it the datasource times out with no useful
+#    error, because a NetworkPolicy denies silently.
+apiVersion: 1
+
+datasources:
+  - name: perf-sentinel API
+    uid: perf-sentinel-api
+    type: yesoreyeram-infinity-datasource
+    # Base URL of the daemon's HTTP port (OTLP HTTP, query API, /metrics).
+    # `perf-sentinel` is the chart's fullname, adjust for a release name or
+    # nameOverride. Replace <ns> with the release namespace.
+    url: http://perf-sentinel.<ns>.svc.cluster.local:4318
+    access: proxy
+    isDefault: false
+    jsonData:
+      # No app-layer auth on the daemon: the boundary is the cluster network
+      # plus the NetworkPolicy. Switch to bearerToken or basicAuth if you put
+      # an authenticating proxy in front, and fill secureJsonData accordingly.
+      auth_method: none
+      # Pin the reachable host. Optional while auth_method is `none` (Infinity
+      # then allows every host), required as soon as auth, custom headers or
+      # TLS are configured. Set here from the start so enabling auth later
+      # does not break the datasource.
+      allowedHosts:
+        - http://perf-sentinel.<ns>.svc.cluster.local:4318
+      # The query API is loopback-fast, but a daemon under ingest pressure
+      # answers a 1000-finding page more slowly than Grafana's default patience.
+      timeoutInSeconds: 30
