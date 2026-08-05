@@ -635,7 +635,7 @@ impl MetricsState {
 
         let stored_findings = Gauge::new(
             "perf_sentinel_stored_findings",
-            "Findings currently retained in the query ring buffer",
+            "Distinct finding signatures currently retained in the query store",
         )
         .expect("metric creation should not fail");
 
