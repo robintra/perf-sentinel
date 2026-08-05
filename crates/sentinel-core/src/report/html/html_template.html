@@ -2137,7 +2137,7 @@
     head.appendChild(viewAll);
     leftCard.appendChild(head);
 
-    var totalIo = (greenSummary && greenSummary.total_io_ops) || 0;
+    var totalIo = ioShareBase();
     var list = el("div", "ps-list");
     // The payload keeps the deterministic detector order (the contract of
     // every sink), so rank by real impact here: severity, then avoidable
@@ -2617,11 +2617,22 @@
     }
   }
 
+  // Denominator for "% of I/O". Zero on a daemon snapshot, where findings
+  // span the store window but green_summary covers the last batch only.
+  function ioShareBase() {
+    var conf = findings.length ? findings[0].confidence : null;
+    if ((payload.daemon && payload.daemon.url) ||
+        conf === "daemon_staging" || conf === "daemon_production") {
+      return 0;
+    }
+    return (greenSummary && greenSummary.total_io_ops) || 0;
+  }
+
   // "% of report I/O" from a finding's green_impact, IIS as a fallback.
   function ioImpactText(f) {
     var gi = f.green_impact;
     if (!gi) return "-";
-    var totalIo = (greenSummary && greenSummary.total_io_ops) || 0;
+    var totalIo = ioShareBase();
     if (totalIo > 0 && Number.isFinite(gi.estimated_extra_io_ops)) {
       return Math.round((gi.estimated_extra_io_ops / totalIo) * 100) + "% of I/O";
     }
