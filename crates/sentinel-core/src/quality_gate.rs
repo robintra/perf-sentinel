@@ -2,7 +2,7 @@
 
 use crate::config::ThresholdsConfig;
 use crate::detect::{Finding, FindingType, Severity};
-use crate::report::{GreenSummary, QualityGate, QualityRule};
+use crate::report::{GreenSummary, IngestStats, QualityGate, QualityRule};
 
 /// Human-readable label for a gate rule key, or `None` for a key this
 /// build does not know.
@@ -21,18 +21,23 @@ pub fn rule_label(rule: &str) -> Option<&'static str> {
         "n_plus_one_http_warning_max" => Some("Max N+1 HTTP (warning+)"),
         "n_plus_one_messaging_warning_max" => Some("Max N+1 messaging (warning+)"),
         "io_waste_ratio_max" => Some("Max I/O waste ratio"),
+        "min_usable_span_ratio" => Some("Min usable span ratio"),
         _ => None,
     }
 }
 
-/// Evaluate quality gate rules against findings and green summary.
+/// Evaluate quality gate rules against findings, green summary and the
+/// ingest tally. `ingest` is `None` on inputs with no OTLP filter stats
+/// (native, Jaeger, Zipkin, daemon window reports); the usable-span rule
+/// is skipped there rather than passed, so its absence is visible.
 #[must_use]
 pub fn evaluate(
     findings: &[Finding],
     green_summary: &GreenSummary,
     thresholds: &ThresholdsConfig,
+    ingest: Option<&IngestStats>,
 ) -> QualityGate {
-    let mut rules = Vec::with_capacity(4);
+    let mut rules = Vec::with_capacity(5);
 
     // Rule 1: n_plus_one_sql_critical_max
     let critical_sql_count = findings
@@ -89,6 +94,22 @@ pub fn evaluate(
         passed: green_summary.io_waste_ratio <= thresholds.io_waste_ratio_max,
     });
 
+    // Rule 5: min_usable_span_ratio, opt-in and lower-bound. A report thin
+    // because SQL spans ship without db.statement (or HTTP without http.url)
+    // must fail loudly instead of passing as a false green. Evaluated only
+    // when the operator set the threshold AND the input carried an OTLP
+    // tally with at least one I/O-shaped span.
+    if let Some(threshold) = thresholds.min_usable_span_ratio
+        && let Some(ratio) = ingest.and_then(|i| i.usable_span_ratio)
+    {
+        rules.push(QualityRule {
+            rule: "min_usable_span_ratio".to_string(),
+            threshold,
+            actual: ratio,
+            passed: ratio >= threshold,
+        });
+    }
+
     let passed = rules.iter().all(|r| r.passed);
     QualityGate { passed, rules }
 }
@@ -107,7 +128,7 @@ mod tests {
     fn all_rules_pass_with_no_findings() {
         let config = Config::default();
         let summary = empty_green_summary();
-        let gate = evaluate(&[], &summary, &config.thresholds);
+        let gate = evaluate(&[], &summary, &config.thresholds, None);
 
         assert!(gate.passed);
         assert_eq!(gate.rules.len(), 4);
@@ -119,7 +140,7 @@ mod tests {
         // The CLI, the TUI and the dashboard all display these keys. A rule
         // added without its label would surface as raw snake_case.
         let config = Config::default();
-        let gate = evaluate(&[], &empty_green_summary(), &config.thresholds);
+        let gate = evaluate(&[], &empty_green_summary(), &config.thresholds, None);
         for r in &gate.rules {
             assert!(
                 rule_label(&r.rule).is_some(),
@@ -139,7 +160,7 @@ mod tests {
         let findings: Vec<_> = (0..4)
             .map(|_| make_finding(FindingType::NPlusOneMessaging, Severity::Warning))
             .collect();
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         let rule = gate
             .rules
@@ -156,7 +177,7 @@ mod tests {
         let config = Config::default(); // n_plus_one_sql_critical_max = 0
         let findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Critical)];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         assert!(!gate.passed);
         let rule = gate
@@ -174,7 +195,7 @@ mod tests {
         let config = Config::default();
         let findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         let rule = gate
             .rules
@@ -201,7 +222,7 @@ mod tests {
             make_finding(FindingType::NPlusOneHttp, Severity::Warning),
         ];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         let rule = gate
             .rules
@@ -227,7 +248,7 @@ mod tests {
             make_finding(FindingType::NPlusOneHttp, Severity::Warning),
         ];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         assert!(!gate.passed);
         let rule = gate
@@ -243,7 +264,7 @@ mod tests {
     fn io_waste_ratio_fails_gate() {
         let config = Config::default(); // io_waste_ratio_max = 0.30
         let summary = make_test_green_summary(10, 5, 0.5);
-        let gate = evaluate(&[], &summary, &config.thresholds);
+        let gate = evaluate(&[], &summary, &config.thresholds, None);
 
         assert!(!gate.passed);
         let rule = gate
@@ -270,9 +291,97 @@ mod tests {
             make_finding(FindingType::NPlusOneSql, Severity::Critical),
         ];
         let summary = make_test_green_summary(10, 8, 0.8);
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         assert!(gate.passed, "2 critical SQL <= 5, 0.8 <= 0.90");
+    }
+
+    /// An [`IngestStats`] whose usable ratio is `retained / (retained + gaps)`.
+    fn ingest_stats(retained: u64, attribute_gaps: u64) -> IngestStats {
+        let stats = crate::ingest::otlp::SpanConversionStats {
+            received: retained + attribute_gaps,
+            filtered_missing_db_statement: attribute_gaps,
+            ..Default::default()
+        };
+        IngestStats::from(stats)
+    }
+
+    fn thresholds_with_min_ratio(ratio: f64) -> ThresholdsConfig {
+        ThresholdsConfig {
+            min_usable_span_ratio: Some(ratio),
+            ..ThresholdsConfig::default()
+        }
+    }
+
+    #[test]
+    fn usable_span_rule_absent_without_threshold() {
+        // Default config: the rule is opt-in, stats alone must not add it.
+        let config = Config::default();
+        let stats = ingest_stats(1, 9);
+        let gate = evaluate(
+            &[],
+            &empty_green_summary(),
+            &config.thresholds,
+            Some(&stats),
+        );
+        assert!(gate.passed);
+        assert!(!gate.rules.iter().any(|r| r.rule == "min_usable_span_ratio"));
+    }
+
+    #[test]
+    fn usable_span_rule_absent_without_stats() {
+        // Threshold set but no OTLP tally (native/Jaeger/Zipkin input):
+        // the rule is skipped, not passed, so the gate stays green.
+        let thresholds = thresholds_with_min_ratio(0.9);
+        let gate = evaluate(&[], &empty_green_summary(), &thresholds, None);
+        assert!(gate.passed);
+        assert!(!gate.rules.iter().any(|r| r.rule == "min_usable_span_ratio"));
+    }
+
+    #[test]
+    fn unusable_instrumentation_fails_gate() {
+        // The false-green scenario: 9 of 10 I/O-shaped spans lack their
+        // attribute, ratio 0.1 < 0.9 threshold, the gate must fail even
+        // though there are zero findings.
+        let thresholds = thresholds_with_min_ratio(0.9);
+        let stats = ingest_stats(1, 9);
+        let gate = evaluate(&[], &empty_green_summary(), &thresholds, Some(&stats));
+        assert!(!gate.passed);
+        let rule = gate
+            .rules
+            .iter()
+            .find(|r| r.rule == "min_usable_span_ratio")
+            .expect("rule evaluated when threshold and stats are present");
+        assert!(!rule.passed);
+        assert!((rule.actual - 0.1).abs() < f64::EPSILON);
+        assert!((rule.threshold - 0.9).abs() < f64::EPSILON);
+        assert!(rule_label(&rule.rule).is_some(), "new rule needs a label");
+    }
+
+    #[test]
+    fn healthy_instrumentation_passes_usable_span_rule() {
+        let thresholds = thresholds_with_min_ratio(0.9);
+        let stats = ingest_stats(19, 1);
+        let gate = evaluate(&[], &empty_green_summary(), &thresholds, Some(&stats));
+        assert!(gate.passed);
+        let rule = gate
+            .rules
+            .iter()
+            .find(|r| r.rule == "min_usable_span_ratio")
+            .expect("rule evaluated");
+        assert!(rule.passed);
+        assert!((rule.actual - 0.95).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn usable_span_rule_absent_without_io_shaped_spans() {
+        // A tally of internal-only spans has no ratio (0/0): skip the
+        // rule rather than judging instrumentation that sent no I/O.
+        let thresholds = thresholds_with_min_ratio(0.9);
+        let stats = ingest_stats(0, 0);
+        let gate = evaluate(&[], &empty_green_summary(), &thresholds, Some(&stats));
+        assert!(gate.passed);
+        assert!(!gate.rules.iter().any(|r| r.rule == "min_usable_span_ratio"));
     }
 
     #[test]
@@ -286,7 +395,7 @@ mod tests {
         };
         let findings = vec![make_finding(FindingType::NPlusOneHttp, Severity::Critical)];
         let summary = empty_green_summary();
-        let gate = evaluate(&findings, &summary, &config.thresholds);
+        let gate = evaluate(&findings, &summary, &config.thresholds, None);
 
         let rule = gate
             .rules

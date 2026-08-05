@@ -1528,6 +1528,13 @@ impl Config {
                 self.thresholds.io_waste_ratio_max
             ));
         }
+        if let Some(ratio) = self.thresholds.min_usable_span_ratio
+            && !(0.0..=1.0).contains(&ratio)
+        {
+            return Err(format!(
+                "min_usable_span_ratio must be in [0.0, 1.0], got {ratio}"
+            ));
+        }
         Ok(())
     }
 }

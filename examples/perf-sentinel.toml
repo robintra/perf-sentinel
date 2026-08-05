@@ -56,6 +56,12 @@ n_plus_one_http_warning_max = 3   # default 3, any positive integer
 n_plus_one_messaging_warning_max = 3   # default 3, any positive integer
 # Max avoidable-I/O waste ratio tolerated (0.0 to 1.0).
 io_waste_ratio_max = 0.30   # default 0.30, bounds 0.0..1.0
+# Min share of I/O-shaped spans that must be analyzable (SQL spans carrying
+# db.statement, HTTP spans carrying a full URL). Guards against a false green
+# from unusable instrumentation: below the threshold the gate fails even with
+# zero findings. Only applies to OTLP input, which carries the filter tally.
+# Commented out by default: absent means the rule is disabled.
+# min_usable_span_ratio = 0.9   # disabled by default, bounds 0.0..1.0
 
 # ---------------------------------------------------------------------------
 # Detection tuning (applies to all detectors, messaging findings included:

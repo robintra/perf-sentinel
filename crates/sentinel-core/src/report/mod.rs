@@ -202,6 +202,52 @@ pub struct Analysis {
     pub duration_ms: u64,
     pub events_processed: usize,
     pub traces_analyzed: usize,
+    /// Batch OTLP ingest tally: spans received vs filtered before the
+    /// pipeline ran. `None` when the input was not OTLP (native, Jaeger,
+    /// Zipkin carry no per-reason classification yet) or on reports from
+    /// versions predating the field. Without it a thin report cannot be
+    /// told apart from unusable instrumentation, see
+    /// `docs/LIMITATIONS.md` "Instrumentation quality bounds findings".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingest: Option<IngestStats>,
+}
+
+/// Span-level ingest tally embedded in [`Analysis`], the batch-report
+/// mirror of the daemon's `perf_sentinel_otlp_spans_*` Prometheus pair.
+/// Field names follow the stable `reason` label values of
+/// `perf_sentinel_otlp_spans_filtered_total` (see `docs/METRICS.md`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct IngestStats {
+    /// Every span present in the input, before any filtering.
+    pub spans_received: u64,
+    /// Spans skipped as non-analyzable, all reasons together.
+    pub spans_filtered: u64,
+    pub filtered_not_io: u64,
+    pub filtered_missing_db_statement: u64,
+    pub filtered_missing_http_url: u64,
+    pub filtered_non_sql_datastore: u64,
+    pub filtered_merged_db_span: u64,
+    /// Share of I/O-shaped spans that were analyzable (retained over
+    /// retained plus the attribute-gap drops). `None` when no I/O-shaped
+    /// span was seen. Semantics owned by
+    /// [`crate::ingest::otlp::SpanConversionStats::usable_span_ratio`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usable_span_ratio: Option<f64>,
+}
+
+impl From<crate::ingest::otlp::SpanConversionStats> for IngestStats {
+    fn from(stats: crate::ingest::otlp::SpanConversionStats) -> Self {
+        Self {
+            spans_received: stats.received,
+            spans_filtered: stats.received.saturating_sub(stats.retained()),
+            filtered_not_io: stats.filtered_not_io,
+            filtered_missing_db_statement: stats.filtered_missing_db_statement,
+            filtered_missing_http_url: stats.filtered_missing_http_url,
+            filtered_non_sql_datastore: stats.filtered_non_sql_datastore,
+            filtered_merged_db_span: stats.filtered_merged_db_span,
+            usable_span_ratio: stats.usable_span_ratio(),
+        }
+    }
 }
 
 /// `GreenOps` summary of I/O waste.

@@ -129,6 +129,12 @@ pub struct ThresholdsConfig {
     pub n_plus_one_messaging_warning_max: u32,
     /// Maximum allowed I/O waste ratio before quality gate fails.
     pub io_waste_ratio_max: f64,
+    /// Minimum share of I/O-shaped spans that must be analyzable before
+    /// the gate fails, guarding against a false green from unusable
+    /// instrumentation (SQL spans without `db.statement`, HTTP spans
+    /// without `http.url`). `None` (the default) disables the rule; it
+    /// also stays silent when the input carries no OTLP filter tally.
+    pub min_usable_span_ratio: Option<f64>,
 }
 
 /// Per-detector knobs. Maps 1:1 to `[detection]` in TOML.
@@ -359,6 +365,7 @@ impl Default for ThresholdsConfig {
             n_plus_one_http_warning_max: 3,
             n_plus_one_messaging_warning_max: 3,
             io_waste_ratio_max: 0.30,
+            min_usable_span_ratio: None,
         }
     }
 }

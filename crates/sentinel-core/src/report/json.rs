@@ -53,6 +53,7 @@ mod tests {
                 duration_ms: 42,
                 events_processed: 10,
                 traces_analyzed: 1,
+                ingest: None,
             },
             findings: vec![Finding {
                 finding_type: FindingType::NPlusOneSql,

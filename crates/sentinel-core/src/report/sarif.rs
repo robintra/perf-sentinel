@@ -544,6 +544,7 @@ mod tests {
                 duration_ms: 1,
                 events_processed: 6,
                 traces_analyzed: 1,
+                ingest: None,
             },
             findings,
             green_summary: crate::report::GreenSummary::disabled(0),

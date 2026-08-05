@@ -1224,3 +1224,110 @@ fn cli_warning_details_in_json_export() {
         }
     }
 }
+
+/// One OTLP/JSON request: `usable` SQL spans carrying db.statement plus
+/// `gaps` SQL spans without it (the instrumentation-gap shape).
+fn otlp_request_with_gaps(usable: usize, gaps: usize) -> String {
+    let mut spans = Vec::new();
+    for i in 0..usable + gaps {
+        let attrs = if i < usable {
+            format!(
+                r#"[{{"key":"db.statement","value":{{"stringValue":"SELECT * FROM t{i} WHERE id = 1"}}}},{{"key":"db.system","value":{{"stringValue":"postgresql"}}}}]"#
+            )
+        } else {
+            r#"[{"key":"db.system","value":{"stringValue":"postgresql"}}]"#.to_string()
+        };
+        spans.push(format!(
+            r#"{{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b1{i:02x}","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":{attrs}}}"#
+        ));
+    }
+    format!(
+        r#"{{"resourceSpans":[{{"resource":{{"attributes":[{{"key":"service.name","value":{{"stringValue":"svc"}}}}]}},"scopeSpans":[{{"spans":[{}]}}]}}]}}"#,
+        spans.join(",")
+    )
+}
+
+#[test]
+fn cli_analyze_ci_fails_on_unusable_instrumentation() {
+    // 1 usable SQL span, 9 without db.statement: zero findings, but with
+    // min_usable_span_ratio = 0.9 the gate must fail instead of passing
+    // as a false green.
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let input_path = dir.path().join("traces.json");
+    fs::write(&input_path, otlp_request_with_gaps(1, 9)).expect("failed to write fixture");
+    let config_path = dir.path().join("config.toml");
+    fs::write(&config_path, "[thresholds]\nmin_usable_span_ratio = 0.9\n")
+        .expect("failed to write config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "analyze",
+            "--input",
+            input_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--ci",
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "unusable instrumentation must breach the gate: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(report["analysis"]["ingest"]["spans_received"], 10);
+    assert_eq!(
+        report["analysis"]["ingest"]["filtered_missing_db_statement"],
+        9
+    );
+    let rule = report["quality_gate"]["rules"]
+        .as_array()
+        .expect("rules array")
+        .iter()
+        .find(|r| r["rule"] == "min_usable_span_ratio")
+        .expect("usable-span rule evaluated");
+    assert_eq!(rule["passed"], false);
+    assert_eq!(report["quality_gate"]["passed"], false);
+}
+
+#[test]
+fn cli_analyze_ingest_tally_reported_without_threshold() {
+    // Same degraded input without the threshold: the gate stays green
+    // (rule is opt-in) but the tally is visible in analysis.ingest, so a
+    // thin report is distinguishable from a clean one.
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let input_path = dir.path().join("traces.json");
+    fs::write(&input_path, otlp_request_with_gaps(1, 9)).expect("failed to write fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", input_path.to_str().unwrap(), "--ci"])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "opt-in rule absent, gate must pass: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(report["analysis"]["ingest"]["spans_received"], 10);
+    let ratio = report["analysis"]["ingest"]["usable_span_ratio"]
+        .as_f64()
+        .expect("ratio present");
+    assert!((ratio - 0.1).abs() < 1e-9);
+    assert!(
+        report["quality_gate"]["rules"]
+            .as_array()
+            .expect("rules array")
+            .iter()
+            .all(|r| r["rule"] != "min_usable_span_ratio"),
+        "rule must not appear without a configured threshold"
+    );
+}

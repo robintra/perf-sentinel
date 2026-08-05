@@ -293,6 +293,22 @@ pub(crate) fn format_colored_report_with_acks(
         report.analysis.traces_analyzed,
         report.analysis.duration_ms
     );
+    // Surface the OTLP filter tally so a thin report reads as what it is:
+    // either a clean run or unusable instrumentation, never silently both.
+    if let Some(ingest) = &report.analysis.ingest
+        && ingest.spans_filtered > 0
+    {
+        let gaps = ingest.filtered_missing_db_statement + ingest.filtered_missing_http_url;
+        let gap_note = if gaps > 0 {
+            format!(", {gaps} I/O span(s) missing db.statement/http.url")
+        } else {
+            String::new()
+        };
+        println!(
+            "{dim}Ingested {} spans, {} filtered as non-analyzable{gap_note}{reset}",
+            ingest.spans_received, ingest.spans_filtered
+        );
+    }
     println!();
 
     print_warnings(report, force_color);

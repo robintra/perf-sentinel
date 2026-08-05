@@ -189,7 +189,7 @@ pub struct RenderStats {
 /// # fn load_events() -> Vec<sentinel_core::event::SpanEvent> { vec![] }
 /// let events = load_events();
 /// let cfg = sentinel_core::config::Config::default();
-/// let (report, traces) = analyze_with_traces(events, &cfg);
+/// let (report, traces) = analyze_with_traces(events, &cfg, None);
 /// // RenderOptions is #[non_exhaustive]: start from Default and set fields.
 /// let mut options = RenderOptions::default();
 /// options.input_label = "traces.json".to_string();
