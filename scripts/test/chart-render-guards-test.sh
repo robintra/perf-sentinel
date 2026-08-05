@@ -438,6 +438,71 @@ endpoint = "http://alumet:9090/metrics"')" 2>&1); then
 }
 persist_sts
 
+# --- Ingress ----------------------------------------------------------------
+#
+# The Ingress publishes an API with no embedded IAM, so "off unless asked"
+# is the guard that matters most here, followed by the port allow-list: a
+# typo in servicePortName would otherwise render an Ingress pointing at a
+# port the Service never publishes, which the API server accepts and which
+# fails as a 503 at request time.
+
+ingress_off_by_default() {
+  local out
+  if ! out=$(helm template t "$CHART_DIR" 2>&1); then
+    report fail "no Ingress unless asked (render failed)"
+    return
+  fi
+  if grep -q "kind: Ingress" <<<"$out"; then
+    report fail "no Ingress unless asked"
+  else
+    report pass "no Ingress unless asked"
+  fi
+}
+ingress_off_by_default
+
+expect_render_ingress() {
+  local desc="$1" predicate="$2"; shift 2
+  local out
+  if ! out=$(helm template t "$CHART_DIR" --show-only templates/ingress.yaml \
+             --set ingress.enabled=true "$@" 2>&1); then
+    report fail "$desc (render failed: $(head -1 <<<"$out"))"
+    return
+  fi
+  if eval "$predicate"; then
+    report pass "$desc"
+  else
+    report fail "$desc"
+  fi
+}
+
+expect_render_ingress "routes to the query API port by default" \
+  'grep -A1 "port:" <<<"$out" | grep -q "name: otlp-http"'
+
+expect_render_ingress "routes to the gRPC port when asked" \
+  'grep -A1 "port:" <<<"$out" | grep -q "name: otlp-grpc"' \
+  --set ingress.servicePortName=otlp-grpc
+
+# A host-less rule is legal and matches every host; it must still render a
+# valid rule rather than a dangling list item.
+expect_render_ingress "renders a host-less rule as a valid entry" \
+  'grep -q "^    - http:" <<<"$out" && ! grep -q "host:" <<<"$out"' \
+  --set "ingress.hosts[0].paths[0].path=/"
+
+ingress_rejects_unknown_port() {
+  local out
+  if out=$(helm template t "$CHART_DIR" --set ingress.enabled=true \
+           --set ingress.servicePortName=metrics 2>&1); then
+    report fail "refuses a port the Service does not publish"
+    return
+  fi
+  if grep -qE "otlp-http.*otlp-grpc|must be one of" <<<"$out"; then
+    report pass "refuses a port the Service does not publish"
+  else
+    report fail "refuses a port the Service does not publish (unexpected error: $(head -1 <<<"$out"))"
+  fi
+}
+ingress_rejects_unknown_port
+
 if [ "$failures" -eq 0 ]; then
   echo "All scenarios passed."
   exit 0

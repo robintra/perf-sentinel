@@ -19,7 +19,7 @@ For a non-Helm alternative, see the raw manifests in
 - [Install from a local checkout](#install-from-a-local-checkout): for contributors and bisecting.
 - [Cutting a new chart release](#cutting-a-new-chart-release): maintainer task, points to RELEASE-PROCEDURE.
 - [Workload modes](#workload-modes): the three `workload.kind` values to pick from.
-- [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus [fragments](#config-fragments), secrets, TLS and NetworkPolicy.
+- [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus [fragments](#config-fragments), secrets, TLS, NetworkPolicy and the optional [Ingress](#ingress).
 - [Observability](#observability): Prometheus ServiceMonitor, Grafana dashboard, alerts and exemplars.
 - [Upgrading](#upgrading): `helm upgrade` flow.
 - [Uninstalling](#uninstalling): `helm uninstall` flow.
@@ -744,6 +744,58 @@ networkPolicy:
 
 The two selector lists are OR-ed: an ingress source matching any entry in
 either list is allowed. Leave a list empty to skip that match dimension.
+
+### Ingress
+
+The chart can render an `Ingress` in front of the Service. It is off by
+default, and that default is a security decision rather than a packaging
+one: perf-sentinel has no embedded IAM, so publishing it puts an
+unauthenticated API on the network. Anyone who reaches the host can POST
+OTLP traces, read `/api/findings` (your SQL templates and endpoint names)
+and call the ack write endpoints. The chart's threat model is a
+non-exposed cluster network bounded by the Service and the optional
+NetworkPolicy, which is why the two supported ways to expose the API stay
+[the SSO proxy and the shared key](#daemon-ack-runtime-store).
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    # Authenticate at the controller. Without something like this, the
+    # API is open to whoever resolves the host.
+    nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start?rd=$escaped_request_uri"
+  hosts:
+    - host: perf-sentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: perf-sentinel-tls
+      hosts:
+        - perf-sentinel.example.com
+```
+
+`servicePortName` selects which published port the rules route to,
+`otlp-http` (4318: OTLP HTTP, the query API and `/metrics`) by default or
+`otlp-grpc` (4317: OTLP gRPC). Anything else fails the render, since the
+Service publishes no other port and the mistake would otherwise surface as
+a 503 at request time. Routing gRPC also needs a controller told to speak
+HTTP/2 to the backend, for ingress-nginx
+`nginx.ingress.kubernetes.io/backend-protocol: GRPC`.
+
+Terminate TLS at the controller. The daemon speaks plaintext HTTP unless
+`[daemon.tls]` is configured, and this chart does not wire certificates
+into the Ingress backend.
+
+A host entry with no `host` key matches every host reaching the
+controller. That is legal and sometimes wanted on an internal controller,
+but on a shared one it publishes the API far more broadly than intended.
+
+Enabling an Ingress does not relax the NetworkPolicy. If both are on, the
+controller's pods must be allowed as a peer, otherwise the Ingress
+resolves and every request times out against a policy that denies it.
 
 ## Observability
 

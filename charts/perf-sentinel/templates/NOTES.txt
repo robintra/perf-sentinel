@@ -56,6 +56,14 @@ workload.statefulset.persistence.enabled=true, which mounts a PVC and points
 the ack store at it. That mode needs a usable StorageClass. See
 docs/HELM-DEPLOYMENT.md ("StatefulSet").
 {{- end }}
+{{- if .Values.ingress.enabled }}
+
+Heads up: an Ingress publishes this release. perf-sentinel has no embedded
+IAM, so whoever reaches {{ range .Values.ingress.hosts }}{{ .host | default "any host" }} {{ end }}can POST traces, read /api/findings
+(your SQL templates and endpoint names) and acknowledge findings. Put
+authentication in front of it, an SSO proxy or a controller auth annotation,
+see docs/HELM-DEPLOYMENT.md ("Ingress").
+{{- end }}
 {{- if not .Values.networkPolicy.enabled }}
 
 Heads up: NetworkPolicy is disabled. Every pod in the cluster can POST

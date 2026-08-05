@@ -23,6 +23,7 @@ calls and excessive fanout. It also scores I/O intensity per endpoint
 | `workload.daemonset.spanRoutingByTraceId` | `false`          | Required to be `true` for `kind: DaemonSet`, else the render fails. Asserts an upstream collector routes by trace ID; a plain Service splits traces and silently degrades detection. |
 | `workload.replicas`      | `1`                               | Per-trace state lives in memory, prefer vertical scaling first.                                 |
 | `service.type`           | `ClusterIP`                       | Do not switch to `NodePort` or `LoadBalancer` without a gateway.                                |
+| `ingress.enabled`        | `false`                           | Publishes an API with no embedded IAM. Put an SSO proxy or controller auth in front before enabling. |
 | `serviceMonitor.enabled` | `false`                           | Flip on when the Prometheus Operator is installed.                                              |
 | `networkPolicy.enabled`  | `false`                           | Fail-closed when enabled without selectors.                                                     |
 | `[daemon] environment`   | `"staging"` (via `config.toml`)   | Stamps every finding with a confidence tag consumed by downstream tooling (perf-lint, planned). |
