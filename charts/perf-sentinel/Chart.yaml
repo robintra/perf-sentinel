@@ -36,6 +36,8 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "Chart 0.10.0: an optional Ingress, off by default. ingress.enabled=true renders a networking.k8s.io/v1 Ingress in front of the Service, with className, per-controller annotations, hosts[].paths[] and tls[] passed through, and servicePortName choosing otlp-http (4318: OTLP HTTP, query API, /metrics) or otlp-grpc (4317). Any other port name fails the render, because the Service publishes no other one and the mistake would otherwise surface as a 503 at request time. Off by default is a security decision, not a packaging one: perf-sentinel has no embedded IAM, so publishing it exposes OTLP ingest, /api/findings (your SQL templates and endpoint names) and the ack write endpoints to whoever reaches the host. Put an SSO proxy or a controller auth annotation in front of it, see docs/HELM-DEPLOYMENT.md. Enabling an Ingress does not relax the NetworkPolicy: with both on, allow the controller's pods as a peer or every request times out."
     - kind: changed
       description: "appVersion 0.10.0: a minor bump rather than a patch. The published perf-sentinel-core library gained breaking API changes (public structs grew fields, quality_gate::evaluate takes a fourth parameter), and a downstream crate pinned to 0.9 would have broken on a patch number that promises it cannot. The chart and the daemon it deploys are unaffected: no template change, no values change, and a values file that rendered on 0.9.28 renders identically here, checksum/config included, so upgrading does not roll pods."
     - kind: fixed

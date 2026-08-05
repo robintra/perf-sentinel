@@ -171,6 +171,49 @@ service:
     otlpHttp:
       port: 4318
 
+# Optional Ingress in front of the Service. Disabled by default, and that
+# default is a security decision rather than a packaging one: the daemon has
+# no embedded IAM, so publishing it puts an unauthenticated API on the
+# network, one that accepts OTLP ingest and serves `/api/findings` (your SQL
+# templates and endpoint names) plus the ack write endpoints to anyone who
+# reaches the host. The chart's threat model is a non-exposed cluster
+# network bounded by the Service and the optional NetworkPolicy.
+#
+# If you enable this, put authentication in front of it. The supported shape
+# is an SSO proxy (oauth2-proxy + nginx, see docs/QUERY-API.md), either as
+# the Ingress backend or as an ingress-controller auth annotation, e.g. for
+# ingress-nginx:
+#   annotations:
+#     nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy/oauth2/auth"
+#     nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy/oauth2/start?rd=$escaped_request_uri"
+# Terminate TLS at the controller: the daemon speaks plaintext HTTP unless
+# you configure [daemon.tls], and the chart does not wire certificates here.
+ingress:
+  enabled: false
+  # -- IngressClass to bind. Empty leaves the cluster default in charge.
+  className: ""
+  # -- Controller-specific annotations (auth, TLS issuer, body size, gRPC
+  # backend protocol, ...). Merged over commonAnnotations.
+  annotations: {}
+  # -- Which published Service port to route to: `otlp-http` (4318, OTLP
+  # HTTP + query API + /metrics) or `otlp-grpc` (4317, OTLP gRPC). Routing
+  # gRPC needs a controller told to speak HTTP/2 to the backend, e.g.
+  # `nginx.ingress.kubernetes.io/backend-protocol: GRPC`.
+  servicePortName: otlp-http
+  # -- Hosts and their paths. An entry with no `host` matches any host,
+  # which the API server accepts but which publishes the API broadly.
+  hosts:
+    - host: perf-sentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS blocks, passed through verbatim.
+  # tls:
+  #   - secretName: perf-sentinel-tls
+  #     hosts:
+  #       - perf-sentinel.example.com
+  tls: []
+
 # Prometheus Operator ServiceMonitor. Gated so clusters without the operator
 # render a minimal chart.
 serviceMonitor:

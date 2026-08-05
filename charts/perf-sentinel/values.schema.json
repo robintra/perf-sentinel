@@ -8,21 +8,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
         "pullPolicy": {
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         },
         "pullSecrets": {
           "type": "array",
-          "items": { "type": "object" }
+          "items": {
+            "type": "object"
+          }
         }
       },
-      "required": ["repository", "pullPolicy"]
+      "required": [
+        "repository",
+        "pullPolicy"
+      ]
     },
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string" },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
     "global": {
       "type": "object",
       "description": "Reserved by Helm convention for cross-chart values. This chart has no subcharts and reads nothing from it, but the key must be allowed or any values file/tool that sets it (umbrella charts, ArgoCD, Helmfile) fails schema validation."
@@ -33,79 +51,142 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["Deployment", "DaemonSet", "StatefulSet"]
+          "enum": [
+            "Deployment",
+            "DaemonSet",
+            "StatefulSet"
+          ]
         },
-        "replicas": { "type": "integer", "minimum": 0 },
-        "strategy": { "type": "object" },
-        "updateStrategy": { "type": "object" },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "strategy": {
+          "type": "object"
+        },
+        "updateStrategy": {
+          "type": "object"
+        },
         "daemonset": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "spanRoutingByTraceId": { "type": "boolean" }
+            "spanRoutingByTraceId": {
+              "type": "boolean"
+            }
           }
         },
         "statefulset": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "serviceName": { "type": "string" },
+            "serviceName": {
+              "type": "string"
+            },
             "persistence": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "enabled": { "type": "boolean" },
-                "manageDaemonPaths": { "type": "boolean" },
-                "size": { "type": "string" },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "manageDaemonPaths": {
+                  "type": "boolean"
+                },
+                "size": {
+                  "type": "string"
+                },
                 "accessModes": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": {
+                    "type": "string"
+                  }
                 },
-                "storageClass": { "type": "string" }
+                "storageClass": {
+                  "type": "string"
+                }
               }
             }
           }
         }
       },
-      "required": ["kind"]
+      "required": [
+        "kind"
+      ]
     },
     "serviceAccount": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "create": { "type": "boolean" },
-        "name": { "type": "string" },
-        "automountServiceAccountToken": { "type": "boolean" },
-        "annotations": { "type": "object" }
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "automountServiceAccountToken": {
+          "type": "boolean"
+        },
+        "annotations": {
+          "type": "object"
+        }
       }
     },
-    "podSecurityContext": { "type": "object" },
-    "securityContext": { "type": "object" },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "securityContext": {
+      "type": "object"
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "requests": { "type": "object" },
-        "limits": { "type": "object" },
-        "claims": { "type": "array" }
+        "requests": {
+          "type": "object"
+        },
+        "limits": {
+          "type": "object"
+        },
+        "claims": {
+          "type": "array"
+        }
       }
     },
-    "nodeSelector": { "type": "object" },
-    "tolerations": { "type": "array" },
-    "affinity": { "type": "object" },
-    "topologySpreadConstraints": { "type": "array" },
-    "livenessProbe": { "type": "object" },
-    "readinessProbe": { "type": "object" },
+    "nodeSelector": {
+      "type": "object"
+    },
+    "tolerations": {
+      "type": "array"
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "topologySpreadConstraints": {
+      "type": "array"
+    },
+    "livenessProbe": {
+      "type": "object"
+    },
+    "readinessProbe": {
+      "type": "object"
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["ClusterIP", "NodePort", "LoadBalancer"],
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ],
           "description": "ExternalName is deliberately excluded: the chart renders a selector and ports, never spec.externalName, so the Service would be rejected by the API."
         },
-        "annotations": { "type": "object" },
+        "annotations": {
+          "type": "object"
+        },
         "ports": {
           "type": "object",
           "additionalProperties": false,
@@ -114,32 +195,138 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-                "appProtocol": { "type": "string" }
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "appProtocol": {
+                  "type": "string"
+                }
               },
-              "required": ["port"]
+              "required": [
+                "port"
+              ]
             },
             "otlpHttp": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-                "appProtocol": { "type": "string" }
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "appProtocol": {
+                  "type": "string"
+                }
               },
-              "required": ["port"]
+              "required": [
+                "port"
+              ]
             }
           },
-          "required": ["otlpGrpc", "otlpHttp"]
+          "required": [
+            "otlpGrpc",
+            "otlpHttp"
+          ]
         }
       },
-      "required": ["type", "ports"]
+      "required": [
+        "type",
+        "ports"
+      ]
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "servicePortName": {
+          "type": "string",
+          "enum": [
+            "otlp-http",
+            "otlp-grpc"
+          ],
+          "description": "Published Service port to route to. Only these two exist; the template fails the render on anything else."
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pathType": {
+                      "type": "string",
+                      "enum": [
+                        "Exact",
+                        "Prefix",
+                        "ImplementationSpecific"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "secretName": {
+                "type": "string"
+              },
+              "hosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "serviceMonitor": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "namespace": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string"
+        },
         "interval": {
           "type": "string",
           "minLength": 1,
@@ -152,43 +339,80 @@
           "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$",
           "description": "Prometheus duration, e.g. 10s, 1m30s. Same grammar as the Prometheus Operator Duration type."
         },
-        "labels": { "type": "object" },
-        "relabelings": { "type": "array" },
-        "metricRelabelings": { "type": "array" }
+        "labels": {
+          "type": "object"
+        },
+        "relabelings": {
+          "type": "array"
+        },
+        "metricRelabelings": {
+          "type": "array"
+        }
       }
     },
     "prometheusRule": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "namespace": { "type": "string" },
-        "labels": { "type": "object" },
-        "energyScrapers": { "type": "boolean" },
-        "scraperStaleSeconds": { "type": "integer", "minimum": 1 },
-        "additionalRules": { "type": "array" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "energyScrapers": {
+          "type": "boolean"
+        },
+        "scraperStaleSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "additionalRules": {
+          "type": "array"
+        }
       }
     },
     "podDisruptionBudget": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "maxUnavailable": { "type": ["integer", "string"] },
-        "minAvailable": { "type": ["integer", "string"] }
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxUnavailable": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "minAvailable": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
       }
     },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "ingress": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "fromNamespaceSelectors": { "type": "array" },
-            "fromPodSelectors": { "type": "array" }
+            "fromNamespaceSelectors": {
+              "type": "array"
+            },
+            "fromPodSelectors": {
+              "type": "array"
+            }
           }
         }
       }
@@ -197,26 +421,55 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "toml": { "type": "string" },
+        "toml": {
+          "type": "string"
+        },
         "fragments": {
           "type": "object",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       },
-      "required": ["toml"]
+      "required": [
+        "toml"
+      ]
     },
-    "podAnnotations": { "type": "object" },
-    "podLabels": { "type": "object" },
-    "commonLabels": { "type": "object" },
-    "commonAnnotations": { "type": "object" },
-    "extraEnv": { "type": "array" },
-    "extraEnvFrom": { "type": "array" },
-    "extraVolumes": { "type": "array" },
-    "extraVolumeMounts": { "type": "array" },
+    "podAnnotations": {
+      "type": "object"
+    },
+    "podLabels": {
+      "type": "object"
+    },
+    "commonLabels": {
+      "type": "object"
+    },
+    "commonAnnotations": {
+      "type": "object"
+    },
+    "extraEnv": {
+      "type": "array"
+    },
+    "extraEnvFrom": {
+      "type": "array"
+    },
+    "extraVolumes": {
+      "type": "array"
+    },
+    "extraVolumeMounts": {
+      "type": "array"
+    },
     "extraArgs": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     }
   },
-  "required": ["image", "workload", "service", "config"]
+  "required": [
+    "image",
+    "workload",
+    "service",
+    "config"
+  ]
 }

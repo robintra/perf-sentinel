@@ -12,11 +12,31 @@ the chart version, to know which daemon image ships.
 
 ## [0.10.0]
 
-Version bump only, `appVersion` moves to `0.10.0` and no template changes. The
-application release is a minor rather than a patch because the published
-`perf-sentinel-core` library gained breaking API changes; the chart and the
-daemon it deploys are unaffected, so a values file that rendered on 0.9.28
-renders identically here, `checksum/config` included.
+### Added
+
+- Optional `Ingress`, off by default. `ingress.enabled=true` renders a
+  `networking.k8s.io/v1` Ingress in front of the Service, with `className`,
+  per-controller `annotations`, `hosts[].paths[]` and `tls[]` passed through.
+  `servicePortName` picks which published port the rules route to,
+  `otlp-http` (4318: OTLP HTTP, query API, `/metrics`) by default or
+  `otlp-grpc` (4317); anything else fails the render, since the Service
+  publishes no other port and the mistake would otherwise surface as a 503 at
+  request time. Off by default is a security decision rather than a packaging
+  one: perf-sentinel has no embedded IAM, so publishing it exposes OTLP
+  ingest, `/api/findings` (SQL templates and endpoint names) and the ack write
+  endpoints to whoever reaches the host. `helm install` prints that warning
+  when the Ingress is on, and `docs/HELM-DEPLOYMENT.md` documents the SSO
+  proxy and controller-auth shapes. Enabling an Ingress does not relax the
+  NetworkPolicy: with both on, the controller's pods must be allowed as a
+  peer or every request times out.
+
+### Changed
+
+- `appVersion` moves to `0.10.0`. The application release is a minor rather
+  than a patch because the published `perf-sentinel-core` library gained
+  breaking API changes; the daemon the chart deploys is unaffected, and a
+  values file with no `ingress` block renders exactly as it did on 0.9.28,
+  `checksum/config` included, so upgrading does not roll pods.
 
 ## [0.9.28]
 
