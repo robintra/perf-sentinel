@@ -754,8 +754,26 @@ unauthenticated API on the network. Anyone who reaches the host can POST
 OTLP traces, read `/api/findings` (your SQL templates and endpoint names)
 and call the ack write endpoints. The chart's threat model is a
 non-exposed cluster network bounded by the Service and the optional
-NetworkPolicy, which is why the two supported ways to expose the API stay
-[the SSO proxy and the shared key](#daemon-ack-runtime-store).
+NetworkPolicy.
+
+Two postures are supported. **Internal-only** is the simpler one: the
+Ingress rides a controller that is itself unreachable from outside your
+network, and the NetworkPolicy allows that controller's pods. The
+boundary becomes the controller's own exposure, so verify that assumption
+rather than inherit it, since a shared controller often carries a public
+listener alongside the internal one. **Authenticated** is required as
+soon as the host resolves beyond that: put an SSO proxy in front, either
+as the Ingress backend or as a controller auth annotation, per
+[the SSO proxy and shared-key options](#daemon-ack-runtime-store). Only
+the SSO path yields a per-person audit `by` on acknowledgments; the shared
+key gates ack writes alone and leaves every read open.
+
+Before reaching for either, check whether you need the Ingress at all.
+The common ask behind it, "stop making me `kubectl port-forward` to look
+at the findings", is answered in-cluster by
+[Grafana on the query API](#grafana-on-the-query-api-findings-table),
+which exposes nothing. The Ingress earns its place for the full HTML
+report and the operator TUI from a workstation.
 
 ```yaml
 ingress:
