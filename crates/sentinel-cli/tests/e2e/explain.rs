@@ -156,3 +156,37 @@ fn cli_explain_unknown_trace_lists_available_ids() {
         "expected the available-ids recovery hint, got: {stderr}"
     );
 }
+
+#[test]
+fn cli_explain_reads_a_snapshot_report_with_embedded_traces() {
+    // A daemon snapshot has no raw events, its masked span trees are
+    // what explain must draw from, like the dashboard and the TUI.
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_with_embedded_traces.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "explain",
+            "--input",
+            &fixture,
+            "--trace-id",
+            "trace-demo-nplus-sql",
+        ])
+        .output()
+        .expect("failed to run perf-sentinel");
+    assert!(
+        output.status.success(),
+        "explain on a snapshot failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Trace trace-demo-nplus-sql"),
+        "got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("update flux_cdar"),
+        "the masked template must be the tree's operation text"
+    );
+}

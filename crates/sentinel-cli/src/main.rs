@@ -2308,19 +2308,51 @@ fn cmd_explain(
     let config = load_config(config_path);
     let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
 
-    let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    // A Report JSON (a daemon snapshot) carries no raw events, but since
+    // 0.10.0 it can carry masked span trees: rebuild the tree from them,
+    // the same source the dashboard and the TUI draw from.
+    let tree = if let Ok(report) = serde_json::from_slice::<sentinel_core::report::Report>(&raw) {
+        let Some(embedded) = report
+            .embedded_traces
+            .iter()
+            .find(|t| t.trace_id == trace_id)
+        else {
+            if report.embedded_traces.is_empty() {
+                eprintln!(
+                    "Error: this Report JSON carries no span trees. A daemon snapshot embeds \
+                     them when [daemon] max_retained_traces > 0. A batch report never does, \
+                     rerun explain against the original trace file."
+                );
+                std::process::exit(EXIT_TOOLING_ERROR);
+            }
+            trace_not_found_exit(
+                trace_id,
+                report.embedded_traces.iter().map(|t| t.trace_id.as_str()),
+            );
+        };
+        let trace = embedded.to_trace();
+        let findings: Vec<sentinel_core::detect::Finding> = report
+            .findings
+            .iter()
+            .filter(|f| f.trace_id == trace_id)
+            .cloned()
+            .collect();
+        sentinel_core::explain::build_tree(&trace, &findings)
+    } else {
+        let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
 
-    let normalized = sentinel_core::normalize::normalize_all(events);
-    let traces = sentinel_core::correlate::correlate(normalized);
+        let normalized = sentinel_core::normalize::normalize_all(events);
+        let traces = sentinel_core::correlate::correlate(normalized);
 
-    let Some(trace) = traces.iter().find(|t| t.trace_id == trace_id) else {
-        trace_not_found_exit(trace_id, traces.iter().map(|t| t.trace_id.as_str()));
+        let Some(trace) = traces.iter().find(|t| t.trace_id == trace_id) else {
+            trace_not_found_exit(trace_id, traces.iter().map(|t| t.trace_id.as_str()));
+        };
+
+        let detect_config = sentinel_core::detect::DetectConfig::from(&config);
+        let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
+
+        sentinel_core::explain::build_tree(trace, &findings)
     };
-
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
-
-    let tree = sentinel_core::explain::build_tree(trace, &findings);
 
     match format {
         ExplainFormat::Text => {
