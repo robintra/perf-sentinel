@@ -10,6 +10,14 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.10.0]
+
+Version bump only, `appVersion` moves to `0.10.0` and no template changes. The
+application release is a minor rather than a patch because the published
+`perf-sentinel-core` library gained breaking API changes; the chart and the
+daemon it deploys are unaffected, so a values file that rendered on 0.9.28
+renders identically here, `checksum/config` included.
+
 ## [0.9.28]
 
 Version bump only, `appVersion` moves to `0.9.28` and no template changes. The

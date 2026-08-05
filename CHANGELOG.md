@@ -2,7 +2,20 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.10.0] - 2026-08-05
+
+This release bumps the minor rather than the patch: `perf-sentinel-core` is
+published on crates.io, and several public structs gained fields, so a
+downstream crate pinned to `"0.9"` would have broken on a version number that
+promises it cannot. Under SemVer's `0.x` rules the minor position carries that
+promise, so the breaking set lands here instead of silently in a patch. Same
+release, the structs most likely to keep growing (`Analysis`, `IngestStats`,
+`ThresholdsConfig`, `DetectionConfig`, `SpanConversionStats`, `StoredFinding`,
+`FindingsFilter`) became `#[non_exhaustive]`, which stops a future field from
+being a breaking change at all: external crates read and deserialize them, they
+no longer build them with a struct literal. `quality_gate::evaluate` also takes
+a fourth parameter. The binary and its config are unaffected: nothing here
+changes CLI flags, TOML keys or report JSON.
 
 ### Changed
 

@@ -289,7 +289,7 @@ Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande 
           | sort_by(-.detections)'
    ```
 
-   Depuis 0.9.29 cet endpoint retourne une ligne par problème distinct,
+   Depuis 0.10.0 cet endpoint retourne une ligne par problème distinct,
    pas une par détection : classer sur le nombre de lignes classe donc
    par variété plutôt que par volume, et un service dont le pic tient à
    un seul pattern récurrent sur 200 traces finirait dernier. Classez

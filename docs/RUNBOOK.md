@@ -287,7 +287,7 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
           | sort_by(-.detections)'
    ```
 
-   Since 0.9.29 this endpoint returns one row per distinct problem, not
+   Since 0.10.0 this endpoint returns one row per distinct problem, not
    one per detection, so ranking by row count ranks by variety rather
    than by volume: a service whose spike is one pattern recurring on 200
    traces would sort last. Rank on `seen_count`, as above, to rank by how

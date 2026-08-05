@@ -393,7 +393,7 @@ d'occurrence côté daemon. La détection est par trace, un pattern
 récurrent est donc détecté une fois par trace qui l'exhibe. Le buffer
 conserve ces instances, et ce listing les replie par signature canonique
 (la même clé que les acquittements) pour qu'un problème distinct tienne
-en une ligne (depuis 0.9.29). Le repli a lieu à la lecture :
+en une ligne (depuis 0.10.0). Le repli a lieu à la lecture :
 `/api/findings/{trace_id}` répond toujours avec les détections brutes
 par trace, et le quality gate les compte toujours une par une. `limit`
 s'applique aux lignes repliées, un pattern récurrent sur 100 traces ne
@@ -428,11 +428,11 @@ axum.
 - `stored_at_ms` : timestamp Unix entier en millisecondes de la
   détection la plus récente repliée dans cette entrée.
 - `first_seen_ms` : timestamp Unix entier en millisecondes de la plus
-  ancienne détection retenue pour cette signature (depuis 0.9.29). Sur
+  ancienne détection retenue pour cette signature (depuis 0.10.0). Sur
   un endpoint qui ne replie pas (`/api/findings/{trace_id}`), il vaut
   `stored_at_ms`.
 - `seen_count` : combien de détections par trace cette entrée replie,
-  `1` sur les endpoints qui ne replient pas (depuis 0.9.29). Il compte
+  `1` sur les endpoints qui ne replient pas (depuis 0.10.0). Il compte
   les détections encore présentes dans le ring buffer, pas toutes celles
   jamais faites : il baisse à mesure que les plus anciennes sortent
   au-delà de `max_retained_findings`, et repart à zéro au redémarrage du
