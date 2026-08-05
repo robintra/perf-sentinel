@@ -44,7 +44,7 @@
         <a data-dc-tpl="26" href="#license" data-hide-rse="" class="scp0"><span class="sc-interp">Licence</span></a>
         <span data-dc-tpl="27" aria-hidden="true" style="width: 1px; height: 15px; background: var(--border); align-self: center; margin: 0px 2px;"></span>
         <a data-dc-tpl="28" data-plain="" href="/guide" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="29" data-ltext=""><span class="sc-interp">Guide</span></span><span data-dc-tpl="30" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
-        <a data-dc-tpl="31" data-plain="" href="/docs/fr/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="32" data-ltext=""><span class="sc-interp">Docs</span></span><span data-dc-tpl="33" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="31" data-plain="" href="docs/fr/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="32" data-ltext=""><span class="sc-interp">Docs</span></span><span data-dc-tpl="33" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
       </nav>
       <div data-dc-tpl="34" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
         <button data-dc-tpl="35" class="ps-lang-btn" aria-label="Changer de langue" title="Changer de langue"><span data-dc-tpl="36" class="ps-lang-ico"><svg data-dc-tpl="37" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle data-dc-tpl="38" cx="12" cy="12" r="9"></circle><path data-dc-tpl="39" d="M3 12h18"></path><path data-dc-tpl="40" d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span data-dc-tpl="41" class="ps-lang-win"><span data-dc-tpl="42" class="ps-lang-track"><span data-dc-tpl="43" class="ps-lang-cell ps-lang-cur"><span class="sc-interp">FR</span></span><span data-dc-tpl="44" class="ps-lang-cell ps-lang-next"><span class="sc-interp">EN</span></span></span></span></button>
@@ -58,7 +58,7 @@
         <a data-dc-tpl="54" href="#comparatif"><span class="sc-interp">Comparatif</span></a>
         <a data-dc-tpl="55" href="#license" data-hide-rse=""><span class="sc-interp">Licence</span></a>
         <a data-dc-tpl="56" data-plain="" href="/guide"><span class="sc-interp">Guide</span> <span data-dc-tpl="57" style="font-size: 11px; opacity: 0.7;">↗</span></a>
-        <a data-dc-tpl="58" data-plain="" href="/docs/fr/"><span class="sc-interp">Docs</span> <span data-dc-tpl="59" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="58" data-plain="" href="docs/fr/"><span class="sc-interp">Docs</span> <span data-dc-tpl="59" style="font-size: 11px; opacity: 0.7;">↗</span></a>
       </nav>
     </div>
   </header>
@@ -108,8 +108,8 @@
       <div data-dc-tpl="103" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px; max-width: 760px;">
         <div data-dc-tpl="104" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em; margin-bottom: 16px;"><span class="sc-interp">À lire en premier</span></div>
         <div data-dc-tpl="105" style="display: flex; flex-direction: column; gap: 12px;">
-          <p data-dc-tpl="106" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="107" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prérequis :</span></strong> <span class="sc-interp">vos services émettent des traces OpenTelemetry (spans SQL, HTTP et messaging), ou dd-trace via un pont Collector, portant le texte de la requête (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>), l’URL cible (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>) ou la destination broker (<code class="dc-cmd">messaging.system</code> / <code class="dc-cmd">messaging.destination.name</code>).</span> <span class="sc-interp">Mise en place</span> <a data-dc-tpl="108" href="/docs/fr/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)</span></a>. <span class="sc-interp">Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le <code class="dc-cmd">datadogreceiver</code> du Collector OTel, voir</span> <a data-dc-tpl="109" href="/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Vous venez de Datadog</span></a>.</p>
-          <p data-dc-tpl="110" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="111" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Auditez votre tracing d’abord :</span></strong> <span class="sc-interp">les spans qui ne portent pas ces attributs sont écartés en silence, sans avertissement, donc un rapport maigre ou vide peut signifier aucun problème détecté ou aucune instrumentation exploitable. <code class="dc-cmd">perf-sentinel inspect</code> montre ce qui a réellement été extrait, un arbre de spans vide signifie que les attributs porteurs manquent en amont. Voir</span> <a data-dc-tpl="112" href="/docs/fr/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">ce qui borne les findings</span></a>.</p>
+          <p data-dc-tpl="106" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="107" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prérequis :</span></strong> <span class="sc-interp">vos services émettent des traces OpenTelemetry (spans SQL, HTTP et messaging), ou dd-trace via un pont Collector, portant le texte de la requête (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>), l’URL cible (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>) ou la destination broker (<code class="dc-cmd">messaging.system</code> / <code class="dc-cmd">messaging.destination.name</code>).</span> <span class="sc-interp">Mise en place</span> <a data-dc-tpl="108" href="docs/fr/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)</span></a>. <span class="sc-interp">Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le <code class="dc-cmd">datadogreceiver</code> du Collector OTel, voir</span> <a data-dc-tpl="109" href="docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Vous venez de Datadog</span></a>.</p>
+          <p data-dc-tpl="110" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="111" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Auditez votre tracing d’abord :</span></strong> <span class="sc-interp">les spans qui ne portent pas ces attributs sont écartés en silence, sans avertissement, donc un rapport maigre ou vide peut signifier aucun problème détecté ou aucune instrumentation exploitable. <code class="dc-cmd">perf-sentinel inspect</code> montre ce qui a réellement été extrait, un arbre de spans vide signifie que les attributs porteurs manquent en amont. Voir</span> <a data-dc-tpl="112" href="docs/fr/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">ce qui borne les findings</span></a>.</p>
           <p data-dc-tpl="113" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="114" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Ce que ce n’est pas :</span></strong> <span class="sc-interp">un APM complet, un profiler continu, ni (pour le moment) une plateforme de comptabilité carbone réglementaire standalone. Voir</span> <a data-dc-tpl="115" href="#comparatif" data-clink="1" style="color: var(--accent);"><span class="sc-interp">le comparatif</span></a>.</p>
           <p data-dc-tpl="116" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="117" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Maturité :</span></strong> <span class="sc-interp">bêta, pré-1.0. La CLI, les clés de configuration et les formats sur disque peuvent encore changer avant la 1.0. Les enums de sortie JSON sont la seule partie sous contrat de stabilité explicite, les ruptures de compatibilité étant signalées dans les</span> <a data-dc-tpl="118" href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" data-clink="1" style="color: var(--accent);"><span class="sc-interp">notes de version</span></a>.</p>
         </div>
@@ -168,14 +168,14 @@
             <p data-dc-tpl="171" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); line-height: 1.62;"><span class="sc-interp">ITU et IEA confirment la hausse rapide du numérique. Mais la part due au code et aux apps web lourdes reste non quantifiée à l’échelle mondiale.</span></p>
           </div>
           <div data-dc-tpl="172" style="background: color-mix(in srgb,var(--coral) 9%,var(--surface)); border: 1px solid color-mix(in srgb,var(--coral) 38%,var(--border)); border-radius: 14px; padding: 22px 24px;">
-            <div data-dc-tpl="173" style="font-size: 40px; font-weight: 800; color: var(--coral); line-height: 1;"><span class="sc-interp">30 à 80 %</span></div>
-            <div data-dc-tpl="174" style="margin-top: 8px; font-size: 15px; color: var(--text);"><span class="sc-interp">de réduction d’émissions atteignable sur un site web mal optimisé</span></div>
-            <div data-dc-tpl="175" style="margin-top: 12px; font-size: 12px; color: var(--text-2);"><span class="sc-interp">Source : </span><a data-dc-tpl="176" href="https://sustainablewebdesign.org/estimating-digital-emissions/" target="_blank" rel="noopener">Sustainable Web Design Model v4</a></div>
+            <div data-dc-tpl="173" style="font-size: 40px; font-weight: 800; color: var(--coral); line-height: 1;"><span class="sc-interp">-72 %</span></div>
+            <div data-dc-tpl="174" style="margin-top: 8px; font-size: 15px; color: var(--text);"><span class="sc-interp">d’émissions par visite après l’optimisation par Jisc d’une page à fort trafic (1,09 g → 0,30 g CO₂)</span></div>
+            <div data-dc-tpl="175" style="margin-top: 12px; font-size: 12px; color: var(--text-2);"><span class="sc-interp">Source : </span><a data-dc-tpl="176" href="https://nationalcentreforai.jiscinvolve.org/wp/2022/09/30/a-case-study-using-machine-learning-to-analyse-jiscs-website-carbon-footprint/" target="_blank" rel="noopener">Jisc, National Centre for AI (2022)</a></div>
           </div>
         </div>
       </div>
       <div data-dc-tpl="177" style="margin-top: 48px;">
-        <div data-dc-tpl="178" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// mesurer par le bas, pas estimer par le haut</span></div>
+        <div data-dc-tpl="178" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// estimer par le bas, pas par le haut</span></div>
         <p data-dc-tpl="179" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 680px;"><span class="sc-interp">L’approche bottom-up de perf-sentinel face au top-down des outils actuels</span></p>
         <div data-dc-tpl="180" data-grid="cards2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px;">
           <div data-dc-tpl="181" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px;">
@@ -427,7 +427,7 @@
             </div>
           
         </div>
-        <p data-dc-tpl="269" style="margin: 24px 0px 0px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; max-width: 760px;"><span class="sc-interp">Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).</span></p>
+        <p data-dc-tpl="269" style="margin: 24px 0px 0px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; max-width: 760px;"><span class="sc-interp">Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Alumet RAPL, Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration, intensité réseau en direct via Electricity Maps). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).</span></p>
         <a data-dc-tpl="270" data-plain="" href="/guide#metrics" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="271" data-ltext=""><span class="sc-interp">Métriques GreenOps dans le guide</span></span><span data-dc-tpl="272" data-arrow=""> →</span></a><a data-dc-tpl="273" data-plain="" href="/docs/fr/ENERGY" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; margin-left: 22px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="274" data-ltext=""><span class="sc-interp">Énergie et carbone, vulgarisés</span></span><span data-dc-tpl="275" data-arrow=""> →</span></a>
       </div>
     </section>
@@ -507,7 +507,7 @@
             
               <div data-dc-tpl="302" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="303" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="304"><strong data-dc-tpl="305" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Pas (encore) une plateforme de comptabilité carbone réglementaire standalone.</span></strong> <span class="sc-interp">Un reporting CSRD ou GHG Protocol Scope 2/3 standalone exige une vérification tiers-partie et des scopes non-IT qu’il ne couvre pas. Périmètre exact, couplages (Watershed, Sweep, Greenly, Persefoni) et cas RGESN :</span> <a data-dc-tpl="307" href="/#greenops"><span class="sc-interp">voir la section GreenOps</span></a>.</span></div>
             
-              <div data-dc-tpl="302" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="303" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="304"><strong data-dc-tpl="305" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Pas un substitut à la mesure énergétique.</span></strong> <span class="sc-interp">Le modèle I/O-vers-énergie est certes une mesure, mais approximative. Pour une puissance mesurée plus précise, brancher Alumet (RAPL x86, en tête de la chaîne de précédence), Scaphandre (RAPL x86), Kepler (eBPF, compatible ARM) ou Redfish (puissance murale BMC bare-metal), les quatre sont supportés en entrée, ou utiliser les APIs énergie du fournisseur cloud. Pour ce qu’une attribution purement logicielle peut et ne peut pas couvrir sur un serveur typique,</span> <a data-dc-tpl="307" href="/docs/fr/LIMITATIONS#ce-que-couvre-une-attribution-purement-logicielle"><span class="sc-interp">voir la documentation sur les limites</span></a>.</span></div>
+              <div data-dc-tpl="302" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="303" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="304"><strong data-dc-tpl="305" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Pas un substitut à la mesure énergétique.</span></strong> <span class="sc-interp">Le modèle I/O-vers-énergie est une estimation directionnelle, pas une mesure. Pour une puissance mesurée plus précise, brancher Alumet (RAPL x86, en tête de la chaîne de précédence), Scaphandre (RAPL x86), Kepler (eBPF, compatible ARM) ou Redfish (puissance murale BMC bare-metal), les quatre sont supportés en entrée, ou utiliser les APIs énergie du fournisseur cloud. Pour ce qu’une attribution purement logicielle peut et ne peut pas couvrir sur un serveur typique,</span> <a data-dc-tpl="307" href="/docs/fr/LIMITATIONS#ce-que-couvre-une-attribution-purement-logicielle"><span class="sc-interp">voir la documentation sur les limites</span></a>.</span></div>
             
               <div data-dc-tpl="302" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="303" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="304"><strong data-dc-tpl="305" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Pas zéro-config.</span></strong> <span class="sc-interp">La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n’émet pas de traces, perf-sentinel n’a rien à analyser.</span></span></div>
             
@@ -880,7 +880,7 @@
           <div style="background:color-mix(in srgb,var(--coral) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--coral) 38%,var(--border));border-radius:14px;padding:22px 24px">
             <div style="font-size:40px;font-weight:800;color:var(--coral);line-height:1">{{ carbonStatNum }}</div>
             <div style="margin-top:8px;font-size:15px;color:var(--text)">{{ carbonStatText }}</div>
-            <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}<a href="https://sustainablewebdesign.org/estimating-digital-emissions/" target="_blank" rel="noopener">Sustainable Web Design Model v4</a></div>
+            <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}<a href="https://nationalcentreforai.jiscinvolve.org/wp/2022/09/30/a-case-study-using-machine-learning-to-analyse-jiscs-website-carbon-footprint/" target="_blank" rel="noopener">Jisc, National Centre for AI (2022)</a></div>
           </div>
         </div>
       </div>
@@ -1139,6 +1139,15 @@ class Component extends DCLogic {
   state = { mode: null, sysFlip: false, lang: null, persona: null, copied: false, rustVersion: null };
 
   componentDidMount() {
+    // One-time redirect honoring a previous explicit language choice.
+    // Guard: only when the stored choice differs from this page's
+    // language, so the page pair can never bounce. navigator.language
+    // is deliberately not consulted: an explicitly opened URL (and the
+    // prerender build, which runs with an empty localStorage) wins.
+    try {
+      const v = localStorage.getItem('ps-lang');
+      if ((v === 'fr' || v === 'en') && v !== this.baseLang()) { location.replace(this.langUrl(v)); return; }
+    } catch (e) {}
     fetch('https://raw.githubusercontent.com/robintra/perf-sentinel/main/Cargo.toml')
       .then(r => r.ok ? r.text() : Promise.reject(r.status))
       .then(txt => {
@@ -1181,13 +1190,18 @@ class Component extends DCLogic {
       : h('svg', p, h('path', { key: 'm', d: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z' }));
     return h('span', { key: mode, className: 'ps-th-ico' }, svg);
   }
-  // language: saved choice → browser language → prop default
-  baseLang() {
-    try { const v = localStorage.getItem('ps-lang'); if (v === 'fr' || v === 'en') return v; } catch (e) {}
-    try { const n = (navigator.language || navigator.userLanguage || '').toLowerCase(); if (n.indexOf('fr') === 0) return 'fr'; if (n) return 'en'; } catch (e) {}
-    return this.props.defaultLang === 'fr' ? 'fr' : 'en';
-  }
+  // language: the page IS the language (/ = en, /fr/ = fr), read from the
+  // html lang the build stamps per page (props.defaultLang never reaches
+  // the runtime, its data-props block is schema metadata). A stored choice
+  // acts through a navigation (see componentDidMount), never a content
+  // swap, so html lang, head metadata and the URL always agree.
+  baseLang() { return (document.documentElement.lang || 'en').indexOf('fr') === 0 ? 'fr' : 'en'; }
   curLang() { return this.state.lang ?? this.baseLang(); }
+  // Counterpart page in the other language, hash preserved.
+  langUrl(next) {
+    const p = location.pathname.replace(/^\/fr(\/|$)/, '/');
+    return (next === 'fr' ? '/fr' + (p === '/' ? '/' : p) : p) + location.hash;
+  }
   persist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
 
   // persona: saved choice → technical default (= the original page)
@@ -1468,8 +1482,8 @@ class Component extends DCLogic {
         carbonChartSrc: 'Sources: ',
         carbonNarrTitle: 'A hole in the data that no one fills',
         carbonNarrText: 'ITU and IEA confirm digital’s fast rise. But the part driven by code and bloated web apps stays unquantified worldwide.',
-        carbonStatNum: '30 to 80%', carbonStatText: 'emissions cut reachable on a poorly optimized website', carbonStatSrc: 'Source: ',
-        carbonCmpTitle: '// measure bottom-up, not estimate top-down',
+        carbonStatNum: '-72%', carbonStatText: 'emissions per visit after Jisc optimized one high-traffic page (1.09 g → 0.30 g CO₂)', carbonStatSrc: 'Source: ',
+        carbonCmpTitle: '// estimate bottom-up, not top-down',
         carbonCmpSub: 'perf-sentinel’s bottom-up approach against the top-down of current tools',
         carbonResultLabel: 'Result',
         carbonTdEyebrow: 'Top-down approach', carbonTdTitle: 'Current IT and carbon tools',
@@ -1486,7 +1500,7 @@ class Component extends DCLogic {
           { lead: 'Not a continuous profiler.', body: 'It observes I/O patterns at the protocol level; it does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.' },
           { lead: 'Not a monitoring platform.', body: 'Daemon mode does analyze live and serves findings, metrics and correlations over HTTP, but it retains a bounded ring of recent findings (10,000 by default) rather than a queryable history, and it neither builds custom dashboards nor routes alerts. The center of gravity stays CI quality gates and post-hoc trace analysis.' },
           { lead: 'Not (yet) a standalone regulatory carbon accounting platform.', body: 'Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case:', refText: 'see the GreenOps section', refHref: '/#greenops' },
-          { lead: 'Not a replacement for measured energy.', body: 'The I/O-to-energy model is a measurement, but an approximate one. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server,', refText: 'see the limitations docs', refHref: '/docs/LIMITATIONS#what-software-only-attribution-covers' },
+          { lead: 'Not a replacement for measured energy.', body: 'The I/O-to-energy model is a directional estimate, not a measurement. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server,', refText: 'see the limitations docs', refHref: '/docs/LIMITATIONS#what-software-only-attribution-covers' },
           { lead: 'Not zero-config.', body: 'Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.' },
           { lead: 'Not an IDE plugin.', body: 'For in-IDE feedback on JVM/.NET code as you type, Digma offers a well-integrated JetBrains experience.' },
         ],
@@ -1536,7 +1550,7 @@ class Component extends DCLogic {
           { title: 'I/O waste ratio', body: 'Avoidable operations over total operations, the directly recoverable share.' },
           { title: 'Multi-region `co2.total`', body: 'SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.' },
         ],
-        goNote: 'Directional estimate (~2× bracket in proxy mode, tighter with a measured source: Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower + calibration). Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to demonstrate RGESN compliance. It can also emit periodic public energy and carbon disclosure reports (quarterly or yearly JSON, optional Sigstore signature, hash-verifiable).',
+        goNote: 'Directional estimate (~2× bracket in proxy mode, tighter with a measured source: Alumet RAPL, Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower + calibration, live grid intensity via Electricity Maps). Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to demonstrate RGESN compliance. It can also emit periodic public energy and carbon disclosure reports (quarterly or yearly JSON, optional Sigstore signature, hash-verifiable).',
         cmpEyebrow: '// how it compares',
         cmpT1: 'Lightweight, agnostic, CI-native, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capability', cmpHApm: 'Typical commercial APM',
@@ -1615,8 +1629,8 @@ class Component extends DCLogic {
         carbonChartSrc: 'Sources : ',
         carbonNarrTitle: 'Un trou dans les données que personne ne comble',
         carbonNarrText: 'ITU et IEA confirment la hausse rapide du numérique. Mais la part due au code et aux apps web lourdes reste non quantifiée à l’échelle mondiale.',
-        carbonStatNum: '30 à 80 %', carbonStatText: 'de réduction d’émissions atteignable sur un site web mal optimisé', carbonStatSrc: 'Source : ',
-        carbonCmpTitle: '// mesurer par le bas, pas estimer par le haut',
+        carbonStatNum: '-72 %', carbonStatText: 'd’émissions par visite après l’optimisation par Jisc d’une page à fort trafic (1,09 g → 0,30 g CO₂)', carbonStatSrc: 'Source : ',
+        carbonCmpTitle: '// estimer par le bas, pas par le haut',
         carbonCmpSub: 'L’approche bottom-up de perf-sentinel face au top-down des outils actuels',
         carbonResultLabel: 'Résultat',
         carbonTdEyebrow: 'Approche top-down', carbonTdTitle: 'SI et outils carbone actuels',
@@ -1633,7 +1647,7 @@ class Component extends DCLogic {
           { lead: 'Pas un profiler continu.', body: 'L’outil observe les patterns d’I/O au niveau protocole, il ne fait pas de sampling on-CPU, d’allocations ni de stack traces. Pour les flame graphs et le profiling CPU/mémoire par langage, Grafana Pyroscope est l’équivalent open-source et se marie bien : pyroscope dit où passe le temps CPU, perf-sentinel dit quels patterns d’I/O le déclenchent.' },
           { lead: 'Pas une plateforme de monitoring.', body: 'Le mode daemon analyse bien en direct et sert findings, métriques et corrélations en HTTP, mais il conserve un tampon circulaire borné de findings récents (10 000 par défaut) et non un historique interrogeable, et il ne construit pas de dashboards sur mesure ni ne route d’alertes. Le centre de gravité reste les quality gates CI et l’analyse post-hoc.' },
           { lead: 'Pas (encore) une plateforme de comptabilité carbone réglementaire standalone.', body: 'Un reporting CSRD ou GHG Protocol Scope 2/3 standalone exige une vérification tiers-partie et des scopes non-IT qu’il ne couvre pas. Périmètre exact, couplages (Watershed, Sweep, Greenly, Persefoni) et cas RGESN :', refText: 'voir la section GreenOps', refHref: '/#greenops' },
-          { lead: 'Pas un substitut à la mesure énergétique.', body: 'Le modèle I/O-vers-énergie est certes une mesure, mais approximative. Pour une puissance mesurée plus précise, brancher Alumet (RAPL x86, en tête de la chaîne de précédence), Scaphandre (RAPL x86), Kepler (eBPF, compatible ARM) ou Redfish (puissance murale BMC bare-metal), les quatre sont supportés en entrée, ou utiliser les APIs énergie du fournisseur cloud. Pour ce qu’une attribution purement logicielle peut et ne peut pas couvrir sur un serveur typique,', refText: 'voir la documentation sur les limites', refHref: '/docs/fr/LIMITATIONS#ce-que-couvre-une-attribution-purement-logicielle' },
+          { lead: 'Pas un substitut à la mesure énergétique.', body: 'Le modèle I/O-vers-énergie est une estimation directionnelle, pas une mesure. Pour une puissance mesurée plus précise, brancher Alumet (RAPL x86, en tête de la chaîne de précédence), Scaphandre (RAPL x86), Kepler (eBPF, compatible ARM) ou Redfish (puissance murale BMC bare-metal), les quatre sont supportés en entrée, ou utiliser les APIs énergie du fournisseur cloud. Pour ce qu’une attribution purement logicielle peut et ne peut pas couvrir sur un serveur typique,', refText: 'voir la documentation sur les limites', refHref: '/docs/fr/LIMITATIONS#ce-que-couvre-une-attribution-purement-logicielle' },
           { lead: 'Pas zéro-config.', body: 'La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n’émet pas de traces, perf-sentinel n’a rien à analyser.' },
           { lead: 'Pas un plugin IDE.', body: 'Pour du feedback in-IDE en JVM/.NET au fil de la frappe, Digma offre une expérience JetBrains bien intégrée.' },
         ],
@@ -1683,7 +1697,7 @@ class Component extends DCLogic {
           { title: 'Ratio de gaspillage I/O', body: 'Opérations évitables sur opérations totales, la part directement récupérable.' },
           { title: '`co2.total` multi-régions', body: 'Numérateur SCI v1.0, scoring par région automatique quand les spans portent cloud.region.' },
         ],
-        goNote: 'Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).',
+        goNote: 'Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Alumet RAPL, Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration, intensité réseau en direct via Electricity Maps). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).',
         cmpEyebrow: '// comment ça se compare',
         cmpT1: 'Léger, agnostique, CI-natif, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capacité', cmpHApm: 'APM commercial type',
@@ -1734,7 +1748,7 @@ class Component extends DCLogic {
       langTarget: t.langSwitch,
       langAria: lang === 'fr' ? 'Changer de langue' : 'Switch language',
       toggleTheme: () => { const o = ['system', 'light', 'dark']; const next = o[(o.indexOf(this.curMode()) + 1) % 3]; this.persist('ps-theme', next); this.setState({ mode: next }); },
-      toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); this.setState({ lang: next }); },
+      toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); location.href = this.langUrl(next); },
 
       ...this.personaUI(lang, persona),
 

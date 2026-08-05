@@ -1394,12 +1394,18 @@ class Component extends DCLogic {
       : h('svg', p, h('path', { key: 'm', d: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z' }));
     return h('span', { key: mode, className: 'ps-th-ico' }, svg);
   }
-  baseLang() {
-    try { const v = localStorage.getItem('ps-lang'); if (v === 'fr' || v === 'en') return v; } catch (e) {}
-    try { const n = (navigator.language || navigator.userLanguage || '').toLowerCase(); if (n.indexOf('fr') === 0) return 'fr'; if (n) return 'en'; } catch (e) {}
-    return this.props.defaultLang === 'fr' ? 'fr' : 'en';
-  }
+  // language: the page IS the language (/ = en, /fr/ = fr), read from the
+  // html lang the build stamps per page (props.defaultLang never reaches
+  // the runtime, its data-props block is schema metadata). A stored choice
+  // acts through a navigation (see componentDidMount), never a content
+  // swap, so html lang, head metadata and the URL always agree.
+  baseLang() { return (document.documentElement.lang || 'en').indexOf('fr') === 0 ? 'fr' : 'en'; }
   curLang() { return this.state.lang ?? this.baseLang(); }
+  // Counterpart page in the other language, hash preserved.
+  langUrl(next) {
+    const p = location.pathname.replace(/^\/fr(\/|$)/, '/');
+    return (next === 'fr' ? '/fr' + (p === '/' ? '/' : p) : p) + location.hash;
+  }
   persist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
 
   esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -1457,6 +1463,15 @@ class Component extends DCLogic {
   }
 
   componentDidMount() {
+    // One-time redirect honoring a previous explicit language choice.
+    // Guard: only when the stored choice differs from this page's
+    // language, so the page pair can never bounce. navigator.language
+    // is deliberately not consulted: an explicitly opened URL (and the
+    // prerender build, which runs with an empty localStorage) wins.
+    try {
+      const v = localStorage.getItem('ps-lang');
+      if ((v === 'fr' || v === 'en') && v !== this.baseLang()) { location.replace(this.langUrl(v)); return; }
+    } catch (e) {}
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     let ticking = false;
     this._compute = () => {
@@ -1901,7 +1916,7 @@ class Component extends DCLogic {
       langTarget: lang === 'fr' ? 'EN' : 'FR',
       langAria: lang === 'fr' ? 'Changer de langue' : 'Switch language',
       toggleTheme: () => { const o = ['system', 'light', 'dark']; const next = o[(o.indexOf(this.curMode()) + 1) % 3]; this.persist('ps-theme', next); this.setState({ mode: next }); },
-      toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); this.setState({ lang: next }); },
+      toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); location.href = this.langUrl(next); },
       navItems,
       navHome: t.navHome, navLicense: t.navLicense, navRef: t.navRef, onThisPage: t.onThisPage,
       docKicker: t.docKicker, docTitle: t.docTitle, docLead: t.docLead,

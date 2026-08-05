@@ -6,8 +6,10 @@
 //
 // Two outputs per page:
 //   - EN: the source file in place, gets the EN prerender + reciprocal hreflang.
-//   - FR: a localized copy under fr/ (lang=fr, FR <head>, FR prerender, defaultLang
-//     flipped to fr, links made root-absolute since it sits one dir deep).
+//   - FR: a localized copy under fr/ (lang=fr, FR <head>, defaultLang flipped to
+//     fr, links made root-absolute since it sits one dir deep), written first and
+//     then rendered from /fr/... for its own prerender: the runtime derives the
+//     language from the page, not from a stored ps-lang.
 // The dc-runtime does NOT localize <title>/<meta>, so the FR head strings live in
 // PAGES[].fr below, maintained next to the EN head.
 //
@@ -161,15 +163,21 @@ for (const p of PAGES) {
   if (en !== src) { writeFileSync(join(SITE, p.file), en); changed++; }
   console.log(`  ${p.file}: EN prerender ${Math.round(enHtml.length / 1024)} KB (${en !== src ? 'updated' : 'unchanged'})`);
 
-  // FR: derive a localized copy under fr/.
-  const frHtml = await renderPrerender(browser, p.path, 'fr');
+  // FR: derive a localized copy under fr/, write it, then render THAT page
+  // for the FR snapshot. The runtime no longer swaps language from a stored
+  // ps-lang (the page is the language, a stored choice only navigates), so
+  // forcing ps-lang on the EN page would redirect instead of localizing.
   let fr = localizeHead(src, p);
   fr = injectHreflang(fr, p);
-  fr = injectPrerender(fr, frHtml);
   fr = rootAbsoluteLinks(fr);
   const frPath = join(SITE, p.frFile);
   const frBefore = existsSync(frPath) ? readFileSync(frPath, 'utf8') : '';
-  if (fr !== frBefore) { mkdirSync(dirname(frPath), { recursive: true }); writeFileSync(frPath, fr); changed++; }
+  mkdirSync(dirname(frPath), { recursive: true });
+  writeFileSync(frPath, fr); // intermediate write so the local server serves the fresh FR page
+  const frHtml = await renderPrerender(browser, '/fr' + (p.path === '/' ? '/' : p.path), null);
+  fr = injectPrerender(fr, frHtml);
+  writeFileSync(frPath, fr);
+  if (fr !== frBefore) changed++;
   console.log(`  ${p.frFile}: FR prerender ${Math.round(frHtml.length / 1024)} KB (${fr !== frBefore ? 'updated' : 'unchanged'})`);
 }
 await browser.close();
