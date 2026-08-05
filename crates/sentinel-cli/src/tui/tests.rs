@@ -1868,3 +1868,36 @@ fn analyze_view_omits_ingest_line_without_a_tally() {
     let text = line_text(&app.build_analyze_lines());
     assert!(!text.contains("Spans ingested"), "got: {text}");
 }
+
+#[test]
+fn cycle_trace_sort_ranks_by_severity_then_impact_then_back() {
+    // make_test_app: trace-1 carries the critical N+1 (5 avoidable ops),
+    // trace-2 the warning redundant with no green impact.
+    let mut app = make_test_app();
+    assert_eq!(app.trace_sort, TraceSort::ById);
+
+    app.cycle_trace_sort();
+    assert_eq!(app.trace_sort, TraceSort::Severity);
+    assert_eq!(
+        app.trace_ids[0], "trace-1",
+        "worst severity first: the critical trace leads"
+    );
+    assert_eq!(app.selected_trace, 0, "cursor resets on reorder");
+
+    app.cycle_trace_sort();
+    assert_eq!(app.trace_sort, TraceSort::Impact);
+    assert_eq!(
+        app.trace_ids[0], "trace-1",
+        "5 aggregate ops outrank a zero-impact trace"
+    );
+
+    app.cycle_trace_sort();
+    assert_eq!(app.trace_sort, TraceSort::ById);
+    let mut sorted = app.trace_ids.clone();
+    sorted.sort();
+    assert_eq!(app.trace_ids, sorted, "id order restored");
+    // The index map must follow the permutation.
+    for (i, id) in app.trace_ids.iter().enumerate() {
+        assert_eq!(app.trace_index[id], i);
+    }
+}
