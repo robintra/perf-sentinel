@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [0.10.0] - 2026-08-05
 
+### Added
+
+- `perf_sentinel_energy_backend_configured{backend}`, a gauge that says which measured-energy backends are actually configured. Nothing on `/metrics` could tell before: every energy gauge is pre-registered at zero whether or not the backend exists, and a successful scrape sets `last_scrape_age_seconds` back to zero, so "not configured" and "configured and perfectly healthy" were the same flat line. The Grafana freshness panel drew five of them per replica on an install with no backend at all, twenty series of nothing on a four-pod deployment. The panel now gates each series on this gauge and states, when none is configured, that carbon figures come from the built-in I/O proxy. The daemon publishes it once at startup from the same flags `/api/energy` reports, and the label set is the five compile-time backend names, so cardinality stays bounded.
+
 ### Fixed
 
 - The Grafana dashboard follows the time picker everywhere, and its series say which pod they came from. Three panels carried a window baked into the query (`Top 10 finding types by severity (1h)`, `Findings distribution by type (1h)`, `Critical findings trend (24h)`) while everything around them adapted, so picking `Last 6 hours` left a dashboard where some panels answered for one hour, one for twenty-four, and the rest for six. They now use `$__range`, and the detail table joins them rather than showing lifetime totals that contradicted the ranking beside it. `I/O waste ratio` is computed in the panel from the two counters over the selected range instead of reading the exported gauge, which is a ratio of lifetime counters: it ignored the picker, diluted a current problem in everything since pod start, rendered one dial per replica, and rounded a fleet at under 0.5% avoidable I/O down to a flat `0%` next to a panel reporting thousands of findings. It now carries two decimals. Every series also gained `{{instance}}` in its legend: past one replica the legends repeated the same entry once per pod and the stat panels showed four unlabelled numbers side by side.

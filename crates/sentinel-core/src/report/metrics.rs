@@ -12,8 +12,8 @@ use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
 use prometheus::{
-    Counter, CounterVec, Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge, Opts, Registry, TextEncoder,
+    Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
 };
 
 #[cfg(feature = "daemon")]
@@ -336,6 +336,14 @@ pub struct MetricsState {
     registry: Registry,
     /// Findings detected, labeled by type and severity.
     pub findings_total: CounterVec,
+    /// `1` when a measured-energy backend is configured, `0` otherwise,
+    /// one series per backend. Every other energy metric is
+    /// pre-registered at zero whether or not the backend exists, so
+    /// "not configured" and "configured and perfectly healthy" are
+    /// indistinguishable without this: `last_scrape_age_seconds` is set
+    /// to 0 on every successful scrape. The label set is the five
+    /// compile-time backend names, so cardinality stays bounded.
+    pub energy_backend_configured: GaugeVec,
     /// Cumulative I/O waste ratio since daemon start.
     /// Use Prometheus `rate()` on `total_io_ops` and `avoidable_io_ops` for windowed ratios.
     pub io_waste_ratio: Gauge,
@@ -597,6 +605,15 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let energy_backend_configured = GaugeVec::new(
+            Opts::new(
+                "perf_sentinel_energy_backend_configured",
+                "1 when a measured-energy backend is configured, 0 otherwise",
+            ),
+            &["backend"],
+        )
+        .expect("metric creation should not fail");
+
         let io_waste_ratio = Gauge::new(
             "perf_sentinel_io_waste_ratio",
             "Cumulative I/O waste ratio since daemon start",
@@ -730,6 +747,9 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        registry
+            .register(Box::new(energy_backend_configured.clone()))
+            .expect("metric registration should not fail");
         registry
             .register(Box::new(findings_total.clone()))
             .expect("registration should not fail");
@@ -1077,6 +1097,7 @@ impl MetricsState {
         Self {
             registry,
             findings_total,
+            energy_backend_configured,
             io_waste_ratio,
             energy_kwh,
             carbon_gco2,
@@ -2747,6 +2768,37 @@ mod tests {
         assert!(
             output.contains("perf_sentinel_ack_operations_failed_total"),
             "registry should expose perf_sentinel_ack_operations_failed_total"
+        );
+    }
+
+    #[test]
+    fn energy_backend_configured_distinguishes_absent_from_healthy() {
+        // Without this gauge, "not configured" and "configured and
+        // healthy" are the same flat zero: every energy gauge is
+        // pre-registered at zero, and a successful scrape sets the
+        // staleness gauge back to zero too.
+        let state = MetricsState::new();
+        state
+            .energy_backend_configured
+            .with_label_values(&["alumet"])
+            .set(1.0);
+        state
+            .energy_backend_configured
+            .with_label_values(&["kepler"])
+            .set(0.0);
+        let output = state.render();
+        assert!(
+            output.contains("perf_sentinel_energy_backend_configured{backend=\"alumet\"} 1"),
+            "a configured backend reads 1, got:\n{output}"
+        );
+        assert!(
+            output.contains("perf_sentinel_energy_backend_configured{backend=\"kepler\"} 0"),
+            "an absent backend reads 0, got:\n{output}"
+        );
+        // The staleness gauge cannot tell the two apart on its own.
+        assert!(
+            output.contains("perf_sentinel_alumet_last_scrape_age_seconds 0"),
+            "the staleness gauge is zero for both states, which is the point"
         );
     }
 

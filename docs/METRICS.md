@@ -231,6 +231,18 @@ fetches `scaph_process_power_consumption_microwatts` from the
 configured `[green.scaphandre] endpoint` every `scrape_interval_secs`).
 Only registered when the daemon is built with the `daemon` feature.
 
+| Metric                                     | Type  | Labels    | Description                                                                                                                       |
+|--------------------------------------------|-------|-----------|-----------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_energy_backend_configured`  | gauge | `backend` | `1` when that backend is configured, `0` otherwise. Set once at startup, one series per backend (`alumet`, `scaphandre`, `kepler`, `redfish`, `cloud_energy`). |
+
+Read this one before any other energy metric. Every energy gauge is
+pre-registered at zero whether or not the backend exists, and a
+successful scrape sets `last_scrape_age_seconds` back to zero, so "not
+configured" and "configured and perfectly healthy" are the same flat
+zero on the wire. Gate on this gauge to tell them apart, in a dashboard
+(`... and on(job, instance) (perf_sentinel_energy_backend_configured{backend="alumet"} == 1)`)
+or in an alert that should only fire for a backend you actually run.
+
 | Metric                                             | Type    | Labels   | Description                                                                             |
 |----------------------------------------------------|---------|----------|-----------------------------------------------------------------------------------------|
 | `perf_sentinel_scaphandre_scrape_total`            | counter | `status` | Total Scaphandre scrape attempts since daemon start, partitioned by outcome.            |
