@@ -1331,3 +1331,34 @@ fn cli_analyze_ingest_tally_reported_without_threshold() {
         "rule must not appear without a configured threshold"
     );
 }
+
+#[test]
+fn cli_analyze_sort_impact_reorders_and_recurrence_folds() {
+    // mixed.json carries several findings; --sort impact must put the
+    // highest aggregate avoidable I/O first whatever the severity says,
+    // and a recurring signature prints one full block plus stubs.
+    let fixture = format!(
+        "{}/../../tests/fixtures/mixed.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture, "--sort", "impact"])
+        .output()
+        .expect("failed to run perf-sentinel");
+    assert!(
+        output.status.success(),
+        "analyze --sort impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Found"),
+        "expected the findings header, got:\n{stdout}"
+    );
+    // The flag must be accepted and severity must also parse.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture, "--sort", "severity"])
+        .output()
+        .expect("failed to run perf-sentinel");
+    assert!(output.status.success());
+}

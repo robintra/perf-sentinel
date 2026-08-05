@@ -414,10 +414,134 @@ pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_
         println!("{line}");
     }
     println!();
+    // Detection is per trace, so a recurring problem is many findings.
+    // The first one prints in full with its recurrence tally, the
+    // repeats compact to one line each: on real captures the repeats
+    // were the bulk of the output without adding anything to read.
+    let recurrence = build_recurrence_index(findings);
+    let mut first_seen: HashMap<String, usize> = HashMap::new();
+    let mut last_was_stub = false;
     for (i, finding) in findings.iter().enumerate() {
+        let key = recurrence_key(finding);
+        if let Some(&first) = first_seen.get(&key) {
+            print_repeat_stub(i, finding, first, colors);
+            last_was_stub = true;
+            continue;
+        }
+        if last_was_stub {
+            println!();
+            last_was_stub = false;
+        }
+        first_seen.insert(key.clone(), i + 1);
         print_finding_entry(i, finding, colors);
+        if let Some(stats) = recurrence.get(&key).filter(|s| s.count > 1) {
+            let AnsiColors { cyan, reset, .. } = colors;
+            let ops = if stats.total_ops > 0 {
+                format!(" \u{b7} ~{} avoidable ops in total", stats.total_ops)
+            } else {
+                String::new()
+            };
+            println!(
+                "    {cyan}Recurrence:{reset} detected in {} traces{ops}",
+                stats.count
+            );
+        }
         println!();
     }
+    if last_was_stub {
+        println!();
+    }
+}
+
+/// Aggregate view of one signature across its detections, the terminal
+/// twin of the dashboard's recurrence index.
+struct RecurrenceStats {
+    count: usize,
+    total_ops: usize,
+}
+
+/// Group detections like acknowledgments do, falling back to the
+/// stable fields when a finding predates signatures.
+fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
+    if f.signature.is_empty() {
+        format!(
+            "{}|{}|{}|{}",
+            f.finding_type.as_str(),
+            f.service,
+            f.source_endpoint,
+            f.pattern.template
+        )
+    } else {
+        f.signature.clone()
+    }
+}
+
+fn extra_ops_of(f: &sentinel_core::detect::Finding) -> usize {
+    f.green_impact
+        .as_ref()
+        .map_or(0, |gi| gi.estimated_extra_io_ops)
+}
+
+fn build_recurrence_index(
+    findings: &[sentinel_core::detect::Finding],
+) -> HashMap<String, RecurrenceStats> {
+    let mut index: HashMap<String, RecurrenceStats> = HashMap::new();
+    for f in findings {
+        let entry = index.entry(recurrence_key(f)).or_insert(RecurrenceStats {
+            count: 0,
+            total_ops: 0,
+        });
+        entry.count += 1;
+        entry.total_ops += extra_ops_of(f);
+    }
+    index
+}
+
+/// One-line entry for a detection whose signature already printed in
+/// full: only what differs from the first block, the trace id.
+fn print_repeat_stub(
+    index: usize,
+    finding: &sentinel_core::detect::Finding,
+    first_entry: usize,
+    colors: AnsiColors,
+) {
+    let AnsiColors { dim, reset, .. } = colors;
+    let severity_color = severity_color(&finding.severity, colors);
+    let severity_label = severity_label(&finding.severity);
+    println!(
+        "  {severity_color}[{severity_label}]{reset} {dim}#{} {} \u{b7} repeat of #{first_entry} \u{b7} trace {}{reset}",
+        index + 1,
+        finding.finding_type.display_label(),
+        sanitize_for_terminal(&finding.trace_id)
+    );
+}
+
+/// Sort order for the findings list, the CLI mirror of the dashboard's
+/// sort control. Both orders are descending with the other axis as the
+/// tie-break, matching the dashboard's defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum FindingsSort {
+    /// Worst unitary severity first, highest aggregate impact among equals.
+    Severity,
+    /// Highest aggregate avoidable I/O per signature first (the sum over
+    /// every detection sharing it), worst severity among equals.
+    Impact,
+}
+
+/// Stable sort, so the canonical detector order survives inside ties.
+pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mode: FindingsSort) {
+    let index = build_recurrence_index(findings);
+    let agg = |f: &sentinel_core::detect::Finding| {
+        index.get(&recurrence_key(f)).map_or(0, |s| s.total_ops)
+    };
+    findings.sort_by(|a, b| {
+        let by_severity = a.severity.cmp(&b.severity);
+        let by_impact = agg(b).cmp(&agg(a));
+        match mode {
+            FindingsSort::Severity => by_severity.then(by_impact),
+            FindingsSort::Impact => by_impact.then(by_severity),
+        }
+    });
 }
 
 /// One-line severity breakdown printed under the `Found N finding(s):`
@@ -1263,6 +1387,67 @@ fn write_endpoint_deltas_section(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn recurrence_index_groups_by_signature_and_sums_ops() {
+        let mut a = sample_finding();
+        a.signature = "sig-a".to_string();
+        let mut b = sample_finding();
+        b.signature = "sig-a".to_string();
+        b.trace_id = "trace-2".to_string();
+        let mut c = sample_finding();
+        c.signature = "sig-c".to_string();
+        let index = build_recurrence_index(&[a, b, c]);
+        assert_eq!(index.len(), 2);
+        let sig_a = &index["sig-a"];
+        assert_eq!(sig_a.count, 2);
+        assert_eq!(sig_a.total_ops, 10, "2 detections x 5 avoidable ops");
+        assert_eq!(index["sig-c"].count, 1);
+    }
+
+    #[test]
+    fn recurrence_key_falls_back_when_signature_is_empty() {
+        let mut f = sample_finding();
+        f.signature = String::new();
+        let key = recurrence_key(&f);
+        assert!(key.contains(&f.service));
+        assert!(key.contains(&f.pattern.template));
+        let mut same = sample_finding();
+        same.signature = String::new();
+        same.trace_id = "other-trace".to_string();
+        assert_eq!(
+            key,
+            recurrence_key(&same),
+            "trace id must not split the group"
+        );
+    }
+
+    #[test]
+    fn sort_by_impact_puts_the_frequent_info_first() {
+        let mut crit = sample_finding();
+        crit.signature = "sig-crit".to_string();
+        crit.severity = Severity::Critical;
+        let mut infos: Vec<Finding> = (0..5)
+            .map(|i| {
+                let mut f = sample_finding();
+                f.signature = "sig-info".to_string();
+                f.severity = Severity::Info;
+                f.trace_id = format!("t{i}");
+                f
+            })
+            .collect();
+        let mut findings = vec![crit];
+        findings.append(&mut infos);
+        sort_findings(&mut findings, FindingsSort::Impact);
+        assert_eq!(
+            findings[0].severity,
+            Severity::Info,
+            "5x5 = 25 aggregate ops must outrank the critical's 5"
+        );
+        sort_findings(&mut findings, FindingsSort::Severity);
+        assert_eq!(findings[0].severity, Severity::Critical);
+    }
+
     use super::*;
     use core::assert_matches;
     use sentinel_core::detect::Confidence;
