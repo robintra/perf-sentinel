@@ -87,6 +87,7 @@ Seuils du quality gate. Le quality gate échoue si une règle est violée.
 | `n_plus_one_http_warning_max` | entier   | `3`    | Nombre maximum de findings N+1 HTTP **warning ou plus** avant l'échec du gate |
 | `n_plus_one_messaging_warning_max` | entier | `3` | Nombre maximum de findings N+1 messaging **warning ou plus** avant l'échec du gate. Warning+ plutôt que critique seul, comme HTTP : un client Kafka peut déjà grouper les publications qu'il met en tampon, le compte d'occurrences y est donc un majorant |
 | `io_waste_ratio_max`          | flottant | `0.30` | Ratio maximum de gaspillage I/O (0.0 à 1.0) avant l'échec du gate             |
+| `min_usable_span_ratio`       | flottant | absent | Part minimale (0.0 à 1.0) de spans de forme I/O qui doivent être analysables (spans SQL portant `db.statement`, spans HTTP CLIENT portant une URL complète) avant l'échec du gate. Garde-fou contre un faux vert dû à une instrumentation inexploitable : sous le seuil, le gate échoue même avec zéro finding. Absent = règle désactivée. S'applique à l'entrée OTLP seulement, qui porte le décompte par raison (exposé dans `analysis.ingest` du rapport JSON) |
 
 ### `[detection]`
 
@@ -793,6 +794,7 @@ n_plus_one_sql_critical_max = 0
 n_plus_one_http_warning_max = 3
 n_plus_one_messaging_warning_max = 3
 io_waste_ratio_max = 0.30
+# min_usable_span_ratio = 0.9   # absent = désactivé, voir le tableau thresholds
 
 [detection]
 n_plus_one_min_occurrences = 5
