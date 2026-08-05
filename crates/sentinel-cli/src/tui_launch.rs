@@ -46,6 +46,14 @@ pub(crate) fn launch_unified_tui(
     focus_trace_id: Option<&str>,
 ) {
     if traces.is_empty() {
+        // A daemon snapshot carries masked span trees: rebuild them so
+        // the detail panel draws like it does in the HTML dashboard.
+        let mut embedded: std::collections::HashMap<&str, &sentinel_core::report::EmbeddedTrace> =
+            report
+                .embedded_traces
+                .iter()
+                .map(|t| (t.trace_id.as_str(), t))
+                .collect();
         let mut trace_ids: std::collections::BTreeSet<String> =
             report.findings.iter().map(|f| f.trace_id.clone()).collect();
         // Keep the explain --tui focus trace reachable even if its only
@@ -57,9 +65,14 @@ pub(crate) fn launch_unified_tui(
         }
         traces = trace_ids
             .into_iter()
-            .map(|tid| sentinel_core::correlate::Trace {
-                trace_id: tid,
-                spans: vec![],
+            .map(|tid| {
+                embedded.remove(tid.as_str()).map_or_else(
+                    || sentinel_core::correlate::Trace {
+                        trace_id: tid.clone(),
+                        spans: vec![],
+                    },
+                    sentinel_core::report::EmbeddedTrace::to_trace,
+                )
             })
             .collect();
     }
