@@ -382,6 +382,36 @@ async fn handle_export_report_returns_200_with_empty_envelope_on_cold_start() {
     );
 }
 
+#[test]
+fn cap_embedded_traces_bytes_keeps_the_newest_that_fit() {
+    let trace = |id: &str, spans: usize| crate::report::EmbeddedTrace {
+        trace_id: id.to_string(),
+        spans: (0..spans)
+            .map(|i| crate::report::EmbeddedSpan {
+                span_id: format!("s{i}"),
+                parent_span_id: None,
+                service: "svc".to_string(),
+                endpoint: "GET /x".to_string(),
+                event_type: crate::event::EventType::Sql,
+                operation: "SELECT".to_string(),
+                template: "select * from t where id = ?".to_string(),
+                duration_us: 100,
+                status_code: None,
+            })
+            .collect(),
+    };
+    let traces = vec![trace("old", 50), trace("mid", 50), trace("new", 50)];
+    let one_len = serde_json::to_string(&traces[0]).unwrap().len();
+
+    // Budget for two: the oldest is dropped, order preserved.
+    let kept = super::cap_embedded_traces_bytes(traces.clone(), one_len * 2 + 1);
+    let ids: Vec<&str> = kept.iter().map(|t| t.trace_id.as_str()).collect();
+    assert_eq!(ids, vec!["mid", "new"]);
+
+    // A budget too small for even one keeps nothing rather than lying.
+    assert!(super::cap_embedded_traces_bytes(traces, one_len - 1).is_empty());
+}
+
 #[tokio::test]
 async fn handle_export_report_carries_the_retained_span_trees() {
     // The correlation window has long dropped these spans: without the

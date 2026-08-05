@@ -633,6 +633,48 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
     }
 }
 
+/// Byte budget for the span trees inside `/api/export/report`: half of
+/// `http_client::MAX_BODY_BYTES`, leaving the other half for findings
+/// and the green summary.
+const EMBEDDED_TRACES_BYTE_BUDGET: usize = crate::http_client::MAX_BODY_BYTES / 2;
+
+/// Span trees for the exported findings. The correlation window has
+/// usually dropped them by now, which is why they are retained
+/// separately, and why a trace older than the retention simply comes
+/// back absent. Capped in bytes: every CLI consumer fetches this body
+/// through `http_client`'s `MAX_BODY_BYTES` limit, and an over-limit
+/// export would silently break query monitor and the TUI.
+async fn export_embedded_traces(
+    state: &QueryApiState,
+    findings: &[detect::Finding],
+) -> Vec<crate::report::EmbeddedTrace> {
+    cap_embedded_traces_bytes(
+        state.traces_store.snapshot_for(findings).await,
+        EMBEDDED_TRACES_BYTE_BUDGET,
+    )
+}
+
+/// Keep the newest traces that fit `budget` serialized bytes, in their
+/// original order. Newest win because their findings are the ones an
+/// operator is most likely to open.
+fn cap_embedded_traces_bytes(
+    traces: Vec<crate::report::EmbeddedTrace>,
+    budget: usize,
+) -> Vec<crate::report::EmbeddedTrace> {
+    let mut spent = 0usize;
+    let mut kept: Vec<crate::report::EmbeddedTrace> = traces
+        .into_iter()
+        .rev()
+        .take_while(|t| {
+            let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
+            spent = spent.saturating_add(size);
+            spent <= budget
+        })
+        .collect();
+    kept.reverse();
+    kept
+}
+
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
 /// `report::build_report(...)` and call it from both.
@@ -760,11 +802,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
 
     let warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
 
-    // Span trees for the exported findings. The correlation window has
-    // usually dropped them by now, which is why they are retained
-    // separately, and why a trace older than the retention simply comes
-    // back absent.
-    let embedded_traces = state.traces_store.snapshot_for(&findings).await;
+    let embedded_traces = export_embedded_traces(&state, &findings).await;
 
     let report = Report {
         analysis: export_analysis(events_usize, traces_usize),

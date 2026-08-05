@@ -1376,6 +1376,14 @@ impl Config {
             &0,
             &10_000_000,
         )?;
+        // Each entry is a whole span tree bounded by max_events_per_trace,
+        // far heavier than one finding, hence the much lower cap.
+        check_range(
+            "max_retained_traces",
+            &self.daemon.max_retained_traces,
+            &0,
+            &10_000,
+        )?;
         check_range("trace_ttl_ms", &self.daemon.trace_ttl_ms, &100, &3_600_000)?;
         check_range(
             "ingest_queue_capacity",
@@ -1459,6 +1467,16 @@ impl Config {
                 &100_000,
                 "old findings will be evicted before /api/findings can serve them",
                 "the findings store will hold a large in-memory backlog",
+            );
+        }
+        if self.daemon.max_retained_traces > 0 {
+            warn_outside_comfort_zone(
+                "max_retained_traces",
+                &self.daemon.max_retained_traces,
+                &10,
+                &500,
+                "exported reports will draw span trees for few findings",
+                "each retained trace holds up to max_events_per_trace owned spans",
             );
         }
         warn_outside_comfort_zone(
