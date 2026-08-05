@@ -102,8 +102,8 @@
       }
     },
     {
-      "title": "Top 10 finding types by severity (1h)",
-      "description": "A finding is one detected inefficiency, for example an N+1 loop (the same query repeated once per row instead of a single batched one). This ranks the most frequent kinds over the last hour. Rising counts mean either new traffic reaching an unoptimised path, or a recent deploy that regressed.",
+      "title": "Top 10 finding types by severity",
+      "description": "A finding is one detected inefficiency, for example an N+1 loop (the same query repeated once per row instead of a single batched one). This ranks the most frequent kinds This ranks the most frequent kinds over the selected time range. Rising counts mean either new traffic reaching an unoptimised path, or a recent deploy that regressed.",
       "type": "bargauge",
       "gridPos": {
         "h": 8,
@@ -117,7 +117,7 @@
       },
       "targets": [
         {
-          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\"}[1h])))",
+          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range])))",
           "legendFormat": "{{type}} ({{severity}})",
           "refId": "A"
         }
@@ -129,7 +129,7 @@
     },
     {
       "title": "I/O waste ratio",
-      "description": "Share of I/O operations the analyzer judged avoidable, cumulative since daemon start. This is the tool's headline number and needs no energy model to be trustworthy. The default CI gate fails above 0.30, so a value drifting toward it predicts the build breaking. It only moves slowly, being cumulative: use the avoidable-ops rate panel to see today.",
+      "description": "Share of analysed I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
       "type": "gauge",
       "gridPos": {
         "h": 8,
@@ -143,8 +143,9 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_io_waste_ratio{job=~\"$job\"}",
-          "refId": "A"
+          "expr": "sum(increase(perf_sentinel_avoidable_io_ops{job=~\"$job\"}[$__range]))\n/\nsum(increase(perf_sentinel_total_io_ops{job=~\"$job\"}[$__range]))",
+          "refId": "A",
+          "legendFormat": "waste ratio"
         }
       ],
       "fieldConfig": {
@@ -172,14 +173,15 @@
                 "value": 0.5
               }
             ]
-          }
+          },
+          "decimals": 2
         },
         "overrides": []
       }
     },
     {
-      "title": "Critical findings trend (24h)",
-      "description": "Findings the analyzer rated critical, over 24 hours. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken.",
+      "title": "Critical findings",
+      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken.",
       "type": "stat",
       "gridPos": {
         "h": 8,
@@ -193,8 +195,9 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_findings_total{job=~\"$job\", severity=\"critical\"}[24h])) or vector(0)",
-          "refId": "A"
+          "expr": "sum(increase(perf_sentinel_findings_total{job=~\"$job\", severity=\"critical\"}[$__range])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -217,7 +220,7 @@
       }
     },
     {
-      "title": "Findings distribution by type (1h)",
+      "title": "Findings distribution by type",
       "description": "The same findings as the ranking panel, shown as a share of the whole. Answers 'what kind of problem does this system mostly have'. A single type dominating usually points at one framework or one query pattern rather than at a broad problem.",
       "type": "piechart",
       "gridPos": {
@@ -232,7 +235,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range]))",
           "legendFormat": "{{type}}",
           "refId": "A"
         }
@@ -255,7 +258,8 @@
       "targets": [
         {
           "expr": "perf_sentinel_active_traces{job=~\"$job\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -298,17 +302,17 @@
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"sql\"}[$__rate_interval])))",
-          "legendFormat": "SQL p95",
+          "legendFormat": "SQL p95 {{instance}}",
           "refId": "A"
         },
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"http_out\"}[$__rate_interval])))",
-          "legendFormat": "HTTP p95",
+          "legendFormat": "HTTP p95 {{instance}}",
           "refId": "B"
         },
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"messaging\"}[$__rate_interval])))",
-          "legendFormat": "Messaging p95",
+          "legendFormat": "Messaging p95 {{instance}}",
           "refId": "C"
         }
       ],
@@ -336,7 +340,7 @@
       "targets": [
         {
           "expr": "rate(perf_sentinel_events_processed_total{job=~\"$job\"}[$__rate_interval])",
-          "legendFormat": "events/s",
+          "legendFormat": "events/s {{instance}}",
           "refId": "A"
         }
       ],
@@ -364,7 +368,7 @@
       "targets": [
         {
           "expr": "sum(perf_sentinel_findings_total{job=~\"$job\"}) or vector(0)",
-          "legendFormat": "total",
+          "legendFormat": "total {{instance}}",
           "refId": "A"
         }
       ],
@@ -428,7 +432,7 @@
     },
     {
       "title": "Findings detail by type and severity",
-      "description": "Tabular breakdown of cumulative finding counts grouped by (type, severity). Useful for raw triage, copy-paste into tickets, and comparing relative magnitude across detection categories side by side.",
+      "description": "Tabular breakdown of finding counts grouped by (type, severity) over the selected time range, the same window as the ranking and distribution panels beside it, so the three never contradict each other. Useful for raw triage, copy-paste into tickets, and comparing relative magnitude across detection categories side by side. The cumulative grand total since daemon start is the 'Total findings (cumulative)' stat.",
       "type": "table",
       "gridPos": {
         "h": 8,
@@ -442,10 +446,11 @@
       },
       "targets": [
         {
-          "expr": "sum by (type, severity) (perf_sentinel_findings_total{job=~\"$job\"})",
+          "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range]))",
           "format": "table",
           "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -476,7 +481,8 @@
       "targets": [
         {
           "expr": "up{job=~\"$job\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -534,7 +540,8 @@
       "targets": [
         {
           "expr": "perf_sentinel_total_io_ops{job=~\"$job\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -560,7 +567,8 @@
       "targets": [
         {
           "expr": "perf_sentinel_traces_analyzed_total{job=~\"$job\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -587,7 +595,7 @@
         {
           "expr": "rate(perf_sentinel_avoidable_io_ops{job=~\"$job\"}[$__rate_interval])",
           "refId": "A",
-          "legendFormat": "avoidable ops/s"
+          "legendFormat": "avoidable ops/s {{instance}}"
         }
       ],
       "fieldConfig": {
@@ -613,28 +621,28 @@
       "targets": [
         {
           "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\"}",
-          "legendFormat": "alumet",
+          "legendFormat": "alumet {{instance}}",
           "refId": "A"
         },
         {
           "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\"}",
           "refId": "B",
-          "legendFormat": "scaphandre"
+          "legendFormat": "scaphandre {{instance}}"
         },
         {
           "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\"}",
-          "legendFormat": "kepler",
+          "legendFormat": "kepler {{instance}}",
           "refId": "C"
         },
         {
           "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\"}",
-          "legendFormat": "redfish",
+          "legendFormat": "redfish {{instance}}",
           "refId": "D"
         },
         {
           "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\"}",
           "refId": "E",
-          "legendFormat": "cloud_energy"
+          "legendFormat": "cloud_energy {{instance}}"
         }
       ],
       "fieldConfig": {
@@ -661,7 +669,7 @@
         {
           "expr": "rate(perf_sentinel_export_report_requests_total{job=~\"$job\"}[$__rate_interval])",
           "refId": "A",
-          "legendFormat": "exports/s"
+          "legendFormat": "exports/s {{instance}}"
         }
       ],
       "fieldConfig": {
@@ -688,7 +696,7 @@
         {
           "expr": "perf_sentinel_energy_kwh{job=~\"$job\"}",
           "refId": "A",
-          "legendFormat": "energy"
+          "legendFormat": "energy {{instance}}"
         }
       ],
       "fieldConfig": {
@@ -722,7 +730,7 @@
         {
           "expr": "perf_sentinel_carbon_gco2{job=~\"$job\"}",
           "refId": "A",
-          "legendFormat": "carbon"
+          "legendFormat": "carbon {{instance}}"
         }
       ],
       "fieldConfig": {
@@ -756,22 +764,22 @@
         {
           "expr": "perf_sentinel_active_traces{job=~\"$job\"} / perf_sentinel_max_active_traces{job=~\"$job\"} * 100",
           "refId": "A",
-          "legendFormat": "active_traces"
+          "legendFormat": "active_traces {{instance}}"
         },
         {
           "expr": "perf_sentinel_analysis_queue_depth{job=~\"$job\"} / perf_sentinel_analysis_queue_capacity{job=~\"$job\"} * 100",
           "refId": "B",
-          "legendFormat": "analysis_queue"
+          "legendFormat": "analysis_queue {{instance}}"
         },
         {
           "expr": "perf_sentinel_stored_findings{job=~\"$job\"} / perf_sentinel_max_retained_findings{job=~\"$job\"} * 100",
           "refId": "C",
-          "legendFormat": "findings_store"
+          "legendFormat": "findings_store {{instance}}"
         },
         {
           "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total{job=~\"$job\"}[$__rate_interval]))",
           "refId": "D",
-          "legendFormat": "shed_batches/s"
+          "legendFormat": "shed_batches/s {{instance}}"
         }
       ],
       "fieldConfig": {
@@ -858,17 +866,17 @@
       "targets": [
         {
           "expr": "sum(rate(perf_sentinel_otlp_spans_received_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "received/s",
+          "legendFormat": "received/s {{instance}}",
           "refId": "A"
         },
         {
           "expr": "sum(rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "filtered/s (not I/O)",
+          "legendFormat": "filtered/s (not I/O) {{instance}}",
           "refId": "B"
         },
         {
           "expr": "sum(rate(perf_sentinel_otlp_rejected_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "rejected/s",
+          "legendFormat": "rejected/s {{instance}}",
           "refId": "C"
         }
       ],
