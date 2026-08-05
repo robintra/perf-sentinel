@@ -607,11 +607,38 @@ compilation pour maîtriser la cardinalité. Un filtre service qui
 paraîtrait restreindre tout le tableau de bord mentirait sur dix-neuf de
 ses panneaux.
 
-Les panneaux de taux utilisent `$__rate_interval`, ils suivent donc la
-plage de temps que vous choisissez plutôt qu'une fenêtre figée de cinq
-minutes. Les deux panneaux dont le titre annonce une fenêtre (`1h`,
-`24h`) la conservent, cette fenêtre étant la mesure qu'ils rapportent et
-non un choix d'affichage.
+**Tous les panneaux suivent le sélecteur de plage**, avec une règle et
+une exception assumée. Les panneaux de taux utilisent `$__rate_interval`
+et les panneaux à fenêtre utilisent `$__range` : choisir `Last 6 hours`
+signifie donc que le classement, la répartition et la table de détail
+répondent tous sur ces six heures et ne se contredisent jamais. Jusqu'à
+la 0.10.0, trois panneaux portaient une fenêtre figée dans la requête
+(`1h`, `1h`, `24h`) pendant que tout autour s'adaptait, ce qui donnait
+l'impression d'un dashboard ignorant à moitié le sélecteur.
+
+L'exception, ce sont les quelques panneaux `stat` qui affichent une
+valeur instantanée (`Active traces`, `Daemon health`) ou un total depuis
+le démarrage (`Total findings (cumulative)`, `Traces analyzed
+(cumulative)`, `Total I/O ops processed`). Un compteur cumulé depuis le
+démarrage du daemon est précisément ce qu'ils rapportent, ils le disent
+donc dans leur titre ou leur description, et ils repartent de zéro au
+redémarrage du pod.
+
+`I/O waste ratio` est calculé dans le panneau, en
+`sum(increase(avoidable_io_ops[$__range])) / sum(increase(total_io_ops[$__range]))`,
+plutôt que lu sur la gauge `perf_sentinel_io_waste_ratio` exportée par le
+daemon. Cette gauge est un rapport de compteurs cumulés : elle ignore le
+sélecteur de plage, dilue un problème actuel dans tout ce qui s'est passé
+depuis le démarrage du pod, et affiche un cadran par réplica. La forme
+calculée répond sur la plage sélectionnée et pour toute la flotte, avec
+deux décimales, parce qu'une flotte à 1 % d'I/O évitables sur un million
+d'opérations mérite d'être vue là où un pourcentage entier l'arrondit à
+zéro. La gauge exportée reste disponible pour l'alerting.
+
+Chaque série porte `{{instance}}` en légende. Au-delà d'un réplica, les
+légendes répétaient sinon la même entrée une fois par pod (`events/s`,
+`events/s`, `events/s`), et les panneaux `stat` affichaient quatre
+nombres côte à côte sans moyen de savoir lequel venait de quel pod.
 
 Import par sidecar (kube-prometheus-stack et similaires) : chargez le JSON
 dans une ConfigMap étiquetée pour que le sidecar Grafana la découvre

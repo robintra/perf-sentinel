@@ -878,10 +878,37 @@ values here come from a bounded compile-time set to keep cardinality
 under control. A service filter that appeared to narrow the whole
 dashboard would be lying about nineteen of its panels.
 
-Rate panels use `$__rate_interval`, so they follow the time range you
-pick rather than a fixed five-minute window. The two panels whose title
-names a window (`1h`, `24h`) keep it, that window is the measure they
-report rather than a display choice.
+**Every panel follows the time picker**, with one rule and one stated
+exception. Rate panels use `$__rate_interval` and windowed panels use
+`$__range`, so picking `Last 6 hours` means the ranking, the
+distribution and the detail table all answer for those six hours and
+never contradict each other. Until 0.10.0 three panels carried a window
+baked into the query (`1h`, `1h`, `24h`) while everything around them
+adapted, which read as a dashboard that half-ignored the picker.
+
+The exception is the handful of `stat` panels that show a current value
+(`Active traces`, `Daemon health`) or a lifetime total (`Total findings
+(cumulative)`, `Traces analyzed (cumulative)`, `Total I/O ops
+processed`). A counter total since daemon start is what those report, so
+they say so in the title or the description, and they reset when the pod
+restarts.
+
+`I/O waste ratio` is computed in the panel, as
+`sum(increase(avoidable_io_ops[$__range])) / sum(increase(total_io_ops[$__range]))`,
+rather than read off the `perf_sentinel_io_waste_ratio` gauge the daemon
+exports. That gauge is a ratio of lifetime counters: it ignores the time
+picker, dilutes a current problem in everything since the pod started,
+and renders one dial per replica. The panel form answers for the
+selected range across the whole fleet, and carries two decimals because
+a fleet at 1% avoidable I/O over a million operations is worth seeing
+where integer percent rounds it to zero. The exported gauge stays
+available for alerting.
+
+Every series is labelled with `{{instance}}`. Running more than one
+replica otherwise produced legends with the same entry repeated once per
+pod (`events/s`, `events/s`, `events/s`), and stat panels showing four
+unlabelled numbers side by side with no way to tell which pod was
+which.
 
 Sidecar import (kube-prometheus-stack and similar): load the JSON into a
 ConfigMap labelled so the Grafana sidecar discovers it automatically.
