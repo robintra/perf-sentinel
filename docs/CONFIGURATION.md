@@ -84,6 +84,7 @@ Quality gate thresholds. The quality gate fails if any rule is violated.
 | `n_plus_one_http_warning_max` | integer | `3`     | Maximum number of **warning or higher** N+1 HTTP findings before the gate fails |
 | `n_plus_one_messaging_warning_max` | integer | `3` | Maximum number of **warning or higher** N+1 messaging findings before the gate fails. Warning+ rather than critical-only, like HTTP: a Kafka client may already batch the publishes it buffers, so the occurrence count is an upper bound there |
 | `io_waste_ratio_max`          | float   | `0.30`  | Maximum I/O waste ratio (0.0 to 1.0) before the gate fails                      |
+| `min_usable_span_ratio`       | float   | unset   | Minimum share (0.0 to 1.0) of I/O-shaped spans that must be analyzable (SQL spans carrying `db.statement`, HTTP CLIENT spans carrying a full URL) before the gate fails. Guards against a false green from unusable instrumentation: below the threshold the gate fails even with zero findings. Unset disables the rule. Applies to OTLP input only, which carries the per-reason filter tally (surfaced in `analysis.ingest` of the JSON report) |
 
 ### `[detection]`
 
@@ -779,6 +780,7 @@ n_plus_one_sql_critical_max = 0
 n_plus_one_http_warning_max = 3
 n_plus_one_messaging_warning_max = 3
 io_waste_ratio_max = 0.30
+# min_usable_span_ratio = 0.9   # unset = disabled, see the thresholds table
 
 [detection]
 n_plus_one_min_occurrences = 5
