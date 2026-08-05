@@ -2830,6 +2830,32 @@
 
   // Footer: source location (when code.* attributes were captured) plus the
   // first/last timestamps the pattern was seen at.
+  // Detections sharing a signature, keyed like acknowledgments do. Built
+  // once: detection is per trace, so a recurring problem is many findings.
+  var recurrenceIndex = null;
+  function recurrenceKey(f) {
+    return f.signature ||
+      [f.type || f.finding_type, f.service, f.source_endpoint,
+       (f.pattern && f.pattern.template) || ""].join("|");
+  }
+  function recurrenceOf(f) {
+    if (!recurrenceIndex) {
+      recurrenceIndex = Object.create(null);
+      findings.forEach(function (other) {
+        var key = recurrenceKey(other);
+        var acc = recurrenceIndex[key];
+        if (!acc) {
+          recurrenceIndex[key] = { count: 1, first: other.first_timestamp, last: other.last_timestamp };
+          return;
+        }
+        acc.count += 1;
+        if (other.first_timestamp && other.first_timestamp < acc.first) acc.first = other.first_timestamp;
+        if (other.last_timestamp && other.last_timestamp > acc.last) acc.last = other.last_timestamp;
+      });
+    }
+    return recurrenceIndex[recurrenceKey(f)] || { count: 1, first: f.first_timestamp, last: f.last_timestamp };
+  }
+
   function renderDetailFoot(host, f) {
     host.textContent = "";
     var parts = [];
@@ -2837,15 +2863,25 @@
     if (cl && cl.filepath) {
       parts.push("source " + cl.filepath + (Number.isFinite(cl.lineno) ? ":" + cl.lineno : ""));
     }
-    if (f.first_timestamp) parts.push("seen first " + clockTime(f.first_timestamp));
-    if (f.last_timestamp) parts.push("last " + clockTime(f.last_timestamp));
+    // Window of the whole recurrence, not of the selected trace: on a
+    // daemon snapshot the two timestamps of a single detection are often
+    // milliseconds apart, which reads as a one-off.
+    var rec = recurrenceOf(f);
+    if (rec.count > 1) parts.push("detected in " + rec.count + " traces");
+    var sameDay = rec.first && rec.last && rec.first.slice(0, 10) === rec.last.slice(0, 10);
+    if (rec.first) parts.push("seen first " + clockTime(rec.first, !sameDay));
+    if (rec.last) parts.push("last " + clockTime(rec.last, !sameDay));
     if (parts.length === 0) { host.style.display = "none"; return; }
     host.style.display = "";
     host.textContent = parts.join(" · ");
   }
 
-  function clockTime(iso) {
-    return typeof iso === "string" && iso.length >= 19 ? iso.slice(11, 19) + " UTC" : (iso || "");
+  // Date only when the window straddles days: "first 14:32 last 09:15"
+  // reads backwards otherwise.
+  function clockTime(iso, withDate) {
+    if (typeof iso !== "string" || iso.length < 19) return iso || "";
+    var time = iso.slice(11, 19) + " UTC";
+    return withDate ? iso.slice(0, 10) + " " + time : time;
   }
 
   /// Build the parent -> children adjacency for a span list plus the
