@@ -12,6 +12,9 @@ use crate::event::EventType;
 use crate::normalize::NormalizedEvent;
 
 /// One trace's spans, in the masked form the dashboard renders.
+/// `#[non_exhaustive]` so an added field (a span timestamp is the
+/// obvious next one) stays a minor bump for downstream crates.
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmbeddedTrace {
     pub trace_id: String,
@@ -30,6 +33,7 @@ impl EmbeddedTrace {
 }
 
 /// A single span of an [`EmbeddedTrace`].
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmbeddedSpan {
     pub span_id: String,
