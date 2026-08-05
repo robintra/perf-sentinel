@@ -205,7 +205,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     } else {
         0
     };
-    let traces_store = Arc::new(traces_store::TracesStore::new(traces_capacity));
+    let traces_store = Arc::new(traces_store::TracesStore::new(
+        traces_capacity,
+        config.daemon.max_events_per_trace,
+    ));
     let correlator = setup_correlator(&config);
     // Shared cell mutated by the event loop after each batch and read
     // by the /api/export/report handler. Initialized to disabled(0):
