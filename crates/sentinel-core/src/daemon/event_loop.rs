@@ -989,6 +989,7 @@ async fn process_traces(
             },
             per_endpoint_io_ops,
             correlations: vec![],
+            finding_occurrences: vec![],
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],

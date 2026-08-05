@@ -1218,7 +1218,7 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         "max_retained_findings",
         &c.max_retained_findings.to_string(),
         &d.max_retained_findings.to_string(),
-        "Findings kept in the query ring buffer; oldest evicted past it.",
+        "Distinct finding signatures kept in the query store; least recently seen evicted past it.",
     );
     config_row(
         &mut lines,

@@ -150,6 +150,12 @@ fn render_findings_response(body: &[u8], format: QueryOutputFormat, daemon_url: 
 fn print_findings_text(body: &[u8], daemon_url: &str) {
     let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
         serde_json::from_slice(body).unwrap_or_default();
+    // The store coalesces by signature, so a row can stand for many traces.
+    let recurring: Vec<(String, u64)> = stored
+        .iter()
+        .filter(|sf| sf.seen_count > 1)
+        .map(|sf| (sf.finding.signature.clone(), sf.seen_count))
+        .collect();
     let findings: Vec<sentinel_core::detect::Finding> =
         stored.into_iter().map(|sf| sf.finding).collect();
     if findings.is_empty() {
@@ -170,6 +176,13 @@ fn print_findings_text(body: &[u8], daemon_url: &str) {
         findings.len()
     );
     println!("{dim}Source: {daemon_url}{reset}");
+    if !recurring.is_empty() {
+        let total: u64 = recurring.iter().map(|(_, n)| n).sum();
+        println!(
+            "{dim}{} of them recur, coalesced from {total} detections across traces{reset}",
+            recurring.len()
+        );
+    }
     println!();
     print_findings(&findings, false);
 }

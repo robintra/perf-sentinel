@@ -86,6 +86,7 @@ mod tests {
             },
             per_endpoint_io_ops: vec![],
             correlations: vec![],
+            finding_occurrences: vec![],
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],

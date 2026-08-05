@@ -627,6 +627,25 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
     }
 }
 
+/// Flatten stored entries into exported findings plus their recurrence
+/// tallies. Without the tallies, a pattern seen on 19 traces exports as
+/// one row with no sign it recurred. Single sightings are omitted as
+/// noise, and an unsigned finding cannot be keyed back.
+fn split_findings_and_tallies(
+    stored: Vec<StoredFinding>,
+) -> (Vec<detect::Finding>, Vec<crate::report::FindingOccurrence>) {
+    let tallies = stored
+        .iter()
+        .filter(|s| s.seen_count > 1 && !s.finding.signature.is_empty())
+        .map(|s| crate::report::FindingOccurrence {
+            signature: s.finding.signature.clone(),
+            seen_count: s.seen_count,
+            first_seen_ms: s.first_seen_ms,
+        })
+        .collect();
+    (stored.into_iter().map(|s| s.finding).collect(), tallies)
+}
+
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
 /// `report::build_report(...)` and call it from both.
@@ -674,6 +693,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             green_summary,
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
+            finding_occurrences: vec![],
             warnings: vec!["daemon has not yet processed any events".to_string()],
             warning_details,
             acknowledged_findings: Vec::new(),
@@ -684,8 +704,8 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     }
 
     // Snapshot findings. Cap at MAX_FINDINGS_LIMIT to mirror
-    // `/api/findings`, a huge ring buffer should not serialize into
-    // an unbounded response body.
+    // `/api/findings`, a huge store should not serialize into an
+    // unbounded response body.
     let stored = state
         .findings_store
         .query(&FindingsFilter {
@@ -695,7 +715,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             limit: MAX_FINDINGS_LIMIT,
         })
         .await;
-    let findings: Vec<_> = stored.into_iter().map(|s| s.finding).collect();
+    let (findings, finding_occurrences) = split_findings_and_tallies(stored);
 
     // Snapshot correlations, sorted + capped identically to
     // `/api/correlations` so both endpoints stay consistent.
@@ -754,6 +774,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         quality_gate,
         per_endpoint_io_ops: vec![],
         correlations,
+        finding_occurrences,
         warnings: vec![],
         warning_details,
         acknowledged_findings: vec![],
