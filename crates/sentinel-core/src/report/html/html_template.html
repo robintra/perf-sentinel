@@ -346,10 +346,13 @@
   .ps-detail-h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
   .ps-detail-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--text-2); }
   .ps-detail-suggestion { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text); }
-  .ps-meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .ps-meta-cell { border: 0; border-radius: 10px; background: var(--surface-2); padding: 11px 12px; }
+  /* auto-fit, not repeat(4): in a squeezed detail column (two-column
+     triage between the 920px stack point and ~1180px, e.g. the site's
+     embed iframe) four fixed tracks overflow; auto-fit reflows 2x2. */
+  .ps-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .ps-meta-cell { min-width: 0; border: 0; border-radius: 10px; background: var(--surface-2); padding: 11px 12px; }
   .ps-meta-cell-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); }
-  .ps-meta-cell-value { font-size: 12.5px; font-weight: 500; color: var(--text); margin-top: 5px; }
+  .ps-meta-cell-value { font-size: 12.5px; font-weight: 500; color: var(--text); margin-top: 5px; overflow-wrap: anywhere; }
   .ps-meta-cell-value.mono { font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ps-meta-cell-value.brand { color: var(--brand-text); }
   .ps-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-3); }
@@ -393,7 +396,9 @@
   /* pg_stat cross-ref (left) + suggested fix (right), side by side like the model; collapses to one column when only one is present. */
   .ps-detail-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
   .ps-detail-cols.single { grid-template-columns: 1fr; }
-  .ps-detail-foot { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 13px; }
+  /* overflow-wrap: a source path is one long unbreakable token and the
+     recurrence window lengthened this line. */
+  .ps-detail-foot { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 13px; overflow-wrap: anywhere; }
   .ps-pgstat-xref { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 12px; background: var(--surface-2); border: 0; border-radius: 10px; font-family: var(--font-mono); font-size: 12px; }
   .ps-pgstat-xref-stat { color: var(--text-3); white-space: nowrap; }
   .ps-fix-prose { font-size: 12.5px; color: var(--text); line-height: 1.55; background: var(--surface-2); border-radius: 8px; padding: 10px 13px; }
