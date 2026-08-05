@@ -2550,11 +2550,11 @@
     topLine.appendChild(sevPill(f.severity));
     topLine.appendChild(el("span", "ps-fin-type", typeLabel(f.type || f.finding_type)));
     // Distinct from the ×N metric: that counts spans inside one trace,
-    // this counts the traces the daemon coalesced under one signature.
+    // this counts the retained traces sharing this signature.
     var seen = (f.signature && seenBySig[f.signature]) || 0;
     if (seen > 1) {
       var seenEl = el("span", "ps-fin-seen", seen + " traces");
-      seenEl.title = "Seen on " + seen + " traces, coalesced into one finding";
+      seenEl.title = "This problem was detected on " + seen + " retained traces";
       topLine.appendChild(seenEl);
     }
     var occ = (f.pattern && f.pattern.occurrences) || 0;

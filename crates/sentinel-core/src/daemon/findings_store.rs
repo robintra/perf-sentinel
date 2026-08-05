@@ -44,20 +44,29 @@ fn default_seen_count() -> u64 {
     1
 }
 
-/// Fold per-trace detections into one entry per signature, newest
-/// first, preserving the input order.
+/// Fold per-trace detections into one entry per signature, preserving
+/// the input order (newest first, what [`FindingsStore::query`] yields).
 ///
-/// `entries` is expected newest-first (what [`FindingsStore::query`]
-/// yields). The kept instance is the most recent one, but its severity
-/// is the WORST across the fold: severity is derived per trace (12
-/// repeats is critical, 6 is a warning), so keeping the latest alone
-/// would let a quiet trace silently downgrade a critical finding out of
-/// a `?severity=critical` filter. `seen_count` counts the fold,
-/// `first_seen_ms` is the oldest detection retained.
+/// The representative is the WORST-severity detection of the group, not
+/// the newest. Severity is derived per trace (12 repeats is critical, 6
+/// is a warning), so a row must not claim a severity its own
+/// `pattern.occurrences` and `trace_id` contradict: grafting the worst
+/// severity onto the newest instance produces a critical row pointing at
+/// the quiet trace, which cannot be triaged from what it shows. Ties
+/// keep the newest. `seen_count` counts the fold and `first_seen_ms` is
+/// the oldest detection retained, both group metadata rather than
+/// properties of the representative.
 #[must_use]
 pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
-    let mut out: Vec<StoredFinding> = Vec::with_capacity(entries.len());
-    let mut index: HashMap<&str, usize> = HashMap::with_capacity(entries.len());
+    fold_entries(entries.iter())
+}
+
+/// [`coalesce_by_signature`] over any iterator, so the store can fold
+/// straight off the buffer under the read lock and clone once per
+/// distinct signature instead of once per retained detection.
+fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<StoredFinding> {
+    let mut out: Vec<StoredFinding> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
     for entry in entries {
         // An unsigned finding cannot be keyed, so it stays its own row
         // rather than folding every unsigned finding into one.
@@ -67,15 +76,20 @@ pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
         }
         if let Some(&i) = index.get(entry.finding.signature.as_str()) {
             let kept: &mut StoredFinding = &mut out[i];
-            kept.seen_count += entry.seen_count;
-            kept.first_seen_ms = kept.first_seen_ms.min(entry.first_seen_ms);
-            // Severity is ordered Critical < Warning < Info, so the
-            // worst of two is the min.
+            let seen = kept.seen_count + entry.seen_count;
+            let first = kept.first_seen_ms.min(entry.first_seen_ms);
+            let last = kept.stored_at_ms.max(entry.stored_at_ms);
+            // Severity is ordered Critical < Warning < Info, so a
+            // strictly smaller severity is a worse one. Take the whole
+            // instance with it, evidence included.
             if entry.finding.severity < kept.finding.severity {
-                kept.finding.severity = entry.finding.severity.clone();
+                kept.finding = entry.finding.clone();
             }
+            kept.seen_count = seen;
+            kept.first_seen_ms = first;
+            kept.stored_at_ms = last;
         } else {
-            index.insert(entry.finding.signature.as_str(), out.len());
+            index.insert(entry.finding.signature.clone(), out.len());
             out.push(entry.clone());
         }
     }
@@ -199,21 +213,39 @@ impl FindingsStore {
             .collect()
     }
 
-    /// Query with the same filters, then fold per-trace detections into
-    /// one entry per signature and apply `filter.limit` to the FOLDED
-    /// rows.
+    /// Fold per-trace detections into one entry per signature, then
+    /// apply `filter.limit` to the FOLDED rows.
     ///
     /// The limit lands after the fold on purpose: applied before, a
     /// pattern recurring on 100 traces would consume the whole page and
-    /// hide every other problem behind it.
+    /// hide every other problem behind it. The fold runs straight off
+    /// the buffer, so the read lock is held for one pass and only one
+    /// entry per distinct signature is cloned, not the whole buffer.
+    ///
+    /// Severity is filtered AFTER folding, against the group's worst:
+    /// applied to instances first, `?severity=critical` would report the
+    /// same problem with a different `seen_count` than an unfiltered
+    /// call. Service and finding type are invariant within a signature,
+    /// so they filter during the pass.
     pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
-        let unlimited = FindingsFilter {
-            service: filter.service.clone(),
-            finding_type: filter.finding_type.clone(),
-            severity: filter.severity.clone(),
-            limit: usize::MAX,
-        };
-        let mut folded = coalesce_by_signature(&self.query(&unlimited).await);
+        let buf = self.inner.read().await;
+        let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
+            if let Some(ref svc) = filter.service
+                && sf.finding.service != *svc
+            {
+                return false;
+            }
+            if let Some(ref ft) = filter.finding_type
+                && sf.finding.finding_type.as_str() != ft.as_str()
+            {
+                return false;
+            }
+            true
+        }));
+        drop(buf);
+        if let Some(ref sev) = filter.severity {
+            folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
+        }
         folded.truncate(filter.limit);
         folded
     }
@@ -354,16 +386,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn coalescing_keeps_the_worst_severity() {
-        // Severity is derived per trace, so a quiet trace must not
-        // downgrade a critical finding out of a `?severity=critical`
-        // filter. Severity is ordered Critical < Warning < Info.
+    async fn folded_row_evidence_matches_its_severity() {
+        // The row must not claim a severity its own trace_id and
+        // occurrence count contradict: the representative is the
+        // detection that EARNED the worst severity, evidence included.
         let mut critical = make_finding("svc", FindingType::NPlusOneSql);
         critical.severity = Severity::Critical;
         critical.trace_id = "trace-hot".to_string();
+        critical.pattern.occurrences = 12;
         let mut warning = make_finding("svc", FindingType::NPlusOneSql);
         warning.severity = Severity::Warning;
         warning.trace_id = "trace-quiet".to_string();
+        warning.pattern.occurrences = 6;
         enrich_with_signatures(std::slice::from_mut(&mut critical));
         enrich_with_signatures(std::slice::from_mut(&mut warning));
 
@@ -378,14 +412,51 @@ mod tests {
             })
             .await;
         assert_eq!(folded.len(), 1);
+        let row = &folded[0];
+        assert_eq!(row.finding.severity, Severity::Critical);
         assert_eq!(
-            folded[0].finding.severity,
-            Severity::Critical,
-            "the later warning must not mask the critical occurrence"
+            row.finding.trace_id, "trace-hot",
+            "the critical row must point at the trace that earned it"
         );
+        assert_eq!(row.finding.pattern.occurrences, 12);
+        // The timestamps stay group metadata, spanning both detections.
+        assert_eq!(row.first_seen_ms, 1000);
+        assert_eq!(row.stored_at_ms, 2000);
+        assert_eq!(row.seen_count, 2);
+    }
+
+    #[tokio::test]
+    async fn severity_filter_applies_after_folding() {
+        // Filtering instances first would report the same problem with a
+        // different seen_count depending on the filter passed.
+        let mut critical = make_finding("svc", FindingType::NPlusOneSql);
+        critical.severity = Severity::Critical;
+        let mut warning = make_finding("svc", FindingType::NPlusOneSql);
+        warning.severity = Severity::Warning;
+        enrich_with_signatures(std::slice::from_mut(&mut critical));
+        enrich_with_signatures(std::slice::from_mut(&mut warning));
+
+        let store = FindingsStore::new(100);
+        store.push_batch(&[critical], 1000).await;
+        store.push_batch(&[warning], 2000).await;
+
+        let unfiltered = store
+            .query_coalesced(&FindingsFilter {
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        let filtered = store
+            .query_coalesced(&FindingsFilter {
+                severity: Some("critical".to_string()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(filtered.len(), 1, "the group's worst severity matches");
         assert_eq!(
-            folded[0].finding.trace_id, "trace-quiet",
-            "the latest instance is still the one shown"
+            filtered[0].seen_count, unfiltered[0].seen_count,
+            "the same problem must not report two different counts"
         );
     }
 

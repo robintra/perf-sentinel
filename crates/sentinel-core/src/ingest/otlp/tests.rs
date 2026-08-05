@@ -3891,13 +3891,13 @@ fn usable_ratio_counts_only_io_shaped_spans() {
     // statement, 3 SQL retained. The SQL denominator is 3 + 2 = 5:
     // internal spans and deliberate drops must not depress the ratio.
     let stats = SpanConversionStats {
-        received: 10,
+        received: 40,
         filtered_not_io: 4,
-        filtered_missing_db_statement: 2,
+        filtered_missing_db_statement: 10,
         filtered_missing_http_url: 0,
         filtered_non_sql_datastore: 0,
         filtered_merged_db_span: 1,
-        retained_sql: 3,
+        retained_sql: 15,
         retained_http: 0,
     };
     let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");
@@ -3929,9 +3929,9 @@ fn usable_ratio_ignores_a_kind_that_never_appeared() {
     // An HTTP-only service has no SQL ratio to speak of, so the HTTP
     // one stands alone rather than being dragged to 0 by an absent kind.
     let stats = SpanConversionStats {
-        received: 10,
-        filtered_missing_http_url: 2,
-        retained_http: 8,
+        received: 30,
+        filtered_missing_http_url: 5,
+        retained_http: 20,
         ..Default::default()
     };
     assert!(stats.sql_usable_ratio().is_none());
@@ -3957,8 +3957,8 @@ fn usable_ratio_zero_when_every_io_span_is_unusable() {
     // db.statement. The ratio must be 0.0, not None, so a configured
     // min_usable_span_ratio fails the gate.
     let stats = SpanConversionStats {
-        received: 5,
-        filtered_missing_db_statement: 5,
+        received: 25,
+        filtered_missing_db_statement: 25,
         ..SpanConversionStats::default()
     };
     let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");

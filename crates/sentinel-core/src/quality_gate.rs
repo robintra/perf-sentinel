@@ -319,7 +319,7 @@ mod tests {
     fn usable_span_rule_absent_without_threshold() {
         // Default config: the rule is opt-in, stats alone must not add it.
         let config = Config::default();
-        let stats = ingest_stats(1, 9);
+        let stats = ingest_stats(4, 36);
         let gate = evaluate(
             &[],
             &empty_green_summary(),
@@ -346,7 +346,7 @@ mod tests {
         // attribute, ratio 0.1 < 0.9 threshold, the gate must fail even
         // though there are zero findings.
         let thresholds = thresholds_with_min_ratio(0.9);
-        let stats = ingest_stats(1, 9);
+        let stats = ingest_stats(4, 36);
         let gate = evaluate(&[], &empty_green_summary(), &thresholds, Some(&stats));
         assert!(!gate.passed);
         let rule = gate
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn healthy_instrumentation_passes_usable_span_rule() {
         let thresholds = thresholds_with_min_ratio(0.9);
-        let stats = ingest_stats(19, 1);
+        let stats = ingest_stats(38, 2);
         let gate = evaluate(&[], &empty_green_summary(), &thresholds, Some(&stats));
         assert!(gate.passed);
         let rule = gate
@@ -376,11 +376,11 @@ mod tests {
     }
 
     #[test]
-    fn usable_span_rule_absent_without_io_shaped_spans() {
-        // A tally of internal-only spans has no ratio (0/0): skip the
-        // rule rather than judging instrumentation that sent no I/O.
+    fn usable_span_rule_absent_below_the_sample_floor() {
+        // 5 I/O spans is too small a sample to judge: skip the rule
+        // rather than failing a build on 3 usable out of 5.
         let thresholds = thresholds_with_min_ratio(0.9);
-        let stats = ingest_stats(0, 0);
+        let stats = ingest_stats(3, 2);
         let gate = evaluate(&[], &empty_green_summary(), &thresholds, Some(&stats));
         assert!(gate.passed);
         assert!(!gate.rules.iter().any(|r| r.rule == "min_usable_span_ratio"));

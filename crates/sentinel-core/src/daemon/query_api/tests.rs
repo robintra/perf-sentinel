@@ -441,6 +441,59 @@ async fn handle_export_report_returns_report_shape_when_events_ingested() {
 }
 
 #[tokio::test]
+async fn handle_export_report_gate_survives_a_reload() {
+    // The snapshot is documented as shape-identical to `analyze --format
+    // json`, and every consumer that reloads it re-derives the gate from
+    // `findings`. Exporting a folded list beside a gate counted on
+    // instances made that recompute contradict the shipped verdict.
+    let state = make_state();
+    state.metrics.events_processed_total.inc_by(30.0);
+    state.metrics.traces_analyzed_total.inc_by(3.0);
+    for i in 0..3u64 {
+        let mut f = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Critical,
+        );
+        f.trace_id = format!("trace-{i}");
+        crate::acknowledgments::enrich_with_signatures(std::slice::from_mut(&mut f));
+        state.findings_store.push_batch(&[f], 1000 + i).await;
+    }
+    let thresholds = state.thresholds.clone();
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+
+    assert_eq!(report.findings.len(), 3, "instances, not folded rows");
+    assert!(!report.quality_gate.passed);
+    // What `acknowledgments::apply_to_report` does on every reload.
+    let recomputed = crate::quality_gate::evaluate(
+        &report.findings,
+        &report.green_summary,
+        &thresholds,
+        report.analysis.ingest.as_ref(),
+    );
+    assert_eq!(
+        recomputed.passed, report.quality_gate.passed,
+        "a reload must not flip the verdict shipped in the same payload"
+    );
+    for (shipped, again) in report.quality_gate.rules.iter().zip(&recomputed.rules) {
+        assert!(
+            (shipped.actual - again.actual).abs() < f64::EPSILON,
+            "rule {} drifted on reload",
+            shipped.rule
+        );
+    }
+}
+
+#[tokio::test]
 async fn handle_export_report_carries_coalescing_tallies() {
     // A pattern detected on 3 traces exports as ONE finding plus a
     // tally saying it recurred, so the dashboard can show "3 traces"
@@ -477,7 +530,11 @@ async fn handle_export_report_carries_coalescing_tallies() {
         .unwrap();
     let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
 
-    assert_eq!(report.findings.len(), 2, "coalesced to one row per problem");
+    assert_eq!(
+        report.findings.len(),
+        4,
+        "raw instances, so the gate stays countable"
+    );
     assert_eq!(
         report.finding_occurrences.len(),
         1,

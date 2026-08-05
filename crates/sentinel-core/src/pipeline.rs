@@ -355,10 +355,10 @@ mod tests {
         // tally and a configured min_usable_span_ratio fails the gate on
         // an otherwise finding-free run (the false-green scenario).
         let stats = SpanConversionStats {
-            received: 10,
+            received: 30,
             filtered_not_io: 5,
-            filtered_missing_db_statement: 4,
-            retained_sql: 1,
+            filtered_missing_db_statement: 20,
+            retained_sql: 5,
             ..SpanConversionStats::default()
         };
         let config = Config {
@@ -370,8 +370,8 @@ mod tests {
         };
         let (report, _) = analyze_with_traces(vec![], &config, Some(stats));
         let ingest = report.analysis.ingest.expect("tally propagated");
-        assert_eq!(ingest.spans_received, 10);
-        assert_eq!(ingest.spans_filtered, 9);
+        assert_eq!(ingest.spans_received, 30);
+        assert_eq!(ingest.spans_filtered, 25);
         assert!((ingest.usable_span_ratio.unwrap() - 0.2).abs() < f64::EPSILON);
         assert!(!report.quality_gate.passed, "0.2 < 0.9 must fail the gate");
     }
