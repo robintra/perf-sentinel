@@ -5460,10 +5460,14 @@
       href = href.replace(/([&#])tsort=[^&]*/g, "$1").replace(/[&#]$/, "");
       href += "&tsort=" + encodeURIComponent(tsort);
     }
-    // And the findings-list sort, when it differs from the default.
-    if (location.hash && (sortState.key !== "severity" || sortState.dir !== "desc")) {
+    // And the findings-list sort. The scrub runs unconditionally: a link
+    // opened with an fsort and then sorted back to the default would
+    // otherwise be copied still carrying the stale one.
+    if (location.hash) {
       href = href.replace(/([&#])fsort=[^&]*/g, "$1").replace(/[&#]$/, "");
-      href += "&fsort=" + encodeURIComponent(sortState.key + "." + sortState.dir);
+      if (sortState.key !== "severity" || sortState.dir !== "desc") {
+        href += "&fsort=" + encodeURIComponent(sortState.key + "." + sortState.dir);
+      }
     }
     copyTextToClipboard(btn, href);
   }
