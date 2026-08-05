@@ -757,6 +757,31 @@ impl App {
             Span::styled("   Duration: ".to_string(), dim),
             Span::raw(format!("{} ms", summary.analysis.duration_ms)),
         ]));
+        // Same reasoning as the CLI report and the dashboard header: a
+        // thin report reads as a clean one unless the filtered spans are
+        // stated. Absent on daemon snapshots, which carry no tally.
+        if let Some(ingest) = &summary.analysis.ingest
+            && ingest.spans_filtered > 0
+        {
+            let gaps = ingest.filtered_missing_db_statement + ingest.filtered_missing_http_url;
+            let mut spans = vec![
+                Span::styled("Spans ingested: ".to_string(), dim),
+                Span::raw(ingest.spans_received.to_string()),
+                Span::styled("   Filtered: ".to_string(), dim),
+                Span::raw(ingest.spans_filtered.to_string()),
+            ];
+            if gaps > 0 {
+                spans.push(Span::styled(
+                    "   Missing db.statement/http.url: ".to_string(),
+                    dim,
+                ));
+                spans.push(Span::styled(
+                    gaps.to_string(),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
         lines.push(Line::from(""));
 
         lines.push(Line::from(vec![

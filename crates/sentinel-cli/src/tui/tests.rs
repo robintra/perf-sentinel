@@ -1817,3 +1817,54 @@ fn jump_to_same_trace_preserves_cached_detail() {
         "cached_detail must be preserved when jumping to the already-selected trace"
     );
 }
+
+#[test]
+fn analyze_view_states_filtered_spans() {
+    // A thin report must not read as a clean one: when spans were
+    // filtered, the Analyze view names the count and the attribute gap.
+    let green_summary: GreenSummary = serde_json::from_str(
+        r#"{"total_io_ops":1,"avoidable_io_ops":0,"io_waste_ratio":0.0,"io_waste_ratio_band":"healthy","top_offenders":[]}"#,
+    )
+    .unwrap();
+    let quality_gate: QualityGate = serde_json::from_str(r#"{"passed":true,"rules":[]}"#).unwrap();
+    let analysis: Analysis = serde_json::from_str(
+        r#"{"duration_ms":12,"events_processed":1,"traces_analyzed":1,
+            "ingest":{"spans_received":10,"spans_filtered":9,"filtered_not_io":0,
+            "filtered_missing_db_statement":9,"filtered_missing_http_url":0,
+            "filtered_non_sql_datastore":0,"filtered_merged_db_span":0,
+            "usable_span_ratio":0.1}}"#,
+    )
+    .unwrap();
+    let app = make_test_app().with_summary(AnalyzeSummary {
+        green_summary,
+        quality_gate,
+        analysis,
+    });
+    let text = line_text(&app.build_analyze_lines());
+    assert!(text.contains("Spans ingested"), "got: {text}");
+    assert!(
+        text.contains("Missing db.statement/http.url"),
+        "got: {text}"
+    );
+}
+
+#[test]
+fn analyze_view_omits_ingest_line_without_a_tally() {
+    // Daemon snapshots and non-OTLP inputs carry no tally: the line must
+    // stay absent rather than render zeros.
+    let green_summary: GreenSummary = serde_json::from_str(
+        r#"{"total_io_ops":1,"avoidable_io_ops":0,"io_waste_ratio":0.0,"io_waste_ratio_band":"healthy","top_offenders":[]}"#,
+    )
+    .unwrap();
+    let quality_gate: QualityGate = serde_json::from_str(r#"{"passed":true,"rules":[]}"#).unwrap();
+    let analysis: Analysis =
+        serde_json::from_str(r#"{"duration_ms":12,"events_processed":1,"traces_analyzed":1}"#)
+            .unwrap();
+    let app = make_test_app().with_summary(AnalyzeSummary {
+        green_summary,
+        quality_gate,
+        analysis,
+    });
+    let text = line_text(&app.build_analyze_lines());
+    assert!(!text.contains("Spans ingested"), "got: {text}");
+}
