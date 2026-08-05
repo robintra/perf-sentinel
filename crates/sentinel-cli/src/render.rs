@@ -431,10 +431,19 @@ pub(crate) fn print_findings_with_recurrence(
     // were the bulk of the output without adding anything to read.
     let recurrence = external.unwrap_or_else(|| build_recurrence_index(findings));
     let mut first_seen: HashMap<String, usize> = HashMap::new();
+    // Worst severity already printed in full per signature. Signatures are
+    // severity-independent, so folding on first-seen alone would stub out a
+    // critical detection behind a warning's block and hide its occurrence
+    // count, timestamps and suggestion.
+    let mut printed_worst: HashMap<String, Severity> = HashMap::new();
     let mut last_was_stub = false;
     for (i, finding) in findings.iter().enumerate() {
         let key = recurrence_key(finding);
-        if let Some(&first) = first_seen.get(&key) {
+        let outranks_printed = printed_worst
+            .get(&key)
+            .is_none_or(|worst| finding.severity < *worst);
+        if !outranks_printed {
+            let first = first_seen.get(&key).copied().unwrap_or(i + 1);
             print_repeat_stub(i, finding, first, colors);
             last_was_stub = true;
             continue;
@@ -443,7 +452,8 @@ pub(crate) fn print_findings_with_recurrence(
             println!();
             last_was_stub = false;
         }
-        first_seen.insert(key.clone(), i + 1);
+        printed_worst.insert(key.clone(), finding.severity.clone());
+        first_seen.entry(key.clone()).or_insert(i + 1);
         print_finding_entry(i, finding, colors);
         if let Some(stats) = recurrence.get(&key).filter(|s| s.count > 1) {
             let AnsiColors { cyan, reset, .. } = colors;
@@ -1447,6 +1457,37 @@ mod tests {
             recurrence_key(&same),
             "trace id must not split the group"
         );
+    }
+
+    #[test]
+    fn a_worse_severity_still_prints_in_full_after_a_stub() {
+        // Signatures ignore severity, so a critical arriving after a
+        // warning on the same signature must not be reduced to a stub.
+        let mut warn = sample_finding();
+        warn.signature = "sig".to_string();
+        warn.severity = Severity::Warning;
+        let mut crit = sample_finding();
+        crit.signature = "sig".to_string();
+        crit.severity = Severity::Critical;
+        crit.trace_id = "trace-crit".to_string();
+        let findings = vec![warn, crit];
+
+        // The fold prints to stdout, so assert on the decision the loop
+        // makes: the critical outranks the warning already printed.
+        let mut printed_worst: HashMap<String, Severity> = HashMap::new();
+        let mut full_blocks = 0;
+        for f in &findings {
+            let key = recurrence_key(f);
+            let outranks = printed_worst
+                .get(&key)
+                .is_none_or(|worst| f.severity < *worst);
+            if outranks {
+                printed_worst.insert(key, f.severity.clone());
+                full_blocks += 1;
+            }
+        }
+        assert_eq!(full_blocks, 2, "the critical must get its own full block");
+        assert_eq!(printed_worst["sig"], Severity::Critical);
     }
 
     #[test]
