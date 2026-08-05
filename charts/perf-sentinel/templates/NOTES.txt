@@ -60,9 +60,15 @@ docs/HELM-DEPLOYMENT.md ("StatefulSet").
 
 Heads up: an Ingress publishes this release. perf-sentinel has no embedded
 IAM, so whoever reaches {{ range .Values.ingress.hosts }}{{ .host | default "any host" }} {{ end }}can POST traces, read /api/findings
-(your SQL templates and endpoint names) and acknowledge findings. Put
-authentication in front of it, an SSO proxy or a controller auth annotation,
-see docs/HELM-DEPLOYMENT.md ("Ingress").
+(your SQL templates and endpoint names) and acknowledge findings. That is
+acceptable only while the ingress controller itself stays unreachable from
+outside your network. If it is reachable, or you are unsure, put an SSO proxy
+or a controller auth annotation in front, see docs/HELM-DEPLOYMENT.md
+("Ingress").
+{{- if .Values.networkPolicy.enabled }}
+NetworkPolicy is on: allow the controller's pods as a peer, or every request
+through this Ingress times out.
+{{- end }}
 {{- end }}
 {{- if not .Values.networkPolicy.enabled }}
 

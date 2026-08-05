@@ -25,8 +25,10 @@ the chart version, to know which daemon image ships.
   one: perf-sentinel has no embedded IAM, so publishing it exposes OTLP
   ingest, `/api/findings` (SQL templates and endpoint names) and the ack write
   endpoints to whoever reaches the host. `helm install` prints that warning
-  when the Ingress is on, and `docs/HELM-DEPLOYMENT.md` documents the SSO
-  proxy and controller-auth shapes. Enabling an Ingress does not relax the
+  when the Ingress is on, and `docs/HELM-DEPLOYMENT.md` documents the two
+  supported postures: internal-only, where the boundary is the ingress
+  controller's own exposure and the NetworkPolicy, and authenticated via an
+  SSO proxy once the host resolves beyond that. Enabling an Ingress does not relax the
   NetworkPolicy: with both on, the controller's pods must be allowed as a
   peer or every request times out.
 

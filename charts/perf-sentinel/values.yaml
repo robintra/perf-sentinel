@@ -179,13 +179,23 @@ service:
 # reaches the host. The chart's threat model is a non-exposed cluster
 # network bounded by the Service and the optional NetworkPolicy.
 #
-# If you enable this, put authentication in front of it. The supported shape
-# is an SSO proxy (oauth2-proxy + nginx, see docs/QUERY-API.md), either as
-# the Ingress backend or as an ingress-controller auth annotation, e.g. for
-# ingress-nginx:
+# Two postures are supported, pick one deliberately.
+#
+# Internal-only: the Ingress rides a controller that is itself unreachable
+# from outside your network (no public load balancer in front of it), and the
+# NetworkPolicy allows that controller's pods. The boundary is then the
+# controller's own exposure. Verify that assumption rather than inherit it: a
+# shared controller often carries a public listener alongside the internal one.
+#
+# Exposed beyond that: put authentication in front. The supported shape is an
+# SSO proxy (oauth2-proxy + nginx, see docs/QUERY-API.md), either as the
+# Ingress backend or as a controller auth annotation, e.g. for ingress-nginx:
 #   annotations:
 #     nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy/oauth2/auth"
 #     nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy/oauth2/start?rd=$escaped_request_uri"
+# Only the SSO path gives a per-person audit `by` on acknowledgments; the
+# shared-key option (PERF_SENTINEL_ACK_API_KEY) gates ack writes alone and
+# leaves every read open.
 # Terminate TLS at the controller: the daemon speaks plaintext HTTP unless
 # you configure [daemon.tls], and the chart does not wire certificates here.
 ingress:
