@@ -814,6 +814,26 @@ but on a shared one it publishes the API far more broadly than intended.
 Enabling an Ingress does not relax the NetworkPolicy. If both are on, the
 controller's pods must be allowed as a peer, otherwise the Ingress
 resolves and every request times out against a policy that denies it.
+Allow the controller's namespace by its automatic label, which Kubernetes
+sets on every namespace since 1.21, rather than by a label the controller
+chart may or may not apply:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceSelectors:
+      # ingress-nginx installed in its own namespace. Use `traefik`,
+      # `kube-system`, or whatever `kubectl get pods -A | grep ingress`
+      # reports for your cluster.
+      - matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+```
+
+A quick way to confirm the peer is the one blocking: with the Ingress
+enabled and requests timing out, set `networkPolicy.enabled=false` for
+one upgrade. If requests start flowing, the selector is what is missing.
+Turn it back on before you leave it that way.
 
 ## Observability
 
