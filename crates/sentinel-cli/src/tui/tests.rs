@@ -58,19 +58,6 @@ fn make_test_app() -> App {
         },
     ];
 
-    let detect_config = DetectConfig {
-        n_plus_one_threshold: 5,
-        window_ms: 500,
-        slow_threshold_ms: 500,
-        slow_min_occurrences: 3,
-        max_fanout: 20,
-        chatty_service_min_calls: 15,
-        pool_saturation_concurrent_threshold: 10,
-        serialized_min_sequential: 3,
-        sanitizer_aware_classification:
-            sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
-    };
-
     let traces = vec![
         Trace {
             trace_id: "trace-1".to_string(),
@@ -82,7 +69,7 @@ fn make_test_app() -> App {
         },
     ];
 
-    App::new(findings, traces, detect_config)
+    App::new(findings, traces)
 }
 
 /// A 100x20 Inspect area at the origin: vertical border at row 10
@@ -1621,22 +1608,7 @@ fn opening_ack_modal_with_no_finding_is_silent() {
     // `current_finding()` which returns None, the modal stays
     // hidden. Mirror that path here by reading current_finding and
     // confirming we cannot dispatch an open with an empty signature.
-    let app = App::new(
-        Vec::new(),
-        Vec::new(),
-        DetectConfig {
-            n_plus_one_threshold: 5,
-            window_ms: 500,
-            slow_threshold_ms: 500,
-            slow_min_occurrences: 3,
-            max_fanout: 20,
-            chatty_service_min_calls: 15,
-            pool_saturation_concurrent_threshold: 10,
-            serialized_min_sequential: 3,
-            sanitizer_aware_classification:
-                sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
-        },
-    );
+    let app = App::new(Vec::new(), Vec::new());
     assert!(app.current_finding().is_none());
     // The dispatch in run_loop is `if let Some(finding) = ...`, so
     // no current_finding means no `open_ack` call.

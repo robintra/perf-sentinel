@@ -41,9 +41,9 @@ fn exit_with_error(err: &dyn std::fmt::Display) -> ! {
 pub(crate) fn launch_unified_tui(
     report: sentinel_core::report::Report,
     mut traces: Vec<sentinel_core::correlate::Trace>,
-    detect_config: sentinel_core::detect::DetectConfig,
     initial_view: tui::View,
     focus_trace_id: Option<&str>,
+    initial_sort: Option<crate::render::FindingsSort>,
 ) {
     if traces.is_empty() {
         // A daemon snapshot carries masked span trees: rebuild them so
@@ -86,7 +86,8 @@ pub(crate) fn launch_unified_tui(
         analysis: report.analysis,
     };
 
-    let mut app = tui::App::new(report.findings, traces, detect_config)
+    let mut app = tui::App::new(report.findings, traces)
+        .with_initial_sort(initial_sort)
         .with_correlations(report.correlations)
         .with_summary(summary)
         .with_initial_view(initial_view);
@@ -108,7 +109,6 @@ pub(crate) fn cmd_inspect(
     require_terminal_or_exit();
     let config = load_config(config_path);
     let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
 
     // Auto-detect events array vs pre-computed Report object, same shape
     // contract as `report --input`. A Report payload (e.g. a daemon
@@ -123,7 +123,7 @@ pub(crate) fn cmd_inspect(
         no_acknowledgments,
         origin,
     );
-    launch_unified_tui(report, traces, detect_config, tui::View::Inspect, None);
+    launch_unified_tui(report, traces, tui::View::Inspect, None, None);
 }
 
 /// `analyze --tui`: run the full pipeline (as `analyze` does) but open the
@@ -133,11 +133,11 @@ pub(crate) fn cmd_analyze_tui(
     config_path: Option<&std::path::Path>,
     acknowledgments_path: Option<&std::path::Path>,
     no_acknowledgments: bool,
+    sort: Option<crate::render::FindingsSort>,
 ) {
     require_terminal_or_exit();
     let config = load_config(config_path);
     let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
     let (mut report, traces, origin) = load_report_from_input(&raw, &config);
     apply_acknowledgments_or_exit(
         &mut report,
@@ -146,7 +146,7 @@ pub(crate) fn cmd_analyze_tui(
         no_acknowledgments,
         origin,
     );
-    launch_unified_tui(report, traces, detect_config, tui::View::Analyze, None);
+    launch_unified_tui(report, traces, tui::View::Analyze, None, sort);
 }
 
 /// `explain --tui`: load the full report (all traces, unlike the
@@ -160,7 +160,6 @@ pub(crate) fn cmd_explain_tui(
     require_terminal_or_exit();
     let config = load_config(config_path);
     let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
     let (mut report, traces, origin) = load_report_from_input(&raw, &config);
     // Validate the trace exists before entering the TUI, mirroring the
     // non-interactive `explain`'s clear error path including the
@@ -188,13 +187,7 @@ pub(crate) fn cmd_explain_tui(
     // Analyze views show the same finding population as `inspect` and
     // `analyze --tui`.
     apply_acknowledgments_or_exit(&mut report, &config, None, false, origin);
-    launch_unified_tui(
-        report,
-        traces,
-        detect_config,
-        tui::View::Explain,
-        Some(trace_id),
-    );
+    launch_unified_tui(report, traces, tui::View::Explain, Some(trace_id), None);
 }
 
 /// `disclose --tui`: read-only preview. Loads the org-config, scans the cold
@@ -225,11 +218,8 @@ pub(crate) fn cmd_disclose_tui(
         chrono::Utc::now().date_naive(),
     );
 
-    // The Disclose tab reads only `app.disclose`; findings/traces/detect are
-    // unused, so a default detect config and empty inputs suffice.
-    let config = load_config(None);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-    let mut app = tui::App::new(Vec::new(), Vec::new(), detect_config)
+    // The Disclose tab reads only `app.disclose`, empty inputs suffice.
+    let mut app = tui::App::new(Vec::new(), Vec::new())
         .with_disclose(state)
         .with_initial_view(tui::View::Disclose);
     if let Err(e) = tui::run(&mut app) {

@@ -63,8 +63,7 @@ pub(crate) fn cmd_demo(
     #[cfg(feature = "tui")]
     if tui {
         require_terminal_or_exit();
-        let detect_config = sentinel_core::detect::DetectConfig::from(&config);
-        launch_unified_tui(report, traces, detect_config, tui::View::Analyze, None);
+        launch_unified_tui(report, traces, tui::View::Analyze, None, None);
         return;
     }
 

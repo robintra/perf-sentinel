@@ -1120,6 +1120,7 @@ async fn dispatch_command(command: Commands) {
                     config.as_deref(),
                     acknowledgments.as_deref(),
                     no_acknowledgments,
+                    sort,
                 );
                 return;
             }
