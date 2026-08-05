@@ -820,14 +820,28 @@ fn has_http_signal(c: &ClassifiedAttrs<'_>) -> bool {
 /// `classify_io_event` and the stitch pre-pass so the two can never
 /// disagree on what counts as a statement.
 fn resolve_sql_statement<'a>(c: &ClassifiedAttrs<'a>, db_system: Option<&str>) -> Option<&'a str> {
-    c.db_statement.or(c.db_query_text).or_else(|| {
-        c.dd_resource
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .filter(|_| {
-                !has_http_signal(c) && db_system.is_some_and(crate::ingest::is_sql_db_system)
-            })
-    })
+    // A blank statement is a missing one. Instrumentations do emit
+    // `db.statement=""` (a redacting layer that keeps the key), and taking
+    // it at face value produced a SQL event with an empty target: it
+    // normalized to an empty template, grouped with every other blank one
+    // on the endpoint, and surfaced as `redundant_sql` telling the team to
+    // cache an operation with no name. Treated as absent, the span becomes
+    // the `missing_db_statement` gap it always was, which is what the
+    // retention metrics and `min_usable_span_ratio` are there to show.
+    // Blank-checked, not trimmed: trimming a non-blank statement would
+    // change its ack signature.
+    let non_blank = |s: &&'a str| !s.trim().is_empty();
+    c.db_statement
+        .filter(non_blank)
+        .or_else(|| c.db_query_text.filter(non_blank))
+        .or_else(|| {
+            c.dd_resource
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .filter(|_| {
+                    !has_http_signal(c) && db_system.is_some_and(crate::ingest::is_sql_db_system)
+                })
+        })
 }
 
 // ── Split DB span stitching ─────────────────────────────────────────
