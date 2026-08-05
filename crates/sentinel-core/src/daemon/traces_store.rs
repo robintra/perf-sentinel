@@ -45,8 +45,10 @@ impl TracesStore {
     }
 
     /// Retain the traces that `findings` point at, evicting oldest
-    /// first past the capacity. Traces already held are skipped, so a
-    /// pattern re-detected on the same trace does not churn the buffer.
+    /// first past the capacity. A trace id already held is replaced in
+    /// place: the window flushes the same id more than once (TTL split,
+    /// LRU eviction plus late spans), and keeping the first flush pairs
+    /// later findings with a tree missing their evidence spans.
     pub async fn retain_for(&self, traces: &[Trace], findings: &[Finding]) {
         if self.capacity == 0 || findings.is_empty() {
             return;
@@ -54,11 +56,22 @@ impl TracesStore {
         let wanted: HashSet<&str> = findings.iter().map(|f| f.trace_id.as_str()).collect();
         let mut inner = self.inner.write().await;
         for trace in traces {
-            if !wanted.contains(trace.trace_id.as_str()) || inner.ids.contains(&trace.trace_id) {
+            if !wanted.contains(trace.trace_id.as_str()) {
+                continue;
+            }
+            let embedded = EmbeddedTrace::from_trace(trace);
+            if inner.ids.contains(&trace.trace_id) {
+                if let Some(slot) = inner
+                    .traces
+                    .iter_mut()
+                    .find(|t| t.trace_id == trace.trace_id)
+                {
+                    *slot = embedded;
+                }
                 continue;
             }
             inner.ids.insert(trace.trace_id.clone());
-            inner.traces.push_back(EmbeddedTrace::from_trace(trace));
+            inner.traces.push_back(embedded);
             while inner.traces.len() > self.capacity {
                 if let Some(evicted) = inner.traces.pop_front() {
                     inner.ids.remove(&evicted.trace_id);
@@ -84,12 +97,15 @@ impl TracesStore {
             .collect()
     }
 
-    /// Number of retained traces, for the occupancy gauge and tests.
+    /// Number of retained traces. Test-only: no occupancy gauge is
+    /// wired for this store.
+    #[cfg(test)]
     pub async fn len(&self) -> usize {
         self.inner.read().await.traces.len()
     }
 
     /// Whether the store holds no trace.
+    #[cfg(test)]
     pub async fn is_empty(&self) -> bool {
         self.len().await == 0
     }
@@ -175,6 +191,23 @@ mod tests {
         store.retain_for(&[trace("b")], &[finding_on("b")]).await;
         assert_eq!(store.len().await, 2);
         assert_eq!(store.snapshot_for(&[finding_on("a")]).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_reflushed_trace_replaces_its_stored_spans() {
+        // TTL split: the second flush of the same id carries the spans
+        // later findings were detected on, so it must win.
+        let store = TracesStore::new(2);
+        store.retain_for(&[trace("a")], &[finding_on("a")]).await;
+        let mut second = trace("a");
+        second.spans[0].event.span_id = "s2".to_string();
+        store.retain_for(&[second], &[finding_on("a")]).await;
+        let kept = store.snapshot_for(&[finding_on("a")]).await;
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            kept[0].spans[0].span_id, "s2",
+            "the most recent flush's spans must be the ones retained"
+        );
     }
 
     #[tokio::test]

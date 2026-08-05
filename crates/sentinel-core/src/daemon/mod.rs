@@ -198,9 +198,14 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     ));
     // Masked span trees for the findings the store keeps, so an exported
     // report still draws a tree once the correlation window has moved on.
-    let traces_store = Arc::new(traces_store::TracesStore::new(
-        config.daemon.max_retained_traces,
-    ));
+    // Only /api/export/report reads it: with the API off or the findings
+    // store disabled, retention would pin memory nothing can serve.
+    let traces_capacity = if config.daemon.api_enabled && config.daemon.max_retained_findings > 0 {
+        config.daemon.max_retained_traces
+    } else {
+        0
+    };
+    let traces_store = Arc::new(traces_store::TracesStore::new(traces_capacity));
     let correlator = setup_correlator(&config);
     // Shared cell mutated by the event loop after each batch and read
     // by the /api/export/report handler. Initialized to disabled(0):
