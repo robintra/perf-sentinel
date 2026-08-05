@@ -8,7 +8,7 @@
 
 use crate::QueryAction;
 use crate::QueryOutputFormat;
-use crate::render::{AnsiColors, ansi_colors, print_findings};
+use crate::render::{AnsiColors, ansi_colors};
 
 /// Entry point for the `query` subcommand. Validates the daemon URL,
 /// dispatches to the per-action handler and exits with a clear error if
@@ -193,6 +193,9 @@ fn print_findings_text(body: &[u8], daemon_url: &str, sort: Option<crate::render
         .filter(|sf| sf.seen_count > 1)
         .map(|sf| (sf.finding.signature.clone(), sf.seen_count))
         .collect();
+    // The daemon folded these rows: seen_count is the per-problem trace
+    // tally the shared renderer cannot recount from single rows.
+    let recurrence = stored_recurrence_index(&stored);
     let findings: Vec<sentinel_core::detect::Finding> =
         stored.into_iter().map(|sf| sf.finding).collect();
     if findings.is_empty() {
@@ -221,7 +224,29 @@ fn print_findings_text(body: &[u8], daemon_url: &str, sort: Option<crate::render
         );
     }
     println!();
-    print_findings(&findings, false);
+    crate::render::print_findings_with_recurrence(&findings, false, Some(recurrence));
+}
+
+/// Per-signature tallies from folded rows: the count is the daemon's,
+/// the ops total the same `seen_count x` representative estimate the
+/// sort uses.
+fn stored_recurrence_index(
+    stored: &[sentinel_core::daemon::findings_store::StoredFinding],
+) -> std::collections::HashMap<String, crate::render::RecurrenceStats> {
+    stored
+        .iter()
+        .map(|sf| {
+            let count = usize::try_from(sf.seen_count).unwrap_or(usize::MAX);
+            let ops = usize::try_from(stored_impact(sf)).unwrap_or(usize::MAX);
+            (
+                crate::render::recurrence_key(&sf.finding),
+                crate::render::RecurrenceStats {
+                    count,
+                    total_ops: ops,
+                },
+            )
+        })
+        .collect()
 }
 
 fn render_explain_response(body: &[u8], format: QueryOutputFormat) {
@@ -613,6 +638,20 @@ mod tests {
             "seen_count": seen,
         }))
         .expect("StoredFinding deserializes")
+    }
+
+    #[test]
+    fn stored_recurrence_index_carries_the_daemon_tally() {
+        let mut info_row = stored("info", 40, 2);
+        info_row.finding.signature = "sig-info".to_string();
+        let mut crit_row = stored("critical", 1, 9);
+        crit_row.finding.signature = "sig-crit".to_string();
+        let rows = vec![info_row, crit_row];
+        let index = stored_recurrence_index(&rows);
+        assert_eq!(index.len(), 2);
+        let info = &index["sig-info"];
+        assert_eq!(info.count, 40);
+        assert_eq!(info.total_ops, 80, "seen_count x representative ops");
     }
 
     #[test]

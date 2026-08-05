@@ -400,6 +400,17 @@ fn print_acknowledged_summary(report: &Report, force_color: bool, show_acknowled
 }
 
 pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool) {
+    print_findings_with_recurrence(findings, force_color, None);
+}
+
+/// Same rendering with the recurrence tallies supplied by the caller:
+/// `query findings` receives rows the daemon already folded, so counting
+/// signatures here would find 1 everywhere and lose the story.
+pub(crate) fn print_findings_with_recurrence(
+    findings: &[sentinel_core::detect::Finding],
+    force_color: bool,
+    external: Option<HashMap<String, RecurrenceStats>>,
+) {
     let colors = ansi_colors(force_color);
     println!(
         "{}Found {} finding(s):{}",
@@ -418,7 +429,7 @@ pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_
     // The first one prints in full with its recurrence tally, the
     // repeats compact to one line each: on real captures the repeats
     // were the bulk of the output without adding anything to read.
-    let recurrence = build_recurrence_index(findings);
+    let recurrence = external.unwrap_or_else(|| build_recurrence_index(findings));
     let mut first_seen: HashMap<String, usize> = HashMap::new();
     let mut last_was_stub = false;
     for (i, finding) in findings.iter().enumerate() {
@@ -455,14 +466,14 @@ pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_
 
 /// Aggregate view of one signature across its detections, the terminal
 /// twin of the dashboard's recurrence index.
-struct RecurrenceStats {
-    count: usize,
-    total_ops: usize,
+pub(crate) struct RecurrenceStats {
+    pub(crate) count: usize,
+    pub(crate) total_ops: usize,
 }
 
 /// Group detections like acknowledgments do, falling back to the
 /// stable fields when a finding predates signatures.
-fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
+pub(crate) fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
     if f.signature.is_empty() {
         format!(
             "{}|{}|{}|{}",
