@@ -1082,7 +1082,7 @@ mod tests {
     fn noop_traces_store() -> &'static crate::daemon::traces_store::TracesStore {
         static STORE: std::sync::OnceLock<crate::daemon::traces_store::TracesStore> =
             std::sync::OnceLock::new();
-        STORE.get_or_init(|| crate::daemon::traces_store::TracesStore::new(0))
+        STORE.get_or_init(|| crate::daemon::traces_store::TracesStore::new(0, 0))
     }
 
     fn test_ctx<'a>(
@@ -1904,7 +1904,7 @@ mod tests {
     ) -> AnalysisWorkerCtx {
         AnalysisWorkerCtx {
             detect_config: default_detect_config(),
-            traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(0)),
+            traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(0, 0)),
             green_enabled: true,
             confidence: Confidence::DaemonStaging,
             metrics: metrics.clone(),

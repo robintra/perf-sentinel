@@ -633,46 +633,26 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
     }
 }
 
-/// Byte budget for the span trees inside `/api/export/report`: half of
-/// `http_client::MAX_BODY_BYTES`, leaving the other half for findings
-/// and the green summary.
+/// Byte budget for the span trees inside `/api/export/report`, half of
+/// `http_client::MAX_BODY_BYTES`. This bounds the trees' share only:
+/// findings and correlations are capped by count, not bytes, so a
+/// pathological store can in principle still overflow the fetch limit.
+/// That risk predates the trees, the budget keeps them from widening it.
 const EMBEDDED_TRACES_BYTE_BUDGET: usize = crate::http_client::MAX_BODY_BYTES / 2;
 
 /// Span trees for the exported findings. The correlation window has
 /// usually dropped them by now, which is why they are retained
 /// separately, and why a trace older than the retention simply comes
-/// back absent. Capped in bytes: every CLI consumer fetches this body
-/// through `http_client`'s `MAX_BODY_BYTES` limit, and an over-limit
-/// export would silently break query monitor and the TUI.
+/// back absent. The store applies the byte budget itself, measuring
+/// before cloning and skipping oversized traces rather than stopping.
 async fn export_embedded_traces(
     state: &QueryApiState,
     findings: &[detect::Finding],
 ) -> Vec<crate::report::EmbeddedTrace> {
-    cap_embedded_traces_bytes(
-        state.traces_store.snapshot_for(findings).await,
-        EMBEDDED_TRACES_BYTE_BUDGET,
-    )
-}
-
-/// Keep the newest traces that fit `budget` serialized bytes, in their
-/// original order. Newest win because their findings are the ones an
-/// operator is most likely to open.
-fn cap_embedded_traces_bytes(
-    traces: Vec<crate::report::EmbeddedTrace>,
-    budget: usize,
-) -> Vec<crate::report::EmbeddedTrace> {
-    let mut spent = 0usize;
-    let mut kept: Vec<crate::report::EmbeddedTrace> = traces
-        .into_iter()
-        .rev()
-        .take_while(|t| {
-            let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
-            spent = spent.saturating_add(size);
-            spent <= budget
-        })
-        .collect();
-    kept.reverse();
-    kept
+    state
+        .traces_store
+        .snapshot_for(findings, EMBEDDED_TRACES_BYTE_BUDGET)
+        .await
 }
 
 /// TODO: the `Report` assembly below duplicates the one in

@@ -14,7 +14,7 @@ fn make_state_with_correlator(
 
     Arc::new(QueryApiState {
         findings_store: Arc::new(FindingsStore::new(100)),
-        traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(50)),
+        traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(50, 1_000)),
         window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
             WindowConfig::default(),
         ))),
@@ -380,36 +380,6 @@ async fn handle_export_report_returns_200_with_empty_envelope_on_cold_start() {
         report.warnings,
         vec!["daemon has not yet processed any events".to_string()]
     );
-}
-
-#[test]
-fn cap_embedded_traces_bytes_keeps_the_newest_that_fit() {
-    let trace = |id: &str, spans: usize| crate::report::EmbeddedTrace {
-        trace_id: id.to_string(),
-        spans: (0..spans)
-            .map(|i| crate::report::EmbeddedSpan {
-                span_id: format!("s{i}"),
-                parent_span_id: None,
-                service: "svc".to_string(),
-                endpoint: "GET /x".to_string(),
-                event_type: crate::event::EventType::Sql,
-                operation: "SELECT".to_string(),
-                template: "select * from t where id = ?".to_string(),
-                duration_us: 100,
-                status_code: None,
-            })
-            .collect(),
-    };
-    let traces = vec![trace("old", 50), trace("mid", 50), trace("new", 50)];
-    let one_len = serde_json::to_string(&traces[0]).unwrap().len();
-
-    // Budget for two: the oldest is dropped, order preserved.
-    let kept = super::cap_embedded_traces_bytes(traces.clone(), one_len * 2 + 1);
-    let ids: Vec<&str> = kept.iter().map(|t| t.trace_id.as_str()).collect();
-    assert_eq!(ids, vec!["mid", "new"]);
-
-    // A budget too small for even one keeps nothing rather than lying.
-    assert!(super::cap_embedded_traces_bytes(traces, one_len - 1).is_empty());
 }
 
 #[tokio::test]
