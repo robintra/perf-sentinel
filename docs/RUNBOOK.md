@@ -279,11 +279,21 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 
    ```bash
    curl -s 'http://perf-sentinel:4318/api/findings?severity=critical&limit=200' \
-     | jq '[.[].finding | {finding_type, service}]
+     | jq '[.[] | {finding_type: .finding.finding_type, service: .finding.service, seen: .seen_count}]
           | group_by(.service, .finding_type)
-          | map({key: "\(.[0].service)/\(.[0].finding_type)", count: length})
-          | sort_by(-.count)'
+          | map({key: "\(.[0].service)/\(.[0].finding_type)",
+                 problems: length,
+                 detections: (map(.seen) | add)})
+          | sort_by(-.detections)'
    ```
+
+   Since 0.9.29 this endpoint returns one row per distinct problem, not
+   one per detection, so ranking by row count ranks by variety rather
+   than by volume: a service whose spike is one pattern recurring on 200
+   traces would sort last. Rank on `seen_count`, as above, to rank by how
+   often a problem fired; `problems` still says how many distinct ones a
+   service carries. `seen_count` counts the detections still retained in
+   the ring buffer, so it falls as older ones age out.
 
 2. **Grab an exemplar `trace_id`** for each top pattern. In Grafana, the ◆ on the metric is clickable; from the command line:
 

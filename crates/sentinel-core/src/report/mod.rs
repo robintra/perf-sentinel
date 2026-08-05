@@ -81,11 +81,13 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub correlations: Vec<CrossTraceCorrelation>,
     /// Per-signature recurrence tallies, daemon-only like
-    /// [`Self::correlations`]. The daemon findings store coalesces by
-    /// canonical signature, so one entry in [`Self::findings`] can stand
-    /// for many per-trace detections; this carries how many, keyed by
-    /// the finding's `signature`. Empty on batch reports, where each
-    /// finding is detected once per run and the count would always be 1.
+    /// [`Self::correlations`]. [`Self::findings`] carries one entry per
+    /// per-trace detection, so a recurring pattern appears several
+    /// times; this says which of those rows are the same problem, keyed
+    /// by `signature`, for signatures seen more than once. Empty on
+    /// batch reports, which carry the same repetition but no tally:
+    /// `analyze` sees one window, so its `findings` already ARE the
+    /// whole story.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub finding_occurrences: Vec<FindingOccurrence>,
     /// Snapshot- or analysis-level warnings surfaced to consumers. The
@@ -211,10 +213,13 @@ pub struct FindingOccurrence {
     /// Canonical signature of the finding this tally belongs to, the
     /// same key acknowledgments use.
     pub signature: String,
-    /// Number of per-trace detections coalesced into one entry.
+    /// Number of per-trace detections carrying this signature. Counts
+    /// what the daemon still retains, so it falls as older detections
+    /// age out of the ring buffer and resets on restart, never a
+    /// lifetime total.
     pub seen_count: u64,
-    /// Unix timestamp (ms) of the first detection the store retained
-    /// for this signature.
+    /// Unix timestamp (ms) of the oldest detection the store still
+    /// retains for this signature.
     pub first_seen_ms: u64,
 }
 

@@ -1249,12 +1249,12 @@ fn otlp_request_with_gaps(usable: usize, gaps: usize) -> String {
 
 #[test]
 fn cli_analyze_ci_fails_on_unusable_instrumentation() {
-    // 1 usable SQL span, 9 without db.statement: zero findings, but with
-    // min_usable_span_ratio = 0.9 the gate must fail instead of passing
-    // as a false green.
+    // 4 usable SQL spans, 36 without db.statement: zero findings, but
+    // with min_usable_span_ratio = 0.9 the gate must fail instead of
+    // passing as a false green. 40 spans clears MIN_RATIO_SAMPLE.
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let input_path = dir.path().join("traces.json");
-    fs::write(&input_path, otlp_request_with_gaps(1, 9)).expect("failed to write fixture");
+    fs::write(&input_path, otlp_request_with_gaps(4, 36)).expect("failed to write fixture");
     let config_path = dir.path().join("config.toml");
     fs::write(&config_path, "[thresholds]\nmin_usable_span_ratio = 0.9\n")
         .expect("failed to write config");
@@ -1280,10 +1280,10 @@ fn cli_analyze_ci_fails_on_unusable_instrumentation() {
     );
     let report: Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(report["analysis"]["ingest"]["spans_received"], 10);
+    assert_eq!(report["analysis"]["ingest"]["spans_received"], 40);
     assert_eq!(
         report["analysis"]["ingest"]["filtered_missing_db_statement"],
-        9
+        36
     );
     let rule = report["quality_gate"]["rules"]
         .as_array()
@@ -1302,7 +1302,7 @@ fn cli_analyze_ingest_tally_reported_without_threshold() {
     // thin report is distinguishable from a clean one.
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let input_path = dir.path().join("traces.json");
-    fs::write(&input_path, otlp_request_with_gaps(1, 9)).expect("failed to write fixture");
+    fs::write(&input_path, otlp_request_with_gaps(4, 36)).expect("failed to write fixture");
 
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args(["analyze", "--input", input_path.to_str().unwrap(), "--ci"])
@@ -1317,7 +1317,7 @@ fn cli_analyze_ingest_tally_reported_without_threshold() {
     );
     let report: Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(report["analysis"]["ingest"]["spans_received"], 10);
+    assert_eq!(report["analysis"]["ingest"]["spans_received"], 40);
     let ratio = report["analysis"]["ingest"]["usable_span_ratio"]
         .as_f64()
         .expect("ratio present");

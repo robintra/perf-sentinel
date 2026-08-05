@@ -630,14 +630,11 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
     }
 }
 
-/// Flatten coalesced entries into exported findings plus their
-/// recurrence tallies. Without the tallies, a pattern seen on 19 traces
-/// exports as one row with no sign it recurred. Single sightings are
-/// omitted as noise, and an unsigned finding cannot be keyed back.
-fn split_findings_and_tallies(
-    coalesced: Vec<StoredFinding>,
-) -> (Vec<detect::Finding>, Vec<crate::report::FindingOccurrence>) {
-    let tallies = coalesced
+/// Recurrence tallies from folded entries, so a reader can tell that
+/// several exported rows are one problem. Single sightings are omitted
+/// as noise, and an unsigned finding cannot be keyed back.
+fn occurrence_tallies(coalesced: &[StoredFinding]) -> Vec<crate::report::FindingOccurrence> {
+    coalesced
         .iter()
         .filter(|s| s.seen_count > 1 && !s.finding.signature.is_empty())
         .map(|s| crate::report::FindingOccurrence {
@@ -645,8 +642,7 @@ fn split_findings_and_tallies(
             seen_count: s.seen_count,
             first_seen_ms: s.first_seen_ms,
         })
-        .collect();
-    (coalesced.into_iter().map(|s| s.finding).collect(), tallies)
+        .collect()
 }
 
 /// TODO: the `Report` assembly below duplicates the one in
@@ -718,13 +714,15 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             limit: MAX_FINDINGS_LIMIT,
         })
         .await;
-    // The gate counts raw per-trace detections, the exported list folds
-    // them: a pattern on 20 traces is 20 findings against a threshold
-    // but one row for a reader. Folding before the gate would silently
-    // turn every count-based rule into a distinct-problems rule.
-    let gate_findings: Vec<detect::Finding> = stored.iter().map(|s| s.finding.clone()).collect();
-    let (findings, finding_occurrences) =
-        split_findings_and_tallies(coalesce_by_signature(&stored));
+    // Raw per-trace detections, NOT folded. This snapshot is documented
+    // as shape-identical to `analyze --format json`, and every consumer
+    // that reloads it re-derives the gate from `findings` (see
+    // `acknowledgments::apply_to_report`). Exporting a folded list beside
+    // a gate counted on instances makes that recompute disagree with the
+    // verdict shipped in the same payload. The recurrence is carried
+    // alongside instead, in `finding_occurrences`.
+    let finding_occurrences = occurrence_tallies(&coalesce_by_signature(&stored));
+    let findings: Vec<detect::Finding> = stored.into_iter().map(|s| s.finding).collect();
 
     // Snapshot correlations, sorted + capped identically to
     // `/api/correlations` so both endpoints stay consistent.
@@ -750,7 +748,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         .scoring_config
         .clone_from(&state.scoring_config);
     let quality_gate =
-        crate::quality_gate::evaluate(&gate_findings, &green_summary, &state.thresholds, None);
+        crate::quality_gate::evaluate(&findings, &green_summary, &state.thresholds, None);
 
     // usize::try_from guards 32-bit targets where a 5-billion-event
     // counter would overflow a usize. On 64-bit the fallback branch is

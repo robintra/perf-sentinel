@@ -41,10 +41,19 @@ pub trait MetricsSink: Send + Sync {
     }
 }
 
-/// `retained / (retained + gap)`, or `None` when neither was seen.
+/// Spans of one I/O kind below which its analyzable share is not
+/// reported. A ratio over a handful of spans is noise, and it feeds a
+/// build-blocking gate rule: without a floor, a capture holding one
+/// statement-less DB span alongside 900 healthy HTTP spans scores 0.0
+/// and fails the build. A kind under the floor is left unjudged rather
+/// than judged badly.
+pub const MIN_RATIO_SAMPLE: u64 = 20;
+
+/// `retained / (retained + gap)`, or `None` when the kind was not seen
+/// at all or stayed under [`MIN_RATIO_SAMPLE`].
 fn ratio(retained: u64, gap: u64) -> Option<f64> {
     let denominator = retained + gap;
-    if denominator == 0 {
+    if denominator < MIN_RATIO_SAMPLE {
         return None;
     }
     #[allow(clippy::cast_precision_loss)] // span counts are far below 2^52
@@ -119,15 +128,15 @@ impl SpanConversionStats {
     }
 
     /// Analyzable share of the SQL spans: retained SQL over retained SQL
-    /// plus the spans dropped for a missing `db.statement`. `None` when
-    /// no SQL-shaped span was seen.
+    /// plus the spans dropped for a missing `db.statement`. `None` under
+    /// [`MIN_RATIO_SAMPLE`] SQL-shaped spans, too small a sample to judge.
     #[must_use]
     pub fn sql_usable_ratio(&self) -> Option<f64> {
         ratio(self.retained_sql, self.filtered_missing_db_statement)
     }
 
     /// Analyzable share of the outbound HTTP/RPC spans, same shape
-    /// against `http.url`. `None` when none was seen.
+    /// against `http.url` and the same sample floor.
     #[must_use]
     pub fn http_usable_ratio(&self) -> Option<f64> {
         ratio(self.retained_http, self.filtered_missing_http_url)
@@ -144,7 +153,7 @@ impl SpanConversionStats {
     /// both ratios, mirroring the daemon's `instrumentation_gap_filtered`
     /// reasoning: a fleet exporting all its internal spans is healthy, a
     /// SQL span shipped without its query text is an instrumentation gap.
-    /// `None` when no I/O-shaped span was seen (nothing to judge).
+    /// `None` when neither kind reached [`MIN_RATIO_SAMPLE`] spans.
     #[must_use]
     pub fn usable_span_ratio(&self) -> Option<f64> {
         match (self.sql_usable_ratio(), self.http_usable_ratio()) {
