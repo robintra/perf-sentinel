@@ -2421,6 +2421,84 @@ fn report_carried_traces_render_when_no_trace_is_handed_over() {
 }
 
 #[test]
+fn report_carried_traces_of_hidden_findings_do_not_ship() {
+    // An acknowledged finding is filtered out of report.findings before
+    // render; its span tree must not survive inside the payload.
+    let f = finding("t-visible", "svc", "/ep", "select 1");
+    let mut report = minimal_report(vec![f]);
+    report.embedded_traces = vec![
+        crate::report::EmbeddedTrace::from_trace(&Trace {
+            trace_id: "t-visible".into(),
+            spans: vec![span("t-visible", "s1", None, "svc", "/ep", "select 1")],
+        }),
+        crate::report::EmbeddedTrace::from_trace(&Trace {
+            trace_id: "t-acked".into(),
+            spans: vec![span(
+                "t-acked",
+                "s2",
+                None,
+                "svc",
+                "/secret",
+                "select secret",
+            )],
+        }),
+    ];
+
+    let (html, _) = render(&report, &[], &opts("snapshot.json", None));
+    let payload: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
+    let ids: Vec<&str> = payload["embedded_traces"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|t| t["trace_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["t-visible"]);
+    assert!(
+        !html.contains("select secret"),
+        "a hidden finding's spans must not be greppable in the HTML"
+    );
+}
+
+#[test]
+fn report_carried_traces_honor_the_explicit_cap() {
+    let findings: Vec<Finding> = (0..3)
+        .map(|i| finding(&format!("t{i}"), "svc", "/ep", "select 1"))
+        .collect();
+    let mut report = minimal_report(findings);
+    report.embedded_traces = (0..3)
+        .map(|i| {
+            crate::report::EmbeddedTrace::from_trace(&Trace {
+                trace_id: format!("t{i}"),
+                spans: vec![span(&format!("t{i}"), "s1", None, "svc", "/ep", "select 1")],
+            })
+        })
+        .collect();
+
+    let (html, stats) = render(&report, &[], &opts("snapshot.json", Some(1)));
+    let payload: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
+    assert_eq!(payload["embedded_traces"].as_array().unwrap().len(), 1);
+    assert_eq!(stats.kept, 1);
+    assert_eq!(stats.total, 3);
+    assert_eq!(payload["trimmed_traces"]["kept"], 1);
+    assert_eq!(payload["trimmed_traces"]["total"], 3);
+}
+
+#[test]
+fn borrowed_size_probe_matches_owned_serialization() {
+    // The trim loop measures candidates through the borrowed twin; a
+    // drifted field would skew the size budget silently.
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans: vec![span("t1", "s1", Some("s0"), "svc", "/ep", "select 1")],
+    };
+    let owned = serde_json::to_string(&crate::report::EmbeddedTrace::from_trace(&trace)).unwrap();
+    let borrowed = serde_json::to_string(&super::embed_trace_ref(&trace)).unwrap();
+    assert_eq!(owned, borrowed);
+}
+
+#[test]
 fn handed_over_traces_win_over_the_report_copy() {
     let f = finding("t1", "svc", "/ep", "select 1");
     let mut report = minimal_report(vec![f]);

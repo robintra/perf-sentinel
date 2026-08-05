@@ -225,11 +225,13 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
         trimmed_findings,
     );
     // A report handed over without its input (a daemon snapshot) carries
-    // its own masked spans, already capped by the producer. Culprit
-    // highlighting is not rebuilt here, it needs the raw `Trace`, so the
-    // browser falls back to deriving what it can.
-    if payload.embedded_traces.is_empty() {
-        payload.embedded_traces.clone_from(&report.embedded_traces);
+    // its own masked spans. Culprit highlighting is not rebuilt here, it
+    // needs the raw `Trace`, so the browser falls back to deriving what
+    // it can.
+    if payload.embedded_traces.is_empty() && !report.embedded_traces.is_empty() {
+        let (selected, trimmed) = select_report_carried_traces(&report_embed, report, options);
+        payload.embedded_traces = selected;
+        payload.trimmed_traces = trimmed;
     }
     let kept = payload.embedded_traces.len();
     let total = payload.trimmed_traces.as_ref().map_or(kept, |s| s.total);
@@ -792,6 +794,99 @@ fn select_embedded_findings(
     (kept, Some(summary))
 }
 
+/// Borrowed mirror of [`EmbeddedTrace`], used only to measure a
+/// candidate's serialized size without cloning every span field. Must
+/// serialize identically to the owned type, asserted by
+/// `tests::borrowed_size_probe_matches_owned_serialization`.
+#[derive(Serialize)]
+struct EmbeddedTraceRef<'a> {
+    trace_id: &'a str,
+    spans: Vec<EmbeddedSpanRef<'a>>,
+}
+
+#[derive(Serialize)]
+struct EmbeddedSpanRef<'a> {
+    span_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_span_id: Option<&'a str>,
+    service: &'a str,
+    endpoint: &'a str,
+    event_type: &'a crate::event::EventType,
+    operation: &'a str,
+    template: &'a str,
+    duration_us: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status_code: Option<u16>,
+}
+
+fn embed_trace_ref(t: &Trace) -> EmbeddedTraceRef<'_> {
+    EmbeddedTraceRef {
+        trace_id: t.trace_id.as_str(),
+        spans: t
+            .spans
+            .iter()
+            .map(|e| EmbeddedSpanRef {
+                span_id: e.event.span_id.as_str(),
+                parent_span_id: e.event.parent_span_id.as_deref(),
+                service: e.event.service.as_ref(),
+                endpoint: e.event.source.endpoint.as_str(),
+                event_type: &e.event.event_type,
+                operation: e.event.operation.as_str(),
+                template: e.template.as_ref(),
+                duration_us: e.event.duration_us,
+                status_code: e.event.status_code,
+            })
+            .collect(),
+    }
+}
+
+/// Traces a snapshot-style report carries itself, filtered to the
+/// findings the payload shows (an acknowledged finding's tree must not
+/// ship), then bounded like the handed-over path: the explicit
+/// `--max-traces-embedded` cap when set, half the JSON size budget
+/// otherwise. Newest first, their findings are the likeliest opened.
+fn select_report_carried_traces(
+    report_embed: &Report,
+    report: &Report,
+    options: &RenderOptions,
+) -> (Vec<EmbeddedTrace>, Option<TrimSummary>) {
+    let visible: HashSet<&str> = report_embed
+        .findings
+        .iter()
+        .map(|f| f.trace_id.as_str())
+        .collect();
+    let referenced: Vec<&EmbeddedTrace> = report
+        .embedded_traces
+        .iter()
+        .filter(|t| visible.contains(t.trace_id.as_str()))
+        .collect();
+    let total = referenced.len();
+
+    let kept: Vec<EmbeddedTrace> = if let Some(cap) = options.max_traces_embedded {
+        referenced.into_iter().take(cap).cloned().collect()
+    } else {
+        let budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len()) / 2;
+        let mut spent = 0usize;
+        let mut newest_first: Vec<EmbeddedTrace> = referenced
+            .into_iter()
+            .rev()
+            .take_while(|t| {
+                let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
+                spent = spent.saturating_add(size);
+                spent <= budget
+            })
+            .cloned()
+            .collect();
+        newest_first.reverse();
+        newest_first
+    };
+    let trimmed = (kept.len() < total).then_some(TrimSummary {
+        kept: kept.len(),
+        total,
+    });
+    (kept, trimmed)
+}
+
 /// Greedy trim-to-size loop: serialize, measure, drop the lowest-ranked
 /// trace if over budget. Bounded by the number of input traces. On
 /// realistic inputs (few dozen traces, report JSON under ~200 KB) the
@@ -821,8 +916,9 @@ fn trim_to_size_target<'a>(
         .iter()
         .copied()
         .map(|t| {
-            let spans = serde_json::to_string(&EmbeddedTrace::from_trace(t))
-                .map_or(usize::MAX, |s| s.len());
+            // Borrowed probe: the owned conversion would clone every
+            // span field of every candidate just to take a length.
+            let spans = serde_json::to_string(&embed_trace_ref(t)).map_or(usize::MAX, |s| s.len());
             let culprits = culprits_by_trace
                 .get(t.trace_id.as_str())
                 .and_then(|m| serde_json::to_string(m).ok())
