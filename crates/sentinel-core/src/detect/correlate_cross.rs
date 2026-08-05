@@ -142,6 +142,9 @@ struct PairState {
     rng_state: u64,
     first_seen_ms: u64,
     last_seen_ms: u64,
+    /// Highest source occurrence already counted for this pair, so one
+    /// source cannot count again for every target that follows it.
+    last_source_seq: u64,
     /// Trace id of the most recent target-side finding that completed
     /// this pair (the trailing finding in the source -> target order).
     /// Overwritten on every co-occurrence so the value tracks the
@@ -248,6 +251,9 @@ struct FindingOccurrence {
     /// clones per match.
     endpoint: std::sync::Arc<CorrelationEndpoint>,
     timestamp_ms: u64,
+    /// Monotonic id. Every finding in a batch shares the same `now_ms`,
+    /// so timestamps cannot separate occurrences.
+    seq: u64,
 }
 
 /// Cross-trace correlator. Owned by the daemon event loop.
@@ -258,6 +264,8 @@ pub struct CrossTraceCorrelator {
     occurrences: VecDeque<FindingOccurrence>,
     pair_counts: HashMap<PairKey, PairState>,
     source_totals: HashMap<CorrelationEndpoint, u32>,
+    /// Next `FindingOccurrence::seq`, monotonic for the correlator's life.
+    next_seq: u64,
     config: CorrelationConfig,
 }
 
@@ -268,6 +276,7 @@ impl CrossTraceCorrelator {
             occurrences: VecDeque::new(),
             pair_counts: HashMap::new(),
             source_totals: HashMap::new(),
+            next_seq: 0,
             config,
         }
     }
@@ -317,9 +326,11 @@ impl CrossTraceCorrelator {
             });
             self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str(), &mut refused);
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
+            self.next_seq += 1;
             self.occurrences.push_back(FindingOccurrence {
                 endpoint,
                 timestamp_ms: now_ms,
+                seq: self.next_seq,
             });
         }
         let not_admitted = refused.len();
@@ -371,18 +382,24 @@ impl CrossTraceCorrelator {
         trace_id: &str,
         refused: &mut std::collections::HashSet<PairKey>,
     ) {
-        for occ in self.occurrences.iter().rev() {
-            let age = now_ms.saturating_sub(occ.timestamp_ms);
-            if age > self.config.lag_threshold_ms {
-                break;
-            }
-            if occ.endpoint.service == endpoint.service {
-                continue;
-            }
+        // Oldest first, so `last_source_seq` only grows: one source
+        // occurrence counts once per pair, not once per following target.
+        for idx in self.lag_window_start(now_ms)..self.occurrences.len() {
+            let (source, age, seq) = {
+                let occ = &self.occurrences[idx];
+                if occ.endpoint.service == endpoint.service {
+                    continue;
+                }
+                (
+                    occ.endpoint.clone(), // Arc clone: pointer bump
+                    now_ms.saturating_sub(occ.timestamp_ms),
+                    occ.seq,
+                )
+            };
 
             let key = PairKey {
-                source: occ.endpoint.clone(), // Arc clone: pointer bump
-                target: endpoint.clone(),     // Arc clone: pointer bump
+                source: source.clone(),   // Arc clone: pointer bump
+                target: endpoint.clone(), // Arc clone: pointer bump
             };
             // Lag fits in f64 for any reasonable window. `as f64` loses
             // precision only for values above 2^53 ms (~285k years).
@@ -409,19 +426,39 @@ impl CrossTraceCorrelator {
                         // the same tick get the same seed; we mix in the
                         // endpoint's hash to diversify.
                         rng_state: now_ms
-                            ^ (hash_endpoint(&occ.endpoint) << 17)
+                            ^ (hash_endpoint(&source) << 17)
                             ^ hash_endpoint(endpoint),
                         first_seen_ms: now_ms,
                         last_seen_ms: now_ms,
+                        last_source_seq: 0,
                         last_trace_id: None,
                     })
                 }
             };
+            // Already counted for this pair by an earlier target.
+            if seq <= state.last_source_seq {
+                continue;
+            }
+            state.last_source_seq = seq;
             state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
             state.record_lag(lag);
             state.last_seen_ms = now_ms;
             state.update_sample_trace_id(trace_id);
         }
+    }
+
+    /// Index of the oldest occurrence still within `lag_threshold_ms`.
+    /// Walking back from the newest keeps the scan on the lag window.
+    fn lag_window_start(&self, now_ms: u64) -> usize {
+        let in_window = self
+            .occurrences
+            .iter()
+            .rev()
+            .take_while(|occ| {
+                now_ms.saturating_sub(occ.timestamp_ms) <= self.config.lag_threshold_ms
+            })
+            .count();
+        self.occurrences.len() - in_window
     }
 
     /// Evict the pairs with the lowest `co_occurrence_count` down to 90%
@@ -500,8 +537,11 @@ impl CrossTraceCorrelator {
                     .get(key.source.as_ref())
                     .copied()
                     .unwrap_or(1);
-                let confidence =
-                    f64::from(state.co_occurrence_count) / f64::from(source_total.max(1));
+                // Clamped: the pair counter spans the pair's life while
+                // `source_total` spans the rolling window only.
+                let confidence = (f64::from(state.co_occurrence_count)
+                    / f64::from(source_total.max(1)))
+                .min(1.0);
                 if confidence < self.config.min_confidence {
                     return None;
                 }
@@ -838,6 +878,38 @@ mod tests {
     }
 
     #[test]
+    fn confidence_never_exceeds_one_when_targets_outnumber_sources() {
+        // The shape that produced "conf 150%" in a live report: one source
+        // occurrence followed by several targets inside the lag window
+        // used to score one co-occurrence per (source, target) couple.
+        let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        for i in 0..2 {
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000 + i), 0);
+        }
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        for i in 0..3 {
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fb), 1_010 + i), 0);
+        }
+
+        let correlations = correlator.active_correlations();
+        let pair = correlations
+            .iter()
+            .find(|c| c.source.service == "svc-a" && c.target.service == "svc-b")
+            .expect("svc-a -> svc-b pair");
+        assert_eq!(
+            pair.co_occurrence_count, 2,
+            "each source occurrence counts once, not once per following target"
+        );
+        assert_eq!(pair.source_total_occurrences, 2);
+        assert!(
+            pair.confidence <= 1.0,
+            "confidence must stay in [0, 1], got {}",
+            pair.confidence
+        );
+    }
+
+    #[test]
     fn ingest_under_cap_reports_zero_evictions() {
         let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
 
@@ -970,6 +1042,7 @@ mod tests {
             rng_state: 0x1234_5678_9ABC_DEF0,
             first_seen_ms: 0,
             last_seen_ms: 0,
+            last_source_seq: 0,
             last_trace_id: None,
         };
         let n = MAX_LAG_SAMPLES * 20;
