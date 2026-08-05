@@ -60,7 +60,8 @@ pub struct CrossTraceCorrelation {
     pub source: CorrelationEndpoint,
     /// Trailing endpoint: the finding observed after the source within lag.
     pub target: CorrelationEndpoint,
-    /// Number of times source and target fired together within the window.
+    /// Times source and target fired together over roughly the rolling
+    /// window (half-window bucket estimate, not a lifetime counter).
     pub co_occurrence_count: u32,
     /// Total occurrences of the source endpoint over the rolling window.
     pub source_total_occurrences: u32,
@@ -130,7 +131,16 @@ const MAX_SAMPLE_TRACE_ID_BYTES: usize = 128;
 
 /// Internal state for a correlation pair.
 struct PairState {
-    co_occurrence_count: u32,
+    /// Co-occurrences in the current half-window bucket. The window
+    /// count is `count_prev + count_cur`, a sliding-window estimate
+    /// accurate to half a window. A single lifetime counter kept
+    /// growing while `source_total` only spanned the window, so every
+    /// long-lived pair saturated at confidence 1.0.
+    count_cur: u32,
+    /// Co-occurrences in the previous half-window bucket.
+    count_prev: u32,
+    /// Start of the current bucket, advanced by [`Self::rotate_buckets`].
+    bucket_start_ms: u64,
     /// Bounded reservoir of lag samples (max `MAX_LAG_SAMPLES`).
     lags_ms: Vec<f64>,
     /// Total number of lag observations seen (independent of reservoir size).
@@ -154,6 +164,32 @@ struct PairState {
 }
 
 impl PairState {
+    /// Co-occurrences over roughly the last window (two half-window
+    /// buckets, so the estimate lags the true sliding window by at most
+    /// half a window).
+    fn windowed_co_occurrences(&self) -> u32 {
+        self.count_prev.saturating_add(self.count_cur)
+    }
+
+    /// Advance the half-window buckets to cover `now_ms`. One step
+    /// shifts current into previous, a gap of a full window clears both.
+    fn rotate_buckets(&mut self, now_ms: u64, half_window_ms: u64) {
+        if half_window_ms == 0 {
+            return;
+        }
+        let elapsed = now_ms.saturating_sub(self.bucket_start_ms);
+        if elapsed < half_window_ms {
+            return;
+        }
+        if elapsed >= half_window_ms * 2 {
+            self.count_prev = 0;
+        } else {
+            self.count_prev = self.count_cur;
+        }
+        self.count_cur = 0;
+        self.bucket_start_ms = now_ms;
+    }
+
     /// Append a lag sample using Algorithm R reservoir sampling:
     /// append while the reservoir has space, then replace slot `r`
     /// when a uniform draw `r` in `[0, n)` lands below
@@ -418,7 +454,9 @@ impl CrossTraceCorrelator {
                         continue;
                     }
                     v.insert(PairState {
-                        co_occurrence_count: 0,
+                        count_cur: 0,
+                        count_prev: 0,
+                        bucket_start_ms: now_ms,
                         lags_ms: Vec::new(),
                         total_observations: 0,
                         // Seed the PRNG from first_seen_ms so different pairs
@@ -435,15 +473,19 @@ impl CrossTraceCorrelator {
                     })
                 }
             };
+            // Recency and the jump-through sample refresh on every
+            // matching target, gating them on the seq guard froze
+            // `last_trace_id` on the oldest target.
+            state.last_seen_ms = now_ms;
+            state.update_sample_trace_id(trace_id);
             // Already counted for this pair by an earlier target.
             if seq <= state.last_source_seq {
                 continue;
             }
             state.last_source_seq = seq;
-            state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
+            state.rotate_buckets(now_ms, self.config.window_ms / 2);
+            state.count_cur = state.count_cur.saturating_add(1);
             state.record_lag(lag);
-            state.last_seen_ms = now_ms;
-            state.update_sample_trace_id(trace_id);
         }
     }
 
@@ -487,7 +529,7 @@ impl CrossTraceCorrelator {
         let mut counts: Vec<u32> = self
             .pair_counts
             .values()
-            .map(|v| v.co_occurrence_count)
+            .map(PairState::windowed_co_occurrences)
             .collect();
         // `select_nth_unstable(k)` positions the k-th smallest at
         // index k. We want the value such that at least `to_remove`
@@ -501,7 +543,7 @@ impl CrossTraceCorrelator {
         let mut below_threshold: Vec<PairKey> = self
             .pair_counts
             .iter()
-            .filter(|(_, v)| v.co_occurrence_count < threshold)
+            .filter(|(_, v)| v.windowed_co_occurrences() < threshold)
             .map(|(k, _)| k.clone())
             .collect();
         if below_threshold.len() < to_remove {
@@ -509,7 +551,7 @@ impl CrossTraceCorrelator {
             below_threshold.extend(
                 self.pair_counts
                     .iter()
-                    .filter(|(_, v)| v.co_occurrence_count == threshold)
+                    .filter(|(_, v)| v.windowed_co_occurrences() == threshold)
                     .take(extra_needed)
                     .map(|(k, _)| k.clone()),
             );
@@ -529,7 +571,8 @@ impl CrossTraceCorrelator {
         self.pair_counts
             .iter()
             .filter_map(|(key, state)| {
-                if state.co_occurrence_count < self.config.min_co_occurrences {
+                let co_occurrences = state.windowed_co_occurrences();
+                if co_occurrences < self.config.min_co_occurrences {
                     return None;
                 }
                 let source_total = self
@@ -537,11 +580,10 @@ impl CrossTraceCorrelator {
                     .get(key.source.as_ref())
                     .copied()
                     .unwrap_or(1);
-                // Clamped: the pair counter spans the pair's life while
-                // `source_total` spans the rolling window only.
-                let confidence = (f64::from(state.co_occurrence_count)
-                    / f64::from(source_total.max(1)))
-                .min(1.0);
+                // Both sides now span the rolling window. The clamp only
+                // covers the half-window slack of the bucket estimate.
+                let confidence =
+                    (f64::from(co_occurrences) / f64::from(source_total.max(1))).min(1.0);
                 if confidence < self.config.min_confidence {
                     return None;
                 }
@@ -549,7 +591,7 @@ impl CrossTraceCorrelator {
                 Some(CrossTraceCorrelation {
                     source: (*key.source).clone(),
                     target: (*key.target).clone(),
-                    co_occurrence_count: state.co_occurrence_count,
+                    co_occurrence_count: co_occurrences,
                     source_total_occurrences: source_total,
                     confidence,
                     median_lag_ms: median_lag,
@@ -910,6 +952,65 @@ mod tests {
     }
 
     #[test]
+    fn long_lived_pair_confidence_does_not_saturate_at_one() {
+        // Lifetime counting made every mature pair report exactly 1.0:
+        // the count grew forever while the denominator only spanned the
+        // window. With window-scoped counts, a pair co-occurring on half
+        // its source occurrences stays near 0.5 however long it lives.
+        let window_ms = CorrelationConfig::default().window_ms;
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            lag_threshold_ms: 1_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        // Two windows' worth of rounds. Per round, one source inside the
+        // target's lag window and one far outside it: half the sources
+        // co-occur.
+        let round_gap = window_ms / 4;
+        for round in 0..8u64 {
+            let t = 1_000 + round * round_gap;
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), t), 0);
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fb), t + 20), 0);
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), t + 5_000), 0);
+        }
+        let correlations = correlator.active_correlations();
+        let pair = correlations
+            .iter()
+            .find(|c| c.source.service == "svc-a")
+            .expect("pair");
+        assert!(
+            pair.confidence < 0.9,
+            "a pair co-occurring on half its sources must not read as certain, got {}",
+            pair.confidence
+        );
+    }
+
+    #[test]
+    fn sample_trace_id_tracks_the_most_recent_target() {
+        // The seq guard must not freeze the jump-through sample on the
+        // first target that followed a source occurrence.
+        let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000), 0);
+        let mut fb1 = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        fb1.trace_id = "trace-old".to_string();
+        assert_eq!(correlator.ingest(std::slice::from_ref(&fb1), 1_010), 0);
+        let mut fb2 = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        fb2.trace_id = "trace-new".to_string();
+        assert_eq!(correlator.ingest(std::slice::from_ref(&fb2), 1_020), 0);
+
+        let correlations = correlator.active_correlations();
+        let pair = correlations
+            .iter()
+            .find(|c| c.source.service == "svc-a")
+            .expect("pair");
+        assert_eq!(pair.sample_trace_id.as_deref(), Some("trace-new"));
+    }
+
+    #[test]
     fn ingest_under_cap_reports_zero_evictions() {
         let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
 
@@ -1036,7 +1137,9 @@ mod tests {
         //    be at least 1/4 of the population variance
         //    (pop_variance = n^2/12 for uniform on [0, n)).
         let mut state = PairState {
-            co_occurrence_count: 0,
+            count_cur: 0,
+            count_prev: 0,
+            bucket_start_ms: 0,
             lags_ms: Vec::new(),
             total_observations: 0,
             rng_state: 0x1234_5678_9ABC_DEF0,
