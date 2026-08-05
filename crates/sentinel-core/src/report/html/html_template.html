@@ -4589,7 +4589,7 @@
       "severity", "type", "service", "endpoint", "trace_id", "template",
       "occurrences", "first_timestamp", "last_timestamp",
       "code_function", "code_filepath", "code_lineno",
-      "suggested_fix_framework", "suggested_fix_recommendation",
+      "suggestion", "suggested_fix_framework", "suggested_fix_recommendation",
       "confidence"
     ];
     // applyFilters already narrows to the chips and the search term.
@@ -4610,6 +4610,7 @@
         loc.function || "",
         loc.filepath || "",
         loc.lineno ?? "",
+        f.suggestion || "",
         fix.framework || "",
         fix.recommendation || "",
         f.confidence ?? ""
