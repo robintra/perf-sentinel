@@ -66,6 +66,10 @@ fn ratio(retained: u64, gap: u64) -> Option<f64> {
 /// count spans skipped by [`convert_span`] because they are not
 /// analyzable I/O operations (one field per [`OtlpSpanFilterReason`]
 /// variant). Retained spans = `received` minus the filtered sum.
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SpanConversionStats {
     pub received: u64,

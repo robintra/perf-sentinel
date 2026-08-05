@@ -197,7 +197,11 @@ pub struct DisclosureDbWaste {
 pub type DisclosureMsgWaste = DisclosureDbWaste;
 
 /// Analysis metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Analysis {
     pub duration_ms: u64,
     pub events_processed: usize,
@@ -216,6 +220,10 @@ pub struct Analysis {
 /// mirror of the daemon's `perf_sentinel_otlp_spans_*` Prometheus pair.
 /// Field names follow the stable `reason` label values of
 /// `perf_sentinel_otlp_spans_filtered_total` (see `docs/METRICS.md`).
+/// `#[non_exhaustive]` so a future field stays a minor bump rather than
+/// a breaking change: external crates cannot construct it with a
+/// struct literal, only read it or deserialize into it.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct IngestStats {
     /// Every span present in the input, before any filtering.
