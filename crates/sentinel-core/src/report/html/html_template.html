@@ -2783,16 +2783,21 @@
     if (trace) {
       renderTree(treeRoot, trace, f);
     } else {
-      // Three causes, each with its own real knob: naming the wrong one
-      // sends the reader tuning a flag that changes nothing. The
-      // breadcrumb above already carries the id and its copy button.
+      // Four causes, each with its own real knob: naming the wrong one
+      // sends the reader tuning a flag that changes nothing.
+      // payload.trimmed_traces says whether THIS render trimmed, on the
+      // batch and snapshot paths alike, so the cap message only shows
+      // when the cap is actually the knob. The breadcrumb above already
+      // carries the id and its copy button.
       notEmbedded.style.display = "";
-      if (embeddedTraces.length === 0) {
+      if (payload.trimmed_traces) {
+        notEmbedded.textContent = "Trace not embedded (trimmed to fit the size budget). Rerun with --max-traces-embedded <higher> to include it.";
+      } else if (embeddedTraces.length === 0) {
         notEmbedded.textContent = "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id above against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
       } else if (isDaemonProducedRun()) {
-        notEmbedded.textContent = "Trace not in this snapshot: it aged out of the daemon's trace retention ([daemon] max_retained_traces). Recent findings keep their trees; for this one, use the trace_id above against the live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
+        notEmbedded.textContent = "Trace not in this snapshot: it aged out of the daemon's trace retention ([daemon] max_retained_traces) or was dropped by the export size cap. Recent findings keep their trees; for this one, use the trace_id above against the live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
       } else {
-        notEmbedded.textContent = "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+        notEmbedded.textContent = "Trace not embedded in this report.";
       }
     }
 
