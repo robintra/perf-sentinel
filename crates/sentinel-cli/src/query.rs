@@ -172,12 +172,11 @@ fn sort_stored(
     mode: crate::render::FindingsSort,
 ) {
     stored.sort_by(|a, b| {
-        let by_severity = a.finding.severity.cmp(&b.finding.severity);
-        let by_impact = stored_impact(b).cmp(&stored_impact(a));
-        match mode {
-            crate::render::FindingsSort::Severity => by_severity.then(by_impact),
-            crate::render::FindingsSort::Impact => by_impact.then(by_severity),
-        }
+        crate::render::compare_severity_impact(
+            mode,
+            (&a.finding.severity, stored_impact(a)),
+            (&b.finding.severity, stored_impact(b)),
+        )
     });
 }
 
@@ -233,20 +232,26 @@ fn print_findings_text(body: &[u8], daemon_url: &str, sort: Option<crate::render
 fn stored_recurrence_index(
     stored: &[sentinel_core::daemon::findings_store::StoredFinding],
 ) -> std::collections::HashMap<String, crate::render::RecurrenceStats> {
-    stored
-        .iter()
-        .map(|sf| {
-            let count = usize::try_from(sf.seen_count).unwrap_or(usize::MAX);
-            let ops = usize::try_from(stored_impact(sf)).unwrap_or(usize::MAX);
-            (
-                crate::render::recurrence_key(&sf.finding),
-                crate::render::RecurrenceStats {
-                    count,
-                    total_ops: ops,
-                },
-            )
-        })
-        .collect()
+    let mut index: std::collections::HashMap<String, crate::render::RecurrenceStats> =
+        std::collections::HashMap::new();
+    for sf in stored {
+        // Accumulate: two rows can share the fallback key when the daemon
+        // predates signatures, and overwriting would print one row's tally
+        // under the other's block.
+        let entry = index
+            .entry(crate::render::recurrence_key(&sf.finding))
+            .or_insert(crate::render::RecurrenceStats {
+                count: 0,
+                total_ops: 0,
+            });
+        entry.count = entry
+            .count
+            .saturating_add(usize::try_from(sf.seen_count).unwrap_or(usize::MAX));
+        entry.total_ops = entry
+            .total_ops
+            .saturating_add(usize::try_from(stored_impact(sf)).unwrap_or(usize::MAX));
+    }
+    index
 }
 
 fn render_explain_response(body: &[u8], format: QueryOutputFormat) {
@@ -528,19 +533,7 @@ async fn run_inspect_action(
             spans: vec![],
         })
         .collect();
-    let detect_config = sentinel_core::detect::DetectConfig {
-        n_plus_one_threshold: 5,
-        window_ms: 500,
-        slow_threshold_ms: 500,
-        slow_min_occurrences: 3,
-        max_fanout: 20,
-        chatty_service_min_calls: 15,
-        pool_saturation_concurrent_threshold: 10,
-        serialized_min_sequential: 3,
-        sanitizer_aware_classification:
-            sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
-    };
-    let app = crate::tui::App::new(findings, traces, detect_config)
+    let app = crate::tui::App::new(findings, traces)
         .with_pre_rendered_trees(pre_rendered_trees)
         .with_correlations(correlations);
     let app = match report {

@@ -31,7 +31,7 @@ use sentinel_core::correlate::Trace;
 #[cfg(feature = "daemon")]
 use sentinel_core::daemon::query_api::AckSource;
 use sentinel_core::detect::correlate_cross::CrossTraceCorrelation;
-use sentinel_core::detect::{DetectConfig, Finding, FindingType, Severity};
+use sentinel_core::detect::{Finding, FindingType, Severity};
 use sentinel_core::explain;
 use sentinel_core::report::interpret::InterpretationLevel;
 use sentinel_core::report::periodic::schema::{Confidentiality, ReportIntent};
@@ -132,7 +132,6 @@ fn build_recurrence(findings: &[Finding]) -> HashMap<String, crate::render::Recu
 
 pub struct App {
     pub traces: Vec<Trace>,
-    pub detect_config: DetectConfig,
     /// All findings from the report (owned, flat list).
     all_findings: Vec<Finding>,
     /// Per-trace finding indices into `all_findings`.
@@ -227,11 +226,7 @@ const INSPECT_COLS_DEFAULT: [u16; 3] = [20, 30, 50];
 impl App {
     /// Create a new app from analysis findings and traces.
     #[must_use]
-    pub fn new(
-        findings: Vec<Finding>,
-        mut traces: Vec<Trace>,
-        detect_config: DetectConfig,
-    ) -> Self {
+    pub fn new(findings: Vec<Finding>, mut traces: Vec<Trace>) -> Self {
         // Sort by trace_id: the upstream `correlate` stage yields traces in
         // randomized HashMap order, so without this the same input file
         // shows a different trace-list order on every launch. Unstable sort
@@ -255,7 +250,6 @@ impl App {
 
         Self {
             traces,
-            detect_config,
             recurrence: build_recurrence(&findings),
             trace_sort: TraceSort::ById,
             all_findings: findings,
@@ -478,8 +472,16 @@ impl App {
         if trace.spans.is_empty() {
             return None;
         }
-        let per_trace_findings =
-            sentinel_core::detect::detect(std::slice::from_ref(trace), &self.detect_config);
+        // The report's own findings for this trace, never a re-detection:
+        // spans rebuilt from a snapshot's masked trees carry no params and
+        // a `?` template, which the sanitizer-aware classifier reads as
+        // already-parameterized and suppresses, drawing a clean tree under
+        // the very finding the user selected. Reusing them also keeps the
+        // tree consistent with acknowledgment filtering.
+        let per_trace_findings: Vec<Finding> = self.findings_by_trace[trace_vec_idx]
+            .iter()
+            .filter_map(|&i| self.all_findings.get(i).cloned())
+            .collect();
         let tree = explain::build_tree(trace, &per_trace_findings);
         let text = explain::format_tree_text(&tree, false);
         self.cached_detail = Some((trace_idx, text.clone()));
@@ -491,23 +493,46 @@ impl App {
     /// then aggregate-impact-first, the other axis breaking ties.
     pub fn cycle_trace_sort(&mut self) {
         self.trace_sort = self.trace_sort.next();
+        self.reorder_traces();
+    }
+
+    /// Re-sort the trace list under the active mode. Severity and impact
+    /// go through the shared comparator so this surface cannot drift from
+    /// `analyze --sort` and the dashboard, with the trace id as a final
+    /// tie-break for a stable list.
+    fn reorder_traces(&mut self) {
         let mut order: Vec<usize> = (0..self.traces.len()).collect();
-        match self.trace_sort {
-            TraceSort::ById => order.sort_by(|&a, &b| self.trace_ids[a].cmp(&self.trace_ids[b])),
-            TraceSort::Severity => order.sort_by(|&a, &b| {
-                self.trace_rank(a)
-                    .cmp(&self.trace_rank(b))
-                    .then_with(|| self.trace_ops(b).cmp(&self.trace_ops(a)))
-                    .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
-            }),
-            TraceSort::Impact => order.sort_by(|&a, &b| {
-                self.trace_ops(b)
-                    .cmp(&self.trace_ops(a))
-                    .then_with(|| self.trace_rank(a).cmp(&self.trace_rank(b)))
-                    .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
-            }),
-        }
+        let mode = match self.trace_sort {
+            TraceSort::ById => {
+                order.sort_by(|&a, &b| self.trace_ids[a].cmp(&self.trace_ids[b]));
+                self.apply_trace_order(&order);
+                return;
+            }
+            TraceSort::Severity => crate::render::FindingsSort::Severity,
+            TraceSort::Impact => crate::render::FindingsSort::Impact,
+        };
+        order.sort_by(|&a, &b| {
+            crate::render::compare_severity_impact(
+                mode,
+                (&self.trace_rank(a), self.trace_ops(a) as u64),
+                (&self.trace_rank(b), self.trace_ops(b) as u64),
+            )
+            .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
+        });
         self.apply_trace_order(&order);
+    }
+
+    /// Open the list in `mode` without cycling, for callers that were
+    /// given an explicit `--sort`.
+    pub fn with_initial_sort(mut self, mode: Option<crate::render::FindingsSort>) -> Self {
+        if let Some(mode) = mode {
+            self.trace_sort = match mode {
+                crate::render::FindingsSort::Severity => TraceSort::Severity,
+                crate::render::FindingsSort::Impact => TraceSort::Impact,
+            };
+            self.reorder_traces();
+        }
+        self
     }
 
     /// Worst severity among the trace's findings. Severity orders
@@ -570,6 +595,9 @@ impl App {
         self.selected_trace = 0;
         self.selected_finding = 0;
         self.cached_detail = None;
+        // A stale offset would render the new trace's tree scrolled past
+        // its own content, showing a blank panel.
+        self.scroll_offset = 0;
     }
 
     pub fn move_up(&mut self) {
