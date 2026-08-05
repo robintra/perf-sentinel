@@ -80,6 +80,14 @@ pub struct Report {
     /// `perf-sentinel report --input <daemon.json>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub correlations: Vec<CrossTraceCorrelation>,
+    /// Per-signature recurrence tallies, daemon-only like
+    /// [`Self::correlations`]. The daemon findings store coalesces by
+    /// canonical signature, so one entry in [`Self::findings`] can stand
+    /// for many per-trace detections; this carries how many, keyed by
+    /// the finding's `signature`. Empty on batch reports, where each
+    /// finding is detected once per run and the count would always be 1.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub finding_occurrences: Vec<FindingOccurrence>,
     /// Snapshot- or analysis-level warnings surfaced to consumers. The
     /// daemon's `/api/export/report` cold-start path populates this with
     /// `"daemon has not yet processed any events"` so consumers can
@@ -195,6 +203,20 @@ pub struct DisclosureDbWaste {
 /// database block by design, so one struct serves both fields and the two
 /// can never drift, the same reasoning as `MessagingWasteAggregate`.
 pub type DisclosureMsgWaste = DisclosureDbWaste;
+
+/// How many per-trace detections the daemon store coalesced under one
+/// finding signature, and when the first of them landed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindingOccurrence {
+    /// Canonical signature of the finding this tally belongs to, the
+    /// same key acknowledgments use.
+    pub signature: String,
+    /// Number of per-trace detections coalesced into one entry.
+    pub seen_count: u64,
+    /// Unix timestamp (ms) of the first detection the store retained
+    /// for this signature.
+    pub first_seen_ms: u64,
+}
 
 /// Analysis metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]

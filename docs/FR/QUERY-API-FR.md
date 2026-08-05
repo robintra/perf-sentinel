@@ -694,6 +694,8 @@ La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depu
 
 **Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les probes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans warning et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) reste préservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier event ingéré et le premier eviction tick.
 
+**Décomptes de récurrence.** Le store de findings coalesce par signature, un finding exporté peut donc représenter de nombreuses détections par trace. `finding_occurrences` porte le décompte de chaque signature vue plus d'une fois, sous la forme `{ signature, seen_count, first_seen_ms }` (depuis 0.9.29). C'est un champ daemon-only comme `correlations`, absent des rapports batch où chaque finding est détecté une fois par run. Le dashboard HTML le rejoint par signature et étiquette la ligne avec le nombre de traces.
+
 **Métrique Prometheus.** Chaque requête incrémente `perf_sentinel_export_report_requests_total`, les opérateurs peuvent donc dashboarder ou alerter sur la fréquence des snapshots.
 
 Exemple :

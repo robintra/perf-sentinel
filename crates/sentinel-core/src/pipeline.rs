@@ -99,6 +99,7 @@ pub fn analyze_with_traces(
         // Batch mode does not run the cross-trace correlator, whose
         // rolling window only exists in the daemon. Always empty here.
         correlations: vec![],
+        finding_occurrences: vec![],
         warnings: vec![],
         warning_details: vec![],
         acknowledged_findings: vec![],

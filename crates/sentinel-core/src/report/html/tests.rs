@@ -101,6 +101,7 @@ fn minimal_report(findings: Vec<Finding>) -> Report {
         },
         per_endpoint_io_ops: vec![],
         correlations: vec![],
+        finding_occurrences: vec![],
         warnings: vec![],
         warning_details: vec![],
         acknowledged_findings: vec![],
@@ -2390,4 +2391,33 @@ fn culprit_spans_skip_a_finding_the_report_no_longer_carries() {
 
     let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
     assert!(culprit_map(&html).is_null());
+}
+
+#[test]
+fn embed_carries_recurrence_tallies_for_kept_findings_only() {
+    // The daemon's coalescing tally must reach the dashboard, which
+    // joins it by signature, and a tally whose finding was trimmed away
+    // must not ship as dead payload.
+    let mut kept = finding("t-kept", "svc", "/ep", "SELECT 1");
+    kept.signature = "sig-kept".to_string();
+    let mut report = minimal_report(vec![kept]);
+    report.finding_occurrences = vec![
+        crate::report::FindingOccurrence {
+            signature: "sig-kept".to_string(),
+            seen_count: 19,
+            first_seen_ms: 1000,
+        },
+        crate::report::FindingOccurrence {
+            signature: "sig-absent".to_string(),
+            seen_count: 4,
+            first_seen_ms: 2000,
+        },
+    ];
+
+    let (html, _) = render(&report, &[], &opts("-", None));
+    let value: serde_json::Value = serde_json::from_str(&extract_payload_json(&html)).unwrap();
+    let tallies = value["report"]["finding_occurrences"].as_array().unwrap();
+    assert_eq!(tallies.len(), 1, "the dangling tally is dropped");
+    assert_eq!(tallies[0]["signature"], "sig-kept");
+    assert_eq!(tallies[0]["seen_count"], 19);
 }

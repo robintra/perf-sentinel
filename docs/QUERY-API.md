@@ -676,6 +676,8 @@ The `analysis` section reflects daemon-lifetime counters (cumulative since daemo
 
 **Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `200 OK` with an empty Report envelope: `findings: []`, `green_summary: GreenSummary::disabled(0)`, and `warnings: ["daemon has not yet processed any events"]`. Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health issue. The empty envelope lets clients distinguish "cold start" from "events seen, zero findings" (the latter returns `200` with no warning string and `analysis.events_processed > 0`) without a status code mismatch. The double-counter guard (`events_processed_total > 0` AND `traces_analyzed_total > 0`) is preserved internally so the snapshot stays self-consistent during the `trace_ttl_ms / 2` window between the first event ingest and the first eviction tick.
 
+**Recurrence tallies.** The findings store coalesces by signature, so one exported finding can stand for many per-trace detections. `finding_occurrences` carries the count for every signature seen more than once, as `{ signature, seen_count, first_seen_ms }` (since 0.9.29). It is a daemon-only field like `correlations`, absent from batch reports where each finding is detected once per run. The HTML dashboard joins it back by signature and labels the row with the number of traces.
+
 **Prometheus metric.** Each request bumps `perf_sentinel_export_report_requests_total` so operators can dashboard or alert on Report snapshot frequency.
 
 Example:

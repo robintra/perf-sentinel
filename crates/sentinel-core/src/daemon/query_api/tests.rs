@@ -441,6 +441,61 @@ async fn handle_export_report_returns_report_shape_when_events_ingested() {
 }
 
 #[tokio::test]
+async fn handle_export_report_carries_coalescing_tallies() {
+    // A pattern detected on 3 traces exports as ONE finding plus a
+    // tally saying it recurred, so the dashboard can show "3 traces"
+    // instead of silently dropping the recurrence.
+    let state = make_state();
+    state.metrics.events_processed_total.inc_by(30.0);
+    state.metrics.traces_analyzed_total.inc_by(3.0);
+    for (i, ts) in [1000u64, 2000, 3000].iter().enumerate() {
+        let mut f = crate::test_helpers::make_finding(
+            detect::FindingType::RedundantSql,
+            detect::Severity::Info,
+        );
+        f.trace_id = format!("trace-{i}");
+        crate::acknowledgments::enrich_with_signatures(std::slice::from_mut(&mut f));
+        state.findings_store.push_batch(&[f], *ts).await;
+    }
+    // A one-off finding must NOT produce a tally entry.
+    let mut once = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    once.pattern.template = "SELECT once".to_string();
+    crate::acknowledgments::enrich_with_signatures(std::slice::from_mut(&mut once));
+    state.findings_store.push_batch(&[once], 4000).await;
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+
+    assert_eq!(report.findings.len(), 2, "coalesced to one row per problem");
+    assert_eq!(
+        report.finding_occurrences.len(),
+        1,
+        "only the recurring one"
+    );
+    let tally = &report.finding_occurrences[0];
+    assert_eq!(tally.seen_count, 3);
+    assert_eq!(tally.first_seen_ms, 1000);
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.signature == tally.signature),
+        "the tally keys back to an exported finding"
+    );
+}
+
+#[tokio::test]
 async fn handle_export_report_evaluates_real_quality_gate() {
     // The export endpoint must run the live gate, not a hardcoded pass.
     // A critical N+1 SQL finding fails the default rule (max = 0).
