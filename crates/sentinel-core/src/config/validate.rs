@@ -1469,7 +1469,19 @@ impl Config {
                 "the findings store will hold a large in-memory backlog",
             );
         }
-        if self.daemon.max_retained_traces > 0 {
+        // The daemon zeroes the traces store when nothing can serve it,
+        // so a sized knob in that shape is silently inert: say so
+        // instead of comfort-checking a value that does nothing.
+        let traces_store_served = self.daemon.api_enabled && self.daemon.max_retained_findings > 0;
+        if self.daemon.max_retained_traces > 0 && !traces_store_served {
+            tracing::warn!(
+                field = "max_retained_traces",
+                value = self.daemon.max_retained_traces,
+                "max_retained_traces is ignored: only /api/export/report reads the retained \
+                 traces, and api_enabled = false or max_retained_findings = 0 disables it"
+            );
+        }
+        if self.daemon.max_retained_traces > 0 && traces_store_served {
             warn_outside_comfort_zone(
                 "max_retained_traces",
                 &self.daemon.max_retained_traces,
