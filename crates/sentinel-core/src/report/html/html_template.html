@@ -336,10 +336,10 @@
   #explain-detail-head, #explain-content { display: flex; flex-direction: column; gap: 18px; }
   .ps-detail-empty { color: var(--text-3); font-size: 13px; }
   .ps-copy-trace { margin-left: 10px; padding: 2px 9px; font-size: 10.5px; vertical-align: middle; }
-  .ps-trace-id-line { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); word-break: break-all; }
   .ps-detail-head { display: flex; align-items: flex-start; gap: 12px; }
   .ps-detail-h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
   .ps-detail-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--text-2); }
+  .ps-detail-suggestion { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text); }
   .ps-meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .ps-meta-cell { border: 0; border-radius: 10px; background: var(--surface-2); padding: 11px 12px; }
   .ps-meta-cell-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); }
@@ -732,6 +732,7 @@
           <div class="ps-section">
             <span class="ps-eyebrow">// explain &middot; trace tree</span>
             <div class="ps-tree" id="explain-tree"></div>
+            <div class="ps-detail-empty" id="explain-not-embedded" style="display: none;"></div>
           </div>
           <div class="ps-detail-cols" id="explain-cols">
             <div class="ps-section" id="explain-pgstat" style="display: none;"></div>
@@ -739,7 +740,6 @@
           </div>
           <div class="ps-detail-foot" id="explain-foot" style="display: none;"></div>
         </div>
-        <div class="ps-detail-empty" id="explain-not-embedded" style="display: none;"></div>
       </div>
     </div>
   </div>
@@ -2682,16 +2682,6 @@
     host.appendChild(btn);
   }
 
-  // Same affordance on the no-tree path: the id is the only thing that
-  // still lets a reader go look at the trace elsewhere.
-  function appendTraceIdLine(host, f) {
-    if (!f.trace_id) return;
-    var line = el("div", "ps-trace-id-line", "trace_id = " + shortTraceId(f.trace_id));
-    line.title = "trace_id = " + f.trace_id;
-    appendCopyTraceIdButton(line, f.trace_id);
-    host.appendChild(line);
-  }
-
   function renderDetailHead(f) {
     var head = document.getElementById("explain-detail-head");
     head.textContent = "";
@@ -2723,6 +2713,17 @@
     grid.appendChild(metaCell("occurrences", occ ? ("×" + occ) : "-"));
     head.appendChild(grid);
 
+    // Every sink but this one showed `suggestion`. It reads the finding, so
+    // it belongs in the head, where no missing trace can hide it.
+    if (f.suggestion) {
+      var sugSec = el("div", "ps-section");
+      sugSec.appendChild(el("span", "ps-eyebrow", "// suggestion"));
+      var sugBody = el("p", "ps-detail-suggestion");
+      proseInto(sugBody, f.suggestion);
+      sugSec.appendChild(sugBody);
+      head.appendChild(sugSec);
+    }
+
     var tpl = (f.pattern && f.pattern.template) || "";
     if (tpl) {
       var sec = el("div", "ps-section");
@@ -2751,20 +2752,10 @@
     // itself survived the embed cap.
     renderDetailHead(f);
 
+    // Only the tree needs the trace. The suggested fix, the pg_stat
+    // cross-reference and the foot all read the finding, so a missing
+    // trace must not take them down with it.
     var trace = tracesById[f.trace_id];
-    if (!trace) {
-      // Two different causes, and pointing at the cap when the source
-      // never carried spans sends the reader tuning a flag that changes
-      // nothing.
-      content.style.display = "none";
-      notEmbedded.style.display = "";
-      notEmbedded.textContent = embeddedTraces.length === 0
-        ? "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id below against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>."
-        : "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
-      appendTraceIdLine(notEmbedded, f);
-      return;
-    }
-
     content.style.display = "";
     var breadcrumb = document.getElementById("explain-breadcrumb");
     breadcrumb.textContent = "";
@@ -2780,7 +2771,19 @@
 
     var treeRoot = document.getElementById("explain-tree");
     treeRoot.textContent = "";
-    renderTree(treeRoot, trace, f);
+    treeRoot.style.display = trace ? "" : "none";
+    if (trace) {
+      renderTree(treeRoot, trace, f);
+    } else {
+      // Two different causes, and pointing at the cap when the source
+      // never carried spans sends the reader tuning a flag that changes
+      // nothing. The breadcrumb above already carries the id and its
+      // copy button.
+      notEmbedded.style.display = "";
+      notEmbedded.textContent = embeddedTraces.length === 0
+        ? "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id above against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>."
+        : "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+    }
 
     var fix = document.getElementById("explain-fix");
     fix.textContent = "";
