@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::ack::{self, AckAction, AckEntry, AckError, AckStore};
-use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding};
+use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding, coalesce_by_signature};
 use crate::acknowledgments::{Acknowledgment, compute_signature};
 use crate::correlate::Trace;
 use crate::correlate::window::TraceWindow;
@@ -255,7 +255,10 @@ async fn handle_findings(
         severity: params.severity,
         limit: params.limit.unwrap_or(100).min(MAX_FINDINGS_LIMIT),
     };
-    let stored = state.findings_store.query(&filter).await;
+    // Folded: a listing is read by a human, and detection is per trace,
+    // so one recurring pattern would otherwise fill the page with
+    // identical rows. The gate path deliberately reads raw instances.
+    let stored = state.findings_store.query_coalesced(&filter).await;
     let daemon_snapshot: Arc<HashMap<String, AckEntry>> = match &state.ack_store {
         Some(s) => s.snapshot_active().await,
         None => Arc::new(HashMap::new()),
@@ -627,14 +630,14 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
     }
 }
 
-/// Flatten stored entries into exported findings plus their recurrence
-/// tallies. Without the tallies, a pattern seen on 19 traces exports as
-/// one row with no sign it recurred. Single sightings are omitted as
-/// noise, and an unsigned finding cannot be keyed back.
+/// Flatten coalesced entries into exported findings plus their
+/// recurrence tallies. Without the tallies, a pattern seen on 19 traces
+/// exports as one row with no sign it recurred. Single sightings are
+/// omitted as noise, and an unsigned finding cannot be keyed back.
 fn split_findings_and_tallies(
-    stored: Vec<StoredFinding>,
+    coalesced: Vec<StoredFinding>,
 ) -> (Vec<detect::Finding>, Vec<crate::report::FindingOccurrence>) {
-    let tallies = stored
+    let tallies = coalesced
         .iter()
         .filter(|s| s.seen_count > 1 && !s.finding.signature.is_empty())
         .map(|s| crate::report::FindingOccurrence {
@@ -643,7 +646,7 @@ fn split_findings_and_tallies(
             first_seen_ms: s.first_seen_ms,
         })
         .collect();
-    (stored.into_iter().map(|s| s.finding).collect(), tallies)
+    (coalesced.into_iter().map(|s| s.finding).collect(), tallies)
 }
 
 /// TODO: the `Report` assembly below duplicates the one in
@@ -715,7 +718,13 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             limit: MAX_FINDINGS_LIMIT,
         })
         .await;
-    let (findings, finding_occurrences) = split_findings_and_tallies(stored);
+    // The gate counts raw per-trace detections, the exported list folds
+    // them: a pattern on 20 traces is 20 findings against a threshold
+    // but one row for a reader. Folding before the gate would silently
+    // turn every count-based rule into a distinct-problems rule.
+    let gate_findings: Vec<detect::Finding> = stored.iter().map(|s| s.finding.clone()).collect();
+    let (findings, finding_occurrences) =
+        split_findings_and_tallies(coalesce_by_signature(&stored));
 
     // Snapshot correlations, sorted + capped identically to
     // `/api/correlations` so both endpoints stay consistent.
@@ -741,7 +750,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         .scoring_config
         .clone_from(&state.scoring_config);
     let quality_gate =
-        crate::quality_gate::evaluate(&findings, &green_summary, &state.thresholds, None);
+        crate::quality_gate::evaluate(&gate_findings, &green_summary, &state.thresholds, None);
 
     // usize::try_from guards 32-bit targets where a 5-billion-event
     // counter would overflow a usize. On 64-bit the fallback branch is

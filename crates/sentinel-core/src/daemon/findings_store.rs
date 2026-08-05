@@ -1,15 +1,14 @@
-//! Signature-coalesced store for recent findings, queryable by the
-//! daemon API.
+//! Ring-buffer store for recent findings, queryable by the daemon API.
 //!
 //! Detection is per trace, so a recurring pattern re-emits an identical
-//! finding for every trace that exhibits it. Stored raw, one hot
-//! pattern reads as N duplicate rows on every operator surface and can
-//! fill the whole store, evicting rarer findings. Entries are therefore
-//! keyed by the canonical acknowledgment signature (the product's "same
-//! problem" key): one entry per signature, refreshed in place with an
-//! occurrence tally.
+//! finding for every trace that exhibits it. The buffer keeps those
+//! instances: they carry the per-trace severity, they let
+//! `by_trace_id` answer for a trace whose spans have aged out, and FIFO
+//! pressure is what expires a fixed problem. Listing them raw is what
+//! reads as duplicate rows, so [`coalesce_by_signature`] folds them at
+//! READ time, per surface, leaving the stored history intact.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use serde::Serialize;
 use tokio::sync::RwLock;
@@ -17,25 +16,70 @@ use tokio::sync::RwLock;
 use crate::detect::Finding;
 
 /// A finding with daemon-side metadata.
+///
+/// A raw buffer entry describes one detection: `seen_count` is 1 and
+/// `first_seen_ms` equals `stored_at_ms`. After
+/// [`coalesce_by_signature`] the entry stands for every folded
+/// detection of that signature, see that function for which fields it
+/// merges.
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct StoredFinding {
-    /// The most recent instance of this finding (per signature). Its
-    /// `trace_id` and timestamps describe the latest occurrence.
+    /// The detected finding. On a coalesced entry, the most recent
+    /// instance, carrying the worst severity seen.
     pub finding: Finding,
-    /// Monotonic timestamp (ms) when this signature was last stored.
+    /// Monotonic timestamp (ms) of this detection, or of the most
+    /// recent one on a coalesced entry.
     pub stored_at_ms: u64,
-    /// Monotonic timestamp (ms) when this signature was first stored.
-    /// `0` on payloads from versions predating coalescing.
+    /// Monotonic timestamp (ms) of the oldest detection this entry
+    /// stands for. `0` on payloads predating the field.
     #[serde(default)]
     pub first_seen_ms: u64,
-    /// How many per-trace instances this entry coalesces. Defaults to 1
-    /// on payloads from versions predating coalescing.
+    /// How many per-trace detections this entry stands for, `1` for a
+    /// raw buffer entry. Defaults to 1 on payloads predating the field.
     #[serde(default = "default_seen_count")]
     pub seen_count: u64,
 }
 
 fn default_seen_count() -> u64 {
     1
+}
+
+/// Fold per-trace detections into one entry per signature, newest
+/// first, preserving the input order.
+///
+/// `entries` is expected newest-first (what [`FindingsStore::query`]
+/// yields). The kept instance is the most recent one, but its severity
+/// is the WORST across the fold: severity is derived per trace (12
+/// repeats is critical, 6 is a warning), so keeping the latest alone
+/// would let a quiet trace silently downgrade a critical finding out of
+/// a `?severity=critical` filter. `seen_count` counts the fold,
+/// `first_seen_ms` is the oldest detection retained.
+#[must_use]
+pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
+    let mut out: Vec<StoredFinding> = Vec::with_capacity(entries.len());
+    let mut index: HashMap<&str, usize> = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        // An unsigned finding cannot be keyed, so it stays its own row
+        // rather than folding every unsigned finding into one.
+        if entry.finding.signature.is_empty() {
+            out.push(entry.clone());
+            continue;
+        }
+        if let Some(&i) = index.get(entry.finding.signature.as_str()) {
+            let kept: &mut StoredFinding = &mut out[i];
+            kept.seen_count += entry.seen_count;
+            kept.first_seen_ms = kept.first_seen_ms.min(entry.first_seen_ms);
+            // Severity is ordered Critical < Warning < Info, so the
+            // worst of two is the min.
+            if entry.finding.severity < kept.finding.severity {
+                kept.finding.severity = entry.finding.severity.clone();
+            }
+        } else {
+            index.insert(entry.finding.signature.as_str(), out.len());
+            out.push(entry.clone());
+        }
+    }
+    out
 }
 
 /// Query filter for the findings store.
@@ -51,91 +95,77 @@ pub struct FindingsFilter {
     pub limit: usize,
 }
 
-/// Thread-safe signature-keyed store for recent findings.
+/// Thread-safe ring buffer for recent findings.
 ///
 /// Shared between `process_traces` (writer, exclusive lock) and the
 /// query API handlers (readers, shared lock).
 #[derive(Debug)]
 pub struct FindingsStore {
-    inner: RwLock<HashMap<String, StoredFinding>>,
+    inner: RwLock<VecDeque<StoredFinding>>,
     max_size: usize,
 }
 
 impl FindingsStore {
     #[must_use]
     pub fn new(max_size: usize) -> Self {
+        // Pre-allocate the ring buffer to reduce the number of reallocations
+        // that `extend` in `push_batch` can trigger under the writer lock.
+        // Reallocating under the lock briefly blocks query API readers.
+        //
+        // The ceiling is deliberately low: the default
+        // `max_retained_findings = 10_000` is already well under `65k`
+        // worth of StoredFinding slots (~12 MB), and users who set a much
+        // higher cap typically want to pay the initial-memory cost lazily.
+        const INITIAL_CAPACITY_CEILING: usize = 4096;
+        let capacity = max_size.min(INITIAL_CAPACITY_CEILING);
         Self {
-            inner: RwLock::new(HashMap::new()),
+            inner: RwLock::new(VecDeque::with_capacity(capacity)),
             max_size,
         }
     }
 
-    /// Store findings from a detection batch, coalescing by signature.
+    /// Append findings from a detection batch. Evicts oldest entries
+    /// when the buffer exceeds capacity.
     ///
-    /// A finding whose signature is already stored refreshes that entry
-    /// in place: latest instance kept, `seen_count` incremented,
-    /// `first_seen_ms` preserved. When the number of distinct signatures
-    /// exceeds capacity, the least recently seen entries are evicted.
-    ///
-    /// The clones and signature keys are built OUTSIDE the write lock so
-    /// concurrent query API readers only wait for the map upserts.
+    /// The clones happen outside the write lock so concurrent query API
+    /// readers only wait for the short `extend + truncate` critical
+    /// section, not for N `Finding::clone()` allocations.
     pub async fn push_batch(&self, findings: &[Finding], now_ms: u64) {
         if findings.is_empty() || self.max_size == 0 {
             // `max_size == 0` disables the store entirely (users set this
             // via `[daemon] max_retained_findings = 0` to reclaim memory
             // when the query API is disabled). Short-circuit here to
-            // avoid cloning findings we will immediately drop.
+            // avoid cloning findings we will immediately drain.
             return;
         }
-        // Clone and key the new entries OUTSIDE the lock. The daemon
-        // enriches signatures before pushing; the compute fallback keeps
-        // the coalescing key total for any future caller that does not.
-        let keyed: Vec<(String, Finding)> = findings
+        // Clone and build the new entries OUTSIDE the lock.
+        let new_entries: Vec<StoredFinding> = findings
             .iter()
-            .map(|f| {
-                let key = if f.signature.is_empty() {
-                    crate::acknowledgments::compute_signature(f)
-                } else {
-                    f.signature.clone()
-                };
-                (key, f.clone())
+            .map(|f| StoredFinding {
+                finding: f.clone(),
+                stored_at_ms: now_ms,
+                first_seen_ms: now_ms,
+                seen_count: 1,
             })
             .collect();
 
         let mut buf = self.inner.write().await;
-        for (key, finding) in keyed {
-            buf.entry(key)
-                .and_modify(|sf| {
-                    sf.finding = finding.clone();
-                    sf.stored_at_ms = now_ms;
-                    sf.seen_count += 1;
-                })
-                .or_insert(StoredFinding {
-                    finding,
-                    stored_at_ms: now_ms,
-                    first_seen_ms: now_ms,
-                    seen_count: 1,
-                });
-        }
-        // Evict the least recently seen signatures past capacity. The
-        // scan is O(n) per eviction, acceptable because evictions only
-        // happen once max_size DISTINCT problems are live at once, not
-        // on every recurrence of a hot pattern like the ring did.
-        while buf.len() > self.max_size {
-            let oldest = buf
-                .iter()
-                .min_by(|(ka, a), (kb, b)| {
-                    a.stored_at_ms.cmp(&b.stored_at_ms).then_with(|| ka.cmp(kb))
-                })
-                .map(|(k, _)| k.clone());
-            match oldest {
-                Some(key) => buf.remove(&key),
-                None => break,
-            };
+        buf.extend(new_entries);
+        // Drop oldest entries if we exceeded capacity. `drain(..n)` on a
+        // VecDeque is O(n), which is acceptable since n is typically small
+        // (one batch's worth of excess, not the whole buffer).
+        if buf.len() > self.max_size {
+            let excess = buf.len() - self.max_size;
+            buf.drain(..excess);
         }
     }
 
-    /// Query findings with optional filters, most recently seen first.
+    /// Query findings with optional filters, newest first.
+    ///
+    /// Returns raw per-trace detections. Callers that list findings for
+    /// a human fold them with [`coalesce_by_signature`]; callers that
+    /// count them (the quality gate) must not, a pattern hitting 20
+    /// traces is 20 findings against a threshold.
     ///
     /// `filter.limit` is used as-is. Callers set the default (the query
     /// API handler in `query_api.rs` caps at `MAX_FINDINGS_LIMIT` and
@@ -144,9 +174,9 @@ impl FindingsStore {
     pub async fn query(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
         let buf = self.inner.read().await;
         let limit = filter.limit;
-        let mut hits: Vec<(&String, &StoredFinding)> = buf
-            .iter()
-            .filter(|(_, sf)| {
+        buf.iter()
+            .rev()
+            .filter(|sf| {
                 if let Some(ref svc) = filter.service
                     && sf.finding.service != *svc
                 {
@@ -164,26 +194,39 @@ impl FindingsStore {
                 }
                 true
             })
-            .collect();
-        // Newest first; the signature tiebreak keeps equal-timestamp
-        // batches in a deterministic order across queries.
-        hits.sort_by(|(ka, a), (kb, b)| {
-            b.stored_at_ms.cmp(&a.stored_at_ms).then_with(|| ka.cmp(kb))
-        });
-        hits.into_iter()
             .take(limit)
-            .map(|(_, sf)| sf.clone())
+            .cloned()
             .collect()
     }
 
-    /// Get findings whose LATEST instance belongs to a specific trace.
+    /// Query with the same filters, then fold per-trace detections into
+    /// one entry per signature and apply `filter.limit` to the FOLDED
+    /// rows.
     ///
-    /// Coalescing keeps one instance per signature, so a trace whose
-    /// finding has since recurred on a newer trace no longer lists here;
-    /// `/api/explain/{trace_id}` stays the exhaustive per-trace view.
+    /// The limit lands after the fold on purpose: applied before, a
+    /// pattern recurring on 100 traces would consume the whole page and
+    /// hide every other problem behind it.
+    pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
+        let unlimited = FindingsFilter {
+            service: filter.service.clone(),
+            finding_type: filter.finding_type.clone(),
+            severity: filter.severity.clone(),
+            limit: usize::MAX,
+        };
+        let mut folded = coalesce_by_signature(&self.query(&unlimited).await);
+        folded.truncate(filter.limit);
+        folded
+    }
+
+    /// Get every retained detection for a specific trace, newest first.
+    ///
+    /// Raw instances, not folded: this is the triage path for a trace
+    /// whose spans have already aged out of the window, so it must
+    /// answer for any trace still in the buffer, see `docs/RUNBOOK.md`.
     pub async fn by_trace_id(&self, trace_id: &str) -> Vec<StoredFinding> {
         let buf = self.inner.read().await;
-        buf.values()
+        buf.iter()
+            .rev()
             .filter(|sf| sf.finding.trace_id == trace_id)
             .cloned()
             .collect()
@@ -203,6 +246,7 @@ impl FindingsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::acknowledgments::enrich_with_signatures;
     use crate::detect::{Confidence, FindingType, Pattern, Severity};
 
     fn make_finding(service: &str, finding_type: FindingType) -> Finding {
@@ -256,81 +300,138 @@ mod tests {
 
     #[tokio::test]
     async fn push_batch_respects_capacity() {
-        // 5 distinct problems pushed at increasing times into a store of
-        // 3: the least recently seen signatures are evicted.
         let store = FindingsStore::new(3);
-        for i in 0..5u64 {
-            let f =
-                make_finding_with_template("svc", FindingType::NPlusOneSql, &format!("SELECT {i}"));
-            store.push_batch(&[f], 1000 + i).await;
-        }
+        let findings: Vec<Finding> = (0..5)
+            .map(|i| {
+                let mut f = make_finding("svc", FindingType::NPlusOneSql);
+                f.trace_id = format!("trace-{i}");
+                f
+            })
+            .collect();
+        store.push_batch(&findings, 1000).await;
         assert_eq!(store.len().await, 3);
+        // Oldest entries evicted: only trace-2, trace-3, trace-4 remain.
         let all = store
             .query(&FindingsFilter {
                 limit: 100,
                 ..Default::default()
             })
             .await;
-        let templates: Vec<&str> = all
-            .iter()
-            .map(|sf| sf.finding.pattern.template.as_str())
-            .collect();
-        assert_eq!(templates, ["SELECT 4", "SELECT 3", "SELECT 2"]);
+        let trace_ids: Vec<&str> = all.iter().map(|sf| sf.finding.trace_id.as_str()).collect();
+        assert!(trace_ids.contains(&"trace-4"));
+        assert!(trace_ids.contains(&"trace-3"));
+        assert!(trace_ids.contains(&"trace-2"));
+        assert!(!trace_ids.contains(&"trace-0"));
     }
 
     #[tokio::test]
-    async fn same_signature_coalesces_into_one_entry() {
-        // The tester's repro: one recurring pattern re-detected on N
-        // traces must stay ONE entry, refreshed in place with a tally.
+    async fn query_keeps_instances_and_coalesced_folds_them() {
+        // The tester's repro: one recurring pattern re-detected on 2
+        // traces lists ONCE for a reader, while the raw instances stay
+        // available for the gate and for per-trace triage.
         let store = FindingsStore::new(100);
-        let mut f1 = make_finding("svc", FindingType::RedundantSql);
-        f1.trace_id = "trace-a".to_string();
-        store.push_batch(&[f1], 1000).await;
-        let mut f2 = make_finding("svc", FindingType::RedundantSql);
-        f2.trace_id = "trace-b".to_string();
-        store.push_batch(&[f2], 2000).await;
+        for (trace, ts) in [("trace-a", 1000u64), ("trace-b", 2000)] {
+            let mut f = make_finding("svc", FindingType::RedundantSql);
+            f.trace_id = trace.to_string();
+            enrich_with_signatures(std::slice::from_mut(&mut f));
+            store.push_batch(&[f], ts).await;
+        }
+        let filter = FindingsFilter {
+            limit: 100,
+            ..Default::default()
+        };
+        assert_eq!(store.query(&filter).await.len(), 2, "instances retained");
 
-        assert_eq!(store.len().await, 1);
-        let all = store
-            .query(&FindingsFilter {
-                limit: 100,
-                ..Default::default()
-            })
-            .await;
-        let sf = &all[0];
-        assert_eq!(sf.seen_count, 2);
-        assert_eq!(sf.first_seen_ms, 1000);
-        assert_eq!(sf.stored_at_ms, 2000);
+        let folded = store.query_coalesced(&filter).await;
+        assert_eq!(folded.len(), 1);
+        assert_eq!(folded[0].seen_count, 2);
+        assert_eq!(folded[0].first_seen_ms, 1000);
+        assert_eq!(folded[0].stored_at_ms, 2000);
         assert_eq!(
-            sf.finding.trace_id, "trace-b",
+            folded[0].finding.trace_id, "trace-b",
             "the latest instance is the one kept"
         );
     }
 
     #[tokio::test]
-    async fn hot_pattern_does_not_evict_rare_findings() {
-        // The recurrence of one hot signature must not consume capacity:
-        // eviction only happens when DISTINCT problems exceed the cap.
-        let store = FindingsStore::new(2);
-        let cold = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT cold");
-        store.push_batch(&[cold], 1000).await;
-        for i in 0..50u64 {
-            let hot = make_finding_with_template("svc", FindingType::RedundantSql, "SELECT hot");
-            store.push_batch(&[hot], 2000 + i).await;
-        }
-        assert_eq!(store.len().await, 2, "hot recurrences never grow the store");
-        let all = store
-            .query(&FindingsFilter {
+    async fn coalescing_keeps_the_worst_severity() {
+        // Severity is derived per trace, so a quiet trace must not
+        // downgrade a critical finding out of a `?severity=critical`
+        // filter. Severity is ordered Critical < Warning < Info.
+        let mut critical = make_finding("svc", FindingType::NPlusOneSql);
+        critical.severity = Severity::Critical;
+        critical.trace_id = "trace-hot".to_string();
+        let mut warning = make_finding("svc", FindingType::NPlusOneSql);
+        warning.severity = Severity::Warning;
+        warning.trace_id = "trace-quiet".to_string();
+        enrich_with_signatures(std::slice::from_mut(&mut critical));
+        enrich_with_signatures(std::slice::from_mut(&mut warning));
+
+        let store = FindingsStore::new(100);
+        store.push_batch(&[critical], 1000).await;
+        store.push_batch(&[warning], 2000).await;
+
+        let folded = store
+            .query_coalesced(&FindingsFilter {
                 limit: 100,
                 ..Default::default()
             })
             .await;
-        assert_eq!(all[0].finding.pattern.template, "SELECT hot");
-        assert_eq!(all[0].seen_count, 50);
+        assert_eq!(folded.len(), 1);
         assert_eq!(
-            all[1].finding.pattern.template, "SELECT cold",
-            "the rare finding survives the hot pattern"
+            folded[0].finding.severity,
+            Severity::Critical,
+            "the later warning must not mask the critical occurrence"
         );
+        assert_eq!(
+            folded[0].finding.trace_id, "trace-quiet",
+            "the latest instance is still the one shown"
+        );
+    }
+
+    #[tokio::test]
+    async fn coalesced_limit_applies_after_folding() {
+        // A hot pattern recurring 50 times must not consume the page and
+        // hide the other problems behind it.
+        let store = FindingsStore::new(1000);
+        for i in 0..50u64 {
+            let mut hot =
+                make_finding_with_template("svc", FindingType::RedundantSql, "SELECT hot");
+            enrich_with_signatures(std::slice::from_mut(&mut hot));
+            store.push_batch(&[hot], 1000 + i).await;
+        }
+        let mut cold = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT cold");
+        enrich_with_signatures(std::slice::from_mut(&mut cold));
+        store.push_batch(&[cold], 2000).await;
+
+        let folded = store
+            .query_coalesced(&FindingsFilter {
+                limit: 2,
+                ..Default::default()
+            })
+            .await;
+        let templates: Vec<&str> = folded
+            .iter()
+            .map(|sf| sf.finding.pattern.template.as_str())
+            .collect();
+        assert_eq!(templates, ["SELECT cold", "SELECT hot"]);
+        assert_eq!(folded[1].seen_count, 50);
+    }
+
+    #[tokio::test]
+    async fn by_trace_id_answers_for_an_older_recurrence() {
+        // RUNBOOK triage: a trace_id read off a log line must still
+        // resolve after the pattern recurred on newer traces.
+        let store = FindingsStore::new(100);
+        for (trace, ts) in [("trace-old", 1000u64), ("trace-new", 2000)] {
+            let mut f = make_finding("svc", FindingType::RedundantSql);
+            f.trace_id = trace.to_string();
+            enrich_with_signatures(std::slice::from_mut(&mut f));
+            store.push_batch(&[f], ts).await;
+        }
+        let hits = store.by_trace_id("trace-old").await;
+        assert_eq!(hits.len(), 1, "the older instance is still retrievable");
+        assert_eq!(hits[0].finding.trace_id, "trace-old");
     }
 
     #[tokio::test]

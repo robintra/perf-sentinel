@@ -378,12 +378,15 @@ curl -sS http://127.0.0.1:4318/api/energy
 ### GET /api/findings
 
 Returns a JSON array of recent findings, newest first. Each element wraps
-the finding itself plus daemon-side occurrence metadata. Entries are
-coalesced by canonical signature (the same key acknowledgments use):
-detection is per trace, so a recurring pattern would otherwise list one
-identical row per trace and could fill the whole store, evicting rarer
-findings. One entry per distinct problem is kept, refreshed in place with
-its latest instance and an occurrence tally (since 0.9.29).
+the finding itself plus daemon-side occurrence metadata. Detection is
+per trace, so a recurring pattern is detected once per trace that
+exhibits it. The buffer keeps those instances, and this listing folds
+them by canonical signature (the same key acknowledgments use) so one
+distinct problem is one row (since 0.9.29). The fold happens at read
+time: `/api/findings/{trace_id}` still answers with the raw per-trace
+detections, and the quality gate still counts them individually.
+`limit` applies to the folded rows, so a pattern recurring on 100 traces
+cannot consume the page.
 
 **Query parameters:**
 
@@ -400,14 +403,18 @@ HTTP 400 with an axum-generated error body.
 **Response shape:** array of `StoredFinding`. Each `StoredFinding` has:
 
 - `finding`: the latest detected instance of this signature (its
-  `trace_id` and timestamps describe the most recent occurrence). See
+  `trace_id` and timestamps describe the most recent occurrence),
+  carrying the WORST severity across the folded detections, since
+  severity is derived per trace. See
   [`Finding` schema](#finding-schema) below.
 - `stored_at_ms`: integer Unix timestamp in milliseconds of the most
-  recent time the daemon stored this signature.
-- `first_seen_ms`: integer Unix timestamp in milliseconds of the first
-  time the daemon stored this signature (since 0.9.29).
-- `seen_count`: how many per-trace instances this entry coalesces
-  (since 0.9.29).
+  recent detection folded into this entry.
+- `first_seen_ms`: integer Unix timestamp in milliseconds of the oldest
+  retained detection of this signature (since 0.9.29). On an endpoint
+  that does not fold (`/api/findings/{trace_id}`), it equals
+  `stored_at_ms`.
+- `seen_count`: how many per-trace detections this entry folds, `1` on
+  the non-folding endpoints (since 0.9.29).
 
 **Example:**
 
@@ -494,12 +501,13 @@ The `finding` object exposed by `/api/findings` and
 
 ### GET /api/findings/{trace_id}
 
-Returns all findings whose LATEST instance matches the path segment, as
-a JSON array. Same element shape as `/api/findings`. Hard cap of 1000
+Returns all findings whose `trace_id` matches the path segment, as a
+JSON array. Same element shape as `/api/findings`. Hard cap of 1000
 entries applies (pathological traces with hundreds of N+1 clusters).
-Since coalescing (0.9.29) a trace whose finding has since recurred on a
-newer trace no longer lists here; `/api/explain/{trace_id}` stays the
-exhaustive per-trace view.
+Unlike `/api/findings` this endpoint does NOT fold by signature: it is
+the triage path for a trace whose spans have already aged out of the
+window, so it answers with every retained detection of that trace and
+each entry carries `seen_count: 1`.
 
 **Path parameter:** `trace_id` (string, exact match). The path segment is
 URL-decoded by axum before comparison.
@@ -676,7 +684,7 @@ The `analysis` section reflects daemon-lifetime counters (cumulative since daemo
 
 **Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `200 OK` with an empty Report envelope: `findings: []`, `green_summary: GreenSummary::disabled(0)`, and `warnings: ["daemon has not yet processed any events"]`. Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health issue. The empty envelope lets clients distinguish "cold start" from "events seen, zero findings" (the latter returns `200` with no warning string and `analysis.events_processed > 0`) without a status code mismatch. The double-counter guard (`events_processed_total > 0` AND `traces_analyzed_total > 0`) is preserved internally so the snapshot stays self-consistent during the `trace_ttl_ms / 2` window between the first event ingest and the first eviction tick.
 
-**Recurrence tallies.** The findings store coalesces by signature, so one exported finding can stand for many per-trace detections. `finding_occurrences` carries the count for every signature seen more than once, as `{ signature, seen_count, first_seen_ms }` (since 0.9.29). It is a daemon-only field like `correlations`, absent from batch reports where each finding is detected once per run. The HTML dashboard joins it back by signature and labels the row with the number of traces.
+**Recurrence tallies.** The exported findings are folded by signature, so one exported finding can stand for many per-trace detections. The quality gate in the same response is evaluated on the raw per-trace detections, so its count-based rules keep counting occurrences, not distinct problems. `finding_occurrences` carries the count for every signature seen more than once, as `{ signature, seen_count, first_seen_ms }` (since 0.9.29). It is a daemon-only field like `correlations`, absent from batch reports where each finding is detected once per run. The HTML dashboard joins it back by signature and labels the row with the number of traces.
 
 **Prometheus metric.** Each request bumps `perf_sentinel_export_report_requests_total` so operators can dashboard or alert on Report snapshot frequency.
 

@@ -241,6 +241,8 @@
   .ps-hero-rule-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ps-hero-rule-detail { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
   .ps-hero-meta { display: flex; flex-wrap: wrap; gap: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+  .ps-hero-ingest { margin-top: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+  .ps-hero-ingest[data-gap="true"] { color: var(--warn-fg); }
   /* correlations cards */
   #correlations-list { display: flex; flex-direction: column; gap: 10px; }
   /* The meta column cannot shrink (nowrap), so on a narrow viewport it used to
@@ -2098,6 +2100,25 @@
       "v" + (payload.version || "")
     ].forEach(function (m) { meta.appendChild(el("span", null, m)); });
     right.appendChild(meta);
+    // A thin report reads as a clean one unless the filtered spans are
+    // stated: "1 spans" looks identical whether 1 span arrived or 10 did
+    // and 9 lacked db.statement. See docs/LIMITATIONS.md.
+    var ingest = analysis.ingest;
+    if (ingest && ingest.spans_filtered > 0) {
+      var gaps = (ingest.filtered_missing_db_statement || 0)
+        + (ingest.filtered_missing_http_url || 0);
+      var txt = fmtNum(ingest.spans_received || 0) + " spans ingested, "
+        + fmtNum(ingest.spans_filtered) + " filtered";
+      if (gaps > 0) txt += ", " + fmtNum(gaps) + " missing db.statement or http.url";
+      var warn = el("div", "ps-hero-ingest", txt);
+      if (gaps > 0) {
+        setAttr(warn, "data-gap", "true");
+        warn.title = "Spans that are I/O operations but shipped without the attribute "
+          + "perf-sentinel needs. A thin report may mean unusable instrumentation, "
+          + "not a clean service.";
+      }
+      right.appendChild(warn);
+    }
     card.appendChild(right);
     host.appendChild(card);
   }
