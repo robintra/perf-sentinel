@@ -82,6 +82,54 @@ pub struct AnalyzeSummary {
 }
 
 /// Application state for the TUI.
+/// Order of the Inspect trace list. `s` cycles it: the TUI's primary
+/// list is traces, so the severity/impact axes rank each trace by its
+/// findings, mirroring the dashboard and `analyze --sort`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraceSort {
+    ById,
+    Severity,
+    Impact,
+}
+
+impl TraceSort {
+    fn next(self) -> Self {
+        match self {
+            Self::ById => Self::Severity,
+            Self::Severity => Self::Impact,
+            Self::Impact => Self::ById,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::ById => "id",
+            Self::Severity => "severity",
+            Self::Impact => "impact",
+        }
+    }
+}
+
+/// Signature tallies for a flat findings list, via the shared render
+/// helpers so all surfaces agree on the key and the estimate.
+fn build_recurrence(findings: &[Finding]) -> HashMap<String, crate::render::RecurrenceStats> {
+    let mut index: HashMap<String, crate::render::RecurrenceStats> = HashMap::new();
+    for f in findings {
+        let entry = index.entry(crate::render::recurrence_key(f)).or_insert(
+            crate::render::RecurrenceStats {
+                count: 0,
+                total_ops: 0,
+            },
+        );
+        entry.count += 1;
+        entry.total_ops += f
+            .green_impact
+            .as_ref()
+            .map_or(0, |gi| gi.estimated_extra_io_ops);
+    }
+    index
+}
+
 pub struct App {
     pub traces: Vec<Trace>,
     pub detect_config: DetectConfig,
@@ -102,6 +150,12 @@ pub struct App {
     /// the per-keypress scroll clamp does not rebuild the line vector.
     analyze_line_count: u16,
 
+    /// Per-signature recurrence tallies over `all_findings`, computed
+    /// once: the detail panel prints them and the impact sort ranks by
+    /// them.
+    recurrence: HashMap<String, crate::render::RecurrenceStats>,
+    /// Active order of the trace list.
+    pub trace_sort: TraceSort,
     pub selected_trace: usize,
     pub selected_finding: usize,
     pub active_panel: Panel,
@@ -202,6 +256,8 @@ impl App {
         Self {
             traces,
             detect_config,
+            recurrence: build_recurrence(&findings),
+            trace_sort: TraceSort::ById,
             all_findings: findings,
             findings_by_trace,
             trace_ids,
@@ -431,6 +487,91 @@ impl App {
     }
 
     /// Move selection up in the active panel.
+    /// Cycle the Inspect trace order: id, then worst-severity-first,
+    /// then aggregate-impact-first, the other axis breaking ties.
+    pub fn cycle_trace_sort(&mut self) {
+        self.trace_sort = self.trace_sort.next();
+        let mut order: Vec<usize> = (0..self.traces.len()).collect();
+        match self.trace_sort {
+            TraceSort::ById => order.sort_by(|&a, &b| self.trace_ids[a].cmp(&self.trace_ids[b])),
+            TraceSort::Severity => order.sort_by(|&a, &b| {
+                self.trace_rank(a)
+                    .cmp(&self.trace_rank(b))
+                    .then_with(|| self.trace_ops(b).cmp(&self.trace_ops(a)))
+                    .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
+            }),
+            TraceSort::Impact => order.sort_by(|&a, &b| {
+                self.trace_ops(b)
+                    .cmp(&self.trace_ops(a))
+                    .then_with(|| self.trace_rank(a).cmp(&self.trace_rank(b)))
+                    .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
+            }),
+        }
+        self.apply_trace_order(&order);
+    }
+
+    /// Worst severity among the trace's findings. Severity orders
+    /// Critical < Warning < Info, so worst = min, and a finding-less
+    /// trace sorts last.
+    fn trace_rank(&self, idx: usize) -> sentinel_core::detect::Severity {
+        self.findings_by_trace[idx]
+            .iter()
+            .map(|&i| self.all_findings[i].severity.clone())
+            .min()
+            .unwrap_or(sentinel_core::detect::Severity::Info)
+    }
+
+    /// Aggregate avoidable ops of the signatures this trace's findings
+    /// belong to, the same figure the detail panel prints.
+    fn trace_ops(&self, idx: usize) -> usize {
+        self.findings_by_trace[idx]
+            .iter()
+            .map(|&i| {
+                let key = crate::render::recurrence_key(&self.all_findings[i]);
+                self.recurrence.get(&key).map_or(0, |s| s.total_ops)
+            })
+            .sum()
+    }
+
+    /// Re-permute every trace-indexed structure and reset the cursor:
+    /// a stale index after a reorder would point detail caches at the
+    /// wrong trace.
+    fn apply_trace_order(&mut self, order: &[usize]) {
+        let mut traces: Vec<Option<Trace>> = std::mem::take(&mut self.traces)
+            .into_iter()
+            .map(Some)
+            .collect();
+        self.traces = order
+            .iter()
+            .map(|&i| traces[i].take().expect("permutation"))
+            .collect();
+        let mut ids: Vec<Option<String>> = std::mem::take(&mut self.trace_ids)
+            .into_iter()
+            .map(Some)
+            .collect();
+        self.trace_ids = order
+            .iter()
+            .map(|&i| ids[i].take().expect("permutation"))
+            .collect();
+        let mut by_trace: Vec<Option<Vec<usize>>> = std::mem::take(&mut self.findings_by_trace)
+            .into_iter()
+            .map(Some)
+            .collect();
+        self.findings_by_trace = order
+            .iter()
+            .map(|&i| by_trace[i].take().expect("permutation"))
+            .collect();
+        self.trace_index = self
+            .trace_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
+        self.selected_trace = 0;
+        self.selected_finding = 0;
+        self.cached_detail = None;
+    }
+
     pub fn move_up(&mut self) {
         match self.active_panel {
             Panel::Traces => {
@@ -1694,6 +1835,7 @@ fn dispatch_panel_key(app: &mut App, code: KeyCode) -> KeyOutcome {
         KeyCode::Enter => app.enter(),
         KeyCode::Esc => app.escape(),
         KeyCode::Char('r') => app.reset_layout(),
+        KeyCode::Char('s') => app.cycle_trace_sort(),
         #[cfg(feature = "daemon")]
         KeyCode::Char('a') => open_ack_modal_for_current(app, false),
         #[cfg(feature = "daemon")]
@@ -1802,6 +1944,12 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled(
             format!(" {label} "),
             tab_label_style(app.view == *view),
+        ));
+    }
+    if app.view == View::Inspect {
+        spans.push(Span::styled(
+            format!("    s sort: {}", app.trace_sort.label()),
+            dim,
         ));
     }
     spans.push(Span::styled(
@@ -2381,6 +2529,18 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled("Extra I/O: ", dim_style()),
             Span::raw(format!("{} avoidable ops", impact.estimated_extra_io_ops)),
+        ]));
+    }
+    let key = crate::render::recurrence_key(finding);
+    if let Some(stats) = app.recurrence.get(&key).filter(|s| s.count > 1) {
+        let ops = if stats.total_ops > 0 {
+            format!(" \u{b7} ~{} avoidable ops in total", stats.total_ops)
+        } else {
+            String::new()
+        };
+        lines.push(Line::from(vec![
+            Span::styled("Recurrence: ", dim_style()),
+            Span::raw(format!("detected in {} traces{ops}", stats.count)),
         ]));
     }
 
