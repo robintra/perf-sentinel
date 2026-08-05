@@ -358,6 +358,7 @@ mod tests {
             received: 10,
             filtered_not_io: 5,
             filtered_missing_db_statement: 4,
+            retained_sql: 1,
             ..SpanConversionStats::default()
         };
         let config = Config {

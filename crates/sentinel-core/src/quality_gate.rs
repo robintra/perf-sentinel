@@ -296,11 +296,13 @@ mod tests {
         assert!(gate.passed, "2 critical SQL <= 5, 0.8 <= 0.90");
     }
 
-    /// An [`IngestStats`] whose usable ratio is `retained / (retained + gaps)`.
+    /// An [`IngestStats`] whose SQL usable ratio is
+    /// `retained / (retained + gaps)`, the only kind present.
     fn ingest_stats(retained: u64, attribute_gaps: u64) -> IngestStats {
         let stats = crate::ingest::otlp::SpanConversionStats {
             received: retained + attribute_gaps,
             filtered_missing_db_statement: attribute_gaps,
+            retained_sql: retained,
             ..Default::default()
         };
         IngestStats::from(stats)

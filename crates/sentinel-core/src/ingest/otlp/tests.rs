@@ -227,6 +227,8 @@ fn counted_conversion_classifies_filtered_spans() {
             filtered_missing_http_url: 1,
             filtered_non_sql_datastore: 0,
             filtered_merged_db_span: 0,
+            retained_sql: 1,
+            retained_http: 0,
         }
     );
 }
@@ -654,6 +656,7 @@ fn server_span_without_url_counts_not_io_not_missing_url() {
             filtered_missing_http_url: 1,
             filtered_non_sql_datastore: 0,
             filtered_merged_db_span: 0,
+            ..Default::default()
         }
     );
 }
@@ -683,6 +686,7 @@ fn record_otlp_spans_moves_received_and_filtered_counters() {
         filtered_missing_http_url: 0,
         filtered_non_sql_datastore: 3,
         filtered_merged_db_span: 4,
+        ..Default::default()
     });
 
     assert_eq!(state.otlp_spans_received_total.get(), 5);
@@ -3244,6 +3248,8 @@ fn php_split_query_stitches_one_event_with_execute_duration() {
             filtered_missing_http_url: 0,
             filtered_non_sql_datastore: 0,
             filtered_merged_db_span: 3,
+            retained_sql: 1,
+            retained_http: 0,
         }
     );
 }
@@ -3858,6 +3864,7 @@ fn stats_merge_sums_every_field() {
         filtered_missing_http_url: 3,
         filtered_non_sql_datastore: 1,
         filtered_merged_db_span: 1,
+        ..Default::default()
     };
     let b = SpanConversionStats {
         received: 5,
@@ -3866,6 +3873,7 @@ fn stats_merge_sums_every_field() {
         filtered_missing_http_url: 0,
         filtered_non_sql_datastore: 0,
         filtered_merged_db_span: 1,
+        ..Default::default()
     };
     a.merge(&b);
     assert_eq!(a.received, 15);
@@ -3879,8 +3887,8 @@ fn stats_merge_sums_every_field() {
 
 #[test]
 fn usable_ratio_counts_only_io_shaped_spans() {
-    // 10 received: 4 not_io, 1 deliberate merged, 2 missing statements,
-    // 3 retained. Denominator = retained + attribute gaps = 5, not 10:
+    // 10 received: 4 not_io, 1 deliberate merged, 2 SQL missing their
+    // statement, 3 SQL retained. The SQL denominator is 3 + 2 = 5:
     // internal spans and deliberate drops must not depress the ratio.
     let stats = SpanConversionStats {
         received: 10,
@@ -3889,9 +3897,46 @@ fn usable_ratio_counts_only_io_shaped_spans() {
         filtered_missing_http_url: 0,
         filtered_non_sql_datastore: 0,
         filtered_merged_db_span: 1,
+        retained_sql: 3,
+        retained_http: 0,
     };
     let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");
     assert!((ratio - 3.0 / 5.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn usable_ratio_takes_the_worst_kind_not_the_pooled_share() {
+    // The motivating false green: 900 healthy HTTP spans alongside 100
+    // SQL spans that all lack db.statement. Pooled, that reads 0.90 and
+    // slips past a 0.9 threshold while every SQL detector is blind.
+    let stats = SpanConversionStats {
+        received: 1000,
+        filtered_missing_db_statement: 100,
+        retained_http: 900,
+        ..Default::default()
+    };
+    assert_eq!(stats.sql_usable_ratio(), Some(0.0));
+    assert_eq!(stats.http_usable_ratio(), Some(1.0));
+    let ratio = stats.usable_span_ratio().expect("I/O-shaped spans present");
+    assert!(
+        ratio.abs() < f64::EPSILON,
+        "a fully broken SQL surface must read 0, got {ratio}"
+    );
+}
+
+#[test]
+fn usable_ratio_ignores_a_kind_that_never_appeared() {
+    // An HTTP-only service has no SQL ratio to speak of, so the HTTP
+    // one stands alone rather than being dragged to 0 by an absent kind.
+    let stats = SpanConversionStats {
+        received: 10,
+        filtered_missing_http_url: 2,
+        retained_http: 8,
+        ..Default::default()
+    };
+    assert!(stats.sql_usable_ratio().is_none());
+    let ratio = stats.usable_span_ratio().expect("HTTP spans present");
+    assert!((ratio - 0.8).abs() < f64::EPSILON);
 }
 
 #[test]

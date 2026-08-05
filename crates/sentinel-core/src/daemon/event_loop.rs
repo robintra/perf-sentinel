@@ -925,9 +925,8 @@ async fn process_traces(
     let now_ms = current_time_ms();
     if !findings.is_empty() {
         ctx.findings_store.push_batch(&findings, now_ms).await;
-        // Refresh the store occupancy gauge, distinct signatures since
-        // coalescing (paired with the max_retained_findings cap for the
-        // Grafana headroom panel).
+        // Refresh the ring-buffer occupancy gauge (paired with the
+        // max_retained_findings cap for the Grafana headroom panel).
         #[allow(clippy::cast_precision_loss)] // bounded by max_retained_findings
         ctx.metrics
             .stored_findings

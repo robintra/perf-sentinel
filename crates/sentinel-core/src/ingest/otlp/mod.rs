@@ -41,6 +41,16 @@ pub trait MetricsSink: Send + Sync {
     }
 }
 
+/// `retained / (retained + gap)`, or `None` when neither was seen.
+fn ratio(retained: u64, gap: u64) -> Option<f64> {
+    let denominator = retained + gap;
+    if denominator == 0 {
+        return None;
+    }
+    #[allow(clippy::cast_precision_loss)] // span counts are far below 2^52
+    Some(retained as f64 / denominator as f64)
+}
+
 /// Per-request span conversion tally.
 ///
 /// `received` counts every span in the request; the `filtered_*` fields
@@ -55,9 +65,23 @@ pub struct SpanConversionStats {
     pub filtered_missing_http_url: u64,
     pub filtered_non_sql_datastore: u64,
     pub filtered_merged_db_span: u64,
+    /// Retained SQL events, the numerator of the SQL usable ratio.
+    pub retained_sql: u64,
+    /// Retained outbound HTTP/RPC events, the numerator of the HTTP one.
+    pub retained_http: u64,
 }
 
 impl SpanConversionStats {
+    fn count_retained(&mut self, event_type: &crate::event::EventType) {
+        match event_type {
+            crate::event::EventType::Sql => self.retained_sql += 1,
+            crate::event::EventType::HttpOut => self.retained_http += 1,
+            // Messaging has no attribute-gap filter reason, so it has no
+            // usable ratio to contribute to.
+            crate::event::EventType::Messaging => {}
+        }
+    }
+
     fn count_filtered(&mut self, reason: OtlpSpanFilterReason) {
         match reason {
             OtlpSpanFilterReason::NotIo => self.filtered_not_io += 1,
@@ -78,6 +102,8 @@ impl SpanConversionStats {
         self.filtered_missing_http_url += other.filtered_missing_http_url;
         self.filtered_non_sql_datastore += other.filtered_non_sql_datastore;
         self.filtered_merged_db_span += other.filtered_merged_db_span;
+        self.retained_sql += other.retained_sql;
+        self.retained_http += other.retained_http;
     }
 
     /// Spans that survived the filter: `received` minus every filtered tally.
@@ -92,24 +118,40 @@ impl SpanConversionStats {
         )
     }
 
-    /// Share of I/O-shaped spans that were analyzable: retained over
-    /// retained plus the attribute-gap drops (missing `db.statement`,
-    /// missing `http.url`). Non-I/O spans and the deliberate drops
-    /// (`NonSqlDatastore`, `MergedDbSpan`) stay out of the denominator,
-    /// mirroring the daemon's `instrumentation_gap_filtered` reasoning:
-    /// a fleet exporting all its internal spans is healthy, a SQL span
-    /// shipped without its query text is an instrumentation gap.
+    /// Analyzable share of the SQL spans: retained SQL over retained SQL
+    /// plus the spans dropped for a missing `db.statement`. `None` when
+    /// no SQL-shaped span was seen.
+    #[must_use]
+    pub fn sql_usable_ratio(&self) -> Option<f64> {
+        ratio(self.retained_sql, self.filtered_missing_db_statement)
+    }
+
+    /// Analyzable share of the outbound HTTP/RPC spans, same shape
+    /// against `http.url`. `None` when none was seen.
+    #[must_use]
+    pub fn http_usable_ratio(&self) -> Option<f64> {
+        ratio(self.retained_http, self.filtered_missing_http_url)
+    }
+
+    /// The WORST analyzable share across the I/O kinds that were seen.
+    ///
+    /// Per kind rather than pooled: a service emitting 900 usable HTTP
+    /// spans and 100 SQL spans that all lack `db.statement` pools to
+    /// 0.90 and slips past a 0.9 threshold, while every SQL detector is
+    /// blind. Taking the minimum reports that as 0.0, which is the
+    /// case the gate rule exists to catch. Non-I/O spans and the
+    /// deliberate drops (`NonSqlDatastore`, `MergedDbSpan`) stay out of
+    /// both ratios, mirroring the daemon's `instrumentation_gap_filtered`
+    /// reasoning: a fleet exporting all its internal spans is healthy, a
+    /// SQL span shipped without its query text is an instrumentation gap.
     /// `None` when no I/O-shaped span was seen (nothing to judge).
     #[must_use]
     pub fn usable_span_ratio(&self) -> Option<f64> {
-        let retained = self.retained();
-        let denominator =
-            retained + self.filtered_missing_db_statement + self.filtered_missing_http_url;
-        if denominator == 0 {
-            return None;
+        match (self.sql_usable_ratio(), self.http_usable_ratio()) {
+            (Some(sql), Some(http)) => Some(sql.min(http)),
+            (Some(only), None) | (None, Some(only)) => Some(only),
+            (None, None) => None,
         }
-        #[allow(clippy::cast_precision_loss)] // span counts are far below 2^52
-        Some(retained as f64 / denominator as f64)
     }
 
     /// The filtered tallies keyed by their reason, the single place
@@ -1375,7 +1417,10 @@ fn convert_resource_spans<'a>(
                 cached_attrs,
                 consumer_index,
             ) {
-                Ok(event) => events.push(event),
+                Ok(event) => {
+                    stats.count_retained(&event.event_type);
+                    events.push(event);
+                }
                 Err(reason) => stats.count_filtered(reason),
             }
         }

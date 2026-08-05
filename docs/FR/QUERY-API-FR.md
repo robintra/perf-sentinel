@@ -389,12 +389,15 @@ curl -sS http://127.0.0.1:4318/api/energy
 
 Retourne un tableau JSON des findings récents, du plus récent au plus
 ancien. Chaque élément encapsule le finding lui-même plus des métadonnées
-d'occurrence côté daemon. Les entrées sont coalescées par signature
-canonique (la même clé que les acquittements) : la détection est par
-trace, un pattern récurrent listerait donc une ligne identique par trace
-et pourrait remplir tout le store en évinçant les findings plus rares.
-Une entrée par problème distinct est conservée, rafraîchie en place avec
-sa dernière instance et un décompte d'occurrences (depuis 0.9.29).
+d'occurrence côté daemon. La détection est par trace, un pattern
+récurrent est donc détecté une fois par trace qui l'exhibe. Le buffer
+conserve ces instances, et ce listing les replie par signature canonique
+(la même clé que les acquittements) pour qu'un problème distinct tienne
+en une ligne (depuis 0.9.29). Le repli a lieu à la lecture :
+`/api/findings/{trace_id}` répond toujours avec les détections brutes
+par trace, et le quality gate les compte toujours une par une. `limit`
+s'applique aux lignes repliées, un pattern récurrent sur 100 traces ne
+peut donc pas monopoliser la page.
 
 **Paramètres de requête :**
 
@@ -413,14 +416,18 @@ axum.
 `StoredFinding` contient :
 
 - `finding` : la dernière instance détectée de cette signature (son
-  `trace_id` et ses timestamps décrivent l'occurrence la plus récente).
-  Voir [le schéma `Finding`](#schéma-finding) ci-dessous.
-- `stored_at_ms` : timestamp Unix entier en millisecondes du dernier
-  enregistrement de cette signature par le daemon.
-- `first_seen_ms` : timestamp Unix entier en millisecondes du premier
-  enregistrement de cette signature (depuis 0.9.29).
-- `seen_count` : combien d'instances par trace cette entrée coalesce
-  (depuis 0.9.29).
+  `trace_id` et ses timestamps décrivent l'occurrence la plus récente),
+  portant la PIRE sévérité parmi les détections repliées, puisque la
+  sévérité est dérivée par trace. Voir
+  [le schéma `Finding`](#schéma-finding) ci-dessous.
+- `stored_at_ms` : timestamp Unix entier en millisecondes de la
+  détection la plus récente repliée dans cette entrée.
+- `first_seen_ms` : timestamp Unix entier en millisecondes de la plus
+  ancienne détection retenue pour cette signature (depuis 0.9.29). Sur
+  un endpoint qui ne replie pas (`/api/findings/{trace_id}`), il vaut
+  `stored_at_ms`.
+- `seen_count` : combien de détections par trace cette entrée replie,
+  `1` sur les endpoints qui ne replient pas (depuis 0.9.29).
 
 **Exemple :**
 
@@ -508,13 +515,14 @@ v0.4.1 :
 
 ### GET /api/findings/{trace_id}
 
-Retourne tous les findings dont la DERNIÈRE instance matche le segment
-de chemin, sous forme de tableau JSON. Même forme d'élément que
+Retourne tous les findings dont le `trace_id` matche le segment de
+chemin, sous forme de tableau JSON. Même forme d'élément que
 `/api/findings`. Le cap dur de 1000 entrées s'applique (traces
-pathologiques avec des centaines de clusters N+1). Depuis la coalescence
-(0.9.29), une trace dont le finding a récidivé sur une trace plus
-récente ne liste plus ici, `/api/explain/{trace_id}` reste la vue
-exhaustive par trace.
+pathologiques avec des centaines de clusters N+1). Contrairement à
+`/api/findings`, cet endpoint ne replie PAS par signature : c'est le
+chemin de triage d'une trace dont les spans ont déjà expiré de la
+fenêtre, il répond donc avec chaque détection retenue de cette trace et
+chaque entrée porte `seen_count: 1`.
 
 **Paramètre de chemin :** `trace_id` (string, match exact). Le segment
 est URL-décodé par axum avant comparaison.
@@ -694,7 +702,7 @@ La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depu
 
 **Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les probes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans warning et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) reste préservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier event ingéré et le premier eviction tick.
 
-**Décomptes de récurrence.** Le store de findings coalesce par signature, un finding exporté peut donc représenter de nombreuses détections par trace. `finding_occurrences` porte le décompte de chaque signature vue plus d'une fois, sous la forme `{ signature, seen_count, first_seen_ms }` (depuis 0.9.29). C'est un champ daemon-only comme `correlations`, absent des rapports batch où chaque finding est détecté une fois par run. Le dashboard HTML le rejoint par signature et étiquette la ligne avec le nombre de traces.
+**Décomptes de récurrence.** Les findings exportés sont repliés par signature, un finding exporté peut donc représenter de nombreuses détections par trace. Le quality gate de la même réponse est évalué sur les détections brutes par trace, ses règles de comptage comptent donc toujours des occurrences, pas des problèmes distincts. `finding_occurrences` porte le décompte de chaque signature vue plus d'une fois, sous la forme `{ signature, seen_count, first_seen_ms }` (depuis 0.9.29). C'est un champ daemon-only comme `correlations`, absent des rapports batch où chaque finding est détecté une fois par run. Le dashboard HTML le rejoint par signature et étiquette la ligne avec le nombre de traces.
 
 **Métrique Prometheus.** Chaque requête incrémente `perf_sentinel_export_report_requests_total`, les opérateurs peuvent donc dashboarder ou alerter sur la fréquence des snapshots.
 
