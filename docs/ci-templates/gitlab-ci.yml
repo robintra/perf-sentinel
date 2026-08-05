@@ -15,7 +15,10 @@
 #      file as an artifact, then declare a `dependencies:` or `needs:` so the
 #      file is restored into this job's workspace.
 #   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
-#      [thresholds] section to set quality-gate severity floors.
+#      [thresholds] section to set quality-gate severity floors. On OTLP
+#      input, `min_usable_span_ratio` also fails the gate when the spans
+#      arrive without the attributes the detectors need, so a broken
+#      instrumentation cannot pass as a clean run.
 #
 # See docs/CI.md (English) or docs/FR/CI-FR.md (French) for the full CI
 # integration guide and the quality-gate philosophy.
