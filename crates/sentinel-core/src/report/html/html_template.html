@@ -300,6 +300,10 @@
   .ps-chip[data-sev="info"] { color: var(--info-fg); background: var(--info-bg); border-color: transparent; }
   .ps-chip[data-sev].active { box-shadow: inset 0 0 0 1px currentColor; }
   .ps-findings-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 6px; }
+  /* margin-left: auto parks the sort at the row's right edge, visually
+     apart from the filters it does not belong to. */
+  .ps-sort-group { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .ps-sort-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
   /* -------- lists / rows -------- */
   /* Floating white rows inside the grey card, hover ring / selected inset ring. */
@@ -2326,6 +2330,28 @@
 
   // -------- filters --------
   var filterState = { severity: null, service: null };
+  // Findings-list sort: one primary key with a direction, the other
+  // axis as an automatic descending tie-break. "severity" ranks the
+  // single worst detection, "impact" ranks the signature's aggregate
+  // avoidable ops, so a frequent info problem can outrank a rare
+  // critical one.
+  var sortState = { key: "severity", dir: "desc" };
+  function severityRankOf(f) {
+    return SEV_RANK[f.severity] ?? 3;
+  }
+  function compareFindings(a, b) {
+    var primary, tie;
+    if (sortState.key === "impact") {
+      primary = recurrenceOf(b).ops - recurrenceOf(a).ops;
+      tie = severityRankOf(a) - severityRankOf(b);
+    } else {
+      primary = severityRankOf(a) - severityRankOf(b);
+      tie = recurrenceOf(b).ops - recurrenceOf(a).ops;
+    }
+    if (sortState.dir === "asc") primary = -primary;
+    // Array.prototype.sort is stable, canonical order breaks the rest.
+    return primary || tie;
+  }
   function renderFilterChips() {
     var root = document.getElementById("findings-filters");
     root.textContent = "";
@@ -2374,7 +2400,48 @@
       appendChip(serviceGroup, s, "svc:" + s, "button", "aria-pressed");
     });
 
+    var sortGroup = el("span", "ps-chip-group ps-sort-group", null);
+    setAttr(sortGroup, "role", "group");
+    setAttr(sortGroup, "aria-label", "Sort findings");
+    sortGroup.appendChild(el("span", "ps-sort-label", "sort"));
+    ["severity", "impact"].forEach(function (key) {
+      var btn = el("button", "ps-chip");
+      btn.type = "button";
+      setAttr(btn, "data-sort-key", key);
+      setAttr(btn, "aria-pressed", "false");
+      btn.addEventListener("click", function () { onSortClick(key); });
+      sortGroup.appendChild(btn);
+    });
+    root.appendChild(sortGroup);
+
     syncFilterChips();
+    syncSortChips();
+  }
+  // Click the inactive key to switch (direction resets to descending),
+  // click the active one to flip the direction.
+  function onSortClick(key) {
+    if (sortState.key === key) {
+      sortState.dir = sortState.dir === "desc" ? "asc" : "desc";
+    } else {
+      sortState.key = key;
+      sortState.dir = "desc";
+    }
+    syncSortChips();
+    renderFindingsList();
+  }
+  function syncSortChips() {
+    document.querySelectorAll("[data-sort-key]").forEach(function (btn) {
+      var key = btn.getAttribute("data-sort-key");
+      var active = sortState.key === key;
+      btn.classList.toggle("active", active);
+      setAttr(btn, "aria-pressed", active ? "true" : "false");
+      btn.textContent = active ? key + " " + (sortState.dir === "desc" ? "↓" : "↑") : key;
+      btn.title = active
+        ? "Click to flip the direction"
+        : (key === "impact"
+          ? "Rank by each problem's total avoidable I/O across its detections"
+          : "Rank by each detection's own severity");
+    });
   }
   function onFilterClick(key) {
     if (key === "all") {
@@ -2395,6 +2462,8 @@
   function syncFilterChips() {
     var anyActive = !!(filterState.severity || filterState.service);
     document.querySelectorAll("#findings-filters .ps-chip").forEach(function (chip) {
+      // Sort chips share the look but not the filter state machine.
+      if (chip.dataset.sortKey) return;
       var key = chip.dataset.key;
       var active = false;
       if (key === "all") active = !anyActive;
@@ -2466,14 +2535,15 @@
   // every row, so they filter in the DOM (see applySearchFilter).
   function applyFilters() {
     var term = globalSearchTerm();
-    // Sorted by severity so the first page carries the worst rows, and stable,
-    // so the report's own type/trace order survives inside each band.
+    // Sorted by the active sortState (severity-worst-first by default)
+    // and stable, so the report's own type/trace order survives inside
+    // each band. The CSV export shares this order.
     return findings.filter(function (f) {
       if (filterState.severity && f.severity !== filterState.severity) return false;
       if (filterState.service && f.service !== filterState.service) return false;
       if (findingHiddenByAck(f)) return false;
       return findingMatchesSearch(f, term);
-    }).sort(bySeverityDesc);
+    }).sort(compareFindings);
   }
 
   function renderFindingsList() {
@@ -2572,7 +2642,17 @@
     topLine.appendChild(sevPill(f.severity));
     topLine.appendChild(el("span", "ps-fin-type", typeLabel(f.type || f.finding_type)));
     var occ = (f.pattern && f.pattern.occurrences) || 0;
-    if (occ) topLine.appendChild(el("span", "ps-fin-right ps-fin-metric", "×" + occ));
+    var agg = sortState.key === "impact" ? recurrenceOf(f) : null;
+    if (agg && agg.ops > 0) {
+      // Impact mode shows the sort criterion itself: the signature's
+      // total avoidable ops, not this one detection's repeat count.
+      var metric = el("span", "ps-fin-right ps-fin-metric", "~" + fmtNum(agg.ops) + " ops");
+      metric.title = "detected in " + agg.count + (agg.count > 1 ? " traces" : " trace") +
+        " · " + fmtNum(agg.ops) + " avoidable operations in total";
+      topLine.appendChild(metric);
+    } else if (occ) {
+      topLine.appendChild(el("span", "ps-fin-right ps-fin-metric", "×" + occ));
+    }
     row.appendChild(topLine);
 
     var finSub = el("span", "ps-fin-service ps-fin-sub");
@@ -2842,6 +2922,14 @@
 
   // Footer: source location (when code.* attributes were captured) plus the
   // first/last timestamps the pattern was seen at.
+  // Avoidable ops of one detection. Zero for slow findings, which waste
+  // time rather than I/O: they sink in the impact sort and the severity
+  // tie-break orders them.
+  function extraOpsOf(f) {
+    var gi = f.green_impact;
+    return gi && Number.isFinite(gi.estimated_extra_io_ops) ? gi.estimated_extra_io_ops : 0;
+  }
+
   // Detections sharing a signature, keyed like acknowledgments do. Built
   // once: detection is per trace, so a recurring problem is many findings.
   var recurrenceIndex = null;
@@ -2857,10 +2945,11 @@
         var key = recurrenceKey(other);
         var acc = recurrenceIndex[key];
         if (!acc) {
-          recurrenceIndex[key] = { count: 1, first: other.first_timestamp || "", last: other.last_timestamp || "" };
+          recurrenceIndex[key] = { count: 1, first: other.first_timestamp || "", last: other.last_timestamp || "", ops: extraOpsOf(other) };
           return;
         }
         acc.count += 1;
+        acc.ops += extraOpsOf(other);
         // `!acc.first` matters: an empty-string seed loses every later
         // `< ""` comparison and would permanently drop the line.
         if (other.first_timestamp && (!acc.first || other.first_timestamp < acc.first)) acc.first = other.first_timestamp;
@@ -4386,8 +4475,13 @@
     });
     if (!ok) delete tableSortState[k];
   });
-  // Shared links seed the sort before the first render.
+  // Shared links seed the sorts before the first render.
   try {
+    var fsortMatch = (location.hash || "").match(/[&#]fsort=(severity|impact)\.(asc|desc)/);
+    if (fsortMatch) {
+      sortState.key = fsortMatch[1];
+      sortState.dir = fsortMatch[2];
+    }
     var tsortMatch = (location.hash || "").match(/[&#]tsort=([^&]+)/);
     if (tsortMatch) decodeURIComponent(tsortMatch[1]).split(",").forEach(function (part) {
       var li = part.lastIndexOf(":");
@@ -5360,6 +5454,11 @@
     if (location.hash && tsort) {
       href = href.replace(/([&#])tsort=[^&]*/g, "$1").replace(/[&#]$/, "");
       href += "&tsort=" + encodeURIComponent(tsort);
+    }
+    // And the findings-list sort, when it differs from the default.
+    if (location.hash && (sortState.key !== "severity" || sortState.dir !== "desc")) {
+      href = href.replace(/([&#])fsort=[^&]*/g, "$1").replace(/[&#]$/, "");
+      href += "&fsort=" + encodeURIComponent(sortState.key + "." + sortState.dir);
     }
     copyTextToClipboard(btn, href);
   }
