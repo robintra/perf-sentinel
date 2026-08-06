@@ -55,14 +55,14 @@ fn default_seen_count() -> u64 {
 /// signature, preserving the input order (newest first, what
 /// [`FindingsStore::query`] yields).
 ///
-/// KNOWN LIMIT: the acknowledgment signature is deliberately grouping-blind
-/// (see `acknowledgments::compute_signature`), so two rows split here share
-/// one signature and cannot be acknowledged apart. Acking the noisy staging
-/// row also silences the production one. Splitting rows is the reporting
-/// contract, one-ack-covers-every-deployment is the ack contract, and they
-/// pull against each other by design. A grouping-aware signature would
-/// invalidate every ack in the wild, so the way out is a grouping filter on
-/// the ack API, not a changed signature.
+/// Two rows split here share one acknowledgment signature, by design: the
+/// signature is grouping-blind (see `acknowledgments::compute_signature`).
+/// Grouping answers who is affected and where, acknowledgment answers
+/// whether the code is accepted debt, and the second does not vary by
+/// deployment: the same N+1 in five tenants is one decision, not five.
+/// Environments that genuinely need separate triage run separate daemons
+/// with separate stores. Keeping the signature grouping-blind also means
+/// reordering `grouping_attributes` never invalidates an existing ack.
 ///
 /// The representative is the WORST-severity detection of the group, not
 /// the newest. Severity is derived per trace (12 repeats is critical, 6
