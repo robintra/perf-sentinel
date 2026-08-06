@@ -16,7 +16,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Changed
 
-- Recurring findings are grouped by the effective grouping key and value as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without grouping fields remains readable. Adding the public fields is an accepted Rust source-compatibility break, so this release is a minor bump rather than a patch.
+- Recurring findings are grouped by the effective grouping key and value as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without grouping fields remains readable. Adding the public fields is an accepted Rust source-compatibility break, so this release is a minor bump rather than a patch. Note the trade-off this leaves: two rows split by grouping share one signature, so acknowledging one silences the other. Signature stability was chosen over per-deployment acks because a grouping-aware signature would invalidate every acknowledgment already in the wild.
 - The text report, the `diff` blocks and the TUI name the grouping attribute and its value, and every recurrence and diff identity keys on both, so equal values from different attributes cannot fold together. The TUI correlations panel qualifies each side as `service@key=value`.
 - Cross-trace correlations carry the effective grouping key and value on each endpoint and never pair findings from different identities, so `/api/correlations` no longer invents a causal link between separate deployments. Replayed baselines without the fields keep their previous shape.
 
