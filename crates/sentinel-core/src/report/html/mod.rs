@@ -276,9 +276,8 @@ struct Payload<'a> {
     input_label: &'a str,
     report: &'a Report,
     embedded_traces: Vec<EmbeddedTrace>,
-    /// Spans to highlight for the findings whose culprit set the browser
-    /// cannot derive, keyed `trace_id|signature`. See
-    /// [`culprit_spans_by_finding`].
+    /// Exact spans to highlight, keyed by trace, signature and time bounds.
+    /// See [`CulpritIndex`].
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     culprit_spans: BTreeMap<String, Vec<&'a str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -462,13 +461,11 @@ fn culprit_key(trace_id: &str, signature: &str, first: &str, last: &str) -> Stri
     format!("{trace_id}|{signature}|{first}|{last}")
 }
 
-/// Spans to highlight for `serialized_calls` and `excessive_fanout`.
+/// Exact spans to highlight for each embedded finding.
 ///
-/// Both name their parent in `pattern.template`, so the browser's template
-/// rule lights the container rather than the calls, and an embedded span
-/// carries no timestamp, so no client-side rule can rebuild a serialized
-/// chain. The detectors know the answer, so the sink asks them again over
-/// the traces it embeds and ships the ids.
+/// The detectors know the culprit set, so the sink rebuilds it over the
+/// traces it embeds and ships span ids instead of asking the browser to infer
+/// evidence from a template alone.
 ///
 /// Each rerun result is matched back to a published finding and dropped
 /// when it has none, so an acknowledged or trimmed finding never ships
@@ -481,11 +478,19 @@ fn culprit_key(trace_id: &str, signature: &str, first: &str, last: &str) -> Stri
 struct CulpritIndex {
     serialized_min_sequential: u32,
     max_fanout: u32,
+    pool_saturation_concurrent_threshold: u32,
+    slow_threshold_us: u64,
     /// Rerun key to the key the browser builds. The browser key carries
     /// the signature the report ships rather than a recomputed one.
     published: HashMap<String, String>,
     /// Rerun keys claimed by more than one published finding.
     ambiguous: HashSet<String>,
+    /// Slow findings can span several traces, so they cannot be matched by
+    /// rerunning the per-trace detector. Keep the representative trace rule.
+    slow: Vec<(String, String, crate::detect::FindingType, String)>,
+    /// Findings whose exact members follow directly from the published type
+    /// and template, without rerunning a threshold rule.
+    direct: Vec<(String, String, crate::detect::FindingType, String)>,
 }
 
 impl CulpritIndex {
@@ -497,10 +502,53 @@ impl CulpritIndex {
         let cfg = report.detection_config.as_ref()?;
         let mut published: HashMap<String, String> = HashMap::new();
         let mut ambiguous: HashSet<String> = HashSet::new();
+        let mut slow = Vec::new();
+        let mut direct = Vec::new();
         for f in &report.findings {
+            if matches!(
+                f.finding_type,
+                FindingType::NPlusOneSql
+                    | FindingType::NPlusOneHttp
+                    | FindingType::NPlusOneMessaging
+                    | FindingType::ChattyService
+            ) {
+                direct.push((
+                    f.trace_id.clone(),
+                    culprit_key(
+                        &f.trace_id,
+                        &f.signature,
+                        &f.first_timestamp,
+                        &f.last_timestamp,
+                    ),
+                    f.finding_type.clone(),
+                    f.pattern.template.clone(),
+                ));
+                continue;
+            }
+            if matches!(
+                f.finding_type,
+                FindingType::SlowSql | FindingType::SlowHttp | FindingType::SlowMessaging
+            ) {
+                slow.push((
+                    f.trace_id.clone(),
+                    culprit_key(
+                        &f.trace_id,
+                        &f.signature,
+                        &f.first_timestamp,
+                        &f.last_timestamp,
+                    ),
+                    f.finding_type.clone(),
+                    f.pattern.template.clone(),
+                ));
+                continue;
+            }
             if !matches!(
                 f.finding_type,
-                FindingType::SerializedCalls | FindingType::ExcessiveFanout
+                FindingType::SerializedCalls
+                    | FindingType::ExcessiveFanout
+                    | FindingType::RedundantSql
+                    | FindingType::RedundantHttp
+                    | FindingType::PoolSaturation
             ) {
                 continue;
             }
@@ -520,16 +568,63 @@ impl CulpritIndex {
                 ambiguous.insert(rerun_key);
             }
         }
-        (!published.is_empty()).then_some(Self {
+        (!published.is_empty() || !slow.is_empty() || !direct.is_empty()).then_some(Self {
             serialized_min_sequential: cfg.serialized_min_sequential,
             max_fanout: cfg.max_fanout,
+            pool_saturation_concurrent_threshold: cfg.pool_saturation_concurrent_threshold,
+            slow_threshold_us: cfg.slow_threshold_ms.saturating_mul(1000),
             published,
             ambiguous,
+            slow,
+            direct,
         })
     }
 
     fn for_trace<'a>(&self, trace: &'a Trace) -> BTreeMap<String, Vec<&'a str>> {
         let mut out: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
+        for (trace_id, browser_key, finding_type, template) in &self.direct {
+            if trace_id != &trace.trace_id {
+                continue;
+            }
+            let ids = trace
+                .spans
+                .iter()
+                .filter(|span| match finding_type {
+                    crate::detect::FindingType::NPlusOneSql
+                    | crate::detect::FindingType::NPlusOneHttp
+                    | crate::detect::FindingType::NPlusOneMessaging => {
+                        finding_type
+                            == &crate::detect::FindingType::from_event_type_n_plus_one(
+                                &span.event.event_type,
+                            )
+                            && span.template.as_ref() == template
+                    }
+                    crate::detect::FindingType::ChattyService => {
+                        span.event.event_type == crate::event::EventType::HttpOut
+                    }
+                    _ => false,
+                })
+                .map(|span| span.event.span_id.as_str())
+                .collect();
+            out.insert(browser_key.clone(), ids);
+        }
+        for (trace_id, browser_key, finding_type, template) in &self.slow {
+            if trace_id != &trace.trace_id {
+                continue;
+            }
+            let ids = trace
+                .spans
+                .iter()
+                .filter(|span| {
+                    finding_type
+                        == &crate::detect::FindingType::from_event_type_slow(&span.event.event_type)
+                        && span.template.as_ref() == template
+                        && span.event.duration_us > self.slow_threshold_us
+                })
+                .map(|span| span.event.span_id.as_str())
+                .collect();
+            out.insert(browser_key.clone(), ids);
+        }
         let mut claimed_twice: HashSet<String> = HashSet::new();
         let indices = crate::detect::TraceIndices::build(trace);
         let found = crate::detect::serialized::detect_serialized_with_spans(
@@ -542,7 +637,17 @@ impl CulpritIndex {
             trace,
             &indices,
             self.max_fanout,
-        ));
+        ))
+        .chain(crate::detect::redundant::detect_redundant_with_spans(
+            trace,
+            &[],
+        ))
+        .chain(
+            crate::detect::pool_saturation::detect_pool_saturation_with_spans(
+                trace,
+                self.pool_saturation_concurrent_threshold,
+            ),
+        );
         for (finding, span_ids) in found {
             let rerun_key = culprit_key(
                 &finding.trace_id,

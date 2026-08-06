@@ -538,6 +538,62 @@ test("29. namespace filters and occurrence evidence fit a narrow viewport", asyn
   await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first()).toBeVisible();
 });
 
+test("30. occurrence timestamps accept short fractional seconds", async ({ page }) => {
+  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first())
+    .toHaveText("10:00:00.01 UTC");
+});
+
+test("31. HTTP N+1 help describes evidence without claiming sanitizer proof", async ({ page }) => {
+  await loadDashboard(page, "#findings&type=n_plus_one_http&namespace=prod-eu");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  const help = await page.locator("#explain-detail-head .ps-nav-help").getAttribute("aria-label");
+  expect(help).toContain("timing and trace-shape signals");
+  expect(help).not.toContain("instrumentation has already collapsed parameters");
+});
+
+test("32. redundant evidence excludes the same template with other parameters", async ({ page }) => {
+  await loadDashboard(page, "#findings&type=redundant_sql&namespace=finance");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  await expect(page.locator("#explain-detail-head")).toContainText("×4");
+  await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(4);
+});
+
+test("33. slow evidence excludes fast context and reports omitted traces", async ({ page }) => {
+  await loadDashboard(page, "#findings&type=slow_http");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  await expect(page.locator("#explain-detail-head")).toContainText("×8");
+  await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(1);
+  await expect(page.locator("#explain-evidence-note"))
+    .toHaveText("Showing 1 of 8 offending occurrences from the representative trace.");
+});
+
+test("34. legacy approximate evidence remains grouped", async ({ page }) => {
+  await page.route("**/dashboard.html", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const withoutExactIds = body.replace(
+      /(<script id="report-data" type="application\/json">\s*)([\s\S]*?)(\s*<\/script>)/,
+      (_match, open, json, close) => {
+        const payload = JSON.parse(json);
+        payload.culprit_spans = null;
+        return open + JSON.stringify(payload) + close;
+      },
+    );
+    await route.fulfill({ response, body: withoutExactIds });
+  });
+  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(1);
+  await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-count")).toContainText("×");
+});
+
 test("28. the sort control does not masquerade as an applied filter", async ({ page }) => {
   // `.active` marks an applied filter. The sort chips share `.ps-chip` for
   // the look, so giving them `.active` too made every "which filter is on"

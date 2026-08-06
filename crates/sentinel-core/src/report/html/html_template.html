@@ -752,6 +752,7 @@
           <div class="ps-section">
             <span class="ps-eyebrow">// explain &middot; trace tree</span>
             <div class="ps-tree" id="explain-tree"></div>
+            <div class="ps-detail-foot" id="explain-evidence-note" style="display: none;"></div>
             <div class="ps-detail-empty" id="explain-not-embedded" style="display: none;"></div>
           </div>
           <div class="ps-detail-cols" id="explain-cols">
@@ -1087,8 +1088,8 @@
   var hasGreen = !!(greenSummary && greenSummary.co2);
   var embeddedTraces = payload.embedded_traces || [];
   var tracesById = indexTracesById(embeddedTraces);
-  // Spans the sink named for us. See culprit_spans_by_finding and
-  // culprit_key in report/html/mod.rs for the key.
+  // Spans the sink named for us. See CulpritIndex and culprit_key in
+  // report/html/mod.rs for the key.
   var culpritSpans = payload.culprit_spans || {};
   // Shared severity ranking: the Overview impact list, the findings list,
   // the diff columns and the correlations all order by it.
@@ -1414,7 +1415,7 @@
   // report does not embed the values the producing run used.
   var FINDING_HELP = {
     n_plus_one_sql: "The same query shape fired once per row instead of once for the whole set. Flagged when a trace repeats one normalized SQL template at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`. Identical parameters classify as Redundant SQL instead.",
-    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Direct classification uses repeated normalized endpoints with distinct parameter sets. When instrumentation has already collapsed parameters, `sanitizer_aware_classification` can classify the group heuristically from its timing evidence. The detail identifies which path fired.",
+    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Direct classification uses repeated normalized endpoints with distinct parameter sets. Otherwise, `sanitizer_aware_classification` can classify the group heuristically from timing and trace-shape signals; that path does not prove the parameters were collapsed or that the calls are causally N+1. The detail identifies which path fired.",
     n_plus_one_messaging: "One broker publish per item instead of a batch. Flagged when a trace repeats one destination at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
     redundant_sql: "The exact same query, template and parameters alike, ran more than once in one trace, so the later results could not differ. Two identical calls flag at info, five or more raise a warning: a cache or a local variable would remove them.",
     redundant_http: "The exact same HTTP call, endpoint and parameters alike, ran more than once in one trace. Two identical calls flag at info, five or more raise a warning.",
@@ -1467,7 +1468,7 @@
     ]},
     n_plus_one_http: { t: "N+1 HTTP", u: METHO_URL, s: [
       ["What it measures", "One outbound HTTP call per item instead of one bulk call: fetching a list, then calling `GET /api/users/{id}` once per element."],
-      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. If an instrumentation sanitizer has collapsed those parameters, the optional sanitizer-aware path uses occurrence and timing evidence instead; the finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
+      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. Otherwise, the optional sanitizer-aware path uses timing and trace-shape signals; it does not prove that instrumentation collapsed the parameters or that the calls are causally N+1. The finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
       ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, and `sanitizer_aware_classification`."],
       ["Limits", "The detector sees spans, not the client's internal coalescing or caching. Use the displayed timestamps, duration distribution, distinct-parameter count and classification method to validate the signal in context."]
     ]},
@@ -2939,10 +2940,19 @@
     appendCopyTraceIdButton(breadcrumb, f.trace_id);
 
     var treeRoot = document.getElementById("explain-tree");
+    var evidenceNote = document.getElementById("explain-evidence-note");
     treeRoot.textContent = "";
     treeRoot.style.display = trace ? "" : "none";
+    evidenceNote.style.display = "none";
+    evidenceNote.textContent = "";
     if (trace) {
-      renderTree(treeRoot, trace, f);
+      var evidenceCount = renderTree(treeRoot, trace, f);
+      var occurrenceCount = (f.pattern && f.pattern.occurrences) || 0;
+      if (Number.isFinite(evidenceCount) && evidenceCount < occurrenceCount) {
+        evidenceNote.textContent = "Showing " + evidenceCount + " of " + occurrenceCount +
+          " offending occurrences from the representative trace.";
+        evidenceNote.style.display = "";
+      }
     } else {
       // Four causes, each with its own real knob: naming the wrong one
       // sends the reader tuning a flag that changes nothing.
@@ -3123,12 +3133,13 @@
     var i = 0;
     while (i < indices.length) {
       var idx = indices[i];
-      if (isLeafIdx(idx, spans, tree) && !spanIsFinding(spans[idx], targetTpl)) {
+      if (isLeafIdx(idx, spans, tree)
+          && (!treeCulprits || !spanIsFinding(spans[idx], targetTpl))) {
         var key = collapseKey(spans[idx]);
         var members = [idx];
         var j = i + 1;
         while (j < indices.length && isLeafIdx(indices[j], spans, tree)
-          && !spanIsFinding(spans[indices[j]], targetTpl)
+          && (!treeCulprits || !spanIsFinding(spans[indices[j]], targetTpl))
           && collapseKey(spans[indices[j]]) === key) {
           members.push(indices[j]);
           j += 1;
@@ -3216,7 +3227,7 @@
     var spans = trace.spans || [];
     if (spans.length === 0) {
       root.appendChild(el("div", "ps-span dim", "(empty trace)"));
-      return;
+      return null;
     }
     var tree = buildSpanTree(spans);
     var targetTpl = (finding.pattern && finding.pattern.template) || null;
@@ -3240,6 +3251,7 @@
         row.classList.remove("dim");
       });
     }
+    return treeCulprits ? Object.keys(treeCulprits).length : null;
   }
 
   function buildSpanRow(span, depth, targetTpl) {
@@ -3293,7 +3305,8 @@
 
   function spanClockTime(iso) {
     if (typeof iso !== "string" || iso.length < 19) return iso || "";
-    var fractional = iso.charAt(19) === "." ? iso.slice(19, 23) : "";
+    var fractionMatch = iso.slice(19).match(/^\.\d{1,3}/);
+    var fractional = fractionMatch ? fractionMatch[0] : "";
     return iso.slice(11, 19) + fractional + " UTC";
   }
 

@@ -2264,7 +2264,7 @@ fn culprit_key_of(f: &Finding) -> String {
 #[test]
 fn culprit_spans_name_the_serialized_chain_not_the_whole_trace() {
     // The straddling sibling must stay out, which is what no client-side
-    // rule could work out: an embedded span carries no timestamp.
+    // template match can work out without copying the scheduling rule.
     let trace = Trace {
         trace_id: "t1".into(),
         spans: serialized_chain("t1", "p1", "c", 0),
@@ -2362,6 +2362,109 @@ fn culprit_spans_name_every_child_of_a_fanout_parent() {
         !ids.contains(&"root"),
         "the parent is context, not a culprit"
     );
+}
+
+#[test]
+fn culprit_spans_name_only_the_exact_redundant_parameter_group() {
+    let mut spans = Vec::new();
+    for i in 0..4 {
+        let mut duplicate = span("t1", &format!("dup{i}"), None, "svc", "/ep", "SELECT ?");
+        duplicate.event.timestamp = format!("2026-04-21T00:00:00.0{i}0Z");
+        duplicate.params = vec!["42".into()];
+        spans.push(duplicate);
+    }
+    let mut context = span("t1", "context", None, "svc", "/ep", "SELECT ?");
+    context.event.timestamp = "2026-04-21T00:00:00.040Z".into();
+    context.params = vec!["7".into()];
+    spans.push(context);
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans,
+    };
+    let mut findings = crate::detect::redundant::detect_redundant(&trace, &[]);
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig::default());
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let map = culprit_map(&html);
+    let ids: Vec<&str> = map[&culprit_key_of(&report.findings[0])]
+        .as_array()
+        .expect("the exact redundant group is published")
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["dup0", "dup1", "dup2", "dup3"]);
+}
+
+#[test]
+fn culprit_spans_name_only_the_pool_peak() {
+    let mut spans = Vec::new();
+    for (id, timestamp) in [
+        ("s0", "2026-04-21T00:00:00.000Z"),
+        ("s1", "2026-04-21T00:00:00.050Z"),
+        ("s2", "2026-04-21T00:00:00.120Z"),
+    ] {
+        let mut query = span("t1", id, None, "svc", "/ep", "SELECT ?");
+        query.event.timestamp = timestamp.into();
+        query.event.duration_us = 100_000;
+        spans.push(query);
+    }
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans,
+    };
+    let mut findings = crate::detect::pool_saturation::detect_pool_saturation(&trace, 2);
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig {
+        pool_saturation_concurrent_threshold: 2,
+        ..crate::detect::DetectConfig::default()
+    });
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let map = culprit_map(&html);
+    let ids: Vec<&str> = map[&culprit_key_of(&report.findings[0])]
+        .as_array()
+        .expect("the peak concurrency set is published")
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["s0", "s1"]);
+}
+
+#[test]
+fn culprit_spans_name_every_n_plus_one_occurrence() {
+    let mut spans = Vec::new();
+    for i in 0..5 {
+        let mut query = span("t1", &format!("q{i}"), None, "svc", "/ep", "SELECT ?");
+        query.event.timestamp = format!("2026-04-21T00:00:00.0{i}0Z");
+        query.params = vec![i.to_string()];
+        spans.push(query);
+    }
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans,
+    };
+    let mut findings = crate::detect::n_plus_one::detect_n_plus_one(
+        &trace,
+        5,
+        500,
+        crate::detect::sanitizer_aware::SanitizerAwareMode::Auto,
+    );
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig::default());
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let map = culprit_map(&html);
+    let ids: Vec<&str> = map[&culprit_key_of(&report.findings[0])]
+        .as_array()
+        .expect("all N+1 occurrences are published")
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["q0", "q1", "q2", "q3", "q4"]);
 }
 
 #[test]

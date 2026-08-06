@@ -1,7 +1,7 @@
 //! Connection pool saturation detection: identifies traces where many SQL spans
 //! from the same service overlap in time, suggesting connection pool contention.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
@@ -31,6 +31,24 @@ pub fn detect_pool_saturation(trace: &Trace, threshold: u32) -> Vec<Finding> {
         findings.push(build_saturation_finding(trace, service, indices, peak));
     }
     findings
+}
+
+/// Same detection, also returning the SQL spans active at the first peak.
+#[must_use]
+pub(crate) fn detect_pool_saturation_with_spans(
+    trace: &Trace,
+    threshold: u32,
+) -> Vec<(Finding, Vec<&str>)> {
+    let groups = group_sql_indices_by_service(trace);
+    detect_pool_saturation(trace, threshold)
+        .into_iter()
+        .map(|finding| {
+            let span_ids = groups
+                .get(finding.service.as_str())
+                .map_or_else(Vec::new, |indices| peak_span_ids(trace, indices));
+            (finding, span_ids)
+        })
+        .collect()
 }
 
 /// Partition a trace's SQL span indices by `service` attribute. HTTP
@@ -88,6 +106,36 @@ fn compute_peak_concurrency(trace: &Trace, indices: &[usize]) -> u32 {
         }
     }
     peak
+}
+
+fn peak_span_ids<'a>(trace: &'a Trace, indices: &[usize]) -> Vec<&'a str> {
+    let mut sweep: Vec<(u64, bool, usize)> = Vec::with_capacity(indices.len() * 2);
+    for &idx in indices {
+        let span = &trace.spans[idx];
+        if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
+            let start_us = start_ms.saturating_mul(1000);
+            sweep.push((start_us, true, idx));
+            sweep.push((start_us.saturating_add(span.event.duration_us), false, idx));
+        }
+    }
+    sweep.sort_unstable();
+
+    let mut active = HashSet::with_capacity(indices.len());
+    let mut peak = Vec::new();
+    for (_, is_start, idx) in sweep {
+        if is_start {
+            active.insert(idx);
+            if active.len() > peak.len() {
+                peak = active.iter().copied().collect();
+                peak.sort_unstable();
+            }
+        } else {
+            active.remove(&idx);
+        }
+    }
+    peak.into_iter()
+        .map(|idx| trace.spans[idx].event.span_id.as_str())
+        .collect()
 }
 
 /// Assemble the `Finding` value for a service that exceeded the pool
@@ -249,6 +297,38 @@ mod tests {
         // With threshold 3: should not trigger
         let findings = detect_pool_saturation(&trace, 3);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn evidence_names_only_the_first_peak_concurrency_set() {
+        let events = vec![
+            make_sql_event_with_duration(
+                "trace-1",
+                "s0",
+                "SELECT 1",
+                "2025-07-10T14:32:01.000Z",
+                100_000,
+            ),
+            make_sql_event_with_duration(
+                "trace-1",
+                "s1",
+                "SELECT 2",
+                "2025-07-10T14:32:01.050Z",
+                100_000,
+            ),
+            make_sql_event_with_duration(
+                "trace-1",
+                "s2",
+                "SELECT 3",
+                "2025-07-10T14:32:01.120Z",
+                100_000,
+            ),
+        ];
+        let trace = make_trace(events);
+
+        let found = detect_pool_saturation_with_spans(&trace, 2);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, vec!["s0", "s1"]);
     }
 
     #[test]

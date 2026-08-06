@@ -226,9 +226,50 @@ function writeNamespacedEvents(source: string, dest: string) {
     if (ev.service === "order-svc") {
       ev.service_namespace = "commerce";
       ev.k8s_namespace = "prod-eu";
+      if (ev.span_id === "o1-n1-1") ev.timestamp = "2026-04-20T10:00:00.01Z";
     } else if (ev.service === "payment-svc") {
       ev.service_namespace = "finance";
     }
+  }
+  events.push({
+    timestamp: "2026-04-20T10:00:02.040Z",
+    trace_id: "trace-payment-01",
+    span_id: "p1-same-template-other-params",
+    service: "payment-svc",
+    service_namespace: "finance",
+    type: "sql",
+    operation: "SELECT",
+    target: "SELECT id, status FROM payment WHERE id = 777",
+    duration_us: 440,
+    source: { endpoint: "GET /api/payment/555", method: "PaymentController.get" }
+  });
+  events.push({
+    timestamp: "2026-04-20T10:00:08.100Z",
+    trace_id: "trace-chat-05",
+    span_id: "c5-fast-context",
+    service: "chat-svc",
+    type: "http_out",
+    operation: "POST",
+    target: "http://notification-svc/api/notify",
+    duration_us: 1_000,
+    source: { endpoint: "POST /api/chat/send", method: "ChatController.send" },
+    status_code: 200
+  });
+  for (let i = 1; i <= 5; i += 1) {
+    events.push({
+      timestamp: `2026-04-20T10:00:12.0${i}0Z`,
+      trace_id: "trace-catalog-n1",
+      span_id: `catalog-n1-${i}`,
+      service: "order-svc",
+      service_namespace: "commerce",
+      k8s_namespace: "prod-eu",
+      type: "http_out",
+      operation: "GET",
+      target: `http://catalog-svc/api/items/${i}`,
+      duration_us: 2_000 + i,
+      source: { endpoint: "GET /api/catalog", method: "CatalogController.list" },
+      status_code: 200
+    });
   }
   writeFileSync(dest, JSON.stringify(events));
 }
