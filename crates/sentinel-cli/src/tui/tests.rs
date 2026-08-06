@@ -499,6 +499,25 @@ fn analyze_enter_preserves_active_panel_for_round_trip() {
     assert_eq!(app.active_panel, Panel::Correlations);
 }
 
+/// The count is hand-maintained against `draw_detail_panel`; a row added
+/// to one and not the other silently truncates the scroll.
+#[test]
+fn detail_line_count_matches_the_rendered_metadata_rows() {
+    let mut app = make_test_app();
+    app.active_panel = Panel::Detail;
+    app.all_findings[0].k8s_namespace = Some("prod-eu".to_string());
+    let buf = render_once(&mut app, 320, 40);
+    let mut full = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            full.push_str(buf[(x, y)].symbol());
+        }
+    }
+
+    assert!(full.contains("Namespace:"), "{full}");
+    assert!(full.contains("prod-eu"), "{full}");
+}
+
 #[test]
 fn detail_line_count_counts_code_location_row() {
     use sentinel_core::event::CodeLocation;
@@ -624,9 +643,9 @@ fn scroll_clamps_with_cached_span_tree() {
     app.active_panel = Panel::Detail;
 
     // Inject a synthetic cached tree: 5 lines for the current trace.
-    // 7 base meta lines + 1 green_impact (the test fixture sets it)
-    // + 2 (blank + "Span tree:" header) + 5 (tree lines) = 15 logical
-    // rows, so the clamp should plateau at 14.
+    // 8 base meta lines + 1 green_impact (the test fixture sets it)
+    // + 2 (blank + "Span tree:" header) + 5 (tree lines) = 16 logical
+    // rows, so the clamp should plateau at 15.
     app.cached_detail = Some((
         app.selected_trace,
         "line1\nline2\nline3\nline4\nline5".to_string(),
@@ -634,8 +653,8 @@ fn scroll_clamps_with_cached_span_tree() {
 
     let expected_max = app.detail_panel_line_count().saturating_sub(1);
     assert_eq!(
-        expected_max, 14,
-        "base 7 + green_impact 1 + header 2 + tree 5 - 1 = 14"
+        expected_max, 15,
+        "base 8 + green_impact 1 + header 2 + tree 5 - 1 = 15"
     );
 
     for _ in 0..100 {
@@ -1021,6 +1040,27 @@ fn correlations_panel_renders_at_typical_width() {
     assert!(
         buffer_contains(&buf, "svc-gamma"),
         "second source service prefix must remain visible"
+    );
+}
+
+#[test]
+fn correlations_panel_qualifies_each_side_with_its_namespace() {
+    let mut c = make_correlation("order-svc", "payment-svc");
+    c.source.namespace = Some("prod-eu".to_string());
+    let mut app = make_test_app().with_correlations(vec![c]);
+    app.active_panel = Panel::Correlations;
+    let buf = render_once(&mut app, 320, 40);
+    let mut full = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            full.push_str(buf[(x, y)].symbol());
+        }
+    }
+
+    assert!(full.contains("order-svc@prod-eu:"), "{full}");
+    assert!(
+        full.contains("payment-svc:"),
+        "a side without a namespace carries no suffix: {full}"
     );
 }
 

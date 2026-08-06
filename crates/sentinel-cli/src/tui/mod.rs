@@ -408,8 +408,9 @@ impl App {
         let Some(finding) = self.current_finding() else {
             return 0;
         };
-        // 6 always-present metadata rows + 1 blank after the type header.
-        let mut count: u16 = 7;
+        // 7 always-present metadata rows (Namespace prints "-" when the
+        // finding carries none) + 1 blank after the type header.
+        let mut count: u16 = 8;
         // +1 for the optional "Source:" row that `draw_detail_panel` inserts
         // when the finding carries a non-empty code location, else the clamp
         // under-counts by 1 and the last span-tree line stays unreachable.
@@ -1607,6 +1608,11 @@ pub(crate) fn dim_style() -> Style {
     Style::default().add_modifier(Modifier::DIM)
 }
 
+/// `@namespace` for a correlation side, empty when it carries none.
+fn namespace_suffix(namespace: Option<&str>) -> String {
+    namespace.map_or_else(String::new, |ns| format!("@{}", sanitize_for_terminal(ns)))
+}
+
 /// Concatenate rendered lines into plain text, for assertions. Shared
 /// by the tui and monitor test modules.
 #[cfg(test)]
@@ -2430,8 +2436,9 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
             let line = Line::from(vec![
                 Span::styled(
                     format!(
-                        "{}:{} ",
+                        "{}{}:{} ",
                         sanitize_for_terminal(&c.source.service),
+                        namespace_suffix(c.source.namespace.as_deref()),
                         c.source.finding_type.as_str()
                     ),
                     Style::default().fg(Color::Yellow),
@@ -2439,8 +2446,9 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
                 Span::raw("-> "),
                 Span::styled(
                     format!(
-                        "{}:{}  ",
+                        "{}{}:{}  ",
                         sanitize_for_terminal(&c.target.service),
+                        namespace_suffix(c.target.namespace.as_deref()),
                         c.target.finding_type.as_str()
                     ),
                     Style::default().fg(Color::Cyan),
@@ -2515,6 +2523,13 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("Service: ", dim_style()),
             Span::raw(&finding.service),
+        ]),
+        Line::from(vec![
+            Span::styled("Namespace: ", dim_style()),
+            Span::raw(finding.effective_namespace().map_or_else(
+                || "-".to_string(),
+                |ns| sanitize_for_terminal(ns).into_owned(),
+            )),
         ]),
         Line::from(vec![
             Span::styled("Endpoint: ", dim_style()),
