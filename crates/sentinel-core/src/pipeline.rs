@@ -163,7 +163,7 @@ fn daemon_only_green_backend_warning(
         ("[green.scaphandre]", green.scaphandre.is_some()),
         ("[green.kepler]", green.kepler.is_some()),
         ("[green.redfish]", green.redfish.is_some()),
-        ("[green.cloud_energy]", green.cloud_energy.is_some()),
+        ("[green.cloud]", green.cloud_energy.is_some()),
         ("[green.broker_static]", green.broker_static.is_some()),
         ("[green.electricity_maps]", green.electricity_maps.is_some()),
     ]
@@ -503,6 +503,22 @@ mod tests {
 
     /// Green off means the whole scoring pass is skipped, so the backend was
     /// already inert for a more obvious reason.
+    /// The Rust field is `cloud_energy` but the TOML section is
+    /// `[green.cloud]`: a message naming the field sends the operator
+    /// grepping for a section that does not exist.
+    #[test]
+    fn every_named_section_is_a_real_toml_section() {
+        let toml = "[green]\nenabled = true\n\n\
+                    [green.cloud]\nprometheus_endpoint = \"http://127.0.0.1:9090\"\n";
+        let config = crate::config::load_from_str(toml).unwrap();
+
+        let message = &analyze(vec![], &config).warning_details[0].message;
+
+        assert!(message.contains("[green.cloud]"), "{message}");
+        // The section name must round-trip through the parser.
+        assert!(crate::config::load_from_str(toml).is_ok());
+    }
+
     #[test]
     fn green_disabled_does_not_warn_about_backends() {
         let config = crate::config::load_from_str(
