@@ -2150,12 +2150,14 @@ fn embeds_correlations_when_report_carries_them() {
             finding_type: FindingType::NPlusOneSql,
             service: "order-svc".to_string(),
             template: "SELECT * FROM o WHERE id = ?".to_string(),
+            grouping_key: None,
             namespace: None,
         },
         target: CorrelationEndpoint {
             finding_type: FindingType::SlowHttp,
             service: "payment-svc".to_string(),
             template: "POST /api/charge".to_string(),
+            grouping_key: None,
             namespace: None,
         },
         co_occurrence_count: 8,
@@ -2257,7 +2259,7 @@ fn culprit_map(html: &str) -> serde_json::Value {
 fn culprit_key_of(f: &Finding) -> String {
     super::culprit_key(
         &f.trace_id,
-        f.grouping_value(),
+        f.effective_grouping(),
         &f.signature,
         &f.first_timestamp,
         &f.last_timestamp,
@@ -2713,19 +2715,45 @@ fn handed_over_traces_win_over_the_report_copy() {
 
 #[test]
 fn culprit_key_length_prefix_keeps_namespaces_unambiguous() {
+    let prod = crate::event::GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: "prod".into(),
+    };
+    let separated = crate::event::GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: "a|b".into(),
+    };
+    let shorter = crate::event::GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: "a".into(),
+    };
+    let unicode = crate::event::GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: "prod-eu-café".into(),
+    };
     let base = culprit_key("t1", None, "sig", "first", "last");
-    let with_ns = culprit_key("t1", Some("prod"), "sig", "first", "last");
+    let with_ns = culprit_key("t1", Some(&prod), "sig", "first", "last");
     assert_eq!(base, "t1|sig|first|last");
     // The template mirrors this format in `culpritSetFor`, counting UTF-8
     // bytes. A namespace carrying the separator cannot forge another key.
-    assert_eq!(with_ns, "t1|sig|first|last|4:prod");
+    assert_eq!(with_ns, "t1|sig|first|last|18:k8s.namespace.name|4:prod");
     assert_ne!(
-        culprit_key("t1", Some("a|b"), "sig", "first", "last"),
-        culprit_key("t1", Some("a"), "sig", "first", "last|b"),
+        culprit_key("t1", Some(&separated), "sig", "first", "last"),
+        culprit_key("t1", Some(&shorter), "sig", "first", "last|b"),
     );
     assert_eq!(
-        culprit_key("t1", Some("prod-eu-café"), "sig", "first", "last"),
-        "t1|sig|first|last|13:prod-eu-café",
+        culprit_key("t1", Some(&unicode), "sig", "first", "last"),
+        "t1|sig|first|last|18:k8s.namespace.name|13:prod-eu-café",
         "the prefix counts UTF-8 bytes, not characters"
     );
+}
+
+#[test]
+fn culprit_key_separates_equal_values_from_different_grouping_keys() {
+    let mut tenant = finding("t1", "svc", "/ep", "SELECT 1");
+    tenant.grouping = crate::test_helpers::grouping("tenant.id", "prod");
+    let mut namespace = tenant.clone();
+    namespace.grouping = crate::test_helpers::grouping("k8s.namespace.name", "prod");
+
+    assert_ne!(culprit_key_of(&tenant), culprit_key_of(&namespace));
 }

@@ -17,6 +17,7 @@
 //! pipelines driven by external PRs) should sanitize the input
 //! upstream. See `docs/LIMITATIONS.md` for the full caveat list.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::event::SpanEvent;
@@ -206,6 +207,20 @@ pub async fn search_and_fetch_traces(
     limit: usize,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    search_and_fetch_traces_with_grouping(client, endpoint, service, lookback, limit, auth, None)
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn search_and_fetch_traces_with_grouping(
+    client: &HttpClient,
+    endpoint: &str,
+    service: &str,
+    lookback: Duration,
+    limit: usize,
+    auth: Option<&AuthHeader>,
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     let encoded_service = percent_encode_query_value(service);
     let lookback_secs = lookback.as_secs();
     let uri_str = format!(
@@ -227,7 +242,7 @@ pub async fn search_and_fetch_traces(
         return Err(JaegerQueryError::NoTracesFound);
     }
 
-    let events = convert_jaeger_export(&export, None);
+    let events = convert_jaeger_export(&export, grouping_attributes);
     tracing::info!(
         traces = export.data.len(),
         events = events.len(),
@@ -247,6 +262,16 @@ pub async fn fetch_trace(
     trace_id: &str,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    fetch_trace_with_grouping(client, endpoint, trace_id, auth, None).await
+}
+
+async fn fetch_trace_with_grouping(
+    client: &HttpClient,
+    endpoint: &str,
+    trace_id: &str,
+    auth: Option<&AuthHeader>,
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     validate_trace_id(trace_id)?;
 
     let uri_str = format!("{endpoint}/api/traces/{trace_id}");
@@ -259,7 +284,7 @@ pub async fn fetch_trace(
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
 
-    Ok(convert_jaeger_export(&export, None))
+    Ok(convert_jaeger_export(&export, grouping_attributes))
 }
 
 /// Ingest traces from a Jaeger query API backend: either a single
@@ -276,6 +301,54 @@ pub async fn ingest_from_jaeger_query(
     lookback: Duration,
     max_traces: usize,
     auth_header: Option<&str>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    ingest_from_jaeger_query_impl(
+        endpoint,
+        service,
+        trace_id,
+        lookback,
+        max_traces,
+        auth_header,
+        None,
+    )
+    .await
+}
+
+/// Ingest traces using the operator-configured grouping attributes.
+///
+/// # Errors
+///
+/// Returns `JaegerQueryError` on API failures.
+pub async fn ingest_from_jaeger_query_with_grouping(
+    endpoint: &str,
+    service: Option<&str>,
+    trace_id: Option<&str>,
+    lookback: Duration,
+    max_traces: usize,
+    auth_header: Option<&str>,
+    grouping_attributes: Vec<Arc<str>>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    ingest_from_jaeger_query_impl(
+        endpoint,
+        service,
+        trace_id,
+        lookback,
+        max_traces,
+        auth_header,
+        Some(grouping_attributes.into()),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ingest_from_jaeger_query_impl(
+    endpoint: &str,
+    service: Option<&str>,
+    trace_id: Option<&str>,
+    lookback: Duration,
+    max_traces: usize,
+    auth_header: Option<&str>,
+    grouping_attributes: Option<Arc<[Arc<str>]>>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     validate_http_endpoint(endpoint)
         .map_err(|msg| JaegerQueryError::InvalidEndpoint(format!("{msg}, got '{endpoint}'")))?;
@@ -304,7 +377,14 @@ pub async fn ingest_from_jaeger_query(
             trace_id = tid,
             "Fetching single trace from Jaeger query API"
         );
-        return fetch_trace(&client, endpoint, tid, parsed_auth.as_ref()).await;
+        return fetch_trace_with_grouping(
+            &client,
+            endpoint,
+            tid,
+            parsed_auth.as_ref(),
+            grouping_attributes.as_deref(),
+        )
+        .await;
     }
 
     let svc = service.ok_or_else(|| {
@@ -318,13 +398,14 @@ pub async fn ingest_from_jaeger_query(
         "Querying Jaeger API for traces"
     );
 
-    search_and_fetch_traces(
+    search_and_fetch_traces_with_grouping(
         &client,
         endpoint,
         svc,
         lookback,
         max_traces,
         parsed_auth.as_ref(),
+        grouping_attributes.as_deref(),
     )
     .await
 }
@@ -467,6 +548,25 @@ mod tests {
             .await
             .expect("fetch must succeed");
         assert_eq!(events.len(), 1);
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn fetch_trace_uses_configured_grouping_attributes() {
+        let body = SAMPLE_TRACE.replace(
+            r#"{ "key": "db.system", "value": "postgresql" }"#,
+            r#"{ "key": "db.system", "value": "postgresql" },
+                    { "key": "tenant.id", "value": "acme" }"#,
+        );
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(&body)).await;
+        let client = http_client::build_client();
+        let grouping = [std::sync::Arc::from("tenant.id")];
+
+        let events = fetch_trace_with_grouping(&client, &endpoint, "abc123", None, Some(&grouping))
+            .await
+            .expect("fetch must succeed");
+        assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
+        assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
         server.await.expect("server join");
     }
 

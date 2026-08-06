@@ -1,6 +1,8 @@
 import { test, expect, Page } from "@playwright/test";
 
 const PATH = "/dashboard.html";
+const K8S_PROD_EU = "18:k8s.namespace.name|7:prod-eu";
+const SERVICE_FINANCE = "17:service.namespace|7:finance";
 
 async function loadDashboard(page: Page, hash = "") {
   await page.goto(PATH + hash);
@@ -445,6 +447,8 @@ test("24. each side of a correlation opens its own finding", async ({ page }) =>
   // detail must never read "undefined", and the tree must light a span.
   await page.goto("/dashboard-demo.html#correlations");
   await page.waitForSelector("[role=tablist]");
+  await expect(page.locator("#correlations-list")).toContainText("k8s.namespace.name=prod-eu");
+  await expect(page.locator("#correlations-list")).toContainText("service.namespace=finance");
   const zones = page.locator("#correlations-list .ps-corr-side-link");
   const zoneCount = await zones.count();
   expect(zoneCount, "the demo fixture must carry clickable correlation sides")
@@ -475,11 +479,12 @@ test("25. a hash naming an absent service does not silently empty the list", asy
     .toBe("svc:order-svc");
 });
 
-test("26. type and effective namespace filters combine and expose ARIA state", async ({ page }) => {
-  await loadDashboard(page, "#findings&namespace=prod-eu&type=n_plus_one_sql");
+test("26. type and effective grouping filters combine and expose ARIA state", async ({ page }) => {
+  await loadDashboard(page, `#findings&grouping=${encodeURIComponent(K8S_PROD_EU)}&type=n_plus_one_sql`);
 
-  const namespaceChip = page.locator('#findings-filters .ps-chip[data-key="ns:prod-eu"]');
+  const namespaceChip = page.locator(`#findings-filters .ps-chip[data-key="group:${K8S_PROD_EU}"]`);
   const typeChip = page.locator('#findings-filters .ps-chip[data-key="type:n_plus_one_sql"]');
+  await expect(namespaceChip).toHaveText("k8s.namespace.name=prod-eu");
   await expect(namespaceChip).toHaveAttribute("aria-pressed", "true");
   await expect(typeChip).toHaveAttribute("aria-pressed", "true");
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
@@ -488,27 +493,27 @@ test("26. type and effective namespace filters combine and expose ARIA state", a
 });
 
 test("27. the second grouping attribute is the fallback when the first is absent", async ({ page }) => {
-  await loadDashboard(page, "#findings&namespace=finance");
+  await loadDashboard(page, `#findings&grouping=${encodeURIComponent(SERVICE_FINANCE)}`);
 
-  await expect(page.locator('#findings-filters .ps-chip[data-key="ns:finance"]'))
+  await expect(page.locator(`#findings-filters .ps-chip[data-key="group:${SERVICE_FINANCE}"]`))
     .toHaveAttribute("aria-pressed", "true");
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
 
-  await page.evaluate(() => { location.hash = "#findings&namespace=ghost"; });
-  await expect(page.locator('#findings-filters .ps-chip[data-key="ns:finance"]'))
+  await page.evaluate(() => { location.hash = "#findings&grouping=ghost"; });
+  await expect(page.locator(`#findings-filters .ps-chip[data-key="group:${SERVICE_FINANCE}"]`))
     .toHaveAttribute("aria-pressed", "false");
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
 
   await loadDashboard(page, "#findings&service=chat-svc");
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
-  expect(await page.locator('#findings-filters .ps-chip[data-key="ns:"]').count()).toBe(0);
+  expect(await page.locator('#findings-filters .ps-chip[data-key="group:"]').count()).toBe(0);
   await page.locator("#findings-list .ps-row").first().click();
   await expect(page.locator("#explain-detail-head .ps-meta-grid"))
     .not.toContainText(/service\.namespace|k8s\.namespace\.name/);
 });
 
 test("28. finding detail shows evidence and expands highlighted occurrences", async ({ page }) => {
-  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   const detail = page.locator("#explain-detail-head");
@@ -525,21 +530,21 @@ test("28. finding detail shows evidence and expands highlighted occurrences", as
   await expect(highlighted.first().locator(".ps-span-time")).not.toHaveText("");
 });
 
-test("29. namespace filters and occurrence evidence fit a narrow viewport", async ({ page }) => {
+test("29. grouping filters and occurrence evidence fit a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 900 });
-  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, "the filters and evidence must not widen the page").toBeLessThanOrEqual(1);
-  await expect(page.locator('#findings-filters .ps-chip[data-key="ns:prod-eu"]'))
+  await expect(page.locator(`#findings-filters .ps-chip[data-key="group:${K8S_PROD_EU}"]`))
     .toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first()).toBeVisible();
 });
 
 test("30. occurrence timestamps accept short fractional seconds", async ({ page }) => {
-  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first())
@@ -547,7 +552,7 @@ test("30. occurrence timestamps accept short fractional seconds", async ({ page 
 });
 
 test("31. HTTP N+1 help describes heuristic and forced classification", async ({ page }) => {
-  await loadDashboard(page, "#findings&type=n_plus_one_http&namespace=prod-eu");
+  await loadDashboard(page, `#findings&type=n_plus_one_http&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   const help = await page.locator("#explain-detail-head .ps-nav-help").getAttribute("aria-label");
@@ -557,7 +562,7 @@ test("31. HTTP N+1 help describes heuristic and forced classification", async ({
 });
 
 test("32. redundant evidence excludes the same template with other parameters", async ({ page }) => {
-  await loadDashboard(page, "#findings&type=redundant_sql&namespace=finance");
+  await loadDashboard(page, `#findings&type=redundant_sql&grouping=${encodeURIComponent(SERVICE_FINANCE)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   await expect(page.locator("#explain-detail-head")).toContainText("×4");
@@ -588,7 +593,7 @@ test("34. legacy approximate evidence remains grouped", async ({ page }) => {
     );
     await route.fulfill({ response, body: withoutExactIds });
   });
-  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(1);
@@ -619,15 +624,17 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
           template: finding.pattern.template,
           duration_us: 1,
         }));
-        // Same key the sink builds: the namespace is length-prefixed in
-        // UTF-8 bytes.
-        const namespace = (finding.grouping || [])[0]?.value;
+        // Same key the sink builds: grouping key and value are both
+        // length-prefixed in UTF-8 bytes.
+        const grouping = (finding.grouping || [])[0];
+        const encoder = new TextEncoder();
         const key = [
           finding.trace_id,
           finding.signature,
           finding.first_timestamp || "",
           finding.last_timestamp || "",
-          `${new TextEncoder().encode(namespace).length}:${namespace}`,
+          `${encoder.encode(grouping.key).length}:${grouping.key}`,
+          `${encoder.encode(grouping.value).length}:${grouping.value}`,
         ].join("|");
         payload.culprit_spans = { [key]: trace.spans.map((span: Record<string, any>) => span.span_id) };
         return open + JSON.stringify(payload) + close;
@@ -635,7 +642,7 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
     );
     await route.fulfill({ response, body: cappedEvidence });
   });
-  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
   await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(2000);

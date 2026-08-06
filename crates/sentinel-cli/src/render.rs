@@ -495,8 +495,15 @@ pub(crate) fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
     } else {
         f.signature.clone()
     };
-    if let Some(namespace) = f.grouping_value() {
-        format!("{}:{namespace}{signature}", namespace.len())
+    if let Some(grouping) = f.effective_grouping() {
+        format!(
+            "{}:{}|{}:{}{}",
+            grouping.key.len(),
+            grouping.key,
+            grouping.value.len(),
+            grouping.value,
+            signature
+        )
     } else {
         signature
     }
@@ -1496,6 +1503,16 @@ mod tests {
 
         let mut staging = prod.clone();
         staging.grouping = ns("staging");
+        assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
+
+        prod.grouping = vec![GroupingAttribute {
+            key: "tenant.id".into(),
+            value: "prod".into(),
+        }];
+        staging.grouping = vec![GroupingAttribute {
+            key: "k8s.namespace.name".into(),
+            value: "prod".into(),
+        }];
         assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
 
         staging.grouping.clear();
