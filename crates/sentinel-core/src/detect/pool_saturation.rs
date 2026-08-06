@@ -130,6 +130,13 @@ fn peak_span_ids<'a>(trace: &'a Trace, indices: &[usize]) -> Vec<&'a str> {
     let mut sweep: Vec<(u64, bool, usize)> = Vec::with_capacity(indices.len() * 2);
     for &idx in indices {
         let span = &trace.spans[idx];
+        // A zero-duration span occupies no interval. `false < true` sorts its
+        // end before its own start, which `compute_peak_concurrency` absorbs
+        // as a net zero but which would strand the index in `active` here,
+        // inflating every later peak. Skipping keeps the two sweeps equal.
+        if span.event.duration_us == 0 {
+            continue;
+        }
         if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
             let start_us = start_ms.saturating_mul(1000);
             sweep.push((start_us, true, idx));
@@ -396,6 +403,9 @@ mod tests {
             ("2025-07-10T14:32:01.001Z", 3_000),
             ("2025-07-10T14:32:01.002Z", 500),
             ("2025-07-10T14:32:01.006Z", 2_000),
+            // Zero duration: its end sorts before its own start.
+            ("2025-07-10T14:32:01.001Z", 0),
+            ("2025-07-10T14:32:01.003Z", 0),
         ];
         let events: Vec<_> = starts
             .iter()
