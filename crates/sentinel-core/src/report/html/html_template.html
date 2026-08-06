@@ -422,6 +422,7 @@
 
   /* -------- banner / empty / drill -------- */
   .ps-banner { background: var(--info-bg); border: 0; border-radius: 10px; padding: 8px 12px; font-size: 11.5px; color: var(--info-fg); }
+  .ps-report-warnings { background: var(--warn-bg); color: var(--warn-fg); margin-bottom: 14px; }
   .ps-empty { padding: 30px; text-align: center; color: var(--text-2); font-size: 13px; background: var(--surface); border: 1px solid transparent; border-radius: var(--r); }
   .ps-drill { background: var(--info-bg); border: 0; border-radius: 10px; padding: 10px 12px; font-size: 11.5px; color: var(--info-fg); }
   .ps-drill-label { font-size: 11.5px; color: var(--info-fg); margin-bottom: 4px; opacity: .8; }
@@ -721,6 +722,8 @@
     </header>
 
     <div class="ps-content">
+
+  <div class="ps-banner ps-report-warnings" id="report-warnings" style="display: none;"></div>
 
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" class="ps-panel ps-panel-wide" style="display: none;">
     <div id="overview-hero"></div>
@@ -4572,6 +4575,22 @@
     b.textContent = parts.join(" ");
   }
 
+  // -------- report warnings banner --------
+  // Run-level, so it sits outside the panels and stays readable on every
+  // tab. Same "[kind] message" shape as the CLI and the monitor TUI.
+  // ponytail: one tone for every kind; add a kind -> class map when a kind
+  // needs a different action from the reader.
+  function renderReportWarnings() {
+    var details = report.warning_details || [];
+    var lines = details.length
+      ? details.map(function (w) { return "[" + w.kind + "] " + w.message; })
+      : (report.warnings || []);
+    if (!lines.length) return;
+    var b = document.getElementById("report-warnings");
+    b.style.display = "";
+    lines.forEach(function (line) { b.appendChild(el("div", null, line)); });
+  }
+
   // -------- theme toggle --------
   // Click cycles through auto -> light -> dark -> auto. The actual
   // data-theme attribute and button label are handled by applyTheme,
@@ -5585,6 +5604,7 @@
   }
 
   function renderAllPanels() {
+    renderReportWarnings();
     renderTrimBanner();
     renderFindingsMetrics();
     // Gate rules render inside the Overview hero (renderOverviewHero); there
