@@ -218,6 +218,9 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
             _ => false,
         }
     });
+    event
+        .grouping
+        .truncate(crate::config::MAX_GROUPING_ATTRIBUTES);
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
@@ -787,6 +790,22 @@ mod tests {
             Some(MAX_SERVICE_LENGTH),
             "an over-long value is truncated, not dropped"
         );
+    }
+
+    #[test]
+    fn sanitize_caps_oversize_grouping_vec() {
+        let mut event = make_event_with_field("service", "svc");
+        event.grouping = (0..32)
+            .map(|i| GroupingAttribute {
+                key: Arc::from(format!("tenant.dimension.{i}")),
+                value: Arc::from(format!("value-{i}")),
+            })
+            .collect();
+
+        sanitize_span_event(&mut event);
+
+        assert_eq!(event.grouping.len(), crate::config::MAX_GROUPING_ATTRIBUTES);
+        assert_eq!(event.grouping[0].key.as_ref(), "tenant.dimension.0");
     }
 
     #[test]

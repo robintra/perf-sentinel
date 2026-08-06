@@ -1861,10 +1861,12 @@ impl OtlpSink {
         &self,
         request: ExportTraceServiceRequest,
         metrics: Option<&Arc<dyn MetricsSink>>,
+        grouping_attributes: Option<&[Arc<str>]>,
     ) -> Result<(), SinkRejection> {
         match self {
             Self::Events(tx) => {
-                let (events, stats) = convert_otlp_request_counted(&request);
+                let (events, stats) =
+                    convert_otlp_request_counted_with_grouping(&request, grouping_attributes);
                 if let Some(m) = metrics {
                     m.record_otlp_spans(stats);
                 }
@@ -1882,6 +1884,7 @@ impl OtlpSink {
 pub struct OtlpGrpcService {
     sink: OtlpSink,
     metrics: Option<Arc<dyn MetricsSink>>,
+    grouping_attributes: Option<Arc<[Arc<str>]>>,
 }
 
 impl OtlpGrpcService {
@@ -1893,6 +1896,21 @@ impl OtlpGrpcService {
         Self {
             sink: OtlpSink::Events(sender),
             metrics,
+            grouping_attributes: None,
+        }
+    }
+
+    /// Same service, using the operator-configured grouping attributes.
+    #[must_use]
+    pub fn new_with_grouping(
+        sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+        metrics: Option<Arc<dyn MetricsSink>>,
+        grouping_attributes: Vec<Arc<str>>,
+    ) -> Self {
+        Self {
+            sink: OtlpSink::Events(sender),
+            metrics,
+            grouping_attributes: Some(grouping_attributes.into()),
         }
     }
 
@@ -1905,6 +1923,7 @@ impl OtlpGrpcService {
         Self {
             sink: OtlpSink::Raw(sender),
             metrics,
+            grouping_attributes: None,
         }
     }
 }
@@ -1933,7 +1952,11 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         }
         if let Err(e) = self
             .sink
-            .accept(request.into_inner(), self.metrics.as_ref())
+            .accept(
+                request.into_inner(),
+                self.metrics.as_ref(),
+                self.grouping_attributes.as_deref(),
+            )
             .await
         {
             if let Some(m) = self.metrics.as_ref() {
@@ -1965,6 +1988,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
 struct OtlpHttpState {
     sink: OtlpSink,
     metrics: Option<Arc<dyn MetricsSink>>,
+    grouping_attributes: Option<Arc<[Arc<str>]>>,
 }
 
 /// Build an axum router for OTLP HTTP ingestion.
@@ -1978,7 +2002,27 @@ pub fn otlp_http_router(
     max_payload_size: usize,
     metrics: Option<Arc<dyn MetricsSink>>,
 ) -> axum::Router {
-    otlp_http_router_with_sink(OtlpSink::Events(sender), max_payload_size, metrics)
+    otlp_http_router_with_sink_and_grouping(
+        OtlpSink::Events(sender),
+        max_payload_size,
+        metrics,
+        None,
+    )
+}
+
+/// Build an OTLP HTTP router using the operator-configured grouping attributes.
+pub fn otlp_http_router_with_grouping(
+    sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+    max_payload_size: usize,
+    metrics: Option<Arc<dyn MetricsSink>>,
+    grouping_attributes: Vec<Arc<str>>,
+) -> axum::Router {
+    otlp_http_router_with_sink_and_grouping(
+        OtlpSink::Events(sender),
+        max_payload_size,
+        metrics,
+        Some(grouping_attributes.into()),
+    )
 }
 
 /// Same router, against an explicit sink. `OtlpSink::Raw` is what
@@ -1987,6 +2031,15 @@ pub fn otlp_http_router_with_sink(
     sink: OtlpSink,
     max_payload_size: usize,
     metrics: Option<Arc<dyn MetricsSink>>,
+) -> axum::Router {
+    otlp_http_router_with_sink_and_grouping(sink, max_payload_size, metrics, None)
+}
+
+fn otlp_http_router_with_sink_and_grouping(
+    sink: OtlpSink,
+    max_payload_size: usize,
+    metrics: Option<Arc<dyn MetricsSink>>,
+    grouping_attributes: Option<Arc<[Arc<str>]>>,
 ) -> axum::Router {
     use axum::{
         Router,
@@ -2050,7 +2103,11 @@ pub fn otlp_http_router_with_sink(
         };
         if state
             .sink
-            .accept(request, state.metrics.as_ref())
+            .accept(
+                request,
+                state.metrics.as_ref(),
+                state.grouping_attributes.as_deref(),
+            )
             .await
             .is_err()
         {
@@ -2091,7 +2148,11 @@ pub fn otlp_http_router_with_sink(
         next.run(request).await
     }
 
-    let state = OtlpHttpState { sink, metrics };
+    let state = OtlpHttpState {
+        sink,
+        metrics,
+        grouping_attributes,
+    };
     let guard_state = state.clone();
     let router = Router::new()
         .route("/v1/traces", post(handle_traces))

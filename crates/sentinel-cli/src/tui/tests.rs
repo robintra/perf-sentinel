@@ -893,12 +893,14 @@ fn make_correlation(src_svc: &str, tgt_svc: &str) -> CrossTraceCorrelation {
             finding_type: FindingType::NPlusOneSql,
             service: src_svc.to_string(),
             template: "SELECT * FROM t WHERE id = ?".to_string(),
+            grouping_key: None,
             namespace: None,
         },
         target: CorrelationEndpoint {
             finding_type: FindingType::SlowHttp,
             service: tgt_svc.to_string(),
             template: "GET /api/x".to_string(),
+            grouping_key: None,
             namespace: None,
         },
         co_occurrence_count: 47,
@@ -1046,8 +1048,9 @@ fn correlations_panel_renders_at_typical_width() {
 }
 
 #[test]
-fn correlations_panel_qualifies_each_side_with_its_namespace() {
+fn correlations_panel_qualifies_each_side_with_its_grouping() {
     let mut c = make_correlation("order-svc", "payment-svc");
+    c.source.grouping_key = Some("tenant.id".to_string());
     c.source.namespace = Some("prod-eu".to_string());
     let mut app = make_test_app().with_correlations(vec![c]);
     app.active_panel = Panel::Correlations;
@@ -1059,7 +1062,7 @@ fn correlations_panel_qualifies_each_side_with_its_namespace() {
         }
     }
 
-    assert!(full.contains("order-svc@prod-eu:"), "{full}");
+    assert!(full.contains("order-svc@tenant.id=prod-eu:"), "{full}");
     assert!(
         full.contains("payment-svc:"),
         "a side without a namespace carries no suffix: {full}"
@@ -1075,6 +1078,7 @@ fn correlations_panel_strips_ansi_from_service_name() {
         finding_type: FindingType::SlowHttp,
         service: "click\x1b]8;;https://attacker/\x07tag\x1b]8;;\x07".to_string(),
         template: "GET /x".to_string(),
+        grouping_key: None,
         namespace: None,
     };
     let mut app = make_test_app().with_correlations(vec![hostile]);

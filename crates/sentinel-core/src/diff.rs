@@ -26,7 +26,13 @@ use crate::report::{PerEndpointIoOps, Report, Warning};
 /// key (e.g. the same N+1 template fired in two traces), the diff
 /// engine collapses them to one entry by keeping the worst-severity
 /// finding for that key.
-type IdentityKey = (FindingType, String, Option<String>, String, String);
+type IdentityKey = (
+    FindingType,
+    String,
+    Option<(String, String)>,
+    String,
+    String,
+);
 
 fn identity_of(finding: &Finding) -> IdentityKey {
     (
@@ -34,7 +40,9 @@ fn identity_of(finding: &Finding) -> IdentityKey {
         finding.service.clone(),
         // Without the namespace, the same problem in two deployments folds
         // into one row with summed occurrences.
-        finding.grouping_value().map(String::from),
+        finding
+            .effective_grouping()
+            .map(|g| (g.key.to_string(), g.value.to_string())),
         finding.source_endpoint.clone(),
         finding.pattern.template.clone(),
     )
@@ -364,6 +372,32 @@ mod tests {
             report.new_findings[0].grouping_value(),
             Some("staging"),
             "the staging deployment must not fold into the prod row"
+        );
+    }
+
+    #[test]
+    fn identity_separates_equal_values_from_different_grouping_keys() {
+        let mut tenant = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "order-svc",
+            "GET /api/orders",
+            "SELECT * FROM t WHERE id = ?",
+        );
+        tenant.grouping = crate::test_helpers::grouping("tenant.id", "prod");
+        let mut namespace = tenant.clone();
+        namespace.grouping = crate::test_helpers::grouping("k8s.namespace.name", "prod");
+
+        let before = make_report(vec![tenant.clone()], vec![]);
+        let after = make_report(vec![tenant, namespace], vec![]);
+        let report = diff_runs(&before, &after);
+
+        assert_eq!(report.new_findings.len(), 1);
+        assert_eq!(
+            report.new_findings[0]
+                .effective_grouping()
+                .map(|g| g.key.as_ref()),
+            Some("k8s.namespace.name")
         );
     }
 

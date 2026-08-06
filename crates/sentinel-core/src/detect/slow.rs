@@ -138,7 +138,7 @@ pub fn detect_slow_cross_trace(
     // non-slow spans (reduces HashMap size from N to ~1% of N in typical workloads).
     #[allow(clippy::type_complexity)]
     let mut groups: HashMap<
-        (&EventType, &str, Option<&str>),
+        (&EventType, &str, Option<(&str, &str)>),
         Vec<(u64, &str, &str, &crate::event::SpanEvent)>,
     > = HashMap::with_capacity(traces.len().min(256));
     for trace in traces {
@@ -150,7 +150,9 @@ pub fn detect_slow_cross_trace(
                 .entry((
                     &span.event.event_type,
                     &span.template,
-                    span.event.grouping_value(),
+                    span.event
+                        .effective_grouping()
+                        .map(|g| (g.key.as_ref(), g.value.as_ref())),
                 ))
                 .or_default()
                 .push((
@@ -659,6 +661,35 @@ mod tests {
             .filter_map(|finding| finding.grouping_value())
             .collect();
         assert_eq!(namespaces, HashSet::from(["prod-eu", "staging"]));
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.pattern.occurrences == 3)
+        );
+    }
+
+    #[test]
+    fn cross_trace_keeps_equal_grouping_values_separate_by_key() {
+        let traces: Vec<_> = ["tenant.id", "k8s.namespace.name"]
+            .into_iter()
+            .flat_map(|key| {
+                (1..=3).map(move |i| {
+                    let mut event = make_sql_event_with_duration(
+                        &format!("trace-{key}-{i}"),
+                        &format!("span-{key}-{i}"),
+                        &format!("SELECT * FROM big_table WHERE id = {i}"),
+                        &format!("2025-07-10T14:32:0{i}.000Z"),
+                        600_000,
+                    );
+                    event.grouping = crate::test_helpers::grouping(key, "prod");
+                    make_trace(vec![event])
+                })
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+
+        assert_eq!(findings.len(), 2);
         assert!(
             findings
                 .iter()

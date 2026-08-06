@@ -6,7 +6,7 @@
 //! `by_trace_id` answer for a trace whose spans have aged out, and FIFO
 //! pressure is what expires a fixed problem. Listing them raw is what
 //! reads as duplicate rows, so [`coalesce_by_signature`] folds them at
-//! READ time by effective namespace and signature, leaving the stored
+//! READ time by effective grouping identity and signature, leaving the stored
 //! history intact.
 
 use std::collections::{HashMap, VecDeque};
@@ -15,6 +15,8 @@ use serde::Serialize;
 use tokio::sync::RwLock;
 
 use crate::detect::Finding;
+
+type FoldKey<'a> = (Option<(&'a str, &'a str)>, &'a str);
 
 /// A finding with daemon-side metadata.
 ///
@@ -72,7 +74,7 @@ pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
 /// distinct signature instead of once per retained detection.
 fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<StoredFinding> {
     let mut out: Vec<StoredFinding> = Vec::new();
-    let mut index: HashMap<(&str, &str), usize> = HashMap::new();
+    let mut index: HashMap<FoldKey<'_>, usize> = HashMap::new();
     for entry in entries {
         // An unsigned finding cannot be keyed, so it stays its own row
         // rather than folding every unsigned finding into one.
@@ -80,8 +82,11 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
             out.push(entry.clone());
             continue;
         }
-        let namespace = entry.finding.grouping_value().unwrap_or("");
-        let key = (namespace, entry.finding.signature.as_str());
+        let grouping = entry
+            .finding
+            .effective_grouping()
+            .map(|g| (g.key.as_ref(), g.value.as_ref()));
+        let key = (grouping, entry.finding.signature.as_str());
         if let Some(&i) = index.get(&key) {
             let kept: &mut StoredFinding = &mut out[i];
             let seen = kept.seen_count + entry.seen_count;
@@ -412,6 +417,28 @@ mod tests {
         let store = FindingsStore::new(100);
         store.push_batch(&[prod], 1000).await;
         store.push_batch(&[staging], 2000).await;
+
+        let folded = store
+            .query_coalesced(&FindingsFilter {
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(folded.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn coalescing_keeps_equal_grouping_values_separate_by_key() {
+        let mut tenant = make_finding("svc", FindingType::RedundantSql);
+        tenant.grouping = crate::test_helpers::grouping("tenant.id", "prod");
+        let mut namespace = make_finding("svc", FindingType::RedundantSql);
+        namespace.grouping = crate::test_helpers::grouping("k8s.namespace.name", "prod");
+        enrich_with_signatures(std::slice::from_mut(&mut tenant));
+        enrich_with_signatures(std::slice::from_mut(&mut namespace));
+
+        let store = FindingsStore::new(100);
+        store.push_batch(&[tenant], 1000).await;
+        store.push_batch(&[namespace], 2000).await;
 
         let folded = store
             .query_coalesced(&FindingsFilter {

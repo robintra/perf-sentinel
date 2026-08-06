@@ -2754,6 +2754,17 @@ mod http_handler {
         req.encode_to_vec()
     }
 
+    fn request_with_tenant() -> ExportTraceServiceRequest {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        let mut req = make_request("svc", vec![span]);
+        req.resource_spans[0]
+            .resource
+            .get_or_insert_default()
+            .attributes
+            .push(make_kv("tenant.id", "acme"));
+        req
+    }
+
     fn gzip(body: &[u8]) -> Vec<u8> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(body).expect("gzip encode");
@@ -2839,6 +2850,25 @@ mod http_handler {
 
         let events = rx.recv().await.expect("event batch sent");
         assert_eq!(events.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn otlp_http_uses_configured_grouping_attributes() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let router =
+            otlp_http_router_with_grouping(tx, 1_048_576, None, vec![Arc::from("tenant.id")]);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, "application/x-protobuf")
+            .body(Body::from(request_with_tenant().encode_to_vec()))
+            .expect("build request");
+
+        let response = router.oneshot(req).await.expect("router runs");
+        assert_eq!(response.status(), StatusCode::OK);
+        let events = rx.recv().await.expect("event batch sent");
+        assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
+        assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
     }
 
     #[tokio::test]
@@ -3075,6 +3105,21 @@ mod http_handler {
                 .get(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn grpc_handler_uses_configured_grouping_attributes() {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1);
+        let svc = OtlpGrpcService::new_with_grouping(tx, None, vec![Arc::from("tenant.id")]);
+        svc.export(tonic::Request::new(request_with_tenant()))
+            .await
+            .expect("request accepted");
+
+        let events = rx.recv().await.expect("event batch sent");
+        assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
+        assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
     }
 
     #[tokio::test]
