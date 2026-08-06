@@ -1177,7 +1177,14 @@ fn write_diff_text(
     if !diff.warning_details.is_empty() {
         writeln!(writer, "{bold}{yellow}Warnings (after run):{reset}")?;
         for w in &diff.warning_details {
-            writeln!(writer, "  [{}] {}", w.kind, w.message)?;
+            // Same guard as `print_warnings`: a baseline JSON is operator
+            // input, and ack warnings carry user-authored signatures.
+            writeln!(
+                writer,
+                "  [{}] {}",
+                sanitize_for_terminal(&w.kind),
+                sanitize_for_terminal(&w.message)
+            )?;
         }
         writeln!(writer)?;
     }
@@ -1669,6 +1676,30 @@ mod tests {
             }),
             signature: String::new(),
         }
+    }
+
+    /// A baseline JSON is operator input and ack warnings carry
+    /// user-authored signatures, so this block is a trust boundary.
+    #[test]
+    fn diff_warnings_are_sanitized_like_the_report_block() {
+        let mut diff = empty_diff();
+        diff.warning_details = vec![sentinel_core::report::Warning::new(
+            "tuning",
+            "wipe\x1b[2J\x1b[H and \u{202e}reversed",
+        )];
+
+        let mut buf = Vec::new();
+        write_diff_text(&mut buf, &diff, no_colors()).unwrap();
+
+        assert!(
+            !buf.contains(&0x1b),
+            "ESC byte leaked into the diff warnings block: {}",
+            String::from_utf8_lossy(&buf)
+        );
+        assert!(
+            !String::from_utf8_lossy(&buf).contains('\u{202e}'),
+            "BiDi override leaked into the diff warnings block"
+        );
     }
 
     fn diff_with_new(findings: Vec<Finding>) -> DiffReport {
