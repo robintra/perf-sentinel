@@ -2255,9 +2255,12 @@ fn culprit_map(html: &str) -> serde_json::Value {
 }
 
 fn culprit_key_of(f: &Finding) -> String {
-    format!(
-        "{}|{}|{}|{}",
-        f.trace_id, f.signature, f.first_timestamp, f.last_timestamp
+    super::culprit_key(
+        &f.trace_id,
+        f.effective_namespace(),
+        &f.signature,
+        &f.first_timestamp,
+        &f.last_timestamp,
     )
 }
 
@@ -2465,6 +2468,83 @@ fn culprit_spans_name_every_n_plus_one_occurrence() {
         .map(|value| value.as_str().unwrap())
         .collect();
     assert_eq!(ids, vec!["q0", "q1", "q2", "q3", "q4"]);
+}
+
+#[test]
+fn cross_trace_slow_evidence_stays_inside_its_namespace() {
+    let slow_span =
+        |trace_id: &str, span_id: &str, namespace: &str, timestamp: &str, duration_us: u64| {
+            let mut event = span(trace_id, span_id, None, "svc", "/ep", "SELECT ?");
+            event.event.k8s_namespace = Some(namespace.into());
+            event.event.timestamp = timestamp.into();
+            event.event.duration_us = duration_us;
+            event
+        };
+    let traces = vec![
+        Trace {
+            trace_id: "t1".into(),
+            spans: vec![
+                slow_span("t1", "prod-1", "prod", "2026-04-21T00:00:00.000Z", 600_000),
+                slow_span(
+                    "t1",
+                    "stage-1",
+                    "staging",
+                    "2026-04-21T00:00:00.000Z",
+                    610_000,
+                ),
+            ],
+        },
+        Trace {
+            trace_id: "t2".into(),
+            spans: vec![
+                slow_span("t2", "prod-2", "prod", "2026-04-21T00:00:00.100Z", 700_000),
+                slow_span("t2", "prod-3", "prod", "2026-04-21T00:00:00.200Z", 800_000),
+                slow_span(
+                    "t2",
+                    "stage-2",
+                    "staging",
+                    "2026-04-21T00:00:00.100Z",
+                    710_000,
+                ),
+                slow_span(
+                    "t2",
+                    "stage-3",
+                    "staging",
+                    "2026-04-21T00:00:00.200Z",
+                    810_000,
+                ),
+            ],
+        },
+    ];
+    let mut findings = crate::detect::slow::detect_slow_cross_trace(&traces, 500, 3);
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    assert_eq!(findings.len(), 2);
+    assert_eq!(findings[0].signature, findings[1].signature);
+    assert_eq!(findings[0].first_timestamp, findings[1].first_timestamp);
+    assert_eq!(findings[0].last_timestamp, findings[1].last_timestamp);
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig {
+        slow_threshold_ms: 500,
+        slow_min_occurrences: 3,
+        ..crate::detect::DetectConfig::default()
+    });
+
+    let html = render(&report, &traces, &opts("-", None)).0;
+    let map = culprit_map(&html);
+    assert_eq!(map.as_object().unwrap().len(), 2);
+    for finding in &report.findings {
+        let ids: Vec<&str> = map[&culprit_key_of(finding)]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
+        match finding.effective_namespace().unwrap() {
+            "prod" => assert_eq!(ids, vec!["prod-2", "prod-3"]),
+            "staging" => assert_eq!(ids, vec!["stage-2", "stage-3"]),
+            namespace => panic!("unexpected namespace {namespace}"),
+        }
+    }
 }
 
 #[test]

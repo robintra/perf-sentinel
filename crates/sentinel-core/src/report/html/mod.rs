@@ -457,8 +457,19 @@ fn is_unsafe_format_char(c: char) -> bool {
 /// occurrence, and `serialized_calls` derives both its service and its
 /// endpoint from the parent span, so two chains under two parents on the
 /// same route hash identically. The time bounds are what separate them.
-fn culprit_key(trace_id: &str, signature: &str, first: &str, last: &str) -> String {
-    format!("{trace_id}|{signature}|{first}|{last}")
+fn culprit_key(
+    trace_id: &str,
+    namespace: Option<&str>,
+    signature: &str,
+    first: &str,
+    last: &str,
+) -> String {
+    let mut key = format!("{trace_id}|{signature}|{first}|{last}");
+    if let Some(namespace) = namespace {
+        key.push('|');
+        key.push_str(namespace);
+    }
+    key
 }
 
 /// Exact spans to highlight for each embedded finding.
@@ -487,7 +498,13 @@ struct CulpritIndex {
     ambiguous: HashSet<String>,
     /// Slow findings can span several traces, so they cannot be matched by
     /// rerunning the per-trace detector. Keep the representative trace rule.
-    slow: Vec<(String, String, crate::detect::FindingType, String)>,
+    slow: Vec<(
+        String,
+        String,
+        crate::detect::FindingType,
+        String,
+        Option<String>,
+    )>,
     /// Findings whose exact members follow directly from the published type
     /// and template, without rerunning a threshold rule.
     direct: Vec<(String, String, crate::detect::FindingType, String)>,
@@ -516,6 +533,7 @@ impl CulpritIndex {
                     f.trace_id.clone(),
                     culprit_key(
                         &f.trace_id,
+                        f.effective_namespace(),
                         &f.signature,
                         &f.first_timestamp,
                         &f.last_timestamp,
@@ -533,12 +551,14 @@ impl CulpritIndex {
                     f.trace_id.clone(),
                     culprit_key(
                         &f.trace_id,
+                        f.effective_namespace(),
                         &f.signature,
                         &f.first_timestamp,
                         &f.last_timestamp,
                     ),
                     f.finding_type.clone(),
                     f.pattern.template.clone(),
+                    f.effective_namespace().map(String::from),
                 ));
                 continue;
             }
@@ -554,12 +574,14 @@ impl CulpritIndex {
             }
             let rerun_key = culprit_key(
                 &f.trace_id,
+                f.effective_namespace(),
                 &crate::acknowledgments::compute_signature(f),
                 &f.first_timestamp,
                 &f.last_timestamp,
             );
             let browser_key = culprit_key(
                 &f.trace_id,
+                f.effective_namespace(),
                 &f.signature,
                 &f.first_timestamp,
                 &f.last_timestamp,
@@ -608,7 +630,7 @@ impl CulpritIndex {
                 .collect();
             out.insert(browser_key.clone(), ids);
         }
-        for (trace_id, browser_key, finding_type, template) in &self.slow {
+        for (trace_id, browser_key, finding_type, template, namespace) in &self.slow {
             if trace_id != &trace.trace_id {
                 continue;
             }
@@ -620,6 +642,7 @@ impl CulpritIndex {
                         == &crate::detect::FindingType::from_event_type_slow(&span.event.event_type)
                         && span.template.as_ref() == template
                         && span.event.duration_us > self.slow_threshold_us
+                        && span.event.effective_namespace() == namespace.as_deref()
                 })
                 .map(|span| span.event.span_id.as_str())
                 .collect();
@@ -651,6 +674,7 @@ impl CulpritIndex {
         for (finding, span_ids) in found {
             let rerun_key = culprit_key(
                 &finding.trace_id,
+                finding.effective_namespace(),
                 &crate::acknowledgments::compute_signature(&finding),
                 &finding.first_timestamp,
                 &finding.last_timestamp,

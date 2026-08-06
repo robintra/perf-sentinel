@@ -1415,7 +1415,7 @@
   // report does not embed the values the producing run used.
   var FINDING_HELP = {
     n_plus_one_sql: "The same query shape fired once per row instead of once for the whole set. Flagged when a trace repeats one normalized SQL template at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`. Identical parameters classify as Redundant SQL instead.",
-    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Direct classification uses repeated normalized endpoints with distinct parameter sets. Otherwise, `sanitizer_aware_classification` can classify the group heuristically from timing and trace-shape signals; that path does not prove the parameters were collapsed or that the calls are causally N+1. The detail identifies which path fired.",
+    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Direct classification uses repeated normalized endpoints with distinct parameter sets. Otherwise, `sanitizer_aware_classification` can classify the group heuristically from timing and trace-shape signals; always mode deliberately forces that classification without those signals. Neither path proves the parameters were collapsed or that the calls are causally N+1. The detail identifies which path fired.",
     n_plus_one_messaging: "One broker publish per item instead of a batch. Flagged when a trace repeats one destination at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
     redundant_sql: "The exact same query, template and parameters alike, ran more than once in one trace, so the later results could not differ. Two identical calls flag at info, five or more raise a warning: a cache or a local variable would remove them.",
     redundant_http: "The exact same HTTP call, endpoint and parameters alike, ran more than once in one trace. Two identical calls flag at info, five or more raise a warning.",
@@ -1468,7 +1468,7 @@
     ]},
     n_plus_one_http: { t: "N+1 HTTP", u: METHO_URL, s: [
       ["What it measures", "One outbound HTTP call per item instead of one bulk call: fetching a list, then calling `GET /api/users/{id}` once per element."],
-      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. Otherwise, the optional sanitizer-aware path uses timing and trace-shape signals; it does not prove that instrumentation collapsed the parameters or that the calls are causally N+1. The finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
+      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. Otherwise, the optional sanitizer-aware path uses timing and trace-shape signals; always mode deliberately forces that path without those signals. Neither path proves that instrumentation collapsed the parameters or that the calls are causally N+1. The finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
       ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, and `sanitizer_aware_classification`."],
       ["Limits", "The detector sees spans, not the client's internal coalescing or caching. Use the displayed timestamps, duration distribution, distinct-parameter count and classification method to validate the signal in context."]
     ]},
@@ -3214,6 +3214,8 @@
     // an occurrence, so the time bounds separate two chains on one route.
     var key = trace.trace_id + "|" + finding.signature + "|" +
       (finding.first_timestamp || "") + "|" + (finding.last_timestamp || "");
+    var namespace = findingNamespace(finding);
+    if (namespace) key += "|" + namespace;
     var ids = culpritSpans[key];
     if (!ids || !ids.length) return null;
     // Null prototype: a span id is a free-form string on the JSON, Zipkin
@@ -3251,7 +3253,7 @@
         row.classList.remove("dim");
       });
     }
-    return treeCulprits ? Object.keys(treeCulprits).length : null;
+    return treeCulprits ? root.querySelectorAll(".ps-span.hilite").length : null;
   }
 
   function buildSpanRow(span, depth, targetTpl) {
