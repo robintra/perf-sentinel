@@ -538,12 +538,12 @@ impl App {
     /// Worst severity among the trace's findings. Severity orders
     /// Critical < Warning < Info, so worst = min, and a finding-less
     /// trace sorts last.
-    fn trace_rank(&self, idx: usize) -> sentinel_core::detect::Severity {
+    fn trace_rank(&self, idx: usize) -> Severity {
         self.findings_by_trace[idx]
             .iter()
             .map(|&i| self.all_findings[i].severity.clone())
             .min()
-            .unwrap_or(sentinel_core::detect::Severity::Info)
+            .unwrap_or(Severity::Info)
     }
 
     /// Aggregate avoidable ops of the signatures this trace's findings
