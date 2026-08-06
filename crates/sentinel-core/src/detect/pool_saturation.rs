@@ -9,10 +9,13 @@ use crate::event::EventType;
 use super::n_plus_one::parse_timestamp_ms;
 use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
+type PoolKey<'a> = (&'a str, Option<(&'a str, &'a str)>);
+
 /// Detect connection pool saturation within a trace.
 ///
-/// Groups SQL spans by service, computes peak concurrency via a sweep line
-/// algorithm. If peak concurrent spans >= `threshold`, emits a finding.
+/// Groups SQL spans by service and effective grouping, then computes peak
+/// concurrency via a sweep line. If peak concurrent spans >= `threshold`,
+/// emits a finding.
 #[must_use]
 pub fn detect_pool_saturation(trace: &Trace, threshold: u32) -> Vec<Finding> {
     saturated_services(trace, threshold)
@@ -44,7 +47,7 @@ fn saturated_services(trace: &Trace, threshold: u32) -> Vec<(&str, Vec<usize>, u
     let threshold = threshold as usize;
     group_sql_indices_by_service(trace)
         .into_iter()
-        .filter_map(|(service, indices)| {
+        .filter_map(|((service, _grouping), indices)| {
             // Fast path: can't have more concurrent than total.
             if indices.len() < threshold {
                 return None;
@@ -55,16 +58,21 @@ fn saturated_services(trace: &Trace, threshold: u32) -> Vec<(&str, Vec<usize>, u
         .collect()
 }
 
-/// Partition a trace's SQL span indices by `service` attribute. HTTP
+/// Partition a trace's SQL span indices by service and effective grouping. HTTP
 /// and other event types are skipped. Returns borrowed service names
 /// (lifetime tied to `trace`) so grouping stays allocation-light.
-fn group_sql_indices_by_service(trace: &Trace) -> HashMap<&str, Vec<usize>> {
-    let mut sql_by_service: HashMap<&str, Vec<usize>> =
+fn group_sql_indices_by_service(trace: &Trace) -> HashMap<PoolKey<'_>, Vec<usize>> {
+    let mut sql_by_service: HashMap<PoolKey<'_>, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(16));
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.event_type == EventType::Sql {
             sql_by_service
-                .entry(span.event.service.as_ref())
+                .entry((
+                    span.event.service.as_ref(),
+                    span.event
+                        .effective_grouping()
+                        .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+                ))
                 .or_default()
                 .push(i);
         }
@@ -353,6 +361,27 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_pool_saturation(&trace, 10);
         assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
+    fn equal_grouping_values_from_different_keys_do_not_share_one_pool() {
+        let mut events = make_concurrent_sql("trace-1", "svc", 6, 200_000);
+        for (i, event) in events.iter_mut().enumerate() {
+            let key = if i < 3 {
+                "tenant.id"
+            } else {
+                "k8s.namespace.name"
+            };
+            event.grouping = crate::test_helpers::grouping(key, "prod");
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_pool_saturation(&trace, 4);
+
+        assert!(
+            findings.is_empty(),
+            "each grouping peaks at three connections: {findings:#?}"
+        );
     }
 
     /// Two sweeps over the same events: if the tie-break ordering drifts in
