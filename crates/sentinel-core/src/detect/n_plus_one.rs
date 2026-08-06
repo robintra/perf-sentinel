@@ -29,9 +29,11 @@ pub(crate) const CRITICAL_OCCURRENCE_THRESHOLD: usize = 10;
 /// bound the operator cannot reduce.
 pub const DISCLOSURE_N_PLUS_ONE_THRESHOLD: u32 = 2;
 
+type NPlusOneKey<'a> = (&'a EventType, &'a str, Option<(&'a str, &'a str)>);
+
 /// Detect N+1 patterns in a single trace.
 ///
-/// Groups spans by (`event_type`, template) and emits a finding when the
+/// Groups spans by (`event_type`, template, effective grouping) and emits a finding when the
 /// number of occurrences reaches `threshold` within `window_limit` ms.
 /// The classification of each group is decided in one of two ways:
 ///
@@ -56,17 +58,23 @@ pub fn detect_n_plus_one(
 ) -> Vec<Finding> {
     let threshold = threshold as usize;
 
-    let mut groups: HashMap<(&EventType, &str), Vec<usize>> =
+    let mut groups: HashMap<NPlusOneKey<'_>, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
         groups
-            .entry((&span.event.event_type, &span.template))
+            .entry((
+                &span.event.event_type,
+                &span.template,
+                span.event
+                    .effective_grouping()
+                    .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+            ))
             .or_default()
             .push(i);
     }
 
     let mut findings = Vec::new();
-    for ((event_type, template), indices) in &groups {
+    for ((event_type, template, _grouping), indices) in &groups {
         let Some((distinct_params, classification_method)) =
             classify_group(trace, event_type, indices, threshold, mode)
         else {
@@ -87,7 +95,7 @@ pub fn detect_n_plus_one(
     findings
 }
 
-/// Decide whether a `(event_type, template)` group qualifies as N+1 and
+/// Decide whether an `(event_type, template, effective grouping)` group qualifies as N+1 and
 /// under which classification method.
 ///
 /// Returns `Some((distinct_params, classification_method))` to emit a
@@ -399,6 +407,27 @@ mod tests {
             findings[0].grouping.len(),
             2,
             "the namespace is kept even though the tenant decided the identity"
+        );
+    }
+
+    #[test]
+    fn equal_grouping_values_from_different_keys_do_not_form_one_n_plus_one() {
+        let mut events = crate::test_helpers::make_sql_series_events(6);
+        for (i, event) in events.iter_mut().enumerate() {
+            let key = if i < 3 {
+                "tenant.id"
+            } else {
+                "k8s.namespace.name"
+            };
+            event.grouping = crate::test_helpers::grouping(key, "prod");
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+
+        assert!(
+            findings.is_empty(),
+            "each grouping has only three occurrences: {findings:#?}"
         );
     }
 

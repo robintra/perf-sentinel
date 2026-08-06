@@ -10,6 +10,14 @@ use crate::event::EventType;
 
 use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
+type RedundantKey<'a> = (
+    &'a EventType,
+    &'a str,
+    &'a [String],
+    Option<(&'a str, &'a str)>,
+);
+type NPlusOneKey<'a> = (&'a FindingType, &'a str, Option<(&'a str, &'a str)>);
+
 /// Detect redundant (exact duplicate) operations in a single trace.
 ///
 /// `n_plus_one_findings` is the slice of N+1 findings already produced
@@ -42,7 +50,7 @@ fn redundant_impl<'a>(
     // Use borrowed keys: (&EventType, &str, &[String]) avoids cloning and
     // eliminates the join-ambiguity bug (a param containing the separator
     // could cause two different param lists to collide).
-    let mut groups: HashMap<(&EventType, &str, &[String]), Vec<usize>> =
+    let mut groups: HashMap<RedundantKey<'_>, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
 
     for (i, span) in trace.spans.iter().enumerate() {
@@ -52,27 +60,42 @@ fn redundant_impl<'a>(
             continue;
         }
         groups
-            .entry((&span.event.event_type, &span.template, &span.params))
+            .entry((
+                &span.event.event_type,
+                &span.template,
+                &span.params,
+                span.event
+                    .effective_grouping()
+                    .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+            ))
             .or_default()
             .push(i);
     }
 
     let mut findings = Vec::new();
 
-    // Index N+1 templates once to avoid O(G*F) per-group scans. Keyed
-    // by (type, template) so SQL N+1 does not mask HTTP redundant hits.
-    let n_plus_one_index: HashSet<(&FindingType, &str)> = n_plus_one_findings
+    // Index N+1 groups once to avoid O(G*F) per-group scans. The type and
+    // grouping identity keep unrelated redundant hits visible.
+    let n_plus_one_index: HashSet<NPlusOneKey<'_>> = n_plus_one_findings
         .iter()
-        .map(|f| (&f.finding_type, f.pattern.template.as_str()))
+        .map(|finding| {
+            (
+                &finding.finding_type,
+                finding.pattern.template.as_str(),
+                finding
+                    .effective_grouping()
+                    .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+            )
+        })
         .collect();
 
-    for ((event_type, template, _params), indices) in &groups {
+    for ((event_type, template, _params, grouping), indices) in &groups {
         if indices.len() < 2 {
             continue;
         }
 
         let n_plus_one_type = FindingType::from_event_type_n_plus_one(event_type);
-        if n_plus_one_index.contains(&(&n_plus_one_type, *template)) {
+        if n_plus_one_index.contains(&(&n_plus_one_type, *template, *grouping)) {
             continue;
         }
         let Some(finding_type) = FindingType::from_event_type_redundant(event_type) else {
@@ -269,6 +292,34 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Info);
         assert_eq!(findings[0].pattern.occurrences, 2);
+    }
+
+    #[test]
+    fn redundant_groups_keep_equal_values_from_different_keys_separate() {
+        let mut events: Vec<_> = (0..4)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM order_item WHERE order_id = 42",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+        for (i, event) in events.iter_mut().enumerate() {
+            let key = if i < 2 {
+                "tenant.id"
+            } else {
+                "k8s.namespace.name"
+            };
+            event.grouping = crate::test_helpers::grouping(key, "prod");
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_redundant(&trace, &[]);
+
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        assert!(findings.iter().all(|f| f.pattern.occurrences == 2));
     }
 
     #[test]

@@ -2473,6 +2473,61 @@ fn culprit_spans_name_every_n_plus_one_occurrence() {
 }
 
 #[test]
+fn n_plus_one_evidence_stays_inside_its_grouping_identity() {
+    let mut spans = Vec::new();
+    for (key, prefix) in [("tenant.id", "tenant"), ("k8s.namespace.name", "k8s")] {
+        for i in 0..5 {
+            let mut query = span(
+                "t1",
+                &format!("{prefix}-{i}"),
+                None,
+                "svc",
+                "/ep",
+                "SELECT ?",
+            );
+            query.event.timestamp = format!("2026-04-21T00:00:00.0{i}0Z");
+            query.event.grouping = crate::test_helpers::grouping(key, "prod");
+            query.params = vec![i.to_string()];
+            spans.push(query);
+        }
+    }
+    let trace = Trace {
+        trace_id: "t1".into(),
+        spans,
+    };
+    let mut findings = crate::detect::n_plus_one::detect_n_plus_one(
+        &trace,
+        5,
+        500,
+        crate::detect::sanitizer_aware::SanitizerAwareMode::Auto,
+    );
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+    assert_eq!(findings.len(), 2, "{findings:#?}");
+    let mut report = minimal_report(findings);
+    report.detection_config = Some(crate::detect::DetectConfig::default());
+
+    let html = render(&report, std::slice::from_ref(&trace), &opts("-", None)).0;
+    let map = culprit_map(&html);
+    for finding in &report.findings {
+        let ids = map[&culprit_key_of(finding)].as_array().unwrap();
+        assert_eq!(ids.len(), 5, "{finding:#?}: {ids:#?}");
+        let expected_prefix = match finding
+            .effective_grouping()
+            .map(|g| g.key.as_ref())
+            .unwrap()
+        {
+            "tenant.id" => "tenant-",
+            "k8s.namespace.name" => "k8s-",
+            key => panic!("unexpected grouping key {key}"),
+        };
+        assert!(
+            ids.iter()
+                .all(|id| id.as_str().unwrap().starts_with(expected_prefix))
+        );
+    }
+}
+
+#[test]
 fn cross_trace_slow_evidence_stays_inside_its_namespace() {
     let slow_span =
         |trace_id: &str, span_id: &str, namespace: &str, timestamp: &str, duration_us: u64| {
