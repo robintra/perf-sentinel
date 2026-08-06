@@ -11,6 +11,8 @@ use crate::event::EventType;
 
 use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
+type PerTraceSlowKey<'a> = (&'a EventType, &'a str, Option<(&'a str, &'a str)>);
+
 /// Detect recurring slow operations in a single trace.
 ///
 /// Flags operations where `duration_us > threshold_ms * 1000` and
@@ -20,7 +22,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
     let threshold_us = threshold_ms.saturating_mul(1000);
     let min_occ = min_occurrences as usize;
 
-    let mut groups: HashMap<(&EventType, &str, Option<&str>), Vec<usize>> =
+    let mut groups: HashMap<PerTraceSlowKey<'_>, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.duration_us > threshold_us {
@@ -31,7 +33,9 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
                 .entry((
                     &span.event.event_type,
                     &span.template,
-                    span.event.grouping_value(),
+                    span.event
+                        .effective_grouping()
+                        .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
                 ))
                 .or_default()
                 .push(i);
@@ -652,6 +656,30 @@ mod tests {
             .filter_map(Finding::grouping_value)
             .collect();
         assert_eq!(groupings, HashSet::from(["frontend", "backend"]));
+    }
+
+    #[test]
+    fn per_trace_grouping_identity_includes_the_attribute_key() {
+        let mut events = Vec::new();
+        for key in ["tenant.id", "k8s.namespace.name"] {
+            for i in 0..3 {
+                let mut event = make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{key}-{i}"),
+                    "SELECT * FROM shared_table WHERE id = 1",
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    600_000,
+                );
+                event.grouping = crate::test_helpers::grouping(key, "prod");
+                events.push(event);
+            }
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_slow(&trace, 500, 3);
+
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        assert!(findings.iter().all(|f| f.pattern.occurrences == 3));
     }
 
     #[test]

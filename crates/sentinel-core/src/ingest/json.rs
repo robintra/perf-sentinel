@@ -192,7 +192,8 @@ impl JsonIngest {
                     .map(|events| (events, None))
                     .map_err(|e| JsonIngestError::Format(e.to_string()))
             }
-            InputFormat::Native => Self::ingest_native(raw).map(|events| (events, None)),
+            InputFormat::Native => Self::ingest_native(raw, self.grouping_attributes.as_deref())
+                .map(|events| (events, None)),
         }
     }
 
@@ -278,7 +279,10 @@ impl JsonIngest {
     }
 
     /// The native arm of [`Self::ingest_with_stats`].
-    fn ingest_native(raw: &[u8]) -> Result<Vec<SpanEvent>, JsonIngestError> {
+    fn ingest_native(
+        raw: &[u8],
+        grouping_attributes: Option<&[std::sync::Arc<str>]>,
+    ) -> Result<Vec<SpanEvent>, JsonIngestError> {
         let mut events: Vec<SpanEvent> =
             serde_json::from_slice(raw).map_err(JsonIngestError::Parse)?;
         // Sanitize cloud.region at the JSON ingest boundary, symmetric
@@ -292,6 +296,13 @@ impl JsonIngest {
                 event.cloud_region = None;
             }
             crate::event::sanitize_span_event(event);
+            let captured = std::mem::take(&mut event.grouping);
+            event.grouping = crate::ingest::collect_grouping(grouping_attributes, |key| {
+                captured
+                    .iter()
+                    .find(|grouping| grouping.key.as_ref() == key)
+                    .map(|grouping| std::sync::Arc::clone(&grouping.value))
+            });
         }
         Ok(events)
     }
@@ -527,6 +538,51 @@ mod tests {
         let ingest = JsonIngest::new(1_048_576);
         let events = ingest.ingest(b"[]").unwrap();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn native_events_follow_the_configured_grouping_order() {
+        let mut event = crate::test_helpers::make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT 1",
+            "2025-07-10T14:32:01.000Z",
+        );
+        event.grouping = vec![
+            crate::event::GroupingAttribute {
+                key: "service.namespace".into(),
+                value: "payments".into(),
+            },
+            crate::event::GroupingAttribute {
+                key: "tenant.id".into(),
+                value: "acme".into(),
+            },
+            crate::event::GroupingAttribute {
+                key: "k8s.namespace.name".into(),
+                value: "prod-eu".into(),
+            },
+        ];
+        let raw = serde_json::to_vec(&vec![event]).unwrap();
+
+        let configured = JsonIngest::new(1_048_576)
+            .with_grouping_attributes(vec!["tenant.id".into(), "k8s.namespace.name".into()])
+            .ingest(&raw)
+            .unwrap();
+        let captured: Vec<(&str, &str)> = configured[0]
+            .grouping
+            .iter()
+            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+            .collect();
+        assert_eq!(
+            captured,
+            vec![("tenant.id", "acme"), ("k8s.namespace.name", "prod-eu")]
+        );
+
+        let disabled = JsonIngest::new(1_048_576)
+            .with_grouping_attributes(Vec::new())
+            .ingest(&raw)
+            .unwrap();
+        assert!(disabled[0].grouping.is_empty());
     }
 
     #[test]

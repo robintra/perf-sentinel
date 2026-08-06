@@ -490,6 +490,21 @@ type SlowCulprit = (
     Option<(String, String)>,
 );
 
+type DirectCulprit = (
+    String,
+    String,
+    crate::detect::FindingType,
+    String,
+    Option<(String, String)>,
+);
+
+fn grouping_matches(event: &crate::event::SpanEvent, expected: Option<&(String, String)>) -> bool {
+    event
+        .effective_grouping()
+        .map(|g| (g.key.as_ref(), g.value.as_ref()))
+        == expected.map(|(key, value)| (key.as_str(), value.as_str()))
+}
+
 /// Exact spans to highlight for each embedded finding.
 ///
 /// The detectors know the culprit set, so the sink rebuilds it over the
@@ -519,7 +534,7 @@ struct CulpritIndex {
     slow: Vec<SlowCulprit>,
     /// Findings whose exact members follow directly from the published type
     /// and template, without rerunning a threshold rule.
-    direct: Vec<(String, String, crate::detect::FindingType, String)>,
+    direct: Vec<DirectCulprit>,
 }
 
 impl CulpritIndex {
@@ -552,6 +567,8 @@ impl CulpritIndex {
                     ),
                     f.finding_type.clone(),
                     f.pattern.template.clone(),
+                    f.effective_grouping()
+                        .map(|g| (g.key.to_string(), g.value.to_string())),
                 ));
                 continue;
             }
@@ -617,7 +634,7 @@ impl CulpritIndex {
 
     fn for_trace<'a>(&self, trace: &'a Trace) -> BTreeMap<String, Vec<&'a str>> {
         let mut out: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
-        for (trace_id, browser_key, finding_type, template) in &self.direct {
+        for (trace_id, browser_key, finding_type, template, grouping) in &self.direct {
             if trace_id != &trace.trace_id {
                 continue;
             }
@@ -633,6 +650,7 @@ impl CulpritIndex {
                                 &span.event.event_type,
                             )
                             && span.template.as_ref() == template
+                            && grouping_matches(&span.event, grouping.as_ref())
                     }
                     crate::detect::FindingType::ChattyService => {
                         span.event.event_type == crate::event::EventType::HttpOut
@@ -655,13 +673,7 @@ impl CulpritIndex {
                         == &crate::detect::FindingType::from_event_type_slow(&span.event.event_type)
                         && span.template.as_ref() == template
                         && span.event.duration_us > self.slow_threshold_us
-                        && span
-                            .event
-                            .effective_grouping()
-                            .map(|g| (g.key.as_ref(), g.value.as_ref()))
-                            == grouping
-                                .as_ref()
-                                .map(|(key, value)| (key.as_str(), value.as_str()))
+                        && grouping_matches(&span.event, grouping.as_ref())
                 })
                 .map(|span| span.event.span_id.as_str())
                 .collect();
