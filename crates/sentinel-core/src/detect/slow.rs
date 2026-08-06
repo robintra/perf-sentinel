@@ -163,9 +163,9 @@ pub fn detect_slow_cross_trace(
     }
 
     let mut findings = Vec::new();
-    for ((event_type, template, _namespace), mut entries) in groups {
+    for ((event_type, template, _namespace), entries) in groups {
         if let Some(finding) =
-            build_cross_trace_finding(event_type, template, &mut entries, min_occ, threshold_us)
+            build_cross_trace_finding(event_type, template, &entries, min_occ, threshold_us)
         {
             findings.push(finding);
         }
@@ -180,7 +180,7 @@ pub fn detect_slow_cross_trace(
 fn build_cross_trace_finding(
     event_type: &EventType,
     template: &str,
-    entries: &mut [(u64, &str, &str, &crate::event::SpanEvent)],
+    entries: &[(u64, &str, &str, &crate::event::SpanEvent)],
     min_occ: usize,
     threshold_us: u64,
 ) -> Option<Finding> {
@@ -193,18 +193,16 @@ fn build_cross_trace_finding(
         return None;
     }
 
-    entries.sort_by_key(|&(dur, _, _, _)| dur);
     let n = entries.len();
-    let p50 = entries[percentile_index(n, 50)].0;
-    let p95 = entries[percentile_index(n, 95)].0;
-    let p99 = entries[percentile_index(n, 99)].0;
+    let mut durations: Vec<u64> = entries.iter().map(|entry| entry.0).collect();
+    let (p50, p99, cv_x1000) = super::compute_timing_stats(&mut durations);
+    let p95 = durations[percentile_index(n, 95)];
 
     if p99 <= threshold_us {
         return None;
     }
 
-    let max_dur = entries[n - 1].0;
-    let (_, worst_trace_id, _, worst_event) = entries[n - 1];
+    let &(max_dur, worst_trace_id, _, worst_event) = entries.iter().max_by_key(|entry| entry.0)?;
     let (window_ms, first_ts, last_ts) =
         super::n_plus_one::compute_window_and_bounds_iter(entries.iter().map(|e| e.2));
 
@@ -239,7 +237,9 @@ fn build_cross_trace_finding(
             occurrences: n,
             window_ms,
             distinct_params: 0,
-            ..Default::default()
+            span_duration_us_p50: Some(p50),
+            span_duration_us_p99: Some(p99),
+            span_duration_cv_x1000: Some(cv_x1000),
         },
         suggestion,
         first_timestamp: first_ts.to_string(),
@@ -609,6 +609,29 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert!(findings[0].suggestion.contains("Cross-trace"));
         assert!(findings[0].suggestion.contains("p50="));
+    }
+
+    #[test]
+    fn cross_trace_exposes_computed_timing_stats() {
+        let traces: Vec<_> = [600_000, 700_000, 800_000]
+            .into_iter()
+            .enumerate()
+            .map(|(i, duration_us)| {
+                make_trace(vec![make_sql_event_with_duration(
+                    &format!("trace-{i}"),
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM big_table WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    duration_us,
+                )])
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+
+        assert_eq!(findings[0].pattern.span_duration_us_p50, Some(700_000));
+        assert_eq!(findings[0].pattern.span_duration_us_p99, Some(800_000));
+        assert_eq!(findings[0].pattern.span_duration_cv_x1000, Some(117));
     }
 
     #[test]
