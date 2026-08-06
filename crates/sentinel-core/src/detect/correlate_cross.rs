@@ -51,14 +51,14 @@ pub struct CorrelationEndpoint {
     pub service: String,
     /// Normalized query or URL template associated with the finding.
     pub template: String,
-    /// Attribute name that supplied [`Self::namespace`]. Absent on replayed
-    /// baselines that predate configurable grouping.
+    /// Attribute name that supplied [`Self::grouping_value`]. Absent on
+    /// replayed baselines that predate configurable grouping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grouping_key: Option<String>,
     /// Effective grouping value, so two deployments never share a pair.
     /// Absent on replayed baselines that predate this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub namespace: Option<String>,
+    pub grouping_value: Option<String>,
 }
 
 /// A detected temporal correlation between findings across services.
@@ -377,7 +377,7 @@ impl CrossTraceCorrelator {
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
                 grouping_key: grouping.map(|g| g.key.to_string()),
-                namespace: grouping.map(|g| g.value.to_string()),
+                grouping_value: grouping.map(|g| g.value.to_string()),
             });
             self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str(), &mut refused);
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
@@ -446,7 +446,7 @@ impl CrossTraceCorrelator {
                 // two deployments.
                 if occ.endpoint.service == endpoint.service
                     || occ.endpoint.grouping_key != endpoint.grouping_key
-                    || occ.endpoint.namespace != endpoint.namespace
+                    || occ.endpoint.grouping_value != endpoint.grouping_value
                 {
                     continue;
                 }
@@ -1332,8 +1332,14 @@ mod tests {
             ("k8s.namespace.name", "prod-eu"),
         );
         assert_eq!(correlations.len(), 1);
-        assert_eq!(correlations[0].source.namespace.as_deref(), Some("prod-eu"));
-        assert_eq!(correlations[0].target.namespace.as_deref(), Some("prod-eu"));
+        assert_eq!(
+            correlations[0].source.grouping_value.as_deref(),
+            Some("prod-eu")
+        );
+        assert_eq!(
+            correlations[0].target.grouping_value.as_deref(),
+            Some("prod-eu")
+        );
     }
 
     #[test]
@@ -1350,14 +1356,14 @@ mod tests {
                 service: "order-svc".to_string(),
                 template: "SELECT * FROM t".to_string(),
                 grouping_key: Some("k8s.namespace.name".to_string()),
-                namespace: Some("prod-eu".to_string()),
+                grouping_value: Some("prod-eu".to_string()),
             },
             target: CorrelationEndpoint {
                 finding_type: FindingType::PoolSaturation,
                 service: "payment-svc".to_string(),
                 template: "payment-svc".to_string(),
                 grouping_key: Some("k8s.namespace.name".to_string()),
-                namespace: Some("prod-eu".to_string()),
+                grouping_value: Some("prod-eu".to_string()),
             },
             co_occurrence_count: 12,
             source_total_occurrences: 15,
