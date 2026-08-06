@@ -138,7 +138,7 @@ pub fn detect_slow_cross_trace(
     // non-slow spans (reduces HashMap size from N to ~1% of N in typical workloads).
     #[allow(clippy::type_complexity)]
     let mut groups: HashMap<
-        (&EventType, &str),
+        (&EventType, &str, Option<&str>),
         Vec<(u64, &str, &str, &crate::event::SpanEvent)>,
     > = HashMap::with_capacity(traces.len().min(256));
     for trace in traces {
@@ -147,7 +147,11 @@ pub fn detect_slow_cross_trace(
                 continue;
             }
             groups
-                .entry((&span.event.event_type, &span.template))
+                .entry((
+                    &span.event.event_type,
+                    &span.template,
+                    span.event.effective_namespace(),
+                ))
                 .or_default()
                 .push((
                     span.event.duration_us,
@@ -159,7 +163,7 @@ pub fn detect_slow_cross_trace(
     }
 
     let mut findings = Vec::new();
-    for ((event_type, template), mut entries) in groups {
+    for ((event_type, template, _namespace), mut entries) in groups {
         if let Some(finding) =
             build_cross_trace_finding(event_type, template, &mut entries, min_occ, threshold_us)
         {
@@ -605,6 +609,39 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert!(findings[0].suggestion.contains("Cross-trace"));
         assert!(findings[0].suggestion.contains("p50="));
+    }
+
+    #[test]
+    fn cross_trace_keeps_effective_namespaces_separate() {
+        let traces: Vec<_> = ["prod-eu", "staging"]
+            .into_iter()
+            .flat_map(|namespace| {
+                (1..=3).map(move |i| {
+                    let mut event = make_sql_event_with_duration(
+                        &format!("trace-{namespace}-{i}"),
+                        &format!("span-{namespace}-{i}"),
+                        &format!("SELECT * FROM big_table WHERE id = {i}"),
+                        &format!("2025-07-10T14:32:0{i}.000Z"),
+                        600_000,
+                    );
+                    event.k8s_namespace = Some(namespace.into());
+                    make_trace(vec![event])
+                })
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert_eq!(findings.len(), 2);
+        let namespaces: HashSet<&str> = findings
+            .iter()
+            .filter_map(|finding| finding.k8s_namespace.as_deref())
+            .collect();
+        assert_eq!(namespaces, HashSet::from(["prod-eu", "staging"]));
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.pattern.occurrences == 3)
+        );
     }
 
     #[test]
