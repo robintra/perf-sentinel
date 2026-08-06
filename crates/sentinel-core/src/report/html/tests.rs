@@ -2152,11 +2152,13 @@ fn embeds_correlations_when_report_carries_them() {
             finding_type: FindingType::NPlusOneSql,
             service: "order-svc".to_string(),
             template: "SELECT * FROM o WHERE id = ?".to_string(),
+            namespace: None,
         },
         target: CorrelationEndpoint {
             finding_type: FindingType::SlowHttp,
             service: "payment-svc".to_string(),
             template: "POST /api/charge".to_string(),
+            namespace: None,
         },
         co_occurrence_count: 8,
         source_total_occurrences: 10,
@@ -2708,5 +2710,24 @@ fn handed_over_traces_win_over_the_report_copy() {
     assert_eq!(
         embedded[0]["trace_id"], "t1",
         "the traces the caller handed over take precedence"
+    );
+}
+
+#[test]
+fn culprit_key_length_prefix_keeps_namespaces_unambiguous() {
+    let base = culprit_key("t1", None, "sig", "first", "last");
+    let with_ns = culprit_key("t1", Some("prod"), "sig", "first", "last");
+    assert_eq!(base, "t1|sig|first|last");
+    // The template mirrors this format in `culpritSetFor`, counting UTF-8
+    // bytes. A namespace carrying the separator cannot forge another key.
+    assert_eq!(with_ns, "t1|sig|first|last|4:prod");
+    assert_ne!(
+        culprit_key("t1", Some("a|b"), "sig", "first", "last"),
+        culprit_key("t1", Some("a"), "sig", "first", "last|b"),
+    );
+    assert_eq!(
+        culprit_key("t1", Some("prod-eu-café"), "sig", "first", "last"),
+        "t1|sig|first|last|13:prod-eu-café",
+        "the prefix counts UTF-8 bytes, not characters"
     );
 }

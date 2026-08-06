@@ -619,12 +619,15 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
           template: finding.pattern.template,
           duration_us: 1,
         }));
+        // Same key the sink builds: the namespace is length-prefixed in
+        // UTF-8 bytes.
+        const namespace = finding.k8s_namespace || finding.service_namespace;
         const key = [
           finding.trace_id,
           finding.signature,
           finding.first_timestamp || "",
           finding.last_timestamp || "",
-          finding.k8s_namespace || finding.service_namespace,
+          `${new TextEncoder().encode(namespace).length}:${namespace}`,
         ].join("|");
         payload.culprit_spans = { [key]: trace.spans.map((span: Record<string, any>) => span.span_id) };
         return open + JSON.stringify(payload) + close;

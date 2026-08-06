@@ -3215,7 +3215,11 @@
     var key = trace.trace_id + "|" + finding.signature + "|" +
       (finding.first_timestamp || "") + "|" + (finding.last_timestamp || "");
     var namespace = findingNamespace(finding);
-    if (namespace) key += "|" + namespace;
+    // Length-prefixed in UTF-8 bytes, matching the sink: `.length` would
+    // count UTF-16 units and miss every non-ASCII namespace.
+    if (namespace) {
+      key += "|" + new TextEncoder().encode(namespace).length + ":" + namespace;
+    }
     var ids = culpritSpans[key];
     if (!ids || !ids.length) return null;
     // Null prototype: a span id is a free-form string on the JSON, Zipkin
@@ -4206,7 +4210,7 @@
   }
   // Renders `CrossTraceCorrelation` entries emitted by the daemon,
   // matching the Rust struct shape: `source` and `target` are
-  // `CorrelationEndpoint { finding_type, service, template }`,
+  // `CorrelationEndpoint { finding_type, service, template, namespace }`,
   // timing is `median_lag_ms` and `co_occurrence_count`.
   // A correlation carries no severity of its own: borrow the matched
   // real finding's per side (warn when unmatched, cards always were).

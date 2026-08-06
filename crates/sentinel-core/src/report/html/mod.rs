@@ -465,8 +465,12 @@ fn culprit_key(
     last: &str,
 ) -> String {
     let mut key = format!("{trace_id}|{signature}|{first}|{last}");
+    // Length-prefixed, like the terminal recurrence key: a namespace
+    // containing the separator cannot forge another key.
     if let Some(namespace) = namespace {
         key.push('|');
+        key.push_str(&namespace.len().to_string());
+        key.push(':');
         key.push_str(namespace);
     }
     key
