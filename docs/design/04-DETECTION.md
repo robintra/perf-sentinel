@@ -124,7 +124,7 @@ The heuristic in `crates/sentinel-core/src/detect/sanitizer_aware.rs` recovers t
 
 The four emission modes (`Auto`, `Strict`, `Always`, `Never`) are documented in `docs/CONFIGURATION.md` § "`sanitizer_aware_classification`" with their precision/recall trade-offs.
 
-The HTML detail makes that decision auditable without changing it: direct N+1 findings are labeled `direct`, recovered groups are labeled `heuristic`, and the view shows the observation window, distinct-parameter count, available p50/p99/CV timing statistics, and one timestamped duration/status row per offending occurrence. Raw parameters and targets remain omitted; unrelated spans stay grouped.
+The HTML detail makes that decision auditable without changing it: direct N+1 findings are labeled `direct`, recovered groups are labeled `heuristic`, and the view shows the observation window, distinct-parameter count, available p50/p99/CV timing statistics, and one timestamped duration/status row per exact offending span in the representative trace. For a cross-trace finding, the summary still reports the full occurrence count and the view states how many of those occurrences the representative trace proves. Raw parameters and targets remain omitted; unrelated spans stay grouped. Older reports without detection settings cannot rebuild exact span ids, so matching spans remain grouped instead of being presented as individual proof.
 
 ### Known limit
 

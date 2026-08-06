@@ -19,6 +19,26 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 /// both `n_plus_one_sql` and `redundant_sql`.
 #[must_use]
 pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<Finding> {
+    redundant_impl(trace, n_plus_one_findings, false)
+        .into_iter()
+        .map(|(finding, _)| finding)
+        .collect()
+}
+
+/// Same detection, also returning the exact duplicate span ids for HTML proof.
+#[must_use]
+pub(crate) fn detect_redundant_with_spans<'a>(
+    trace: &'a Trace,
+    n_plus_one_findings: &[Finding],
+) -> Vec<(Finding, Vec<&'a str>)> {
+    redundant_impl(trace, n_plus_one_findings, true)
+}
+
+fn redundant_impl<'a>(
+    trace: &'a Trace,
+    n_plus_one_findings: &[Finding],
+    collect_spans: bool,
+) -> Vec<(Finding, Vec<&'a str>)> {
     // Use borrowed keys: (&EventType, &str, &[String]) avoids cloning and
     // eliminates the join-ambiguity bug (a param containing the separator
     // could cause two different param lists to collide).
@@ -73,7 +93,7 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
                 .map(|&i| trace.spans[i].event.timestamp.as_str()),
         );
 
-        findings.push(Finding {
+        let finding = Finding {
             finding_type,
             severity,
             trace_id: trace.trace_id.clone(),
@@ -106,7 +126,16 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
                 .collect(),
             suggested_fix: None,
             signature: String::new(),
-        });
+        };
+        let span_ids = if collect_spans {
+            indices
+                .iter()
+                .map(|&i| trace.spans[i].event.span_id.as_str())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        findings.push((finding, span_ids));
     }
 
     findings

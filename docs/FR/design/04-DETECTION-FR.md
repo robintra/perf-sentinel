@@ -124,7 +124,7 @@ L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétabli
 
 Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § "`sanitizer_aware_classification`" avec leurs trade-offs précision/rappel.
 
-Le détail HTML rend cette décision vérifiable sans la modifier : les N+1 directs portent le libellé `direct`, les groupes récupérés le libellé `heuristic`, et la vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque occurrence incriminée. Les paramètres et cibles bruts restent masqués ; les spans sans rapport restent regroupés.
+Le détail HTML rend cette décision vérifiable sans la modifier : les N+1 directs portent le libellé `direct`, les groupes récupérés le libellé `heuristic`, et la vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque span incriminé exact de la trace représentative. Pour un finding inter-traces, le résumé conserve le nombre total d'occurrences et la vue précise combien d'entre elles sont prouvées par la trace représentative. Les paramètres et cibles bruts restent masqués ; les spans sans rapport restent regroupés. Les anciens rapports dépourvus de configuration de détection ne permettent pas de reconstruire les identifiants exacts : les spans correspondants restent alors regroupés au lieu d'être présentés comme des preuves individuelles.
 
 ### Limite connue
 

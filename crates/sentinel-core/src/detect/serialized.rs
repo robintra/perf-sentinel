@@ -53,8 +53,7 @@ pub fn detect_serialized(
 
 /// Same detection, also returning the span ids of the chain behind each
 /// finding, in chronological order. The HTML sink uses them to highlight
-/// the reported chain: an embedded span carries no timestamp, so the
-/// browser cannot reconstruct it.
+/// the reported chain without duplicating the scheduling rule in JavaScript.
 #[must_use]
 pub(crate) fn detect_serialized_with_spans<'a>(
     trace: &'a Trace,
