@@ -1735,6 +1735,8 @@ mod tests {
             severity,
             trace_id: trace_id.to_string(),
             service: "order-svc".to_string(),
+            service_namespace: None,
+            k8s_namespace: None,
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM t WHERE id = ?".to_string(),

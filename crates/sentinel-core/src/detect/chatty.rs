@@ -85,6 +85,8 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         severity,
         trace_id: trace.trace_id.clone(),
         service: first.event.service.to_string(),
+        service_namespace: first.event.service_namespace.as_deref().map(String::from),
+        k8s_namespace: first.event.k8s_namespace.as_deref().map(String::from),
         source_endpoint: entry_endpoint.clone(),
         pattern: Pattern {
             template: entry_endpoint,

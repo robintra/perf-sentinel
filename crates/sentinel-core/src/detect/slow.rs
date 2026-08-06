@@ -227,6 +227,8 @@ fn build_cross_trace_finding(
         severity,
         trace_id: worst_trace_id.to_string(),
         service: worst_event.service.to_string(),
+        service_namespace: worst_event.service_namespace.as_deref().map(String::from),
+        k8s_namespace: worst_event.k8s_namespace.as_deref().map(String::from),
         source_endpoint: worst_event.source.endpoint.clone(),
         pattern: Pattern {
             template: template.to_string(),

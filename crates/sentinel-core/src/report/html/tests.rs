@@ -23,6 +23,8 @@ fn span(
             parent_span_id: parent.map(ToString::to_string),
             link_trace_id: None,
             service: service.into(),
+            service_namespace: None,
+            k8s_namespace: None,
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".into(),
@@ -51,6 +53,8 @@ fn finding(trace_id: &str, service: &str, endpoint: &str, template: &str) -> Fin
         severity: Severity::Critical,
         trace_id: trace_id.into(),
         service: service.into(),
+        service_namespace: None,
+        k8s_namespace: None,
         source_endpoint: endpoint.into(),
         pattern: Pattern {
             template: template.into(),

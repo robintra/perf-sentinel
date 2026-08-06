@@ -106,6 +106,8 @@ fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], pea
         severity: Severity::Warning,
         trace_id: trace.trace_id.clone(),
         service: service.to_string(),
+        service_namespace: first.event.service_namespace.as_deref().map(String::from),
+        k8s_namespace: first.event.k8s_namespace.as_deref().map(String::from),
         source_endpoint: first.event.source.endpoint.clone(),
         pattern: Pattern {
             template: service.to_string(),

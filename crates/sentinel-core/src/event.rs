@@ -201,6 +201,8 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     // through the same control-char + truncate helper as code_* for
     // defense-in-depth on hand-crafted inputs.
     sanitize_optional_arc_str(&mut event.cloud_region, MAX_ID_LENGTH);
+    sanitize_optional_arc_str(&mut event.service_namespace, MAX_SERVICE_LENGTH);
+    sanitize_optional_arc_str(&mut event.k8s_namespace, MAX_SERVICE_LENGTH);
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
@@ -303,6 +305,14 @@ pub struct SpanEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_trace_id: Option<Arc<str>>,
     pub service: Arc<str>,
+    /// Logical service namespace from the `service.namespace` resource
+    /// attribute. Kept separate from the Kubernetes namespace so reports can
+    /// show the exact telemetry received.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_namespace: Option<Arc<str>>,
+    /// Kubernetes namespace from the `k8s.namespace.name` resource attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k8s_namespace: Option<Arc<str>>,
     /// Cloud region this span was emitted from, sourced from the `OTel`
     /// `cloud.region` resource attribute (or span attribute as fallback).
     ///
@@ -512,6 +522,28 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_event_without_namespaces_defaults_to_none() {
+        let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        assert!(event.service_namespace.is_none());
+        assert!(event.k8s_namespace.is_none());
+    }
+
+    #[test]
+    fn serde_roundtrip_with_namespaces() {
+        let mut value: serde_json::Value = serde_json::from_str(sample_sql_json()).unwrap();
+        value["service_namespace"] = serde_json::Value::String("payments".to_string());
+        value["k8s_namespace"] = serde_json::Value::String("prod-eu".to_string());
+
+        let event: SpanEvent = serde_json::from_value(value).unwrap();
+        assert_eq!(event.service_namespace.as_deref(), Some("payments"));
+        assert_eq!(event.k8s_namespace.as_deref(), Some("prod-eu"));
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        let back: SpanEvent = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(back, event);
+    }
+
+    #[test]
     fn serde_roundtrip_with_cloud_region() {
         let json = r#"{
             "timestamp": "2025-07-10T14:32:01.123Z",
@@ -662,6 +694,21 @@ mod tests {
         let mut event = make_event_with_field("service", &"x".repeat(500));
         sanitize_span_event(&mut event);
         assert!(event.service.len() <= MAX_SERVICE_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_bounds_and_rejects_namespace_values() {
+        let mut event = make_event_with_field("service", "svc");
+        event.service_namespace = Some(Arc::from("s".repeat(500)));
+        event.k8s_namespace = Some(Arc::from("prod\u{7}hidden"));
+
+        sanitize_span_event(&mut event);
+
+        assert_eq!(
+            event.service_namespace.as_deref().map(str::len),
+            Some(MAX_SERVICE_LENGTH)
+        );
+        assert!(event.k8s_namespace.is_none());
     }
 
     #[test]

@@ -1681,6 +1681,20 @@ fn no_cloud_region_yields_none() {
     assert!(events[0].cloud_region.is_none());
 }
 
+#[test]
+fn namespaces_are_extracted_from_resource_attributes() {
+    let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+    let mut req = make_request("order-svc", vec![span]);
+    let attributes = &mut req.resource_spans[0].resource.as_mut().unwrap().attributes;
+    attributes.push(make_kv("service.namespace", "payments"));
+    attributes.push(make_kv("k8s.namespace.name", "prod-eu"));
+
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events[0].service_namespace.as_deref(), Some("payments"));
+    assert_eq!(events[0].k8s_namespace.as_deref(), Some("prod-eu"));
+}
+
 // ----- cloud.region sanitization at OTLP boundary -----
 
 #[test]

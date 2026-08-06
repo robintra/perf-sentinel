@@ -6,7 +6,8 @@
 //! `by_trace_id` answer for a trace whose spans have aged out, and FIFO
 //! pressure is what expires a fixed problem. Listing them raw is what
 //! reads as duplicate rows, so [`coalesce_by_signature`] folds them at
-//! READ time, per surface, leaving the stored history intact.
+//! READ time by effective namespace and signature, leaving the stored
+//! history intact.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -48,8 +49,9 @@ fn default_seen_count() -> u64 {
     1
 }
 
-/// Fold per-trace detections into one entry per signature, preserving
-/// the input order (newest first, what [`FindingsStore::query`] yields).
+/// Fold per-trace detections into one entry per effective namespace and
+/// signature, preserving the input order (newest first, what
+/// [`FindingsStore::query`] yields).
 ///
 /// The representative is the WORST-severity detection of the group, not
 /// the newest. Severity is derived per trace (12 repeats is critical, 6
@@ -70,7 +72,7 @@ pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
 /// distinct signature instead of once per retained detection.
 fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<StoredFinding> {
     let mut out: Vec<StoredFinding> = Vec::new();
-    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut index: HashMap<(&str, &str), usize> = HashMap::new();
     for entry in entries {
         // An unsigned finding cannot be keyed, so it stays its own row
         // rather than folding every unsigned finding into one.
@@ -78,7 +80,14 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
             out.push(entry.clone());
             continue;
         }
-        if let Some(&i) = index.get(entry.finding.signature.as_str()) {
+        let namespace = entry
+            .finding
+            .k8s_namespace
+            .as_deref()
+            .or(entry.finding.service_namespace.as_deref())
+            .unwrap_or("");
+        let key = (namespace, entry.finding.signature.as_str());
+        if let Some(&i) = index.get(&key) {
             let kept: &mut StoredFinding = &mut out[i];
             let seen = kept.seen_count + entry.seen_count;
             let first = kept.first_seen_ms.min(entry.first_seen_ms);
@@ -93,7 +102,7 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
             kept.first_seen_ms = first;
             kept.stored_at_ms = last;
         } else {
-            index.insert(entry.finding.signature.clone(), out.len());
+            index.insert(key, out.len());
             out.push(entry.clone());
         }
     }
@@ -221,8 +230,8 @@ impl FindingsStore {
             .collect()
     }
 
-    /// Fold per-trace detections into one entry per signature, then
-    /// apply `filter.limit` to the FOLDED rows.
+    /// Fold per-trace detections into one entry per effective namespace and
+    /// signature, then apply `filter.limit` to the FOLDED rows.
     ///
     /// The limit lands after the fold on purpose: applied before, a
     /// pattern recurring on 100 traces would consume the whole page and
@@ -234,7 +243,7 @@ impl FindingsStore {
     /// applied to instances first, `?severity=critical` would report the
     /// same problem with a different `seen_count` than an unfiltered
     /// call. Service and finding type are invariant within a signature,
-    /// so they filter during the pass.
+    /// so they filter during the pass; namespace is part of the fold key.
     pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
         let buf = self.inner.read().await;
         let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
@@ -305,6 +314,8 @@ mod tests {
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
             service: service.to_string(),
+            service_namespace: None,
+            k8s_namespace: None,
             source_endpoint: "POST /api/test".to_string(),
             pattern: Pattern {
                 template: template.to_string(),
@@ -391,6 +402,30 @@ mod tests {
             folded[0].finding.trace_id, "trace-b",
             "the latest instance is the one kept"
         );
+    }
+
+    #[tokio::test]
+    async fn coalescing_keeps_identical_signatures_separate_by_effective_namespace() {
+        let mut prod = make_finding("svc", FindingType::RedundantSql);
+        prod.k8s_namespace = Some("prod-eu".to_string());
+        prod.service_namespace = Some("payments".to_string());
+        let mut staging = make_finding("svc", FindingType::RedundantSql);
+        staging.service_namespace = Some("staging".to_string());
+        enrich_with_signatures(std::slice::from_mut(&mut prod));
+        enrich_with_signatures(std::slice::from_mut(&mut staging));
+        assert_eq!(prod.signature, staging.signature);
+
+        let store = FindingsStore::new(100);
+        store.push_batch(&[prod], 1000).await;
+        store.push_batch(&[staging], 2000).await;
+
+        let folded = store
+            .query_coalesced(&FindingsFilter {
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(folded.len(), 2);
     }
 
     #[tokio::test]

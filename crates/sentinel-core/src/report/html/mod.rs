@@ -807,6 +807,8 @@ struct EmbeddedTraceRef<'a> {
 #[derive(Serialize)]
 struct EmbeddedSpanRef<'a> {
     span_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    timestamp: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent_span_id: Option<&'a str>,
     service: &'a str,
@@ -827,6 +829,7 @@ fn embed_trace_ref(t: &Trace) -> EmbeddedTraceRef<'_> {
             .iter()
             .map(|e| EmbeddedSpanRef {
                 span_id: e.event.span_id.as_str(),
+                timestamp: e.event.timestamp.as_str(),
                 parent_span_id: e.event.parent_span_id.as_deref(),
                 service: e.event.service.as_ref(),
                 endpoint: e.event.source.endpoint.as_str(),
