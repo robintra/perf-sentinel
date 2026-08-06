@@ -396,7 +396,7 @@ async fn handle_export_report_carries_the_retained_span_trees() {
         detect::Severity::Warning,
     );
     finding.trace_id = "trace-a".to_string();
-    let trace = crate::correlate::Trace {
+    let trace = Trace {
         trace_id: "trace-a".to_string(),
         spans: vec![crate::normalize::normalize(crate::event::SpanEvent {
             timestamp: "2026-08-05T10:00:00Z".to_string(),

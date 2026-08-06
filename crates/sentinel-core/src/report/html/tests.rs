@@ -2399,7 +2399,7 @@ fn report_carried_traces_render_when_no_trace_is_handed_over() {
     // `Trace`, the spans travel inside the report itself.
     let f = finding("t1", "svc", "/ep", "select 1");
     let mut report = minimal_report(vec![f]);
-    report.embedded_traces = vec![crate::report::EmbeddedTrace::from_trace(&Trace {
+    report.embedded_traces = vec![EmbeddedTrace::from_trace(&Trace {
         trace_id: "t1".into(),
         spans: vec![span("t1", "s1", None, "svc", "/ep", "select 1")],
     })];
@@ -2427,11 +2427,11 @@ fn report_carried_traces_of_hidden_findings_do_not_ship() {
     let f = finding("t-visible", "svc", "/ep", "select 1");
     let mut report = minimal_report(vec![f]);
     report.embedded_traces = vec![
-        crate::report::EmbeddedTrace::from_trace(&Trace {
+        EmbeddedTrace::from_trace(&Trace {
             trace_id: "t-visible".into(),
             spans: vec![span("t-visible", "s1", None, "svc", "/ep", "select 1")],
         }),
-        crate::report::EmbeddedTrace::from_trace(&Trace {
+        EmbeddedTrace::from_trace(&Trace {
             trace_id: "t-acked".into(),
             spans: vec![span(
                 "t-acked",
@@ -2468,7 +2468,7 @@ fn report_carried_traces_honor_the_explicit_cap() {
     let mut report = minimal_report(findings);
     report.embedded_traces = (0..3)
         .map(|i| {
-            crate::report::EmbeddedTrace::from_trace(&Trace {
+            EmbeddedTrace::from_trace(&Trace {
                 trace_id: format!("t{i}"),
                 spans: vec![span(&format!("t{i}"), "s1", None, "svc", "/ep", "select 1")],
             })
@@ -2493,8 +2493,8 @@ fn borrowed_size_probe_matches_owned_serialization() {
         trace_id: "t1".into(),
         spans: vec![span("t1", "s1", Some("s0"), "svc", "/ep", "select 1")],
     };
-    let owned = serde_json::to_string(&crate::report::EmbeddedTrace::from_trace(&trace)).unwrap();
-    let borrowed = serde_json::to_string(&super::embed_trace_ref(&trace)).unwrap();
+    let owned = serde_json::to_string(&EmbeddedTrace::from_trace(&trace)).unwrap();
+    let borrowed = serde_json::to_string(&embed_trace_ref(&trace)).unwrap();
     assert_eq!(owned, borrowed);
 }
 
@@ -2502,7 +2502,7 @@ fn borrowed_size_probe_matches_owned_serialization() {
 fn handed_over_traces_win_over_the_report_copy() {
     let f = finding("t1", "svc", "/ep", "select 1");
     let mut report = minimal_report(vec![f]);
-    report.embedded_traces = vec![crate::report::EmbeddedTrace::from_trace(&Trace {
+    report.embedded_traces = vec![EmbeddedTrace::from_trace(&Trace {
         trace_id: "stale".into(),
         spans: vec![span("stale", "s9", None, "svc", "/ep", "select 1")],
     })];

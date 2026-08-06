@@ -90,13 +90,13 @@ impl SpanConversionStats {
     /// ever be missing one. Counting RPC in the numerator of a ratio
     /// whose denominator is `http.url` gaps lets gRPC traffic mask a
     /// stripped-URL HTTP surface.
-    fn count_retained(&mut self, event_type: &crate::event::EventType, carried_url: bool) {
+    fn count_retained(&mut self, event_type: &EventType, carried_url: bool) {
         match event_type {
-            crate::event::EventType::Sql => self.retained_sql += 1,
-            crate::event::EventType::HttpOut if carried_url => self.retained_http += 1,
+            EventType::Sql => self.retained_sql += 1,
+            EventType::HttpOut if carried_url => self.retained_http += 1,
             // RPC-derived outbound calls and messaging publishes have no
             // attribute-gap filter reason, so they join no usable ratio.
-            crate::event::EventType::HttpOut | crate::event::EventType::Messaging => {}
+            EventType::HttpOut | EventType::Messaging => {}
         }
     }
 
