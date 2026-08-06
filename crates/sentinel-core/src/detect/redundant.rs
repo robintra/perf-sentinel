@@ -98,8 +98,7 @@ fn redundant_impl<'a>(
             severity,
             trace_id: trace.trace_id.clone(),
             service: first.event.service.to_string(),
-            service_namespace: first.event.service_namespace.as_deref().map(String::from),
-            k8s_namespace: first.event.k8s_namespace.as_deref().map(String::from),
+            grouping: first.event.grouping.clone(),
             source_endpoint: first.event.source.endpoint.clone(),
             pattern: Pattern {
                 template: (*template).to_string(),

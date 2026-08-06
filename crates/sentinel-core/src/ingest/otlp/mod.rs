@@ -1367,6 +1367,16 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
 pub fn convert_otlp_request_counted(
     request: &ExportTraceServiceRequest,
 ) -> (Vec<SpanEvent>, SpanConversionStats) {
+    convert_otlp_request_counted_with_grouping(request, None)
+}
+
+/// [`convert_otlp_request_counted`] with the configured grouping attributes.
+/// `None` keeps the built-in default.
+#[must_use]
+pub fn convert_otlp_request_counted_with_grouping(
+    request: &ExportTraceServiceRequest,
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> (Vec<SpanEvent>, SpanConversionStats) {
     let mut events = Vec::new();
     let mut stats = SpanConversionStats::default();
 
@@ -1387,6 +1397,7 @@ pub fn convert_otlp_request_counted(
         let service_name = resource_service_name(resource_spans);
         convert_resource_spans(
             resource_spans,
+            grouping_attributes,
             span_indexes.get(service_name).unwrap_or(&empty_index),
             consumer_indexes
                 .get(service_name)
@@ -1402,6 +1413,7 @@ pub fn convert_otlp_request_counted(
 /// Convert one `ResourceSpans` block, appending to `events` and `stats`.
 fn convert_resource_spans<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+    grouping_attributes: Option<&[Arc<str>]>,
     span_index: &HashMap<&'a [u8], &'a Span>,
     consumer_index: &HashMap<&'a [u8], Vec<&'a Span>>,
     events: &mut Vec<SpanEvent>,
@@ -1411,16 +1423,27 @@ fn convert_resource_spans<'a>(
     // A resource_spans block routinely carries hundreds of spans for the
     // same service.name, so this collapses N allocations to one.
     let service_arc: Arc<str> = Arc::from(resource_service_name(resource_spans));
-    let service_namespace: Option<Arc<str>> = resource_spans
-        .resource
-        .as_ref()
-        .and_then(|r| get_str_attribute(&r.attributes, "service.namespace"))
-        .map(Arc::from);
-    let k8s_namespace: Option<Arc<str>> = resource_spans
-        .resource
-        .as_ref()
-        .and_then(|r| get_str_attribute(&r.attributes, "k8s.namespace.name"))
-        .map(Arc::from);
+    // Resolved once per resource. A key absent here is retried against each
+    // span's own attributes, which is where a per-request dimension such as
+    // a tenant id lives.
+    let grouping_keys: Vec<Arc<str>> = match grouping_attributes {
+        Some(keys) => keys.to_vec(),
+        None => crate::config::DEFAULT_GROUPING_ATTRIBUTES
+            .iter()
+            .map(|k| Arc::from(*k))
+            .collect(),
+    };
+    let resource_grouping: Vec<(Arc<str>, Option<Arc<str>>)> = grouping_keys
+        .iter()
+        .map(|key| {
+            let value = resource_spans
+                .resource
+                .as_ref()
+                .and_then(|r| get_str_attribute(&r.attributes, key))
+                .map(Arc::from);
+            (Arc::clone(key), value)
+        })
+        .collect();
 
     // cloud.region: resource-level with span-level fallback in convert_span.
     // Invalid values silently dropped (sanitization at ingest boundary).
@@ -1452,8 +1475,7 @@ fn convert_resource_spans<'a>(
             match convert_span(
                 span,
                 &service_arc,
-                service_namespace.as_ref(),
-                k8s_namespace.as_ref(),
+                &resource_grouping,
                 resource_cloud_region.as_ref(),
                 span_index,
                 &scope_index,
@@ -1636,12 +1658,31 @@ fn rebuilt_classified<'a>(
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
 ///
 /// Non-I/O spans return the filter reason so the caller can tally them.
+/// Resource value first, span attribute as the fallback: a per-request
+/// dimension such as a tenant id only exists on the span.
+fn resolve_grouping(
+    resource_grouping: &[(Arc<str>, Option<Arc<str>>)],
+    span: &Span,
+) -> Vec<crate::event::GroupingAttribute> {
+    resource_grouping
+        .iter()
+        .filter_map(|(key, resource_value)| {
+            resource_value
+                .clone()
+                .or_else(|| get_str_attribute(&span.attributes, key).map(Arc::from))
+                .map(|value| crate::event::GroupingAttribute {
+                    key: Arc::clone(key),
+                    value,
+                })
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)] // per-request context, each one distinct
 fn convert_span<'a>(
     span: &'a Span,
     service_arc: &Arc<str>,
-    service_namespace: Option<&Arc<str>>,
-    k8s_namespace: Option<&Arc<str>>,
+    resource_grouping: &[(Arc<str>, Option<Arc<str>>)],
     resource_cloud_region: Option<&Arc<str>>,
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
@@ -1649,6 +1690,8 @@ fn convert_span<'a>(
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
     consumer_index: &HashMap<&'a [u8], Vec<&'a Span>>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
+    let grouping = resolve_grouping(resource_grouping, span);
+
     let owned = rebuilt_classified(span, cached_attrs, stitched_statement);
     let classified = match (&owned, cached_attrs) {
         (Some(rebuilt), _) => rebuilt,
@@ -1750,8 +1793,7 @@ fn convert_span<'a>(
         parent_span_id,
         link_trace_id,
         service: Arc::clone(service_arc),
-        service_namespace: service_namespace.cloned(),
-        k8s_namespace: k8s_namespace.cloned(),
+        grouping,
         cloud_region,
         event_type,
         operation,

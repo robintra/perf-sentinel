@@ -376,18 +376,30 @@ mod tests {
     }
 
     #[test]
-    fn finding_carries_both_namespaces_from_the_representative_span() {
+    fn finding_carries_every_grouping_attribute_of_the_representative_span() {
         let mut events = crate::test_helpers::make_n_plus_one_events();
         for event in &mut events {
-            event.service_namespace = Some(Arc::from("payments"));
-            event.k8s_namespace = Some(Arc::from("prod-eu"));
+            event.grouping = vec![
+                crate::event::GroupingAttribute {
+                    key: Arc::from("tenant.id"),
+                    value: Arc::from("byec"),
+                },
+                crate::event::GroupingAttribute {
+                    key: Arc::from("k8s.namespace.name"),
+                    value: Arc::from("multitenant-2"),
+                },
+            ];
         }
         let trace = make_trace(events);
 
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::default());
 
-        assert_eq!(findings[0].service_namespace.as_deref(), Some("payments"));
-        assert_eq!(findings[0].k8s_namespace.as_deref(), Some("prod-eu"));
+        assert_eq!(findings[0].grouping_value(), Some("byec"));
+        assert_eq!(
+            findings[0].grouping.len(),
+            2,
+            "the namespace is kept even though the tenant decided the identity"
+        );
     }
 
     #[test]

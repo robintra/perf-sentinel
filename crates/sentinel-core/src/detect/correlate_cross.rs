@@ -371,7 +371,7 @@ impl CrossTraceCorrelator {
                 finding_type: finding.finding_type.clone(),
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
-                namespace: finding.effective_namespace().map(String::from),
+                namespace: finding.grouping_value().map(String::from),
             });
             self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str(), &mut refused);
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
@@ -652,8 +652,7 @@ mod tests {
             severity: crate::detect::Severity::Warning,
             trace_id: format!("trace-{service}"),
             service: service.to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/test".to_string(),
             pattern: crate::detect::Pattern {
                 template: template.to_string(),
@@ -1299,10 +1298,10 @@ mod tests {
         for i in 0..5 {
             let t = 1_000_000 + i * 10_000;
             let mut fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
-            fa.k8s_namespace = Some(source_ns.to_string());
+            fa.grouping = crate::test_helpers::k8s_grouping(source_ns);
             let _ = correlator.ingest(&[fa], t);
             let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-            fb.k8s_namespace = Some(target_ns.to_string());
+            fb.grouping = crate::test_helpers::k8s_grouping(target_ns);
             let _ = correlator.ingest(&[fb], t + 2_000);
         }
         correlator.active_correlations()

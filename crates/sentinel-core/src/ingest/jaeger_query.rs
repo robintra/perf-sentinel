@@ -227,7 +227,7 @@ pub async fn search_and_fetch_traces(
         return Err(JaegerQueryError::NoTracesFound);
     }
 
-    let events = convert_jaeger_export(&export);
+    let events = convert_jaeger_export(&export, None);
     tracing::info!(
         traces = export.data.len(),
         events = events.len(),
@@ -259,7 +259,7 @@ pub async fn fetch_trace(
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
 
-    Ok(convert_jaeger_export(&export))
+    Ok(convert_jaeger_export(&export, None))
 }
 
 /// Ingest traces from a Jaeger query API backend: either a single

@@ -224,11 +224,13 @@ function writeNamespacedEvents(source: string, dest: string) {
   const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
   for (const ev of events) {
     if (ev.service === "order-svc") {
-      ev.service_namespace = "commerce";
-      ev.k8s_namespace = "prod-eu";
+      ev.grouping = [
+        { key: "k8s.namespace.name", value: "prod-eu" },
+        { key: "service.namespace", value: "commerce" },
+      ];
       if (ev.span_id === "o1-n1-1") ev.timestamp = "2026-04-20T10:00:00.01Z";
     } else if (ev.service === "payment-svc") {
-      ev.service_namespace = "finance";
+      ev.grouping = [{ key: "service.namespace", value: "finance" }];
     }
   }
   events.push({
@@ -236,7 +238,7 @@ function writeNamespacedEvents(source: string, dest: string) {
     trace_id: "trace-payment-01",
     span_id: "p1-same-template-other-params",
     service: "payment-svc",
-    service_namespace: "finance",
+    grouping: [{ key: "service.namespace", value: "finance" }],
     type: "sql",
     operation: "SELECT",
     target: "SELECT id, status FROM payment WHERE id = 777",
@@ -261,8 +263,10 @@ function writeNamespacedEvents(source: string, dest: string) {
       trace_id: "trace-catalog-n1",
       span_id: `catalog-n1-${i}`,
       service: "order-svc",
-      service_namespace: "commerce",
-      k8s_namespace: "prod-eu",
+      grouping: [
+        { key: "k8s.namespace.name", value: "prod-eu" },
+        { key: "service.namespace", value: "commerce" },
+      ],
       type: "http_out",
       operation: "GET",
       target: `http://catalog-svc/api/items/${i}`,

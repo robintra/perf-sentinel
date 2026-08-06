@@ -2525,10 +2525,20 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(&finding.service),
         ]),
         Line::from(vec![
-            Span::styled("Namespace: ", dim_style()),
-            Span::raw(finding.effective_namespace().map_or_else(
+            // Labelled by the attribute that decided the identity, since
+            // which one that is comes from operator config.
+            Span::styled(
+                format!(
+                    "{}: ",
+                    finding
+                        .effective_grouping()
+                        .map_or("Grouping", |g| g.key.as_ref())
+                ),
+                dim_style(),
+            ),
+            Span::raw(finding.grouping_value().map_or_else(
                 || "-".to_string(),
-                |ns| sanitize_for_terminal(ns).into_owned(),
+                |v| sanitize_for_terminal(v).into_owned(),
             )),
         ]),
         Line::from(vec![

@@ -77,7 +77,7 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
   const header = lines[0];
   expect(header).toMatch(/^(type|severity|service|trace_id)/i);
   for (const column of [
-    "service_namespace", "k8s_namespace", "namespace", "distinct_params",
+    "grouping_key", "grouping_value", "grouping_all", "distinct_params",
     "window_ms", "classification_method", "span_duration_us_p50", "span_duration_us_p99",
   ]) {
     expect(header.split(",")).toContain(column);
@@ -487,7 +487,7 @@ test("26. type and effective namespace filters combine and expose ARIA state", a
   expect(labels.every((label) => label.trim() === "N+1 SQL")).toBe(true);
 });
 
-test("27. service namespace is the fallback when Kubernetes namespace is absent", async ({ page }) => {
+test("27. the second grouping attribute is the fallback when the first is absent", async ({ page }) => {
   await loadDashboard(page, "#findings&namespace=finance");
 
   await expect(page.locator('#findings-filters .ps-chip[data-key="ns:finance"]'))
@@ -504,7 +504,7 @@ test("27. service namespace is the fallback when Kubernetes namespace is absent"
   expect(await page.locator('#findings-filters .ps-chip[data-key="ns:"]').count()).toBe(0);
   await page.locator("#findings-list .ps-row").first().click();
   await expect(page.locator("#explain-detail-head .ps-meta-grid"))
-    .not.toContainText(/service namespace|k8s namespace/);
+    .not.toContainText(/service\.namespace|k8s\.namespace\.name/);
 });
 
 test("28. finding detail shows evidence and expands highlighted occurrences", async ({ page }) => {
@@ -512,9 +512,9 @@ test("28. finding detail shows evidence and expands highlighted occurrences", as
   await page.locator("#findings-list .ps-row").first().click();
 
   const detail = page.locator("#explain-detail-head");
-  await expect(detail).toContainText("service namespace");
+  await expect(detail).toContainText("service.namespace");
   await expect(detail).toContainText("commerce");
-  await expect(detail).toContainText("k8s namespace");
+  await expect(detail).toContainText("k8s.namespace.name");
   await expect(detail).toContainText("prod-eu");
   await expect(detail).toContainText("distinct params");
   await expect(detail).toContainText("classification");
@@ -605,7 +605,7 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
         const payload = JSON.parse(json);
         const finding = payload.report.findings.find((candidate: Record<string, any>) =>
           (candidate.type || candidate.finding_type) === "n_plus_one_sql" &&
-          (candidate.k8s_namespace || candidate.service_namespace) === "prod-eu");
+          (candidate.grouping || [])[0]?.value === "prod-eu");
         const trace = payload.embedded_traces.find(
           (candidate: Record<string, any>) => candidate.trace_id === finding.trace_id);
         finding.pattern.occurrences = 2001;
@@ -621,7 +621,7 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
         }));
         // Same key the sink builds: the namespace is length-prefixed in
         // UTF-8 bytes.
-        const namespace = finding.k8s_namespace || finding.service_namespace;
+        const namespace = (finding.grouping || [])[0]?.value;
         const key = [
           finding.trace_id,
           finding.signature,

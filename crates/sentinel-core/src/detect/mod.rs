@@ -18,7 +18,7 @@ pub use n_plus_one::DISCLOSURE_N_PLUS_ONE_THRESHOLD;
 use std::collections::HashMap;
 
 use crate::correlate::Trace;
-use crate::event::EventType;
+use crate::event::{EventType, GroupingAttribute};
 use serde::{Deserialize, Serialize};
 
 /// Precomputed per-trace indices shared by the fanout and serialized
@@ -72,12 +72,11 @@ pub struct Finding {
     pub trace_id: String,
     /// Name of the service emitting the spans involved in the finding.
     pub service: String,
-    /// Logical service namespace from `service.namespace`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service_namespace: Option<String>,
-    /// Kubernetes namespace from `k8s.namespace.name`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub k8s_namespace: Option<String>,
+    /// Attributes captured for grouping, in configured order. The first
+    /// entry separates this finding from the same problem in another
+    /// deployment, the rest are kept for the operator to read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grouping: Vec<GroupingAttribute>,
     /// Normalized inbound endpoint (route template) hosting the pattern.
     pub source_endpoint: String,
     /// Details of the matched pattern: template, occurrences, window, params.
@@ -142,17 +141,16 @@ pub struct Finding {
 }
 
 impl Finding {
-    /// Namespace used to separate deployments without changing acknowledgments.
+    /// Dimension separating deployments, without changing acknowledgments.
     #[must_use]
-    pub fn effective_namespace(&self) -> Option<&str> {
-        self.k8s_namespace
-            .as_deref()
-            .filter(|namespace| !namespace.is_empty())
-            .or_else(|| {
-                self.service_namespace
-                    .as_deref()
-                    .filter(|namespace| !namespace.is_empty())
-            })
+    pub fn effective_grouping(&self) -> Option<&GroupingAttribute> {
+        self.grouping.first()
+    }
+
+    /// Just the value, for the identity keys that do not display it.
+    #[must_use]
+    pub fn grouping_value(&self) -> Option<&str> {
+        self.grouping.first().map(|g| g.value.as_ref())
     }
 }
 
@@ -582,18 +580,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         severity: args.severity,
         trace_id: args.trace_id.to_string(),
         service: args.first_span.event.service.to_string(),
-        service_namespace: args
-            .first_span
-            .event
-            .service_namespace
-            .as_deref()
-            .map(String::from),
-        k8s_namespace: args
-            .first_span
-            .event
-            .k8s_namespace
-            .as_deref()
-            .map(String::from),
+        grouping: args.first_span.event.grouping.clone(),
         source_endpoint: args.first_span.event.source.endpoint.clone(),
         pattern: Pattern {
             template: args.template.to_string(),
@@ -729,8 +716,7 @@ pub(crate) fn test_finding_with_template(template: &str) -> Finding {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: template.to_string(),

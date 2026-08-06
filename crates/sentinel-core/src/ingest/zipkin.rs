@@ -20,12 +20,24 @@ use std::sync::Arc;
 /// Ingests span events from Zipkin JSON v2 format.
 pub struct ZipkinIngest {
     max_size: usize,
+    /// `None` keeps the built-in default, `Some(vec![])` turns grouping off.
+    grouping_attributes: Option<Vec<Arc<str>>>,
 }
 
 impl ZipkinIngest {
     #[must_use]
     pub const fn new(max_size: usize) -> Self {
-        Self { max_size }
+        Self {
+            max_size,
+            grouping_attributes: None,
+        }
+    }
+
+    /// Override which attributes separate deployments.
+    #[must_use]
+    pub fn with_grouping_attributes(mut self, keys: Vec<Arc<str>>) -> Self {
+        self.grouping_attributes = Some(keys);
+        self
     }
 }
 
@@ -41,7 +53,10 @@ impl IngestSource for ZipkinIngest {
         }
         let spans: Vec<ZipkinSpan> =
             serde_json::from_slice(raw).map_err(ZipkinIngestError::Parse)?;
-        Ok(convert_zipkin_spans(&spans))
+        Ok(convert_zipkin_spans(
+            &spans,
+            self.grouping_attributes.as_deref(),
+        ))
     }
 }
 
@@ -91,7 +106,10 @@ struct ZipkinEndpoint {
 
 // ── Conversion ─────────────────────────────────────────────────────
 
-fn convert_zipkin_spans(spans: &[ZipkinSpan]) -> Vec<SpanEvent> {
+fn convert_zipkin_spans(
+    spans: &[ZipkinSpan],
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Vec<SpanEvent> {
     // Keyed by (trace, id): one payload interleaves traces, and both halves
     // of a shared RPC span share an id, so the CLIENT half must not displace
     // the SERVER half that carries the route.
@@ -107,7 +125,7 @@ fn convert_zipkin_spans(spans: &[ZipkinSpan]) -> Vec<SpanEvent> {
     }
     spans
         .iter()
-        .filter_map(|s| convert_zipkin_span(s, &span_index))
+        .filter_map(|s| convert_zipkin_span(s, &span_index, grouping_attributes))
         .collect()
 }
 
@@ -181,6 +199,7 @@ fn resolve_source_endpoint(
 fn convert_zipkin_span(
     span: &ZipkinSpan,
     span_index: &HashMap<(&str, &str), &ZipkinSpan>,
+    grouping_attributes: Option<&[Arc<str>]>,
 ) -> Option<SpanEvent> {
     let tags = span.tags.as_ref();
 
@@ -226,8 +245,8 @@ fn convert_zipkin_span(
         .as_ref()
         .and_then(|ep| ep.service_name.as_deref())
         .map_or_else(|| Arc::from(""), Arc::from);
-    let service_namespace = get_tag("service.namespace").map(Arc::from);
-    let k8s_namespace = get_tag("k8s.namespace.name").map(Arc::from);
+    let grouping =
+        crate::ingest::collect_grouping(grouping_attributes, |key| get_tag(key).map(Arc::from));
 
     let timestamp = span.timestamp.unwrap_or(0);
     let duration_us = span.duration.unwrap_or(0);
@@ -280,8 +299,7 @@ fn convert_zipkin_span(
         // Zipkin v2 has no span links.
         link_trace_id: None,
         service,
-        service_namespace,
-        k8s_namespace,
+        grouping,
         // Zipkin endpoint metadata does not carry cloud region. Users
         // wanting multi-region scoring with Zipkin ingestion should set
         // [green.service_regions] in the config to map service -> region.
@@ -373,8 +391,20 @@ mod tests {
             .ingest(json.as_bytes())
             .unwrap();
 
-        assert_eq!(events[0].service_namespace.as_deref(), Some("payments"));
-        assert_eq!(events[0].k8s_namespace.as_deref(), Some("prod-eu"));
+        let captured: Vec<(&str, &str)> = events[0]
+            .grouping
+            .iter()
+            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+            .collect();
+        assert_eq!(
+            captured,
+            vec![
+                ("k8s.namespace.name", "prod-eu"),
+                ("service.namespace", "payments"),
+            ],
+            "both values are kept, config order, Kubernetes first"
+        );
+        assert_eq!(events[0].grouping_value(), Some("prod-eu"));
     }
 
     #[test]

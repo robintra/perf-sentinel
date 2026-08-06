@@ -1484,8 +1484,7 @@ mod tests {
             severity: Severity::Warning,
             trace_id: "abc".to_string(),
             service: service.to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "/api/test".to_string(),
             pattern: Pattern {
                 template: template.to_string(),

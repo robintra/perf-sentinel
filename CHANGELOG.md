@@ -11,13 +11,13 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Added
 
-- `SpanEvent` and `Finding` retain the optional `service.namespace` and `k8s.namespace.name` values extracted from OTLP, Jaeger and Zipkin. The HTML report can filter exact finding types and an effective namespace (`k8s.namespace.name`, falling back to `service.namespace`), and its detail and CSV views expose the available namespaces, classification, observation window, timing statistics and masked evidence. Exact culprit spans are listed individually. Cross-trace findings state how much of the total is present in the representative trace, while older reports that cannot rebuild exact ids keep matching spans grouped.
+- `[detection] grouping_attributes` chooses which resource or span attributes separate one deployment from another, defaulting to `["k8s.namespace.name", "service.namespace"]`. The first one present on a span decides finding identity, every present one is captured and displayed, and each surface labels the value with the attribute it came from. A shared cluster can group by `tenant.id` with no code change. `SpanEvent` and `Finding` carry the captured attributes. The HTML report can filter exact finding types and the effective grouping value, and its detail and CSV views expose the available namespaces, classification, observation window, timing statistics and masked evidence. Exact culprit spans are listed individually. Cross-trace findings state how much of the total is present in the representative trace, while older reports that cannot rebuild exact ids keep matching spans grouped.
 
 ### Changed
 
-- Recurring findings are grouped by effective namespace as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without namespace fields remains readable. Adding the public fields is an accepted Rust source-compatibility break, so this release is a minor bump rather than a patch.
-- The text report, the `diff` blocks and the TUI name the effective namespace, and `diff` keys findings on it, so the same problem in two deployments no longer folds into one row with summed occurrences. The TUI correlations panel qualifies each side as `service@namespace`.
-- Cross-trace correlations carry the effective namespace on each endpoint and never pair findings from two namespaces, so `/api/correlations` no longer invents a causal link between separate deployments. Replayed baselines without the field keep their previous shape.
+- Recurring findings are grouped by effective grouping value as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without namespace fields remains readable. Adding the public fields is an accepted Rust source-compatibility break, so this release is a minor bump rather than a patch.
+- The text report, the `diff` blocks and the TUI name the grouping attribute and its value, and `diff` keys findings on it, so the same problem in two deployments no longer folds into one row with summed occurrences. The TUI correlations panel qualifies each side as `service@value`.
+- Cross-trace correlations carry the effective grouping value on each endpoint and never pair findings from two of them, so `/api/correlations` no longer invents a causal link between separate deployments. Replayed baselines without the field keep their previous shape.
 
 ## [0.10.0] - 2026-08-05
 
