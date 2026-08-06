@@ -117,4 +117,6 @@ v0.9.28	0aba69d	2026-08-04	PASS
 # its keys as symlinks and the loader refuses to follow one. Fixed on this branch by
 # printing the error source chain, and documented as a subPath mount in HELM-DEPLOYMENT.
 v0.9.28	52a3ea3	2026-08-04	PASS
+# v0.10.0 ran a scoped validation, not the full scenario sweep: every surface the
+# release touches was covered, so the rest was not needed.
 v0.10.0	e4f265b	2026-08-06	PASS
