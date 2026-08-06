@@ -108,10 +108,10 @@ pub struct Finding {
     /// via the standard pipeline rules (`distinct_params >= threshold`
     /// for N+1, repeated identical `(template, params)` for redundant).
     /// `Some(SanitizerHeuristic)` means the type was inferred via the
-    /// sanitizer-aware heuristic, because the OpenTelemetry agent
-    /// collapsed every parameter to `?` and the standard distinct-params
-    /// signal was unusable. Operators can filter on this field to spot
-    /// where the heuristic is firing.
+    /// sanitizer-aware heuristic because the standard distinct-params signal
+    /// was insufficient. SQL first requires evidence of collapsed literals;
+    /// HTTP uses timing and trace-shape signals without proving sanitization.
+    /// Operators can filter on this field to spot where the heuristic fires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classification_method: Option<ClassificationMethod>,
     /// Source code location from `OTel` `code.*` span attributes.
@@ -139,6 +139,21 @@ pub struct Finding {
     /// `pipeline::analyze` and after deserializing baselines.
     #[serde(default)]
     pub signature: String,
+}
+
+impl Finding {
+    /// Namespace used to separate deployments without changing acknowledgments.
+    #[must_use]
+    pub fn effective_namespace(&self) -> Option<&str> {
+        self.k8s_namespace
+            .as_deref()
+            .filter(|namespace| !namespace.is_empty())
+            .or_else(|| {
+                self.service_namespace
+                    .as_deref()
+                    .filter(|namespace| !namespace.is_empty())
+            })
+    }
 }
 
 /// Types of performance anti-patterns.

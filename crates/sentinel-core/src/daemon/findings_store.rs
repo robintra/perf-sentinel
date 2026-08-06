@@ -80,12 +80,7 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
             out.push(entry.clone());
             continue;
         }
-        let namespace = entry
-            .finding
-            .k8s_namespace
-            .as_deref()
-            .or(entry.finding.service_namespace.as_deref())
-            .unwrap_or("");
+        let namespace = entry.finding.effective_namespace().unwrap_or("");
         let key = (namespace, entry.finding.signature.as_str());
         if let Some(&i) = index.get(&key) {
             let kept: &mut StoredFinding = &mut out[i];

@@ -484,7 +484,7 @@ pub(crate) struct RecurrenceStats {
 /// Group detections like acknowledgments do, falling back to the
 /// stable fields when a finding predates signatures.
 pub(crate) fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
-    if f.signature.is_empty() {
+    let signature = if f.signature.is_empty() {
         format!(
             "{}|{}|{}|{}",
             f.finding_type.as_str(),
@@ -494,6 +494,11 @@ pub(crate) fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
         )
     } else {
         f.signature.clone()
+    };
+    if let Some(namespace) = f.effective_namespace() {
+        format!("{}:{namespace}{signature}", namespace.len())
+    } else {
+        signature
     }
 }
 
@@ -1457,6 +1462,31 @@ mod tests {
             recurrence_key(&same),
             "trace id must not split the group"
         );
+    }
+
+    #[test]
+    fn recurrence_key_keeps_effective_namespaces_separate() {
+        let mut prod = sample_finding();
+        prod.signature = "sig-a".to_string();
+        prod.service_namespace = Some("payments".to_string());
+        prod.k8s_namespace = Some("prod-eu".to_string());
+
+        let mut staging = prod.clone();
+        staging.k8s_namespace = Some("staging".to_string());
+        assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
+
+        staging.k8s_namespace = None;
+        assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
+
+        let service_only_key = recurrence_key(&staging);
+        staging.k8s_namespace = Some(String::new());
+        assert_eq!(recurrence_key(&staging), service_only_key);
+
+        prod.k8s_namespace = Some("a|b".to_string());
+        prod.signature = "c".to_string();
+        staging.k8s_namespace = Some("a".to_string());
+        staging.signature = "b|c".to_string();
+        assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
     }
 
     #[test]

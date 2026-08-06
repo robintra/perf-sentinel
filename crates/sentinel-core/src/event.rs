@@ -362,6 +362,19 @@ pub struct SpanEvent {
 }
 
 impl SpanEvent {
+    /// Namespace used to separate deployments in reports and recurrence views.
+    #[must_use]
+    pub fn effective_namespace(&self) -> Option<&str> {
+        self.k8s_namespace
+            .as_deref()
+            .filter(|namespace| !namespace.is_empty())
+            .or_else(|| {
+                self.service_namespace
+                    .as_deref()
+                    .filter(|namespace| !namespace.is_empty())
+            })
+    }
+
     /// Build a [`CodeLocation`] from this span's `code_*` fields.
     ///
     /// Returns `None` when all four fields are absent.
@@ -526,6 +539,20 @@ mod tests {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         assert!(event.service_namespace.is_none());
         assert!(event.k8s_namespace.is_none());
+    }
+
+    #[test]
+    fn effective_namespace_prefers_non_empty_k8s_then_service() {
+        let mut event = make_event_with_field("service", "svc");
+        event.service_namespace = Some(Arc::from("payments"));
+        event.k8s_namespace = Some(Arc::from("prod-eu"));
+        assert_eq!(event.effective_namespace(), Some("prod-eu"));
+
+        event.k8s_namespace = Some(Arc::from(""));
+        assert_eq!(event.effective_namespace(), Some("payments"));
+
+        event.service_namespace = None;
+        assert_eq!(event.effective_namespace(), None);
     }
 
     #[test]
