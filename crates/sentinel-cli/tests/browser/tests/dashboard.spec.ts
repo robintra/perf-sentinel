@@ -738,3 +738,38 @@ test("36. the ack modal names every grouping the acknowledgment will cover", asy
   await expect(scope).toContainText("acme");
   await expect(scope).toContainText("globex");
 });
+
+test("37. report warnings render in a banner that survives a tab switch", async ({ page }) => {
+  // A run-level warning ("these numbers are estimates") stays true on every
+  // tab, so the banner lives outside the panels. Before this it was embedded
+  // in the payload and never drawn at all.
+  await loadDashboard(page);
+  await expect(page.locator("#report-warnings")).toBeHidden();
+
+  await page.route("**/dashboard.html", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const patched = body.replace(
+      /(<script id="report-data" type="application\/json">\s*)([\s\S]*?)(\s*<\/script>)/,
+      (_match, open, json, close) => {
+        const payload = JSON.parse(json);
+        payload.report.warning_details = [
+          { kind: "tuning", message: "[green.alumet] configured but this is a batch run" },
+        ];
+        return open + JSON.stringify(payload) + close;
+      },
+    );
+    await route.fulfill({ response, body: patched });
+  });
+  await page.reload();
+  await page.waitForSelector("[role=tablist]");
+
+  const banner = page.locator("#report-warnings");
+  await expect(banner).toContainText("[tuning] [green.alumet] configured");
+
+  // The whole point of placing it outside the panels.
+  await page.keyboard.press("g");
+  await page.keyboard.press("p");
+  await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
+  await expect(banner).toBeVisible();
+});
