@@ -1190,6 +1190,7 @@ pub fn cmd_disclose(
     };
 
     let windows = aggregate.windows_aggregated;
+    let legacy_waste_windows = aggregate.legacy_waste_windows;
     let mut report = build_report(
         &org,
         period,
@@ -1216,6 +1217,8 @@ pub fn cmd_disclose(
         &report.aggregate.temporal_coverage,
         intent_schema,
         report.scope_manifest.total_requests_in_period.is_some(),
+        legacy_waste_windows,
+        windows,
     ) {
         eprintln!("{warning}");
     }
@@ -1267,8 +1270,21 @@ fn non_fatal_warnings(
     coverage: &TemporalCoverage,
     intent: ReportIntent,
     total_requests_declared: bool,
+    legacy_waste_windows: u64,
+    windows_aggregated: u64,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
+    // A mixed period passes official validation: `fold_tier` takes the max
+    // of the thresholds, so the canonical tier looks canonical while it
+    // under-reports by exactly the legacy windows' share.
+    if legacy_waste_windows > 0 {
+        warnings.push(format!(
+            "Warning: {legacy_waste_windows} of {windows_aggregated} windows carry no \
+             canonical waste figure (archived before canonical disclosure). Their waste \
+             fed the operational tier only, so canonical_waste under-reports this period. \
+             Regenerate over post-upgrade windows for a complete canonical figure."
+        ));
+    }
     if coverage.temporal_coverage < LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD {
         warnings.push(format!(
             "Warning: temporal coverage is {:.1}% ({}/{} declared days had measured \
@@ -1862,6 +1878,33 @@ mod tests {
     }
 
     #[test]
+    fn non_fatal_warnings_flags_legacy_disclosure_windows() {
+        let healthy = TemporalCoverage {
+            temporal_coverage: 1.0,
+            observed_days: 30,
+            days_in_period: 30,
+            largest_gap_days: 0,
+        };
+
+        let warnings = non_fatal_warnings(&healthy, ReportIntent::Internal, true, 3, 10);
+
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("3 of 10"), "{warnings:?}");
+    }
+
+    #[test]
+    fn non_fatal_warnings_silent_when_every_window_is_canonical() {
+        let healthy = TemporalCoverage {
+            temporal_coverage: 1.0,
+            observed_days: 30,
+            days_in_period: 30,
+            largest_gap_days: 0,
+        };
+
+        assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, true, 0, 10).is_empty());
+    }
+
+    #[test]
     fn non_fatal_warnings_flags_low_coverage_and_undeclared_official_requests() {
         let low = TemporalCoverage {
             temporal_coverage: 0.10,
@@ -1869,7 +1912,7 @@ mod tests {
             days_in_period: 30,
             largest_gap_days: 20,
         };
-        let warnings = non_fatal_warnings(&low, ReportIntent::Official, false);
+        let warnings = non_fatal_warnings(&low, ReportIntent::Official, false, 0, 0);
         assert_eq!(warnings.len(), 2);
         assert!(warnings[0].contains("temporal coverage is 10.0%"));
         assert!(warnings[0].contains("3/30 declared days"));
@@ -1886,7 +1929,7 @@ mod tests {
             largest_gap_days: 0,
         };
         // Full coverage and a declared request count: an official report stays quiet.
-        assert!(non_fatal_warnings(&healthy, ReportIntent::Official, true).is_empty());
+        assert!(non_fatal_warnings(&healthy, ReportIntent::Official, true, 0, 0).is_empty());
     }
 
     #[test]
@@ -1898,7 +1941,7 @@ mod tests {
             largest_gap_days: 0,
         };
         // Internal intent skips the total_requests_in_period warning even when undeclared.
-        assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, false).is_empty());
+        assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, false, 0, 0).is_empty());
     }
 
     #[test]

@@ -62,6 +62,10 @@ pub struct AggregateInputs {
     pub windows_aggregated: u64,
     pub source_files: Vec<String>,
     pub malformed_lines_skipped: u64,
+    /// Windows carrying no `disclosure_waste`, archived before canonical
+    /// disclosure. Their waste fed the operational tier only, so the
+    /// canonical tier under-reports by that share.
+    pub legacy_waste_windows: u64,
     pub first_seen: BTreeMap<(String, String), DateTime<Utc>>,
     pub last_seen: BTreeMap<(String, String), DateTime<Utc>>,
     /// Distinct `energy_model` tags (without `+cal` suffix) observed
@@ -320,6 +324,7 @@ struct Builder {
     per_service: BTreeMap<String, ServiceAccumulator>,
     windows_aggregated: u64,
     malformed_lines_skipped: u64,
+    legacy_waste_windows: u64,
     first_seen: BTreeMap<(String, String), DateTime<Utc>>,
     last_seen: BTreeMap<(String, String), DateTime<Utc>>,
     total_requests: u64,
@@ -667,6 +672,7 @@ impl Builder {
                 self.fold_messaging_block(mw);
             }
         } else {
+            self.legacy_waste_windows += 1;
             // accounted_io_ops is not serialized, so the legacy energy share
             // uses total_io as the denominator (clamped). Threshold stays 0.
             let ratio = if m.total_io == 0 {
@@ -1068,6 +1074,7 @@ impl Builder {
             windows_aggregated: self.windows_aggregated,
             source_files,
             malformed_lines_skipped: self.malformed_lines_skipped,
+            legacy_waste_windows: self.legacy_waste_windows,
             first_seen: self.first_seen,
             last_seen: self.last_seen,
             energy_source_models: self.energy_source_models,
@@ -3008,6 +3015,39 @@ mod tests {
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         assert!(out.aggregate.binary_versions.is_empty());
+    }
+
+    /// A mixed period is the unguarded case: `fold_tier` takes the max of
+    /// the thresholds, so official validation passes while the canonical
+    /// tier under-reports by the legacy windows' share.
+    #[test]
+    fn legacy_windows_are_counted_not_silently_folded() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let tier = crate::report::AvoidableTier {
+            n_plus_one_threshold: crate::detect::n_plus_one::DISCLOSURE_N_PLUS_ONE_THRESHOLD,
+            avoidable_io_ops: 10,
+            avoidable_kwh: 0.1,
+            avoidable_gco2: 1.0,
+        };
+        let mut canonical = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        canonical.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: tier.clone(),
+            operational: tier,
+            database: None,
+            messaging: None,
+        });
+        // Second window keeps `disclosure_waste: None`, the legacy shape.
+        let legacy = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+
+        let (_dir, path) = write_archive(&[(ts1, canonical), (ts2, legacy)]);
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+
+        assert_eq!(out.windows_aggregated, 2);
+        assert_eq!(
+            out.legacy_waste_windows, 1,
+            "the window without a canonical figure must be counted"
+        );
     }
 
     #[test]
