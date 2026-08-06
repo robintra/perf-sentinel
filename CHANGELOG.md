@@ -11,6 +11,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - Recurring findings are grouped by effective namespace as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without namespace fields remains readable. Adding the public fields is an accepted Rust source-compatibility break, so this release is a minor bump rather than a patch.
+- The text report, the `diff` blocks and the TUI name the effective namespace, and `diff` keys findings on it, so the same problem in two deployments no longer folds into one row with summed occurrences. The TUI correlations panel qualifies each side as `service@namespace`.
 - Cross-trace correlations carry the effective namespace on each endpoint and never pair findings from two namespaces, so `/api/correlations` no longer invents a causal link between separate deployments. Replayed baselines without the field keep their previous shape.
 
 ## [0.10.0] - 2026-08-05

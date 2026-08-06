@@ -26,12 +26,15 @@ use crate::report::{PerEndpointIoOps, Report, Warning};
 /// key (e.g. the same N+1 template fired in two traces), the diff
 /// engine collapses them to one entry by keeping the worst-severity
 /// finding for that key.
-type IdentityKey = (FindingType, String, String, String);
+type IdentityKey = (FindingType, String, Option<String>, String, String);
 
 fn identity_of(finding: &Finding) -> IdentityKey {
     (
         finding.finding_type.clone(),
         finding.service.clone(),
+        // Without the namespace, the same problem in two deployments folds
+        // into one row with summed occurrences.
+        finding.effective_namespace().map(String::from),
         finding.source_endpoint.clone(),
         finding.pattern.template.clone(),
     )
@@ -338,6 +341,31 @@ mod tests {
             suggested_fix: None,
             signature: String::new(),
         }
+    }
+
+    #[test]
+    fn identity_separates_the_same_problem_in_two_namespaces() {
+        let mut prod = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "order-svc",
+            "GET /api/orders",
+            "SELECT * FROM t WHERE id = ?",
+        );
+        prod.k8s_namespace = Some("prod-eu".to_string());
+        let mut staging = prod.clone();
+        staging.k8s_namespace = Some("staging".to_string());
+
+        let before = make_report(vec![prod.clone()], vec![]);
+        let after = make_report(vec![prod, staging], vec![]);
+        let report = diff_runs(&before, &after);
+
+        assert_eq!(report.new_findings.len(), 1);
+        assert_eq!(
+            report.new_findings[0].k8s_namespace.as_deref(),
+            Some("staging"),
+            "the staging deployment must not fold into the prod row"
+        );
     }
 
     fn endpoint(service: &str, ep: &str, ops: usize) -> PerEndpointIoOps {

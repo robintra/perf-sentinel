@@ -667,6 +667,14 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         "    {dim}Service:{reset}  {}",
         sanitize_for_terminal(&finding.service)
     );
+    // Without this line two identical blocks from two deployments read as
+    // a duplicate: the recurrence key splits them, nothing said why.
+    if let Some(namespace) = finding.effective_namespace() {
+        println!(
+            "    {dim}Namespace:{reset} {}",
+            sanitize_for_terminal(namespace)
+        );
+    }
     println!(
         "    {dim}Endpoint:{reset} {}",
         sanitize_for_terminal(&finding.source_endpoint)
@@ -1250,6 +1258,14 @@ fn write_finding_block(
         cyan, dim, reset, ..
     } = colors;
 
+    if let Some(namespace) = f.effective_namespace() {
+        writeln!(
+            writer,
+            "      {dim}{:<12}{reset} {}",
+            "Namespace:",
+            sanitize_for_terminal(namespace)
+        )?;
+    }
     writeln!(
         writer,
         "      {dim}{:<12}{reset} {}",
@@ -1649,6 +1665,24 @@ mod tests {
     /// not probe stdout's TTY state. When `emit_diff` writes to a file,
     /// it passes `no_colors()` and the output must contain zero ESC
     /// bytes regardless of whether the process stdout is a terminal.
+    #[test]
+    fn diff_block_names_the_namespace_that_split_the_finding() {
+        let mut prod = sample_finding();
+        prod.k8s_namespace = Some("prod-eu".to_string());
+        let plain = sample_finding();
+
+        let mut buf = Vec::new();
+        write_diff_text(&mut buf, &diff_with_new(vec![prod, plain]), no_colors()).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+
+        assert_eq!(
+            out.matches("Namespace:").count(),
+            1,
+            "only the namespaced finding carries the row: {out}"
+        );
+        assert!(out.contains("prod-eu"), "{out}");
+    }
+
     #[test]
     fn write_diff_text_respects_colors_argument() {
         let diff = empty_diff();
