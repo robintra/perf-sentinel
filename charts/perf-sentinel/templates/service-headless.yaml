@@ -10,6 +10,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "perf-sentinel.labels" . | nindent 4 }}
+    # Carries the selector labels, so without this marker the ServiceMonitor
+    # matches it too and every pod is scraped twice.
+    app.kubernetes.io/component: headless
   {{- with .Values.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
