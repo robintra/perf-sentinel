@@ -18,6 +18,7 @@ const FIXTURE_JSON = join(REPO_ROOT, "tests/fixtures/report_realistic.json");
 const PG_STAT_FIXTURE = join(REPO_ROOT, "tests/fixtures/pg_stat_statements.csv");
 const FIXTURE_DIR = join(__dirname, "fixtures");
 const MAIN_HTML = join(FIXTURE_DIR, "dashboard.html");
+const MAIN_EVENTS = join(FIXTURE_DIR, "namespaced-traces.json");
 // Demo baseline (committed): a pre-analyzed Report JSON with the last
 // finding (slow_http) dropped, so --before yields one regression on
 // the Diff tab. The demo dashboard itself is rendered from the raw
@@ -158,12 +159,13 @@ function renderFixtures() {
   if (!existsSync(FIXTURE_DIR)) {
     mkdirSync(FIXTURE_DIR, { recursive: true });
   }
+  writeNamespacedEvents(FIXTURE_JSON, MAIN_EVENTS);
   execFileSync(
     BINARY,
     [
       "report",
       "--input",
-      FIXTURE_JSON,
+      MAIN_EVENTS,
       "--pg-stat",
       PG_STAT_FIXTURE,
       "--pg-stat-top",
@@ -213,6 +215,22 @@ function renderFixtures() {
     ["report", "--input", MANY_EVENTS, "--output", MANY_HTML],
     { stdio: "inherit" }
   );
+}
+
+// Keep both raw namespace dimensions in the browser fixture. order-svc
+// carries both values (Kubernetes wins for filtering), payment-svc carries
+// only service.namespace (the fallback), and chat-svc carries neither.
+function writeNamespacedEvents(source: string, dest: string) {
+  const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
+  for (const ev of events) {
+    if (ev.service === "order-svc") {
+      ev.service_namespace = "commerce";
+      ev.k8s_namespace = "prod-eu";
+    } else if (ev.service === "payment-svc") {
+      ev.service_namespace = "finance";
+    }
+  }
+  writeFileSync(dest, JSON.stringify(events));
 }
 
 // Replay the event set MANY_COPIES times, suffixing every identity field so
