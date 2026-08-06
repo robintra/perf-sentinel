@@ -407,11 +407,10 @@ pub struct CarbonContext {
     /// the operator's TOML. `None` when green scoring is disabled.
     pub scoring_config: Option<ScoringConfig>,
     /// Declared database measured by Alumet (`[green.alumet.database]`).
-    /// `Some` with `window_kwh = 0.0` in the base context; the daemon
-    /// patches `window_kwh` per tick with the energy accumulated since
-    /// the previous scored batch. Batch mode builds the same `Some`
-    /// when configured, but `window_kwh` stays `0.0` there (no
-    /// scraper), so no figure is ever emitted.
+    /// Daemon-only: `Config::carbon_context` leaves this `None`, and only
+    /// the daemon patches in a `Some` per tick with the energy accumulated
+    /// since the previous scored batch. A batch run starts no scraper, so
+    /// it emits no database figure and falls back to the estimated one.
     pub db_energy: Option<DbEnergyContext>,
     /// Declared broker measured by Alumet (`[green.alumet.broker]`),
     /// same lifecycle as [`Self::db_energy`].
