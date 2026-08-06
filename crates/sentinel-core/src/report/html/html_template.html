@@ -6087,23 +6087,19 @@
   // deployment. But the list shows one row per grouping, so the operator
   // clicking Ack on one row must be told the other rows go with it.
   function ackScopeText(sig) {
-    var values = [];
-    var keys = Object.create(null);
+    var groupings = [];
     findings.forEach(function (f) {
       if (f.signature !== sig) return;
-      var value = findingNamespace(f);
-      if (!value || values.indexOf(value) !== -1) return;
-      values.push(value);
-      keys[findingGroupingKey(f)] = true;
+      var grouping = findingGroupingLabel(f);
+      if (!grouping || groupings.indexOf(grouping) !== -1) return;
+      groupings.push(grouping);
     });
-    if (values.length < 2) return "";
-    var keyNames = Object.keys(keys);
-    var label = keyNames.length === 1 ? keyNames[0] : "grouping";
+    if (groupings.length < 2) return "";
     // The findings list can be trimmed for file size, so the count is a
     // floor rather than a total. Saying "at least" beats overstating.
     var prefix = payload.trimmed_findings ? "Covers at least " : "Covers ";
-    return prefix + values.length + " groupings (" + label + "): " +
-      values.sort().join(", ");
+    return prefix + groupings.length + " groupings: " +
+      groupings.sort().join(", ");
   }
 
   function openAckModal(sig) {
