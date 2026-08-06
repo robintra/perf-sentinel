@@ -167,7 +167,20 @@ pub struct DetectionConfig {
     /// Sanitizer-aware classification mode for SQL N+1 vs redundant.
     /// See [`crate::detect::sanitizer_aware::SanitizerAwareMode`].
     pub sanitizer_aware_classification: crate::detect::sanitizer_aware::SanitizerAwareMode,
+    /// Resource or span attributes captured to separate deployments, most
+    /// specific first. The first one present on a span decides its identity,
+    /// the others are still captured and shown. Capped at
+    /// [`MAX_GROUPING_ATTRIBUTES`] so a config cannot grow every span.
+    pub grouping_attributes: Vec<String>,
 }
+
+/// Default for [`DetectionConfig::grouping_attributes`]. Kubernetes first,
+/// since `service.namespace` often carries a constant such as a product name.
+pub const DEFAULT_GROUPING_ATTRIBUTES: [&str; 2] = ["k8s.namespace.name", "service.namespace"];
+
+/// Upper bound on configured grouping attributes. Each one is captured per
+/// span, so an unbounded list is a memory multiplier on the hot path.
+pub const MAX_GROUPING_ATTRIBUTES: usize = 8;
 
 /// `GreenOps` / carbon scoring config. Maps to `[green]` in TOML.
 #[derive(Debug, Clone)]
@@ -397,6 +410,10 @@ impl Default for DetectionConfig {
             serialized_min_sequential: 3,
             sanitizer_aware_classification:
                 crate::detect::sanitizer_aware::SanitizerAwareMode::default(),
+            grouping_attributes: DEFAULT_GROUPING_ATTRIBUTES
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
         }
     }
 }

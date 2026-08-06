@@ -82,6 +82,7 @@ struct DetectionSection {
     pool_saturation_concurrent_threshold: Option<u32>,
     serialized_min_sequential: Option<u32>,
     sanitizer_aware_classification: Option<String>,
+    grouping_attributes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -367,6 +368,16 @@ impl From<RawConfig> for Config {
                     crate::detect::sanitizer_aware::SanitizerAwareMode::from_config(
                         raw.detection.sanitizer_aware_classification.as_deref(),
                     ),
+                grouping_attributes: raw.detection.grouping_attributes.map_or_else(
+                    || detection_defaults.grouping_attributes.clone(),
+                    |attrs| {
+                        attrs
+                            .into_iter()
+                            .filter(|a| !a.trim().is_empty())
+                            .take(super::MAX_GROUPING_ATTRIBUTES)
+                            .collect()
+                    },
+                ),
             },
             green: {
                 // Deprecated 0.9.25: transport is always counted, always

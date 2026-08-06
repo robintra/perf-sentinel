@@ -263,6 +263,43 @@ fn frame_separator(namespace: &str) -> &'static str {
 }
 
 /// Trait for event ingestion sources.
+/// Resolve the configured grouping attributes against one span, in config
+/// order, skipping the absent ones. `keys` empty means the caller never
+/// configured any and the built-in default applies, an explicitly empty
+/// `[detection] grouping_attributes` turns grouping off instead.
+///
+/// `lookup` is the per-format attribute reader (OTLP resource + span
+/// attributes, Jaeger process + span tags, Zipkin span tags).
+pub(crate) fn collect_grouping(
+    keys: Option<&[std::sync::Arc<str>]>,
+    lookup: impl Fn(&str) -> Option<std::sync::Arc<str>>,
+) -> Vec<crate::event::GroupingAttribute> {
+    let mut out = Vec::new();
+    match keys {
+        Some(keys) => {
+            for key in keys {
+                if let Some(value) = lookup(key) {
+                    out.push(crate::event::GroupingAttribute {
+                        key: std::sync::Arc::clone(key),
+                        value,
+                    });
+                }
+            }
+        }
+        None => {
+            for key in crate::config::DEFAULT_GROUPING_ATTRIBUTES {
+                if let Some(value) = lookup(key) {
+                    out.push(crate::event::GroupingAttribute {
+                        key: std::sync::Arc::from(key),
+                        value,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
 pub trait IngestSource {
     /// Error type for this source.
     type Error: std::error::Error;

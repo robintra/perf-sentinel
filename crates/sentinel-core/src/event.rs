@@ -201,8 +201,23 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     // through the same control-char + truncate helper as code_* for
     // defense-in-depth on hand-crafted inputs.
     sanitize_optional_arc_str(&mut event.cloud_region, MAX_ID_LENGTH);
-    sanitize_optional_arc_str(&mut event.service_namespace, MAX_SERVICE_LENGTH);
-    sanitize_optional_arc_str(&mut event.k8s_namespace, MAX_SERVICE_LENGTH);
+    // A grouping value reaches the terminal and the dashboard, and its key
+    // is operator-supplied config. Both go through the same guard as the
+    // service name, and a rejected value drops the whole pair.
+    event.grouping.retain_mut(|attr| {
+        let mut key = Some(Arc::clone(&attr.key));
+        let mut value = Some(Arc::clone(&attr.value));
+        sanitize_optional_arc_str(&mut key, MAX_SERVICE_LENGTH);
+        sanitize_optional_arc_str(&mut value, MAX_SERVICE_LENGTH);
+        match (key, value) {
+            (Some(k), Some(v)) if !v.is_empty() => {
+                attr.key = k;
+                attr.value = v;
+                true
+            }
+            _ => false,
+        }
+    });
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
@@ -288,6 +303,14 @@ impl CodeLocation {
     }
 }
 
+/// One attribute captured for grouping, with the attribute name it came
+/// from so an operator can tell `tenant.id=acme` from `k8s.namespace.name=acme`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupingAttribute {
+    pub key: Arc<str>,
+    pub value: Arc<str>,
+}
+
 /// A single span event representing an I/O operation (SQL query, HTTP call).
 ///
 /// Strings repeated across events of the same workload are stored as
@@ -305,14 +328,12 @@ pub struct SpanEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_trace_id: Option<Arc<str>>,
     pub service: Arc<str>,
-    /// Logical service namespace from the `service.namespace` resource
-    /// attribute. Kept separate from the Kubernetes namespace so reports can
-    /// show the exact telemetry received.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service_namespace: Option<Arc<str>>,
-    /// Kubernetes namespace from the `k8s.namespace.name` resource attribute.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub k8s_namespace: Option<Arc<str>>,
+    /// Attributes captured for grouping, in `[detection] grouping_attributes`
+    /// order, absent ones skipped. The first entry is the dimension identity
+    /// keys use, the rest are kept because a report must show the telemetry
+    /// it received, not only the value that won.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grouping: Vec<GroupingAttribute>,
     /// Cloud region this span was emitted from, sourced from the `OTel`
     /// `cloud.region` resource attribute (or span attribute as fallback).
     ///
@@ -362,17 +383,16 @@ pub struct SpanEvent {
 }
 
 impl SpanEvent {
-    /// Namespace used to separate deployments in reports and recurrence views.
+    /// Value that separates deployments in reports and recurrence views.
     #[must_use]
-    pub fn effective_namespace(&self) -> Option<&str> {
-        self.k8s_namespace
-            .as_deref()
-            .filter(|namespace| !namespace.is_empty())
-            .or_else(|| {
-                self.service_namespace
-                    .as_deref()
-                    .filter(|namespace| !namespace.is_empty())
-            })
+    pub fn effective_grouping(&self) -> Option<&GroupingAttribute> {
+        self.grouping.first()
+    }
+
+    /// Just the value, for the identity keys that do not display it.
+    #[must_use]
+    pub fn grouping_value(&self) -> Option<&str> {
+        self.grouping.first().map(|g| g.value.as_ref())
     }
 
     /// Build a [`CodeLocation`] from this span's `code_*` fields.
@@ -535,35 +555,50 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_event_without_namespaces_defaults_to_none() {
+    fn deserialize_event_without_grouping_defaults_to_empty() {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        assert!(event.service_namespace.is_none());
-        assert!(event.k8s_namespace.is_none());
+        assert!(event.grouping.is_empty());
+        assert_eq!(event.grouping_value(), None);
     }
 
+    /// The identity value is the FIRST captured attribute, config order, and
+    /// the others stay readable rather than being dropped.
     #[test]
-    fn effective_namespace_prefers_non_empty_k8s_then_service() {
+    fn grouping_value_is_the_first_captured_attribute() {
         let mut event = make_event_with_field("service", "svc");
-        event.service_namespace = Some(Arc::from("payments"));
-        event.k8s_namespace = Some(Arc::from("prod-eu"));
-        assert_eq!(event.effective_namespace(), Some("prod-eu"));
+        event.grouping = vec![
+            GroupingAttribute {
+                key: Arc::from("k8s.namespace.name"),
+                value: Arc::from("prod-eu"),
+            },
+            GroupingAttribute {
+                key: Arc::from("service.namespace"),
+                value: Arc::from("payments"),
+            },
+        ];
+        assert_eq!(event.grouping_value(), Some("prod-eu"));
+        assert_eq!(
+            event.effective_grouping().map(|g| g.key.as_ref()),
+            Some("k8s.namespace.name"),
+            "the operator must be able to tell which attribute won"
+        );
+        assert_eq!(event.grouping[1].value.as_ref(), "payments");
 
-        event.k8s_namespace = Some(Arc::from(""));
-        assert_eq!(event.effective_namespace(), Some("payments"));
-
-        event.service_namespace = None;
-        assert_eq!(event.effective_namespace(), None);
+        event.grouping.clear();
+        assert_eq!(event.grouping_value(), None);
     }
 
     #[test]
-    fn serde_roundtrip_with_namespaces() {
+    fn serde_roundtrip_with_grouping() {
         let mut value: serde_json::Value = serde_json::from_str(sample_sql_json()).unwrap();
-        value["service_namespace"] = serde_json::Value::String("payments".to_string());
-        value["k8s_namespace"] = serde_json::Value::String("prod-eu".to_string());
+        value["grouping"] = serde_json::json!([
+            {"key": "tenant.id", "value": "acme"},
+            {"key": "k8s.namespace.name", "value": "shared-cluster"},
+        ]);
 
         let event: SpanEvent = serde_json::from_value(value).unwrap();
-        assert_eq!(event.service_namespace.as_deref(), Some("payments"));
-        assert_eq!(event.k8s_namespace.as_deref(), Some("prod-eu"));
+        assert_eq!(event.grouping_value(), Some("acme"));
+        assert_eq!(event.grouping.len(), 2);
 
         let serialized = serde_json::to_string(&event).unwrap();
         let back: SpanEvent = serde_json::from_str(&serialized).unwrap();
@@ -723,19 +758,35 @@ mod tests {
         assert!(event.service.len() <= MAX_SERVICE_LENGTH);
     }
 
+    /// A grouping value reaches the terminal and the dashboard, and its key
+    /// comes from operator config: both are bounded, and a control character
+    /// drops the whole pair rather than half of it.
     #[test]
-    fn sanitize_bounds_and_rejects_namespace_values() {
+    fn sanitize_bounds_and_rejects_grouping_values() {
         let mut event = make_event_with_field("service", "svc");
-        event.service_namespace = Some(Arc::from("s".repeat(500)));
-        event.k8s_namespace = Some(Arc::from("prod\u{7}hidden"));
+        event.grouping = vec![
+            GroupingAttribute {
+                key: Arc::from("k8s.namespace.name"),
+                value: Arc::from("s".repeat(500)),
+            },
+            GroupingAttribute {
+                key: Arc::from("tenant.id"),
+                value: Arc::from("prod\u{7}hidden"),
+            },
+            GroupingAttribute {
+                key: Arc::from("service.namespace"),
+                value: Arc::from(""),
+            },
+        ];
 
         sanitize_span_event(&mut event);
 
+        assert_eq!(event.grouping.len(), 1, "{:?}", event.grouping);
         assert_eq!(
-            event.service_namespace.as_deref().map(str::len),
-            Some(MAX_SERVICE_LENGTH)
+            event.grouping_value().map(str::len),
+            Some(MAX_SERVICE_LENGTH),
+            "an over-long value is truncated, not dropped"
         );
-        assert!(event.k8s_namespace.is_none());
     }
 
     #[test]

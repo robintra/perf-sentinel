@@ -323,11 +323,7 @@ fn evaluate_sequence(
         severity: Severity::Info,
         trace_id: trace.trace_id.clone(),
         service,
-        service_namespace: namespace_event
-            .service_namespace
-            .as_deref()
-            .map(String::from),
-        k8s_namespace: namespace_event.k8s_namespace.as_deref().map(String::from),
+        grouping: namespace_event.grouping.clone(),
         source_endpoint: parent_endpoint,
         pattern: Pattern {
             template,

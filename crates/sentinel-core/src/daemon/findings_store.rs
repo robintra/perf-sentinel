@@ -80,7 +80,7 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
             out.push(entry.clone());
             continue;
         }
-        let namespace = entry.finding.effective_namespace().unwrap_or("");
+        let namespace = entry.finding.grouping_value().unwrap_or("");
         let key = (namespace, entry.finding.signature.as_str());
         if let Some(&i) = index.get(&key) {
             let kept: &mut StoredFinding = &mut out[i];
@@ -309,8 +309,7 @@ mod tests {
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
             service: service.to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/test".to_string(),
             pattern: Pattern {
                 template: template.to_string(),
@@ -400,12 +399,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn coalescing_keeps_identical_signatures_separate_by_effective_namespace() {
+    async fn coalescing_keeps_identical_signatures_separate_by_grouping_value() {
         let mut prod = make_finding("svc", FindingType::RedundantSql);
-        prod.k8s_namespace = Some("prod-eu".to_string());
-        prod.service_namespace = Some("payments".to_string());
+        prod.grouping = crate::test_helpers::k8s_grouping("prod-eu");
+        prod.grouping = crate::test_helpers::grouping("service.namespace", "payments");
         let mut staging = make_finding("svc", FindingType::RedundantSql);
-        staging.service_namespace = Some("staging".to_string());
+        staging.grouping = crate::test_helpers::grouping("service.namespace", "staging");
         enrich_with_signatures(std::slice::from_mut(&mut prod));
         enrich_with_signatures(std::slice::from_mut(&mut staging));
         assert_eq!(prod.signature, staging.signature);

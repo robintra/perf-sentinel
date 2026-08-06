@@ -537,7 +537,7 @@ impl CulpritIndex {
                     f.trace_id.clone(),
                     culprit_key(
                         &f.trace_id,
-                        f.effective_namespace(),
+                        f.grouping_value(),
                         &f.signature,
                         &f.first_timestamp,
                         &f.last_timestamp,
@@ -555,14 +555,14 @@ impl CulpritIndex {
                     f.trace_id.clone(),
                     culprit_key(
                         &f.trace_id,
-                        f.effective_namespace(),
+                        f.grouping_value(),
                         &f.signature,
                         &f.first_timestamp,
                         &f.last_timestamp,
                     ),
                     f.finding_type.clone(),
                     f.pattern.template.clone(),
-                    f.effective_namespace().map(String::from),
+                    f.grouping_value().map(String::from),
                 ));
                 continue;
             }
@@ -578,14 +578,14 @@ impl CulpritIndex {
             }
             let rerun_key = culprit_key(
                 &f.trace_id,
-                f.effective_namespace(),
+                f.grouping_value(),
                 &crate::acknowledgments::compute_signature(f),
                 &f.first_timestamp,
                 &f.last_timestamp,
             );
             let browser_key = culprit_key(
                 &f.trace_id,
-                f.effective_namespace(),
+                f.grouping_value(),
                 &f.signature,
                 &f.first_timestamp,
                 &f.last_timestamp,
@@ -646,7 +646,7 @@ impl CulpritIndex {
                         == &crate::detect::FindingType::from_event_type_slow(&span.event.event_type)
                         && span.template.as_ref() == template
                         && span.event.duration_us > self.slow_threshold_us
-                        && span.event.effective_namespace() == namespace.as_deref()
+                        && span.event.grouping_value() == namespace.as_deref()
                 })
                 .map(|span| span.event.span_id.as_str())
                 .collect();
@@ -678,7 +678,7 @@ impl CulpritIndex {
         for (finding, span_ids) in found {
             let rerun_key = culprit_key(
                 &finding.trace_id,
-                finding.effective_namespace(),
+                finding.grouping_value(),
                 &crate::acknowledgments::compute_signature(&finding),
                 &finding.first_timestamp,
                 &finding.last_timestamp,

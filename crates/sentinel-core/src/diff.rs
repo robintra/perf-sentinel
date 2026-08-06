@@ -34,7 +34,7 @@ fn identity_of(finding: &Finding) -> IdentityKey {
         finding.service.clone(),
         // Without the namespace, the same problem in two deployments folds
         // into one row with summed occurrences.
-        finding.effective_namespace().map(String::from),
+        finding.grouping_value().map(String::from),
         finding.source_endpoint.clone(),
         finding.pattern.template.clone(),
     )
@@ -320,8 +320,7 @@ mod tests {
             severity: sev,
             trace_id: "trace-1".to_string(),
             service: service.to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: endpoint.to_string(),
             pattern: Pattern {
                 template: template.to_string(),
@@ -352,9 +351,9 @@ mod tests {
             "GET /api/orders",
             "SELECT * FROM t WHERE id = ?",
         );
-        prod.k8s_namespace = Some("prod-eu".to_string());
+        prod.grouping = crate::test_helpers::k8s_grouping("prod-eu");
         let mut staging = prod.clone();
-        staging.k8s_namespace = Some("staging".to_string());
+        staging.grouping = crate::test_helpers::k8s_grouping("staging");
 
         let before = make_report(vec![prod.clone()], vec![]);
         let after = make_report(vec![prod, staging], vec![]);
@@ -362,7 +361,7 @@ mod tests {
 
         assert_eq!(report.new_findings.len(), 1);
         assert_eq!(
-            report.new_findings[0].k8s_namespace.as_deref(),
+            report.new_findings[0].grouping_value(),
             Some("staging"),
             "the staging deployment must not fold into the prod row"
         );

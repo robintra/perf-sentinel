@@ -36,7 +36,7 @@ pub(crate) fn cmd_bench(
         )
     } else {
         let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
-        ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES).0
+        ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES, &config).0
         // `raw` drops here: holding the file bytes during the timed runs
         // would inflate every RSS sample by the input size.
     };

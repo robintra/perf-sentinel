@@ -495,7 +495,7 @@ pub(crate) fn recurrence_key(f: &sentinel_core::detect::Finding) -> String {
     } else {
         f.signature.clone()
     };
-    if let Some(namespace) = f.effective_namespace() {
+    if let Some(namespace) = f.grouping_value() {
         format!("{}:{namespace}{signature}", namespace.len())
     } else {
         signature
@@ -668,11 +668,13 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         sanitize_for_terminal(&finding.service)
     );
     // Without this line two identical blocks from two deployments read as
-    // a duplicate: the recurrence key splits them, nothing said why.
-    if let Some(namespace) = finding.effective_namespace() {
+    // a duplicate: the recurrence key splits them, nothing said why. The
+    // label is the attribute name, since it is operator config.
+    for attr in &finding.grouping {
         println!(
-            "    {dim}Namespace:{reset} {}",
-            sanitize_for_terminal(namespace)
+            "    {dim}{}:{reset} {}",
+            sanitize_for_terminal(&attr.key),
+            sanitize_for_terminal(&attr.value)
         );
     }
     println!(
@@ -1258,12 +1260,12 @@ fn write_finding_block(
         cyan, dim, reset, ..
     } = colors;
 
-    if let Some(namespace) = f.effective_namespace() {
+    for attr in &f.grouping {
         writeln!(
             writer,
             "      {dim}{:<12}{reset} {}",
-            "Namespace:",
-            sanitize_for_terminal(namespace)
+            format!("{}:", sanitize_for_terminal(&attr.key)),
+            sanitize_for_terminal(&attr.value)
         )?;
     }
     writeln!(
@@ -1481,26 +1483,33 @@ mod tests {
     }
 
     #[test]
-    fn recurrence_key_keeps_effective_namespaces_separate() {
+    fn recurrence_key_keeps_groupings_separate() {
+        let ns = |value: &str| {
+            vec![GroupingAttribute {
+                key: "k8s.namespace.name".into(),
+                value: value.into(),
+            }]
+        };
         let mut prod = sample_finding();
         prod.signature = "sig-a".to_string();
-        prod.service_namespace = Some("payments".to_string());
-        prod.k8s_namespace = Some("prod-eu".to_string());
+        prod.grouping = ns("prod-eu");
 
         let mut staging = prod.clone();
-        staging.k8s_namespace = Some("staging".to_string());
+        staging.grouping = ns("staging");
         assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
 
-        staging.k8s_namespace = None;
-        assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
+        staging.grouping.clear();
+        assert_ne!(
+            recurrence_key(&prod),
+            recurrence_key(&staging),
+            "no grouping at all must not collide with a grouped finding"
+        );
 
-        let service_only_key = recurrence_key(&staging);
-        staging.k8s_namespace = Some(String::new());
-        assert_eq!(recurrence_key(&staging), service_only_key);
-
-        prod.k8s_namespace = Some("a|b".to_string());
+        // Length-prefixed: a value carrying the separator cannot forge
+        // another finding's key.
+        prod.grouping = ns("a|b");
         prod.signature = "c".to_string();
-        staging.k8s_namespace = Some("a".to_string());
+        staging.grouping = ns("a");
         staging.signature = "b|c".to_string();
         assert_ne!(recurrence_key(&prod), recurrence_key(&staging));
     }
@@ -1569,6 +1578,7 @@ mod tests {
     use sentinel_core::detect::{Finding, FindingType, GreenImpact, Pattern};
     use sentinel_core::diff::DiffReport;
     use sentinel_core::event::CodeLocation;
+    use sentinel_core::event::GroupingAttribute;
     use sentinel_core::report::interpret::InterpretationLevel;
 
     /// A gate breach must win over a concurrent write failure so a real
@@ -1608,8 +1618,7 @@ mod tests {
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
             service: "order-svc".to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -1666,21 +1675,32 @@ mod tests {
     /// it passes `no_colors()` and the output must contain zero ESC
     /// bytes regardless of whether the process stdout is a terminal.
     #[test]
-    fn diff_block_names_the_namespace_that_split_the_finding() {
+    fn diff_block_names_the_attribute_that_split_the_finding() {
         let mut prod = sample_finding();
-        prod.k8s_namespace = Some("prod-eu".to_string());
+        prod.grouping = vec![
+            GroupingAttribute {
+                key: "tenant.id".into(),
+                value: "acme".into(),
+            },
+            GroupingAttribute {
+                key: "k8s.namespace.name".into(),
+                value: "shared-cluster".into(),
+            },
+        ];
         let plain = sample_finding();
 
         let mut buf = Vec::new();
         write_diff_text(&mut buf, &diff_with_new(vec![prod, plain]), no_colors()).unwrap();
         let out = String::from_utf8(buf).unwrap();
 
-        assert_eq!(
-            out.matches("Namespace:").count(),
-            1,
-            "only the namespaced finding carries the row: {out}"
+        // The attribute name is the label, so a tenant never reads as a
+        // namespace, and every captured attribute is shown.
+        assert_eq!(out.matches("tenant.id:").count(), 1, "{out}");
+        assert_eq!(out.matches("k8s.namespace.name:").count(), 1, "{out}");
+        assert!(
+            out.contains("acme") && out.contains("shared-cluster"),
+            "{out}"
         );
-        assert!(out.contains("prod-eu"), "{out}");
     }
 
     #[test]

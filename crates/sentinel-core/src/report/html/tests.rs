@@ -23,8 +23,7 @@ fn span(
             parent_span_id: parent.map(ToString::to_string),
             link_trace_id: None,
             service: service.into(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".into(),
@@ -53,8 +52,7 @@ fn finding(trace_id: &str, service: &str, endpoint: &str, template: &str) -> Fin
         severity: Severity::Critical,
         trace_id: trace_id.into(),
         service: service.into(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: endpoint.into(),
         pattern: Pattern {
             template: template.into(),
@@ -2259,7 +2257,7 @@ fn culprit_map(html: &str) -> serde_json::Value {
 fn culprit_key_of(f: &Finding) -> String {
     super::culprit_key(
         &f.trace_id,
-        f.effective_namespace(),
+        f.grouping_value(),
         &f.signature,
         &f.first_timestamp,
         &f.last_timestamp,
@@ -2477,7 +2475,7 @@ fn cross_trace_slow_evidence_stays_inside_its_namespace() {
     let slow_span =
         |trace_id: &str, span_id: &str, namespace: &str, timestamp: &str, duration_us: u64| {
             let mut event = span(trace_id, span_id, None, "svc", "/ep", "SELECT ?");
-            event.event.k8s_namespace = Some(namespace.into());
+            event.event.grouping = crate::test_helpers::k8s_grouping(namespace);
             event.event.timestamp = timestamp.into();
             event.event.duration_us = duration_us;
             event
@@ -2541,7 +2539,7 @@ fn cross_trace_slow_evidence_stays_inside_its_namespace() {
             .iter()
             .map(|value| value.as_str().unwrap())
             .collect();
-        match finding.effective_namespace().unwrap() {
+        match finding.grouping_value().unwrap() {
             "prod" => assert_eq!(ids, vec!["prod-2", "prod-3"]),
             "staging" => assert_eq!(ids, vec!["stage-2", "stage-3"]),
             namespace => panic!("unexpected namespace {namespace}"),
