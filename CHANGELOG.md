@@ -6,6 +6,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Fixed
 
+- The Helm `ServiceMonitor` no longer matches the headless Service a StatefulSet needs for pod DNS. Both carry the same selector labels, so every pod was scraped twice under two job names and every Grafana panel rendered each value twice. Affects `workload.kind=StatefulSet` with `serviceMonitor.enabled` only.
 - `/metrics` no longer serves OpenMetrics exemplars to a scraper that did not ask for them. A `*/*` wildcard used to count as an opt-in, so vmagent received an exemplar suffix it cannot parse and read `perf_sentinel_io_waste_ratio 0.60 # {trace_id="..."} 1.0` as a metric *name*, minting one dead series per scrape. A real cluster accumulated 6,216 junk metric names against 41 real ones in a few hours. Exemplars now require an explicit `application/openmetrics-text` in `Accept`, which is what Prometheus sends when exemplar storage is on.
 
 ### Added

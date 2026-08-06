@@ -12,6 +12,17 @@ the chart version, to know which daemon image ships.
 
 ## [0.11.0]
 
+### Fixed
+
+- The `ServiceMonitor` no longer matches the headless Service. It selects
+  on the shared selector labels, which the headless Service carries too,
+  so every pod of a StatefulSet was scraped twice and reported under two
+  jobs (`<release>` and `<release>-headless`). Every panel showed each
+  value twice. The headless Service now carries
+  `app.kubernetes.io/component: headless` and the ServiceMonitor excludes
+  it. Only StatefulSet deployments with `serviceMonitor.enabled` were
+  affected.
+
 ### Changed
 
 - `appVersion` moves to `0.11.0`. Findings now carry the deployment

@@ -17,6 +17,12 @@ spec:
   selector:
     matchLabels:
       {{- include "perf-sentinel.selectorLabels" . | nindent 6 }}
+    # The headless Service carries the same selector labels. NotIn also
+    # matches objects without the key, so the main Service still passes.
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: [headless]
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace }}
