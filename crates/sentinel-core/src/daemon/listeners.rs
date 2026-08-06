@@ -539,8 +539,19 @@ fn spawn_json_socket_listener(
     {
         let socket_path = config.daemon.json_socket.clone();
         let max_payload = config.daemon.max_payload_size;
+        // Same operator config as the OTLP doors: a span reaching this one
+        // must land under the same identity, else the two doors report the
+        // same problem twice and never correlate.
+        let grouping = grouping_attributes(config);
         Some(tokio::spawn(async move {
-            super::json_socket::run_json_socket(&socket_path, tx, max_payload, over_memory).await;
+            super::json_socket::run_json_socket(
+                &socket_path,
+                tx,
+                max_payload,
+                grouping,
+                over_memory,
+            )
+            .await;
         }))
     }
     #[cfg(not(unix))]

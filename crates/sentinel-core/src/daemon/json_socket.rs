@@ -19,9 +19,14 @@ pub(super) async fn run_json_socket(
     path: &str,
     tx: mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
+    grouping_attributes: Vec<std::sync::Arc<str>>,
     over_memory: Arc<AtomicBool>,
 ) {
     use tokio::net::UnixListener;
+
+    // Interned once: the accept loop hands every connection a pointer bump
+    // instead of re-allocating the key list per connection.
+    let grouping_attributes: Arc<[std::sync::Arc<str>]> = grouping_attributes.into();
 
     // Symlink-TOCTOU defense: refuse to unlink anything at `path` that
     // is a symlink. A local attacker who controls the parent directory
@@ -89,11 +94,19 @@ pub(super) async fn run_json_socket(
             Ok((stream, _)) => {
                 let tx = tx.clone();
                 let over_memory = over_memory.clone();
+                let grouping_attributes = Arc::clone(&grouping_attributes);
                 let Ok(permit) = semaphore.clone().acquire_owned().await else {
                     break; // semaphore closed
                 };
                 tokio::spawn(async move {
-                    handle_json_connection(stream, tx, max_payload_size, over_memory).await;
+                    handle_json_connection(
+                        stream,
+                        tx,
+                        max_payload_size,
+                        grouping_attributes,
+                        over_memory,
+                    )
+                    .await;
                     drop(permit);
                 });
             }
@@ -109,6 +122,7 @@ async fn handle_json_connection(
     stream: tokio::net::UnixStream,
     tx: mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
+    grouping_attributes: Arc<[std::sync::Arc<str>]>,
     over_memory: Arc<AtomicBool>,
 ) {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt};
@@ -117,7 +131,8 @@ async fn handle_json_connection(
     let limited = stream.take(max_payload_size as u64 * CONNECTION_LIMIT_FACTOR);
     let reader = tokio::io::BufReader::new(limited);
     let mut lines = reader.lines();
-    let ingest = crate::ingest::json::JsonIngest::new(max_payload_size);
+    let ingest = crate::ingest::json::JsonIngest::new(max_payload_size)
+        .with_grouping_attributes(grouping_attributes.to_vec());
     let mut memory_drop_warned = false;
     while let Ok(Some(line)) = lines.next_line().await {
         // Memory-pressure admission control: this door feeds the same
@@ -196,7 +211,14 @@ mod tests {
 
         // Spawn the connection handler (reads from `server`).
         let handle = tokio::spawn(async move {
-            handle_json_connection(server, tx, 1024 * 1024, Arc::new(AtomicBool::new(false))).await;
+            handle_json_connection(
+                server,
+                tx,
+                1024 * 1024,
+                Arc::from(vec![]),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
         });
 
         // Write one NDJSON line with a minimal valid SpanEvent array,
@@ -230,7 +252,7 @@ mod tests {
         // else local NDJSON keeps growing RSS while the OTLP doors close.
         let over_memory = Arc::new(AtomicBool::new(true));
         let handle = tokio::spawn(async move {
-            handle_json_connection(server, tx, 1024 * 1024, over_memory).await;
+            handle_json_connection(server, tx, 1024 * 1024, Arc::from(vec![]), over_memory).await;
         });
 
         let line = r#"[{"timestamp":"2025-07-10T14:32:01.123Z","trace_id":"t1","span_id":"s1","service":"svc","type":"sql","operation":"SELECT","target":"SELECT 1","duration_us":100,"source":{"endpoint":"GET /test","method":"m"}}]"#;
@@ -257,7 +279,14 @@ mod tests {
 
         // Small max_payload so the line is over the limit.
         let handle = tokio::spawn(async move {
-            handle_json_connection(server, tx, 32, Arc::new(AtomicBool::new(false))).await;
+            handle_json_connection(
+                server,
+                tx,
+                32,
+                Arc::from(vec![]),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
         });
 
         let mut client = client;
@@ -284,7 +313,14 @@ mod tests {
         let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
 
         let handle = tokio::spawn(async move {
-            handle_json_connection(server, tx, 1024 * 1024, Arc::new(AtomicBool::new(false))).await;
+            handle_json_connection(
+                server,
+                tx,
+                1024 * 1024,
+                Arc::from(vec![]),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
         });
 
         let mut client = client;
@@ -315,6 +351,7 @@ mod tests {
                 &path_for_server,
                 tx,
                 1024 * 1024,
+                Vec::new(),
                 Arc::new(AtomicBool::new(false)),
             )
             .await;
@@ -351,7 +388,13 @@ mod tests {
         // Should return near-immediately (bind fails).
         tokio::time::timeout(
             Duration::from_secs(2),
-            run_json_socket(&path, tx, 1024, Arc::new(AtomicBool::new(false))),
+            run_json_socket(
+                &path,
+                tx,
+                1024,
+                Vec::new(),
+                Arc::new(AtomicBool::new(false)),
+            ),
         )
         .await
         .expect("bind failure must return immediately, not hang");
@@ -375,7 +418,13 @@ mod tests {
         let sock_str = sock_path.to_string_lossy().into_owned();
         tokio::time::timeout(
             Duration::from_secs(2),
-            run_json_socket(&sock_str, tx, 1024, Arc::new(AtomicBool::new(false))),
+            run_json_socket(
+                &sock_str,
+                tx,
+                1024,
+                Vec::new(),
+                Arc::new(AtomicBool::new(false)),
+            ),
         )
         .await
         .expect("symlink refusal must return immediately, not hang");
