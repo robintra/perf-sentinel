@@ -14,18 +14,35 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 /// Severity is `Warning` if > `min_calls`, `Critical` if > 3x `min_calls`.
 #[must_use]
 pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
-    // Single-pass collect of HTTP-out indices, then threshold check. The
-    // common sub-threshold case still exits without a sort or HashMap pass.
-    let http_indices: Vec<usize> = trace
-        .spans
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| s.event.event_type == EventType::HttpOut)
-        .map(|(i, _)| i)
+    // Partitioned by grouping like every other per-trace detector: counting
+    // one deployment's calls into another's finding bills the wrong owner,
+    // and the HTML evidence filter would light up the other's spans.
+    let mut by_grouping: HashMap<Option<(&str, &str)>, Vec<usize>> = HashMap::new();
+    for (i, span) in trace.spans.iter().enumerate() {
+        if span.event.event_type == EventType::HttpOut {
+            by_grouping
+                .entry(
+                    span.event
+                        .effective_grouping()
+                        .map(|g| (g.key.as_ref(), g.value.as_ref())),
+                )
+                .or_default()
+                .push(i);
+        }
+    }
+    let mut findings: Vec<Finding> = by_grouping
+        .into_values()
+        .filter_map(|indices| chatty_finding(trace, &indices, min_calls))
         .collect();
+    findings.sort_by(|a, b| a.pattern.template.cmp(&b.pattern.template));
+    findings
+}
+
+/// One chatty finding for one grouping's outbound calls.
+fn chatty_finding(trace: &Trace, http_indices: &[usize], min_calls: u32) -> Option<Finding> {
     let count = http_indices.len();
     if count <= min_calls as usize {
-        return vec![];
+        return None;
     }
 
     let severity = if count > (min_calls as usize) * 3 {
@@ -37,7 +54,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
     // Count occurrences per normalized template for "top N" display
     let mut template_counts: HashMap<&str, usize> =
         HashMap::with_capacity(http_indices.len().min(64));
-    for &idx in &http_indices {
+    for &idx in http_indices {
         *template_counts
             .entry(trace.spans[idx].template.as_ref())
             .or_default() += 1;
@@ -80,7 +97,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
          or a BFF (Backend for Frontend) layer"
     );
 
-    vec![Finding {
+    Some(Finding {
         finding_type: FindingType::ChattyService,
         severity,
         trace_id: trace.trace_id.clone(),
@@ -104,7 +121,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         instrumentation_scopes: Vec::new(),
         signature: String::new(),
         suggested_fix: None,
-    }]
+    })
 }
 
 #[cfg(test)]
@@ -232,6 +249,34 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_chatty(&trace, 15);
         assert!(findings.is_empty(), "10 HTTP calls <= 15 threshold");
+    }
+
+    /// One trace crossing two deployments must not bill all its outbound
+    /// calls to whichever emitted the first span.
+    #[test]
+    fn calls_are_counted_per_grouping_not_per_trace() {
+        let mut events = Vec::new();
+        for (i, ns) in ["commerce", "finance"].into_iter().enumerate() {
+            for j in 0..4 {
+                let mut event = make_http_event(
+                    "t1",
+                    &format!("s-{ns}-{j}"),
+                    &format!("http://{ns}-svc/api/items/{j}"),
+                    &format!("2025-07-10T14:32:0{}.000Z", i * 4 + j),
+                );
+                event.grouping = crate::test_helpers::grouping("service.namespace", ns);
+                events.push(event);
+            }
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_chatty(&trace, 3);
+
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        assert!(
+            findings.iter().all(|f| f.pattern.occurrences == 4),
+            "neither deployment may absorb the other's calls: {findings:#?}"
+        );
     }
 
     #[test]

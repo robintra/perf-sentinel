@@ -654,6 +654,7 @@ impl CulpritIndex {
                     }
                     crate::detect::FindingType::ChattyService => {
                         span.event.event_type == crate::event::EventType::HttpOut
+                            && grouping_matches(&span.event, grouping.as_ref())
                     }
                     _ => false,
                 })
