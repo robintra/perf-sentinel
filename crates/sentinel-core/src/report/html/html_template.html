@@ -1401,7 +1401,14 @@
   // the detail and exports. Kubernetes is the deployment boundary when it is
   // present; service.namespace is the portable fallback.
   function findingNamespace(f) {
-    return f.k8s_namespace || f.service_namespace || "";
+    var g = f.grouping && f.grouping[0];
+    return g ? g.value : "";
+  }
+  // Label for the grouping chips and rows: the attribute that decided the
+  // identity, so `tenant.id=byec` never reads as a namespace.
+  function findingGroupingKey(f) {
+    var g = f.grouping && f.grouping[0];
+    return g ? g.key : "";
   }
   // Builds a severity pill carrying the [data-sev] attribute.
   function sevPill(severity, cls) {
@@ -2433,13 +2440,24 @@
 
     var namespaceGroup = el("span", "ps-chip-group", null);
     setAttr(namespaceGroup, "role", "group");
-    setAttr(namespaceGroup, "aria-label", "Finding namespace");
-    root.appendChild(namespaceGroup);
+    // The attribute name is operator config, so the group is labelled by
+    // what it actually groups on rather than a hardcoded "namespace".
+    var groupingKeys = Object.create(null);
     var namespaces = Object.create(null);
     findings.forEach(function (f) {
       var namespace = findingNamespace(f);
-      if (namespace) namespaces[namespace] = true;
+      if (namespace) {
+        namespaces[namespace] = true;
+        groupingKeys[findingGroupingKey(f)] = true;
+      }
     });
+    var keyNames = Object.keys(groupingKeys).sort();
+    setAttr(
+      namespaceGroup,
+      "aria-label",
+      keyNames.length === 1 ? "Finding " + keyNames[0] : "Finding grouping"
+    );
+    root.appendChild(namespaceGroup);
     Object.keys(namespaces).sort().forEach(function (namespace) {
       appendChip(namespaceGroup, namespace, "ns:" + namespace, "button", "aria-pressed");
     });
@@ -2856,8 +2874,9 @@
 
     var grid = el("div", "ps-meta-grid");
     grid.appendChild(metaCell("service", f.service || "-"));
-    if (f.service_namespace) grid.appendChild(metaCell("service namespace", f.service_namespace, true));
-    if (f.k8s_namespace) grid.appendChild(metaCell("k8s namespace", f.k8s_namespace, true));
+    (f.grouping || []).forEach(function (g) {
+      grid.appendChild(metaCell(g.key, g.value, true));
+    });
     grid.appendChild(metaCell("endpoint", f.source_endpoint || "-", true, false, true));
     grid.appendChild(metaCell("i/o impact", ioImpactText(f)));
     var pattern = f.pattern || {};
@@ -4855,8 +4874,8 @@
     // use is feeding an id back into `explain` or a trace backend, and it
     // was the one field the table never showed in full.
     var header = [
-      "severity", "type", "service", "service_namespace", "k8s_namespace",
-      "namespace", "endpoint", "trace_id", "template",
+      "severity", "type", "service", "grouping_key", "grouping_value",
+      "grouping_all", "endpoint", "trace_id", "template",
       "occurrences", "distinct_params", "window_ms", "classification_method",
       "span_duration_us_p50", "span_duration_us_p99", "span_duration_cv_x1000",
       "first_timestamp", "last_timestamp",
@@ -4874,9 +4893,9 @@
         f.severity || "",
         type,
         f.service || "",
-        f.service_namespace || "",
-        f.k8s_namespace || "",
+        findingGroupingKey(f),
         findingNamespace(f),
+        (f.grouping || []).map(function (g) { return g.key + "=" + g.value; }).join(" "),
         f.source_endpoint || "",
         f.trace_id || "",
         p.template || "",
@@ -4973,7 +4992,8 @@
     var type = f.type || f.finding_type;
     return [
       f.severity, type, typeLabel(type), f.service,
-      f.service_namespace, f.k8s_namespace, findingNamespace(f), f.source_endpoint,
+      (f.grouping || []).map(function (g) { return g.key + " " + g.value; }).join(" "),
+      f.source_endpoint,
       f.pattern && f.pattern.template
     ].join(" ");
   }

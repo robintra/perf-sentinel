@@ -1,6 +1,7 @@
 use super::*;
 use core::assert_matches;
 use sentinel_core::detect::{Confidence, GreenImpact, Pattern};
+use sentinel_core::event::GroupingAttribute;
 
 fn make_test_app() -> App {
     let findings = vec![
@@ -9,8 +10,7 @@ fn make_test_app() -> App {
             severity: Severity::Critical,
             trace_id: "trace-1".to_string(),
             service: "order-svc".to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -39,8 +39,7 @@ fn make_test_app() -> App {
             severity: Severity::Warning,
             trace_id: "trace-2".to_string(),
             service: "user-svc".to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "GET /api/users/123".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM config WHERE key = ?".to_string(),
@@ -505,7 +504,10 @@ fn analyze_enter_preserves_active_panel_for_round_trip() {
 fn detail_line_count_matches_the_rendered_metadata_rows() {
     let mut app = make_test_app();
     app.active_panel = Panel::Detail;
-    app.all_findings[0].k8s_namespace = Some("prod-eu".to_string());
+    app.all_findings[0].grouping = vec![GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: "prod-eu".into(),
+    }];
     let buf = render_once(&mut app, 320, 40);
     let mut full = String::new();
     for y in 0..buf.area.height {
@@ -514,7 +516,7 @@ fn detail_line_count_matches_the_rendered_metadata_rows() {
         }
     }
 
-    assert!(full.contains("Namespace:"), "{full}");
+    assert!(full.contains("k8s.namespace.name:"), "{full}");
     assert!(full.contains("prod-eu"), "{full}");
 }
 

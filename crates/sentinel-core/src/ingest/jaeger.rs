@@ -21,12 +21,24 @@ use crate::time::micros_to_iso8601;
 /// Ingests span events from Jaeger JSON export format.
 pub struct JaegerIngest {
     max_size: usize,
+    /// `None` keeps the built-in default, `Some(vec![])` turns grouping off.
+    grouping_attributes: Option<Vec<Arc<str>>>,
 }
 
 impl JaegerIngest {
     #[must_use]
     pub const fn new(max_size: usize) -> Self {
-        Self { max_size }
+        Self {
+            max_size,
+            grouping_attributes: None,
+        }
+    }
+
+    /// Override which attributes separate deployments.
+    #[must_use]
+    pub fn with_grouping_attributes(mut self, keys: Vec<Arc<str>>) -> Self {
+        self.grouping_attributes = Some(keys);
+        self
     }
 }
 
@@ -41,7 +53,10 @@ impl IngestSource for JaegerIngest {
             });
         }
         let export: JaegerExport = serde_json::from_slice(raw).map_err(JaegerIngestError::Parse)?;
-        Ok(convert_jaeger_export(&export))
+        Ok(convert_jaeger_export(
+            &export,
+            self.grouping_attributes.as_deref(),
+        ))
     }
 }
 
@@ -112,7 +127,7 @@ struct JaegerProcess {
     tags: Vec<JaegerTag>,
 }
 
-type ProcessMetadata = (Arc<str>, Option<Arc<str>>, Option<Arc<str>>);
+type ProcessMetadata<'a> = (Arc<str>, &'a [JaegerTag]);
 
 #[derive(Deserialize)]
 struct JaegerTag {
@@ -122,7 +137,10 @@ struct JaegerTag {
 
 // ── Conversion ─────────────────────────────────────────────────────
 
-pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
+pub(super) fn convert_jaeger_export(
+    export: &JaegerExport,
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Vec<SpanEvent> {
     let cap: usize = export.data.iter().map(|t| t.spans.len()).sum();
     let mut events = Vec::with_capacity(cap);
     for trace in &export.data {
@@ -137,8 +155,7 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
                     pid.as_str(),
                     (
                         Arc::from(process.service_name.as_str()),
-                        find_tag(&process.tags, "service.namespace").map(Arc::from),
-                        find_tag(&process.tags, "k8s.namespace.name").map(Arc::from),
+                        process.tags.as_slice(),
                     ),
                 )
             })
@@ -151,9 +168,13 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
             .map(|s| (s.span_id.as_str(), s))
             .collect();
         for span in &trace.spans {
-            if let Some(event) =
-                convert_jaeger_span(span, &trace.trace_id, &process_metadata, &span_index)
-            {
+            if let Some(event) = convert_jaeger_span(
+                span,
+                &trace.trace_id,
+                &process_metadata,
+                &span_index,
+                grouping_attributes,
+            ) {
                 events.push(event);
             }
         }
@@ -238,6 +259,7 @@ fn convert_jaeger_span(
     trace_id: &str,
     process_metadata: &HashMap<&str, ProcessMetadata>,
     span_index: &HashMap<&str, &JaegerSpan>,
+    grouping_attributes: Option<&[Arc<str>]>,
 ) -> Option<SpanEvent> {
     let tags = &span.tags;
 
@@ -278,12 +300,13 @@ fn convert_jaeger_span(
     // Service name from the per-trace Arc cache, cloned (O(1)) per span.
     let process = process_metadata.get(span.process_id.as_str());
     let service: Arc<str> = process.map_or_else(|| Arc::from(""), |m| Arc::clone(&m.0));
-    let service_namespace = process
-        .and_then(|metadata| metadata.1.clone())
-        .or_else(|| find_tag(tags, "service.namespace").map(Arc::from));
-    let k8s_namespace = process
-        .and_then(|metadata| metadata.2.clone())
-        .or_else(|| find_tag(tags, "k8s.namespace.name").map(Arc::from));
+    // Process tags win over span tags: they describe the emitter, a span
+    // tag with the same name is a per-request override.
+    let grouping = crate::ingest::collect_grouping(grouping_attributes, |key| {
+        process
+            .and_then(|m| find_tag(m.1, key).map(Arc::from))
+            .or_else(|| find_tag(tags, key).map(Arc::from))
+    });
 
     // Parent span ID from CHILD_OF reference
     let parent_span_id = child_of(span).map(ToString::to_string);
@@ -337,8 +360,7 @@ fn convert_jaeger_span(
         link_trace_id: None,
         parent_span_id,
         service,
-        service_namespace,
-        k8s_namespace,
+        grouping,
         // Jaeger process tags do not carry cloud region. Users wanting
         // multi-region scoring with Jaeger ingestion should set
         // [green.service_regions] in the config to map service -> region.
@@ -452,8 +474,20 @@ mod tests {
             .ingest(json.as_bytes())
             .unwrap();
 
-        assert_eq!(events[0].service_namespace.as_deref(), Some("payments"));
-        assert_eq!(events[0].k8s_namespace.as_deref(), Some("prod-eu"));
+        let captured: Vec<(&str, &str)> = events[0]
+            .grouping
+            .iter()
+            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+            .collect();
+        assert_eq!(
+            captured,
+            vec![
+                ("k8s.namespace.name", "prod-eu"),
+                ("service.namespace", "payments"),
+            ],
+            "both values are kept, config order, Kubernetes first"
+        );
+        assert_eq!(events[0].grouping_value(), Some("prod-eu"));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::correlate::Trace;
-use crate::event::{EventSource, EventType, SpanEvent};
+use crate::event::{EventSource, EventType, GroupingAttribute, SpanEvent};
 use crate::normalize;
 use crate::report::interpret::InterpretationLevel;
 use crate::report::{Analysis, GreenSummary, QualityGate, Report};
@@ -81,8 +81,7 @@ pub fn make_sql_event_with_duration(
         parent_span_id: None,
         link_trace_id: None,
         service: Arc::from("order-svc"),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         cloud_region: None,
         event_type: EventType::Sql,
         operation: "SELECT".to_string(),
@@ -116,8 +115,7 @@ pub fn make_http_event_with_duration(
         parent_span_id: None,
         link_trace_id: None,
         service: Arc::from("order-svc"),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         cloud_region: None,
         event_type: EventType::HttpOut,
         operation: "GET".to_string(),
@@ -237,8 +235,7 @@ pub fn make_finding(
         severity,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: crate::detect::Pattern {
             template: "SELECT * FROM t WHERE id = ?".to_string(),
@@ -412,3 +409,16 @@ macro_rules! assert_debug_redacts_secret {
     }};
 }
 pub(crate) use assert_debug_redacts_secret;
+
+/// One grouping attribute, the shape tests reach for most.
+pub fn grouping(key: &str, value: &str) -> Vec<GroupingAttribute> {
+    vec![GroupingAttribute {
+        key: Arc::from(key),
+        value: Arc::from(value),
+    }]
+}
+
+/// The Kubernetes namespace, the default first grouping attribute.
+pub fn k8s_grouping(value: &str) -> Vec<GroupingAttribute> {
+    grouping("k8s.namespace.name", value)
+}

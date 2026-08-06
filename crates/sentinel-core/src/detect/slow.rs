@@ -150,7 +150,7 @@ pub fn detect_slow_cross_trace(
                 .entry((
                     &span.event.event_type,
                     &span.template,
-                    span.event.effective_namespace(),
+                    span.event.grouping_value(),
                 ))
                 .or_default()
                 .push((
@@ -229,8 +229,7 @@ fn build_cross_trace_finding(
         severity,
         trace_id: worst_trace_id.to_string(),
         service: worst_event.service.to_string(),
-        service_namespace: worst_event.service_namespace.as_deref().map(String::from),
-        k8s_namespace: worst_event.k8s_namespace.as_deref().map(String::from),
+        grouping: worst_event.grouping.clone(),
         source_endpoint: worst_event.source.endpoint.clone(),
         pattern: Pattern {
             template: template.to_string(),
@@ -635,7 +634,7 @@ mod tests {
     }
 
     #[test]
-    fn cross_trace_keeps_effective_namespaces_separate() {
+    fn cross_trace_keeps_effective_groupings_separate() {
         let traces: Vec<_> = ["prod-eu", "staging"]
             .into_iter()
             .flat_map(|namespace| {
@@ -647,7 +646,7 @@ mod tests {
                         &format!("2025-07-10T14:32:0{i}.000Z"),
                         600_000,
                     );
-                    event.k8s_namespace = Some(namespace.into());
+                    event.grouping = crate::test_helpers::k8s_grouping(namespace);
                     make_trace(vec![event])
                 })
             })
@@ -657,7 +656,7 @@ mod tests {
         assert_eq!(findings.len(), 2);
         let namespaces: HashSet<&str> = findings
             .iter()
-            .filter_map(|finding| finding.k8s_namespace.as_deref())
+            .filter_map(|finding| finding.grouping_value())
             .collect();
         assert_eq!(namespaces, HashSet::from(["prod-eu", "staging"]));
         assert!(

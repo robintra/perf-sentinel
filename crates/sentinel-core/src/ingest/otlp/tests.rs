@@ -1682,7 +1682,7 @@ fn no_cloud_region_yields_none() {
 }
 
 #[test]
-fn namespaces_are_extracted_from_resource_attributes() {
+fn grouping_is_extracted_from_resource_attributes() {
     let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
     let mut req = make_request("order-svc", vec![span]);
     let attributes = &mut req.resource_spans[0].resource.as_mut().unwrap().attributes;
@@ -1691,8 +1691,43 @@ fn namespaces_are_extracted_from_resource_attributes() {
 
     let events = convert_otlp_request(&req);
 
-    assert_eq!(events[0].service_namespace.as_deref(), Some("payments"));
-    assert_eq!(events[0].k8s_namespace.as_deref(), Some("prod-eu"));
+    let captured: Vec<(&str, &str)> = events[0]
+        .grouping
+        .iter()
+        .map(|g| (g.key.as_ref(), g.value.as_ref()))
+        .collect();
+    assert_eq!(
+        captured,
+        vec![
+            ("k8s.namespace.name", "prod-eu"),
+            ("service.namespace", "payments"),
+        ]
+    );
+}
+
+/// A tenant id is per request, so it lives on the span rather than the
+/// resource. The resource value still wins when both carry the same key.
+#[test]
+fn grouping_falls_back_to_span_attributes() {
+    let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+    span.attributes.push(make_kv("tenant.id", "byec"));
+    let mut req = make_request("order-svc", vec![span]);
+    req.resource_spans[0]
+        .resource
+        .as_mut()
+        .unwrap()
+        .attributes
+        .push(make_kv("k8s.namespace.name", "multitenant-2"));
+
+    let keys: Vec<std::sync::Arc<str>> = vec![
+        std::sync::Arc::from("tenant.id"),
+        std::sync::Arc::from("k8s.namespace.name"),
+    ];
+    let (events, _) =
+        crate::ingest::otlp::convert_otlp_request_counted_with_grouping(&req, Some(&keys));
+
+    assert_eq!(events[0].grouping_value(), Some("byec"));
+    assert_eq!(events[0].grouping[1].value.as_ref(), "multitenant-2");
 }
 
 // ----- cloud.region sanitization at OTLP boundary -----

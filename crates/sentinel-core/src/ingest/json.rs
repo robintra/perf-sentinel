@@ -106,12 +106,25 @@ pub enum InputFormat {
 /// Ingests span events from JSON input with auto-format detection.
 pub struct JsonIngest {
     max_size: usize,
+    /// `None` keeps the built-in default, `Some(vec![])` turns grouping off.
+    grouping_attributes: Option<Vec<std::sync::Arc<str>>>,
 }
 
 impl JsonIngest {
     #[must_use]
     pub const fn new(max_size: usize) -> Self {
-        Self { max_size }
+        Self {
+            max_size,
+            grouping_attributes: None,
+        }
+    }
+
+    /// Which attributes separate deployments, from
+    /// `[detection] grouping_attributes`.
+    #[must_use]
+    pub fn with_grouping_attributes(mut self, keys: Vec<std::sync::Arc<str>>) -> Self {
+        self.grouping_attributes = Some(keys);
+        self
     }
 }
 
@@ -156,18 +169,24 @@ impl JsonIngest {
 
         match detect_format(raw) {
             InputFormat::Otlp => {
-                let (events, stats) = Self::ingest_otlp(raw)?;
+                let (events, stats) = Self::ingest_otlp(raw, self.grouping_attributes.as_deref())?;
                 Ok((events, Some(stats)))
             }
             InputFormat::Jaeger => {
-                let ingest = crate::ingest::jaeger::JaegerIngest::new(self.max_size);
+                let mut ingest = crate::ingest::jaeger::JaegerIngest::new(self.max_size);
+                if let Some(keys) = self.grouping_attributes.clone() {
+                    ingest = ingest.with_grouping_attributes(keys);
+                }
                 ingest
                     .ingest(raw)
                     .map(|events| (events, None))
                     .map_err(|e| JsonIngestError::Format(e.to_string()))
             }
             InputFormat::Zipkin => {
-                let ingest = crate::ingest::zipkin::ZipkinIngest::new(self.max_size);
+                let mut ingest = crate::ingest::zipkin::ZipkinIngest::new(self.max_size);
+                if let Some(keys) = self.grouping_attributes.clone() {
+                    ingest = ingest.with_grouping_attributes(keys);
+                }
                 ingest
                     .ingest(raw)
                     .map(|events| (events, None))
@@ -189,7 +208,10 @@ impl JsonIngest {
     /// re-parsed through a normalized Value, so the common case pays
     /// nothing. `convert_otlp_request_counted` sanitizes each event, same
     /// code path as the daemon listeners.
-    fn ingest_otlp(raw: &[u8]) -> Result<(Vec<SpanEvent>, SpanConversionStats), JsonIngestError> {
+    fn ingest_otlp(
+        raw: &[u8],
+        grouping_attributes: Option<&[std::sync::Arc<str>]>,
+    ) -> Result<(Vec<SpanEvent>, SpanConversionStats), JsonIngestError> {
         type OtlpRequest =
             opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
         let mut events = Vec::new();
@@ -204,7 +226,10 @@ impl JsonIngest {
                 Some(Ok(request)) => {
                     parsed_any = true;
                     let (converted, request_stats) =
-                        crate::ingest::otlp::convert_otlp_request_counted(&request);
+                        crate::ingest::otlp::convert_otlp_request_counted_with_grouping(
+                            &request,
+                            grouping_attributes,
+                        );
                     events.extend(converted);
                     stats.merge(&request_stats);
                     offset += stream.byte_offset();
@@ -226,7 +251,10 @@ impl JsonIngest {
                         serde_json::from_value(value).map_err(|_| JsonIngestError::Parse(e))?;
                     parsed_any = true;
                     let (converted, request_stats) =
-                        crate::ingest::otlp::convert_otlp_request_counted(&request);
+                        crate::ingest::otlp::convert_otlp_request_counted_with_grouping(
+                            &request,
+                            grouping_attributes,
+                        );
                     events.extend(converted);
                     stats.merge(&request_stats);
                     offset += retry.byte_offset();

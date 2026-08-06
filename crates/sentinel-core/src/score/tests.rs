@@ -39,8 +39,7 @@ fn single_trace_computes_iis() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -240,8 +239,7 @@ fn green_impact_populated_on_findings() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -292,8 +290,7 @@ fn dedup_avoidable_across_finding_types() {
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
             service: "order-svc".to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: template.clone(),
@@ -318,8 +315,7 @@ fn dedup_avoidable_across_finding_types() {
             severity: Severity::Info,
             trace_id: "trace-1".to_string(),
             service: "order-svc".to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template,
@@ -376,8 +372,7 @@ fn sql_split_separates_sql_and_http_waste() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -441,8 +436,7 @@ fn messaging_split_excludes_the_sql_share() {
         severity: Severity::Warning,
         trace_id: "trace-m".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "kafka orders".to_string(),
@@ -491,8 +485,7 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -891,8 +884,7 @@ fn co2_computed_when_region_set() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -1081,8 +1073,7 @@ fn slow_findings_do_not_inflate_waste_ratio() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM t WHERE id = ?".to_string(),
@@ -1145,8 +1136,7 @@ fn slow_and_n_plus_one_waste_separate() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -1171,8 +1161,7 @@ fn slow_and_n_plus_one_waste_separate() {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM slow_table WHERE id = ?".to_string(),
@@ -1273,8 +1262,7 @@ fn avoidable_excludes_embodied() {
         severity: Severity::Warning,
         trace_id: "t1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM t WHERE id = ?".to_string(),
@@ -1688,8 +1676,7 @@ fn avoidable_ratio_excludes_unknown_bucket_from_denominator() {
         severity: Severity::Warning,
         trace_id: "trace-eu".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM t WHERE id = ?".to_string(),
@@ -3520,8 +3507,7 @@ fn dedup_raises_the_entry_when_a_later_finding_has_higher_avoidable() {
         severity: Severity::Info,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
-        service_namespace: None,
-        k8s_namespace: None,
+        grouping: Vec::new(),
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: template.clone(),

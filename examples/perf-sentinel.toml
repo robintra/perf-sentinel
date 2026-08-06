@@ -103,6 +103,18 @@ serialized_min_sequential = 3   # default 3, min 2
 # verdict on moderate counts, not on the large ones.
 sanitizer_aware_classification = "auto"   # default "auto"
 
+# Attributes that separate one deployment from another, most specific first.
+# The first one present on a span decides which findings are the "same"
+# problem: two identical N+1 in two namespaces stay two findings instead of
+# folding into one. Any resource or span attribute works, so a shared cluster
+# can group by tenant where the namespace does not tell tenants apart.
+# The others are still captured and displayed, never dropped.
+#
+# Acknowledgment signatures ignore this entirely, so one ack still covers
+# every deployment and changing this list never invalidates an ack.
+# Max 8 entries, each captured per span. An empty list turns grouping off.
+grouping_attributes = ["k8s.namespace.name", "service.namespace"]
+
 # ---------------------------------------------------------------------------
 # GreenOps / carbon scoring
 #

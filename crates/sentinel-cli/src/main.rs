@@ -1736,6 +1736,16 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
     }
 }
 
+/// Configured grouping attributes as the ingest layer wants them.
+fn grouping_keys(config: &Config) -> Vec<std::sync::Arc<str>> {
+    config
+        .detection
+        .grouping_attributes
+        .iter()
+        .map(|k| std::sync::Arc::from(k.as_str()))
+        .collect()
+}
+
 /// Parse raw bytes as JSON trace events, printing a clear error and
 /// exiting with `EXIT_TOOLING_ERROR` on failure: malformed or corrupted
 /// trace input is a tooling problem, not a quality-gate breach. Shared
@@ -1743,11 +1753,12 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
 fn ingest_json_or_exit(
     raw: &[u8],
     max_size: usize,
+    config: &Config,
 ) -> (
     Vec<sentinel_core::event::SpanEvent>,
     Option<sentinel_core::ingest::otlp::SpanConversionStats>,
 ) {
-    let ingest = JsonIngest::new(max_size);
+    let ingest = JsonIngest::new(max_size).with_grouping_attributes(grouping_keys(config));
     match ingest.ingest_with_stats(raw) {
         Ok(events_and_stats) => events_and_stats,
         Err(e) => {
@@ -1812,7 +1823,7 @@ fn cmd_analyze(
     let config = load_config(config_path);
     let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
 
-    let (events, ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (events, ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES, &config);
     // Free the raw bytes before analysis: holding a multi-hundred-MB
     // input buffer through the whole pipeline doubles peak RSS.
     drop(raw);
@@ -1846,13 +1857,13 @@ fn cmd_diff(
     // counts and severity assignments are comparable.
     let before_raw = read_events(Some(before), limits::MAX_BATCH_INPUT_BYTES);
     let (before_events, before_stats) =
-        ingest_json_or_exit(&before_raw, limits::MAX_BATCH_INPUT_BYTES);
+        ingest_json_or_exit(&before_raw, limits::MAX_BATCH_INPUT_BYTES, &config);
     drop(before_raw);
     let mut before_report = pipeline::analyze_with_traces(before_events, &config, before_stats).0;
 
     let after_raw = read_events(Some(after), limits::MAX_BATCH_INPUT_BYTES);
     let (after_events, after_stats) =
-        ingest_json_or_exit(&after_raw, limits::MAX_BATCH_INPUT_BYTES);
+        ingest_json_or_exit(&after_raw, limits::MAX_BATCH_INPUT_BYTES, &config);
     drop(after_raw);
     let mut after_report = pipeline::analyze_with_traces(after_events, &config, after_stats).0;
 
@@ -1964,7 +1975,8 @@ fn load_report_from_input(
         Some(b'[') => {
             // A top-level array is native or Zipkin, formats with no OTLP
             // filter tally, so the stats half is always None here.
-            let (events, ingest_stats) = ingest_json_or_exit(raw, limits::MAX_BATCH_INPUT_BYTES);
+            let (events, ingest_stats) =
+                ingest_json_or_exit(raw, limits::MAX_BATCH_INPUT_BYTES, config);
             fresh(pipeline::analyze_with_traces(events, config, ingest_stats))
         }
         Some(b'{') => {
@@ -1979,7 +1991,8 @@ fn load_report_from_input(
                 sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
                 return (report, Vec::new(), ReportOrigin::Precomputed);
             }
-            let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
+            let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
+                .with_grouping_attributes(grouping_keys(config));
             match ingest.ingest_with_stats(raw) {
                 Ok((events, ingest_stats)) => {
                     fresh(pipeline::analyze_with_traces(events, config, ingest_stats))
@@ -2196,10 +2209,10 @@ fn cmd_calibrate(
 ) {
     // Load (and so validate) --config even though calibrate only needs
     // the trace file: a broken config should fail loudly here too.
-    let _config = load_config(config_path);
+    let config = load_config(config_path);
     let raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
 
-    let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES, &config);
 
     // Cap the energy CSV size the same way `read_events` caps trace files.
     // A 10 GB CSV passed as `--measured-energy` would otherwise load
@@ -2359,7 +2372,8 @@ fn cmd_explain(
             .collect();
         sentinel_core::explain::build_tree(&trace, &findings)
     } else {
-        let (events, _ingest_stats) = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+        let (events, _ingest_stats) =
+            ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES, &config);
 
         let normalized = sentinel_core::normalize::normalize_all(events);
         let traces = sentinel_core::correlate::correlate(normalized);
@@ -2515,8 +2529,7 @@ mod tests {
             severity,
             trace_id: "trace-1".to_string(),
             service: "order-svc".to_string(),
-            service_namespace: None,
-            k8s_namespace: None,
+            grouping: Vec::new(),
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM t WHERE id = ?".to_string(),
