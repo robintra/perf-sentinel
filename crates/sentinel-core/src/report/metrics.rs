@@ -1382,17 +1382,14 @@ impl MetricsState {
 
     /// Render with HTTP content negotiation. Returns `(body, content_type)`.
     ///
-    /// Three-mode dispatch keyed on the client's `Accept` header:
+    /// Two-mode dispatch keyed on the client's `Accept` header:
     /// 1. Header contains `application/openmetrics-text` (Prometheus default,
     ///    explicit `OpenMetrics` request): emit `OpenMetrics` 1.0 always,
     ///    with the `# EOF` terminator and exemplar annotations when
     ///    exemplars exist.
-    /// 2. Header absent, `*/*`, or `*/*` mixed in (vmagent-style
-    ///    `text/plain;*/*;q=0.1`): legacy 0.5.15 behavior, `OpenMetrics`
-    ///    when `has_exemplars()`, plain `Prometheus` otherwise. Preserves
-    ///    vmagent and curl by default.
-    /// 3. Header refuses the wildcard and accepts only `text/plain`: plain
-    ///    `Prometheus` 0.0.4, no `# EOF`, no exemplar injection.
+    /// 2. Header absent or without an accepted explicit `OpenMetrics` media
+    ///    type: plain `Prometheus` 0.0.4, no `# EOF`, no exemplars. This
+    ///    includes wildcards and explicit `q=0` refusals.
     ///
     /// On any internal encoder failure returns
     /// `"# error encoding metrics\n"` with `text/plain` rather than panicking.
@@ -1563,7 +1560,7 @@ enum NegotiatedFormat {
 /// to the literal `application/openmetrics-text`. A hostile or unrelated
 /// token such as `application/openmetrics-text-evil` therefore does NOT
 /// trigger the `OpenMetrics` path. Tokens explicitly refused via `q=0`
-/// (or `q=0.0`) are skipped per RFC 7231 §5.3.1.
+/// (from `q=0` through `q=0.000`) are skipped per RFC 7231 §5.3.1.
 ///
 /// A `*/*` wildcard does NOT opt into exemplars. vmagent sends
 /// `text/plain;*/*;q=0.1` and does not parse them: on a metric with no
@@ -1580,10 +1577,7 @@ fn select_format(accept: Option<&str>) -> NegotiatedFormat {
         let token = token.trim();
         let mut parts = token.split(';');
         let media = parts.next().unwrap_or("").trim();
-        let refused = parts.any(|p| {
-            let p = p.trim();
-            p.eq_ignore_ascii_case("q=0") || p.eq_ignore_ascii_case("q=0.0")
-        });
+        let refused = parts.any(is_zero_quality_parameter);
         if refused {
             continue;
         }
@@ -1598,6 +1592,20 @@ fn select_format(accept: Option<&str>) -> NegotiatedFormat {
     } else {
         NegotiatedFormat::Plain
     }
+}
+
+fn is_zero_quality_parameter(parameter: &str) -> bool {
+    let Some((name, value)) = parameter.split_once('=') else {
+        return false;
+    };
+    if !name.trim().eq_ignore_ascii_case("q") {
+        return false;
+    }
+    let value = value.trim();
+    value == "0"
+        || value
+            .strip_prefix("0.")
+            .is_some_and(|fraction| fraction.len() <= 3 && fraction.bytes().all(|b| b == b'0'))
 }
 
 /// Extract the finding exemplar for a given `findings_total` metric line.
@@ -2086,9 +2094,9 @@ mod tests {
         );
     }
 
-    // Three-mode Accept negotiation tests. Strict OM-forced when the client
-    // requests OpenMetrics, legacy 0.5.15 behavior when no preference, plain
-    // strict when the client refuses the wildcard.
+    // Two-mode Accept negotiation tests. An explicit accepted OpenMetrics
+    // media type selects OM; every absent, wildcard or refused preference
+    // stays on plain Prometheus text.
 
     #[test]
     fn negotiate_returns_openmetrics_when_accept_header_explicitly_requests_it() {
@@ -2230,7 +2238,7 @@ mod tests {
 
     #[test]
     fn select_format_dispatches_correctly() {
-        // None → Legacy.
+        // No Accept header stays plain.
         assert_eq!(select_format(None), NegotiatedFormat::Plain);
         // Plain strict.
         assert_eq!(select_format(Some("text/plain")), NegotiatedFormat::Plain);
@@ -2281,6 +2289,14 @@ mod tests {
         );
         assert_eq!(
             select_format(Some("application/openmetrics-text;q=0.0,text/plain")),
+            NegotiatedFormat::Plain
+        );
+        assert_eq!(
+            select_format(Some("application/openmetrics-text;q=0.00,text/plain")),
+            NegotiatedFormat::Plain
+        );
+        assert_eq!(
+            select_format(Some("application/openmetrics-text;q=0.000,text/plain")),
             NegotiatedFormat::Plain
         );
     }
