@@ -5,11 +5,8 @@ v0.6.1	5c041bb	2026-05-09	PASS
 v0.7.1	0eeceb4	2026-05-15	PASS
 v0.7.2	1cdb2d0	2026-05-15	PASS
 v0.7.3	a8cd51d	2026-05-16	PASS
-# v0.7.4 PASS covers build, deploy and the 10-anti-pattern non-regression only.
-# The Kepler integration shipped dead-on-arrival (wrong metric names); the lab mock
-# mirrored the parser's wrong assumptions so it could not catch the bug. Real-Kepler
-# wire conformance was established 2026-05-23 by the upstream-wire-conformance CI
-# workflow against Kepler v0.11.4.
+# v0.7.4 PASS excludes Kepler: it shipped with wrong metric names and the lab mock
+# mirrored the same wrong assumption. Real-wire conformance came later, via CI.
 v0.7.4	c64c7b3	2026-05-21	PASS
 v0.7.5	4694046	2026-05-23	PASS
 v0.7.6	bb42e85	2026-05-23	PASS
@@ -17,13 +14,11 @@ v0.7.7	4a39375	2026-05-27	PASS
 v0.7.8	525541f	2026-05-28	PASS
 v0.8.0	05f5af4	2026-05-29	PASS
 v0.8.1	3da90a0	2026-05-30	PASS
-# v0.8.2 initial candidate (6cf4eab) FAILED verify-hash on untampered official
-# disclosures: content_hash drifted 1 ULP on JSON re-parse. Fixed at c84c1e4
-# (serde_json float_roundtrip), re-validated green end-to-end.
+# v0.8.2 candidate 6cf4eab first FAILED verify-hash: content_hash drifted 1 ULP on
+# JSON re-parse. Fixed by serde_json float_roundtrip, then re-validated green.
 v0.8.2	fa53b74	2026-06-05	PASS
 v0.8.3	c5948c6	2026-06-06	PASS
-# v0.8.4 was a maintenance image bump (no schema/config/API/metric change) and
-# was not gate-validated, so it has no ledger line.
+# v0.8.4 was a maintenance image bump, no schema/config/API/metric change: no line.
 v0.8.5	97a961b	2026-06-07	PASS
 v0.8.6	2cb3bd5	2026-06-08	PASS
 v0.8.7	777f5ff	2026-06-10	PASS
@@ -34,12 +29,9 @@ v0.9.2	7ddd1c2	2026-06-27	PASS
 v0.9.3	ee59473	2026-06-29	PASS
 v0.9.4	9417ce4	2026-07-01	PASS
 v0.9.5	f756744	2026-07-03	PASS
-# v0.9.5 f756744 (above) validated the release features (OTLP JSON batch, mysql-stat) on a
-# binary predating the memory-guard xhigh review. The 5 review fixes (657f88a..e9458e0)
-# materially changed the guard (working-set keying, three gated ingest doors, state gauge,
-# state-based alert), so the memory-pressure aspect was re-validated 2026-07-04 (all PASS,
-# M1-M4). The lab tree was unchanged (still f756744), so this line carries the product tip
-# 468bf99 (binary-identical to the tested e9458e0, docs-only on top) to disambiguate.
+# The v0.9.5 row above tested a binary predating the memory-guard review, whose fixes
+# materially changed the guard, so the memory-pressure legs were rerun. The lab tree was
+# unchanged, hence the row below carrying product tip 468bf99 to disambiguate.
 v0.9.5	468bf99	2026-07-04	PASS
 v0.9.6	ebb7354	2026-07-06	PASS
 v0.9.7	ad2c2d3	2026-07-10	PASS
@@ -51,71 +43,34 @@ v0.9.14	33e6a5d	2026-07-19	PASS
 v0.9.15	891af5e	2026-07-23	PASS
 v0.9.22	caf6e2c	2026-07-27	PASS
 v0.9.23	634f839	2026-07-29	PASS
-# v0.9.23 634f839 (above) validated 8d6847c8. A post-PASS adversarial review then found two
-# defects in the sibling producer-link resolution (the temporal guard judged the leaf instead
-# of the attributed ancestor, and the consumer index kept one receive per parent so payload
-# order decided the attribution), fixed in 0162e6bc. The targeted round 4 revalidated the
-# tagged revision c340424e: F1/F2 unchanged at 14/14 and 10/10, seven topology probes plus a
-# new payload-order invariance gate, replay corpora identical. Lab HEAD f9815c9 is the tree
-# that actually validated the tagged revision.
+# The v0.9.23 row above tested 8d6847c8. A later review found two defects in sibling
+# producer-link resolution, fixed in 0162e6bc, and round 4 revalidated the tagged
+# c340424e. The row below is the lab tree that actually attests the tagged revision.
 v0.9.23	f9815c9	2026-07-29	PASS
-# Scope note: the row above attests product revision c340424e. Commits after it on this branch
-# (messaging suggested fixes keyed by broker technology, the TUI suggested-fix line, and two
-# complexity-gate splits) were validated by CI and by inspecting the generated HTML and TUI
-# output rather than by a lab round, on the maintainer's call: they touch no ingest, energy or
-# disclosure path the lab legs exercise. The gate matches on version and date only, so this
-# note, not the gate, is what records the boundary.
+# Scope note: the row above attests c340424e. The later commits on that branch touch no
+# ingest, energy or disclosure path and were cleared by CI and inspection, not a lab round.
 v0.9.24	df70118	2026-07-31	PASS
-# Scope note: the row above attests product revision 57d2a2f9, the round-3 tree. The tagged
-# revision 07cb6c6c adds only the version bump on top of it: thirteen files, zero .rs, the
-# workspace and chart versions, the CI-template pins, the three changelog surfaces, and one
-# stale cross-reference in the GitHub Actions template. Round 3 closed the three round-2
-# defects (the published POM exporting nothing, refused requests reported as backpressure,
-# an orphaned grandchild on SIGTERM) and brought scenarios/java-ci-capture out of quarantine,
-# taking the gate from 60 to 61 scenarios. limit-saturation-curve stays red on the 256 MiB
-# container limit and fails identically on the published 0.9.23 image, so it is an environment
-# limit rather than a regression, confirmed by A/B against that image.
+# Scope note: the row above attests 57d2a2f9, the tagged 07cb6c6c adding only the version
+# bump. Round 3 closed the three round-2 defects and took the gate from 60 to 61 scenarios.
+# limit-saturation-curve stays red on the 256 MiB container limit, identically on 0.9.23,
+# so it is an environment limit rather than a regression.
 v0.9.25	eb90ceb	2026-08-02	PASS
-# v0.9.28 closed a total, silent ingest outage: the OTLP gRPC listener declared no accepted
-# encoding, so a collector left at its defaults (gzip) had every batch dropped on a
-# non-retryable Unimplemented while the pod stayed ready and every counter stayed at zero.
-# The lab had never caught it because it had a gRPC path and a compressed path but never
-# both at once: its only exporter to the daemon was otlphttp, and the two gRPC producers
-# sent uncompressed. Not a compression: none workaround, which had been removed months
-# earlier. Closed by a 67th scenario, otlp-compression-matrix, plus a --compression flag on
-# tracegen. Every verdict carries an A/B against the published 0.9.26 image: gzip gRPC
-# ingests 360 spans where 0.9.26 drops 360, reproduced in-cluster with the lab collector
-# repinned to :14317 (357 spans and 20 findings against 0, and 17 Permanent error lines).
-# The capture concurrency bounds added in this release throttle nothing: 15/15 on both
-# binaries with a byte-identical span census, the two reports differing only on a pid and
-# on machine noise. Scope was deliberately narrowed to 37 of 67 scenarios after auditing
-# the 23 dependency bumps: only syn crosses a semver boundary and it is a compile-time
-# proc-macro parser that never reaches the binary, leaving regex 1.13.1 match offsets as
-# the sole runtime risk, which the 32 targeted scenarios cover. This is a narrowing of the
-# gate, not a coverage regression against the 61 scenarios of v0.9.25. Two limits stated
-# rather than buried: limit-saturation-curve stays red on the 256 MiB container limit and
-# OOMs at the same point on 0.9.26 (194 MiB, 340 s) as on 0.9.28 (188 MiB, 330 s), an
-# environment limit confirmed by A/B, and the decompression amplification corner (a small
-# frame expanding toward the 16 MiB max_payload_size ceiling) is NOT exercised by that
-# ramp, which batches 50 traces per export. memory_high_water_pct remains 0 by default.
+# v0.9.28 closed a silent ingest outage: the OTLP gRPC listener accepted no encoding, so a
+# collector left at its gzip default had every batch dropped while the pod stayed ready and
+# every counter stayed at zero. The lab had a gRPC path and a compressed path but never both
+# at once, hence the new otlp-compression-matrix scenario, every verdict A/B'd against the
+# published 0.9.26 image. Scope was narrowed to 37 of 67 scenarios after auditing the
+# dependency bumps. Two limits stated rather than buried: limit-saturation-curve stays red on
+# the 256 MiB container limit and OOMs at the same point on both images, an environment limit
+# confirmed by A/B, and the decompression amplification corner is not exercised by that ramp.
 v0.9.28	0aba69d	2026-08-04	PASS
-# v0.9.28 delta on the batch acknowledgment path, complements the 0aba69d line above.
-# Product 55410d48 (the three commits through 4ec50b5a are docs-only), lab scenario
-# ack-lifecycle-warning, 68th. Covers the full ack life cycle on real artefacts: an
-# active entry suppressing a finding stays silent, a fixed one reports as removable
-# naming its endpoint, an unexercised one refuses to conclude, and an entry without
-# service/source_endpoint keeps both readings. The unexercised leg keeps the service
-# busy on OTHER endpoints on purpose, so a check keyed on the service rather than on
-# the (service, endpoint) pair would fail it. The blocking guard is that no warning is
-# derived from a pre-computed report: verified on a replayed analyze JSON and on a
-# non-empty daemon /api/export/report snapshot, the first capture being empty and
-# discarded rather than passing the guard vacuously. A positive control is committed
-# beside both silence checks for the same reason. Against 0.9.26 the scenario fails 5
-# legs including that control, so it cannot go green on a version lacking the feature.
-# Found outside the delta and identical on 0.9.26, therefore not a regression: a
-# ConfigMap-mounted ack TOML crashes the daemon at startup, since a ConfigMap projects
-# its keys as symlinks and the loader refuses to follow one. Fixed on this branch by
-# printing the error source chain, and documented as a subPath mount in HELM-DEPLOYMENT.
+# v0.9.28 delta on the batch acknowledgment path, complementing the row above. The 68th
+# scenario, ack-lifecycle-warning, covers the full ack life cycle on real artefacts, its
+# blocking guard being that no warning is ever derived from a pre-computed report. Against
+# 0.9.26 it fails 5 legs, so it cannot go green on a version lacking the feature. Found
+# outside the delta and identical on 0.9.26, therefore not a regression: a ConfigMap-mounted
+# ack TOML crashed the daemon at startup (projected keys are symlinks, which the loader
+# refuses), fixed on this branch and documented as a subPath mount in HELM-DEPLOYMENT.
 v0.9.28	52a3ea3	2026-08-04	PASS
 # v0.10.0 ran a scoped validation, not the full scenario sweep: every surface the
 # release touches was covered, so the rest was not needed.
