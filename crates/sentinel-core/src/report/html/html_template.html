@@ -4327,12 +4327,14 @@
 
   function findRealFindingForCorrelation(endpoint) {
     var sameKind = findings.filter(function (f) {
+      // Compared both ways: an endpoint with no grouping must not match a
+      // grouped finding either, else an ungrouped correlation side links to
+      // whichever deployment happens to share its service.
+      var sameGrouping = findingNamespace(f) === (endpoint.namespace || "") &&
+        (!endpoint.grouping_key || findingGroupingKey(f) === endpoint.grouping_key);
       return (f.type || f.finding_type) === endpoint.finding_type &&
         f.service === endpoint.service &&
-        (!endpoint.namespace || (
-          findingNamespace(f) === endpoint.namespace &&
-          (!endpoint.grouping_key || findingGroupingKey(f) === endpoint.grouping_key)
-        ));
+        sameGrouping;
     });
     var exact = sameKind.filter(function (f) {
       return ((f.pattern && f.pattern.template) || "") === (endpoint.template || "");
