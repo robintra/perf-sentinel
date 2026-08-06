@@ -69,6 +69,8 @@ fn fanout_impl<'a>(
             || trace.spans[child_indices[0]].event.source.endpoint.clone(),
             |s| s.event.source.endpoint.clone(),
         );
+        let namespace_event =
+            parent_span.map_or(&trace.spans[child_indices[0]].event, |span| &span.event);
 
         // Compute window from children timestamps in one pass (no intermediate Vec)
         let (window_ms, first_ts, last_ts) =
@@ -98,6 +100,11 @@ fn fanout_impl<'a>(
                 severity,
                 trace_id: trace.trace_id.clone(),
                 service,
+                service_namespace: namespace_event
+                    .service_namespace
+                    .as_deref()
+                    .map(String::from),
+                k8s_namespace: namespace_event.k8s_namespace.as_deref().map(String::from),
                 source_endpoint: endpoint,
                 pattern: Pattern {
                     template,

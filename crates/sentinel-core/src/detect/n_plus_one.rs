@@ -352,6 +352,8 @@ pub(crate) fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::event::SpanEvent;
     use crate::test_helpers::{
@@ -371,6 +373,21 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 6);
         assert_eq!(findings[0].pattern.distinct_params, 6);
         assert!(findings[0].suggestion.contains("batch"));
+    }
+
+    #[test]
+    fn finding_carries_both_namespaces_from_the_representative_span() {
+        let mut events = crate::test_helpers::make_n_plus_one_events();
+        for event in &mut events {
+            event.service_namespace = Some(Arc::from("payments"));
+            event.k8s_namespace = Some(Arc::from("prod-eu"));
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::default());
+
+        assert_eq!(findings[0].service_namespace.as_deref(), Some("payments"));
+        assert_eq!(findings[0].k8s_namespace.as_deref(), Some("prod-eu"));
     }
 
     #[test]

@@ -309,6 +309,7 @@ fn evaluate_sequence(
         || first_child.event.service.to_string(),
         |s| s.event.service.to_string(),
     );
+    let namespace_event = parent_span.map_or(&first_child.event, |span| &span.event);
 
     let count = seq.len();
 
@@ -323,6 +324,11 @@ fn evaluate_sequence(
         severity: Severity::Info,
         trace_id: trace.trace_id.clone(),
         service,
+        service_namespace: namespace_event
+            .service_namespace
+            .as_deref()
+            .map(String::from),
+        k8s_namespace: namespace_event.k8s_namespace.as_deref().map(String::from),
         source_endpoint: parent_endpoint,
         pattern: Pattern {
             template,

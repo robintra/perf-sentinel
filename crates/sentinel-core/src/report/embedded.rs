@@ -12,8 +12,8 @@ use crate::event::EventType;
 use crate::normalize::NormalizedEvent;
 
 /// One trace's spans, in the masked form the dashboard renders.
-/// `#[non_exhaustive]` so an added field (a span timestamp is the
-/// obvious next one) stays a minor bump for downstream crates.
+/// `#[non_exhaustive]` so an added field stays a minor bump for downstream
+/// crates.
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmbeddedTrace {
@@ -49,6 +49,8 @@ impl EmbeddedTrace {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmbeddedSpan {
     pub span_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub timestamp: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_span_id: Option<String>,
     pub service: String,
@@ -70,6 +72,7 @@ impl EmbeddedSpan {
     pub fn from_event(event: &NormalizedEvent) -> Self {
         Self {
             span_id: event.event.span_id.clone(),
+            timestamp: event.event.timestamp.clone(),
             parent_span_id: event.event.parent_span_id.clone(),
             service: event.event.service.to_string(),
             endpoint: event.event.source.endpoint.clone(),
@@ -86,12 +89,14 @@ impl EmbeddedSpan {
     fn to_normalized(&self) -> NormalizedEvent {
         NormalizedEvent {
             event: crate::event::SpanEvent {
-                timestamp: String::new(),
+                timestamp: self.timestamp.clone(),
                 trace_id: String::new(),
                 span_id: self.span_id.clone(),
                 parent_span_id: self.parent_span_id.clone(),
                 link_trace_id: None,
                 service: self.service.as_str().into(),
+                service_namespace: None,
+                k8s_namespace: None,
                 cloud_region: None,
                 event_type: self.event_type.clone(),
                 operation: self.operation.clone(),
@@ -129,6 +134,8 @@ mod tests {
                 parent_span_id: None,
                 link_trace_id: None,
                 service: "svc".into(),
+                service_namespace: None,
+                k8s_namespace: None,
                 cloud_region: None,
                 event_type: EventType::Sql,
                 operation: "SELECT".to_string(),
@@ -180,6 +187,7 @@ mod tests {
         assert_eq!(back.spans.len(), 1);
         let span = &back.spans[0];
         assert_eq!(span.event.span_id, "s1");
+        assert_eq!(span.event.timestamp, "2025-07-10T14:32:01.123Z");
         assert_eq!(span.event.duration_us, 1_200);
         assert_eq!(
             span.event.target, "select * from users where email = ?",
@@ -189,6 +197,17 @@ mod tests {
             span.template.as_ref(),
             "select * from users where email = ?"
         );
+    }
+
+    #[test]
+    fn embedded_span_without_timestamp_remains_backward_compatible() {
+        let span = EmbeddedSpan::from_event(&event("s1", "raw", "tpl"));
+        let mut value = serde_json::to_value(span).unwrap();
+        value.as_object_mut().unwrap().remove("timestamp");
+
+        let back: EmbeddedSpan = serde_json::from_value(value).unwrap();
+
+        assert!(back.timestamp.is_empty());
     }
 
     #[test]

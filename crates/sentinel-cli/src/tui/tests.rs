@@ -9,6 +9,8 @@ fn make_test_app() -> App {
             severity: Severity::Critical,
             trace_id: "trace-1".to_string(),
             service: "order-svc".to_string(),
+            service_namespace: None,
+            k8s_namespace: None,
             source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
@@ -37,6 +39,8 @@ fn make_test_app() -> App {
             severity: Severity::Warning,
             trace_id: "trace-2".to_string(),
             service: "user-svc".to_string(),
+            service_namespace: None,
+            k8s_namespace: None,
             source_endpoint: "GET /api/users/123".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM config WHERE key = ?".to_string(),

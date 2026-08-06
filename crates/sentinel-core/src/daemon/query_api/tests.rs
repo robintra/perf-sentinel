@@ -405,6 +405,8 @@ async fn handle_export_report_carries_the_retained_span_trees() {
             parent_span_id: None,
             link_trace_id: None,
             service: "order-svc".into(),
+            service_namespace: None,
+            k8s_namespace: None,
             cloud_region: None,
             event_type: crate::event::EventType::Sql,
             operation: "SELECT".to_string(),

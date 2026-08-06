@@ -226,6 +226,8 @@ fn convert_zipkin_span(
         .as_ref()
         .and_then(|ep| ep.service_name.as_deref())
         .map_or_else(|| Arc::from(""), Arc::from);
+    let service_namespace = get_tag("service.namespace").map(Arc::from);
+    let k8s_namespace = get_tag("k8s.namespace.name").map(Arc::from);
 
     let timestamp = span.timestamp.unwrap_or(0);
     let duration_us = span.duration.unwrap_or(0);
@@ -278,6 +280,8 @@ fn convert_zipkin_span(
         // Zipkin v2 has no span links.
         link_trace_id: None,
         service,
+        service_namespace,
+        k8s_namespace,
         // Zipkin endpoint metadata does not carry cloud region. Users
         // wanting multi-region scoring with Zipkin ingestion should set
         // [green.service_regions] in the config to map service -> region.
@@ -347,6 +351,30 @@ mod tests {
                 }
             }
         ]"#
+    }
+
+    #[test]
+    fn namespaces_are_extracted_from_span_tags() {
+        let json = r#"[{
+            "traceId": "t1",
+            "id": "s1",
+            "name": "query",
+            "timestamp": 1720621921123000,
+            "duration": 1200,
+            "localEndpoint": { "serviceName": "svc" },
+            "tags": {
+                "db.statement": "SELECT 1",
+                "service.namespace": "payments",
+                "k8s.namespace.name": "prod-eu"
+            }
+        }]"#;
+
+        let events = ZipkinIngest::new(64 * 1024)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events[0].service_namespace.as_deref(), Some("payments"));
+        assert_eq!(events[0].k8s_namespace.as_deref(), Some("prod-eu"));
     }
 
     #[test]

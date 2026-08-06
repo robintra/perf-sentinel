@@ -108,7 +108,11 @@ struct JaegerReference {
 #[serde(rename_all = "camelCase")]
 struct JaegerProcess {
     service_name: String,
+    #[serde(default)]
+    tags: Vec<JaegerTag>,
 }
+
+type ProcessMetadata = (Arc<str>, Option<Arc<str>>, Option<Arc<str>>);
 
 #[derive(Deserialize)]
 struct JaegerTag {
@@ -125,10 +129,19 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
         // Build the per-process Arc<str> once per trace, then Arc::clone
         // into each span. A trace routinely has hundreds of spans sharing
         // the same processID, so this collapses N allocations to one.
-        let service_arcs: HashMap<&str, Arc<str>> = trace
+        let process_metadata: HashMap<&str, ProcessMetadata> = trace
             .processes
             .iter()
-            .map(|(pid, p)| (pid.as_str(), Arc::from(p.service_name.as_str())))
+            .map(|(pid, process)| {
+                (
+                    pid.as_str(),
+                    (
+                        Arc::from(process.service_name.as_str()),
+                        find_tag(&process.tags, "service.namespace").map(Arc::from),
+                        find_tag(&process.tags, "k8s.namespace.name").map(Arc::from),
+                    ),
+                )
+            })
             .collect();
         // Span index for the ancestor walk, per trace.
         let span_index: HashMap<&str, &JaegerSpan> = trace
@@ -139,7 +152,7 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
             .collect();
         for span in &trace.spans {
             if let Some(event) =
-                convert_jaeger_span(span, &trace.trace_id, &service_arcs, &span_index)
+                convert_jaeger_span(span, &trace.trace_id, &process_metadata, &span_index)
             {
                 events.push(event);
             }
@@ -223,7 +236,7 @@ fn resolve_source_endpoint(
 fn convert_jaeger_span(
     span: &JaegerSpan,
     trace_id: &str,
-    service_arcs: &HashMap<&str, Arc<str>>,
+    process_metadata: &HashMap<&str, ProcessMetadata>,
     span_index: &HashMap<&str, &JaegerSpan>,
 ) -> Option<SpanEvent> {
     let tags = &span.tags;
@@ -263,9 +276,14 @@ fn convert_jaeger_span(
     };
 
     // Service name from the per-trace Arc cache, cloned (O(1)) per span.
-    let service: Arc<str> = service_arcs
-        .get(span.process_id.as_str())
-        .map_or_else(|| Arc::from(""), Arc::clone);
+    let process = process_metadata.get(span.process_id.as_str());
+    let service: Arc<str> = process.map_or_else(|| Arc::from(""), |m| Arc::clone(&m.0));
+    let service_namespace = process
+        .and_then(|metadata| metadata.1.clone())
+        .or_else(|| find_tag(tags, "service.namespace").map(Arc::from));
+    let k8s_namespace = process
+        .and_then(|metadata| metadata.2.clone())
+        .or_else(|| find_tag(tags, "k8s.namespace.name").map(Arc::from));
 
     // Parent span ID from CHILD_OF reference
     let parent_span_id = child_of(span).map(ToString::to_string);
@@ -319,6 +337,8 @@ fn convert_jaeger_span(
         link_trace_id: None,
         parent_span_id,
         service,
+        service_namespace,
+        k8s_namespace,
         // Jaeger process tags do not carry cloud region. Users wanting
         // multi-region scoring with Jaeger ingestion should set
         // [green.service_regions] in the config to map service -> region.
@@ -402,6 +422,38 @@ mod tests {
                 }
             }]
         }"#
+    }
+
+    #[test]
+    fn namespaces_are_extracted_from_process_tags() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "query",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 1200,
+                    "processID": "p1",
+                    "tags": [{ "key": "db.statement", "value": "SELECT 1" }]
+                }],
+                "processes": { "p1": {
+                    "serviceName": "svc",
+                    "tags": [
+                        { "key": "service.namespace", "value": "payments" },
+                        { "key": "k8s.namespace.name", "value": "prod-eu" }
+                    ]
+                }}
+            }]
+        }"#;
+
+        let events = JaegerIngest::new(64 * 1024)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events[0].service_namespace.as_deref(), Some("payments"));
+        assert_eq!(events[0].k8s_namespace.as_deref(), Some("prod-eu"));
     }
 
     #[test]

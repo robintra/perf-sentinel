@@ -317,6 +317,8 @@ mod tests {
             severity: sev,
             trace_id: "trace-1".to_string(),
             service: service.to_string(),
+            service_namespace: None,
+            k8s_namespace: None,
             source_endpoint: endpoint.to_string(),
             pattern: Pattern {
                 template: template.to_string(),

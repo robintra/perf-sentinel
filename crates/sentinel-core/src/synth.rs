@@ -233,6 +233,8 @@ impl TraceCtx {
             parent_span_id: None,
             link_trace_id: None,
             service: Arc::clone(&self.service),
+            service_namespace: None,
+            k8s_namespace: None,
             cloud_region: Some(Arc::clone(&self.region)),
             event_type,
             operation: operation.to_string(),

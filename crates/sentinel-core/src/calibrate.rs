@@ -512,6 +512,8 @@ mod tests {
             parent_span_id: None,
             link_trace_id: None,
             service: Arc::from(service),
+            service_namespace: None,
+            k8s_namespace: None,
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),

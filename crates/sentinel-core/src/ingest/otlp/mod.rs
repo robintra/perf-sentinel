@@ -1411,6 +1411,16 @@ fn convert_resource_spans<'a>(
     // A resource_spans block routinely carries hundreds of spans for the
     // same service.name, so this collapses N allocations to one.
     let service_arc: Arc<str> = Arc::from(resource_service_name(resource_spans));
+    let service_namespace: Option<Arc<str>> = resource_spans
+        .resource
+        .as_ref()
+        .and_then(|r| get_str_attribute(&r.attributes, "service.namespace"))
+        .map(Arc::from);
+    let k8s_namespace: Option<Arc<str>> = resource_spans
+        .resource
+        .as_ref()
+        .and_then(|r| get_str_attribute(&r.attributes, "k8s.namespace.name"))
+        .map(Arc::from);
 
     // cloud.region: resource-level with span-level fallback in convert_span.
     // Invalid values silently dropped (sanitization at ingest boundary).
@@ -1442,6 +1452,8 @@ fn convert_resource_spans<'a>(
             match convert_span(
                 span,
                 &service_arc,
+                service_namespace.as_ref(),
+                k8s_namespace.as_ref(),
                 resource_cloud_region.as_ref(),
                 span_index,
                 &scope_index,
@@ -1628,6 +1640,8 @@ fn rebuilt_classified<'a>(
 fn convert_span<'a>(
     span: &'a Span,
     service_arc: &Arc<str>,
+    service_namespace: Option<&Arc<str>>,
+    k8s_namespace: Option<&Arc<str>>,
     resource_cloud_region: Option<&Arc<str>>,
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
@@ -1736,6 +1750,8 @@ fn convert_span<'a>(
         parent_span_id,
         link_trace_id,
         service: Arc::clone(service_arc),
+        service_namespace: service_namespace.cloned(),
+        k8s_namespace: k8s_namespace.cloned(),
         cloud_region,
         event_type,
         operation,

@@ -643,6 +643,8 @@ mod tests {
             severity: crate::detect::Severity::Warning,
             trace_id: format!("trace-{service}"),
             service: service.to_string(),
+            service_namespace: None,
+            k8s_namespace: None,
             source_endpoint: "POST /api/test".to_string(),
             pattern: crate::detect::Pattern {
                 template: template.to_string(),

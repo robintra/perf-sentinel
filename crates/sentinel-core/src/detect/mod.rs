@@ -72,6 +72,12 @@ pub struct Finding {
     pub trace_id: String,
     /// Name of the service emitting the spans involved in the finding.
     pub service: String,
+    /// Logical service namespace from `service.namespace`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_namespace: Option<String>,
+    /// Kubernetes namespace from `k8s.namespace.name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k8s_namespace: Option<String>,
     /// Normalized inbound endpoint (route template) hosting the pattern.
     pub source_endpoint: String,
     /// Details of the matched pattern: template, occurrences, window, params.
@@ -561,6 +567,18 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         severity: args.severity,
         trace_id: args.trace_id.to_string(),
         service: args.first_span.event.service.to_string(),
+        service_namespace: args
+            .first_span
+            .event
+            .service_namespace
+            .as_deref()
+            .map(String::from),
+        k8s_namespace: args
+            .first_span
+            .event
+            .k8s_namespace
+            .as_deref()
+            .map(String::from),
         source_endpoint: args.first_span.event.source.endpoint.clone(),
         pattern: Pattern {
             template: args.template.to_string(),
@@ -696,6 +714,8 @@ pub(crate) fn test_finding_with_template(template: &str) -> Finding {
         severity: Severity::Warning,
         trace_id: "trace-1".to_string(),
         service: "order-svc".to_string(),
+        service_namespace: None,
+        k8s_namespace: None,
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: template.to_string(),
