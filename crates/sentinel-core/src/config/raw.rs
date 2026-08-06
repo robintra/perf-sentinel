@@ -371,9 +371,21 @@ impl From<RawConfig> for Config {
                 grouping_attributes: raw.detection.grouping_attributes.map_or_else(
                     || detection_defaults.grouping_attributes.clone(),
                     |attrs| {
-                        attrs
+                        let kept: Vec<String> = attrs
                             .into_iter()
                             .filter(|a| !a.trim().is_empty())
+                            .collect();
+                        if kept.len() > super::MAX_GROUPING_ATTRIBUTES {
+                            // Silence here would read as "my attribute is
+                            // never present" rather than "it was dropped".
+                            tracing::warn!(
+                                cap = super::MAX_GROUPING_ATTRIBUTES,
+                                configured = kept.len(),
+                                dropped = ?kept[super::MAX_GROUPING_ATTRIBUTES..],
+                                "[detection] grouping_attributes exceeds the cap, extra entries ignored"
+                            );
+                        }
+                        kept.into_iter()
                             .take(super::MAX_GROUPING_ATTRIBUTES)
                             .collect()
                     },
