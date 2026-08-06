@@ -86,6 +86,7 @@ pub fn analyze_with_traces(
     );
     let warning_details = skipped_usable_span_rule_warning(&config.thresholds, ingest.as_ref())
         .into_iter()
+        .chain(daemon_only_green_backend_warning(&config.green))
         .collect();
 
     let report = Report {
@@ -144,6 +145,42 @@ fn skipped_usable_span_rule_warning(
         crate::report::warnings::TUNING,
         format!(
             "min_usable_span_ratio = {threshold} was not evaluated: {cause}. The quality gate says nothing about instrumentation quality for this run."
+        ),
+    ))
+}
+
+/// A green backend configured in the TOML that a batch run can never reach:
+/// `analyze` starts no scraper, so the section is read and ignored. Only
+/// compile-time table names are interpolated, so `Warning::new` is enough.
+fn daemon_only_green_backend_warning(
+    green: &crate::config::GreenConfig,
+) -> Option<crate::report::Warning> {
+    if !green.enabled {
+        return None;
+    }
+    let configured: Vec<&str> = [
+        ("[green.alumet]", green.alumet.is_some()),
+        ("[green.scaphandre]", green.scaphandre.is_some()),
+        ("[green.kepler]", green.kepler.is_some()),
+        ("[green.redfish]", green.redfish.is_some()),
+        ("[green.cloud_energy]", green.cloud_energy.is_some()),
+        ("[green.broker_static]", green.broker_static.is_some()),
+        ("[green.electricity_maps]", green.electricity_maps.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, set)| set.then_some(name))
+    .collect();
+    if configured.is_empty() {
+        return None;
+    }
+    Some(crate::report::Warning::new(
+        crate::report::warnings::TUNING,
+        format!(
+            "{} configured but this is a batch run: `analyze` starts no scraper, \
+             so neither measured energy nor real-time grid intensity reached the \
+             score. Every carbon figure here is the I/O proxy estimate over \
+             embedded intensity data. Run `perf-sentinel watch` for measured figures.",
+            configured.join(", ")
         ),
     ))
 }
@@ -414,6 +451,66 @@ mod tests {
             "{}",
             warning.message
         );
+    }
+
+    /// A configured backend that batch cannot scrape must say so: the run
+    /// silently produces estimated figures where the operator expected
+    /// measured ones. Built through the real TOML path rather than by hand,
+    /// so the test breaks if a backend key is renamed.
+    #[test]
+    fn configured_energy_backend_in_batch_emits_a_tuning_warning() {
+        let config = crate::config::load_from_str(
+            "[green]\nenabled = true\n\n[green.scaphandre]\nendpoint = \"http://127.0.0.1:8080/metrics\"\n",
+        )
+        .unwrap();
+
+        let report = analyze(vec![], &config);
+
+        assert_eq!(
+            report.warning_details.len(),
+            1,
+            "{:?}",
+            report.warning_details
+        );
+        let warning = &report.warning_details[0];
+        assert_eq!(warning.kind, crate::report::warnings::TUNING);
+        assert!(
+            warning.message.contains("[green.scaphandre]"),
+            "{warning:?}"
+        );
+        assert!(warning.message.contains("watch"), "{warning:?}");
+    }
+
+    /// One cause, one entry: the remedy is the same for every backend, so
+    /// two configured backends must not produce two lines.
+    #[test]
+    fn several_configured_backends_produce_one_warning() {
+        let config = crate::config::load_from_str(
+            "[green]\nenabled = true\n\n\
+             [green.scaphandre]\nendpoint = \"http://127.0.0.1:8080/metrics\"\n\n\
+             [green.electricity_maps]\napi_key = \"k\"\n\n\
+             [green.electricity_maps.region_map]\n\"eu-west-3\" = \"FR\"\n",
+        )
+        .unwrap();
+
+        let report = analyze(vec![], &config);
+
+        assert_eq!(report.warning_details.len(), 1);
+        let message = &report.warning_details[0].message;
+        assert!(message.contains("[green.scaphandre]"), "{message}");
+        assert!(message.contains("[green.electricity_maps]"), "{message}");
+    }
+
+    /// Green off means the whole scoring pass is skipped, so the backend was
+    /// already inert for a more obvious reason.
+    #[test]
+    fn green_disabled_does_not_warn_about_backends() {
+        let config = crate::config::load_from_str(
+            "[green]\nenabled = false\n\n[green.scaphandre]\nendpoint = \"http://127.0.0.1:8080/metrics\"\n",
+        )
+        .unwrap();
+
+        assert!(analyze(vec![], &config).warning_details.is_empty());
     }
 
     #[test]
