@@ -20,19 +20,26 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
     let threshold_us = threshold_ms.saturating_mul(1000);
     let min_occ = min_occurrences as usize;
 
-    let mut groups: HashMap<(&EventType, &str), Vec<usize>> =
+    let mut groups: HashMap<(&EventType, &str, Option<&str>), Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.duration_us > threshold_us {
+            // Same partition as `detect_slow_cross_trace`: one trace can
+            // cross two deployments, and merging them attributes every
+            // occurrence to whichever span happened to come first.
             groups
-                .entry((&span.event.event_type, &span.template))
+                .entry((
+                    &span.event.event_type,
+                    &span.template,
+                    span.event.grouping_value(),
+                ))
                 .or_default()
                 .push(i);
         }
     }
 
     let mut findings = Vec::new();
-    for ((event_type, template), indices) in &groups {
+    for ((event_type, template, _grouping), indices) in &groups {
         if indices.len() < min_occ {
             continue;
         }
@@ -610,6 +617,41 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert!(findings[0].suggestion.contains("Cross-trace"));
         assert!(findings[0].suggestion.contains("p50="));
+    }
+
+    /// One trace can cross two deployments. Merging them would attribute
+    /// every occurrence to whichever span came first, and the HTML culprit
+    /// filter would then light up only half of them.
+    #[test]
+    fn per_trace_keeps_groupings_separate_inside_one_trace() {
+        let mut events = Vec::new();
+        for (i, namespace) in ["frontend", "backend"].into_iter().enumerate() {
+            for j in 0..3 {
+                let mut event = make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{namespace}-{j}"),
+                    "SELECT * FROM shared_table WHERE id = 1",
+                    &format!("2025-07-10T14:32:0{}.000Z", i * 3 + j),
+                    600_000,
+                );
+                event.grouping = crate::test_helpers::k8s_grouping(namespace);
+                events.push(event);
+            }
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_slow(&trace, 500, 3);
+
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        assert!(
+            findings.iter().all(|f| f.pattern.occurrences == 3),
+            "neither deployment may absorb the other's occurrences: {findings:#?}"
+        );
+        let groupings: HashSet<&str> = findings
+            .iter()
+            .filter_map(Finding::grouping_value)
+            .collect();
+        assert_eq!(groupings, HashSet::from(["frontend", "backend"]));
     }
 
     #[test]
