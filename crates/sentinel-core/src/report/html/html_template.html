@@ -1397,18 +1397,29 @@
     cell.appendChild(v);
     return cell;
   }
-  // One operator-facing namespace while preserving both raw dimensions in
-  // the detail and exports. Kubernetes is the deployment boundary when it is
-  // present; service.namespace is the portable fallback.
+  function findingGrouping(f) {
+    return f.grouping && f.grouping[0] || null;
+  }
   function findingNamespace(f) {
-    var g = f.grouping && f.grouping[0];
+    var g = findingGrouping(f);
     return g ? g.value : "";
   }
   // Label for the grouping chips and rows: the attribute that decided the
   // identity, so `tenant.id=byec` never reads as a namespace.
   function findingGroupingKey(f) {
-    var g = f.grouping && f.grouping[0];
+    var g = findingGrouping(f);
     return g ? g.key : "";
+  }
+  function findingGroupingIdentity(f) {
+    var g = findingGrouping(f);
+    if (!g) return "";
+    var encoder = new TextEncoder();
+    return encoder.encode(g.key).length + ":" + g.key + "|" +
+      encoder.encode(g.value).length + ":" + g.value;
+  }
+  function findingGroupingLabel(f) {
+    var g = findingGrouping(f);
+    return g ? g.key + "=" + g.value : "";
   }
   // Builds a severity pill carrying the [data-sev] attribute.
   function sevPill(severity, cls) {
@@ -2265,7 +2276,7 @@
       filterState.severity = null;
       filterState.service = null;
       filterState.type = null;
-      filterState.namespace = null;
+      filterState.grouping = null;
       syncFilterChips();
       if (findingHiddenByAck(f)) {
         var toggle = document.getElementById("findings-include-acked");
@@ -2357,7 +2368,7 @@
   }
 
   // -------- filters --------
-  var filterState = { severity: null, service: null, type: null, namespace: null };
+  var filterState = { severity: null, service: null, type: null, grouping: null };
   // Findings-list sort: one primary key with a direction, the other
   // axis as an automatic descending tie-break. "severity" ranks the
   // single worst detection, "impact" ranks the signature's aggregate
@@ -2438,28 +2449,25 @@
       appendChip(typeGroup, typeLabel(type), "type:" + type, "button", "aria-pressed");
     });
 
-    var namespaceGroup = el("span", "ps-chip-group", null);
-    setAttr(namespaceGroup, "role", "group");
-    // The attribute name is operator config, so the group is labelled by
-    // what it actually groups on rather than a hardcoded "namespace".
-    var groupingKeys = Object.create(null);
-    var namespaces = Object.create(null);
+    var groupingGroup = el("span", "ps-chip-group", null);
+    setAttr(groupingGroup, "role", "group");
+    setAttr(groupingGroup, "aria-label", "Finding grouping");
+    var groupings = Object.create(null);
     findings.forEach(function (f) {
-      var namespace = findingNamespace(f);
-      if (namespace) {
-        namespaces[namespace] = true;
-        groupingKeys[findingGroupingKey(f)] = true;
-      }
+      var identity = findingGroupingIdentity(f);
+      if (identity) groupings[identity] = findingGroupingLabel(f);
     });
-    var keyNames = Object.keys(groupingKeys).sort();
-    setAttr(
-      namespaceGroup,
-      "aria-label",
-      keyNames.length === 1 ? "Finding " + keyNames[0] : "Finding grouping"
-    );
-    root.appendChild(namespaceGroup);
-    Object.keys(namespaces).sort().forEach(function (namespace) {
-      appendChip(namespaceGroup, namespace, "ns:" + namespace, "button", "aria-pressed");
+    root.appendChild(groupingGroup);
+    Object.keys(groupings).sort(function (a, b) {
+      return groupings[a].localeCompare(groupings[b]);
+    }).forEach(function (identity) {
+      appendChip(
+        groupingGroup,
+        groupings[identity],
+        "group:" + identity,
+        "button",
+        "aria-pressed"
+      );
     });
 
     var sortGroup = el("span", "ps-chip-group ps-sort-group", null);
@@ -2512,7 +2520,7 @@
       filterState.severity = null;
       filterState.service = null;
       filterState.type = null;
-      filterState.namespace = null;
+      filterState.grouping = null;
     } else if (key.startsWith("sev:")) {
       var sv = key.slice(4);
       filterState.severity = filterState.severity === sv ? null : sv;
@@ -2522,9 +2530,9 @@
     } else if (key.startsWith("type:")) {
       var type = key.slice(5);
       filterState.type = filterState.type === type ? null : type;
-    } else if (key.startsWith("ns:")) {
-      var namespace = key.slice(3);
-      filterState.namespace = filterState.namespace === namespace ? null : namespace;
+    } else if (key.startsWith("group:")) {
+      var grouping = key.slice(6);
+      filterState.grouping = filterState.grouping === grouping ? null : grouping;
     }
     syncFilterChips();
     resetShownCount();
@@ -2533,7 +2541,7 @@
   }
   function syncFilterChips() {
     var anyActive = !!(
-      filterState.severity || filterState.service || filterState.type || filterState.namespace
+      filterState.severity || filterState.service || filterState.type || filterState.grouping
     );
     document.querySelectorAll("#findings-filters .ps-chip").forEach(function (chip) {
       // Sort chips share the look but not the filter state machine.
@@ -2544,7 +2552,7 @@
       else if (key === "sev:" + filterState.severity) active = true;
       else if (key === "svc:" + filterState.service) active = true;
       else if (key === "type:" + filterState.type) active = true;
-      else if (key === "ns:" + filterState.namespace) active = true;
+      else if (key === "group:" + filterState.grouping) active = true;
       chip.classList.toggle("active", active);
       // Severity chips and "All" are radio-role, service chips are
       // toggle buttons. Pick the right ARIA state attribute per chip.
@@ -2591,7 +2599,7 @@
 
   function anyFindingsFilterActive() {
     if (filterState.severity || filterState.service || filterState.type ||
-        filterState.namespace || globalSearchTerm()) return true;
+        filterState.grouping || globalSearchTerm()) return true;
     // The ack toggle also narrows the list, so an all-acked empty list is a
     // filtered empty, not an empty report.
     return findings.some(findingHiddenByAck);
@@ -2619,7 +2627,7 @@
       if (filterState.severity && f.severity !== filterState.severity) return false;
       if (filterState.service && f.service !== filterState.service) return false;
       if (filterState.type && (f.type || f.finding_type) !== filterState.type) return false;
-      if (filterState.namespace && findingNamespace(f) !== filterState.namespace) return false;
+      if (filterState.grouping && findingGroupingIdentity(f) !== filterState.grouping) return false;
       if (findingHiddenByAck(f)) return false;
       return findingMatchesSearch(f, term);
     }).sort(compareFindings);
@@ -3047,7 +3055,7 @@
     var signature = f.signature ||
       [f.type || f.finding_type, f.service, f.source_endpoint,
        (f.pattern && f.pattern.template) || ""].join("|");
-    return findingNamespace(f) + "|" + signature;
+    return findingGroupingIdentity(f) + "|" + signature;
   }
   function recurrenceOf(f) {
     if (!recurrenceIndex) {
@@ -3233,11 +3241,13 @@
     // an occurrence, so the time bounds separate two chains on one route.
     var key = trace.trace_id + "|" + finding.signature + "|" +
       (finding.first_timestamp || "") + "|" + (finding.last_timestamp || "");
-    var namespace = findingNamespace(finding);
+    var grouping = findingGrouping(finding);
     // Length-prefixed in UTF-8 bytes, matching the sink: `.length` would
-    // count UTF-16 units and miss every non-ASCII namespace.
-    if (namespace) {
-      key += "|" + new TextEncoder().encode(namespace).length + ":" + namespace;
+    // count UTF-16 units and miss every non-ASCII grouping value.
+    if (grouping) {
+      var encoder = new TextEncoder();
+      key += "|" + encoder.encode(grouping.key).length + ":" + grouping.key +
+        "|" + encoder.encode(grouping.value).length + ":" + grouping.value;
     }
     var ids = culpritSpans[key];
     if (!ids || !ids.length) return null;
@@ -4225,11 +4235,23 @@
     var src = c.source || {};
     var tgt = c.target || {};
     // Mirror the card tag's fallback so a search on the shown label matches.
-    return [typeLabel(src.finding_type || "cross-trace"), src.service, tgt.service].join(" ");
+    return [
+      typeLabel(src.finding_type || "cross-trace"),
+      correlationEndpointLabel(src),
+      correlationEndpointLabel(tgt)
+    ].join(" ");
+  }
+  function correlationEndpointLabel(endpoint) {
+    var service = endpoint.service || "?";
+    if (!endpoint.namespace) return service;
+    var grouping = endpoint.grouping_key
+      ? endpoint.grouping_key + "=" + endpoint.namespace
+      : endpoint.namespace;
+    return service + "@" + grouping;
   }
   // Renders `CrossTraceCorrelation` entries emitted by the daemon,
   // matching the Rust struct shape: `source` and `target` are
-  // `CorrelationEndpoint { finding_type, service, template, namespace }`,
+  // `CorrelationEndpoint { finding_type, service, template, grouping_key, namespace }`,
   // timing is `median_lag_ms` and `co_occurrence_count`.
   // A correlation carries no severity of its own: borrow the matched
   // real finding's per side (warn when unmatched, cards always were).
@@ -4271,7 +4293,7 @@
       var srcReal = findRealFindingForCorrelation(src);
       var srcZone = el("span", "ps-corr-side");
       srcZone.appendChild(corrTag(src, srcReal ? srcReal.severity : null));
-      srcZone.appendChild(el("span", "ps-corr-path", src.service || "?"));
+      srcZone.appendChild(el("span", "ps-corr-path", correlationEndpointLabel(src)));
       if (srcReal) {
         srcZone.classList.add("ps-corr-side-link");
         setAttr(srcZone, "role", "button");
@@ -4282,7 +4304,7 @@
       var tgtReal = findRealFindingForCorrelation(tgt);
       var tgtZone = el("span", "ps-corr-side");
       tgtZone.appendChild(corrTag(tgt, tgtReal ? tgtReal.severity : null));
-      tgtZone.appendChild(el("span", "ps-corr-path", tgt.service || "?"));
+      tgtZone.appendChild(el("span", "ps-corr-path", correlationEndpointLabel(tgt)));
       if (tgtReal || c.sample_trace_id) {
         tgtZone.classList.add("ps-corr-side-link");
         setAttr(tgtZone, "role", "button");
@@ -4306,7 +4328,11 @@
   function findRealFindingForCorrelation(endpoint) {
     var sameKind = findings.filter(function (f) {
       return (f.type || f.finding_type) === endpoint.finding_type &&
-        f.service === endpoint.service;
+        f.service === endpoint.service &&
+        (!endpoint.namespace || (
+          findingNamespace(f) === endpoint.namespace &&
+          (!endpoint.grouping_key || findingGroupingKey(f) === endpoint.grouping_key)
+        ));
     });
     var exact = sameKind.filter(function (f) {
       return ((f.pattern && f.pattern.template) || "") === (endpoint.template || "");
@@ -4324,7 +4350,7 @@
     // highlight the offending span and renderPgStatXref find the row. Add a
     // type and a warning pill (cards are warn) so the head is not "undefined".
     var tgt = c.target || {};
-    return {
+    var finding = {
       trace_id: c.sample_trace_id,
       type: tgt.finding_type || "cross-trace",
       severity: "warning",
@@ -4332,6 +4358,10 @@
       source_endpoint: "-",
       pattern: { template: tgt.template || "" }
     };
+    if (tgt.grouping_key && tgt.namespace) {
+      finding.grouping = [{ key: tgt.grouping_key, value: tgt.namespace }];
+    }
+    return finding;
   }
 
   // -------- search --------
@@ -5057,8 +5087,8 @@
   function exportCorrelationsCsv() {
     var term = searchTermFor("correlations");
     var header = [
-      "service_a", "type_a", "template_a",
-      "service_b", "type_b", "template_b",
+      "service_a", "grouping_key_a", "grouping_value_a", "type_a", "template_a",
+      "service_b", "grouping_key_b", "grouping_value_b", "type_b", "template_b",
       "confidence", "co_occurrence_count",
       "source_total_occurrences", "median_lag_ms",
       "first_seen", "last_seen"
@@ -5069,8 +5099,10 @@
       var s = c.source || {};
       var t = c.target || {};
       return [
-        s.service || "", s.finding_type || "", s.template || "",
-        t.service || "", t.finding_type || "", t.template || "",
+        s.service || "", s.grouping_key || "", s.namespace || "",
+        s.finding_type || "", s.template || "",
+        t.service || "", t.grouping_key || "", t.namespace || "",
+        t.finding_type || "", t.template || "",
         c.confidence ?? "",
         c.co_occurrence_count ?? "",
         c.source_total_occurrences ?? "",
@@ -5101,7 +5133,7 @@
   // or confuse `applyHash`. The tab itself is positional (first
   // token), not a key=value pair. Stored as a Set so existence checks
   // are O(1) regardless of how many keys land here in the future.
-  var HASH_KEYS = new Set(["search", "ranking", "severity", "service", "type", "namespace"]);
+  var HASH_KEYS = new Set(["search", "ranking", "severity", "service", "type", "grouping"]);
   function readHash() {
     var raw = (location.hash || "").replace(/^#/, "");
     if (!raw) return null;
@@ -5136,7 +5168,7 @@
       if (filterState.severity) state.severity = filterState.severity;
       if (filterState.service) state.service = filterState.service;
       if (filterState.type) state.type = filterState.type;
-      if (filterState.namespace) state.namespace = filterState.namespace;
+      if (filterState.grouping) state.grouping = filterState.grouping;
     }
     if (currentTab === "pgstat") {
       state.ranking = rankingSlugForIndex(activeRankingIndex);
@@ -5147,7 +5179,7 @@
   function encodeHashFromState(state) {
     if (!state || !state.tab) return "";
     var parts = [state.tab];
-    ["search", "ranking", "severity", "service", "type", "namespace"].forEach(function (k) {
+    ["search", "ranking", "severity", "service", "type", "grouping"].forEach(function (k) {
       var v = state[k];
       if (v !== null && v !== undefined && v !== "") {
         parts.push(k + "=" + encodeURIComponent(String(v)));
@@ -5202,7 +5234,7 @@
       filterState.severity = null;
       filterState.service = null;
       filterState.type = null;
-      filterState.namespace = null;
+      filterState.grouping = null;
       if (state.severity === "critical" || state.severity === "warning" || state.severity === "info") {
         filterState.severity = state.severity;
       }
@@ -5217,10 +5249,10 @@
       })) {
         filterState.type = state.type;
       }
-      if (state.namespace && findings.some(function (f) {
-        return findingNamespace(f) === state.namespace;
+      if (state.grouping && findings.some(function (f) {
+        return findingGroupingIdentity(f) === state.grouping;
       })) {
-        filterState.namespace = state.namespace;
+        filterState.grouping = state.grouping;
       }
       syncFilterChips();
     }
@@ -5305,14 +5337,14 @@
 
   function anyFilterChipActive() {
     return !!(
-      filterState.severity || filterState.service || filterState.type || filterState.namespace
+      filterState.severity || filterState.service || filterState.type || filterState.grouping
     );
   }
   function clearFilterChips() {
     filterState.severity = null;
     filterState.service = null;
     filterState.type = null;
-    filterState.namespace = null;
+    filterState.grouping = null;
     syncFilterChips();
     resetShownCount();
     renderFindingsList();

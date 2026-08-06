@@ -7,7 +7,7 @@ use sentinel_core::pipeline;
 use tracing::info;
 
 use crate::render::emit_report_and_gate;
-use crate::{OutputFormat, apply_acknowledgments_or_exit, load_config};
+use crate::{OutputFormat, apply_acknowledgments_or_exit, grouping_keys, load_config};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_jaeger_query(
@@ -43,13 +43,14 @@ pub(crate) async fn cmd_jaeger_query(
 
     let config = load_config(config_path);
 
-    let events = match sentinel_core::ingest::jaeger_query::ingest_from_jaeger_query(
+    let events = match sentinel_core::ingest::jaeger_query::ingest_from_jaeger_query_with_grouping(
         endpoint,
         service,
         trace_id,
         lookback_duration,
         max_traces,
         auth_header,
+        grouping_keys(&config),
     )
     .await
     {

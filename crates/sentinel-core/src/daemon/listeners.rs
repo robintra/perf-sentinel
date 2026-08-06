@@ -47,6 +47,15 @@ const GRPC_MAX_CONCURRENT_STREAMS: u32 = 256;
 /// liveness probe exactly like the HTTP saturation observed in the lab.
 const GRPC_MAX_CONCURRENT_REQUESTS: usize = 32;
 
+fn grouping_attributes(config: &Config) -> Vec<Arc<str>> {
+    config
+        .detection
+        .grouping_attributes
+        .iter()
+        .map(|key| Arc::from(key.as_str()))
+        .collect()
+}
+
 /// Assemble the optional TLS acceptor and spawn the gRPC, HTTP (or HTTPS),
 /// and JSON socket listeners. All three handles are returned so the caller
 /// can abort them on Ctrl-C.
@@ -96,6 +105,7 @@ pub(super) async fn spawn_listeners(
         tx.clone(),
         config.daemon.max_payload_size,
         Arc::clone(&metrics),
+        grouping_attributes(config),
     );
     let (toml_acks, ack_store) = init_ack_resources(config).await?;
     // Memory-guard flag for the JSON socket door, cloned before `metrics`
@@ -139,6 +149,7 @@ fn spawn_grpc_listener(
     tx: mpsc::Sender<Vec<SpanEvent>>,
     max_payload: usize,
     metrics: Arc<MetricsState>,
+    grouping_attributes: Vec<Arc<str>>,
 ) -> tokio::task::JoinHandle<()> {
     // Interceptor state for the pre-decode memory gate: the flag and the
     // cached rejection counter, cloned before `metrics` moves into the
@@ -146,7 +157,11 @@ fn spawn_grpc_listener(
     let over_memory = metrics.ingest_over_memory_limit.clone();
     let memory_rejected = metrics.otlp_rejected_memory_pressure.clone();
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics;
-    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics_sink));
+    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new_with_grouping(
+        tx,
+        Some(metrics_sink),
+        grouping_attributes,
+    );
     tokio::spawn(async move {
         // Pre-decode memory gate: the interceptor runs on request
         // metadata BEFORE tonic decodes the protobuf message, so a
@@ -339,10 +354,11 @@ fn build_http_router(
     ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics.clone();
-    let otlp_router = crate::ingest::otlp::otlp_http_router(
+    let otlp_router = crate::ingest::otlp::otlp_http_router_with_grouping(
         tx,
         config.daemon.max_payload_size,
         Some(metrics_sink),
+        grouping_attributes(config),
     );
     // Clone the Arc unconditionally so `metrics_route` and the query
     // API state can share it when the API is enabled. When disabled,
@@ -757,6 +773,10 @@ mod grpc_compression_tests {
             tx,
             max_payload,
             Arc::new(MetricsState::new()),
+            crate::config::DEFAULT_GROUPING_ATTRIBUTES
+                .iter()
+                .map(|key| Arc::from(*key))
+                .collect(),
         );
         let client = within(
             "connect",

@@ -459,22 +459,36 @@ fn is_unsafe_format_char(c: char) -> bool {
 /// same route hash identically. The time bounds are what separate them.
 fn culprit_key(
     trace_id: &str,
-    namespace: Option<&str>,
+    grouping: Option<&crate::event::GroupingAttribute>,
     signature: &str,
     first: &str,
     last: &str,
 ) -> String {
     let mut key = format!("{trace_id}|{signature}|{first}|{last}");
-    // Length-prefixed, like the terminal recurrence key: a namespace
-    // containing the separator cannot forge another key.
-    if let Some(namespace) = namespace {
-        key.push('|');
-        key.push_str(&namespace.len().to_string());
-        key.push(':');
-        key.push_str(namespace);
+    // Length-prefixed, like the terminal recurrence key: grouping keys or
+    // values containing the separator cannot forge another identity.
+    if let Some(grouping) = grouping {
+        use std::fmt::Write;
+        write!(
+            &mut key,
+            "|{}:{}|{}:{}",
+            grouping.key.len(),
+            grouping.key,
+            grouping.value.len(),
+            grouping.value
+        )
+        .expect("writing to a String cannot fail");
     }
     key
 }
+
+type SlowCulprit = (
+    String,
+    String,
+    crate::detect::FindingType,
+    String,
+    Option<(String, String)>,
+);
 
 /// Exact spans to highlight for each embedded finding.
 ///
@@ -502,13 +516,7 @@ struct CulpritIndex {
     ambiguous: HashSet<String>,
     /// Slow findings can span several traces, so they cannot be matched by
     /// rerunning the per-trace detector. Keep the representative trace rule.
-    slow: Vec<(
-        String,
-        String,
-        crate::detect::FindingType,
-        String,
-        Option<String>,
-    )>,
+    slow: Vec<SlowCulprit>,
     /// Findings whose exact members follow directly from the published type
     /// and template, without rerunning a threshold rule.
     direct: Vec<(String, String, crate::detect::FindingType, String)>,
@@ -537,7 +545,7 @@ impl CulpritIndex {
                     f.trace_id.clone(),
                     culprit_key(
                         &f.trace_id,
-                        f.grouping_value(),
+                        f.effective_grouping(),
                         &f.signature,
                         &f.first_timestamp,
                         &f.last_timestamp,
@@ -555,14 +563,15 @@ impl CulpritIndex {
                     f.trace_id.clone(),
                     culprit_key(
                         &f.trace_id,
-                        f.grouping_value(),
+                        f.effective_grouping(),
                         &f.signature,
                         &f.first_timestamp,
                         &f.last_timestamp,
                     ),
                     f.finding_type.clone(),
                     f.pattern.template.clone(),
-                    f.grouping_value().map(String::from),
+                    f.effective_grouping()
+                        .map(|g| (g.key.to_string(), g.value.to_string())),
                 ));
                 continue;
             }
@@ -578,14 +587,14 @@ impl CulpritIndex {
             }
             let rerun_key = culprit_key(
                 &f.trace_id,
-                f.grouping_value(),
+                f.effective_grouping(),
                 &crate::acknowledgments::compute_signature(f),
                 &f.first_timestamp,
                 &f.last_timestamp,
             );
             let browser_key = culprit_key(
                 &f.trace_id,
-                f.grouping_value(),
+                f.effective_grouping(),
                 &f.signature,
                 &f.first_timestamp,
                 &f.last_timestamp,
@@ -634,7 +643,7 @@ impl CulpritIndex {
                 .collect();
             out.insert(browser_key.clone(), ids);
         }
-        for (trace_id, browser_key, finding_type, template, namespace) in &self.slow {
+        for (trace_id, browser_key, finding_type, template, grouping) in &self.slow {
             if trace_id != &trace.trace_id {
                 continue;
             }
@@ -646,7 +655,13 @@ impl CulpritIndex {
                         == &crate::detect::FindingType::from_event_type_slow(&span.event.event_type)
                         && span.template.as_ref() == template
                         && span.event.duration_us > self.slow_threshold_us
-                        && span.event.grouping_value() == namespace.as_deref()
+                        && span
+                            .event
+                            .effective_grouping()
+                            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+                            == grouping
+                                .as_ref()
+                                .map(|(key, value)| (key.as_str(), value.as_str()))
                 })
                 .map(|span| span.event.span_id.as_str())
                 .collect();
@@ -678,7 +693,7 @@ impl CulpritIndex {
         for (finding, span_ids) in found {
             let rerun_key = culprit_key(
                 &finding.trace_id,
-                finding.grouping_value(),
+                finding.effective_grouping(),
                 &crate::acknowledgments::compute_signature(&finding),
                 &finding.first_timestamp,
                 &finding.last_timestamp,

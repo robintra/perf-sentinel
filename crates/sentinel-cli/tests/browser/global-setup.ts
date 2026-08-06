@@ -65,7 +65,9 @@ const DEMO_CORRELATIONS = [
     source: {
       finding_type: "n_plus_one_sql",
       service: "order-svc",
-      template: "SELECT * FROM order_item WHERE order_id = ?"
+      template: "SELECT * FROM order_item WHERE order_id = ?",
+      grouping_key: "k8s.namespace.name",
+      namespace: "prod-eu"
     },
     target: {
       finding_type: "slow_http",
@@ -87,12 +89,16 @@ const DEMO_CORRELATIONS = [
     source: {
       finding_type: "redundant_sql",
       service: "payment-svc",
-      template: "SELECT id, status FROM payment WHERE id = ?"
+      template: "SELECT id, status FROM payment WHERE id = ?",
+      grouping_key: "service.namespace",
+      namespace: "finance"
     },
     target: {
       finding_type: "n_plus_one_sql",
       service: "order-svc",
-      template: "SELECT * FROM order_item WHERE order_id = ?"
+      template: "SELECT * FROM order_item WHERE order_id = ?",
+      grouping_key: "k8s.namespace.name",
+      namespace: "prod-eu"
     },
     co_occurrence_count: 19,
     source_total_occurrences: 22,
@@ -113,7 +119,9 @@ const DEMO_CORRELATIONS = [
     target: {
       finding_type: "n_plus_one_sql",
       service: "order-svc",
-      template: "SELECT * FROM order_item WHERE order_id = ?"
+      template: "SELECT * FROM order_item WHERE order_id = ?",
+      grouping_key: "k8s.namespace.name",
+      namespace: "prod-eu"
     },
     co_occurrence_count: 8,
     source_total_occurrences: 14,

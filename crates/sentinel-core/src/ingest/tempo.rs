@@ -8,13 +8,14 @@
 //! Trace data is returned as OTLP protobuf, decoded via `prost`, and
 //! converted to `SpanEvent` using the existing `convert_otlp_request`.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
 use crate::ingest::auth_header::AuthHeader;
 use crate::ingest::lookback::LookbackError;
-use crate::ingest::otlp::convert_otlp_request;
+use crate::ingest::otlp::convert_otlp_request_counted_with_grouping;
 use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
 
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -283,6 +284,16 @@ pub async fn fetch_trace(
     trace_id: &str,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, TempoError> {
+    fetch_trace_with_grouping(client, endpoint, trace_id, auth, None).await
+}
+
+async fn fetch_trace_with_grouping(
+    client: &HttpClient,
+    endpoint: &str,
+    trace_id: &str,
+    auth: Option<&AuthHeader>,
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Result<Vec<SpanEvent>, TempoError> {
     // Validate trace_id is hex-only (OTLP spec: hex-encoded 16/32 bytes).
     if !trace_id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(TempoError::InvalidEndpoint(format!(
@@ -299,7 +310,7 @@ pub async fn fetch_trace(
     let request = ExportTraceServiceRequest::decode(body)
         .map_err(|e| TempoError::ProtobufDecode(e.to_string()))?;
 
-    Ok(convert_otlp_request(&request))
+    Ok(convert_otlp_request_counted_with_grouping(&request, grouping_attributes).0)
 }
 
 /// Classify a per-trace fetch failure into a short category tag used for the
@@ -379,6 +390,54 @@ pub async fn ingest_from_tempo(
     max_traces: usize,
     auth_header: Option<&str>,
 ) -> Result<Vec<SpanEvent>, TempoError> {
+    ingest_from_tempo_impl(
+        endpoint,
+        service,
+        trace_id,
+        lookback,
+        max_traces,
+        auth_header,
+        None,
+    )
+    .await
+}
+
+/// Ingest traces using the operator-configured grouping attributes.
+///
+/// # Errors
+///
+/// Returns `TempoError` on API failures.
+pub async fn ingest_from_tempo_with_grouping(
+    endpoint: &str,
+    service: Option<&str>,
+    trace_id: Option<&str>,
+    lookback: Duration,
+    max_traces: usize,
+    auth_header: Option<&str>,
+    grouping_attributes: Vec<Arc<str>>,
+) -> Result<Vec<SpanEvent>, TempoError> {
+    ingest_from_tempo_impl(
+        endpoint,
+        service,
+        trace_id,
+        lookback,
+        max_traces,
+        auth_header,
+        Some(grouping_attributes.into()),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ingest_from_tempo_impl(
+    endpoint: &str,
+    service: Option<&str>,
+    trace_id: Option<&str>,
+    lookback: Duration,
+    max_traces: usize,
+    auth_header: Option<&str>,
+    grouping_attributes: Option<Arc<[Arc<str>]>>,
+) -> Result<Vec<SpanEvent>, TempoError> {
     // Endpoint validation (http(s) scheme, no credentials in the
     // authority) lives in `crate::ingest::url_enc` and is shared with
     // `jaeger_query`. We wrap the `&'static str` into the local
@@ -406,7 +465,14 @@ pub async fn ingest_from_tempo(
 
     if let Some(tid) = trace_id {
         tracing::info!(trace_id = tid, "Fetching single trace from Tempo");
-        return fetch_trace(&client, endpoint, tid, parsed_auth.as_ref()).await;
+        return fetch_trace_with_grouping(
+            &client,
+            endpoint,
+            tid,
+            parsed_auth.as_ref(),
+            grouping_attributes.as_deref(),
+        )
+        .await;
     }
 
     let svc = service.ok_or_else(|| {
@@ -446,6 +512,7 @@ pub async fn ingest_from_tempo(
         let client_clone = client.clone();
         let endpoint_owned = endpoint.to_string();
         let auth_clone = parsed_auth.clone();
+        let grouping_clone = grouping_attributes.clone();
         let sem = std::sync::Arc::clone(&semaphore);
         set.spawn(async move {
             let Ok(_permit) = sem.acquire_owned().await else {
@@ -454,8 +521,14 @@ pub async fn ingest_from_tempo(
                     Err(TempoError::Transport("semaphore closed".to_string())),
                 );
             };
-            let result =
-                fetch_trace(&client_clone, &endpoint_owned, &tid, auth_clone.as_ref()).await;
+            let result = fetch_trace_with_grouping(
+                &client_clone,
+                &endpoint_owned,
+                &tid,
+                auth_clone.as_ref(),
+                grouping_clone.as_deref(),
+            )
+            .await;
             (tid, result)
         });
     }
@@ -628,7 +701,7 @@ mod tests {
         request.encode(&mut buf).unwrap();
 
         let decoded = ExportTraceServiceRequest::decode(bytes::Bytes::from(buf)).unwrap();
-        let events = convert_otlp_request(&decoded);
+        let events = crate::ingest::otlp::convert_otlp_request(&decoded);
         assert!(events.is_empty());
     }
 
@@ -774,6 +847,54 @@ mod tests {
             .await
             .expect("valid OTLP must decode");
         assert!(events.is_empty());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_trace_uses_configured_grouping_attributes() {
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
+        use opentelemetry_proto::tonic::resource::v1::Resource;
+        use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
+
+        let kv = |key: &str, value: &str| KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue(value.to_string())),
+            }),
+            ..Default::default()
+        };
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![kv("service.name", "svc"), kv("tenant.id", "acme")],
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![Span {
+                        trace_id: vec![1; 16],
+                        span_id: vec![2; 8],
+                        name: "db.query".to_string(),
+                        start_time_unix_nano: 1,
+                        end_time_unix_nano: 2,
+                        attributes: vec![kv("db.statement", "SELECT 1")],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        };
+        let (endpoint, server) =
+            spawn_one_shot_server(http_200_proto(&request.encode_to_vec())).await;
+        let client = http_client::build_client();
+        let grouping = [std::sync::Arc::from("tenant.id")];
+
+        let events =
+            fetch_trace_with_grouping(&client, &endpoint, "abc123def456", None, Some(&grouping))
+                .await
+                .expect("valid OTLP must decode");
+        assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
+        assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
         server.await.unwrap();
     }
 

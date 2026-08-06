@@ -1608,9 +1608,20 @@ pub(crate) fn dim_style() -> Style {
     Style::default().add_modifier(Modifier::DIM)
 }
 
-/// `@namespace` for a correlation side, empty when it carries none.
-fn namespace_suffix(namespace: Option<&str>) -> String {
-    namespace.map_or_else(String::new, |ns| format!("@{}", sanitize_for_terminal(ns)))
+/// `@key=value` for a correlation side, empty when it carries no grouping.
+fn grouping_suffix(key: Option<&str>, value: Option<&str>) -> String {
+    value.map_or_else(String::new, |value| {
+        key.map_or_else(
+            || format!("@{}", sanitize_for_terminal(value)),
+            |key| {
+                format!(
+                    "@{}={}",
+                    sanitize_for_terminal(key),
+                    sanitize_for_terminal(value)
+                )
+            },
+        )
+    })
 }
 
 /// Concatenate rendered lines into plain text, for assertions. Shared
@@ -2438,7 +2449,10 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
                     format!(
                         "{}{}:{} ",
                         sanitize_for_terminal(&c.source.service),
-                        namespace_suffix(c.source.namespace.as_deref()),
+                        grouping_suffix(
+                            c.source.grouping_key.as_deref(),
+                            c.source.namespace.as_deref(),
+                        ),
                         c.source.finding_type.as_str()
                     ),
                     Style::default().fg(Color::Yellow),
@@ -2448,7 +2462,10 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
                     format!(
                         "{}{}:{}  ",
                         sanitize_for_terminal(&c.target.service),
-                        namespace_suffix(c.target.namespace.as_deref()),
+                        grouping_suffix(
+                            c.target.grouping_key.as_deref(),
+                            c.target.namespace.as_deref(),
+                        ),
                         c.target.finding_type.as_str()
                     ),
                     Style::default().fg(Color::Cyan),

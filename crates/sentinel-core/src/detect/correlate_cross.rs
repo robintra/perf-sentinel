@@ -51,8 +51,12 @@ pub struct CorrelationEndpoint {
     pub service: String,
     /// Normalized query or URL template associated with the finding.
     pub template: String,
-    /// Effective namespace, so two deployments never share a pair. Absent
-    /// on replayed baselines that predate this field.
+    /// Attribute name that supplied [`Self::namespace`]. Absent on replayed
+    /// baselines that predate configurable grouping.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grouping_key: Option<String>,
+    /// Effective grouping value, so two deployments never share a pair.
+    /// Absent on replayed baselines that predate this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
 }
@@ -367,11 +371,13 @@ impl CrossTraceCorrelator {
 
         let mut refused = std::collections::HashSet::new();
         for finding in findings {
+            let grouping = finding.effective_grouping();
             let endpoint = std::sync::Arc::new(CorrelationEndpoint {
                 finding_type: finding.finding_type.clone(),
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
-                namespace: finding.grouping_value().map(String::from),
+                grouping_key: grouping.map(|g| g.key.to_string()),
+                namespace: grouping.map(|g| g.value.to_string()),
             });
             self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str(), &mut refused);
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
@@ -439,6 +445,7 @@ impl CrossTraceCorrelator {
                 // Pairing across namespaces invents a causal link between
                 // two deployments.
                 if occ.endpoint.service == endpoint.service
+                    || occ.endpoint.grouping_key != endpoint.grouping_key
                     || occ.endpoint.namespace != endpoint.namespace
                 {
                     continue;
@@ -1287,8 +1294,8 @@ mod tests {
     }
 
     /// Same A-then-B shape as `detects_simple_a_then_b_pattern`, with a
-    /// namespace on each side.
-    fn namespaced_pairs(source_ns: &str, target_ns: &str) -> Vec<CrossTraceCorrelation> {
+    /// grouping attribute on each side.
+    fn grouped_pairs(source: (&str, &str), target: (&str, &str)) -> Vec<CrossTraceCorrelation> {
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
             min_co_occurrences: 2,
             min_confidence: 0.5,
@@ -1298,10 +1305,10 @@ mod tests {
         for i in 0..5 {
             let t = 1_000_000 + i * 10_000;
             let mut fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
-            fa.grouping = crate::test_helpers::k8s_grouping(source_ns);
+            fa.grouping = crate::test_helpers::grouping(source.0, source.1);
             let _ = correlator.ingest(&[fa], t);
             let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-            fb.grouping = crate::test_helpers::k8s_grouping(target_ns);
+            fb.grouping = crate::test_helpers::grouping(target.0, target.1);
             let _ = correlator.ingest(&[fb], t + 2_000);
         }
         correlator.active_correlations()
@@ -1309,15 +1316,29 @@ mod tests {
 
     #[test]
     fn findings_in_different_namespaces_never_pair() {
-        assert!(namespaced_pairs("prod-eu", "staging").is_empty());
+        assert!(
+            grouped_pairs(
+                ("k8s.namespace.name", "prod-eu"),
+                ("k8s.namespace.name", "staging")
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn findings_in_the_same_namespace_still_pair() {
-        let correlations = namespaced_pairs("prod-eu", "prod-eu");
+        let correlations = grouped_pairs(
+            ("k8s.namespace.name", "prod-eu"),
+            ("k8s.namespace.name", "prod-eu"),
+        );
         assert_eq!(correlations.len(), 1);
         assert_eq!(correlations[0].source.namespace.as_deref(), Some("prod-eu"));
         assert_eq!(correlations[0].target.namespace.as_deref(), Some("prod-eu"));
+    }
+
+    #[test]
+    fn equal_values_from_different_grouping_keys_never_pair() {
+        assert!(grouped_pairs(("tenant.id", "prod"), ("k8s.namespace.name", "prod")).is_empty());
     }
 
     #[test]
@@ -1328,12 +1349,14 @@ mod tests {
                 finding_type: FindingType::NPlusOneSql,
                 service: "order-svc".to_string(),
                 template: "SELECT * FROM t".to_string(),
+                grouping_key: Some("k8s.namespace.name".to_string()),
                 namespace: Some("prod-eu".to_string()),
             },
             target: CorrelationEndpoint {
                 finding_type: FindingType::PoolSaturation,
                 service: "payment-svc".to_string(),
                 template: "payment-svc".to_string(),
+                grouping_key: Some("k8s.namespace.name".to_string()),
                 namespace: Some("prod-eu".to_string()),
             },
             co_occurrence_count: 12,
