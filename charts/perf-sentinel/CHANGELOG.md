@@ -10,6 +10,29 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.11.0]
+
+### Changed
+
+- `appVersion` moves to `0.11.0`. Findings now carry the deployment
+  namespace: `SpanEvent` and `Finding` keep the optional
+  `service.namespace` and `k8s.namespace.name` values read from OTLP,
+  Jaeger and Zipkin, and the effective namespace (Kubernetes first,
+  service namespace as the fallback) separates recurrences, daemon
+  coalescing, `diff` identity and cross-trace correlations. The same
+  problem in two deployments no longer reads as one row with summed
+  occurrences. `/api/correlations` gains a `namespace` field on each
+  endpoint and never pairs two namespaces.
+- Acknowledgment signatures are untouched, so an existing ack still
+  covers every namespace and no re-acknowledgment is needed after the
+  upgrade.
+- No chart change ships with this bump: no template change, no values
+  change, and a values file that rendered on `0.10.0` renders
+  identically here, `checksum/config` included, so upgrading does not
+  roll pods. A minor rather than a patch bump because the published
+  `perf-sentinel-core` public structs grew fields again, which a
+  downstream crate pinned to `0.10` cannot absorb on a patch number.
+
 ## [0.10.0]
 
 ### Added
