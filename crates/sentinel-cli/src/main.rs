@@ -1737,7 +1737,7 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
 }
 
 /// Configured grouping attributes as the ingest layer wants them.
-fn grouping_keys(config: &Config) -> Vec<std::sync::Arc<str>> {
+pub(crate) fn grouping_keys(config: &Config) -> Vec<std::sync::Arc<str>> {
     config
         .detection
         .grouping_attributes

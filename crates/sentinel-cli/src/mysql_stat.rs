@@ -77,7 +77,8 @@ fn run_mysql_stat_pipeline(
 
     if let Some(traces_path) = traces {
         let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
-        let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
+        let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
+            .with_grouping_attributes(crate::grouping_keys(config));
         match ingest.ingest(&traces_raw) {
             Ok(events) => {
                 let report = pipeline::analyze(events, config);
