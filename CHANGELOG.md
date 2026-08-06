@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [0.11.0] - 2026-08-06
 
+### Fixed
+
+- `/metrics` no longer serves OpenMetrics exemplars to a scraper that did not ask for them. A `*/*` wildcard used to count as an opt-in, so vmagent received an exemplar suffix it cannot parse and read `perf_sentinel_io_waste_ratio 0.60 # {trace_id="..."} 1.0` as a metric *name*, minting one dead series per scrape. A real cluster accumulated 6,216 junk metric names against 41 real ones in a few hours. Exemplars now require an explicit `application/openmetrics-text` in `Accept`, which is what Prometheus sends when exemplar storage is on.
+
 ### Added
 
 - `SpanEvent` and `Finding` retain the optional `service.namespace` and `k8s.namespace.name` values extracted from OTLP, Jaeger and Zipkin. The HTML report can filter exact finding types and an effective namespace (`k8s.namespace.name`, falling back to `service.namespace`), and its detail and CSV views expose the available namespaces, classification, observation window, timing statistics and masked evidence. Exact culprit spans are listed individually. Cross-trace findings state how much of the total is present in the representative trace, while older reports that cannot rebuild exact ids keep matching spans grouped.

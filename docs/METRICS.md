@@ -7,6 +7,15 @@ This document lists all metrics exposed by the perf-sentinel daemon on
 negotiation, and emits exemplars when finding-level traces are
 available.
 
+**Exemplars are opt-in.** Only a scraper that names
+`application/openmetrics-text` in its `Accept` header receives them.
+A `*/*` wildcard does not count, because a scraper that accepts anything
+is not necessarily able to parse an exemplar: vmagent sends
+`text/plain;version=0.0.4;*/*;q=0.1` and reads the exemplar suffix on an
+unlabeled gauge as part of the metric name, minting one dead series per
+scrape. Configure your scraper to request OpenMetrics explicitly if you
+want the Grafana click-through path.
+
 ## Background: Prometheus and OpenMetrics primer
 
 If you have not used Prometheus before, this short primer is a prerequisite for the rest of this document. It assumes you know what HTTP is and what a metric is. It does not assume familiarity with the Prometheus query language or operator. Other perf-sentinel docs cross-reference this primer for Prometheus concepts, see [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability) and [docs/QUERY-API.md](QUERY-API.md).

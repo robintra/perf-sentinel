@@ -7,6 +7,15 @@ sur `/metrics` (format Prometheus text). L'endpoint sert à la fois
 negotiation, et émet des exemplars quand des `trace_id` sont disponibles
 côté findings.
 
+**Les exemplars sont sur demande explicite.** Seul un scraper qui nomme
+`application/openmetrics-text` dans son en-tête `Accept` les reçoit. Un
+joker `*/*` ne suffit pas, car un scraper qui accepte tout n'est pas
+forcément capable de parser un exemplar : vmagent envoie
+`text/plain;version=0.0.4;*/*;q=0.1` et lit le suffixe d'exemplar d'une
+gauge sans label comme une partie du nom de métrique, créant une série
+morte à chaque scrape. Configurez votre scraper pour demander OpenMetrics
+explicitement si vous voulez le clic vers la trace dans Grafana.
+
 ## Introduction à Prometheus et OpenMetrics
 
 Si vous n'avez jamais utilisé Prometheus, cette introduction courte est un préalable pour la suite du document. Elle suppose que vous savez ce qu'est HTTP et ce qu'est une métrique. Elle ne suppose pas de familiarité avec le langage de requête Prometheus ou l'opérateur Kubernetes. Les autres docs perf-sentinel renvoient ici pour les concepts Prometheus, voir [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#observabilité) et [docs/FR/QUERY-API-FR.md](QUERY-API-FR.md).
