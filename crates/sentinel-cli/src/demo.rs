@@ -163,6 +163,7 @@ fn demo_correlations() -> Vec<sentinel_core::detect::correlate_cross::CrossTrace
         finding_type,
         service: service.to_string(),
         template: template.to_string(),
+        namespace: None,
     };
 
     vec![

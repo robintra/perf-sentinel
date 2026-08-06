@@ -6,11 +6,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Added
 
-- `SpanEvent` and `Finding` retain the optional `service.namespace` and `k8s.namespace.name` values extracted from OTLP, Jaeger and Zipkin. The HTML report can filter exact finding types and an effective namespace (`k8s.namespace.name`, falling back to `service.namespace`), and its detail and CSV views expose the available namespaces, classification, observation window, timing statistics and masked evidence. Exact culprit spans are listed individually; cross-trace findings state how much of the total is present in the representative trace, while older reports that cannot rebuild exact ids keep matching spans grouped.
+- `SpanEvent` and `Finding` retain the optional `service.namespace` and `k8s.namespace.name` values extracted from OTLP, Jaeger and Zipkin. The HTML report can filter exact finding types and an effective namespace (`k8s.namespace.name`, falling back to `service.namespace`), and its detail and CSV views expose the available namespaces, classification, observation window, timing statistics and masked evidence. Exact culprit spans are listed individually. Cross-trace findings state how much of the total is present in the representative trace, while older reports that cannot rebuild exact ids keep matching spans grouped.
 
 ### Changed
 
-- Recurring findings are grouped by effective namespace as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without namespace fields remains readable; adding the public fields is an accepted Rust source-compatibility break for 0.10.1.
+- Recurring findings are grouped by effective namespace as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without namespace fields remains readable. Adding the public fields is an accepted Rust source-compatibility break, so this release is a minor bump rather than a patch.
+- Cross-trace correlations carry the effective namespace on each endpoint and never pair findings from two namespaces, so `/api/correlations` no longer invents a causal link between separate deployments. Replayed baselines without the field keep their previous shape.
 
 ## [0.10.0] - 2026-08-05
 
