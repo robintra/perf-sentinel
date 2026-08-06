@@ -293,7 +293,7 @@
   .ps-chip-group { display: contents; }
   .ps-chip { padding: 5px 13px; font-size: 11.5px; border-radius: 20px; border: 1px solid var(--border-2); background: var(--surface-2); cursor: pointer; color: var(--text-2); font-family: var(--font-ui); font-weight: 500; }
   .ps-chip:hover { background: var(--accent-bg); border-color: var(--btn-bd); }
-  .ps-chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .ps-chip.active, .ps-chip.ps-sort-on { background: var(--brand); color: #fff; border-color: var(--brand); }
   .ps-chip[data-sev] { font-weight: 600; }
   .ps-chip[data-sev="crit"] { color: var(--crit-fg); background: var(--crit-bg); border-color: transparent; }
   .ps-chip[data-sev="warn"] { color: var(--warn-fg); background: var(--warn-bg); border-color: transparent; }
@@ -2438,7 +2438,9 @@
     document.querySelectorAll("[data-sort-key]").forEach(function (btn) {
       var key = btn.getAttribute("data-sort-key");
       var active = sortState.key === key;
-      btn.classList.toggle("active", active);
+      // Not `.active`: that class marks an applied filter, and a selector
+      // asking for the active filter chip must not also match a sort chip.
+      btn.classList.toggle("ps-sort-on", active);
       setAttr(btn, "aria-pressed", active ? "true" : "false");
       btn.textContent = active ? key + " " + (sortState.dir === "desc" ? "↓" : "↑") : key;
       btn.title = active
