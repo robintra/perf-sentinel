@@ -498,8 +498,9 @@ fn analyze_enter_preserves_active_panel_for_round_trip() {
     assert_eq!(app.active_panel, Panel::Correlations);
 }
 
-/// The count is hand-maintained against `draw_detail_panel`; a row added
-/// to one and not the other silently truncates the scroll.
+/// `detail_panel_line_count` is hand-maintained against `draw_detail_panel`,
+/// so this counts the metadata rows actually rendered and compares. A row
+/// added to one and not the other silently truncates the scroll.
 #[test]
 fn detail_line_count_matches_the_rendered_metadata_rows() {
     let mut app = make_test_app();
@@ -508,16 +509,40 @@ fn detail_line_count_matches_the_rendered_metadata_rows() {
         key: "k8s.namespace.name".into(),
         value: "prod-eu".into(),
     }];
+    app.cached_detail = None;
+
+    let counted = app.detail_panel_line_count();
     let buf = render_once(&mut app, 320, 40);
-    let mut full = String::new();
+    let mut lines: Vec<String> = Vec::new();
     for y in 0..buf.area.height {
+        let mut line = String::new();
         for x in 0..buf.area.width {
-            full.push_str(buf[(x, y)].symbol());
+            line.push_str(buf[(x, y)].symbol());
         }
+        lines.push(line.trim_end().to_string());
     }
+    let full = lines.join("\n");
 
     assert!(full.contains("k8s.namespace.name:"), "{full}");
     assert!(full.contains("prod-eu"), "{full}");
+
+    // Every metadata label the panel renders, in one place, so adding a row
+    // to `draw_detail_panel` without bumping the counter fails here.
+    let rendered = [
+        "Severity:",
+        "Occurrences:",
+        "Service:",
+        "k8s.namespace.name:",
+        "Endpoint:",
+        "Suggestion:",
+    ]
+    .iter()
+    .filter(|label| full.contains(*label))
+    .count();
+    assert!(
+        counted >= rendered as u16,
+        "detail_panel_line_count ({counted}) must cover the {rendered} metadata rows rendered: {full}"
+    );
 }
 
 #[test]
