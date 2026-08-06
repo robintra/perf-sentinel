@@ -202,15 +202,17 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     // defense-in-depth on hand-crafted inputs.
     sanitize_optional_arc_str(&mut event.cloud_region, MAX_ID_LENGTH);
     // A grouping value reaches the terminal and the dashboard, and its key
-    // is operator-supplied config. Both go through the same guard as the
-    // service name, and a rejected value drops the whole pair.
+    // is the label shown beside it. Both go through the same guard as the
+    // service name, and either one rejected or blank drops the whole pair:
+    // a half-pair renders as an unlabelled identity. Native JSON ingest
+    // deserializes `grouping` verbatim, so both sides are untrusted here.
     event.grouping.retain_mut(|attr| {
         let mut key = Some(Arc::clone(&attr.key));
         let mut value = Some(Arc::clone(&attr.value));
         sanitize_optional_arc_str(&mut key, MAX_SERVICE_LENGTH);
         sanitize_optional_arc_str(&mut value, MAX_SERVICE_LENGTH);
         match (key, value) {
-            (Some(k), Some(v)) if !v.is_empty() => {
+            (Some(k), Some(v)) if !k.is_empty() && !v.is_empty() => {
                 attr.key = k;
                 attr.value = v;
                 true
