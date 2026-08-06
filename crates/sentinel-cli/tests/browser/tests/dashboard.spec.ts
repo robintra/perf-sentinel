@@ -467,6 +467,20 @@ test("25. a hash naming an absent service does not silently empty the list", asy
     .toBe("svc:order-svc");
 });
 
+test("28. the sort control does not masquerade as an applied filter", async ({ page }) => {
+  // `.active` marks an applied filter. The sort chips share `.ps-chip` for
+  // the look, so giving them `.active` too made every "which filter is on"
+  // selector ambiguous, which is how test 25 broke.
+  await loadDashboard(page, "#findings");
+  expect(await page.locator("#findings-filters .ps-chip.active").count(),
+    "exactly one chip may claim to be the applied filter").toBe(1);
+  await page.locator('[data-sort-key="impact"]').click();
+  expect(await page.locator("#findings-filters .ps-chip.active").count(),
+    "switching the sort must not add a second applied filter").toBe(1);
+  expect(await page.locator('[data-sort-key="impact"].ps-sort-on').count(),
+    "the active sort carries its own marker").toBe(1);
+});
+
 test("26. wide tables scroll inside their card instead of being clipped", async ({ page }) => {
   // .ps-card clips with overflow:hidden. A table wider than the card (the acks
   // signatures at a narrow width) must scroll in place, and the page body must
