@@ -245,6 +245,8 @@ Les alias de code pays et les synonymes de fournisseurs cloud résolvent vers le
 
 La table complète des alias se trouve dans `score/carbon_profiles.rs`. Si votre clé de région n'est pas aliasée, la valeur annuelle plate de la table carbone principale est utilisée.
 
+**Tous les backends d'énergie et d'intensité réseau sont réservés au daemon.** `[green.alumet]`, `[green.scaphandre]`, `[green.kepler]`, `[green.redfish]`, `[green.cloud_energy]`, `[green.broker_static]` et `[green.electricity_maps]` sont interrogés par le daemon `watch` et par rien d'autre. Un run batch `analyze` ou `report` ne démarre aucun scraper : il calcule donc avec l'estimation proxy I/O sur les données d'intensité embarquées quoi que disent ces sections, et il émet un avertissement nommant les sections qu'il a dû ignorer. Attribuer une puissance mesurée maintenant à des traces enregistrées plus tôt produirait un chiffre faux plutôt qu'un chiffre absent, d'où l'absence de scraping en batch.
+
 #### `[green.scaphandre]` (optionnel, opt-in)
 
 Intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) pour la mesure énergétique par processus sur les hôtes Linux avec support Intel RAPL. Quand cette section est configurée, le daemon `watch` lance une tâche de fond qui scrape l'endpoint Prometheus de Scaphandre toutes les `scrape_interval_secs` secondes et utilise les lectures de puissance mesurées pour remplacer la constante `ENERGY_PER_IO_OP_KWH` fixe pour chaque service mappé.

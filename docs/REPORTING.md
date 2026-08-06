@@ -93,6 +93,10 @@ This is a **mapping aid, not a certification**. It does not make a report a CSRD
 
 ## Inputs
 
+**Daemon archives only.** A batch `analyze --format json` report cannot feed `disclose`, for three independent reasons: a directory input collects `*.ndjson` only, every line must deserialize as the `{"ts", "report"}` envelope below, and a batch report carries no `disclosure_waste` (the canonical avoidable tiers are computed at archive time). This is deliberate: a public disclosure rests on continuous observation over the declared period, not on ad-hoc runs. Run `perf-sentinel watch` with archiving enabled for anything you intend to disclose.
+
+A period that mixes archives written before canonical disclosure with newer ones passes `--intent official` validation, because the canonical threshold is the maximum across windows. The canonical tier then under-reports by exactly the older windows' share, so `disclose` prints how many windows carried no canonical figure. Regenerate over post-upgrade windows for a complete figure.
+
 The aggregator reads NDJSON files that the daemon archives one envelope per scoring window:
 
 ```json
