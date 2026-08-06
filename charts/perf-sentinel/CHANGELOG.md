@@ -25,24 +25,24 @@ the chart version, to know which daemon image ships.
 
 ### Changed
 
-- `appVersion` moves to `0.11.0`. Findings now carry the deployment
-  namespace: `SpanEvent` and `Finding` keep the optional
-  `service.namespace` and `k8s.namespace.name` values read from OTLP,
-  Jaeger and Zipkin, and the effective namespace (Kubernetes first,
-  service namespace as the fallback) separates recurrences, daemon
-  coalescing, `diff` identity and cross-trace correlations. The same
-  problem in two deployments no longer reads as one row with summed
-  occurrences. `/api/correlations` gains a `namespace` field on each
-  endpoint and never pairs two namespaces.
+- `appVersion` moves to `0.11.0`. `[detection] grouping_attributes`
+  selects the ordered resource or span attributes that separate
+  deployments, defaulting to `k8s.namespace.name` then
+  `service.namespace`. `SpanEvent` and `Finding` retain every configured
+  attribute found, while the first one present supplies the effective
+  `key=value` identity for recurrences, daemon coalescing, `diff` and
+  cross-trace correlations. The same problem in two deployments no
+  longer reads as one row with summed occurrences. `/api/correlations`
+  carries both `grouping_key` and `namespace` (the value) on each endpoint.
 - Acknowledgment signatures are untouched, so an existing ack still
-  covers every namespace and no re-acknowledgment is needed after the
+  covers every grouping and no re-acknowledgment is needed after the
   upgrade.
-- No chart change ships with this bump: no template change, no values
-  change, and a values file that rendered on `0.10.0` renders
-  identically here, `checksum/config` included, so upgrading does not
-  roll pods. A minor rather than a patch bump because the published
-  `perf-sentinel-core` public structs grew fields again, which a
-  downstream crate pinned to `0.10` cannot absorb on a patch number.
+- The ServiceMonitor and headless Service templates changed for the
+  duplicate-scrape fix above. Values and pod templates are unchanged, so
+  the upgrade does not roll pods. This is a minor rather than a patch bump
+  because the published `perf-sentinel-core` public structs grew fields
+  again, which a downstream crate pinned to `0.10` cannot absorb on a
+  patch number.
 
 ## [0.10.0]
 
