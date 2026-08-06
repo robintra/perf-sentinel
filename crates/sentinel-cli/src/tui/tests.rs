@@ -545,6 +545,71 @@ fn detail_line_count_matches_the_rendered_metadata_rows() {
     );
 }
 
+/// `Source:` is inserted at a hardcoded index, so adding a metadata row above
+/// it silently reorders the panel.
+#[test]
+fn source_row_stays_below_endpoint_when_a_grouping_row_is_present() {
+    use sentinel_core::event::CodeLocation;
+    let mut app = make_test_app();
+    app.active_panel = Panel::Detail;
+    app.all_findings[0].grouping = vec![GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: "prod-eu".into(),
+    }];
+    app.all_findings[0].code_location = Some(CodeLocation {
+        function: Some("load_orders".to_string()),
+        filepath: Some("svc/orders.rs".to_string()),
+        lineno: Some(42),
+        namespace: None,
+    });
+
+    let buf = render_once(&mut app, 320, 40);
+    let mut rows: Vec<String> = Vec::new();
+    for y in 0..buf.area.height {
+        let mut line = String::new();
+        for x in 0..buf.area.width {
+            line.push_str(buf[(x, y)].symbol());
+        }
+        rows.push(line);
+    }
+    let index_of = |needle: &str| {
+        rows.iter()
+            .position(|r| r.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} not rendered in {rows:#?}"))
+    };
+
+    assert!(
+        index_of("Endpoint:") < index_of("Source:"),
+        "Source must stay below Endpoint: {rows:#?}"
+    );
+    assert!(index_of("k8s.namespace.name:") < index_of("Endpoint:"));
+}
+
+/// The attribute key is report-supplied like its value, so both go through
+/// the terminal guard.
+#[test]
+fn grouping_key_is_sanitized_in_the_detail_panel() {
+    let mut app = make_test_app();
+    app.active_panel = Panel::Detail;
+    app.all_findings[0].grouping = vec![GroupingAttribute {
+        key: "evil\x1b[2J\x1b[H".into(),
+        value: "prod".into(),
+    }];
+
+    let buf = render_once(&mut app, 320, 40);
+    let mut full = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            full.push_str(buf[(x, y)].symbol());
+        }
+    }
+
+    assert!(
+        !full.as_bytes().contains(&0x1b),
+        "ESC byte from a grouping key leaked into the terminal buffer"
+    );
+}
+
 #[test]
 fn detail_line_count_counts_code_location_row() {
     use sentinel_core::event::CodeLocation;
@@ -919,14 +984,14 @@ fn make_correlation(src_svc: &str, tgt_svc: &str) -> CrossTraceCorrelation {
             service: src_svc.to_string(),
             template: "SELECT * FROM t WHERE id = ?".to_string(),
             grouping_key: None,
-            namespace: None,
+            grouping_value: None,
         },
         target: CorrelationEndpoint {
             finding_type: FindingType::SlowHttp,
             service: tgt_svc.to_string(),
             template: "GET /api/x".to_string(),
             grouping_key: None,
-            namespace: None,
+            grouping_value: None,
         },
         co_occurrence_count: 47,
         source_total_occurrences: 50,
@@ -1076,7 +1141,7 @@ fn correlations_panel_renders_at_typical_width() {
 fn correlations_panel_qualifies_each_side_with_its_grouping() {
     let mut c = make_correlation("order-svc", "payment-svc");
     c.source.grouping_key = Some("tenant.id".to_string());
-    c.source.namespace = Some("prod-eu".to_string());
+    c.source.grouping_value = Some("prod-eu".to_string());
     let mut app = make_test_app().with_correlations(vec![c]);
     app.active_panel = Panel::Correlations;
     let buf = render_once(&mut app, 320, 40);
@@ -1104,7 +1169,7 @@ fn correlations_panel_strips_ansi_from_service_name() {
         service: "click\x1b]8;;https://attacker/\x07tag\x1b]8;;\x07".to_string(),
         template: "GET /x".to_string(),
         grouping_key: None,
-        namespace: None,
+        grouping_value: None,
     };
     let mut app = make_test_app().with_correlations(vec![hostile]);
     app.active_panel = Panel::Correlations;
