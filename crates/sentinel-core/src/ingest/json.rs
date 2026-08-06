@@ -295,7 +295,10 @@ impl JsonIngest {
             {
                 event.cloud_region = None;
             }
-            crate::event::sanitize_span_event(event);
+            // Select the configured keys BEFORE sanitizing: sanitize caps the
+            // vector at MAX_GROUPING_ATTRIBUTES, so a configured key sitting
+            // past that cap in the incoming JSON would be truncated away
+            // before it could ever be selected.
             let captured = std::mem::take(&mut event.grouping);
             event.grouping = crate::ingest::collect_grouping(grouping_attributes, |key| {
                 captured
@@ -303,6 +306,7 @@ impl JsonIngest {
                     .find(|grouping| grouping.key.as_ref() == key)
                     .map(|grouping| std::sync::Arc::clone(&grouping.value))
             });
+            crate::event::sanitize_span_event(event);
         }
         Ok(events)
     }
@@ -1220,6 +1224,36 @@ mod tests {
         assert_matches!(
             ingest.ingest(payload.as_bytes()),
             Err(JsonIngestError::PayloadTooDeep { .. })
+        );
+    }
+
+    /// `sanitize_span_event` caps the vector, so selecting after it would
+    /// drop a configured key that sits past the cap in the incoming JSON.
+    #[test]
+    fn a_configured_key_past_the_cap_still_reaches_the_event() {
+        let mut attrs: Vec<String> = (0..crate::config::MAX_GROUPING_ATTRIBUTES + 2)
+            .map(|i| format!(r#"{{"key":"filler.{i}","value":"v{i}"}}"#))
+            .collect();
+        attrs.push(r#"{"key":"tenant.id","value":"acme"}"#.to_string());
+        let raw = format!(
+            r#"[{{"timestamp":"2025-07-10T14:32:01.123Z","trace_id":"t1","span_id":"s1",
+                 "service":"svc","type":"sql","operation":"SELECT",
+                 "target":"SELECT 1","duration_us":10,
+                 "source":{{"endpoint":"/api","method":"GET"}},
+                 "grouping":[{}]}}]"#,
+            attrs.join(",")
+        );
+
+        let events = JsonIngest::new(1_048_576)
+            .with_grouping_attributes(vec![std::sync::Arc::from("tenant.id")])
+            .ingest(raw.as_bytes())
+            .unwrap();
+
+        assert_eq!(
+            events[0].grouping_value(),
+            Some("acme"),
+            "{:?}",
+            events[0].grouping
         );
     }
 
