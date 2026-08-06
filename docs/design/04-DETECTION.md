@@ -124,6 +124,8 @@ The heuristic in `crates/sentinel-core/src/detect/sanitizer_aware.rs` recovers t
 
 The four emission modes (`Auto`, `Strict`, `Always`, `Never`) are documented in `docs/CONFIGURATION.md` § "`sanitizer_aware_classification`" with their precision/recall trade-offs.
 
+The HTML detail makes that decision auditable without changing it: direct N+1 findings are labeled `direct`, recovered groups are labeled `heuristic`, and the view shows the observation window, distinct-parameter count, available p50/p99/CV timing statistics, and one timestamped duration/status row per offending occurrence. Raw parameters and targets remain omitted; unrelated spans stay grouped.
+
 ### Known limit
 
 `looks_sanitized` cannot tell a sanitized literal `?` apart from a PostgreSQL JSONB existence operator (`data ? 'key'`) when the latter happens to appear in a query with no other literals. The harm direction is asymmetric: a misclassified JSONB group flips from `redundant_sql` to `n_plus_one_sql`, both of which contribute equally to GreenOps `avoidable_io_ops`, only the suggestion text differs.

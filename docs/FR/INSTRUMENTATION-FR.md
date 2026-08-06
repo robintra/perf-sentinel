@@ -397,8 +397,12 @@ perf-sentinel détecte les anti-patterns I/O en examinant des attributs de span 
 | Taille du message | `messaging.message.body.size`             | (idem)                      | `4096`                                    |
 | Endpoint source   | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
 | Nom du service    | `service.name` (ressource)                | `service.name` (ressource)  | `game`, `account-svc`                     |
+| Namespace de service | `service.namespace` (ressource)        | (idem)                      | `commerce`                                |
+| Namespace Kubernetes | `k8s.namespace.name` (ressource)       | (idem)                      | `prod-eu`                                 |
 
 Les spans qui ne portent aucun attribut SQL, HTTP, RPC ou messaging sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
+
+Le rapport HTML conserve et affiche les deux attributs de namespace. Son filtre unique utilise `k8s.namespace.name` lorsqu'il est présent, puis se replie sur `service.namespace` ; sans aucun des deux, le finding n'a pas de puce de namespace. Ce regroupement d'affichage ne change pas la signature d'acquittement : un même acquittement peut donc toujours couvrir le problème dans plusieurs namespaces. Jaeger lit ces valeurs dans les tags du process (avec repli sur ceux du span), et Zipkin dans les tags du span.
 
 Les spans RPC (gRPC, Dubbo et frameworks similaires) ne portent ni statement ni URL, ils sont donc identifiés par `rpc.system` et modélisés comme des appels sortants : la cible est `rpc.service/rpc.method` (avec repli sur le nom du span quand l'un des deux manque), et les findings apparaissent sous les types `_http`. Cela garde les détecteurs topologiques (fanout, bavard, sérialisé) et d'occurrence (n+1, redondant) opérationnels sur les flottes à dominante RPC. Les spans RPC ne portent pas de texte de requête, donc `n_plus_one_sql` et le normalizer SQL ne s'y appliquent jamais.
 
@@ -828,4 +832,3 @@ Les différents drivers de base de données émettent des syntaxes de placeholde
 **Ce que cela signifie pour les opérateurs.** Aucune configuration n'est nécessaire pour activer la detection sur ces stacks. Le normalizer et le check `template_has_placeholder` dans le pipeline de detection gèrent le mapping automatiquement. L'exigence clé est que l'instrumentation OTel émette `db.statement` sur les spans SQL.
 
 **Marqueurs de scope ORM.** Le chemin sanitizer-aware consulte aussi le scope d'instrumentation OTel (le nom de la bibliothèque) pour décider si un groupe de requêtes sanitizées est probablement N+1 ou juste redondant. Les scopes suivants sont reconnus : `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`, `activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`.
-
