@@ -149,8 +149,11 @@ async function freePort(): Promise<number> {
   });
 }
 
-function buildBinaryIfMissing() {
-  if (existsSync(BINARY)) return;
+// Always build, never just when the binary is absent. The suite asserts on
+// what the embedded template and the Rust sink emit (the culprit-evidence
+// key format lives in both), so a stale binary makes the suite pass against
+// code that no longer exists. Cargo no-ops in seconds when nothing changed.
+function buildBinary() {
   // eslint-disable-next-line no-console
   console.log("[global-setup] building release binary (this can take a minute)");
   execFileSync(
@@ -161,6 +164,9 @@ function buildBinaryIfMissing() {
       stdio: "inherit"
     }
   );
+  if (!existsSync(BINARY)) {
+    throw new Error(`release binary missing after build: ${BINARY}`);
+  }
 }
 
 function renderFixtures() {
@@ -520,7 +526,7 @@ export default async function globalSetup() {
   if (!existsSync(FIXTURE_DIR)) mkdirSync(FIXTURE_DIR, { recursive: true });
   writeFileSync(join(FIXTURE_DIR, "index.html"), "<!-- perf-sentinel fixtures -->");
 
-  buildBinaryIfMissing();
+  buildBinary();
   renderFixtures();
   await startStaticServer();
 }
