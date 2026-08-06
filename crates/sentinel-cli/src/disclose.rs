@@ -1276,7 +1276,7 @@ fn non_fatal_warnings(
     let mut warnings = Vec::new();
     // A mixed period passes official validation: `fold_tier` takes the max
     // of the thresholds, so the canonical tier looks canonical while it
-    // under-reports by exactly the legacy windows' share.
+    // omits the legacy windows.
     if legacy_waste_windows > 0 {
         warnings.push(format!(
             "Warning: {legacy_waste_windows} of {windows_aggregated} windows carry no \
