@@ -93,6 +93,10 @@ C'est une **aide à la correspondance, pas une certification**. Elle ne transfor
 
 ## Entrées
 
+**Archives daemon exclusivement.** Un rapport batch `analyze --format json` ne peut pas alimenter `disclose`, pour trois raisons indépendantes : une entrée de type répertoire ne collecte que les `*.ndjson`, chaque ligne doit se désérialiser en l'enveloppe `{"ts", "report"}` ci-dessous, et un rapport batch ne porte pas de `disclosure_waste` (les tiers canoniques de gaspillage évitable sont calculés au moment de l'archivage). C'est délibéré : une divulgation publique repose sur une observation continue de la période déclarée, pas sur des runs ponctuels. Utilisez `perf-sentinel watch` avec l'archivage activé pour tout ce que vous comptez publier.
+
+Une période qui mêle des archives antérieures à la divulgation canonique et des archives plus récentes passe la validation `--intent official`, car le seuil canonique est le maximum sur les fenêtres. Le tier canonique sous-déclare alors exactement la part des fenêtres anciennes, c'est pourquoi `disclose` indique combien de fenêtres ne portaient pas de figure canonique. Régénérez sur des fenêtres postérieures à la montée de version pour obtenir une figure complète.
+
 L'aggregator lit des fichiers NDJSON que le daemon archive à raison d'une enveloppe par fenêtre de scoring :
 
 ```json
