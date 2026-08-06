@@ -806,3 +806,34 @@ test("38. the ack modal distinguishes equal grouping values from different keys"
   await expect(scope).toContainText("tenant.id=prod");
   await expect(scope).toContainText("k8s.namespace.name=prod");
 });
+
+test("39. the ack modal warns when a signature spans grouped and ungrouped rows", async ({ page }) => {
+  // The silent case: one grouped row and one ungrouped row share a signature,
+  // so acking either silences both while only one label exists to list.
+  await page.route("**/dashboard-demo.html", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const shared = body.replace(
+      /(<script id="report-data" type="application\/json">\s*)([\s\S]*?)(\s*<\/script>)/,
+      (_match, open, json, close) => {
+        const payload = JSON.parse(json);
+        payload.report.findings.forEach((f: Record<string, any>, i: number) => {
+          f.signature = "shared-sig";
+          f.grouping = i % 2 === 0 ? [{ key: "tenant.id", value: "acme" }] : [];
+        });
+        return open + JSON.stringify(payload) + close;
+      },
+    );
+    await route.fulfill({ response, body: shared });
+  });
+  await page.goto("/dashboard-demo.html#findings");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#findings-list .ps-fin-action-btn").count() === 0,
+    "demo fixture is not in live mode");
+
+  await page.locator("#findings-list .ps-fin-action-btn").first().click();
+  const scope = page.locator("#ack-modal-scope");
+  await expect(scope).toBeVisible();
+  await expect(scope).toContainText("tenant.id");
+  await expect(scope).toContainText("no grouping");
+});

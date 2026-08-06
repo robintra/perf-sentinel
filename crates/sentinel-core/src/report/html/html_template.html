@@ -4253,10 +4253,10 @@
   }
   function correlationEndpointLabel(endpoint) {
     var service = endpoint.service || "?";
-    if (!endpoint.namespace) return service;
+    if (!endpoint.grouping_value) return service;
     var grouping = endpoint.grouping_key
-      ? endpoint.grouping_key + "=" + endpoint.namespace
-      : endpoint.namespace;
+      ? endpoint.grouping_key + "=" + endpoint.grouping_value
+      : endpoint.grouping_value;
     return service + "@" + grouping;
   }
   // Renders `CrossTraceCorrelation` entries emitted by the daemon,
@@ -4340,7 +4340,7 @@
       // Compared both ways: an endpoint with no grouping must not match a
       // grouped finding either, else an ungrouped correlation side links to
       // whichever deployment happens to share its service.
-      var sameGrouping = findingNamespace(f) === (endpoint.namespace || "") &&
+      var sameGrouping = findingNamespace(f) === (endpoint.grouping_value || "") &&
         (!endpoint.grouping_key || findingGroupingKey(f) === endpoint.grouping_key);
       return (f.type || f.finding_type) === endpoint.finding_type &&
         f.service === endpoint.service &&
@@ -6088,12 +6088,21 @@
   // clicking Ack on one row must be told the other rows go with it.
   function ackScopeText(sig) {
     var groupings = [];
+    // An ungrouped row counts too: a signature shared by one grouped and one
+    // ungrouped finding still covers both, and staying silent there is
+    // exactly the mis-scoped ack this note exists to prevent.
+    var ungrouped = false;
     findings.forEach(function (f) {
       if (f.signature !== sig) return;
       var grouping = findingGroupingLabel(f);
-      if (!grouping || groupings.indexOf(grouping) !== -1) return;
+      if (!grouping) {
+        ungrouped = true;
+        return;
+      }
+      if (groupings.indexOf(grouping) !== -1) return;
       groupings.push(grouping);
     });
+    if (ungrouped && groupings.length) groupings.push("(no grouping)");
     if (groupings.length < 2) return "";
     // The findings list can be trimmed for file size, so the count is a
     // floor rather than a total. Saying "at least" beats overstating.
