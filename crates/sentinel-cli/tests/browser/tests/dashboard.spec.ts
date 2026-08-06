@@ -546,12 +546,13 @@ test("30. occurrence timestamps accept short fractional seconds", async ({ page 
     .toHaveText("10:00:00.01 UTC");
 });
 
-test("31. HTTP N+1 help describes evidence without claiming sanitizer proof", async ({ page }) => {
+test("31. HTTP N+1 help describes heuristic and forced classification", async ({ page }) => {
   await loadDashboard(page, "#findings&type=n_plus_one_http&namespace=prod-eu");
   await page.locator("#findings-list .ps-row").first().click();
 
   const help = await page.locator("#explain-detail-head .ps-nav-help").getAttribute("aria-label");
   expect(help).toContain("timing and trace-shape signals");
+  expect(help).toContain("always mode deliberately forces that classification without those signals");
   expect(help).not.toContain("instrumentation has already collapsed parameters");
 });
 
@@ -592,6 +593,51 @@ test("34. legacy approximate evidence remains grouped", async ({ page }) => {
 
   await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(1);
   await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-count")).toContainText("×");
+});
+
+test("35. evidence note reports occurrences omitted by the DOM cap", async ({ page }) => {
+  await page.route("**/dashboard.html", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const cappedEvidence = body.replace(
+      /(<script id="report-data" type="application\/json">\s*)([\s\S]*?)(\s*<\/script>)/,
+      (_match, open, json, close) => {
+        const payload = JSON.parse(json);
+        const finding = payload.report.findings.find((candidate: Record<string, any>) =>
+          (candidate.type || candidate.finding_type) === "n_plus_one_sql" &&
+          (candidate.k8s_namespace || candidate.service_namespace) === "prod-eu");
+        const trace = payload.embedded_traces.find(
+          (candidate: Record<string, any>) => candidate.trace_id === finding.trace_id);
+        finding.pattern.occurrences = 2001;
+        trace.spans = Array.from({ length: 2001 }, (_, i) => ({
+          span_id: `cap-${i}`,
+          timestamp: "2026-04-20T10:00:00.000Z",
+          service: finding.service,
+          endpoint: finding.source_endpoint,
+          event_type: "sql",
+          operation: "SELECT",
+          template: finding.pattern.template,
+          duration_us: 1,
+        }));
+        const key = [
+          finding.trace_id,
+          finding.signature,
+          finding.first_timestamp || "",
+          finding.last_timestamp || "",
+          finding.k8s_namespace || finding.service_namespace,
+        ].join("|");
+        payload.culprit_spans = { [key]: trace.spans.map((span: Record<string, any>) => span.span_id) };
+        return open + JSON.stringify(payload) + close;
+      },
+    );
+    await route.fulfill({ response, body: cappedEvidence });
+  });
+  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  await expect(page.locator("#explain-tree .ps-span.hilite")).toHaveCount(2000);
+  await expect(page.locator("#explain-evidence-note"))
+    .toHaveText("Showing 2000 of 2001 offending occurrences from the representative trace.");
 });
 
 test("28. the sort control does not masquerade as an applied filter", async ({ page }) => {
