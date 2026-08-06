@@ -668,12 +668,14 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
     "source": {
       "finding_type": "redundant_sql",
       "service": "cache-svc",
-      "template": "SELECT * FROM settings WHERE key = ?"
+      "template": "SELECT * FROM settings WHERE key = ?",
+      "namespace": "prod-eu"
     },
     "target": {
       "finding_type": "n_plus_one_sql",
       "service": "order-svc",
-      "template": "SELECT * FROM order_item WHERE order_id = ?"
+      "template": "SELECT * FROM order_item WHERE order_id = ?",
+      "namespace": "prod-eu"
     },
     "co_occurrence_count": 2,
     "source_total_occurrences": 1,
@@ -684,6 +686,8 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
   }
 ]
 ```
+
+`namespace` is the effective namespace of that side (`k8s.namespace.name`, falling back to `service.namespace`), omitted when the spans carry neither. Two findings from different namespaces are never paired: a correlation always describes one deployment.
 
 ### GET /api/export/report
 

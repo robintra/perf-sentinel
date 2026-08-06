@@ -872,11 +872,13 @@ fn make_correlation(src_svc: &str, tgt_svc: &str) -> CrossTraceCorrelation {
             finding_type: FindingType::NPlusOneSql,
             service: src_svc.to_string(),
             template: "SELECT * FROM t WHERE id = ?".to_string(),
+            namespace: None,
         },
         target: CorrelationEndpoint {
             finding_type: FindingType::SlowHttp,
             service: tgt_svc.to_string(),
             template: "GET /api/x".to_string(),
+            namespace: None,
         },
         co_occurrence_count: 47,
         source_total_occurrences: 50,
@@ -1031,6 +1033,7 @@ fn correlations_panel_strips_ansi_from_service_name() {
         finding_type: FindingType::SlowHttp,
         service: "click\x1b]8;;https://attacker/\x07tag\x1b]8;;\x07".to_string(),
         template: "GET /x".to_string(),
+        namespace: None,
     };
     let mut app = make_test_app().with_correlations(vec![hostile]);
     app.active_panel = Panel::Correlations;
