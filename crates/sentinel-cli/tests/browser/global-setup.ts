@@ -67,7 +67,7 @@ const DEMO_CORRELATIONS = [
       service: "order-svc",
       template: "SELECT * FROM order_item WHERE order_id = ?",
       grouping_key: "k8s.namespace.name",
-      namespace: "prod-eu"
+      grouping_value: "prod-eu"
     },
     target: {
       finding_type: "slow_http",
@@ -91,14 +91,14 @@ const DEMO_CORRELATIONS = [
       service: "payment-svc",
       template: "SELECT id, status FROM payment WHERE id = ?",
       grouping_key: "service.namespace",
-      namespace: "finance"
+      grouping_value: "finance"
     },
     target: {
       finding_type: "n_plus_one_sql",
       service: "order-svc",
       template: "SELECT * FROM order_item WHERE order_id = ?",
       grouping_key: "k8s.namespace.name",
-      namespace: "prod-eu"
+      grouping_value: "prod-eu"
     },
     co_occurrence_count: 19,
     source_total_occurrences: 22,
@@ -121,7 +121,7 @@ const DEMO_CORRELATIONS = [
       service: "order-svc",
       template: "SELECT * FROM order_item WHERE order_id = ?",
       grouping_key: "k8s.namespace.name",
-      namespace: "prod-eu"
+      grouping_value: "prod-eu"
     },
     co_occurrence_count: 8,
     source_total_occurrences: 14,

@@ -689,14 +689,14 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
       "service": "cache-svc",
       "template": "SELECT * FROM settings WHERE key = ?",
       "grouping_key": "k8s.namespace.name",
-      "namespace": "prod-eu"
+      "grouping_value": "prod-eu"
     },
     "target": {
       "finding_type": "n_plus_one_sql",
       "service": "order-svc",
       "template": "SELECT * FROM order_item WHERE order_id = ?",
       "grouping_key": "k8s.namespace.name",
-      "namespace": "prod-eu"
+      "grouping_value": "prod-eu"
     },
     "co_occurrence_count": 2,
     "source_total_occurrences": 1,
@@ -708,7 +708,7 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 ]
 ```
 
-`grouping_key` et `namespace` portent l'attribut et la valeur de regroupement effectifs du côté concerné ; les deux sont omis quand les spans ne portent aucun attribut de regroupement configuré. Le nom de champ `namespace` est conservé pour la compatibilité JSON, même si la clé configurée est une autre dimension comme `tenant.id`. Deux findings dont la clé ou la valeur de regroupement diffère ne sont jamais appariés : une corrélation décrit toujours un seul déploiement.
+`grouping_key` et `grouping_value` portent l'attribut et la valeur de regroupement effectifs du côté concerné. Les deux sont omis quand les spans ne portent aucun attribut de regroupement configuré. Deux findings dont la clé ou la valeur de regroupement diffère ne sont jamais appariés : une corrélation décrit toujours un seul déploiement.
 
 ### GET /api/export/report
 
