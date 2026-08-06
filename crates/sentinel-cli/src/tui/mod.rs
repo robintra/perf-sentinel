@@ -2451,7 +2451,7 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
                         sanitize_for_terminal(&c.source.service),
                         grouping_suffix(
                             c.source.grouping_key.as_deref(),
-                            c.source.namespace.as_deref(),
+                            c.source.grouping_value.as_deref(),
                         ),
                         c.source.finding_type.as_str()
                     ),
@@ -2464,7 +2464,7 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
                         sanitize_for_terminal(&c.target.service),
                         grouping_suffix(
                             c.target.grouping_key.as_deref(),
-                            c.target.namespace.as_deref(),
+                            c.target.grouping_value.as_deref(),
                         ),
                         c.target.finding_type.as_str()
                     ),
@@ -2549,7 +2549,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                     "{}: ",
                     finding
                         .effective_grouping()
-                        .map_or("Grouping", |g| g.key.as_ref())
+                        .map_or_else(|| "Grouping".into(), |g| sanitize_for_terminal(&g.key))
                 ),
                 dim_style(),
             ),
@@ -2585,8 +2585,9 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     if let Some(ref loc) = finding.code_location {
         let src = loc.display_string();
         if !src.is_empty() {
+            // After Endpoint, which the grouping row pushed from 5 to 6.
             lines.insert(
-                6,
+                7,
                 Line::from(vec![
                     Span::styled("Source:   ", dim_style()),
                     Span::raw(src),
