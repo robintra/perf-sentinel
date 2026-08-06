@@ -305,11 +305,13 @@
 <p class="ps-p"><strong>Symptom.</strong> Alert fires on <code class="ps-ic">perf_sentinel_findings_total{severity="critical"}</code> rate.</p>
 <p class="ps-p"><strong>Triage workflow.</strong></p>
 <ol>
-<li><strong>Group by service and type.</strong><div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200'</span> \
-  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '[.[].finding | {finding_type, service}]
+<li><strong>Group by service and type.</strong> Since 0.10.0 this endpoint returns one row per distinct problem, not one per detection, so ranking by row count ranks by variety rather than by volume: a service whose spike is one pattern recurring on 200 traces would sort last. Rank on <code class="ps-ic">seen_count</code>, as above, to rank by how often a problem fired; <code class="ps-ic">problems</code> still says how many distinct ones a service carries. <code class="ps-ic">seen_count</code> counts the detections still retained in the ring buffer, so it falls as older ones age out.<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200'</span> \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '[.[] | {finding_type: .finding.finding_type, service: .finding.service, seen: (.seen_count // <span style="color:var(--code-num)">1)}]</span>
        | <span style="color:var(--code-cmd);font-weight:600">group_by(.service,</span> .finding_type)
-       | <span style="color:var(--code-cmd);font-weight:600">map({key:</span> "\(.[0].service)/\(.[0].finding_type)", count: length})
-       | <span style="color:var(--code-cmd);font-weight:600">sort_by(-.count)'</span></code></pre></div></li>
+       | <span style="color:var(--code-cmd);font-weight:600">map({key:</span> "\(.[0].service)/\(.[0].finding_type)",
+              <span style="color:var(--code-cmd);font-weight:600">problems:</span> length,
+              <span style="color:var(--code-cmd);font-weight:600">detections:</span> (map(.seen) | add)})
+       | <span style="color:var(--code-cmd);font-weight:600">sort_by(-.detections)'</span></code></pre></div></li>
 <li><strong>Grab an exemplar <code class="ps-ic">trace_id</code></strong> for each top pattern. In Grafana, the ◆ on the metric is clickable; from the command line:<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics \
   | <span style="color:var(--code-cmd);font-weight:600">grep</span> <span style="color:var(--code-flag)">-E</span> <span style="color:var(--code-num)">'findings_total|io_waste_ratio'</span>
 <span style="color:var(--term-comment)"># Lines end with "# {trace_id=\"...\"}", copy that id</span></code></pre></div></li>
