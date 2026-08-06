@@ -773,3 +773,36 @@ test("37. report warnings render in a banner that survives a tab switch", async 
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
   await expect(banner).toBeVisible();
 });
+
+test("38. the ack modal distinguishes equal grouping values from different keys", async ({ page }) => {
+  await page.route("**/dashboard-demo.html", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const shared = body.replace(
+      /(<script id="report-data" type="application\/json">\s*)([\s\S]*?)(\s*<\/script>)/,
+      (_match, open, json, close) => {
+        const payload = JSON.parse(json);
+        payload.report.findings.forEach((f: Record<string, any>, i: number) => {
+          f.signature = "same-value-sig";
+          f.grouping = [{
+            key: i % 2 === 0 ? "tenant.id" : "k8s.namespace.name",
+            value: "prod",
+          }];
+        });
+        return open + JSON.stringify(payload) + close;
+      },
+    );
+    await route.fulfill({ response, body: shared });
+  });
+  await page.goto("/dashboard-demo.html#findings");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#findings-list .ps-fin-action-btn").count() === 0,
+    "demo fixture is not in live mode");
+
+  await page.locator("#findings-list .ps-fin-action-btn").first().click();
+  const scope = page.locator("#ack-modal-scope");
+  await expect(scope).toBeVisible();
+  await expect(scope).toContainText("2 groupings");
+  await expect(scope).toContainText("tenant.id=prod");
+  await expect(scope).toContainText("k8s.namespace.name=prod");
+});
