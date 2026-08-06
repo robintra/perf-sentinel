@@ -34,18 +34,32 @@ type IdentityKey = (
     String,
 );
 
-fn identity_of(finding: &Finding) -> IdentityKey {
+fn identity_of(finding: &Finding, with_grouping: bool) -> IdentityKey {
     (
         finding.finding_type.clone(),
         finding.service.clone(),
-        // Without the namespace, the same problem in two deployments folds
+        // Without the grouping, the same problem in two deployments folds
         // into one row with summed occurrences.
-        finding
-            .effective_grouping()
-            .map(|g| (g.key.to_string(), g.value.to_string())),
+        with_grouping
+            .then(|| {
+                finding
+                    .effective_grouping()
+                    .map(|g| (g.key.to_string(), g.value.to_string()))
+            })
+            .flatten(),
         finding.source_endpoint.clone(),
         finding.pattern.template.clone(),
     )
+}
+
+/// A baseline written before 0.11.0 carries no grouping, so keying on it
+/// would make every current finding new and every baseline one resolved: a
+/// total false regression on the first run after upgrade. Detected rather
+/// than versioned, so an operator who genuinely runs an ungrouped fleet is
+/// unaffected (nothing to separate on either side anyway).
+fn grouping_is_comparable(before: &[Finding], after: &[Finding]) -> bool {
+    before.iter().any(|f| f.effective_grouping().is_some())
+        || after.iter().all(|f| f.effective_grouping().is_none())
 }
 
 /// Delta between two analysis runs.
@@ -113,8 +127,9 @@ pub struct EndpointDelta {
 /// Pure function: takes references and returns owned data. No I/O.
 #[must_use]
 pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
-    let before_map = build_identity_map(&before.findings);
-    let after_map = build_identity_map(&after.findings);
+    let with_grouping = grouping_is_comparable(&before.findings, &after.findings);
+    let before_map = build_identity_map(&before.findings, with_grouping);
+    let after_map = build_identity_map(&after.findings, with_grouping);
 
     let mut new_findings: Vec<Finding> = Vec::new();
     let mut resolved_findings: Vec<Finding> = Vec::new();
@@ -185,10 +200,10 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
 /// at a key wins for `trace_id` / `first_timestamp` / `code_location` /
 /// `suggested_fix`. Since `pipeline::analyze` calls `sort_findings`
 /// before returning, this is deterministic.
-fn build_identity_map(findings: &[Finding]) -> BTreeMap<IdentityKey, Finding> {
+fn build_identity_map(findings: &[Finding], with_grouping: bool) -> BTreeMap<IdentityKey, Finding> {
     let mut map: BTreeMap<IdentityKey, Finding> = BTreeMap::new();
     for finding in findings {
-        let key = identity_of(finding);
+        let key = identity_of(finding, with_grouping);
         match map.get_mut(&key) {
             None => {
                 map.insert(key, finding.clone());
@@ -399,6 +414,57 @@ mod tests {
                 .map(|g| g.key.as_ref()),
             Some("k8s.namespace.name")
         );
+    }
+
+    /// A baseline written before 0.11.0 has no grouping. Keying on it would
+    /// report every finding as new and every baseline one as resolved, a
+    /// total false regression on the first run after upgrade.
+    #[test]
+    fn a_baseline_without_grouping_does_not_diff_as_a_total_regression() {
+        let legacy = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "order-svc",
+            "GET /api/orders",
+            "SELECT * FROM t WHERE id = ?",
+        );
+        let mut current = legacy.clone();
+        current.grouping = crate::test_helpers::k8s_grouping("prod-eu");
+
+        let report = diff_runs(
+            &make_report(vec![legacy], vec![]),
+            &make_report(vec![current], vec![]),
+        );
+
+        assert!(report.new_findings.is_empty(), "{:?}", report.new_findings);
+        assert!(
+            report.resolved_findings.is_empty(),
+            "{:?}",
+            report.resolved_findings
+        );
+    }
+
+    /// Once the baseline itself carries groupings, the separation is back on.
+    #[test]
+    fn a_grouped_baseline_still_separates_deployments() {
+        let mut prod = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "order-svc",
+            "GET /api/orders",
+            "SELECT * FROM t WHERE id = ?",
+        );
+        prod.grouping = crate::test_helpers::k8s_grouping("prod-eu");
+        let mut staging = prod.clone();
+        staging.grouping = crate::test_helpers::k8s_grouping("staging");
+
+        let report = diff_runs(
+            &make_report(vec![prod.clone()], vec![]),
+            &make_report(vec![prod, staging], vec![]),
+        );
+
+        assert_eq!(report.new_findings.len(), 1);
+        assert_eq!(report.new_findings[0].grouping_value(), Some("staging"));
     }
 
     fn endpoint(service: &str, ep: &str, ops: usize) -> PerEndpointIoOps {
