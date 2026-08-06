@@ -395,8 +395,12 @@ perf-sentinel detects I/O anti-patterns by looking at specific span attributes. 
 | Message size    | `messaging.message.body.size`             | (same)                      | `4096`                                    |
 | Source endpoint | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
 | Service name    | `service.name` (resource)                 | `service.name` (resource)   | `game`, `account-svc`                     |
+| Service namespace | `service.namespace` (resource)          | (same)                      | `commerce`                                |
+| Kubernetes namespace | `k8s.namespace.name` (resource)       | (same)                      | `prod-eu`                                 |
 
 Spans that carry no SQL, HTTP, RPC, or messaging attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
+
+The HTML report retains and displays both namespace attributes. Its single namespace filter uses `k8s.namespace.name` when present, then falls back to `service.namespace`; with neither attribute the finding has no namespace chip. This display grouping does not change the acknowledgment signature, so one acknowledgment can still cover the same problem across namespaces. Jaeger reads the values from process tags (with span-tag fallback), and Zipkin reads them from span tags.
 
 RPC spans (gRPC, Dubbo, and similar frameworks) carry neither a statement nor a URL, so they are keyed on `rpc.system` and modeled as outbound calls: the target is `rpc.service/rpc.method` (falling back to the span name when either is absent), and findings appear under the `_http` types. This keeps the topological detectors (fanout, chatty, serialized) and the occurrence detectors (n+1, redundant) working on RPC-heavy fleets. RPC spans carry no query text, so `n_plus_one_sql` and the SQL normalizer never apply to them.
 
@@ -1008,4 +1012,3 @@ Different database drivers emit different placeholder syntax in the `db.statemen
 `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`, `activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`.
 
 Stacks without an ORM scope (bare driver: `otelpgx`, `asyncpg`, `node-pg`, `psycopg` without Django/SQLAlchemy) rely on the timing-variance and high-occurrence signals instead. See `docs/design/04-DETECTION.md` for the full classification algorithm.
-

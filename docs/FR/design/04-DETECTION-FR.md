@@ -124,6 +124,8 @@ L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétabli
 
 Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § "`sanitizer_aware_classification`" avec leurs trade-offs précision/rappel.
 
+Le détail HTML rend cette décision vérifiable sans la modifier : les N+1 directs portent le libellé `direct`, les groupes récupérés le libellé `heuristic`, et la vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque occurrence incriminée. Les paramètres et cibles bruts restent masqués ; les spans sans rapport restent regroupés.
+
 ### Limite connue
 
 `looks_sanitized` ne peut pas distinguer un `?` littéral sanitizé d'un opérateur d'existence JSONB PostgreSQL (`data ? 'key'`) quand ce dernier apparaît dans une requête sans autre littéral. La direction du préjudice est asymétrique : un groupe JSONB mal classé bascule de `redundant_sql` vers `n_plus_one_sql`, les deux contribuant à parts égales aux `avoidable_io_ops` GreenOps, seul le texte de la suggestion diffère.

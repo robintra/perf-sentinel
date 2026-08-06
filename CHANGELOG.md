@@ -2,6 +2,16 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `SpanEvent` and `Finding` retain the optional `service.namespace` and `k8s.namespace.name` values extracted from OTLP, Jaeger and Zipkin. The HTML report can filter exact finding types and an effective namespace (`k8s.namespace.name`, falling back to `service.namespace`), and its detail and CSV views expose the available namespaces, classification, observation window, timing statistics and masked per-occurrence evidence.
+
+### Changed
+
+- Recurring findings are grouped by effective namespace as well as acknowledgment signature, so identical problems in separate deployments remain distinct without changing acknowledgment signatures. Older JSON without namespace fields remains readable; adding the public fields is an accepted Rust source-compatibility break for 0.10.1.
+
 ## [0.10.0] - 2026-08-05
 
 ### Added
