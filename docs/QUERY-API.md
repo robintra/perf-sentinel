@@ -669,12 +669,14 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
       "finding_type": "redundant_sql",
       "service": "cache-svc",
       "template": "SELECT * FROM settings WHERE key = ?",
+      "grouping_key": "k8s.namespace.name",
       "namespace": "prod-eu"
     },
     "target": {
       "finding_type": "n_plus_one_sql",
       "service": "order-svc",
       "template": "SELECT * FROM order_item WHERE order_id = ?",
+      "grouping_key": "k8s.namespace.name",
       "namespace": "prod-eu"
     },
     "co_occurrence_count": 2,
@@ -687,7 +689,7 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 ]
 ```
 
-`namespace` is the effective namespace of that side (`k8s.namespace.name`, falling back to `service.namespace`), omitted when the spans carry neither. Two findings from different namespaces are never paired: a correlation always describes one deployment.
+`grouping_key` and `namespace` carry the effective grouping attribute and value for that side; both are omitted when the spans carry no configured grouping attribute. The field name `namespace` is retained for JSON compatibility even when the configured key is another dimension such as `tenant.id`. Two findings with different grouping keys or values are never paired: a correlation always describes one deployment.
 
 ### GET /api/export/report
 
