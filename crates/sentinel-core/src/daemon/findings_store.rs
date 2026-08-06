@@ -51,9 +51,18 @@ fn default_seen_count() -> u64 {
     1
 }
 
-/// Fold per-trace detections into one entry per effective namespace and
+/// Fold per-trace detections into one entry per effective grouping and
 /// signature, preserving the input order (newest first, what
 /// [`FindingsStore::query`] yields).
+///
+/// KNOWN LIMIT: the acknowledgment signature is deliberately grouping-blind
+/// (see `acknowledgments::compute_signature`), so two rows split here share
+/// one signature and cannot be acknowledged apart. Acking the noisy staging
+/// row also silences the production one. Splitting rows is the reporting
+/// contract, one-ack-covers-every-deployment is the ack contract, and they
+/// pull against each other by design. A grouping-aware signature would
+/// invalidate every ack in the wild, so the way out is a grouping filter on
+/// the ack API, not a changed signature.
 ///
 /// The representative is the WORST-severity detection of the group, not
 /// the newest. Severity is derived per trace (12 repeats is critical, 6
