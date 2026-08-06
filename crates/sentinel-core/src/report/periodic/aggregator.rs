@@ -64,7 +64,7 @@ pub struct AggregateInputs {
     pub malformed_lines_skipped: u64,
     /// Windows carrying no `disclosure_waste`, archived before canonical
     /// disclosure. Their waste fed the operational tier only, so the
-    /// canonical tier under-reports by that share.
+    /// canonical tier omits those windows.
     pub legacy_waste_windows: u64,
     pub first_seen: BTreeMap<(String, String), DateTime<Utc>>,
     pub last_seen: BTreeMap<(String, String), DateTime<Utc>>,
