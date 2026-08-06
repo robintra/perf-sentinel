@@ -2087,7 +2087,7 @@ fn draw_explain_view(f: &mut Frame, app: &App, area: Rect) {
                 dim_style(),
             )),
             Line::from(Span::styled(
-                "Reports do not carry raw spans. Launch `inspect --input <events>.json` or `query inspect`.",
+                "A batch report carries no spans, a daemon snapshot only the traces it retained. Launch `inspect --input <events>.json` or `query inspect`.",
                 dim_style(),
             )),
         ],
@@ -2599,7 +2599,11 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(Span::styled(
-            "Not available for this trace. Reports do not carry raw spans.",
+            "Not available for this trace. A batch report carries no spans, and a daemon",
+            dim_style(),
+        )));
+        lines.push(Line::from(Span::styled(
+            "snapshot only keeps the traces its retention held.",
             dim_style(),
         )));
         lines.push(Line::from(Span::styled(
