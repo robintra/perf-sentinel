@@ -701,3 +701,40 @@ test("27. the live-mode topbar wraps instead of overflowing on a narrow viewport
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, "topbar must wrap, the page must not scroll horizontally").toBeLessThanOrEqual(1);
 });
+
+test("36. the ack modal names every grouping the acknowledgment will cover", async ({ page }) => {
+  // An ack is keyed on the signature alone, so it silences every row that
+  // shares it. The list shows one row per grouping, so the modal must say
+  // so before the operator confirms.
+  await page.route("**/dashboard-demo.html", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const shared = body.replace(
+      /(<script id="report-data" type="application\/json">\s*)([\s\S]*?)(\s*<\/script>)/,
+      (_match, open, json, close) => {
+        const payload = JSON.parse(json);
+        // Every finding shares the signature, so whichever row sorts first
+        // is the one under test, and the two distinct grouping values make
+        // the expected count deterministic.
+        payload.report.findings.forEach((f: Record<string, any>, i: number) => {
+          f.signature = "shared-sig";
+          f.grouping = [{ key: "tenant.id", value: i % 2 === 0 ? "acme" : "globex" }];
+        });
+        return open + JSON.stringify(payload) + close;
+      },
+    );
+    await route.fulfill({ response, body: shared });
+  });
+  await page.goto("/dashboard-demo.html#findings");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#findings-list .ps-fin-action-btn").count() === 0,
+    "demo fixture is not in live mode");
+
+  await page.locator("#findings-list .ps-fin-action-btn").first().click();
+  const scope = page.locator("#ack-modal-scope");
+  await expect(scope).toBeVisible();
+  await expect(scope).toContainText("2 groupings");
+  await expect(scope).toContainText("tenant.id");
+  await expect(scope).toContainText("acme");
+  await expect(scope).toContainText("globex");
+});
