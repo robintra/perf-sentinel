@@ -370,20 +370,27 @@
   /* The highlight follows the finding severity carried on the tree host. */
   .ps-span.hilite { background: var(--crit-bg); }
   .ps-span.hilite .ps-span-text { color: var(--crit-fg); font-weight: 700; }
-  .ps-span.hilite .ps-span-dur { color: var(--crit-fg); }
+  .ps-span.hilite .ps-span-dur,
+  .ps-span.hilite .ps-span-time,
+  .ps-span.hilite .ps-span-flag { color: var(--crit-fg); }
   .ps-span.hilite .ps-span-count { background: var(--surface-2); color: var(--crit-fg); }
   [data-fsev="warning"] .ps-span.hilite { background: var(--warn-bg); }
   [data-fsev="warning"] .ps-span.hilite .ps-span-text,
   [data-fsev="warning"] .ps-span.hilite .ps-span-dur,
+  [data-fsev="warning"] .ps-span.hilite .ps-span-time,
+  [data-fsev="warning"] .ps-span.hilite .ps-span-flag,
   [data-fsev="warning"] .ps-span.hilite .ps-span-count { color: var(--warn-fg); }
   [data-fsev="info"] .ps-span.hilite { background: var(--info-bg); }
   [data-fsev="info"] .ps-span.hilite .ps-span-text,
   [data-fsev="info"] .ps-span.hilite .ps-span-dur,
+  [data-fsev="info"] .ps-span.hilite .ps-span-time,
+  [data-fsev="info"] .ps-span.hilite .ps-span-flag,
   [data-fsev="info"] .ps-span.hilite .ps-span-count { color: var(--info-fg); }
   /* min-width: 0 is what lets the ellipsis fire: a flex child defaults to
      min-width: auto, so a long template pushed the whole panel wider. */
   .ps-span-text { font-family: var(--font-mono); font-size: 12px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ps-span-flag { padding: 1px 6px; border-radius: 4px; font-size: 11.5px; }
+  .ps-span-time { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
   .ps-span-dur { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
   .ps-span-count { flex: none; font-family: var(--font-mono); font-size: 11.5px; padding: 0 6px; border-radius: 5px; background: var(--surface-3); color: var(--text-2); }
   .ps-span-find { color: var(--crit-fg); font-weight: 600; }
@@ -1389,6 +1396,12 @@
     cell.appendChild(v);
     return cell;
   }
+  // One operator-facing namespace while preserving both raw dimensions in
+  // the detail and exports. Kubernetes is the deployment boundary when it is
+  // present; service.namespace is the portable fallback.
+  function findingNamespace(f) {
+    return f.k8s_namespace || f.service_namespace || "";
+  }
   // Builds a severity pill carrying the [data-sev] attribute.
   function sevPill(severity, cls) {
     var pill = el("span", cls || "ps-sev", SEV_LABEL[severity] || "INFO");
@@ -1401,7 +1414,7 @@
   // report does not embed the values the producing run used.
   var FINDING_HELP = {
     n_plus_one_sql: "The same query shape fired once per row instead of once for the whole set. Flagged when a trace repeats one normalized SQL template at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`. Identical parameters classify as Redundant SQL instead.",
-    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Flagged when a trace repeats one normalized HTTP endpoint at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
+    n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Direct classification uses repeated normalized endpoints with distinct parameter sets. When instrumentation has already collapsed parameters, `sanitizer_aware_classification` can classify the group heuristically from its timing evidence. The detail identifies which path fired.",
     n_plus_one_messaging: "One broker publish per item instead of a batch. Flagged when a trace repeats one destination at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
     redundant_sql: "The exact same query, template and parameters alike, ran more than once in one trace, so the later results could not differ. Two identical calls flag at info, five or more raise a warning: a cache or a local variable would remove them.",
     redundant_http: "The exact same HTTP call, endpoint and parameters alike, ran more than once in one trace. Two identical calls flag at info, five or more raise a warning.",
@@ -1454,9 +1467,9 @@
     ]},
     n_plus_one_http: { t: "N+1 HTTP", u: METHO_URL, s: [
       ["What it measures", "One outbound HTTP call per item instead of one bulk call: fetching a list, then calling `GET /api/users/{id}` once per element."],
-      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. The trace's outbound HTTP spans are grouped by template, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms` with as many distinct parameter sets. Ten or more is critical."],
-      ["What tunes it", "`[detection] n_plus_one_threshold` and `window_duration_ms`."],
-      ["Limits", "Same-shape calls that a client coalesces or caches downstream still count as distinct occurrences here."]
+      ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. If an instrumentation sanitizer has collapsed those parameters, the optional sanitizer-aware path uses occurrence and timing evidence instead; the finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
+      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, and `sanitizer_aware_classification`."],
+      ["Limits", "The detector sees spans, not the client's internal coalescing or caching. Use the displayed timestamps, duration distribution, distinct-parameter count and classification method to validate the signal in context."]
     ]},
     n_plus_one_messaging: { t: "N+1 messaging", u: METHO_URL, s: [
       ["What it measures", "One broker publish per item instead of a batched publish."],
@@ -2243,6 +2256,8 @@
       // resetShownCount would cap the render at LIST_CAP and the click dies.
       filterState.severity = null;
       filterState.service = null;
+      filterState.type = null;
+      filterState.namespace = null;
       syncFilterChips();
       if (findingHiddenByAck(f)) {
         var toggle = document.getElementById("findings-include-acked");
@@ -2334,7 +2349,7 @@
   }
 
   // -------- filters --------
-  var filterState = { severity: null, service: null };
+  var filterState = { severity: null, service: null, type: null, namespace: null };
   // Findings-list sort: one primary key with a direction, the other
   // axis as an automatic descending tie-break. "severity" ranks the
   // single worst detection, "impact" ranks the signature's aggregate
@@ -2405,6 +2420,29 @@
       appendChip(serviceGroup, s, "svc:" + s, "button", "aria-pressed");
     });
 
+    var typeGroup = el("span", "ps-chip-group", null);
+    setAttr(typeGroup, "role", "group");
+    setAttr(typeGroup, "aria-label", "Finding type");
+    root.appendChild(typeGroup);
+    var types = Object.create(null);
+    findings.forEach(function (f) { types[f.type || f.finding_type] = true; });
+    Object.keys(types).sort().forEach(function (type) {
+      appendChip(typeGroup, typeLabel(type), "type:" + type, "button", "aria-pressed");
+    });
+
+    var namespaceGroup = el("span", "ps-chip-group", null);
+    setAttr(namespaceGroup, "role", "group");
+    setAttr(namespaceGroup, "aria-label", "Finding namespace");
+    root.appendChild(namespaceGroup);
+    var namespaces = Object.create(null);
+    findings.forEach(function (f) {
+      var namespace = findingNamespace(f);
+      if (namespace) namespaces[namespace] = true;
+    });
+    Object.keys(namespaces).sort().forEach(function (namespace) {
+      appendChip(namespaceGroup, namespace, "ns:" + namespace, "button", "aria-pressed");
+    });
+
     var sortGroup = el("span", "ps-chip-group ps-sort-group", null);
     setAttr(sortGroup, "role", "group");
     setAttr(sortGroup, "aria-label", "Sort findings");
@@ -2454,12 +2492,20 @@
     if (key === "all") {
       filterState.severity = null;
       filterState.service = null;
+      filterState.type = null;
+      filterState.namespace = null;
     } else if (key.startsWith("sev:")) {
       var sv = key.slice(4);
       filterState.severity = filterState.severity === sv ? null : sv;
     } else if (key.startsWith("svc:")) {
       var svc = key.slice(4);
       filterState.service = filterState.service === svc ? null : svc;
+    } else if (key.startsWith("type:")) {
+      var type = key.slice(5);
+      filterState.type = filterState.type === type ? null : type;
+    } else if (key.startsWith("ns:")) {
+      var namespace = key.slice(3);
+      filterState.namespace = filterState.namespace === namespace ? null : namespace;
     }
     syncFilterChips();
     resetShownCount();
@@ -2467,7 +2513,9 @@
     scheduleHashWrite();
   }
   function syncFilterChips() {
-    var anyActive = !!(filterState.severity || filterState.service);
+    var anyActive = !!(
+      filterState.severity || filterState.service || filterState.type || filterState.namespace
+    );
     document.querySelectorAll("#findings-filters .ps-chip").forEach(function (chip) {
       // Sort chips share the look but not the filter state machine.
       if (chip.dataset.sortKey) return;
@@ -2476,6 +2524,8 @@
       if (key === "all") active = !anyActive;
       else if (key === "sev:" + filterState.severity) active = true;
       else if (key === "svc:" + filterState.service) active = true;
+      else if (key === "type:" + filterState.type) active = true;
+      else if (key === "ns:" + filterState.namespace) active = true;
       chip.classList.toggle("active", active);
       // Severity chips and "All" are radio-role, service chips are
       // toggle buttons. Pick the right ARIA state attribute per chip.
@@ -2521,7 +2571,8 @@
   }
 
   function anyFindingsFilterActive() {
-    if (filterState.severity || filterState.service || globalSearchTerm()) return true;
+    if (filterState.severity || filterState.service || filterState.type ||
+        filterState.namespace || globalSearchTerm()) return true;
     // The ack toggle also narrows the list, so an all-acked empty list is a
     // filtered empty, not an empty report.
     return findings.some(findingHiddenByAck);
@@ -2548,6 +2599,8 @@
     return findings.filter(function (f) {
       if (filterState.severity && f.severity !== filterState.severity) return false;
       if (filterState.service && f.service !== filterState.service) return false;
+      if (filterState.type && (f.type || f.finding_type) !== filterState.type) return false;
+      if (filterState.namespace && findingNamespace(f) !== filterState.namespace) return false;
       if (findingHiddenByAck(f)) return false;
       return findingMatchesSearch(f, term);
     }).sort(compareFindings);
@@ -2802,10 +2855,31 @@
 
     var grid = el("div", "ps-meta-grid");
     grid.appendChild(metaCell("service", f.service || "-"));
+    if (f.service_namespace) grid.appendChild(metaCell("service namespace", f.service_namespace, true));
+    if (f.k8s_namespace) grid.appendChild(metaCell("k8s namespace", f.k8s_namespace, true));
     grid.appendChild(metaCell("endpoint", f.source_endpoint || "-", true, false, true));
     grid.appendChild(metaCell("i/o impact", ioImpactText(f)));
-    var occ = (f.pattern && f.pattern.occurrences) || 0;
+    var pattern = f.pattern || {};
+    var occ = pattern.occurrences || 0;
     grid.appendChild(metaCell("occurrences", occ ? ("×" + occ) : "-"));
+    if (Number.isFinite(pattern.window_ms)) {
+      grid.appendChild(metaCell("window", fmtNum(pattern.window_ms) + " ms"));
+    }
+    if (Number.isFinite(pattern.distinct_params)) {
+      grid.appendChild(metaCell("distinct params", fmtNum(pattern.distinct_params) + " / " + fmtNum(occ)));
+    }
+    var findingType = f.type || f.finding_type || "";
+    if (findingType.indexOf("n_plus_one_") === 0) {
+      grid.appendChild(metaCell(
+        "classification",
+        f.classification_method === "sanitizer_heuristic" ? "sanitizer heuristic" : "direct"
+      ));
+    }
+    var timing = [];
+    if (Number.isFinite(pattern.span_duration_us_p50)) timing.push("p50 " + formatDurationUs(pattern.span_duration_us_p50));
+    if (Number.isFinite(pattern.span_duration_us_p99)) timing.push("p99 " + formatDurationUs(pattern.span_duration_us_p99));
+    if (Number.isFinite(pattern.span_duration_cv_x1000)) timing.push("CV " + (pattern.span_duration_cv_x1000 / 10).toFixed(1) + "%");
+    if (timing.length) grid.appendChild(metaCell("span timing", timing.join(" · ")));
     head.appendChild(grid);
 
     // Every sink but this one showed `suggestion`. It reads the finding, so
@@ -2941,9 +3015,10 @@
   // once: detection is per trace, so a recurring problem is many findings.
   var recurrenceIndex = null;
   function recurrenceKey(f) {
-    return f.signature ||
+    var signature = f.signature ||
       [f.type || f.finding_type, f.service, f.source_endpoint,
        (f.pattern && f.pattern.template) || ""].join("|");
+    return findingNamespace(f) + "|" + signature;
   }
   function recurrenceOf(f) {
     if (!recurrenceIndex) {
@@ -3033,18 +3108,27 @@
     var kids = tree.childrenByParent[spans[idx].span_id];
     return !(kids && kids.length);
   }
+  function spanIsFinding(span, targetTpl) {
+    return treeCulprits
+      ? !!treeCulprits[span.span_id]
+      : treeHasTplMatch
+        ? !!(targetTpl && span.template === targetTpl)
+        : !!(treeTargetEvt && span.event_type === treeTargetEvt &&
+             !(treeChildren[span.span_id] || []).length);
+  }
   // Fold a sibling list into groups: runs of consecutive same-key leaf
   // siblings become one multi-member group; everything else stays singleton.
-  function groupSiblings(indices, spans, tree) {
+  function groupSiblings(indices, spans, tree, targetTpl) {
     var groups = [];
     var i = 0;
     while (i < indices.length) {
       var idx = indices[i];
-      if (isLeafIdx(idx, spans, tree)) {
+      if (isLeafIdx(idx, spans, tree) && !spanIsFinding(spans[idx], targetTpl)) {
         var key = collapseKey(spans[idx]);
         var members = [idx];
         var j = i + 1;
         while (j < indices.length && isLeafIdx(indices[j], spans, tree)
+          && !spanIsFinding(spans[indices[j]], targetTpl)
           && collapseKey(spans[indices[j]]) === key) {
           members.push(indices[j]);
           j += 1;
@@ -3073,7 +3157,7 @@
   function emitSpanTreeRows(root, spans, tree, targetTpl) {
     var stack = [];
     function pushGroups(indices, depth) {
-      var groups = groupSiblings(indices, spans, tree);
+      var groups = groupSiblings(indices, spans, tree, targetTpl);
       for (var g = groups.length - 1; g >= 0; g--) {
         stack.push({ group: groups[g], depth: depth });
       }
@@ -3099,8 +3183,7 @@
   }
 
   // Whole-trace findings match no span template, so they highlight by
-  // event type instead: the culprit is the whole set of calls (embedded
-  // spans carry no timestamps, per-span precision is out of reach).
+  // event type instead: the culprit is the whole set of calls.
   // Whole-trace findings whose culprit set IS an event type: every
   // outbound call for chatty, every query for pool saturation. The two
   // whose culprits are neither a template nor an event type, serialized
@@ -3137,8 +3220,8 @@
     }
     var tree = buildSpanTree(spans);
     var targetTpl = (finding.pattern && finding.pattern.template) || null;
-    // Named spans win: the sink resolved them from the timestamps the
-    // embedded spans do not carry, so no client rule can do better.
+    // Named spans win: the sink resolved them from the detector's exact
+    // culprit set, so no client rule can do better.
     treeCulprits = culpritSetFor(trace, finding);
     treeHasTplMatch = !treeCulprits && !!targetTpl
       && spans.some(function (s) { return s.template === targetTpl; });
@@ -3163,12 +3246,7 @@
     var row = el("div", "ps-span");
     // Event-rule mode marks leaves only: the container span above a
     // flood of calls is context, not a culprit.
-    var isFinding = treeCulprits
-      ? !!treeCulprits[span.span_id]
-      : treeHasTplMatch
-        ? (targetTpl && span.template === targetTpl)
-        : (treeTargetEvt && span.event_type === treeTargetEvt &&
-           !(treeChildren[span.span_id] || []).length);
+    var isFinding = spanIsFinding(span, targetTpl);
     if (isFinding) row.classList.add("hilite");
     else if (treeCulprits || treeHasTplMatch || treeTargetEvt) row.classList.add("dim");
     // 10px base inset keeps depth-0 text off the rounded edge.
@@ -3201,8 +3279,22 @@
     text.title = described;
     row.appendChild(text);
 
+    if (span.timestamp) {
+      var time = el("span", "ps-span-time", spanClockTime(span.timestamp));
+      time.title = span.timestamp;
+      row.appendChild(time);
+    }
+    if (Number.isFinite(span.status_code)) {
+      row.appendChild(el("span", "ps-span-flag", String(span.status_code)));
+    }
     row.appendChild(el("span", "ps-span-dur", formatDurationUs(span.duration_us)));
     return row;
+  }
+
+  function spanClockTime(iso) {
+    if (typeof iso !== "string" || iso.length < 19) return iso || "";
+    var fractional = iso.charAt(19) === "." ? iso.slice(19, 23) : "";
+    return iso.slice(11, 19) + fractional + " UTC";
   }
 
   function describeSpan(span) {
@@ -4744,8 +4836,11 @@
     // use is feeding an id back into `explain` or a trace backend, and it
     // was the one field the table never showed in full.
     var header = [
-      "severity", "type", "service", "endpoint", "trace_id", "template",
-      "occurrences", "first_timestamp", "last_timestamp",
+      "severity", "type", "service", "service_namespace", "k8s_namespace",
+      "namespace", "endpoint", "trace_id", "template",
+      "occurrences", "distinct_params", "window_ms", "classification_method",
+      "span_duration_us_p50", "span_duration_us_p99", "span_duration_cv_x1000",
+      "first_timestamp", "last_timestamp",
       "code_function", "code_filepath", "code_lineno",
       "suggestion", "suggested_fix_framework", "suggested_fix_recommendation",
       "confidence"
@@ -4755,14 +4850,24 @@
       var p = f.pattern || {};
       var loc = f.code_location || {};
       var fix = f.suggested_fix || {};
+      var type = f.type || f.finding_type || "";
       return [
         f.severity || "",
-        f.type || f.finding_type || "",
+        type,
         f.service || "",
+        f.service_namespace || "",
+        f.k8s_namespace || "",
+        findingNamespace(f),
         f.source_endpoint || "",
         f.trace_id || "",
         p.template || "",
         p.occurrences ?? "",
+        p.distinct_params ?? "",
+        p.window_ms ?? "",
+        f.classification_method || (type.indexOf("n_plus_one_") === 0 ? "direct" : ""),
+        p.span_duration_us_p50 ?? "",
+        p.span_duration_us_p99 ?? "",
+        p.span_duration_cv_x1000 ?? "",
         f.first_timestamp || "",
         f.last_timestamp || "",
         loc.function || "",
@@ -4848,7 +4953,8 @@
   function findingMatchBlob(f) {
     var type = f.type || f.finding_type;
     return [
-      f.severity, type, typeLabel(type), f.service, f.source_endpoint,
+      f.severity, type, typeLabel(type), f.service,
+      f.service_namespace, f.k8s_namespace, findingNamespace(f), f.source_endpoint,
       f.pattern && f.pattern.template
     ].join(" ");
   }
@@ -4956,7 +5062,7 @@
   // or confuse `applyHash`. The tab itself is positional (first
   // token), not a key=value pair. Stored as a Set so existence checks
   // are O(1) regardless of how many keys land here in the future.
-  var HASH_KEYS = new Set(["search", "ranking", "severity", "service"]);
+  var HASH_KEYS = new Set(["search", "ranking", "severity", "service", "type", "namespace"]);
   function readHash() {
     var raw = (location.hash || "").replace(/^#/, "");
     if (!raw) return null;
@@ -4990,6 +5096,8 @@
     if (currentTab === "findings") {
       if (filterState.severity) state.severity = filterState.severity;
       if (filterState.service) state.service = filterState.service;
+      if (filterState.type) state.type = filterState.type;
+      if (filterState.namespace) state.namespace = filterState.namespace;
     }
     if (currentTab === "pgstat") {
       state.ranking = rankingSlugForIndex(activeRankingIndex);
@@ -5000,7 +5108,7 @@
   function encodeHashFromState(state) {
     if (!state || !state.tab) return "";
     var parts = [state.tab];
-    ["search", "ranking", "severity", "service"].forEach(function (k) {
+    ["search", "ranking", "severity", "service", "type", "namespace"].forEach(function (k) {
       var v = state[k];
       if (v !== null && v !== undefined && v !== "") {
         parts.push(k + "=" + encodeURIComponent(String(v)));
@@ -5054,6 +5162,8 @@
     if (state.tab === "findings") {
       filterState.severity = null;
       filterState.service = null;
+      filterState.type = null;
+      filterState.namespace = null;
       if (state.severity === "critical" || state.severity === "warning" || state.severity === "info") {
         filterState.severity = state.severity;
       }
@@ -5062,6 +5172,16 @@
       // nothing with no active chip to explain why.
       if (state.service && findings.some(function (f) { return f.service === state.service; })) {
         filterState.service = state.service;
+      }
+      if (state.type && findings.some(function (f) {
+        return (f.type || f.finding_type) === state.type;
+      })) {
+        filterState.type = state.type;
+      }
+      if (state.namespace && findings.some(function (f) {
+        return findingNamespace(f) === state.namespace;
+      })) {
+        filterState.namespace = state.namespace;
       }
       syncFilterChips();
     }
@@ -5145,11 +5265,15 @@
   }
 
   function anyFilterChipActive() {
-    return !!(filterState.severity || filterState.service);
+    return !!(
+      filterState.severity || filterState.service || filterState.type || filterState.namespace
+    );
   }
   function clearFilterChips() {
     filterState.severity = null;
     filterState.service = null;
+    filterState.type = null;
+    filterState.namespace = null;
     syncFilterChips();
     resetShownCount();
     renderFindingsList();

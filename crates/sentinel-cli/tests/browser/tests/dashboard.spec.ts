@@ -76,6 +76,14 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
   const header = lines[0];
   expect(header).toMatch(/^(type|severity|service|trace_id)/i);
+  for (const column of [
+    "service_namespace", "k8s_namespace", "namespace", "distinct_params",
+    "window_ms", "classification_method", "span_duration_us_p50", "span_duration_us_p99",
+  ]) {
+    expect(header.split(",")).toContain(column);
+  }
+  expect(text).toContain("prod-eu");
+  expect(text).toContain("commerce");
   expect(header.split(",").length).toBeGreaterThan(3);
   expect(lines.length).toBeGreaterThan(1);
 
@@ -465,6 +473,69 @@ test("25. a hash naming an absent service does not silently empty the list", asy
   await loadDashboard(page, "#findings&service=order-svc");
   expect(await page.locator("#findings-filters .ps-chip.active").getAttribute("data-key"))
     .toBe("svc:order-svc");
+});
+
+test("26. type and effective namespace filters combine and expose ARIA state", async ({ page }) => {
+  await loadDashboard(page, "#findings&namespace=prod-eu&type=n_plus_one_sql");
+
+  const namespaceChip = page.locator('#findings-filters .ps-chip[data-key="ns:prod-eu"]');
+  const typeChip = page.locator('#findings-filters .ps-chip[data-key="type:n_plus_one_sql"]');
+  await expect(namespaceChip).toHaveAttribute("aria-pressed", "true");
+  await expect(typeChip).toHaveAttribute("aria-pressed", "true");
+  expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
+  const labels = await page.locator("#findings-list .ps-fin-type").allTextContents();
+  expect(labels.every((label) => label.trim() === "N+1 SQL")).toBe(true);
+});
+
+test("27. service namespace is the fallback when Kubernetes namespace is absent", async ({ page }) => {
+  await loadDashboard(page, "#findings&namespace=finance");
+
+  await expect(page.locator('#findings-filters .ps-chip[data-key="ns:finance"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
+
+  await page.evaluate(() => { location.hash = "#findings&namespace=ghost"; });
+  await expect(page.locator('#findings-filters .ps-chip[data-key="ns:finance"]'))
+    .toHaveAttribute("aria-pressed", "false");
+  expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
+
+  await loadDashboard(page, "#findings&service=chat-svc");
+  expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
+  expect(await page.locator('#findings-filters .ps-chip[data-key="ns:"]').count()).toBe(0);
+  await page.locator("#findings-list .ps-row").first().click();
+  await expect(page.locator("#explain-detail-head .ps-meta-grid"))
+    .not.toContainText(/service namespace|k8s namespace/);
+});
+
+test("28. finding detail shows evidence and expands highlighted occurrences", async ({ page }) => {
+  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  const detail = page.locator("#explain-detail-head");
+  await expect(detail).toContainText("service namespace");
+  await expect(detail).toContainText("commerce");
+  await expect(detail).toContainText("k8s namespace");
+  await expect(detail).toContainText("prod-eu");
+  await expect(detail).toContainText("distinct params");
+  await expect(detail).toContainText("classification");
+  await expect(detail).toContainText("direct");
+
+  const highlighted = page.locator("#explain-tree .ps-span.hilite");
+  expect(await highlighted.count()).toBeGreaterThan(1);
+  await expect(highlighted.first().locator(".ps-span-time")).not.toHaveText("");
+});
+
+test("29. namespace filters and occurrence evidence fit a narrow viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 900 });
+  await loadDashboard(page, "#findings&type=n_plus_one_sql&namespace=prod-eu");
+  await page.locator("#findings-list .ps-row").first().click();
+
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, "the filters and evidence must not widen the page").toBeLessThanOrEqual(1);
+  await expect(page.locator('#findings-filters .ps-chip[data-key="ns:prod-eu"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first()).toBeVisible();
 });
 
 test("28. the sort control does not masquerade as an applied filter", async ({ page }) => {
