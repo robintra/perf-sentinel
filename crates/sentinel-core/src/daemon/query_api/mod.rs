@@ -451,6 +451,7 @@ struct ConfigResponse {
     max_payload_size: usize,
     environment: &'static str,
     max_retained_findings: usize,
+    max_retained_traces: usize,
     ingest_queue_capacity: usize,
     analysis_queue_capacity: usize,
     /// `[daemon] memory_high_water_pct` (0 = guard disabled).
@@ -487,6 +488,7 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
         max_payload_size: d.max_payload_size,
         environment: d.environment.as_str(),
         max_retained_findings: d.max_retained_findings,
+        max_retained_traces: d.max_retained_traces,
         ingest_queue_capacity: d.ingest_queue_capacity,
         analysis_queue_capacity: d.analysis_queue_capacity,
         memory_high_water_pct: d.memory_high_water_pct,
