@@ -15,22 +15,10 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 /// algorithm. If peak concurrent spans >= `threshold`, emits a finding.
 #[must_use]
 pub fn detect_pool_saturation(trace: &Trace, threshold: u32) -> Vec<Finding> {
-    let threshold = threshold as usize;
-    let sql_by_service = group_sql_indices_by_service(trace);
-
-    let mut findings = Vec::new();
-    for (service, indices) in &sql_by_service {
-        // Fast path: can't have more concurrent than total.
-        if indices.len() < threshold {
-            continue;
-        }
-        let peak = compute_peak_concurrency(trace, indices);
-        if (peak as usize) < threshold {
-            continue;
-        }
-        findings.push(build_saturation_finding(trace, service, indices, peak));
-    }
-    findings
+    saturated_services(trace, threshold)
+        .into_iter()
+        .map(|(service, indices, peak)| build_saturation_finding(trace, service, &indices, peak))
+        .collect()
 }
 
 /// Same detection, also returning the SQL spans active at the first peak.
@@ -39,14 +27,30 @@ pub(crate) fn detect_pool_saturation_with_spans(
     trace: &Trace,
     threshold: u32,
 ) -> Vec<(Finding, Vec<&str>)> {
-    let groups = group_sql_indices_by_service(trace);
-    detect_pool_saturation(trace, threshold)
+    saturated_services(trace, threshold)
         .into_iter()
-        .map(|finding| {
-            let span_ids = groups
-                .get(finding.service.as_str())
-                .map_or_else(Vec::new, |indices| peak_span_ids(trace, indices));
-            (finding, span_ids)
+        .map(|(service, indices, peak)| {
+            (
+                build_saturation_finding(trace, service, &indices, peak),
+                peak_span_ids(trace, &indices),
+            )
+        })
+        .collect()
+}
+
+/// Services whose SQL spans reach `threshold` concurrent, with their span
+/// indices and the peak. One grouping pass shared by both entry points.
+fn saturated_services(trace: &Trace, threshold: u32) -> Vec<(&str, Vec<usize>, u32)> {
+    let threshold = threshold as usize;
+    group_sql_indices_by_service(trace)
+        .into_iter()
+        .filter_map(|(service, indices)| {
+            // Fast path: can't have more concurrent than total.
+            if indices.len() < threshold {
+                return None;
+            }
+            let peak = compute_peak_concurrency(trace, &indices);
+            ((peak as usize) >= threshold).then_some((service, indices, peak))
         })
         .collect()
 }
@@ -108,6 +112,12 @@ fn compute_peak_concurrency(trace: &Trace, indices: &[usize]) -> u32 {
     peak
 }
 
+/// Identity-tracking twin of [`compute_peak_concurrency`]. Both sweep the
+/// same `(timestamp, is_start)` ordering, so `peak_span_ids(..).len()`
+/// must equal `compute_peak_concurrency(..)`, pinned by
+/// `both_sweeps_agree_on_the_peak`. The count-only version stays separate
+/// because detection runs it per service per trace and does not need the
+/// set.
 fn peak_span_ids<'a>(trace: &'a Trace, indices: &[usize]) -> Vec<&'a str> {
     let mut sweep: Vec<(u64, bool, usize)> = Vec::with_capacity(indices.len() * 2);
     for &idx in indices {
@@ -343,6 +353,35 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_pool_saturation(&trace, 10);
         assert_eq!(findings.len(), 2);
+    }
+
+    /// Two sweeps over the same events: if the tie-break ordering drifts in
+    /// one, the HTML evidence set and the reported peak silently disagree.
+    #[test]
+    fn both_sweeps_agree_on_the_peak() {
+        // Overlapping, nested, and back-to-back spans all in one trace, so
+        // the equal-timestamp tie-break is exercised.
+        let starts = [
+            ("2025-07-10T14:32:01.000Z", 5_000_u64),
+            ("2025-07-10T14:32:01.000Z", 1_000),
+            ("2025-07-10T14:32:01.001Z", 3_000),
+            ("2025-07-10T14:32:01.002Z", 500),
+            ("2025-07-10T14:32:01.006Z", 2_000),
+        ];
+        let events: Vec<_> = starts
+            .iter()
+            .enumerate()
+            .map(|(i, (ts, dur))| {
+                make_sql_event_with_duration("t1", &format!("s{i}"), "SELECT 1", ts, *dur)
+            })
+            .collect();
+        let trace = make_trace(events);
+        let indices: Vec<usize> = (0..trace.spans.len()).collect();
+
+        assert_eq!(
+            peak_span_ids(&trace, &indices).len(),
+            compute_peak_concurrency(&trace, &indices) as usize
+        );
     }
 
     #[test]
