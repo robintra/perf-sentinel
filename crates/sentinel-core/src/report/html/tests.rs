@@ -2757,3 +2757,42 @@ fn culprit_key_separates_equal_values_from_different_grouping_keys() {
 
     assert_ne!(culprit_key_of(&tenant), culprit_key_of(&namespace));
 }
+
+/// The banner is useless if the data never reaches the payload. Guards the
+/// exhaustive struct literal in `slim_report_for_embed` against a dropped
+/// field, which no compiler error would catch.
+#[test]
+fn report_warnings_reach_the_embedded_payload() {
+    let mut report = minimal_report(vec![]);
+    report.warning_details = vec![crate::report::Warning::new(
+        crate::report::warnings::TUNING,
+        "[green.alumet] configured but this is a batch run",
+    )];
+
+    let (html, _) = render(&report, &[], &opts("-", None));
+
+    let start = html.find("<script id=\"report-data\"").expect("script tag");
+    let open = html[start..]
+        .find('>')
+        .expect("script open")
+        .saturating_add(1);
+    let rest = &html[start + open..];
+    let end = rest.find("</script>").expect("script close");
+    let json_blob = rest[..end].trim().replace("<\\/", "</");
+    let value: serde_json::Value = serde_json::from_str(&json_blob).expect("payload parses");
+
+    assert_eq!(value["report"]["warning_details"][0]["kind"], "tuning");
+    assert!(
+        value["report"]["warning_details"][0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("[green.alumet]"))
+    );
+}
+
+/// Cheap wiring guard so a broken banner fails here rather than only in the
+/// Playwright suite, which needs a release build to run.
+#[test]
+fn template_carries_the_report_warnings_banner() {
+    assert!(TEMPLATE.contains(r#"id="report-warnings""#));
+    assert!(TEMPLATE.contains("renderReportWarnings()"));
+}
