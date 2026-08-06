@@ -15,6 +15,16 @@
 
 set -u
 
+# Every sandbox sets the identity it needs locally, so the operator's
+# global and system git config must not reach it: scenario 05 unsets
+# `user.signingkey` in the sandbox, and a maintainer with a global
+# signing key (that is, anyone able to sign a release) would otherwise
+# see the script find one anyway and pass a check the test expects to
+# fail. Same class of leak the `core.hooksPath` overrides below already
+# fight one symptom at a time.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+
 # SC2164: `cd "${tmpdir}/work"` after mktemp+git init, the path is
 #         guaranteed by setup_sandbox, an exit-on-failure guard would
 #         shadow real test failures.
