@@ -205,7 +205,7 @@ jobs:
       # bumps `cosign-release` (see .github/renovate.json).
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
-          cosign-release: v3.1.2
+          cosign-release: v3.1.3
 
       # Cosign pushes the signature as a separate OCI layer, so the
       # runner needs an authenticated session with GHCR. The GitHub
