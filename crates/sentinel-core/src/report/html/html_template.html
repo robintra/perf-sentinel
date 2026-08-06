@@ -542,6 +542,7 @@
   dialog.ps-modal .ps-modal-btn { padding: 8px 15px; font-size: 12.5px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-2); cursor: pointer; font-family: inherit; }
   dialog.ps-modal .ps-modal-btn:hover { border-color: var(--border-2); color: var(--text); }
   dialog.ps-modal .ps-modal-btn.primary { background: var(--brand); color: #fff; border: 0; font-weight: 600; }
+  dialog.ps-modal .ps-modal-scope { display: none; margin: 8px 0 0; padding: 8px 10px; font-size: 11px; background: var(--surface-2); color: var(--text-2); border-radius: var(--r-sm); }
   dialog.ps-modal .ps-modal-error { display: none; margin-top: 10px; padding: 8px 10px; font-size: 11px; background: var(--crit-bg); color: var(--crit-fg); border-radius: var(--r-sm); }
 
   /* -------- live mode (since 0.5.23) -------- */
@@ -925,6 +926,7 @@
   <form id="ack-modal-form">
     <label for="ack-modal-sig">Signature</label>
     <input type="text" id="ack-modal-sig" readonly />
+    <p class="ps-modal-scope" id="ack-modal-scope"></p>
     <label for="ack-modal-reason">Reason</label>
     <textarea id="ack-modal-reason" required></textarea>
     <label for="ack-modal-expires">Expires</label>
@@ -6060,17 +6062,49 @@
     });
   }
 
+  // An acknowledgment is keyed on the signature alone, which is deliberate:
+  // it states the code is accepted debt, and that does not vary by
+  // deployment. But the list shows one row per grouping, so the operator
+  // clicking Ack on one row must be told the other rows go with it.
+  function ackScopeText(sig) {
+    var values = [];
+    var keys = Object.create(null);
+    findings.forEach(function (f) {
+      if (f.signature !== sig) return;
+      var value = findingNamespace(f);
+      if (!value || values.indexOf(value) !== -1) return;
+      values.push(value);
+      keys[findingGroupingKey(f)] = true;
+    });
+    if (values.length < 2) return "";
+    var keyNames = Object.keys(keys);
+    var label = keyNames.length === 1 ? keyNames[0] : "grouping";
+    // The findings list can be trimmed for file size, so the count is a
+    // floor rather than a total. Saying "at least" beats overstating.
+    var prefix = payload.trimmed_findings ? "Covers at least " : "Covers ";
+    return prefix + values.length + " groupings (" + label + "): " +
+      values.sort().join(", ");
+  }
+
   function openAckModal(sig) {
     var dlg = document.getElementById("ack-modal");
     var sigInput = document.getElementById("ack-modal-sig");
     var reasonInput = document.getElementById("ack-modal-reason");
     var byInput = document.getElementById("ack-modal-by");
     var err = document.getElementById("ack-modal-error");
+    var scope = document.getElementById("ack-modal-scope");
     if (!dlg || !sigInput || !reasonInput) return;
     sigInput.value = sig;
     reasonInput.value = "";
     if (byInput) byInput.value = "";
     if (err) { err.style.display = "none"; err.textContent = ""; }
+    if (scope) {
+      var text = ackScopeText(sig);
+      scope.textContent = text;
+      // Explicit "block": the class defaults to display:none, so clearing
+      // the inline style would let the CSS keep it hidden.
+      scope.style.display = text ? "block" : "none";
+    }
     if (typeof dlg.showModal === "function") dlg.showModal();
   }
 
