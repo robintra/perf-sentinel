@@ -1078,16 +1078,16 @@ fn sampling_rate_warning(daemon: &crate::config::DaemonConfig) -> Option<crate::
     if rate <= 0.0 {
         Some(crate::report::Warning::new(
             TUNING,
-            "[daemon] sampling_rate is 0: no trace is analyzed, so this \
+            "`[daemon] sampling_rate` is 0: no trace is analyzed, so this \
              report can only ever be empty. Raise it above 0 to get findings",
         ))
     } else if rate < 1.0 {
         Some(crate::report::Warning::new(
             TUNING,
             format!(
-                "[daemon] sampling_rate is {rate}: only that fraction of \
+                "`[daemon] sampling_rate` is {rate}: only that fraction of \
                  traces is analyzed, so absolute counts (findings, \
-                 occurrences, the perf_sentinel_* totals) describe a sample \
+                 occurrences, the `perf_sentinel_*` totals) describe a sample \
                  and a rare pattern can be missed entirely. Set it to 1.0 \
                  for whole-traffic counts"
             ),
@@ -1137,7 +1137,7 @@ fn collect_warning_details(
             INGESTION_DROPS,
             format!(
                 "{dropped} OTLP requests rejected since daemon start \
-                 (channel saturation, see perf_sentinel_otlp_rejected_total)"
+                 (channel saturation, see `perf_sentinel_otlp_rejected_total`)"
             ),
         ));
         let cap = daemon.ingest_queue_capacity;
@@ -1145,7 +1145,7 @@ fn collect_warning_details(
             TUNING,
             format!(
                 "{dropped} OTLP requests hit a full ingest queue: raise \
-                 [daemon] ingest_queue_capacity (currently {cap}) or \
+                 `[daemon] ingest_queue_capacity` (currently {cap}) or \
                  spread ingestion across more daemons"
             ),
         ));
@@ -1165,7 +1165,7 @@ fn collect_warning_details(
             TUNING,
             format!(
                 "{mem_rejected} OTLP requests hit the memory guard \
-                 ([daemon] memory_high_water_pct = {pct}): raise the \
+                 (`[daemon] memory_high_water_pct` = {pct}): raise the \
                  container memory limit or spread ingestion across more daemons"
             ),
         ));
@@ -1178,7 +1178,7 @@ fn collect_warning_details(
             TUNING,
             format!(
                 "analysis worker shed {shed} batches since daemon start: \
-                 raise [daemon] analysis_queue_capacity (currently {cap}) \
+                 raise `[daemon] analysis_queue_capacity` (currently {cap}) \
                  or give the daemon more CPU so detection keeps up"
             ),
         ));
@@ -1197,9 +1197,9 @@ fn collect_warning_details(
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
-                "active traces ({active:.0}) are within {pct}% of [daemon] \
-                 max_active_traces ({cap}): raise the cap or lower \
-                 trace_ttl_ms (currently {ttl} ms) so LRU eviction does \
+                "active traces ({active:.0}) are within {pct}% of `[daemon] \
+                 max_active_traces` ({cap}): raise the cap or lower \
+                 `trace_ttl_ms` (currently {ttl} ms) so LRU eviction does \
                  not split live traces"
             ),
         ));
