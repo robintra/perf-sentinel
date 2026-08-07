@@ -38,8 +38,10 @@ the chart version, to know which daemon image ships.
   covers every grouping and no re-acknowledgment is needed after the
   upgrade.
 - The ServiceMonitor and headless Service templates changed for the
-  duplicate-scrape fix above. Values and pod templates are unchanged, so
-  the upgrade does not roll pods. This is a minor rather than a patch bump
+  duplicate-scrape fix above. Values and pod templates are unchanged, but
+  the upgrade still rolls the pods: the image tag falls back to
+  `.Chart.AppVersion`, and `checksum/config` moves with the chart version
+  the ConfigMap labels carry. This is a minor rather than a patch bump
   because the published `perf-sentinel-core` public structs grew fields
   again, which a downstream crate pinned to `0.10` cannot absorb on a
   patch number.
