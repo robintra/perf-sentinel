@@ -423,6 +423,9 @@
   /* -------- banner / empty / drill -------- */
   .ps-banner { background: var(--info-bg); border: 0; border-radius: 10px; padding: 8px 12px; font-size: 11.5px; color: var(--info-fg); }
   .ps-report-warnings { background: var(--warn-bg); color: var(--warn-fg); margin-bottom: 14px; }
+  /* The warning kind is a label, not something the operator types: it must
+     not read as a code chip sitting next to a real config section. */
+  .ps-warn-kind { font-family: var(--font-ui); font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.45; margin-right: 9px; }
   .ps-empty { padding: 30px; text-align: center; color: var(--text-2); font-size: 13px; background: var(--surface); border: 1px solid transparent; border-radius: var(--r); }
   .ps-drill { background: var(--info-bg); border: 0; border-radius: 10px; padding: 10px 12px; font-size: 11.5px; color: var(--info-fg); }
   .ps-drill-label { font-size: 11.5px; color: var(--info-fg); margin-bottom: 4px; opacity: .8; }
@@ -4582,17 +4585,18 @@
   // needs a different action from the reader.
   function renderReportWarnings() {
     var details = report.warning_details || [];
-    var lines = details.length
-      ? details.map(function (w) { return "[" + w.kind + "] " + w.message; })
-      : (report.warnings || []);
-    if (!lines.length) return;
+    var rows = details.length
+      ? details.map(function (w) { return { kind: w.kind, message: w.message }; })
+      : (report.warnings || []).map(function (m) { return { kind: null, message: m }; });
+    if (!rows.length) return;
     var b = document.getElementById("report-warnings");
     b.style.display = "";
-    lines.forEach(function (line) {
+    rows.forEach(function (w) {
+      var row = el("div", null, null);
+      if (w.kind) row.appendChild(el("span", "ps-warn-kind", w.kind));
       // Through `proseInto` like every other prose surface: a warning names
       // config keys and commands, and they must read as code here too.
-      var row = el("div", null, null);
-      proseInto(row, line);
+      proseInto(row, w.message);
       b.appendChild(row);
     });
   }
