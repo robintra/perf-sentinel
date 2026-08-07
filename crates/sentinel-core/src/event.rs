@@ -400,6 +400,16 @@ impl SpanEvent {
         self.grouping.first().map(|g| g.value.as_ref())
     }
 
+    /// Borrowed `(key, value)` for a `HashMap` partition key. Both halves,
+    /// never the value alone: `tenant.id=prod` and `k8s.namespace.name=prod`
+    /// are two deployments, not one.
+    #[must_use]
+    pub fn grouping_identity(&self) -> Option<(&str, &str)> {
+        self.grouping
+            .first()
+            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+    }
+
     /// Build a [`CodeLocation`] from this span's `code_*` fields.
     ///
     /// Returns `None` when all four fields are absent.

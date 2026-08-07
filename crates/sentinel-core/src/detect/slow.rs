@@ -33,9 +33,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
                 .entry((
                     &span.event.event_type,
                     &span.template,
-                    span.event
-                        .effective_grouping()
-                        .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+                    span.event.grouping_identity(),
                 ))
                 .or_default()
                 .push(i);
@@ -161,9 +159,7 @@ pub fn detect_slow_cross_trace(
                 .entry((
                     &span.event.event_type,
                     &span.template,
-                    span.event
-                        .effective_grouping()
-                        .map(|g| (g.key.as_ref(), g.value.as_ref())),
+                    span.event.grouping_identity(),
                 ))
                 .or_default()
                 .push((

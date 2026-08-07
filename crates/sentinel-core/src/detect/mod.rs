@@ -152,6 +152,15 @@ impl Finding {
     pub fn grouping_value(&self) -> Option<&str> {
         self.grouping.first().map(|g| g.value.as_ref())
     }
+
+    /// Borrowed `(key, value)` for a partition key. Both halves, never the
+    /// value alone: two attributes can carry the same value.
+    #[must_use]
+    pub fn grouping_identity(&self) -> Option<(&str, &str)> {
+        self.grouping
+            .first()
+            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+    }
 }
 
 /// Types of performance anti-patterns.
