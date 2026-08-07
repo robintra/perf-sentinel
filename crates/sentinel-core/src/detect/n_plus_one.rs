@@ -65,9 +65,7 @@ pub fn detect_n_plus_one(
             .entry((
                 &span.event.event_type,
                 &span.template,
-                span.event
-                    .effective_grouping()
-                    .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+                span.event.grouping_identity(),
             ))
             .or_default()
             .push(i);

@@ -64,9 +64,7 @@ fn redundant_impl<'a>(
                 &span.event.event_type,
                 &span.template,
                 &span.params,
-                span.event
-                    .effective_grouping()
-                    .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+                span.event.grouping_identity(),
             ))
             .or_default()
             .push(i);
@@ -82,9 +80,7 @@ fn redundant_impl<'a>(
             (
                 &finding.finding_type,
                 finding.pattern.template.as_str(),
-                finding
-                    .effective_grouping()
-                    .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
+                finding.grouping_identity(),
             )
         })
         .collect();

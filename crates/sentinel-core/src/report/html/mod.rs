@@ -499,10 +499,7 @@ type DirectCulprit = (
 );
 
 fn grouping_matches(event: &crate::event::SpanEvent, expected: Option<&(String, String)>) -> bool {
-    event
-        .effective_grouping()
-        .map(|g| (g.key.as_ref(), g.value.as_ref()))
-        == expected.map(|(key, value)| (key.as_str(), value.as_str()))
+    event.grouping_identity() == expected.map(|(key, value)| (key.as_str(), value.as_str()))
 }
 
 /// Exact spans to highlight for each embedded finding.
