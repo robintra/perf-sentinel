@@ -252,7 +252,8 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
     let safe_service = strip_bidi_and_invisible(&finding.service);
     let safe_endpoint = strip_bidi_and_invisible(&finding.source_endpoint);
     let safe_template = strip_bidi_and_invisible(&finding.pattern.template);
-    let safe_suggestion = strip_bidi_and_invisible(&finding.suggestion);
+    let plain_suggestion = strip_code_ticks(&finding.suggestion);
+    let safe_suggestion = strip_bidi_and_invisible(&plain_suggestion);
 
     let message = format!(
         "{} in {} on {}: {} ({} occurrences, {}ms window). {}",

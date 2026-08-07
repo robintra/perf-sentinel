@@ -711,7 +711,7 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
     );
     println!(
         "    {cyan}Suggestion:{reset} {}",
-        sanitize_for_terminal(&finding.suggestion)
+        sanitize_for_terminal(&strip_code_ticks(&finding.suggestion))
     );
     if !finding.confidence.is_batch() {
         println!(
@@ -1309,7 +1309,7 @@ fn write_finding_block(
         writer,
         "      {cyan}{:<12}{reset} {}",
         "Suggestion:",
-        sanitize_for_terminal(&f.suggestion)
+        sanitize_for_terminal(&strip_code_ticks(&f.suggestion))
     )?;
     if let Some(ref fix) = f.suggested_fix {
         let label = format!("Fix [{}]:", sanitize_for_terminal(&fix.framework));
@@ -1967,6 +1967,17 @@ mod tests {
             !out.as_bytes().contains(&0x07),
             "BEL terminator leaked, got:\n{out}"
         );
+    }
+
+    /// The suggestion carries backticks so the HTML can chip them. Every
+    /// terminal surface must strip them, exactly like `suggested_fix`.
+    #[test]
+    fn backticks_in_suggestion_never_reach_the_terminal() {
+        let mut f = sample_finding();
+        f.suggestion = "Use `WHERE ... IN (?)` to batch 5 queries into one".to_string();
+        let out = render_text(&diff_with_new(vec![f]));
+        assert!(!out.contains('`'), "backtick leaked, got:\n{out}");
+        assert!(out.contains("WHERE ... IN (?)"), "got:\n{out}");
     }
 
     #[test]
