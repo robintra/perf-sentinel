@@ -324,6 +324,11 @@
   .ps-fin-main { min-width: 0; }
   .ps-fin-type { font-weight: 600; font-size: 12.5px; color: var(--text); }
   .ps-fin-service { color: var(--text-3); font-weight: 400; font-size: 12px; font-family: var(--font-mono); }
+  /* The endpoint ellipsizes, the grouping never does: it is what tells two
+     deployments of one service apart. */
+  .ps-fin-sub:has(.ps-fin-grouping) { display: flex; align-items: baseline; gap: 7px; }
+  .ps-fin-sub > .ps-fin-endpoint-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-fin-grouping { flex: 0 0 auto; padding: 1px 6px; border-radius: 4px; background: var(--surface-1); border: 1px solid var(--border-2); font-size: 10.5px; color: var(--text-2); }
   .ps-fin-detail { font-size: 12px; color: var(--text-2); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ps-fin-right { font-size: 12px; color: var(--text-2); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
   .ps-fin-right-sub { color: var(--text-3); font-size: 11.5px; }
@@ -2754,7 +2759,16 @@
     row.appendChild(topLine);
 
     var finSub = el("span", "ps-fin-service ps-fin-sub");
-    highlightEndpoint(finSub, (f.service || "-") + " · " + (f.source_endpoint || "-"));
+    // Without it two deployments of one service read as duplicate rows.
+    var groupingValue = findingNamespace(f);
+    var endpointHost = groupingValue ? el("span", "ps-fin-endpoint-text") : finSub;
+    highlightEndpoint(endpointHost, (f.service || "-") + " · " + (f.source_endpoint || "-"));
+    if (groupingValue) {
+      finSub.appendChild(endpointHost);
+      var mark = el("span", "ps-fin-grouping", groupingValue);
+      mark.title = findingGroupingLabel(f);
+      finSub.appendChild(mark);
+    }
     row.appendChild(finSub);
 
     // The normalized template is not shown in the compact row but stays
