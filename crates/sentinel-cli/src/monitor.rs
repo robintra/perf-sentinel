@@ -37,7 +37,7 @@ use sentinel_core::config::DaemonConfig;
 use sentinel_core::daemon::query_api::EnergyStatusResponse;
 use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
-use sentinel_core::text_safety::sanitize_for_terminal;
+use sentinel_core::text_safety::{sanitize_for_terminal, strip_code_ticks};
 use tokio::sync::mpsc;
 
 // `Axis` aliased: ratatui's chart `Axis` is already in scope here.
@@ -842,7 +842,7 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
                 warning_kind_style(&w.kind),
             ),
             Span::raw("] "),
-            Span::raw(sanitize_for_terminal(&w.message).into_owned()),
+            Span::raw(sanitize_for_terminal(&strip_code_ticks(&w.message)).into_owned()),
         ]));
     }
     if snapshot.warning_details.is_empty() {
