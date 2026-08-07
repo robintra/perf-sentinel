@@ -259,11 +259,11 @@ fn build_finding(
     };
     let suggestion = match event_type {
         EventType::Sql => format!(
-            "Use WHERE ... IN (?) to batch {} queries into one",
+            "Use `WHERE ... IN (?)` to batch {} queries into one",
             indices.len()
         ),
         EventType::HttpOut => format!(
-            "Use batch endpoint with ?ids=... to batch {} calls into one",
+            "Use a batch endpoint with `?ids=...` to batch {} calls into one",
             indices.len()
         ),
         EventType::Messaging => format!(
