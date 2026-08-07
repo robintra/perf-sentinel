@@ -631,6 +631,14 @@ impl CulpritIndex {
 
     fn for_trace<'a>(&self, trace: &'a Trace) -> BTreeMap<String, Vec<&'a str>> {
         let mut out: BTreeMap<String, Vec<&'a str>> = BTreeMap::new();
+        self.add_template_matched(trace, &mut out);
+        self.add_slow_matched(trace, &mut out);
+        self.add_rerun_matched(trace, &mut out);
+        out
+    }
+
+    /// N+1 and chatty: matched on template and grouping, no detector rerun.
+    fn add_template_matched<'a>(&self, trace: &'a Trace, out: &mut BTreeMap<String, Vec<&'a str>>) {
         for (trace_id, browser_key, finding_type, template, grouping) in &self.direct {
             if trace_id != &trace.trace_id {
                 continue;
@@ -659,6 +667,10 @@ impl CulpritIndex {
                 .collect();
             out.insert(browser_key.clone(), ids);
         }
+    }
+
+    /// Slow findings additionally gate on the configured duration threshold.
+    fn add_slow_matched<'a>(&self, trace: &'a Trace, out: &mut BTreeMap<String, Vec<&'a str>>) {
         for (trace_id, browser_key, finding_type, template, grouping) in &self.slow {
             if trace_id != &trace.trace_id {
                 continue;
@@ -677,6 +689,11 @@ impl CulpritIndex {
                 .collect();
             out.insert(browser_key.clone(), ids);
         }
+    }
+
+    /// Serialized, fanout, redundant and pool saturation return their exact
+    /// culprit set, so the detectors are rerun rather than approximated.
+    fn add_rerun_matched<'a>(&self, trace: &'a Trace, out: &mut BTreeMap<String, Vec<&'a str>>) {
         let mut claimed_twice: HashSet<String> = HashSet::new();
         let indices = crate::detect::TraceIndices::build(trace);
         let found = crate::detect::serialized::detect_serialized_with_spans(
@@ -721,7 +738,6 @@ impl CulpritIndex {
                 claimed_twice.insert(rerun_key);
             }
         }
-        out
     }
 }
 
