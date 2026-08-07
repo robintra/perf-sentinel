@@ -506,7 +506,7 @@ test("27. the second grouping attribute is the fallback when the first is absent
 
   await loadDashboard(page, "#findings&service=chat-svc");
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
-  expect(await page.locator('#findings-filters .ps-chip[data-key="group:"]').count()).toBe(0);
+  await expect(page.locator('#findings-filters .ps-chip[data-key="group:"]')).toHaveCount(0);
   await page.locator("#findings-list .ps-row").first().click();
   await expect(page.locator("#explain-detail-head .ps-meta-grid"))
     .not.toContainText(/service\.namespace|k8s\.namespace\.name/);
