@@ -81,3 +81,7 @@ v0.10.0	e4f265b	2026-08-06	PASS
 # SKIP_TRAFFIC=1 reused the already-green canonical traffic gate; SKIP_TRIGGER_TEST=1 omitted
 # the daemon-down alert trigger because it is outside the 0.11.0 change surface.
 v0.11.0	214ea6f	2026-08-07	PASS
+# Follow-up attestation for product 10f75892, which only distinguishes Tempo traces with
+# no convertible spans. The rebuilt candidate passed batch-tempo-scrape unchanged; every
+# other 0.11.0 surface remains covered by the scoped attestation immediately above.
+v0.11.0	214ea6f	2026-08-07	PASS
