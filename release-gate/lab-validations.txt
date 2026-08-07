@@ -75,3 +75,9 @@ v0.9.28	52a3ea3	2026-08-04	PASS
 # v0.10.0 ran a scoped validation, not the full scenario sweep: every surface the
 # release touches was covered, so the rest was not needed.
 v0.10.0	e4f265b	2026-08-06	PASS
+# v0.11.0 was scoped to every changed release surface rather than all 69 scenarios. The
+# first run found the correlation CSV grouping defect fixed in 61decb60; the focused rerun
+# at 05f3ff5f passed grouping 17/17 and Tempo ingestion on the same traces against 0.10.0.
+# SKIP_TRAFFIC=1 reused the already-green canonical traffic gate; SKIP_TRIGGER_TEST=1 omitted
+# the daemon-down alert trigger because it is outside the 0.11.0 change surface.
+v0.11.0	214ea6f	2026-08-07	PASS
