@@ -144,7 +144,7 @@ fn skipped_usable_span_rule_warning(
     Some(crate::report::Warning::new(
         crate::report::warnings::TUNING,
         format!(
-            "min_usable_span_ratio = {threshold} was not evaluated: {cause}. The quality gate says nothing about instrumentation quality for this run."
+            "`min_usable_span_ratio` = {threshold} was not evaluated: {cause}. The quality gate says nothing about instrumentation quality for this run."
         ),
     ))
 }
@@ -159,13 +159,16 @@ fn daemon_only_green_backend_warning(
         return None;
     }
     let configured: Vec<&str> = [
-        ("[green.alumet]", green.alumet.is_some()),
-        ("[green.scaphandre]", green.scaphandre.is_some()),
-        ("[green.kepler]", green.kepler.is_some()),
-        ("[green.redfish]", green.redfish.is_some()),
-        ("[green.cloud]", green.cloud_energy.is_some()),
-        ("[green.broker_static]", green.broker_static.is_some()),
-        ("[green.electricity_maps]", green.electricity_maps.is_some()),
+        ("`[green.alumet]`", green.alumet.is_some()),
+        ("`[green.scaphandre]`", green.scaphandre.is_some()),
+        ("`[green.kepler]`", green.kepler.is_some()),
+        ("`[green.redfish]`", green.redfish.is_some()),
+        ("`[green.cloud]`", green.cloud_energy.is_some()),
+        ("`[green.broker_static]`", green.broker_static.is_some()),
+        (
+            "`[green.electricity_maps]`",
+            green.electricity_maps.is_some(),
+        ),
     ]
     .into_iter()
     .filter_map(|(name, set)| set.then_some(name))
