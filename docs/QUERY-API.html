@@ -456,12 +456,16 @@ server {
     <span style="color:var(--code-sub)">&quot;source&quot;</span>: {
       <span style="color:var(--code-sub)">&quot;finding_type&quot;</span>: <span style="color:var(--code-num)">&quot;redundant_sql&quot;</span>,
       <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;cache-svc&quot;</span>,
-      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM settings WHERE key = ?&quot;</span>
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM settings WHERE key = ?&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_key&quot;</span>: <span style="color:var(--code-num)">&quot;k8s.namespace.name&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_value&quot;</span>: <span style="color:var(--code-num)">&quot;prod-eu&quot;</span>
     },
     <span style="color:var(--code-sub)">&quot;target&quot;</span>: {
       <span style="color:var(--code-sub)">&quot;finding_type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
       <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
-      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_key&quot;</span>: <span style="color:var(--code-num)">&quot;k8s.namespace.name&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_value&quot;</span>: <span style="color:var(--code-num)">&quot;prod-eu&quot;</span>
     },
     <span style="color:var(--code-sub)">&quot;co_occurrence_count&quot;</span>: <span style="color:var(--code-num)">2</span>,
     <span style="color:var(--code-sub)">&quot;source_total_occurrences&quot;</span>: <span style="color:var(--code-num)">1</span>,
@@ -471,6 +475,7 @@ server {
     <span style="color:var(--code-sub)">&quot;last_seen&quot;</span>: <span style="color:var(--code-num)">&quot;2026-04-16T14:<span style="color:var(--code-num)">36</span>:<span style="color:var(--code-num)">02.450</span>Z&quot;</span>
   }
 ]</code></pre></div>
+<p class="ps-p"><code class="ps-ic">grouping_key</code> and <code class="ps-ic">grouping_value</code> carry the effective grouping attribute and value for that side. Both are omitted when the spans carry no configured grouping attribute. Two findings with different grouping keys or values are never paired: a correlation always describes one deployment.</p>
 <h3 id="get-apiexportreport" class="ps-h3">GET /api/export/report</h3>
 <p class="ps-p">Snapshot the daemon's current in-memory state as a <code class="ps-ic">Report</code> JSON, identical in shape to <code class="ps-ic">perf-sentinel analyze --format json</code>. This closes the loop between the live daemon and the post-mortem <code class="ps-ic">perf-sentinel report</code> HTML dashboard: the HTML report can ingest a daemon snapshot over HTTP via standard shell composition.</p>
 <p class="ps-p">The <code class="ps-ic">analysis</code> section reflects daemon-lifetime counters (cumulative since daemon start). The <code class="ps-ic">green_summary</code> field is refreshed by the event loop after each batch (regions, top offenders, avoidable I/O ratio, CO2 numbers, scoring config), so the snapshot carries a live CO2 picture. The chip banner and the GreenOps tab in the HTML dashboard surface naturally on Electricity-Maps-configured daemons. The quality gate is evaluated on the snapshot, against the live findings and the thresholds frozen at daemon startup, so <code class="ps-ic">quality_gate.passed</code> carries the same verdict the batch pipeline would give on that state. See <a href="/docs/design/05-GREENOPS-AND-CARBON">05 · GreenOps & carbon</a> for the full audit-trail story.</p>

@@ -457,12 +457,16 @@ server {
     <span style="color:var(--code-sub)">&quot;source&quot;</span>: {
       <span style="color:var(--code-sub)">&quot;finding_type&quot;</span>: <span style="color:var(--code-num)">&quot;redundant_sql&quot;</span>,
       <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;cache-svc&quot;</span>,
-      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM settings WHERE key = ?&quot;</span>
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM settings WHERE key = ?&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_key&quot;</span>: <span style="color:var(--code-num)">&quot;k8s.namespace.name&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_value&quot;</span>: <span style="color:var(--code-num)">&quot;prod-eu&quot;</span>
     },
     <span style="color:var(--code-sub)">&quot;target&quot;</span>: {
       <span style="color:var(--code-sub)">&quot;finding_type&quot;</span>: <span style="color:var(--code-num)">&quot;n_plus_one_sql&quot;</span>,
       <span style="color:var(--code-sub)">&quot;service&quot;</span>: <span style="color:var(--code-num)">&quot;order-svc&quot;</span>,
-      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>
+      <span style="color:var(--code-sub)">&quot;template&quot;</span>: <span style="color:var(--code-num)">&quot;SELECT * FROM order_item WHERE order_id = ?&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_key&quot;</span>: <span style="color:var(--code-num)">&quot;k8s.namespace.name&quot;</span>,
+      <span style="color:var(--code-sub)">&quot;grouping_value&quot;</span>: <span style="color:var(--code-num)">&quot;prod-eu&quot;</span>
     },
     <span style="color:var(--code-sub)">&quot;co_occurrence_count&quot;</span>: <span style="color:var(--code-num)">2</span>,
     <span style="color:var(--code-sub)">&quot;source_total_occurrences&quot;</span>: <span style="color:var(--code-num)">1</span>,
@@ -472,6 +476,7 @@ server {
     <span style="color:var(--code-sub)">&quot;last_seen&quot;</span>: <span style="color:var(--code-num)">&quot;2026-04-16T14:<span style="color:var(--code-num)">36</span>:<span style="color:var(--code-num)">02.450</span>Z&quot;</span>
   }
 ]</code></pre></div>
+<p class="ps-p"><code class="ps-ic">grouping_key</code> et <code class="ps-ic">grouping_value</code> portent l'attribut et la valeur de regroupement effectifs du côté concerné. Les deux sont omis quand les spans ne portent aucun attribut de regroupement configuré. Deux findings dont la clé ou la valeur de regroupement diffère ne sont jamais appariés : une corrélation décrit toujours un seul déploiement.</p>
 <h3 id="get-apiexportreport" class="ps-h3">GET /api/export/report</h3>
 <p class="ps-p">Snapshot de l'état interne courant du daemon sous forme de JSON <code class="ps-ic">Report</code>, avec la même forme que <code class="ps-ic">perf-sentinel analyze --format json</code>. Ferme la boucle entre le daemon live et le dashboard HTML <code class="ps-ic">perf-sentinel report</code> post-mortem : le rapport HTML peut ingérer un snapshot daemon via HTTP par simple composition shell.</p>
 <p class="ps-p">La section <code class="ps-ic">analysis</code> reflète les compteurs lifetime du daemon (cumulatifs depuis le démarrage). Le champ <code class="ps-ic">green_summary</code> est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config), donc le snapshot porte une photo CO2 vivante. Le bandeau de chips et le tab GreenOps du dashboard HTML apparaissent naturellement sur les daemons configurés avec Electricity Maps. La quality gate est évaluée sur le snapshot, contre les findings vivants et les seuils figés au démarrage du daemon, donc <code class="ps-ic">quality_gate.passed</code> porte le même verdict que celui du pipeline batch sur cet état. Voir <a href="/docs/fr/design/05-GREENOPS-AND-CARBON">05 · GreenOps & carbon</a> pour le récit complet du chemin d'audit.</p>
