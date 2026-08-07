@@ -2257,7 +2257,7 @@ fn culprit_map(html: &str) -> serde_json::Value {
 }
 
 fn culprit_key_of(f: &Finding) -> String {
-    super::culprit_key(
+    culprit_key(
         &f.trace_id,
         f.effective_grouping(),
         &f.signature,
