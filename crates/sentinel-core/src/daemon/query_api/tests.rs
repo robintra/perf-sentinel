@@ -912,7 +912,8 @@ fn tuning_advisor_flags_sampling_rate_below_one() {
     let msgs = tuning_messages(&metrics, &daemon);
     assert_eq!(msgs.len(), 1);
     assert!(
-        msgs[0].contains("sampling_rate is 0.1") && msgs[0].contains("absolute counts"),
+        // The chip names the knob, the value stays in prose.
+        msgs[0].contains("`[daemon] sampling_rate` is 0.1") && msgs[0].contains("absolute counts"),
         "got: {}",
         msgs[0]
     );
@@ -966,7 +967,7 @@ fn tuning_advisor_flags_memory_pressure_rejections() {
     assert_eq!(msgs.len(), 1);
     assert!(
         msgs[0].contains("memory guard")
-            && msgs[0].contains("memory_high_water_pct = 80")
+            && msgs[0].contains("`[daemon] memory_high_water_pct` = 80")
             && msgs[0].contains("container memory limit"),
         "got: {}",
         msgs[0]
