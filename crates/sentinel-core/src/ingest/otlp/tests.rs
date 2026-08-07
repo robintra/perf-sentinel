@@ -1719,12 +1719,8 @@ fn grouping_falls_back_to_span_attributes() {
         .attributes
         .push(make_kv("k8s.namespace.name", "shared-cluster"));
 
-    let keys: Vec<std::sync::Arc<str>> = vec![
-        std::sync::Arc::from("tenant.id"),
-        std::sync::Arc::from("k8s.namespace.name"),
-    ];
-    let (events, _) =
-        crate::ingest::otlp::convert_otlp_request_counted_with_grouping(&req, Some(&keys));
+    let keys: Vec<Arc<str>> = vec![Arc::from("tenant.id"), Arc::from("k8s.namespace.name")];
+    let (events, _) = convert_otlp_request_counted_with_grouping(&req, Some(&keys));
 
     assert_eq!(events[0].grouping_value(), Some("acme"));
     assert_eq!(events[0].grouping[1].value.as_ref(), "shared-cluster");

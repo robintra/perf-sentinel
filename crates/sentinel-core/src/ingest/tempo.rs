@@ -519,14 +519,14 @@ async fn ingest_from_tempo_impl(
     // The hyper client holds an `Arc` internally, so `.clone()` is cheap;
     // the endpoint and the parsed auth header are cloned per task so
     // each owned future is `'static` as required by `spawn`.
-    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(FETCH_CONCURRENCY));
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(FETCH_CONCURRENCY));
     let mut set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
     for tid in trace_ids {
         let client_clone = client.clone();
         let endpoint_owned = endpoint.to_string();
         let auth_clone = parsed_auth.clone();
         let grouping_clone = grouping_attributes.clone();
-        let sem = std::sync::Arc::clone(&semaphore);
+        let sem = Arc::clone(&semaphore);
         set.spawn(async move {
             let Ok(_permit) = sem.acquire_owned().await else {
                 return (
@@ -708,6 +708,18 @@ async fn drain_fetch_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// String `KeyValue`, the shape every OTLP fixture in this module needs.
+    fn kv(key: &str, value: &str) -> opentelemetry_proto::tonic::common::v1::KeyValue {
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue(value.to_string())),
+            }),
+            ..Default::default()
+        }
+    }
     use core::assert_matches;
 
     // --- Lookback parser (delegation sanity check) ---
@@ -906,17 +918,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_trace_uses_configured_grouping_attributes() {
-        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
         use opentelemetry_proto::tonic::resource::v1::Resource;
         use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
-
-        let kv = |key: &str, value: &str| KeyValue {
-            key: key.to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::StringValue(value.to_string())),
-            }),
-            ..Default::default()
-        };
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {
@@ -941,7 +944,7 @@ mod tests {
         let (endpoint, server) =
             spawn_one_shot_server(http_200_proto(&request.encode_to_vec())).await;
         let client = http_client::build_client();
-        let grouping = [std::sync::Arc::from("tenant.id")];
+        let grouping = [Arc::from("tenant.id")];
 
         let (events, received) =
             fetch_trace_with_grouping(&client, &endpoint, "abc123def456", None, Some(&grouping))
@@ -1242,17 +1245,8 @@ mod tests {
     /// become events, only what identity they carry.
     #[test]
     fn a_protobuf_trace_converts_to_events_with_and_without_grouping() {
-        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
         use opentelemetry_proto::tonic::resource::v1::Resource;
         use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
-
-        let kv = |k: &str, v: &str| KeyValue {
-            key: k.to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::StringValue(v.to_string())),
-            }),
-            ..Default::default()
-        };
         let span = Span {
             trace_id: vec![1; 16],
             span_id: vec![2; 8],
@@ -1306,17 +1300,8 @@ mod tests {
     /// missing trace that Tempo had returned all along.
     #[tokio::test]
     async fn a_trace_with_no_io_span_is_not_reported_as_a_missing_trace() {
-        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
         use opentelemetry_proto::tonic::resource::v1::Resource;
         use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
-
-        let kv = |k: &str, v: &str| KeyValue {
-            key: k.to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::StringValue(v.to_string())),
-            }),
-            ..Default::default()
-        };
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {

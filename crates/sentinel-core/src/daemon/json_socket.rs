@@ -19,14 +19,14 @@ pub(super) async fn run_json_socket(
     path: &str,
     tx: mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
-    grouping_attributes: Vec<std::sync::Arc<str>>,
+    grouping_attributes: Vec<Arc<str>>,
     over_memory: Arc<AtomicBool>,
 ) {
     use tokio::net::UnixListener;
 
     // Interned once: the accept loop hands every connection a pointer bump
     // instead of re-allocating the key list per connection.
-    let grouping_attributes: Arc<[std::sync::Arc<str>]> = grouping_attributes.into();
+    let grouping_attributes: Arc<[Arc<str>]> = grouping_attributes.into();
 
     // Symlink-TOCTOU defense: refuse to unlink anything at `path` that
     // is a symlink. A local attacker who controls the parent directory
@@ -122,7 +122,7 @@ async fn handle_json_connection(
     stream: tokio::net::UnixStream,
     tx: mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
-    grouping_attributes: Arc<[std::sync::Arc<str>]>,
+    grouping_attributes: Arc<[Arc<str>]>,
     over_memory: Arc<AtomicBool>,
 ) {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt};
