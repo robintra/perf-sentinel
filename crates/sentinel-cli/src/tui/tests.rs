@@ -513,15 +513,8 @@ fn detail_line_count_matches_the_rendered_metadata_rows() {
 
     let counted = app.detail_panel_line_count();
     let buf = render_once(&mut app, 320, 40);
-    let mut lines: Vec<String> = Vec::new();
-    for y in 0..buf.area.height {
-        let mut line = String::new();
-        for x in 0..buf.area.width {
-            line.push_str(buf[(x, y)].symbol());
-        }
-        lines.push(line.trim_end().to_string());
-    }
-    let full = lines.join("\n");
+    let rows = buffer_rows(&buf);
+    let full = rows.join("\n");
 
     assert!(full.contains("k8s.namespace.name:"), "{full}");
     assert!(full.contains("prod-eu"), "{full}");
@@ -597,12 +590,7 @@ fn grouping_key_is_sanitized_in_the_detail_panel() {
     }];
 
     let buf = render_once(&mut app, 320, 40);
-    let mut full = String::new();
-    for y in 0..buf.area.height {
-        for x in 0..buf.area.width {
-            full.push_str(buf[(x, y)].symbol());
-        }
-    }
+    let full = buffer_text(&buf);
 
     assert!(
         !full.as_bytes().contains(&0x1b),
@@ -815,6 +803,19 @@ fn with_pre_rendered_trees_builder_populates_field() {
 // tests verify that the three panels render without panicking and
 // include the expected content, covering the render code paths
 // that a coverage tool would otherwise flag as untested.
+
+/// Rendered rows, trailing padding stripped. Six assertions needed this.
+fn buffer_rows(buf: &ratatui::buffer::Buffer) -> Vec<String> {
+    (0..buf.area.height)
+        .map(|y| {
+            let mut line = String::new();
+            for x in 0..buf.area.width {
+                line.push_str(buf[(x, y)].symbol());
+            }
+            line.trim_end().to_string()
+        })
+        .collect()
+}
 
 fn render_once(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     use ratatui::Terminal;
@@ -1145,12 +1146,7 @@ fn correlations_panel_qualifies_each_side_with_its_grouping() {
     let mut app = make_test_app().with_correlations(vec![c]);
     app.active_panel = Panel::Correlations;
     let buf = render_once(&mut app, 320, 40);
-    let mut full = String::new();
-    for y in 0..buf.area.height {
-        for x in 0..buf.area.width {
-            full.push_str(buf[(x, y)].symbol());
-        }
-    }
+    let full = buffer_text(&buf);
 
     assert!(full.contains("order-svc@tenant.id=prod-eu:"), "{full}");
     assert!(
@@ -1174,12 +1170,7 @@ fn correlations_panel_strips_ansi_from_service_name() {
     let mut app = make_test_app().with_correlations(vec![hostile]);
     app.active_panel = Panel::Correlations;
     let buf = render_once(&mut app, 320, 40);
-    let mut full = String::new();
-    for y in 0..buf.area.height {
-        for x in 0..buf.area.width {
-            full.push_str(buf[(x, y)].symbol());
-        }
-    }
+    let full = buffer_text(&buf);
     assert!(
         !full.as_bytes().contains(&0x1b),
         "ESC byte from service leaked into terminal buffer"

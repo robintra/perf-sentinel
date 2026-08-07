@@ -560,7 +560,7 @@ mod tests {
         );
         let (endpoint, server) = spawn_one_shot_server(http_200_json(&body)).await;
         let client = http_client::build_client();
-        let grouping = [std::sync::Arc::from("tenant.id")];
+        let grouping = [Arc::from("tenant.id")];
 
         let events = fetch_trace_with_grouping(&client, &endpoint, "abc123", None, Some(&grouping))
             .await
