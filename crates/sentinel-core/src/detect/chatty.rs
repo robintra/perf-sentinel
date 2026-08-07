@@ -21,11 +21,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.event_type == EventType::HttpOut {
             by_grouping
-                .entry(
-                    span.event
-                        .effective_grouping()
-                        .map(|g| (g.key.as_ref(), g.value.as_ref())),
-                )
+                .entry(span.event.grouping_identity())
                 .or_default()
                 .push(i);
         }

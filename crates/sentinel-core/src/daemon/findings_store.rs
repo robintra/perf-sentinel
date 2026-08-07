@@ -91,10 +91,7 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
             out.push(entry.clone());
             continue;
         }
-        let grouping = entry
-            .finding
-            .effective_grouping()
-            .map(|g| (g.key.as_ref(), g.value.as_ref()));
+        let grouping = entry.finding.grouping_identity();
         let key = (grouping, entry.finding.signature.as_str());
         if let Some(&i) = index.get(&key) {
             let kept: &mut StoredFinding = &mut out[i];

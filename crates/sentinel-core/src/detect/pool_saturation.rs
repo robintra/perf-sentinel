@@ -67,12 +67,7 @@ fn group_sql_indices_by_service(trace: &Trace) -> HashMap<PoolKey<'_>, Vec<usize
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.event_type == EventType::Sql {
             sql_by_service
-                .entry((
-                    span.event.service.as_ref(),
-                    span.event
-                        .effective_grouping()
-                        .map(|grouping| (grouping.key.as_ref(), grouping.value.as_ref())),
-                ))
+                .entry((span.event.service.as_ref(), span.event.grouping_identity()))
                 .or_default()
                 .push(i);
         }
