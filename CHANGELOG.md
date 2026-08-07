@@ -2,6 +2,13 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.1] - 2026-08-07
+
+### Fixed
+
+- The findings list names the deployment each row belongs to. Findings separate by grouping since 0.11.0, but the list showed only the service and the endpoint, so the same problem in two namespaces read as two identical rows and a reader had to open each one to tell them apart. The grouping value sits beside the endpoint and never ellipsizes, since it is the only thing distinguishing those rows.
+- The bundled `demo` dataset carries `k8s.namespace.name`, so `demo --html` shows the grouping column, the grouping filters and a recurring finding across traces. It demonstrated none of the 0.11.0 surface before.
+
 ## [0.11.0] - 2026-08-06
 
 ### Fixed
