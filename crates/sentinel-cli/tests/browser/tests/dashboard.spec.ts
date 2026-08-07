@@ -767,6 +767,8 @@ test("37. report warnings render in a banner that survives a tab switch", async 
   const banner = page.locator("#report-warnings");
   await expect(banner).toContainText("tuning");
   await expect(banner).toContainText("[green.alumet] configured");
+  // A tuning hint reports nothing broken, so it must not borrow the warn tone.
+  await expect(banner).toHaveAttribute("data-tone", "info");
 
   // The whole point of placing it outside the panels.
   await page.keyboard.press("g");
