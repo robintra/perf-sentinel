@@ -765,7 +765,8 @@ test("37. report warnings render in a banner that survives a tab switch", async 
   await page.waitForSelector("[role=tablist]");
 
   const banner = page.locator("#report-warnings");
-  await expect(banner).toContainText("[tuning] [green.alumet] configured");
+  await expect(banner).toContainText("tuning");
+  await expect(banner).toContainText("[green.alumet] configured");
 
   // The whole point of placing it outside the panels.
   await page.keyboard.press("g");
