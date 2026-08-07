@@ -1182,6 +1182,69 @@ mod tests {
     /// variant silently ends up as `"other"` in the summary counts. This
     /// test either catches it (when the new variant deserves its own bucket)
     /// or documents that the catch-all is intentional.
+    /// The Tempo path decodes protobuf then converts. Threading the
+    /// configured grouping attributes through must not change which spans
+    /// become events, only what identity they carry.
+    #[test]
+    fn a_protobuf_trace_converts_to_events_with_and_without_grouping() {
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
+        use opentelemetry_proto::tonic::resource::v1::Resource;
+        use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
+
+        let kv = |k: &str, v: &str| KeyValue {
+            key: k.to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue(v.to_string())),
+            }),
+            ..Default::default()
+        };
+        let span = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![2; 8],
+            name: "SELECT".to_string(),
+            kind: 3, // CLIENT
+            start_time_unix_nano: 1_000_000,
+            end_time_unix_nano: 2_000_000,
+            attributes: vec![
+                kv("db.system", "postgresql"),
+                kv("db.statement", "SELECT * FROM orders WHERE id = 1"),
+                kv("tenant.id", "acme"),
+            ],
+            ..Default::default()
+        };
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![
+                        kv("service.name", "order-svc"),
+                        kv("k8s.namespace.name", "prod-eu"),
+                    ],
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![span],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        };
+        // Round-trip through protobuf exactly like `fetch_trace` does.
+        let encoded = request.encode_to_vec();
+        let decoded = ExportTraceServiceRequest::decode(encoded.as_slice()).unwrap();
+
+        let (plain, _) = convert_otlp_request_counted_with_grouping(&decoded, None);
+        assert_eq!(plain.len(), 1, "conversion must not drop the span");
+
+        let keys: Vec<Arc<str>> = vec![Arc::from("tenant.id")];
+        let (grouped, _) = convert_otlp_request_counted_with_grouping(&decoded, Some(&keys));
+        assert_eq!(
+            grouped.len(),
+            1,
+            "configuring grouping must not change which spans convert"
+        );
+        assert_eq!(grouped[0].grouping_value(), Some("acme"));
+    }
+
     #[test]
     fn classify_fetch_error_buckets_every_hard_failure_variant() {
         assert_eq!(classify_fetch_error(&TempoError::Timeout), "timeout");
