@@ -176,10 +176,10 @@ fn daemon_only_green_backend_warning(
     Some(crate::report::Warning::new(
         crate::report::warnings::TUNING,
         format!(
-            "{} configured but this is a batch run: analyze starts no scraper, \
+            "{} configured but this is a batch run: `analyze` starts no scraper, \
              so neither measured energy nor real-time grid intensity reached the \
              score. Every carbon figure here is the I/O proxy estimate over \
-             embedded intensity data. Run perf-sentinel watch for measured figures.",
+             embedded intensity data. Run `perf-sentinel watch` for measured figures.",
             configured.join(", ")
         ),
     ))
@@ -519,28 +519,28 @@ mod tests {
         assert!(crate::config::load_from_str(toml).is_ok());
     }
 
-    /// Warnings render to the terminal, the TUI advisor, JSON and the HTML
-    /// banner. Backticks read as code in none of the first three, so no
-    /// producer uses them.
+    /// Backticks live in the data, like `suggested_fix.recommendation`:
+    /// the HTML renders them as code chips, the terminal and TUI strip them
+    /// with `strip_code_ticks`. A warning naming a command must mark it.
     #[test]
-    fn warning_messages_carry_no_markdown_ticks() {
+    fn warning_marks_its_command_as_code() {
         let config = crate::config::load_from_str(
-            "[thresholds]\nmin_usable_span_ratio = 0.8\n\n\
-             [green]\nenabled = true\n\n\
+            "[green]\nenabled = true\n\n\
              [green.scaphandre]\nendpoint = \"http://127.0.0.1:8080/metrics\"\n",
         )
         .unwrap();
 
-        let report = analyze(vec![], &config);
+        let message = &analyze(vec![], &config).warning_details[0].message;
 
-        assert!(!report.warning_details.is_empty());
-        for warning in &report.warning_details {
-            assert!(
-                !warning.message.contains('`'),
-                "warning carries a backtick: {}",
-                warning.message
-            );
-        }
+        assert!(message.contains("`analyze`"), "{message}");
+        assert!(message.contains("`perf-sentinel watch`"), "{message}");
+        assert_eq!(
+            crate::text_safety::strip_code_ticks(message)
+                .matches('`')
+                .count(),
+            0,
+            "the terminal path must render it tick-free"
+        );
     }
 
     #[test]

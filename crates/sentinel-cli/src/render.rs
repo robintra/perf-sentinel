@@ -345,10 +345,13 @@ fn print_warnings(report: &Report, force_color: bool) {
     if !report.warning_details.is_empty() {
         println!("{bold}{yellow}Warnings:{reset}");
         for w in &report.warning_details {
+            // Backticks live in the data so the HTML can render code chips;
+            // a terminal shows them as literal noise.
+            let plain = strip_code_ticks(&w.message);
             println!(
                 "  [{}] {}",
                 sanitize_for_terminal(&w.kind),
-                sanitize_for_terminal(&w.message),
+                sanitize_for_terminal(&plain),
             );
         }
         println!();
@@ -1179,11 +1182,12 @@ fn write_diff_text(
         for w in &diff.warning_details {
             // Same guard as `print_warnings`: a baseline JSON is operator
             // input, and ack warnings carry user-authored signatures.
+            let plain = strip_code_ticks(&w.message);
             writeln!(
                 writer,
                 "  [{}] {}",
                 sanitize_for_terminal(&w.kind),
-                sanitize_for_terminal(&w.message)
+                sanitize_for_terminal(&plain)
             )?;
         }
         writeln!(writer)?;
