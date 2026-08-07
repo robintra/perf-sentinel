@@ -64,6 +64,17 @@ pub enum TempoError {
     #[error("no traces found for the given search criteria")]
     NoTracesFound,
 
+    /// Split from [`Self::NoTracesFound`] because the two need opposite
+    /// fixes: widen the search, or fix the instrumentation. Conflating
+    /// them sends an operator hunting a missing trace that is right there.
+    #[error(
+        "fetched {traces} trace(s) but no span converted to an I/O event. \
+         perf-sentinel keeps outbound calls only: SQL spans need `db.system` \
+         and `db.statement`, HTTP spans need a URL, and RPC SERVER spans are \
+         dropped so one hop is not counted twice"
+    )]
+    NoConvertibleSpans { traces: usize },
+
     #[error("Tempo fetch was interrupted by Ctrl-C before any trace completed")]
     Interrupted,
 }
@@ -284,7 +295,9 @@ pub async fn fetch_trace(
     trace_id: &str,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, TempoError> {
-    fetch_trace_with_grouping(client, endpoint, trace_id, auth, None).await
+    fetch_trace_with_grouping(client, endpoint, trace_id, auth, None)
+        .await
+        .map(|(events, _)| events)
 }
 
 async fn fetch_trace_with_grouping(
@@ -293,7 +306,7 @@ async fn fetch_trace_with_grouping(
     trace_id: &str,
     auth: Option<&AuthHeader>,
     grouping_attributes: Option<&[Arc<str>]>,
-) -> Result<Vec<SpanEvent>, TempoError> {
+) -> Result<(Vec<SpanEvent>, u64), TempoError> {
     // Validate trace_id is hex-only (OTLP spec: hex-encoded 16/32 bytes).
     if !trace_id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(TempoError::InvalidEndpoint(format!(
@@ -310,7 +323,8 @@ async fn fetch_trace_with_grouping(
     let request = ExportTraceServiceRequest::decode(body)
         .map_err(|e| TempoError::ProtobufDecode(e.to_string()))?;
 
-    Ok(convert_otlp_request_counted_with_grouping(&request, grouping_attributes).0)
+    let (events, stats) = convert_otlp_request_counted_with_grouping(&request, grouping_attributes);
+    Ok((events, stats.received))
 }
 
 /// Classify a per-trace fetch failure into a short category tag used for the
@@ -465,7 +479,7 @@ async fn ingest_from_tempo_impl(
 
     if let Some(tid) = trace_id {
         tracing::info!(trace_id = tid, "Fetching single trace from Tempo");
-        return fetch_trace_with_grouping(
+        return fetch_single_trace(
             &client,
             endpoint,
             tid,
@@ -506,8 +520,7 @@ async fn ingest_from_tempo_impl(
     // the endpoint and the parsed auth header are cloned per task so
     // each owned future is `'static` as required by `spawn`.
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(FETCH_CONCURRENCY));
-    let mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)> =
-        tokio::task::JoinSet::new();
+    let mut set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
     for tid in trace_ids {
         let client_clone = client.clone();
         let endpoint_owned = endpoint.to_string();
@@ -551,15 +564,52 @@ async fn ingest_from_tempo_impl(
         if drained.interrupted {
             return Err(TempoError::Interrupted);
         }
+        // Keyed on spans Tempo actually returned: a batch where every fetch
+        // errored, or where the traces came back empty, is not an
+        // instrumentation problem and must not read like one.
+        if drained.received > 0 {
+            let failures: usize = drained.fail_counts.values().sum();
+            return Err(TempoError::NoConvertibleSpans {
+                traces: total.saturating_sub(failures).max(1),
+            });
+        }
         return Err(TempoError::NoTracesFound);
     }
 
     Ok(drained.events)
 }
 
+/// The `--trace-id` path. An empty result is split here, never inside
+/// `fetch_trace`, whose empty batches the search loop legitimately folds.
+async fn fetch_single_trace(
+    client: &HttpClient,
+    endpoint: &str,
+    trace_id: &str,
+    auth: Option<&AuthHeader>,
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Result<Vec<SpanEvent>, TempoError> {
+    let (events, received) =
+        fetch_trace_with_grouping(client, endpoint, trace_id, auth, grouping_attributes).await?;
+    if events.is_empty() {
+        return Err(if received > 0 {
+            TempoError::NoConvertibleSpans { traces: 1 }
+        } else {
+            TempoError::NoTracesFound
+        });
+    }
+    Ok(events)
+}
+
+/// One fetch outcome: the converted events plus the spans Tempo returned,
+/// keyed by trace id for the progress log.
+type FetchOutcome = (String, Result<(Vec<SpanEvent>, u64), TempoError>);
+
 /// Aggregate result of draining the per-trace fetch `JoinSet`.
 struct FetchLoopOutcome {
     events: Vec<SpanEvent>,
+    /// Spans Tempo actually returned, so an empty trace is not reported as
+    /// a trace whose spans all filtered out.
+    received: u64,
     fail_counts: std::collections::HashMap<&'static str, usize>,
     interrupted: bool,
 }
@@ -573,13 +623,14 @@ struct FetchLoopOutcome {
 /// that already owns a shutdown-signal handler is not buggy but will fire
 /// two cleanups on the same signal, revisit before reusing.
 async fn drain_fetch_set(
-    mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)>,
+    mut set: tokio::task::JoinSet<FetchOutcome>,
     total: usize,
 ) -> FetchLoopOutcome {
     let shutdown = crate::shutdown::shutdown_signal();
     tokio::pin!(shutdown);
 
     let mut events = Vec::new();
+    let mut received: u64 = 0;
     let mut done: usize = 0;
     let mut fail_counts: std::collections::HashMap<&'static str, usize> =
         std::collections::HashMap::new();
@@ -602,11 +653,13 @@ async fn drain_fetch_set(
             maybe_result = set.join_next() => {
                 match maybe_result {
                     None => break,
-                    Some(Ok((tid, Ok(batch)))) => {
+                    Some(Ok((tid, Ok((batch, batch_received))))) => {
                         done += 1;
+                        received = received.saturating_add(batch_received);
                         tracing::debug!(
                             trace_id = %tid,
                             events = batch.len(),
+                            spans_received = batch_received,
                             progress = format!("{done}/{total}"),
                             "Fetched trace"
                         );
@@ -642,6 +695,7 @@ async fn drain_fetch_set(
 
     FetchLoopOutcome {
         events,
+        received,
         fail_counts,
         interrupted,
     }
@@ -889,10 +943,11 @@ mod tests {
         let client = http_client::build_client();
         let grouping = [std::sync::Arc::from("tenant.id")];
 
-        let events =
+        let (events, received) =
             fetch_trace_with_grouping(&client, &endpoint, "abc123def456", None, Some(&grouping))
                 .await
                 .expect("valid OTLP must decode");
+        assert!(received > 0, "the span tally must reach the caller");
         assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
         assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
         server.await.unwrap();
@@ -1243,6 +1298,69 @@ mod tests {
             "configuring grouping must not change which spans convert"
         );
         assert_eq!(grouped[0].grouping_value(), Some("byec"));
+    }
+
+    /// Mirrors the real lab trace that cost a validation round: a single
+    /// SERVER span for `GET /actuator/prometheus`, valid protobuf, zero
+    /// convertible spans. `NoTracesFound` sent the operator hunting a
+    /// missing trace that Tempo had returned all along.
+    #[tokio::test]
+    async fn a_trace_with_no_io_span_is_not_reported_as_a_missing_trace() {
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
+        use opentelemetry_proto::tonic::resource::v1::Resource;
+        use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
+
+        let kv = |k: &str, v: &str| KeyValue {
+            key: k.to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue(v.to_string())),
+            }),
+            ..Default::default()
+        };
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![kv("service.name", "shop")],
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![Span {
+                        trace_id: vec![3; 16],
+                        span_id: vec![4; 8],
+                        name: "GET /actuator/prometheus".to_string(),
+                        kind: 2, // SERVER: an inbound hop, never an outbound call
+                        start_time_unix_nano: 1_000_000,
+                        end_time_unix_nano: 2_000_000,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        };
+        let (endpoint, server) =
+            spawn_one_shot_server(http_200_proto(&request.encode_to_vec())).await;
+
+        let err = ingest_from_tempo(
+            &endpoint,
+            None,
+            Some("33ad5d1d22faaf57f938f4a7083791c"),
+            Duration::from_hours(1),
+            10,
+            None,
+        )
+        .await
+        .expect_err("a trace with no I/O span must not look like a missing trace");
+
+        match err {
+            TempoError::NoConvertibleSpans { traces: 1 } => {}
+            other => panic!("expected NoConvertibleSpans {{ traces: 1 }}, got {other:?}"),
+        }
+        // The message must name what to look at, not just what failed.
+        let rendered = err.to_string();
+        assert!(rendered.contains("db.system"), "{rendered}");
+        assert!(rendered.contains("SERVER"), "{rendered}");
+        server.await.unwrap();
     }
 
     #[test]

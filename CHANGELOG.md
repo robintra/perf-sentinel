@@ -6,6 +6,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Fixed
 
+- `tempo` tells an empty result from an unusable one. A trace whose spans all filter out (a SERVER-only hop, a span with no `db.system`) reported `no traces found for the given search criteria`, sending the operator hunting a trace Tempo had returned all along. The two cases now have distinct errors, and the new one names what to look at.
 - A batch run that finds an energy or grid-intensity backend configured (`[green.alumet]` and its six siblings) now says so: those backends are scraped by the `watch` daemon and by nothing else, so `analyze` silently scored with the I/O proxy estimate where the operator expected measured figures. The report also states which sections it ignored.
 - The HTML dashboard renders report-level warnings, in a banner that stays readable on every tab. They were embedded in the payload and never drawn, so the `min_usable_span_ratio` warning had been invisible in the dashboard since it shipped.
 - `disclose` reports how many aggregated windows carried no canonical waste figure. A period mixing pre-canonical archives with newer ones passes `--intent official` validation because the canonical threshold is the maximum across windows, while the canonical tier silently omits the older windows.
