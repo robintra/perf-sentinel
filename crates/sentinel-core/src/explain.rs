@@ -323,7 +323,7 @@ fn write_finding_details(out: &mut String, prefix: &str, f: &InlineFinding, c: &
     let mut lines: Vec<String> = Vec::with_capacity(3);
     lines.push(format!(
         "suggestion: {}",
-        sanitize_for_terminal(&f.suggestion)
+        sanitize_for_terminal(&crate::text_safety::strip_code_ticks(&f.suggestion))
     ));
     if let Some(ref fix) = f.suggested_fix {
         let url_part = match fix.reference_url.as_deref().and_then(safe_url) {

@@ -2564,7 +2564,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("Suggestion: ", Style::default().fg(Color::Cyan)),
-            Span::raw(&finding.suggestion),
+            Span::raw(strip_code_ticks(&finding.suggestion).into_owned()),
         ]),
     ];
 
