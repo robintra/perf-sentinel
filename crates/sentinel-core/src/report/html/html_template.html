@@ -4588,7 +4588,13 @@
     if (!lines.length) return;
     var b = document.getElementById("report-warnings");
     b.style.display = "";
-    lines.forEach(function (line) { b.appendChild(el("div", null, line)); });
+    lines.forEach(function (line) {
+      // Through `proseInto` like every other prose surface: a warning names
+      // config keys and commands, and they must read as code here too.
+      var row = el("div", null, null);
+      proseInto(row, line);
+      b.appendChild(row);
+    });
   }
 
   // -------- theme toggle --------
