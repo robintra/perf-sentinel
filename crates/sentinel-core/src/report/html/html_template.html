@@ -4370,8 +4370,8 @@
       source_endpoint: "-",
       pattern: { template: tgt.template || "" }
     };
-    if (tgt.grouping_key && tgt.namespace) {
-      finding.grouping = [{ key: tgt.grouping_key, value: tgt.namespace }];
+    if (tgt.grouping_key && tgt.grouping_value) {
+      finding.grouping = [{ key: tgt.grouping_key, value: tgt.grouping_value }];
     }
     return finding;
   }
@@ -5127,9 +5127,9 @@
       var s = c.source || {};
       var t = c.target || {};
       return [
-        s.service || "", s.grouping_key || "", s.namespace || "",
+        s.service || "", s.grouping_key || "", s.grouping_value || "",
         s.finding_type || "", s.template || "",
-        t.service || "", t.grouping_key || "", t.namespace || "",
+        t.service || "", t.grouping_key || "", t.grouping_value || "",
         t.finding_type || "", t.template || "",
         c.confidence ?? "",
         c.co_occurrence_count ?? "",
