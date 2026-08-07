@@ -718,7 +718,7 @@ test("36. the ack modal names every grouping the acknowledgment will cover", asy
         // the expected count deterministic.
         payload.report.findings.forEach((f: Record<string, any>, i: number) => {
           f.signature = "shared-sig";
-          f.grouping = [{ key: "tenant.id", value: i % 2 === 0 ? "byec" : "cogep" }];
+          f.grouping = [{ key: "tenant.id", value: i % 2 === 0 ? "acme" : "globex" }];
         });
         return open + JSON.stringify(payload) + close;
       },
@@ -735,8 +735,8 @@ test("36. the ack modal names every grouping the acknowledgment will cover", asy
   await expect(scope).toBeVisible();
   await expect(scope).toContainText("2 groupings");
   await expect(scope).toContainText("tenant.id");
-  await expect(scope).toContainText("byec");
-  await expect(scope).toContainText("cogep");
+  await expect(scope).toContainText("acme");
+  await expect(scope).toContainText("globex");
 });
 
 test("37. report warnings render in a banner that survives a tab switch", async ({ page }) => {
@@ -819,7 +819,7 @@ test("39. the ack modal warns when a signature spans grouped and ungrouped rows"
         const payload = JSON.parse(json);
         payload.report.findings.forEach((f: Record<string, any>, i: number) => {
           f.signature = "shared-sig";
-          f.grouping = i % 2 === 0 ? [{ key: "tenant.id", value: "byec" }] : [];
+          f.grouping = i % 2 === 0 ? [{ key: "tenant.id", value: "acme" }] : [];
         });
         return open + JSON.stringify(payload) + close;
       },

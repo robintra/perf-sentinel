@@ -1257,7 +1257,7 @@ mod tests {
             attributes: vec![
                 kv("db.system", "postgresql"),
                 kv("db.statement", "SELECT * FROM orders WHERE id = 1"),
-                kv("tenant.id", "byec"),
+                kv("tenant.id", "acme"),
             ],
             ..Default::default()
         };
@@ -1291,7 +1291,7 @@ mod tests {
             1,
             "configuring grouping must not change which spans convert"
         );
-        assert_eq!(grouped[0].grouping_value(), Some("byec"));
+        assert_eq!(grouped[0].grouping_value(), Some("acme"));
     }
 
     /// Mirrors the real lab trace that cost a validation round: a single

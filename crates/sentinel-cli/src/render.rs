@@ -1728,11 +1728,11 @@ mod tests {
         prod.grouping = vec![
             GroupingAttribute {
                 key: "tenant.id".into(),
-                value: "byec".into(),
+                value: "acme".into(),
             },
             GroupingAttribute {
                 key: "k8s.namespace.name".into(),
-                value: "multitenant-2".into(),
+                value: "shared-cluster".into(),
             },
         ];
         let plain = sample_finding();
@@ -1746,7 +1746,7 @@ mod tests {
         assert_eq!(out.matches("tenant.id:").count(), 1, "{out}");
         assert_eq!(out.matches("k8s.namespace.name:").count(), 1, "{out}");
         assert!(
-            out.contains("byec") && out.contains("multitenant-2"),
+            out.contains("acme") && out.contains("shared-cluster"),
             "{out}"
         );
     }

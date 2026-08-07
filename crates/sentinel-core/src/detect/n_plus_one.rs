@@ -388,11 +388,11 @@ mod tests {
             event.grouping = vec![
                 crate::event::GroupingAttribute {
                     key: Arc::from("tenant.id"),
-                    value: Arc::from("byec"),
+                    value: Arc::from("acme"),
                 },
                 crate::event::GroupingAttribute {
                     key: Arc::from("k8s.namespace.name"),
-                    value: Arc::from("multitenant-2"),
+                    value: Arc::from("shared-cluster"),
                 },
             ];
         }
@@ -400,7 +400,7 @@ mod tests {
 
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::default());
 
-        assert_eq!(findings[0].grouping_value(), Some("byec"));
+        assert_eq!(findings[0].grouping_value(), Some("acme"));
         assert_eq!(
             findings[0].grouping.len(),
             2,

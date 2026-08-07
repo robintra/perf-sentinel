@@ -1710,20 +1710,20 @@ fn grouping_is_extracted_from_resource_attributes() {
 #[test]
 fn grouping_falls_back_to_span_attributes() {
     let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
-    span.attributes.push(make_kv("tenant.id", "byec"));
+    span.attributes.push(make_kv("tenant.id", "acme"));
     let mut req = make_request("order-svc", vec![span]);
     req.resource_spans[0]
         .resource
         .as_mut()
         .unwrap()
         .attributes
-        .push(make_kv("k8s.namespace.name", "multitenant-2"));
+        .push(make_kv("k8s.namespace.name", "shared-cluster"));
 
     let keys: Vec<Arc<str>> = vec![Arc::from("tenant.id"), Arc::from("k8s.namespace.name")];
     let (events, _) = convert_otlp_request_counted_with_grouping(&req, Some(&keys));
 
-    assert_eq!(events[0].grouping_value(), Some("byec"));
-    assert_eq!(events[0].grouping[1].value.as_ref(), "multitenant-2");
+    assert_eq!(events[0].grouping_value(), Some("acme"));
+    assert_eq!(events[0].grouping[1].value.as_ref(), "shared-cluster");
 }
 
 // ----- cloud.region sanitization at OTLP boundary -----

@@ -309,7 +309,7 @@ impl CodeLocation {
 }
 
 /// One attribute captured for grouping, with the attribute name it came
-/// from so an operator can tell `tenant.id=byec` from `k8s.namespace.name=byec`.
+/// from so an operator can tell `tenant.id=acme` from `k8s.namespace.name=acme`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupingAttribute {
     pub key: Arc<str>,
@@ -607,12 +607,12 @@ mod tests {
     fn serde_roundtrip_with_grouping() {
         let mut value: serde_json::Value = serde_json::from_str(sample_sql_json()).unwrap();
         value["grouping"] = serde_json::json!([
-            {"key": "tenant.id", "value": "byec"},
-            {"key": "k8s.namespace.name", "value": "multitenant-2"},
+            {"key": "tenant.id", "value": "acme"},
+            {"key": "k8s.namespace.name", "value": "shared-cluster"},
         ]);
 
         let event: SpanEvent = serde_json::from_value(value).unwrap();
-        assert_eq!(event.grouping_value(), Some("byec"));
+        assert_eq!(event.grouping_value(), Some("acme"));
         assert_eq!(event.grouping.len(), 2);
 
         let serialized = serde_json::to_string(&event).unwrap();

@@ -559,7 +559,7 @@ mod tests {
             },
             crate::event::GroupingAttribute {
                 key: "tenant.id".into(),
-                value: "byec".into(),
+                value: "acme".into(),
             },
             crate::event::GroupingAttribute {
                 key: "k8s.namespace.name".into(),
@@ -579,7 +579,7 @@ mod tests {
             .collect();
         assert_eq!(
             captured,
-            vec![("tenant.id", "byec"), ("k8s.namespace.name", "prod-eu")]
+            vec![("tenant.id", "acme"), ("k8s.namespace.name", "prod-eu")]
         );
 
         let disabled = JsonIngest::new(1_048_576)
@@ -1234,7 +1234,7 @@ mod tests {
         let mut attrs: Vec<String> = (0..crate::config::MAX_GROUPING_ATTRIBUTES + 2)
             .map(|i| format!(r#"{{"key":"filler.{i}","value":"v{i}"}}"#))
             .collect();
-        attrs.push(r#"{"key":"tenant.id","value":"byec"}"#.to_string());
+        attrs.push(r#"{"key":"tenant.id","value":"acme"}"#.to_string());
         let raw = format!(
             r#"[{{"timestamp":"2025-07-10T14:32:01.123Z","trace_id":"t1","span_id":"s1",
                  "service":"svc","type":"sql","operation":"SELECT",
@@ -1251,7 +1251,7 @@ mod tests {
 
         assert_eq!(
             events[0].grouping_value(),
-            Some("byec"),
+            Some("acme"),
             "{:?}",
             events[0].grouping
         );

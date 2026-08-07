@@ -1410,7 +1410,7 @@
     return g ? g.value : "";
   }
   // Label for the grouping chips and rows: the attribute that decided the
-  // identity, so `tenant.id=byec` never reads as a namespace.
+  // identity, so `tenant.id=acme` never reads as a namespace.
   function findingGroupingKey(f) {
     var g = findingGrouping(f);
     return g ? g.key : "";
