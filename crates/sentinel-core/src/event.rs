@@ -124,6 +124,11 @@ fn strip_endpoint_secrets(endpoint: &mut String) {
     }
 }
 
+pub(crate) fn sanitize_source_endpoint(endpoint: &mut String) {
+    strip_endpoint_secrets(endpoint);
+    truncate_field(endpoint, MAX_SOURCE_LENGTH);
+}
+
 /// Drop the field if it contains any ASCII control character, otherwise truncate.
 ///
 /// Mirrors the silent-drop posture used for `cloud.region` invalid values.
@@ -233,8 +238,7 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
         strip_endpoint_secrets(&mut event.target);
     }
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
-    strip_endpoint_secrets(&mut event.source.endpoint);
-    truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
+    sanitize_source_endpoint(&mut event.source.endpoint);
     truncate_field(&mut event.source.method, MAX_SOURCE_LENGTH);
     sanitize_optional_arc_str(&mut event.code_function, MAX_CODE_FUNCTION_LENGTH);
     sanitize_optional_arc_str(&mut event.code_filepath, MAX_CODE_FILEPATH_LENGTH);

@@ -97,6 +97,31 @@ impl TraceWindow {
             .map(|(id, buf)| (id, Vec::from(buf.events)))
     }
 
+    /// Fill unresolved source endpoints on an active trace for one service.
+    ///
+    /// Uses `peek_mut` so a context-only update neither extends the trace TTL
+    /// nor promotes it in the LRU. An already-evicted trace stays evicted.
+    pub fn reconcile_source_endpoint(
+        &mut self,
+        trace_id: &str,
+        service: &str,
+        endpoint: &str,
+    ) -> usize {
+        let Some(buf) = self.traces.peek_mut(trace_id) else {
+            return 0;
+        };
+        let mut updated = 0;
+        for event in &mut buf.events {
+            let source = event.event.source.endpoint.trim();
+            if event.event.service.as_ref() == service && (source.is_empty() || source == "unknown")
+            {
+                event.event.source.endpoint = endpoint.to_string();
+                updated += 1;
+            }
+        }
+        updated
+    }
+
     /// Evict traces that have not been updated within the TTL.
     ///
     /// Scans the full LRU cache rather than stopping at the first non-expired
@@ -398,5 +423,66 @@ mod tests {
         let (id, events) = evicted.unwrap();
         assert_eq!(id, "t1");
         assert_eq!(events.len(), 2); // both events from t1
+    }
+
+    #[test]
+    fn reconciles_only_unknown_endpoints_in_the_same_trace_and_service() {
+        let mut w = TraceWindow::new(WindowConfig::default());
+        for (trace_id, service, endpoint, target) in [
+            ("t1", "svc-a", "unknown", "SELECT 1"),
+            ("t1", "svc-a", "  ", "SELECT 2"),
+            ("t1", "svc-a", "/already-known", "SELECT 3"),
+            ("t1", "svc-b", "unknown", "SELECT 4"),
+            ("t2", "svc-a", "unknown", "SELECT 5"),
+        ] {
+            let mut event = make_event(trace_id, target);
+            event.event.service = Arc::from(service);
+            event.event.source.endpoint = endpoint.to_string();
+            w.push(event, 0);
+        }
+
+        assert_eq!(
+            w.reconcile_source_endpoint("t1", "svc-a", "/api/fault/slow-messaging"),
+            2
+        );
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        let endpoint_for = |target: &str| {
+            t1.iter()
+                .find(|event| event.event.target == target)
+                .expect("event present")
+                .event
+                .source
+                .endpoint
+                .as_str()
+        };
+        assert_eq!(endpoint_for("SELECT 1"), "/api/fault/slow-messaging");
+        assert_eq!(endpoint_for("SELECT 2"), "/api/fault/slow-messaging");
+        assert_eq!(endpoint_for("SELECT 3"), "/already-known");
+        assert_eq!(endpoint_for("SELECT 4"), "unknown");
+        assert_eq!(
+            w.peek_clone("t2").expect("other trace remains")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn late_endpoint_does_not_resurrect_an_evicted_trace() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_active_traces: NonZeroUsize::new(1).expect("nonzero"),
+            ..WindowConfig::default()
+        });
+        w.push(make_event("evicted", "SELECT 1"), 0);
+        w.push(make_event("active", "SELECT 2"), 1);
+
+        assert_eq!(
+            w.reconcile_source_endpoint("evicted", "test", "/api/late"),
+            0
+        );
+        assert_eq!(w.active_traces(), 1);
+        assert!(w.peek_clone("evicted").is_none());
+        assert!(w.peek_clone("active").is_some());
     }
 }

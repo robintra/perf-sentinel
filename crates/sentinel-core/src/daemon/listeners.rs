@@ -17,7 +17,6 @@ use crate::config::Config;
 use crate::correlate::window::TraceWindow;
 use crate::detect;
 use crate::detect::DetectConfig;
-use crate::event::SpanEvent;
 use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
@@ -63,7 +62,7 @@ fn grouping_attributes(config: &Config) -> Vec<Arc<str>> {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn spawn_listeners(
     config: &Config,
-    tx: mpsc::Sender<Vec<SpanEvent>>,
+    tx: mpsc::Sender<super::IngestBatch>,
     window: Arc<Mutex<TraceWindow>>,
     findings_store: Arc<findings_store::FindingsStore>,
     traces_store: Arc<super::traces_store::TracesStore>,
@@ -146,7 +145,7 @@ fn spawn_grpc_listener(
     listener: tokio::net::TcpListener,
     addr: std::net::SocketAddr,
     tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
-    tx: mpsc::Sender<Vec<SpanEvent>>,
+    tx: mpsc::Sender<super::IngestBatch>,
     max_payload: usize,
     metrics: Arc<MetricsState>,
     grouping_attributes: Vec<Arc<str>>,
@@ -157,7 +156,7 @@ fn spawn_grpc_listener(
     let over_memory = metrics.ingest_over_memory_limit.clone();
     let memory_rejected = metrics.otlp_rejected_memory_pressure.clone();
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics;
-    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new_with_grouping(
+    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new_daemon_with_grouping(
         tx,
         Some(metrics_sink),
         grouping_attributes,
@@ -343,7 +342,7 @@ fn parse_expires_at_end_of_day(value: Option<&str>) -> Option<chrono::DateTime<U
 #[allow(clippy::too_many_arguments)]
 fn build_http_router(
     config: &Config,
-    tx: mpsc::Sender<Vec<SpanEvent>>,
+    tx: mpsc::Sender<super::IngestBatch>,
     window: Arc<Mutex<TraceWindow>>,
     findings_store: Arc<findings_store::FindingsStore>,
     traces_store: Arc<super::traces_store::TracesStore>,
@@ -354,7 +353,7 @@ fn build_http_router(
     ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics.clone();
-    let otlp_router = crate::ingest::otlp::otlp_http_router_with_grouping(
+    let otlp_router = crate::ingest::otlp::otlp_http_router_for_daemon(
         tx,
         config.daemon.max_payload_size,
         Some(metrics_sink),
@@ -530,7 +529,7 @@ fn spawn_http_listener(
 #[cfg_attr(not(unix), allow(clippy::needless_pass_by_value))]
 fn spawn_json_socket_listener(
     config: &Config,
-    tx: mpsc::Sender<Vec<SpanEvent>>,
+    tx: mpsc::Sender<super::IngestBatch>,
     over_memory: Arc<std::sync::atomic::AtomicBool>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     #[cfg(not(unix))]
@@ -771,7 +770,7 @@ mod grpc_compression_tests {
         max_payload: usize,
     ) -> (
         TraceServiceClient<tonic::transport::Channel>,
-        mpsc::Receiver<Vec<SpanEvent>>,
+        mpsc::Receiver<super::super::IngestBatch>,
         tokio::task::JoinHandle<()>,
     ) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -810,10 +809,10 @@ mod grpc_compression_tests {
             .await
             .expect("a compressed export must be accepted");
 
-        let events = within("ingest", rx.recv())
+        let batch = within("ingest", rx.recv())
             .await
             .expect("the ingest channel stays open");
-        assert_eq!(events.len(), 1, "one SQL span in, one event out");
+        assert_eq!(batch.events.len(), 1, "one SQL span in, one event out");
         server.abort();
     }
 

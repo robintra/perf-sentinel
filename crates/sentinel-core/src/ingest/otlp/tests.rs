@@ -2795,6 +2795,97 @@ fn endpoint_walks_past_an_unusable_leaf_frame() {
 // ── OTLP/HTTP handler with gzip decompression ───────────────────
 
 #[cfg(feature = "daemon")]
+mod late_root_reconciliation {
+    use super::*;
+    use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+    use tokio::sync::mpsc;
+
+    fn messaging_span(span_id: u8) -> Span {
+        Span {
+            trace_id: vec![1; 16],
+            span_id: vec![span_id; 8],
+            parent_span_id: vec![1; 8],
+            name: "orders publish".to_string(),
+            kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Producer as i32,
+            start_time_unix_nano: 1_720_621_921_000_000_000,
+            end_time_unix_nano: 1_720_621_921_600_000_000,
+            attributes: vec![
+                make_kv("messaging.system", "kafka"),
+                make_kv("messaging.destination.name", "orders"),
+            ],
+            ..Span::default()
+        }
+    }
+
+    fn late_server_root() -> Span {
+        Span {
+            trace_id: vec![1; 16],
+            span_id: vec![1; 8],
+            name: "GET /api/fault/slow-messaging".to_string(),
+            kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32,
+            start_time_unix_nano: 1_720_621_921_000_000_000,
+            end_time_unix_nano: 1_720_621_922_000_000_000,
+            attributes: vec![
+                make_kv("http.request.method", "GET"),
+                make_kv("url.path", "/api/fault/slow-messaging"),
+            ],
+            ..Span::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn separate_late_root_export_repairs_slow_messaging_source() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let service = OtlpGrpcService::new_daemon_with_grouping(tx, None, Vec::new());
+
+        service
+            .export(tonic::Request::new(make_request(
+                "orders-svc",
+                vec![messaging_span(2), messaging_span(3), messaging_span(4)],
+            )))
+            .await
+            .expect("children export accepted");
+        service
+            .export(tonic::Request::new(make_request(
+                "orders-svc",
+                vec![late_server_root()],
+            )))
+            .await
+            .expect("late root export accepted");
+
+        let mut active_events = Vec::new();
+        for _ in 0..2 {
+            let batch = rx.recv().await.expect("daemon ingest batch sent");
+            active_events.extend(batch.events);
+            for update in batch.source_endpoint_updates {
+                for event in &mut active_events {
+                    let source = event.source.endpoint.trim();
+                    if event.trace_id == update.trace_id
+                        && event.service == update.service
+                        && (source.is_empty() || source == "unknown")
+                    {
+                        event.source.endpoint.clone_from(&update.endpoint);
+                    }
+                }
+            }
+        }
+
+        let trace = crate::correlate::Trace {
+            trace_id: "01".repeat(16),
+            spans: crate::normalize::normalize_all(active_events),
+        };
+        let findings = crate::detect::slow::detect_slow(&trace, 500, 3);
+        let finding = findings.first().expect("slow messaging finding");
+        assert_eq!(
+            finding.finding_type,
+            crate::detect::FindingType::SlowMessaging
+        );
+        assert_eq!(finding.pattern.occurrences, 3);
+        assert_eq!(finding.source_endpoint, "/api/fault/slow-messaging");
+    }
+}
+
+#[cfg(feature = "daemon")]
 mod http_handler {
     use super::*;
     use axum::body::Body;
@@ -2840,6 +2931,38 @@ mod http_handler {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(Vec::<u8>::new()))
             .expect("build request")
+    }
+
+    #[tokio::test]
+    async fn daemon_http_forwards_server_context_without_an_io_event() {
+        let root = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![1; 8],
+            name: "GET /api/fault/slow-messaging".to_string(),
+            kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32,
+            attributes: vec![make_kv("url.path", "/api/fault/slow-messaging")],
+            ..Span::default()
+        };
+        let (tx, mut rx) = mpsc::channel(1);
+        let router = otlp_http_router_for_daemon(tx, 1_048_576, None, Vec::new());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, "application/x-protobuf")
+            .body(Body::from(
+                make_request("orders-svc", vec![root]).encode_to_vec(),
+            ))
+            .expect("build request");
+
+        let response = router.oneshot(req).await.expect("router runs");
+        assert_eq!(response.status(), StatusCode::OK);
+        let batch = rx.recv().await.expect("context batch sent");
+        assert!(batch.events.is_empty());
+        assert_eq!(batch.source_endpoint_updates.len(), 1);
+        let update = &batch.source_endpoint_updates[0];
+        assert_eq!(update.trace_id, "01".repeat(16));
+        assert_eq!(update.service.as_ref(), "orders-svc");
+        assert_eq!(update.endpoint, "/api/fault/slow-messaging");
     }
 
     #[tokio::test]

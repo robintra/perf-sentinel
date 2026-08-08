@@ -12,7 +12,6 @@ use crate::detect;
 #[cfg(test)]
 use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{Confidence, DetectConfig};
-use crate::event::SpanEvent;
 use crate::normalize;
 use crate::report::metrics::MetricsState;
 use crate::report::{DatabaseWaste, GreenSummary, MessagingWaste};
@@ -147,7 +146,7 @@ struct AnalysisWorkerCtx {
 /// (SIGINT, or SIGTERM on Unix) after draining the in-flight window.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_event_loop(
-    rx: &mut mpsc::Receiver<Vec<SpanEvent>>,
+    rx: &mut mpsc::Receiver<super::IngestBatch>,
     window: &Arc<Mutex<TraceWindow>>,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
@@ -206,7 +205,7 @@ pub(super) async fn run_event_loop(
 /// returns `Ok(())`.
 #[allow(clippy::too_many_arguments)]
 async fn drive_event_loop(
-    rx: &mut mpsc::Receiver<Vec<SpanEvent>>,
+    rx: &mut mpsc::Receiver<super::IngestBatch>,
     window: &Arc<Mutex<TraceWindow>>,
     metrics: &MetricsState,
     energy_sources: &EnergySources<'_>,
@@ -236,9 +235,9 @@ async fn drive_event_loop(
 
     let graceful = loop {
         tokio::select! {
-            Some(events) = rx.recv() => {
+            Some(batch) = rx.recv() => {
                 let lru_evicted = ingest_event_batch(
-                    events,
+                    batch,
                     loop_cfg.sampling_rate,
                     window,
                     metrics,
@@ -348,12 +347,16 @@ impl ServiceMeter {
 /// Returns the LRU-evicted traces so the caller can route them through
 /// detect+score+store.
 async fn ingest_event_batch(
-    events: Vec<SpanEvent>,
+    batch: super::IngestBatch,
     sampling_rate: f64,
     window: &Arc<Mutex<TraceWindow>>,
     metrics: &MetricsState,
     service_meter: &mut ServiceMeter,
 ) -> Vec<(String, Vec<normalize::NormalizedEvent>)> {
+    let super::IngestBatch {
+        events,
+        source_endpoint_updates,
+    } = batch;
     let events = apply_sampling(events, sampling_rate);
     let event_count = events.len();
     // Normalize OUTSIDE the lock to minimize lock hold time.
@@ -373,6 +376,13 @@ async fn ingest_event_batch(
             if let Some(evicted) = w.push(event, now_ms) {
                 lru_evicted.push(evicted);
             }
+        }
+        for update in source_endpoint_updates {
+            w.reconcile_source_endpoint(
+                &update.trace_id,
+                update.service.as_ref(),
+                &update.endpoint,
+            );
         }
         metrics.active_traces.set(w.active_traces() as f64);
     }
@@ -1174,6 +1184,53 @@ mod tests {
     fn current_time_ms_returns_nonzero() {
         let ms = current_time_ms();
         assert!(ms > 0, "current_time_ms should return a positive value");
+    }
+
+    #[tokio::test]
+    async fn context_only_batch_repairs_source_without_io_metric_inflation() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut event = make_normalized_for_service("trace-1", "orders-svc", "SELECT 1");
+        event.event.source.endpoint = "unknown".to_string();
+        window.lock().await.push(event, current_time_ms());
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events: Vec::new(),
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-1".to_string(),
+                    service: Arc::from("orders-svc"),
+                    endpoint: "/api/fault/slow-messaging".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(evicted.is_empty());
+        let trace = window
+            .lock()
+            .await
+            .peek_clone("trace-1")
+            .expect("active trace remains");
+        assert_eq!(trace[0].event.source.endpoint, "/api/fault/slow-messaging");
+        assert_eq!(trace.len(), 1, "context update is not an event");
+        assert_eq!(metrics.events_processed_total.get(), 0.0);
+        assert_eq!(
+            metrics
+                .service_io_ops_total
+                .with_label_values(&["orders-svc"])
+                .get(),
+            0.0
+        );
     }
 
     #[test]
@@ -2209,7 +2266,7 @@ mod tests {
         let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
         let window = test_window();
-        let (_tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (_tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
         let (work_tx, _work_rx) = mpsc::channel::<AnalysisBatch>(4);
         // Stands in for a panicked detector: the worker is already finished.
         let worker = tokio::spawn(async {});
@@ -2255,7 +2312,7 @@ mod tests {
             }
         }
 
-        let (_tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (_tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
         let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
         let worker = tokio::spawn(run_analysis_worker(
             work_rx,
