@@ -808,6 +808,32 @@ fn parent_stable_url_path_provides_source_endpoint() {
 }
 
 #[test]
+fn empty_http_fallback_does_not_block_url_path() {
+    let mut parent = make_bare_span(
+        &[10; 8],
+        vec![
+            make_kv("http.url", ""),
+            make_kv("url.full", ""),
+            make_kv("url.path", "/api/fault/pool-saturation"),
+        ],
+    );
+    parent.kind = SPAN_KIND_SERVER;
+    let mut child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    child
+        .attributes
+        .push(make_kv("code.function.name", "com.foo.FaultPool.query"));
+    let req = make_request("order-svc", vec![parent, child]);
+
+    let events = convert_otlp_request(&req);
+    let sql = events
+        .iter()
+        .find(|event| event.event_type == EventType::Sql)
+        .expect("sql child event present");
+
+    assert_eq!(sql.source.endpoint, "/api/fault/pool-saturation");
+}
+
+#[test]
 fn client_url_path_does_not_become_source_endpoint() {
     let mut parent = make_bare_span(&[10; 8], vec![make_kv("url.path", "/v1/pay")]);
     parent.kind = SPAN_KIND_CLIENT;

@@ -202,10 +202,10 @@ fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
                 return None;
             }
             find_tag(&span.tags, "http.target")
-                .or_else(|| find_tag(&span.tags, "http.url"))
-                .or_else(|| find_tag(&span.tags, "url.full"))
-                .or_else(|| find_tag(&span.tags, "url.path"))
                 .filter(usable)
+                .or_else(|| find_tag(&span.tags, "http.url").filter(usable))
+                .or_else(|| find_tag(&span.tags, "url.full").filter(usable))
+                .or_else(|| find_tag(&span.tags, "url.path").filter(usable))
         })
 }
 
@@ -925,6 +925,54 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "/api/fault/pool-saturation");
+    }
+
+    #[test]
+    fn empty_http_fallback_does_not_block_url_path() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [
+                    {
+                        "spanID": "s1",
+                        "operationName": "POST /api/fault/pool-saturation",
+                        "references": [],
+                        "startTime": 1720621921123000,
+                        "duration": 5000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "http.target", "value": "" },
+                            { "key": "http.url", "value": "" },
+                            { "key": "url.full", "value": "" },
+                            { "key": "url.path", "value": "/api/fault/pool-saturation" }
+                        ]
+                    },
+                    {
+                        "spanID": "s2",
+                        "operationName": "query",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "s1" }],
+                        "startTime": 1720621921123200,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "db.statement", "value": "SELECT 1" },
+                            { "key": "db.system", "value": "postgresql" },
+                            { "key": "code.function.name", "value": "com.foo.FaultPool.query" }
+                        ]
+                    }
+                ],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        let sql = events
+            .iter()
+            .find(|event| event.event_type == EventType::Sql)
+            .expect("sql child event present");
+
+        assert_eq!(sql.source.endpoint, "/api/fault/pool-saturation");
     }
 
     #[test]

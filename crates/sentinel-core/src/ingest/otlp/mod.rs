@@ -658,9 +658,9 @@ fn inbound_http_endpoint(span: &Span) -> Option<&str> {
                 return None;
             }
             get_str_attribute(&span.attributes, "http.url")
-                .or_else(|| get_str_attribute(&span.attributes, "url.full"))
-                .or_else(|| get_str_attribute(&span.attributes, "url.path"))
                 .filter(usable)
+                .or_else(|| get_str_attribute(&span.attributes, "url.full").filter(usable))
+                .or_else(|| get_str_attribute(&span.attributes, "url.path").filter(usable))
         })
 }
 
