@@ -1,6 +1,7 @@
 //! Daemon main event loop: ingest batches, evict expired traces, and route
 //! the resulting traces through detect + score + metrics + findings store.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -389,6 +390,13 @@ async fn ingest_event_batch(
     for event in &normalized {
         service_meter.record(event.event.service.as_ref(), metrics);
     }
+    let mut source_endpoint_groups = HashMap::new();
+    for update in source_endpoint_updates {
+        source_endpoint_groups
+            .entry((update.trace_id, update.service))
+            .or_insert_with(HashMap::new)
+            .insert(update.root_span_id, update.endpoint);
+    }
     let now_ms = current_time_ms();
     let mut lru_evicted = Vec::new();
     {
@@ -397,13 +405,8 @@ async fn ingest_event_batch(
         // bounded by max_payload_size; the configurable
         // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
-        for update in source_endpoint_updates {
-            w.reconcile_source_endpoint_from_root(
-                &update.trace_id,
-                update.service.as_ref(),
-                &update.root_span_id,
-                &update.endpoint,
-            );
+        for ((trace_id, service), root_endpoints) in source_endpoint_groups {
+            w.reconcile_source_endpoints(&trace_id, service.as_ref(), &root_endpoints);
         }
         for event in normalized {
             if let Some(evicted) = w.push(event, now_ms) {
