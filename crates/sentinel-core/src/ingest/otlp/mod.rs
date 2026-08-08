@@ -1437,6 +1437,7 @@ fn source_endpoint_updates(
                 updates.push(crate::daemon::SourceEndpointUpdate {
                     trace_id: bytes_to_hex(&span.trace_id),
                     service: Arc::clone(&service),
+                    root_span_id: bytes_to_hex(&span.span_id),
                     endpoint,
                 });
             }

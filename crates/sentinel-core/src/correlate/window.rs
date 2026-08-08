@@ -3,7 +3,7 @@
 //! Accumulates normalized events by `trace_id` with ring buffer, TTL eviction,
 //! and O(1) LRU eviction when max active traces is exceeded.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
 
 use lru::LruCache;
@@ -97,29 +97,59 @@ impl TraceWindow {
             .map(|(id, buf)| (id, Vec::from(buf.events)))
     }
 
-    /// Fill unresolved source endpoints on an active trace for one service.
+    /// Fill unresolved source endpoints below one active SERVER root.
     ///
     /// Uses `peek_mut` so a context-only update neither extends the trace TTL
     /// nor promotes it in the LRU. An already-evicted trace stays evicted.
-    pub fn reconcile_source_endpoint(
+    /// Parent traversal is limited to I/O events retained in this window. If
+    /// a filtered non-I/O intermediary is absent, the endpoint stays unknown
+    /// rather than being attributed to an unrelated root.
+    pub fn reconcile_source_endpoint_from_root(
         &mut self,
         trace_id: &str,
         service: &str,
+        root_span_id: &str,
         endpoint: &str,
     ) -> usize {
         let Some(buf) = self.traces.peek_mut(trace_id) else {
             return 0;
         };
-        let mut updated = 0;
-        for event in &mut buf.events {
-            let source = event.event.source.endpoint.trim();
-            if event.event.service.as_ref() == service && (source.is_empty() || source == "unknown")
-            {
-                event.event.source.endpoint = endpoint.to_string();
-                updated += 1;
-            }
+        let parents: HashMap<&str, Option<&str>> = buf
+            .events
+            .iter()
+            .filter(|event| event.event.service.as_ref() == service)
+            .map(|event| {
+                (
+                    event.event.span_id.as_str(),
+                    event.event.parent_span_id.as_deref(),
+                )
+            })
+            .collect();
+        let matching_events: Vec<_> = buf
+            .events
+            .iter()
+            .enumerate()
+            .filter_map(|(event_index, event)| {
+                let source = event.event.source.endpoint.trim();
+                (event.event.service.as_ref() == service
+                    && (source.is_empty() || source == "unknown")
+                    && parent_chain_reaches_root(&parents, event, root_span_id))
+                .then_some(event_index)
+            })
+            .collect();
+        drop(parents);
+        if matching_events.is_empty() {
+            return 0;
         }
-        updated
+        let endpoint = endpoint.to_string();
+        for event_index in &matching_events {
+            buf.events[*event_index]
+                .event
+                .source
+                .endpoint
+                .clone_from(&endpoint);
+        }
+        matching_events.len()
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -191,6 +221,24 @@ impl TraceWindow {
     }
 }
 
+fn parent_chain_reaches_root(
+    parents: &HashMap<&str, Option<&str>>,
+    event: &NormalizedEvent,
+    root_span_id: &str,
+) -> bool {
+    let mut parent_span_id = event.event.parent_span_id.as_deref();
+    for _ in 0..=parents.len() {
+        let Some(parent) = parent_span_id else {
+            return false;
+        };
+        if parent == root_span_id {
+            return true;
+        }
+        parent_span_id = parents.get(parent).copied().flatten();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -226,6 +274,22 @@ mod tests {
             instrumentation_scopes: Vec::new(),
         };
         normalize::normalize(event)
+    }
+
+    fn make_child(
+        trace_id: &str,
+        service: &str,
+        span_id: &str,
+        parent_span_id: &str,
+        target: &str,
+        endpoint: &str,
+    ) -> NormalizedEvent {
+        let mut event = make_event(trace_id, target);
+        event.event.service = Arc::from(service);
+        event.event.span_id = span_id.to_string();
+        event.event.parent_span_id = Some(parent_span_id.to_string());
+        event.event.source.endpoint = endpoint.to_string();
+        event
     }
 
     #[test]
@@ -438,11 +502,17 @@ mod tests {
             let mut event = make_event(trace_id, target);
             event.event.service = Arc::from(service);
             event.event.source.endpoint = endpoint.to_string();
+            event.event.parent_span_id = Some("root-a".to_string());
             w.push(event, 0);
         }
 
         assert_eq!(
-            w.reconcile_source_endpoint("t1", "svc-a", "/api/fault/slow-messaging"),
+            w.reconcile_source_endpoint_from_root(
+                "t1",
+                "svc-a",
+                "root-a",
+                "/api/fault/slow-messaging",
+            ),
             2
         );
         let t1 = w.peek_clone("t1").expect("trace remains active");
@@ -469,6 +539,64 @@ mod tests {
     }
 
     #[test]
+    fn root_aware_reconciliation_is_order_independent_and_requires_a_known_parent_chain() {
+        for updates in [
+            [("root-a", "/api/a"), ("root-b", "/api/b")],
+            [("root-b", "/api/b"), ("root-a", "/api/a")],
+        ] {
+            let mut w = TraceWindow::new(WindowConfig::default());
+            for event in [
+                make_child("t1", "svc-a", "a-direct", "root-a", "a-direct", "unknown"),
+                make_child("t1", "svc-a", "a-mid", "root-a", "a-mid", "unknown"),
+                make_child("t1", "svc-a", "a-leaf", "a-mid", "a-leaf", "unknown"),
+                make_child("t1", "svc-a", "b-direct", "root-b", "b-direct", "unknown"),
+                make_child(
+                    "t1",
+                    "svc-a",
+                    "missing-chain",
+                    "filtered-middle",
+                    "missing-chain",
+                    "unknown",
+                ),
+                make_child("t1", "svc-a", "known", "root-a", "known", "/already-known"),
+                make_child(
+                    "t1",
+                    "svc-b",
+                    "other-service",
+                    "root-a",
+                    "other-service",
+                    "unknown",
+                ),
+            ] {
+                w.push(event, 0);
+            }
+
+            for (root_span_id, endpoint) in updates {
+                w.reconcile_source_endpoint_from_root("t1", "svc-a", root_span_id, endpoint);
+            }
+
+            let trace = w.peek_clone("t1").expect("trace remains active");
+            let endpoint_for = |target: &str| {
+                trace
+                    .iter()
+                    .find(|event| event.event.target == target)
+                    .expect("event present")
+                    .event
+                    .source
+                    .endpoint
+                    .as_str()
+            };
+            assert_eq!(endpoint_for("a-direct"), "/api/a");
+            assert_eq!(endpoint_for("a-mid"), "/api/a");
+            assert_eq!(endpoint_for("a-leaf"), "/api/a");
+            assert_eq!(endpoint_for("b-direct"), "/api/b");
+            assert_eq!(endpoint_for("missing-chain"), "unknown");
+            assert_eq!(endpoint_for("known"), "/already-known");
+            assert_eq!(endpoint_for("other-service"), "unknown");
+        }
+    }
+
+    #[test]
     fn late_endpoint_does_not_resurrect_an_evicted_trace() {
         let mut w = TraceWindow::new(WindowConfig {
             max_active_traces: NonZeroUsize::new(1).expect("nonzero"),
@@ -478,7 +606,7 @@ mod tests {
         w.push(make_event("active", "SELECT 2"), 1);
 
         assert_eq!(
-            w.reconcile_source_endpoint("evicted", "test", "/api/late"),
+            w.reconcile_source_endpoint_from_root("evicted", "test", "root", "/api/late"),
             0
         );
         assert_eq!(w.active_traces(), 1);
