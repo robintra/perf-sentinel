@@ -649,10 +649,11 @@ fn index_linked_consumers<'a>(
 /// under an outbound call would be attributed to the third party the caller
 /// reached rather than to the route being served. Kinds left unspecified stay
 /// eligible, which is what manual and legacy instrumentation emits.
-fn inbound_http_endpoint(span: &Span) -> Option<&str> {
+fn inbound_http_endpoint(span: &Span) -> Option<String> {
     let usable = |s: &&str| !s.trim().is_empty();
     get_str_attribute(&span.attributes, "http.route")
         .filter(usable)
+        .map(crate::ingest::canonical_http_route)
         .or_else(|| {
             if span.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32 {
                 return None;
@@ -661,6 +662,7 @@ fn inbound_http_endpoint(span: &Span) -> Option<&str> {
                 .filter(usable)
                 .or_else(|| get_str_attribute(&span.attributes, "url.full").filter(usable))
                 .or_else(|| get_str_attribute(&span.attributes, "url.path").filter(usable))
+                .map(ToString::to_string)
         })
 }
 
@@ -686,7 +688,7 @@ fn resolve_source_endpoint<'a>(
             break;
         };
         if let Some(route) = inbound_http_endpoint(parent) {
-            return route.to_string();
+            return route;
         }
         let attrs = read_code_attrs(&parent.attributes);
         if let Some(frame) =
@@ -1429,7 +1431,7 @@ fn source_endpoint_updates(
                 continue;
             }
             if let Some(endpoint) = inbound_http_endpoint(span) {
-                let mut endpoint = endpoint.to_string();
+                let mut endpoint = endpoint;
                 crate::event::sanitize_source_endpoint(&mut endpoint);
                 if endpoint.trim().is_empty() {
                     continue;

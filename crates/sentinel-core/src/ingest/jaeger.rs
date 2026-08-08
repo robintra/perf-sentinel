@@ -197,6 +197,7 @@ fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
     let usable = |s: &String| !s.trim().is_empty();
     find_tag(&span.tags, "http.route")
         .filter(usable)
+        .map(|route| crate::ingest::canonical_http_route(&route))
         .or_else(|| {
             if find_tag(&span.tags, "span.kind").as_deref() == Some("client") {
                 return None;
@@ -346,6 +347,7 @@ fn convert_jaeger_span(
     // wins. On an outbound span it is the callee's path, so only the walk answers.
     let endpoint = match io_kind {
         super::TagIoKind::Sql => find_tag(tags, "http.route")
+            .map(|route| crate::ingest::canonical_http_route(&route))
             .or_else(|| find_tag(tags, "http.target"))
             .filter(|s| !s.trim().is_empty()),
         super::TagIoKind::HttpOut => None,
@@ -690,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn parent_span_http_route_takes_precedence_over_http_target() {
+    fn slashless_http_route_is_canonicalized_before_http_target() {
         // Jaeger reads endpoint tags from the current span (not the parent
         // like OTLP). When both http.route and http.target are present,
         // route must win so the ack signature stays stable.
@@ -707,7 +709,7 @@ mod tests {
                     "tags": [
                         { "key": "db.statement", "value": "SELECT 1" },
                         { "key": "db.system", "value": "postgresql" },
-                        { "key": "http.route", "value": "POST /api/orders/{id}" },
+                        { "key": "http.route", "value": "api/orders/{id}" },
                         { "key": "http.target", "value": "/api/orders/42" }
                     ]
                 }],
@@ -717,7 +719,7 @@ mod tests {
         let ingest = JaegerIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].source.endpoint, "POST /api/orders/{id}");
+        assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
     }
 
     #[test]
@@ -798,7 +800,7 @@ mod tests {
                         "processID": "p1",
                         "tags": [
                             { "key": "span.kind", "value": "server" },
-                            { "key": "http.route", "value": "POST /api/orders" }
+                            { "key": "http.route", "value": "api/orders" }
                         ]
                     },
                     {
@@ -836,7 +838,7 @@ mod tests {
             .iter()
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
-        assert_eq!(sql.source.endpoint, "POST /api/orders");
+        assert_eq!(sql.source.endpoint, "/api/orders");
     }
 
     #[test]
