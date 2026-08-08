@@ -143,7 +143,8 @@ struct AnalysisWorkerCtx {
 /// worker dies (e.g. a detector panics) while the daemon is running, so a
 /// supervisor restarts the process instead of leaving it up while it
 /// silently analyzes nothing. Returns `Ok(())` on a graceful shutdown
-/// (SIGINT, or SIGTERM on Unix) after draining the in-flight window.
+/// (SIGINT, or SIGTERM on Unix) after draining queued ingest and the
+/// in-flight window.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_event_loop(
     rx: &mut mpsc::Receiver<super::IngestBatch>,
@@ -201,8 +202,8 @@ pub(super) async fn run_event_loop(
 /// Inner select! loop, split out from [`run_event_loop`] so the worker
 /// handle and shutdown future are parameters (testable). Returns
 /// [`super::DaemonError::AnalysisWorkerStopped`] if `worker` stops before
-/// `shutdown_fut` fires; otherwise drains the window into the worker and
-/// returns `Ok(())`.
+/// `shutdown_fut` fires; otherwise drains queued ingest and the window into
+/// the worker and returns `Ok(())`.
 #[allow(clippy::too_many_arguments)]
 async fn drive_event_loop(
     rx: &mut mpsc::Receiver<super::IngestBatch>,
@@ -269,7 +270,31 @@ async fn drive_event_loop(
     if !graceful {
         return Err(super::DaemonError::AnalysisWorkerStopped);
     }
-    drain_to_worker_and_join(window, energy_sources, work_tx, worker, metrics).await;
+    // Reject new sends after listener abort, then await every buffered batch
+    // and any send permit acquired before close.
+    rx.close();
+    let mut queued_evictions = Vec::new();
+    while let Some(batch) = rx.recv().await {
+        queued_evictions.extend(
+            ingest_event_batch(
+                batch,
+                loop_cfg.sampling_rate,
+                window,
+                metrics,
+                &mut service_meter,
+            )
+            .await,
+        );
+    }
+    drain_to_worker_and_join(
+        window,
+        queued_evictions,
+        energy_sources,
+        work_tx,
+        worker,
+        metrics,
+    )
+    .await;
     Ok(())
 }
 
@@ -372,17 +397,18 @@ async fn ingest_event_batch(
         // bounded by max_payload_size; the configurable
         // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
+        for update in source_endpoint_updates {
+            w.reconcile_source_endpoint_from_root(
+                &update.trace_id,
+                update.service.as_ref(),
+                &update.root_span_id,
+                &update.endpoint,
+            );
+        }
         for event in normalized {
             if let Some(evicted) = w.push(event, now_ms) {
                 lru_evicted.push(evicted);
             }
-        }
-        for update in source_endpoint_updates {
-            w.reconcile_source_endpoint(
-                &update.trace_id,
-                update.service.as_ref(),
-                &update.endpoint,
-            );
         }
         metrics.active_traces.set(w.active_traces() as f64);
     }
@@ -451,21 +477,22 @@ fn enqueue_for_analysis(
     }
 }
 
-/// Shutdown handshake: drain the in-flight window into the worker with a
-/// blocking `send` (guaranteed delivery, no shedding), close the channel,
-/// then join the worker so every buffered and in-flight batch is fully
-/// processed before `run_event_loop` returns.
+/// Shutdown handshake: merge traces evicted while draining queued ingest
+/// with the in-flight window, send them to the worker without shedding, then
+/// join the worker so every buffered and in-flight batch is fully processed.
 async fn drain_to_worker_and_join(
     window: &Arc<Mutex<TraceWindow>>,
+    mut remaining: Vec<(String, Vec<normalize::NormalizedEvent>)>,
     sources: &EnergySources<'_>,
     work_tx: mpsc::Sender<AnalysisBatch>,
     worker: tokio::task::JoinHandle<()>,
     metrics: &MetricsState,
 ) {
-    let remaining = {
+    let window_remaining = {
         let mut w = window.lock().await;
         w.drain_all()
     };
+    remaining.extend(window_remaining);
     if !remaining.is_empty() {
         let trace_count = remaining.len();
         // Blocking send: a live worker keeps draining, so capacity frees up
@@ -1067,6 +1094,105 @@ mod tests {
         normalize::normalize(event)
     }
 
+    fn otlp_kv(key: &str, value: &str) -> opentelemetry_proto::tonic::common::v1::KeyValue {
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, any_value};
+
+        opentelemetry_proto::tonic::common::v1::KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue(value.to_string())),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn otlp_request(
+        service: &str,
+        spans: Vec<opentelemetry_proto::tonic::trace::v1::Span>,
+    ) -> opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest {
+        use opentelemetry_proto::tonic::resource::v1::Resource;
+        use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans};
+
+        opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![otlp_kv("service.name", service)],
+                    ..Resource::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans,
+                    ..ScopeSpans::default()
+                }],
+                ..ResourceSpans::default()
+            }],
+        }
+    }
+
+    fn otlp_messaging_span(
+        root_span_id: u8,
+        span_id: u8,
+        destination: &str,
+    ) -> opentelemetry_proto::tonic::trace::v1::Span {
+        use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
+
+        Span {
+            trace_id: vec![9; 16],
+            span_id: vec![span_id; 8],
+            parent_span_id: vec![root_span_id; 8],
+            name: "orders publish".to_string(),
+            kind: SpanKind::Producer as i32,
+            start_time_unix_nano: 1_720_621_921_000_000_000,
+            end_time_unix_nano: 1_720_621_921_600_000_000,
+            attributes: vec![
+                otlp_kv("messaging.system", "kafka"),
+                otlp_kv("messaging.destination.name", destination),
+            ],
+            ..Span::default()
+        }
+    }
+
+    fn otlp_server_root(
+        span_id: u8,
+        endpoint: &str,
+    ) -> opentelemetry_proto::tonic::trace::v1::Span {
+        use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
+
+        Span {
+            trace_id: vec![9; 16],
+            span_id: vec![span_id; 8],
+            name: format!("GET {endpoint}"),
+            kind: SpanKind::Server as i32,
+            start_time_unix_nano: 1_720_621_921_000_000_000,
+            end_time_unix_nano: 1_720_621_922_000_000_000,
+            attributes: vec![
+                otlp_kv("http.request.method", "GET"),
+                otlp_kv("url.path", endpoint),
+            ],
+            ..Span::default()
+        }
+    }
+
+    fn make_normalized_messaging(
+        trace_id: &str,
+        span_id: &str,
+        parent_span_id: &str,
+        destination: &str,
+    ) -> normalize::NormalizedEvent {
+        let mut event = crate::test_helpers::make_sql_event_with_duration(
+            trace_id,
+            span_id,
+            destination,
+            "2025-07-10T14:32:01.123Z",
+            600_000,
+        );
+        event.parent_span_id = Some(parent_span_id.to_string());
+        event.service = Arc::from("orders-svc");
+        event.event_type = EventType::Messaging;
+        event.operation = "publish".to_string();
+        event.source.endpoint = "unknown".to_string();
+        normalize::normalize(event)
+    }
+
     fn default_detect_config() -> DetectConfig {
         DetectConfig {
             n_plus_one_threshold: 5,
@@ -1192,6 +1318,7 @@ mod tests {
         let window = test_window();
         let mut event = make_normalized_for_service("trace-1", "orders-svc", "SELECT 1");
         event.event.source.endpoint = "unknown".to_string();
+        event.event.parent_span_id = Some("root-1".to_string());
         window.lock().await.push(event, current_time_ms());
         let mut service_meter = ServiceMeter {
             known_services: std::collections::HashMap::new(),
@@ -1205,6 +1332,7 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
+                    root_span_id: "root-1".to_string(),
                     endpoint: "/api/fault/slow-messaging".to_string(),
                 }],
             },
@@ -1231,6 +1359,115 @@ mod tests {
                 .get(),
             0.0
         );
+    }
+
+    #[tokio::test]
+    async fn source_update_precedes_lru_eviction_in_the_same_batch() {
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
+            ..WindowConfig::default()
+        })));
+        let mut trace_a = make_normalized_for_service("trace-a", "orders-svc", "SELECT 1");
+        trace_a.event.source.endpoint = "unknown".to_string();
+        trace_a.event.parent_span_id = Some("root-a".to_string());
+        window.lock().await.push(trace_a, current_time_ms());
+
+        let mut trace_b = crate::test_helpers::make_sql_event_with_duration(
+            "trace-b",
+            "span-b",
+            "SELECT 2",
+            "2025-07-10T14:32:01.123Z",
+            100,
+        );
+        trace_b.service = Arc::from("orders-svc");
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events: vec![trace_b],
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-a".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root-a".to_string(),
+                    endpoint: "/api/orders".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert_eq!(evicted.len(), 1);
+        assert_eq!(evicted[0].0, "trace-a");
+        assert_eq!(evicted[0].1[0].event.source.endpoint, "/api/orders");
+    }
+
+    #[tokio::test]
+    async fn daemon_otlp_batches_reconcile_two_late_roots_through_real_ingest() {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+        let (tx, mut rx) = mpsc::channel(2);
+        let service =
+            crate::ingest::otlp::OtlpGrpcService::new_daemon_with_grouping(tx, None, Vec::new());
+        let mut children = Vec::new();
+        for span_id in 10..13 {
+            children.push(otlp_messaging_span(1, span_id, "orders-a"));
+        }
+        for span_id in 20..23 {
+            children.push(otlp_messaging_span(2, span_id, "orders-b"));
+        }
+        service
+            .export(tonic::Request::new(otlp_request("orders-svc", children)))
+            .await
+            .expect("children export accepted");
+        service
+            .export(tonic::Request::new(otlp_request(
+                "orders-svc",
+                vec![otlp_server_root(2, "/api/b"), otlp_server_root(1, "/api/a")],
+            )))
+            .await
+            .expect("late roots export accepted");
+
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+        for _ in 0..2 {
+            let batch = rx.recv().await.expect("daemon ingest batch sent");
+            let evicted =
+                ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter).await;
+            assert!(evicted.is_empty());
+        }
+
+        let (trace_id, spans) = window
+            .lock()
+            .await
+            .drain_all()
+            .pop()
+            .expect("one active trace");
+        let findings =
+            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 500, 3);
+        assert_eq!(findings.len(), 2);
+        assert!(findings.iter().all(|finding| {
+            finding.finding_type == crate::detect::FindingType::SlowMessaging
+                && finding.pattern.occurrences == 3
+        }));
+        let mut endpoints: Vec<_> = findings
+            .iter()
+            .map(|finding| finding.source_endpoint.as_str())
+            .collect();
+        endpoints.sort_unstable();
+        assert_eq!(endpoints, ["/api/a", "/api/b"]);
     }
 
     #[test]
@@ -2214,7 +2451,7 @@ mod tests {
             }
         }
 
-        drain_to_worker_and_join(&window, &sources, work_tx, worker, &metrics).await;
+        drain_to_worker_and_join(&window, Vec::new(), &sources, work_tx, worker, &metrics).await;
 
         // 2 in-flight + 3 drained = 5 traces, all processed before return.
         assert!((metrics.traces_analyzed_total.get() - 5.0).abs() < f64::EPSILON);
@@ -2344,5 +2581,74 @@ mod tests {
         assert!(result.is_ok());
         // The 3 in-flight traces were drained and analyzed before return.
         assert!((metrics.traces_analyzed_total.get() - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_ingests_queued_root_context_before_final_drain() {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+        let metrics = Arc::new(MetricsState::new());
+        let store = Arc::new(findings_store::FindingsStore::new(100));
+        let cell = fresh_green_cell();
+        let base = Arc::new(empty_carbon_ctx());
+        let sources = no_scrapers(&base);
+        let window = test_window();
+        let trace_id = "09".repeat(16);
+        let root_span_id = "01".repeat(8);
+        {
+            let mut w = window.lock().await;
+            for span_id in ["child-1", "child-2", "child-3"] {
+                w.push(
+                    make_normalized_messaging(&trace_id, span_id, &root_span_id, "orders"),
+                    current_time_ms(),
+                );
+            }
+        }
+
+        let (tx, mut rx) = mpsc::channel(1);
+        let service =
+            crate::ingest::otlp::OtlpGrpcService::new_daemon_with_grouping(tx, None, Vec::new());
+        let shutdown_fut = async move {
+            service
+                .export(tonic::Request::new(otlp_request(
+                    "orders-svc",
+                    vec![otlp_server_root(1, "/api/shutdown")],
+                )))
+                .await
+                .expect("root context acknowledged before shutdown");
+        };
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        let worker = tokio::spawn(run_analysis_worker(
+            work_rx,
+            test_worker_ctx(&metrics, &store, &cell),
+        ));
+        let grpc = tokio::spawn(std::future::pending::<()>());
+        let http = tokio::spawn(std::future::pending::<()>());
+
+        let result = drive_event_loop(
+            &mut rx,
+            &window,
+            &metrics,
+            &sources,
+            dummy_shutdown(&grpc, &http),
+            test_loop_cfg(),
+            work_tx,
+            worker,
+            shutdown_fut,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let findings = store.by_trace_id(&trace_id).await;
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0].finding;
+        assert_eq!(
+            finding.finding_type,
+            crate::detect::FindingType::SlowMessaging
+        );
+        assert_eq!(finding.pattern.occurrences, 3);
+        assert_eq!(finding.source_endpoint, "/api/shutdown");
+        assert_eq!(metrics.events_processed_total.get(), 0.0);
+        assert_eq!(metrics.traces_analyzed_total.get(), 1.0);
     }
 }
