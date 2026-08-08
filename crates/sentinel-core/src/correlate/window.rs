@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 use lru::LruCache;
 
@@ -98,7 +99,7 @@ impl TraceWindow {
             .map(|(id, buf)| (id, Vec::from(buf.events)))
     }
 
-    /// Fill unresolved source endpoints below active SERVER roots.
+    /// Fill unresolved source endpoints below active SERVER roots in one trace.
     ///
     /// Uses `peek_mut` so a context-only update neither extends the trace TTL
     /// nor promotes it in the LRU. An already-evicted trace stays evicted.
@@ -106,25 +107,23 @@ impl TraceWindow {
     /// same bounded ancestor walk as OTLP conversion. If a filtered non-I/O
     /// intermediary is absent, the endpoint stays unknown rather than being
     /// attributed to an unrelated root.
-    pub fn reconcile_source_endpoints(
+    pub fn reconcile_source_endpoint_groups(
         &mut self,
         trace_id: &str,
-        service: &str,
-        root_endpoints: &HashMap<String, String>,
+        service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
     ) -> usize {
-        if root_endpoints.is_empty() {
+        if service_root_endpoints.is_empty() {
             return 0;
         }
         let Some(buf) = self.traces.peek_mut(trace_id) else {
             return 0;
         };
-        let parents: HashMap<&str, Option<&str>> = buf
+        let parents: HashMap<(&str, &str), Option<&str>> = buf
             .events
             .iter()
-            .filter(|event| event.event.service.as_ref() == service)
             .map(|event| {
                 (
-                    event.event.span_id.as_str(),
+                    (event.event.service.as_ref(), event.event.span_id.as_str()),
                     event.event.parent_span_id.as_deref(),
                 )
             })
@@ -135,12 +134,12 @@ impl TraceWindow {
             .enumerate()
             .filter_map(|(event_index, event)| {
                 let source = event.event.source.endpoint.trim();
-                if event.event.service.as_ref() != service
-                    || (!source.is_empty() && source != "unknown")
-                {
+                if !source.is_empty() && source != "unknown" {
                     return None;
                 }
-                parent_chain_source_endpoint(&parents, root_endpoints, event)
+                let service = event.event.service.as_ref();
+                let root_endpoints = service_root_endpoints.get(service)?;
+                parent_chain_source_endpoint(&parents, service, root_endpoints, event)
                     .map(|endpoint| (event_index, endpoint))
             })
             .collect();
@@ -226,7 +225,8 @@ impl TraceWindow {
 }
 
 fn parent_chain_source_endpoint<'a>(
-    parents: &HashMap<&str, Option<&str>>,
+    parents: &HashMap<(&str, &str), Option<&str>>,
+    service: &str,
     root_endpoints: &'a HashMap<String, String>,
     event: &NormalizedEvent,
 ) -> Option<&'a String> {
@@ -236,7 +236,7 @@ fn parent_chain_source_endpoint<'a>(
         if let Some(endpoint) = root_endpoints.get(parent) {
             return Some(endpoint);
         }
-        parent_span_id = parents.get(parent).copied().flatten();
+        parent_span_id = parents.get(&(service, parent)).copied().flatten();
     }
     None
 }
@@ -244,7 +244,6 @@ fn parent_chain_source_endpoint<'a>(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -543,8 +542,9 @@ mod tests {
             "root-a".to_string(),
             "/api/fault/slow-messaging".to_string(),
         )]);
+        let service_root_endpoints = HashMap::from([(Arc::from("svc-a"), root_endpoints)]);
         assert_eq!(
-            w.reconcile_source_endpoints("t1", "svc-a", &root_endpoints),
+            w.reconcile_source_endpoint_groups("t1", &service_root_endpoints),
             2
         );
         let t1 = w.peek_clone("t1").expect("trace remains active");
@@ -607,7 +607,8 @@ mod tests {
                 .into_iter()
                 .map(|(root_span_id, endpoint)| (root_span_id.to_string(), endpoint.to_string()))
                 .collect();
-            w.reconcile_source_endpoints("t1", "svc-a", &root_endpoints);
+            let service_root_endpoints = HashMap::from([(Arc::from("svc-a"), root_endpoints)]);
+            w.reconcile_source_endpoint_groups("t1", &service_root_endpoints);
 
             let trace = w.peek_clone("t1").expect("trace remains active");
             let endpoint_for = |target: &str| {
@@ -655,7 +656,8 @@ mod tests {
             ("root-at-limit".to_string(), "/at-limit".to_string()),
             ("root-too-deep".to_string(), "/too-deep".to_string()),
         ]);
-        w.reconcile_source_endpoints("t1", "svc-a", &root_endpoints);
+        let service_root_endpoints = HashMap::from([(Arc::from("svc-a"), root_endpoints)]);
+        w.reconcile_source_endpoint_groups("t1", &service_root_endpoints);
 
         let trace = w.peek_clone("t1").expect("trace remains active");
         let endpoint_for = |target: &str| {
@@ -690,9 +692,10 @@ mod tests {
         let root_endpoints = (0..ADVERSARIAL_SIZE)
             .map(|index| (format!("absent-root-{index}"), format!("/root/{index}")))
             .collect();
+        let service_root_endpoints = HashMap::from([(Arc::from("svc-a"), root_endpoints)]);
 
         let started = Instant::now();
-        let updated = w.reconcile_source_endpoints("t1", "svc-a", &root_endpoints);
+        let updated = w.reconcile_source_endpoint_groups("t1", &service_root_endpoints);
 
         assert_eq!(updated, 0);
         assert!(
@@ -708,6 +711,113 @@ mod tests {
     }
 
     #[test]
+    fn trace_group_reconciliation_keys_parents_and_roots_by_service() {
+        let mut w = TraceWindow::new(WindowConfig::default());
+        for event in [
+            make_child(
+                "t1",
+                "svc-a",
+                "shared-child",
+                "shared-root",
+                "a-child",
+                "unknown",
+            ),
+            make_child(
+                "t1",
+                "svc-b",
+                "shared-child",
+                "shared-root",
+                "b-child",
+                "unknown",
+            ),
+            make_child(
+                "t1",
+                "svc-b",
+                "known-child",
+                "shared-root",
+                "known-child",
+                "/already-known",
+            ),
+        ] {
+            w.push(event, 0);
+        }
+        let service_root_endpoints = HashMap::from([
+            (
+                Arc::from("svc-a"),
+                HashMap::from([("shared-root".to_string(), "/api/a".to_string())]),
+            ),
+            (
+                Arc::from("svc-b"),
+                HashMap::from([("shared-root".to_string(), "/api/b".to_string())]),
+            ),
+        ]);
+
+        assert_eq!(
+            w.reconcile_source_endpoint_groups("t1", &service_root_endpoints),
+            2
+        );
+        let trace = w.peek_clone("t1").expect("trace remains active");
+        let endpoint_for = |target: &str| {
+            trace
+                .iter()
+                .find(|event| event.event.target == target)
+                .expect("event present")
+                .event
+                .source
+                .endpoint
+                .as_str()
+        };
+        assert_eq!(endpoint_for("a-child"), "/api/a");
+        assert_eq!(endpoint_for("b-child"), "/api/b");
+        assert_eq!(endpoint_for("known-child"), "/already-known");
+    }
+
+    #[test]
+    fn trace_group_reconciliation_stays_bounded_across_many_services() {
+        const SERVICE_COUNT: usize = 2_000;
+        const EVENTS_PER_SERVICE: usize = 25;
+        const EVENT_COUNT: usize = SERVICE_COUNT * EVENTS_PER_SERVICE;
+
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: EVENT_COUNT,
+            ..WindowConfig::default()
+        });
+        let mut service_root_endpoints = HashMap::with_capacity(SERVICE_COUNT);
+        for service_index in 0..SERVICE_COUNT {
+            let service = format!("service-{service_index}");
+            service_root_endpoints.insert(
+                Arc::from(service.as_str()),
+                HashMap::from([(
+                    format!("absent-root-{service_index}"),
+                    format!("/api/{service_index}"),
+                )]),
+            );
+            for event_index in 0..EVENTS_PER_SERVICE {
+                w.push(
+                    make_child(
+                        "t1",
+                        &service,
+                        &format!("span-{service_index}-{event_index}"),
+                        &format!("missing-parent-{service_index}-{event_index}"),
+                        &format!("target-{service_index}-{event_index}"),
+                        "unknown",
+                    ),
+                    0,
+                );
+            }
+        }
+
+        let started = Instant::now();
+        let updated = w.reconcile_source_endpoint_groups("t1", &service_root_endpoints);
+
+        assert_eq!(updated, 0);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "per-trace reconciliation exceeded the bounded-work budget"
+        );
+    }
+
+    #[test]
     fn late_endpoint_does_not_resurrect_an_evicted_trace() {
         let mut w = TraceWindow::new(WindowConfig {
             max_active_traces: NonZeroUsize::new(1).expect("nonzero"),
@@ -717,8 +827,9 @@ mod tests {
         w.push(make_event("active", "SELECT 2"), 1);
 
         let root_endpoints = HashMap::from([("root".to_string(), "/api/late".to_string())]);
+        let service_root_endpoints = HashMap::from([(Arc::from("test"), root_endpoints)]);
         assert_eq!(
-            w.reconcile_source_endpoints("evicted", "test", &root_endpoints),
+            w.reconcile_source_endpoint_groups("evicted", &service_root_endpoints),
             0
         );
         assert_eq!(w.active_traces(), 1);

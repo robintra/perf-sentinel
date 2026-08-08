@@ -393,7 +393,9 @@ async fn ingest_event_batch(
     let mut source_endpoint_groups = HashMap::new();
     for update in source_endpoint_updates {
         source_endpoint_groups
-            .entry((update.trace_id, update.service))
+            .entry(update.trace_id)
+            .or_insert_with(HashMap::new)
+            .entry(update.service)
             .or_insert_with(HashMap::new)
             .insert(update.root_span_id, update.endpoint);
     }
@@ -405,8 +407,8 @@ async fn ingest_event_batch(
         // bounded by max_payload_size; the configurable
         // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
-        for ((trace_id, service), root_endpoints) in source_endpoint_groups {
-            w.reconcile_source_endpoints(&trace_id, service.as_ref(), &root_endpoints);
+        for (trace_id, service_root_endpoints) in source_endpoint_groups {
+            w.reconcile_source_endpoint_groups(&trace_id, &service_root_endpoints);
         }
         for event in normalized {
             if let Some(evicted) = w.push(event, now_ms) {
