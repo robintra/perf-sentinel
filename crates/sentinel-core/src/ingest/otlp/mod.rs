@@ -1411,6 +1411,40 @@ pub fn convert_otlp_request_counted_with_grouping(
     (events, stats)
 }
 
+#[cfg(feature = "daemon")]
+fn source_endpoint_updates(
+    request: &ExportTraceServiceRequest,
+) -> Vec<crate::daemon::SourceEndpointUpdate> {
+    let mut updates = Vec::new();
+    for resource_spans in &request.resource_spans {
+        let mut service = resource_service_name(resource_spans).to_string();
+        crate::event::truncate_field(&mut service, crate::event::MAX_SERVICE_LENGTH);
+        let service: Arc<str> = Arc::from(service);
+        for span in resource_spans
+            .scope_spans
+            .iter()
+            .flat_map(|scope| &scope.spans)
+        {
+            if span.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32 {
+                continue;
+            }
+            if let Some(endpoint) = inbound_http_endpoint(span) {
+                let mut endpoint = endpoint.to_string();
+                crate::event::sanitize_source_endpoint(&mut endpoint);
+                if endpoint.trim().is_empty() {
+                    continue;
+                }
+                updates.push(crate::daemon::SourceEndpointUpdate {
+                    trace_id: bytes_to_hex(&span.trace_id),
+                    service: Arc::clone(&service),
+                    endpoint,
+                });
+            }
+        }
+    }
+    updates
+}
+
 /// Convert one `ResourceSpans` block, appending to `events` and `stats`.
 fn convert_resource_spans<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
@@ -1839,6 +1873,13 @@ pub enum OtlpSink {
     Raw(tokio::sync::mpsc::Sender<ExportTraceServiceRequest>),
 }
 
+#[derive(Clone)]
+enum ReceiverSink {
+    Standard(OtlpSink),
+    #[cfg(feature = "daemon")]
+    Daemon(tokio::sync::mpsc::Sender<crate::daemon::IngestBatch>),
+}
+
 /// Why a request could not be handed over, payload dropped so both sink arms
 /// answer with one type. `Full` is retryable, `Closed` means shutdown.
 pub(crate) enum SinkRejection {
@@ -1881,9 +1922,43 @@ impl OtlpSink {
     }
 }
 
+impl ReceiverSink {
+    async fn accept(
+        &self,
+        request: ExportTraceServiceRequest,
+        metrics: Option<&Arc<dyn MetricsSink>>,
+        grouping_attributes: Option<&[Arc<str>]>,
+    ) -> Result<(), SinkRejection> {
+        match self {
+            Self::Standard(sink) => sink.accept(request, metrics, grouping_attributes).await,
+            #[cfg(feature = "daemon")]
+            Self::Daemon(tx) => {
+                let source_endpoint_updates = source_endpoint_updates(&request);
+                let (events, stats) =
+                    convert_otlp_request_counted_with_grouping(&request, grouping_attributes);
+                if let Some(m) = metrics {
+                    m.record_otlp_spans(stats);
+                }
+                if events.is_empty() && source_endpoint_updates.is_empty() {
+                    return Ok(());
+                }
+                Ok(tx
+                    .send_timeout(
+                        crate::daemon::IngestBatch {
+                            events,
+                            source_endpoint_updates,
+                        },
+                        INGEST_ENQUEUE_TIMEOUT,
+                    )
+                    .await?)
+            }
+        }
+    }
+}
+
 /// OTLP gRPC trace service that converts spans and sends them through a channel.
 pub struct OtlpGrpcService {
-    sink: OtlpSink,
+    sink: ReceiverSink,
     metrics: Option<Arc<dyn MetricsSink>>,
     grouping_attributes: Option<Arc<[Arc<str>]>>,
 }
@@ -1895,7 +1970,7 @@ impl OtlpGrpcService {
         metrics: Option<Arc<dyn MetricsSink>>,
     ) -> Self {
         Self {
-            sink: OtlpSink::Events(sender),
+            sink: ReceiverSink::Standard(OtlpSink::Events(sender)),
             metrics,
             grouping_attributes: None,
         }
@@ -1909,7 +1984,7 @@ impl OtlpGrpcService {
         grouping_attributes: Vec<Arc<str>>,
     ) -> Self {
         Self {
-            sink: OtlpSink::Events(sender),
+            sink: ReceiverSink::Standard(OtlpSink::Events(sender)),
             metrics,
             grouping_attributes: Some(grouping_attributes.into()),
         }
@@ -1922,9 +1997,22 @@ impl OtlpGrpcService {
         metrics: Option<Arc<dyn MetricsSink>>,
     ) -> Self {
         Self {
-            sink: OtlpSink::Raw(sender),
+            sink: ReceiverSink::Standard(OtlpSink::Raw(sender)),
             metrics,
             grouping_attributes: None,
+        }
+    }
+
+    #[cfg(feature = "daemon")]
+    pub(crate) fn new_daemon_with_grouping(
+        sender: tokio::sync::mpsc::Sender<crate::daemon::IngestBatch>,
+        metrics: Option<Arc<dyn MetricsSink>>,
+        grouping_attributes: Vec<Arc<str>>,
+    ) -> Self {
+        Self {
+            sink: ReceiverSink::Daemon(sender),
+            metrics,
+            grouping_attributes: Some(grouping_attributes.into()),
         }
     }
 }
@@ -1987,7 +2075,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
 /// metrics Option carries an Arc).
 #[derive(Clone)]
 struct OtlpHttpState {
-    sink: OtlpSink,
+    sink: ReceiverSink,
     metrics: Option<Arc<dyn MetricsSink>>,
     grouping_attributes: Option<Arc<[Arc<str>]>>,
 }
@@ -2004,7 +2092,7 @@ pub fn otlp_http_router(
     metrics: Option<Arc<dyn MetricsSink>>,
 ) -> axum::Router {
     otlp_http_router_with_sink_and_grouping(
-        OtlpSink::Events(sender),
+        ReceiverSink::Standard(OtlpSink::Events(sender)),
         max_payload_size,
         metrics,
         None,
@@ -2019,7 +2107,7 @@ pub fn otlp_http_router_with_grouping(
     grouping_attributes: Vec<Arc<str>>,
 ) -> axum::Router {
     otlp_http_router_with_sink_and_grouping(
-        OtlpSink::Events(sender),
+        ReceiverSink::Standard(OtlpSink::Events(sender)),
         max_payload_size,
         metrics,
         Some(grouping_attributes.into()),
@@ -2033,11 +2121,31 @@ pub fn otlp_http_router_with_sink(
     max_payload_size: usize,
     metrics: Option<Arc<dyn MetricsSink>>,
 ) -> axum::Router {
-    otlp_http_router_with_sink_and_grouping(sink, max_payload_size, metrics, None)
+    otlp_http_router_with_sink_and_grouping(
+        ReceiverSink::Standard(sink),
+        max_payload_size,
+        metrics,
+        None,
+    )
+}
+
+#[cfg(feature = "daemon")]
+pub(crate) fn otlp_http_router_for_daemon(
+    sender: tokio::sync::mpsc::Sender<crate::daemon::IngestBatch>,
+    max_payload_size: usize,
+    metrics: Option<Arc<dyn MetricsSink>>,
+    grouping_attributes: Vec<Arc<str>>,
+) -> axum::Router {
+    otlp_http_router_with_sink_and_grouping(
+        ReceiverSink::Daemon(sender),
+        max_payload_size,
+        metrics,
+        Some(grouping_attributes.into()),
+    )
 }
 
 fn otlp_http_router_with_sink_and_grouping(
-    sink: OtlpSink,
+    sink: ReceiverSink,
     max_payload_size: usize,
     metrics: Option<Arc<dyn MetricsSink>>,
     grouping_attributes: Option<Arc<[Arc<str>]>>,

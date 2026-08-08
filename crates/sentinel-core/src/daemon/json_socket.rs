@@ -10,14 +10,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::mpsc;
 
-use crate::event::SpanEvent;
-
 /// Run the JSON socket listener on Unix platforms.
 ///
 /// Reads newline-delimited JSON (NDJSON): each line is a JSON array of `SpanEvent`s.
 pub(super) async fn run_json_socket(
     path: &str,
-    tx: mpsc::Sender<Vec<SpanEvent>>,
+    tx: mpsc::Sender<super::IngestBatch>,
     max_payload_size: usize,
     grouping_attributes: Vec<Arc<str>>,
     over_memory: Arc<AtomicBool>,
@@ -120,7 +118,7 @@ pub(super) async fn run_json_socket(
 /// Process a single JSON socket connection: read NDJSON lines and forward events.
 async fn handle_json_connection(
     stream: tokio::net::UnixStream,
-    tx: mpsc::Sender<Vec<SpanEvent>>,
+    tx: mpsc::Sender<super::IngestBatch>,
     max_payload_size: usize,
     grouping_attributes: Arc<[Arc<str>]>,
     over_memory: Arc<AtomicBool>,
@@ -153,7 +151,7 @@ async fn handle_json_connection(
         }
         match crate::ingest::IngestSource::ingest(&ingest, line.as_bytes()) {
             Ok(events) if !events.is_empty() => {
-                if tx.send(events).await.is_err() {
+                if tx.send(events.into()).await.is_err() {
                     tracing::warn!("JSON socket: event channel closed");
                     break;
                 }
@@ -207,7 +205,7 @@ mod tests {
         use tokio::net::UnixStream;
 
         let (client, server) = UnixStream::pair().expect("UnixStream::pair should succeed");
-        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
         // Spawn the connection handler (reads from `server`).
         let handle = tokio::spawn(async move {
@@ -234,8 +232,8 @@ mod tests {
             .await
             .expect("should receive events within 2s")
             .expect("channel still open");
-        assert_eq!(received.len(), 1);
-        assert_eq!(received[0].trace_id, "t1");
+        assert_eq!(received.events.len(), 1);
+        assert_eq!(received.events[0].trace_id, "t1");
 
         handle.await.unwrap();
     }
@@ -246,7 +244,7 @@ mod tests {
         use tokio::net::UnixStream;
 
         let (client, server) = UnixStream::pair().unwrap();
-        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
         // Guard tripped: this door must honor it like the OTLP listeners,
         // else local NDJSON keeps growing RSS while the OTLP doors close.
@@ -275,7 +273,7 @@ mod tests {
         use tokio::net::UnixStream;
 
         let (client, server) = UnixStream::pair().unwrap();
-        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
         // Small max_payload so the line is over the limit.
         let handle = tokio::spawn(async move {
@@ -310,7 +308,7 @@ mod tests {
         use tokio::net::UnixStream;
 
         let (client, server) = UnixStream::pair().unwrap();
-        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
         let handle = tokio::spawn(async move {
             handle_json_connection(
@@ -344,7 +342,7 @@ mod tests {
         // Keep `_dir` alive until the end of the test; drop removes the
         // socket + parent tempdir. `path` is a PathBuf owned by us.
         let (_dir, path) = unique_socket_dir_and_path("accept");
-        let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
         let path_for_server = path.to_string_lossy().into_owned();
         let server = tokio::spawn(async move {
             run_json_socket(
@@ -371,8 +369,8 @@ mod tests {
             .await
             .expect("should receive events within 2s")
             .expect("channel still open");
-        assert_eq!(received.len(), 1);
-        assert_eq!(received[0].trace_id, "t-sock");
+        assert_eq!(received.events.len(), 1);
+        assert_eq!(received.events[0].trace_id, "t-sock");
 
         server.abort();
         let _ = server.await;
@@ -384,7 +382,7 @@ mod tests {
         // Path inside a non-existent directory → bind returns Err, the
         // function emits a tracing::error and returns without panicking.
         let path = "/nonexistent-directory-for-test/perf-sentinel.sock".to_string();
-        let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, _rx) = mpsc::channel::<super::super::IngestBatch>(16);
         // Should return near-immediately (bind fails).
         tokio::time::timeout(
             Duration::from_secs(2),
@@ -414,7 +412,7 @@ mod tests {
         // Replace the sock path with a symlink to the victim.
         symlink(&victim, &sock_path).expect("symlink creation");
 
-        let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (tx, _rx) = mpsc::channel::<super::super::IngestBatch>(16);
         let sock_str = sock_path.to_string_lossy().into_owned();
         tokio::time::timeout(
             Duration::from_secs(2),

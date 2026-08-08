@@ -39,6 +39,29 @@ use listeners::{
     setup_kepler_scraper, setup_redfish_scraper, setup_scaphandre_scraper, spawn_listeners,
 };
 
+/// Source context carried by a non-I/O OTLP SERVER span.
+pub(crate) struct SourceEndpointUpdate {
+    pub(crate) trace_id: String,
+    pub(crate) service: Arc<str>,
+    pub(crate) endpoint: String,
+}
+
+/// One bounded daemon ingest message. JSON batches carry only `events`;
+/// OTLP can additionally carry context from SERVER spans filtered as non-I/O.
+pub(crate) struct IngestBatch {
+    pub(crate) events: Vec<SpanEvent>,
+    pub(crate) source_endpoint_updates: Vec<SourceEndpointUpdate>,
+}
+
+impl From<Vec<SpanEvent>> for IngestBatch {
+    fn from(events: Vec<SpanEvent>) -> Self {
+        Self {
+            events,
+            source_endpoint_updates: Vec::new(),
+        }
+    }
+}
+
 /// Errors that can occur when running the daemon.
 ///
 /// Marked `#[non_exhaustive]` so that adding future variants (e.g. a
@@ -178,7 +201,7 @@ fn publish_config_caps(metrics: &MetricsState, daemon: &crate::config::DaemonCon
 #[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     validate_official_reporting(&config)?;
-    let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(config.daemon.ingest_queue_capacity);
+    let (tx, mut rx) = mpsc::channel::<IngestBatch>(config.daemon.ingest_queue_capacity);
     let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
         max_events_per_trace: config.daemon.max_events_per_trace,
         trace_ttl_ms: config.daemon.trace_ttl_ms,
