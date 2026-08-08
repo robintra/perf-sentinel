@@ -762,6 +762,18 @@ fn parent_span_http_route_takes_precedence_over_http_url() {
 }
 
 #[test]
+fn slashless_parent_http_route_gets_a_canonical_leading_slash() {
+    let parent = make_parent_span(&[10; 8], "api/fault/{kind}");
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let req = make_request("order-svc", vec![parent, child]);
+
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].source.endpoint, "/api/fault/{kind}");
+}
+
+#[test]
 fn parent_span_http_url_used_only_when_route_absent() {
     // Documented fallback: instrumentation that omits http.route
     // (legacy SDK, manual instrumentation) loses signature stability
@@ -2843,13 +2855,13 @@ mod http_handler {
     }
 
     #[tokio::test]
-    async fn daemon_http_forwards_server_context_without_an_io_event() {
+    async fn daemon_http_canonicalizes_slashless_route_context_without_an_io_event() {
         let root = Span {
             trace_id: vec![1; 16],
             span_id: vec![1; 8],
             name: "GET /api/fault/slow-messaging".to_string(),
             kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32,
-            attributes: vec![make_kv("url.path", "/api/fault/slow-messaging")],
+            attributes: vec![make_kv("http.route", "api/fault/slow-messaging")],
             ..Span::default()
         };
         let (tx, mut rx) = mpsc::channel(1);

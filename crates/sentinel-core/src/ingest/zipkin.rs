@@ -132,22 +132,25 @@ fn convert_zipkin_spans(
 /// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
 /// kind, remaining HTTP fallbacks on any kind except CLIENT (an outbound
 /// call's URL names the callee, not the route being served).
-fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<&str> {
+fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
     let tag = |key: &str| {
         span.tags
             .as_ref()
             .and_then(|t| t.get(key).map(String::as_str))
             .filter(|s| !s.trim().is_empty())
     };
-    tag("http.route").or_else(|| {
-        if span.kind.as_deref() == Some("CLIENT") {
-            return None;
-        }
-        tag("http.target")
-            .or_else(|| tag("http.url"))
-            .or_else(|| tag("url.full"))
-            .or_else(|| tag("url.path"))
-    })
+    tag("http.route")
+        .map(crate::ingest::canonical_http_route)
+        .or_else(|| {
+            if span.kind.as_deref() == Some("CLIENT") {
+                return None;
+            }
+            tag("http.target")
+                .or_else(|| tag("http.url"))
+                .or_else(|| tag("url.full"))
+                .or_else(|| tag("url.path"))
+                .map(ToString::to_string)
+        })
 }
 
 /// Code-frame endpoint carried by this span's own tags, stable spellings
@@ -183,7 +186,7 @@ fn resolve_source_endpoint(
             break;
         };
         if let Some(route) = inbound_http_endpoint(parent) {
-            return route.to_string();
+            return route;
         }
         if let Some(frame) = tag_code_frame(parent) {
             outermost_frame = Some(frame);
@@ -281,9 +284,9 @@ fn convert_zipkin_span(
     // wins. On an outbound span it is the callee's path, so only the walk answers.
     let endpoint = match io_kind {
         super::TagIoKind::Sql => get_tag("http.route")
-            .or_else(|| get_tag("http.target"))
-            .filter(|s| !s.trim().is_empty())
-            .map(ToString::to_string),
+            .map(crate::ingest::canonical_http_route)
+            .or_else(|| get_tag("http.target").map(ToString::to_string))
+            .filter(|s| !s.trim().is_empty()),
         super::TagIoKind::HttpOut => None,
     }
     .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
@@ -582,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn parent_span_http_route_takes_precedence_over_http_target() {
+    fn slashless_http_route_is_canonicalized_before_http_target() {
         // Zipkin reads endpoint tags from the current span. When both
         // http.route and http.target are present, route must win so the
         // ack signature stays stable.
@@ -597,7 +600,7 @@ mod tests {
                 "tags": {
                     "db.statement": "SELECT 1",
                     "db.system": "postgresql",
-                    "http.route": "POST /api/orders/{id}",
+                    "http.route": "api/orders/{id}",
                     "http.target": "/api/orders/42"
                 }
             }
@@ -605,7 +608,7 @@ mod tests {
         let ingest = ZipkinIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].source.endpoint, "POST /api/orders/{id}");
+        assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
     }
 
     #[test]
@@ -671,7 +674,7 @@ mod tests {
                 "timestamp": 1720621921123000,
                 "duration": 5000,
                 "localEndpoint": { "serviceName": "svc" },
-                "tags": { "http.route": "POST /api/orders" }
+                "tags": { "http.route": "api/orders" }
             },
             {
                 "traceId": "t1",
@@ -707,7 +710,7 @@ mod tests {
             .iter()
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
-        assert_eq!(sql.source.endpoint, "POST /api/orders");
+        assert_eq!(sql.source.endpoint, "/api/orders");
     }
 
     #[test]

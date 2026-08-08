@@ -19,6 +19,23 @@ pub mod zipkin;
 
 use crate::event::SpanEvent;
 
+/// Give route templates the canonical path shape used by findings.
+///
+/// Some instrumentations emit `http.route` without its leading slash. Keep
+/// legacy method-prefixed routes and full URLs intact; URL-like fallback
+/// attributes are handled separately by each ingest adapter.
+pub(crate) fn canonical_http_route(route: &str) -> String {
+    if route.is_empty()
+        || route.starts_with('/')
+        || route.contains("://")
+        || route.chars().any(char::is_whitespace)
+    {
+        route.to_string()
+    } else {
+        format!("/{route}")
+    }
+}
+
 /// `db.system` values for datastores whose `db.statement` is not
 /// relational SQL and would be mangled by the SQL tokenizer (cache,
 /// document, wide-column, graph, search, time-series stores).
@@ -315,9 +332,21 @@ pub trait IngestSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, code_frame_endpoint,
-        is_non_sql_db_system, is_sql_db_system,
+        NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, canonical_http_route,
+        code_frame_endpoint, is_non_sql_db_system, is_sql_db_system,
     };
+
+    #[test]
+    fn canonical_http_route_only_prefixes_slashless_templates() {
+        assert_eq!(canonical_http_route("api/orders/{id}"), "/api/orders/{id}");
+        for route in [
+            "/api/orders/{id}",
+            "POST /api/orders/{id}",
+            "https://example.test/api/orders/{id}",
+        ] {
+            assert_eq!(canonical_http_route(route), route);
+        }
+    }
 
     #[test]
     fn namespace_derivation_matches_each_language() {
