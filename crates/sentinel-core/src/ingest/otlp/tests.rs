@@ -787,6 +787,42 @@ fn parent_span_http_url_used_only_when_route_absent() {
     assert_eq!(sql.source.endpoint, "http://order-svc/api/orders/42/submit");
 }
 
+#[test]
+fn parent_stable_url_path_provides_source_endpoint() {
+    // Stable SERVER spans use url.path when no route template is available.
+    let mut parent = make_bare_span(
+        &[10; 8],
+        vec![make_kv("url.path", "/api/fault/pool-saturation")],
+    );
+    parent.kind = SPAN_KIND_SERVER;
+    let mut child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    child
+        .attributes
+        .push(make_kv("code.function.name", "com.foo.FaultPool.query"));
+    let req = make_request("order-svc", vec![parent, child]);
+
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].source.endpoint, "/api/fault/pool-saturation");
+}
+
+#[test]
+fn client_url_path_does_not_become_source_endpoint() {
+    let mut parent = make_bare_span(&[10; 8], vec![make_kv("url.path", "/v1/pay")]);
+    parent.kind = SPAN_KIND_CLIENT;
+    let mut child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    child
+        .attributes
+        .push(make_kv("code.function.name", "com.foo.FaultPool.query"));
+    let req = make_request("order-svc", vec![parent, child]);
+
+    let events = convert_otlp_request(&req);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].source.endpoint, "com.foo.FaultPool.query");
+}
+
 /// `SpanKind` discriminant for a client-side outbound span.
 const SPAN_KIND_CLIENT: i32 = opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32;
 /// `SpanKind` discriminant for an inbound handler span.

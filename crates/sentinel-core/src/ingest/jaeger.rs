@@ -191,8 +191,8 @@ fn child_of(span: &JaegerSpan) -> Option<&str> {
 }
 
 /// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
-/// kind, `http.url`/`url.full` on any kind except CLIENT (an outbound call's
-/// URL names the callee, not the route being served).
+/// kind, remaining HTTP fallbacks on any kind except CLIENT (an outbound
+/// call's URL names the callee, not the route being served).
 fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
     let usable = |s: &String| !s.trim().is_empty();
     find_tag(&span.tags, "http.route")
@@ -204,6 +204,7 @@ fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
             find_tag(&span.tags, "http.target")
                 .or_else(|| find_tag(&span.tags, "http.url"))
                 .or_else(|| find_tag(&span.tags, "url.full"))
+                .or_else(|| find_tag(&span.tags, "url.path"))
                 .filter(usable)
         })
 }
@@ -809,7 +810,8 @@ mod tests {
                         "processID": "p1",
                         "tags": [
                             { "key": "span.kind", "value": "client" },
-                            { "key": "http.url", "value": "https://partner.example/v1/pay" }
+                            { "key": "http.url", "value": "https://partner.example/v1/pay" },
+                            { "key": "url.path", "value": "/v1/pay" }
                         ]
                     },
                     {
@@ -880,6 +882,49 @@ mod tests {
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
         assert_eq!(sql.source.endpoint, "/api/orders/42");
+    }
+
+    #[test]
+    fn parent_stable_url_path_provides_source_endpoint() {
+        // Stable SERVER spans use url.path when no route template is available.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [
+                    {
+                        "spanID": "s1",
+                        "operationName": "POST /api/fault/pool-saturation",
+                        "references": [],
+                        "startTime": 1720621921123000,
+                        "duration": 5000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "url.path", "value": "/api/fault/pool-saturation" }
+                        ]
+                    },
+                    {
+                        "spanID": "s2",
+                        "operationName": "query",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "s1" }],
+                        "startTime": 1720621921123200,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "db.statement", "value": "SELECT 1" },
+                            { "key": "db.system", "value": "postgresql" },
+                            { "key": "code.function.name", "value": "com.foo.FaultPool.query" }
+                        ]
+                    }
+                ],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "/api/fault/pool-saturation");
     }
 
     #[test]
