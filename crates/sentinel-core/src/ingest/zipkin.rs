@@ -130,8 +130,8 @@ fn convert_zipkin_spans(
 }
 
 /// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
-/// kind, `http.url`/`url.full` on any kind except CLIENT (an outbound call's
-/// URL names the callee, not the route being served).
+/// kind, remaining HTTP fallbacks on any kind except CLIENT (an outbound
+/// call's URL names the callee, not the route being served).
 fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<&str> {
     let tag = |key: &str| {
         span.tags
@@ -146,6 +146,7 @@ fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<&str> {
         tag("http.target")
             .or_else(|| tag("http.url"))
             .or_else(|| tag("url.full"))
+            .or_else(|| tag("url.path"))
     })
 }
 
@@ -681,7 +682,10 @@ mod tests {
                 "timestamp": 1720621921123100,
                 "duration": 3000,
                 "localEndpoint": { "serviceName": "svc" },
-                "tags": { "http.url": "https://partner.example/v1/pay" }
+                "tags": {
+                    "http.url": "https://partner.example/v1/pay",
+                    "url.path": "/v1/pay"
+                }
             },
             {
                 "traceId": "t1",
@@ -782,7 +786,8 @@ mod tests {
                 "localEndpoint": { "serviceName": "svc" },
                 "tags": {
                     "http.url": "https://partner.example/v1/pay",
-                    "http.target": "/v1/pay"
+                    "http.target": "/v1/pay",
+                    "url.path": "/v1/pay"
                 }
             }
         ]"#;
@@ -794,6 +799,42 @@ mod tests {
             .expect("outbound event present");
         assert_eq!(out.source.endpoint, "POST /api/orders");
         assert_eq!(out.target, "https://partner.example/v1/pay");
+    }
+
+    #[test]
+    fn parent_stable_url_path_provides_source_endpoint() {
+        // Stable SERVER spans use url.path when no route template is available.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "post /api/fault/pool-saturation",
+                "kind": "SERVER",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "url.path": "/api/fault/pool-saturation" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s2",
+                "parentId": "s1",
+                "name": "query",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql",
+                    "code.function.name": "com.foo.FaultPool.query"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "/api/fault/pool-saturation");
     }
 
     #[test]

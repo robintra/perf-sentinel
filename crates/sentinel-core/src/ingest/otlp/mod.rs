@@ -644,8 +644,8 @@ fn index_linked_consumers<'a>(
 /// Inbound HTTP endpoint carried by a single ancestor span, or `None`.
 ///
 /// `http.route` is a server-side route template by semconv, so it counts on
-/// any kind. `http.url` and `url.full` are also what an instrumented HTTP
-/// *client* records, so a CLIENT span is skipped: otherwise a DB span nested
+/// any kind. The remaining URL attributes may be emitted by an instrumented
+/// HTTP *client*, so a CLIENT span is skipped: otherwise a DB span nested
 /// under an outbound call would be attributed to the third party the caller
 /// reached rather than to the route being served. Kinds left unspecified stay
 /// eligible, which is what manual and legacy instrumentation emits.
@@ -659,6 +659,7 @@ fn inbound_http_endpoint(span: &Span) -> Option<&str> {
             }
             get_str_attribute(&span.attributes, "http.url")
                 .or_else(|| get_str_attribute(&span.attributes, "url.full"))
+                .or_else(|| get_str_attribute(&span.attributes, "url.path"))
                 .filter(usable)
         })
 }
