@@ -14,6 +14,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
   every format now enforces the same eight-hop limit. Findings that previously
   used an inner route or `unknown` can change acknowledgment signature and
   persisted baseline identity; re-capture them with 0.11.2.
+- Framework route names are no longer mistaken for path templates when the
+  same span carries a usable `url.path`. For example, Symfony's
+  `http.route=app_fault_nplusonesql` now resolves to its accompanying
+  `/api/fault/n-plus-one-sql` path. A route containing `/` remains
+  authoritative, including slashless Django routes and templates. Affected
+  findings change acknowledgment and baseline identity and must be re-captured.
 
 ## [0.11.1] - 2026-08-07
 
