@@ -58,6 +58,7 @@ Each trace stores its events in a `VecDeque<NormalizedEvent>`:
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
+    source_endpoint_parent_groups: HashMap<Arc<str>, HashMap<String, Option<String>>>,
     source_endpoint_count: usize,
     resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
@@ -77,12 +78,14 @@ if buf.events.len() > self.config.max_events_per_trace {
 
 The initial capacity is `VecDeque::with_capacity(8)`: a small allocation for short-lived traces that avoids repeated doubling for the common case of 1-10 events.
 
-An OTLP trace can also retain SERVER-root endpoint contexts before its I/O
-events arrive in a later batch, plus a span-ancestry LRU that retains each
-span's parent link and optional resolved route after its event rotates out.
-This also repairs parent-after-child arrival with a bounded eight-hop lookup.
-Events, root contexts, and ancestry entries are separate collections, and
-**each** is capped at `max_events_per_trace`. The ancestry LRU allocates
+An OTLP trace can also retain inbound endpoint contexts before its I/O events
+arrive in a later batch. Each endpoint context carries its parent link, and
+intermediate non-I/O spans enter the same span-ancestry LRU that retains an
+event's parent link and optional proven route after rotation. This repairs
+parent-after-child and split-export arrival with an exact eight-hop lookup,
+without adding synthetic events or I/O metrics. Events, endpoint contexts and
+ancestry entries are separate collections, and **each** is capped at
+`max_events_per_trace`. The ancestry LRU allocates
 progressively rather than reserving the configured cap for every trace.
 At the valid minimum cap of one, rotation may replace the sole parent entry;
 in that case a missing chain falls back only when the service has exactly one
@@ -97,8 +100,9 @@ root can therefore retract the provisional preview without rewriting active
 events. Explicit reconciliation first merges roots into this authoritative,
 bounded state before resolving events.
 Context-only traces use the same `max_active_traces` LRU and `trace_ttl_ms`
-eviction as event-bearing traces, so early roots and span ancestry cannot create
-unbounded state.
+eviction as event-bearing traces, so early routes and intermediate ancestry
+cannot create unbounded state. Only valid OTLP identifiers from traces kept by
+the daemon's deterministic sampler enter this state.
 
 During one ingest batch, each retained root group receives a monotonic window
 generation. Events compare that generation in O(1) and reapply the group only
@@ -149,13 +153,13 @@ The maximum memory consumption of the TraceWindow can be estimated:
 
 ```
 max_memory = max_active_traces × max_events_per_trace
-             × (avg_event_size + avg_root_context_size + avg_ancestry_entry_size)
+             × (avg_event_size + avg_endpoint_context_size + avg_ancestry_entry_size)
 ```
 
 The three per-trace collections can each reach their cap. With the defaults,
 the event portion alone is about 5 GB at the theoretical maximum
-(10,000 × 1,000 × ~500 bytes), plus the separately bounded root contexts and
-span-ancestry entries.
+(10,000 × 1,000 × ~500 bytes), plus the separately bounded endpoint contexts
+(route plus parent map) and span-ancestry entries.
 
 In practice, most traces have far fewer events than the cap. With typical
 traces of 10-50 events, the event portion is approximately:
@@ -164,7 +168,7 @@ traces of 10-50 events, the event portion is approximately:
 typical_memory = 10,000 × 50 × ~500 bytes = ~250 MB
 ```
 
-Root contexts and progressively allocated ancestry entries add their actual
+Endpoint contexts and progressively allocated ancestry entries add their actual
 occupancy to that event-only estimate; the configured 1,000-entry ancestry cap
 is not preallocated for every trace.
 

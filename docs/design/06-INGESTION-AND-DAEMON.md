@@ -9,30 +9,30 @@
 
 ### Two-pass design
 
-`convert_otlp_request()` processes each `resource_spans` block in two passes:
+`convert_otlp_request()` processes the request in two phases:
 
 **Pass 1: Build span index:**
 ```rust
-let span_index: HashMap<&[u8], &Span> = scope_spans.iter()
-    .flat_map(|ss| &ss.spans)
-    .map(|span| (span.span_id.as_slice(), span))
-    .collect();
+// Pseudocode: named indexes span blocks; anonymous indexes stay block-local.
+let per_service = build_span_indexes(request); // named services, all blocks
 ```
 
 **Pass 2: Convert I/O spans:**
 ```rust
-for span in &scope.spans {
-    if let Some(event) = convert_span(span, service_name, &span_index) {
-        events.push(event);
-    }
+// Pseudocode
+for resource_spans in &request.resource_spans {
+    let span_index = named_service_index_or_anonymous_block_index(resource_spans);
+    convert_resource_spans(resource_spans, span_index, &mut events);
 }
 ```
 
 **Why two passes?** In OTLP, a parent span may appear after its child in the protobuf message. The first pass builds a lookup table so that the second pass can resolve `source.endpoint` by walking up the ancestor chain. A single-pass approach would miss parent spans defined later in the message.
 
-`source.endpoint` resolves in three steps, each falling through to the next: the nearest inbound HTTP route up the chain (`http.route`, then `http.url`, then `url.full`), then the `code.*` frame for entry points that carry no HTTP attribute at all (scheduled jobs, message consumers), then the literal `"unknown"`. The walk is bounded by the same depth limit as the `code.*` walk. Resolving only the direct parent left every layered stack on `"unknown"`, since the route sits on the SERVER span two or more levels above a leaf JDBC span.
+`source.endpoint` resolves in three steps, each falling through to the next: the outermost inbound HTTP route in the contiguous chain of an explicitly named service (`http.route`, then SERVER-only URL fallbacks), then the outermost `code.*` frame for entry points that carry no HTTP attribute (scheduled jobs, message consumers), then the literal `"unknown"`. Anonymous resources use only the nearest proven route because an absent service name cannot establish a safe cross-block boundary. Every ancestor walk stops after exactly eight hops.
 
-The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. One index is built per `service.name`, spanning every `ResourceSpans` block that service owns: the collector batch processor splits a single trace across blocks, and a per-block index lost the endpoint at the boundary. Services stay separate so a leaf cannot adopt a caller's route or `code.*` frame in a fan-in request, which would name a file in another repository. Each service's index is capped at 100,000 spans to prevent memory exhaustion from pathological OTLP payloads, so one noisy service cannot starve the others of parent lookup. A `tracing::warn!` is emitted when a cap is reached to help operators diagnose degraded parent resolution.
+The index uses raw `(trace_id, span_id)` byte pairs, avoiding hex encoding and preventing equal span ids in different traces from colliding. One index is built per explicit `service.name`, spanning every `ResourceSpans` block that service owns. Anonymous blocks receive separate local indexes. Each service's index is capped at 100,000 spans to prevent memory exhaustion from pathological OTLP payloads, so one noisy service cannot starve the others of parent lookup. A `tracing::warn!` is emitted when a cap is reached to help operators diagnose degraded parent resolution.
+
+For explicitly named services, the daemon additionally exports valid 16-byte trace ids, 8-byte span ids, parent edges and optional inbound routes as source context. The `TraceWindow` retains that context under its existing LRU, TTL and per-trace caps, so intermediate INTERNAL spans and entry routes can arrive in later OTLP exports without creating synthetic I/O events. Anonymous context stays local to conversion and is not retained across exports. Invalid ids are ignored before hexadecimal key creation. Sampling uses the same deterministic trace-id decision as I/O events.
 
 ### `bytes_to_hex` lookup table
 

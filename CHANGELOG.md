@@ -2,6 +2,19 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.2] - 2026-08-09
+
+### Fixed
+
+- OTLP endpoint attribution follows the outermost route in the contiguous
+  same-service parent chain without crossing a caller-service boundary. The
+  daemon retains valid sampled route and intermediate-parent context across
+  split exports under the existing per-trace, LRU and TTL bounds. Parent
+  indexes are keyed by trace and span id, anonymous resources stay local, and
+  every format now enforces the same eight-hop limit. Findings that previously
+  used an inner route or `unknown` can change acknowledgment signature and
+  persisted baseline identity; re-capture them with 0.11.2.
+
 ## [0.11.1] - 2026-08-07
 
 ### Fixed
