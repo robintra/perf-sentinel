@@ -1592,9 +1592,9 @@ fn span_filter_reason(
 /// Classify an analyzable span as SQL, outbound HTTP or a message publish,
 /// returning `(event_type, target, operation)`. `None` when it carries no
 /// statement, no URL, no RPC client method and no messaging destination.
-/// `kind` is the OTLP `SpanKind`, used to admit only CLIENT-side RPC spans
-/// and PRODUCER-side messaging spans. Supports both legacy (pre-1.21) and
-/// stable (1.21+) `OTel` semantic conventions.
+/// `kind` is the OTLP `SpanKind`: SERVER spans are inbound context rather than
+/// outbound HTTP calls, RPC admits only CLIENT, and messaging only PRODUCER.
+/// Supports both legacy (pre-1.21) and stable (1.21+) `OTel` conventions.
 fn classify_io_event(
     c: &ClassifiedAttrs<'_>,
     db_system: Option<&str>,
@@ -1615,7 +1615,11 @@ fn classify_io_event(
         // verb is extracted from target by energy_coefficient() when scoring.
         let op = db_system.unwrap_or("sql").to_string();
         Some((EventType::Sql, statement.to_string(), op))
-    } else if let Some(url) = c.http_url.or(c.url_full) {
+    } else if let Some(url) = c
+        .http_url
+        .or(c.url_full)
+        .filter(|_| kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32)
+    {
         let method = c
             .http_method
             .or(c.http_request_method)

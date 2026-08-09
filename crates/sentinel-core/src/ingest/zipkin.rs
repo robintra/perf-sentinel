@@ -236,7 +236,11 @@ fn convert_zipkin_span(
         if let Some(stmt) = get_tag("db.statement").or_else(|| get_tag("db.query.text")) {
             (super::TagIoKind::Sql, stmt.to_string())
         } else {
-            // Not an I/O span unless it carries an HTTP target.
+            if span.kind.as_deref() == Some("SERVER") {
+                return None;
+            }
+            // A SERVER URL describes the inbound request, not an outbound call.
+            // Unspecified legacy spans remain eligible for HTTP classification.
             (
                 super::TagIoKind::HttpOut,
                 get_tag("http.url")
@@ -622,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
+    fn server_route_and_legacy_url_is_context_not_http_out() {
         let json = r#"[
             {
                 "traceId": "t1",
@@ -643,9 +647,29 @@ mod tests {
             .ingest(json.as_bytes())
             .unwrap();
 
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::HttpOut);
-        assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn server_url_full_without_route_is_context_not_http_out() {
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "kind": "SERVER",
+                "name": "post /api/orders/42",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "url.full": "http://order-svc/api/orders/42" }
+            }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -703,6 +727,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].source.endpoint, "unknown");
     }
 
