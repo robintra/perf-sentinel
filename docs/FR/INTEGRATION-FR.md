@@ -728,8 +728,9 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 ### Events reçus mais aucun finding
 
 1. **Vérifiez les attributs de span.** perf-sentinel ne traite que les spans avec `db.statement`/`db.query.text` (SQL) ou `http.url`/`url.full` (HTTP).
-2. **Vérifiez les seuils de détection.** Le seuil N+1 par défaut est 5 occurrences du même template normalisé dans la même trace.
-3. **Vérifiez la normalisation des URLs.** perf-sentinel remplace les segments numériques par `{id}` et les UUIDs par `{uuid}`. Les identifiants texte ne sont pas normalisés.
+2. **Vérifiez le kind du span.** Depuis 0.11.2, un span `SERVER` portant une URL HTTP est un traitement entrant et non un appel sortant, il ne produit donc aucun finding HTTP même si l'attribut est présent. Les flottes en conventions sémantiques legacy, qui posent aussi `http.url` sur le span de traitement, perdent ainsi les appels qu'elles voyaient auparavant. Un appel sortant se présente comme un span `CLIENT` du côté de l'appelant.
+3. **Vérifiez les seuils de détection.** Le seuil N+1 par défaut est 5 occurrences du même template normalisé dans la même trace.
+4. **Vérifiez la normalisation des URLs.** perf-sentinel remplace les segments numériques par `{id}` et les UUIDs par `{uuid}`. Les identifiants texte ne sont pas normalisés.
 
 ### Erreur AOT cache avec le Java Agent
 

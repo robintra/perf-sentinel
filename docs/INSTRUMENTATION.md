@@ -393,12 +393,14 @@ perf-sentinel detects I/O anti-patterns by looking at specific span attributes. 
 | Broker system   | `messaging.system`                        | (same)                      | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
 | Broker destination | `messaging.destination`                | `messaging.destination.name` | `orders`, `signature.jobs`               |
 | Message size    | `messaging.message.body.size`             | (same)                      | `4096`                                    |
-| Source endpoint | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
+| Source endpoint | `http.route`, `url.path`                  | `http.route`, `url.path`    | `POST /api/game/{id}/start`               |
 | Service name    | `service.name` (resource)                 | `service.name` (resource)   | `game`, `account-svc`                     |
 | Service namespace | `service.namespace` (resource)          | (same)                      | `commerce`                                |
 | Kubernetes namespace | `k8s.namespace.name` (resource)       | (same)                      | `prod-eu`                                 |
 
 Spans that carry no SQL, HTTP, RPC, or messaging attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
+
+**Outbound HTTP is client-side only.** A span whose kind is SERVER never becomes an outbound HTTP call, even when it carries `http.url` or `url.full`. The stable convention puts `url.full` on CLIENT spans only, but legacy instrumentations set `http.url` on the inbound handler span too, and admitting those would count every instrumented hop twice and credit a service with calls it never made. This matches the CLIENT-only rule for RPC below. Three consequences. A SERVER span carrying `db.statement` is still analyzed, because SQL is classified before HTTP. A span that never sets its kind stays eligible for HTTP, so an instrumentation that omits the kind is unaffected. And a rejected SERVER span still supplies its `http.route` as the inbound endpoint that findings are attributed to. Jaeger reads the `span.kind` tag (`server`), Zipkin the `kind` field (`SERVER`).
 
 Which attributes separate one deployment from another is configuration, not a fixed pair. `[detection] grouping_attributes` takes an ordered list of resource or span attributes, defaulting to `["k8s.namespace.name", "service.namespace"]`. The first one present on a span decides identity: two identical findings in two groupings stay two findings, and the key remains part of that identity so `tenant.id=prod` cannot collide with `k8s.namespace.name=prod`. Every listed attribute that is present is captured and displayed, and each surface labels it as `key=value`. A shared cluster where the namespace does not tell tenants apart can group by `tenant.id` instead, provided the application sets it on its spans. The HTML filter uses the first captured configured attribute; when none is present, the finding has no grouping chip. Acknowledgment signatures ignore the list entirely, so one ack still covers every deployment and reordering the list never invalidates an ack. The same configured order applies to batch files, daemon OTLP gRPC and HTTP, Tempo, and Jaeger Query. Jaeger reads values from process tags with span-tag fallback, and Zipkin reads them from span tags.
 
@@ -420,7 +422,8 @@ Three consequences to be aware of on messaging findings:
 
 > **Silent skip.** A span dropped for a missing carrying attribute
 > produces no warning and no error. A SQL span without `db.statement` /
-> `db.query.text`, or an HTTP span without `http.url` / `url.full`,
+> `db.query.text`, an HTTP span without `http.url` / `url.full`, or a
+> SERVER span whose URL describes its own inbound request,
 > simply yields no finding. A thin or empty report can therefore mean
 > *no problems* or *no usable instrumentation*. Run
 > `perf-sentinel inspect` to see what was actually extracted, and see

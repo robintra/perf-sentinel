@@ -23,9 +23,9 @@ sequenceDiagram
         P2->>P2: SQL? db.statement / db.query.text,<br/>else dd.span.Resource (dd-trace, SQL db system only)
         alt SQL span
             P2->>Idx: lookup parent_span_id
-            Idx-->>P2: parent endpoint: http.route > http.url > url.full<br/>parent method: code.function > span name
+            Idx-->>P2: parent endpoint: http.route (or url.path if the route<br/>has no slash) > http.url > url.full > url.path<br/>parent method: code.function > span name
             P2->>Out: SpanEvent type=Sql<br/>+ cloud_region
-        else Has http.url / url.full?
+        else Non-SERVER span with http.url / url.full?
             P2->>Idx: lookup parent_span_id
             Idx-->>P2: parent endpoint + method
             P2->>Out: SpanEvent type=HttpOut<br/>+ status_code + response_size_bytes<br/>+ cloud_region

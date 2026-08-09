@@ -395,12 +395,14 @@ perf-sentinel détecte les anti-patterns I/O en examinant des attributs de span 
 | Système de broker | `messaging.system`                        | (idem)                      | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
 | Destination broker | `messaging.destination`                  | `messaging.destination.name` | `orders`, `signature.jobs`               |
 | Taille du message | `messaging.message.body.size`             | (idem)                      | `4096`                                    |
-| Endpoint source   | `http.route`                              | `http.route`                | `POST /api/game/{id}/start`               |
+| Endpoint source   | `http.route`, `url.path`                  | `http.route`, `url.path`    | `POST /api/game/{id}/start`               |
 | Nom du service    | `service.name` (ressource)                | `service.name` (ressource)  | `game`, `account-svc`                     |
 | Namespace de service | `service.namespace` (ressource)        | (idem)                      | `commerce`                                |
 | Namespace Kubernetes | `k8s.namespace.name` (ressource)       | (idem)                      | `prod-eu`                                 |
 
 Les spans qui ne portent aucun attribut SQL, HTTP, RPC ou messaging sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
+
+**Le HTTP sortant est réservé au côté client.** Un span dont le kind est SERVER ne devient jamais un appel HTTP sortant, même s'il porte `http.url` ou `url.full`. La convention stable ne pose `url.full` que sur les spans CLIENT, mais les instrumentations legacy posent aussi `http.url` sur le span de traitement entrant, et les admettre compterait chaque saut instrumenté deux fois en créditant un service d'appels qu'il n'a jamais émis. Cela reprend la règle CLIENT seul du RPC ci-dessous. Trois conséquences. Un span SERVER portant `db.statement` est toujours analysé, parce que le SQL est classé avant le HTTP. Un span dont le kind n'est jamais posé reste éligible au HTTP, une instrumentation qui omet le kind n'est donc pas affectée. Et un span SERVER rejeté fournit toujours son `http.route` comme endpoint entrant auquel les findings sont rattachés. Jaeger lit le tag `span.kind` (`server`), Zipkin le champ `kind` (`SERVER`).
 
 Les attributs qui séparent un déploiement d'un autre relèvent de la configuration, pas d'une paire figée. `[detection] grouping_attributes` prend une liste ordonnée d'attributs de ressource ou de span, dont la valeur par défaut est `["k8s.namespace.name", "service.namespace"]`. Le premier présent sur un span décide de l'identité : deux findings identiques dans deux regroupements restent deux findings, et la clé fait partie de cette identité afin que `tenant.id=prod` ne puisse pas entrer en collision avec `k8s.namespace.name=prod`. Chaque attribut listé et présent est capturé et chaque surface l'affiche sous la forme `clé=valeur`. Un cluster mutualisé où le namespace ne distingue pas les tenants peut donc grouper par `tenant.id`, à condition que l'application le pose sur ses spans. Le filtre HTML utilise le premier attribut configuré capturé ; si aucun n'est présent, le finding n'a pas de puce de regroupement. Les signatures d'acquittement ignorent complètement cette liste, un acquittement couvre donc toujours tous les déploiements et réordonner la liste n'invalide jamais un acquittement. Le même ordre configuré s'applique aux fichiers batch, aux transports OTLP gRPC et HTTP du daemon, à Tempo et à Jaeger Query. Jaeger lit les valeurs dans les tags du process avec repli sur ceux du span, et Zipkin dans les tags du span.
 
@@ -422,8 +424,9 @@ Trois conséquences à connaître sur les findings messaging :
 
 > **Écartement silencieux.** Un span écarté pour un attribut porteur
 > manquant ne produit ni avertissement ni erreur. Un span SQL sans
-> `db.statement` / `db.query.text`, ou un span HTTP sans `http.url` /
-> `url.full`, ne donne tout simplement aucun finding. Un rapport maigre
+> `db.statement` / `db.query.text`, un span HTTP sans `http.url` /
+> `url.full`, ou un span SERVER dont l'URL décrit sa propre requête
+> entrante, ne donne tout simplement aucun finding. Un rapport maigre
 > ou vide peut donc signifier *aucun problème* ou *aucune instrumentation
 > exploitable*. Lancez `perf-sentinel inspect` pour voir ce qui a
 > réellement été extrait, et voir
