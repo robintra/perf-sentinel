@@ -371,24 +371,39 @@ fn resolve_and_index_event(
         let source = event.event.source.endpoint.trim();
         source.is_empty() || source == "unknown"
     };
-    let parent_resolution = resolve_parent_endpoint(
-        &event.event.service,
-        event.event.parent_span_id.as_deref(),
-        source_endpoint_groups,
-        resolved_ancestry,
-    );
-    if source_was_unknown
-        && let Some(parent) = &parent_resolution
-        && parent.depth < ANCESTOR_WALK_MAX_DEPTH
-    {
-        event.event.source.endpoint.clone_from(&parent.endpoint);
-        updated = true;
+    let own_root_endpoint = source_endpoint_groups
+        .get(event.event.service.as_ref())
+        .and_then(|roots| roots.get(&event.event.span_id));
+    let parent_resolution = if own_root_endpoint.is_none() {
+        resolve_parent_endpoint(
+            &event.event.service,
+            event.event.parent_span_id.as_deref(),
+            source_endpoint_groups,
+            resolved_ancestry,
+        )
+    } else {
+        None
+    };
+    if source_was_unknown {
+        if let Some(endpoint) = own_root_endpoint {
+            event.event.source.endpoint.clone_from(endpoint);
+            updated = true;
+        } else if let Some(parent) = &parent_resolution
+            && parent.depth < ANCESTOR_WALK_MAX_DEPTH
+        {
+            event.event.source.endpoint.clone_from(&parent.endpoint);
+            updated = true;
+        }
     }
     let source = event.event.source.endpoint.trim();
     let resolution = if !source.is_empty() && source != "unknown" {
-        let depth = parent_resolution.as_ref().map_or(0, |parent| {
-            parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
-        });
+        let depth = if own_root_endpoint.is_some() {
+            0
+        } else {
+            parent_resolution.as_ref().map_or(0, |parent| {
+                parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
+            })
+        };
         Some(ResolvedEndpoint {
             endpoint: event.event.source.endpoint.clone(),
             depth,
@@ -674,6 +689,9 @@ fn parent_chain_source_endpoint<'a>(
     root_endpoints: &'a HashMap<String, String>,
     event: &NormalizedEvent,
 ) -> Option<&'a String> {
+    if let Some(endpoint) = root_endpoints.get(&event.event.span_id) {
+        return Some(endpoint);
+    }
     let mut parent_span_id = event.event.parent_span_id.as_deref();
     for _ in 0..ANCESTOR_WALK_MAX_DEPTH {
         let parent = parent_span_id?;
@@ -1012,6 +1030,54 @@ mod tests {
                 .endpoint,
             "unknown"
         );
+    }
+
+    #[test]
+    fn root_first_context_resolves_the_event_with_the_same_span_id() {
+        let mut w = TraceWindow::new(WindowConfig::default());
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        let mut root = make_event("t1", "http://orders-svc/api/orders");
+        root.event.service = Arc::from("svc-a");
+        root.event.span_id = "root".to_string();
+        root.event.source.endpoint = "unknown".to_string();
+        assert!(w.push(root, 1).is_none());
+
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "/api/orders"
+        );
+        assert_eq!(
+            w.drain_all().pop().expect("one finished trace").1[0]
+                .event
+                .source
+                .endpoint,
+            "/api/orders"
+        );
+    }
+
+    #[test]
+    fn detached_reconciliation_resolves_the_event_with_the_root_span_id() {
+        let mut root = make_event("t1", "http://orders-svc/api/orders");
+        root.event.service = Arc::from("svc-a");
+        root.event.span_id = "root".to_string();
+        root.event.source.endpoint = "unknown".to_string();
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+
+        assert_eq!(
+            reconcile_event_source_endpoint_groups(std::slice::from_mut(&mut root), &roots),
+            1
+        );
+        assert_eq!(root.event.source.endpoint, "/api/orders");
     }
 
     #[test]

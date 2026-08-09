@@ -287,7 +287,7 @@ fn convert_zipkin_span(
             .map(crate::ingest::canonical_http_route)
             .or_else(|| get_tag("http.target").map(ToString::to_string))
             .filter(|s| !s.trim().is_empty()),
-        super::TagIoKind::HttpOut => None,
+        super::TagIoKind::HttpOut => inbound_http_endpoint(span),
     }
     .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
     let method = get_tag("code.function")
@@ -608,6 +608,33 @@ mod tests {
         let ingest = ZipkinIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    }
+
+    #[test]
+    fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "kind": "SERVER",
+                "name": "post /api/orders/{id}",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "http.route": "api/orders/{id}",
+                    "http.url": "http://order-svc/api/orders/42"
+                }
+            }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
     }
 

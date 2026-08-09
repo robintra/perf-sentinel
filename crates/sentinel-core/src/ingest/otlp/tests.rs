@@ -762,6 +762,104 @@ fn parent_span_http_route_takes_precedence_over_http_url() {
 }
 
 #[test]
+fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
+    let root = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /api/orders/{id}".to_string(),
+        kind: SPAN_KIND_SERVER,
+        start_time_unix_nano: 1_720_621_921_000_000_000,
+        end_time_unix_nano: 1_720_621_921_010_000_000,
+        attributes: vec![
+            make_kv("http.route", "api/orders/{id}"),
+            make_kv("http.url", "http://order-svc/api/orders/42"),
+            make_kv("http.request.method", "POST"),
+        ],
+        ..Default::default()
+    };
+
+    let events = convert_otlp_request(&make_request("order-svc", vec![root]));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
+    assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+}
+
+#[test]
+fn analyzable_server_root_routes_fanout_and_serialized_findings() {
+    const CHILD_COUNT: usize = 40;
+    const BASE_NS: u64 = 1_720_621_921_000_000_000;
+
+    let root = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "POST /api/orders".to_string(),
+        kind: SPAN_KIND_SERVER,
+        start_time_unix_nano: BASE_NS,
+        end_time_unix_nano: BASE_NS + 100_000_000,
+        attributes: vec![
+            make_kv("http.route", "api/orders"),
+            make_kv("http.url", "http://order-svc/api/orders"),
+            make_kv("http.request.method", "POST"),
+        ],
+        ..Default::default()
+    };
+    let mut spans = Vec::with_capacity(CHILD_COUNT + 1);
+    spans.push(root);
+    for index in 0..CHILD_COUNT {
+        let start_ns = BASE_NS + 1_000_000 + u64::try_from(index).expect("small index") * 2_000_000;
+        let mut child = make_http_span(
+            &[1; 16],
+            &[u8::try_from(index + 20).expect("small index"); 8],
+            &[10; 8],
+            &format!("http://backend-{index}.internal/work"),
+            "GET",
+            200,
+            start_ns,
+            start_ns + 1_000_000,
+        );
+        child.kind = SPAN_KIND_CLIENT;
+        spans.push(child);
+    }
+
+    let events = convert_otlp_request(&make_request("order-svc", spans));
+    let trace = crate::correlate::Trace {
+        trace_id: "01".repeat(16),
+        spans: crate::normalize::normalize_all(events),
+    };
+    let indices = crate::detect::TraceIndices::build(&trace);
+    let fanout = crate::detect::fanout::detect_fanout(&trace, &indices, 20);
+    let serialized = crate::detect::serialized::detect_serialized(&trace, &indices, 3);
+
+    assert_eq!(fanout.len(), 1);
+    assert_eq!(fanout[0].source_endpoint, "/api/orders");
+    assert_eq!(serialized.len(), 1);
+    assert_eq!(serialized[0].source_endpoint, "/api/orders");
+}
+
+#[test]
+fn root_client_url_does_not_become_an_inbound_source_endpoint() {
+    let mut client = make_http_span(
+        &[1; 16],
+        &[10; 8],
+        &[],
+        "http://partner.example/v1/pay",
+        "GET",
+        200,
+        0,
+        1_000_000,
+    );
+    client.kind = SPAN_KIND_CLIENT;
+
+    let events = convert_otlp_request(&make_request("order-svc", vec![client]));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].source.endpoint, "unknown");
+}
+
+#[test]
 fn slashless_parent_http_route_gets_a_canonical_leading_slash() {
     let parent = make_parent_span(&[10; 8], "api/fault/{kind}");
     let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);

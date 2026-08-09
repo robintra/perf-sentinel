@@ -313,8 +313,10 @@ struct ClassifiedAttrs<'a> {
     // Datadog dd-trace fallbacks (see classify_io_event for the rationale).
     dd_resource: Option<&'a str>,
     db_type: Option<&'a str>,
+    http_route: Option<&'a str>,
     http_url: Option<&'a str>,
     url_full: Option<&'a str>,
+    url_path: Option<&'a str>,
     http_method: Option<&'a str>,
     http_request_method: Option<&'a str>,
     // RPC semconv (gRPC, Dubbo, ...): no statement or URL, so these are the
@@ -390,8 +392,10 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
             "db.system.name" => out.db_system_name = any_value_as_str(value),
             "dd.span.Resource" => out.dd_resource = any_value_as_str(value),
             "db.type" => out.db_type = any_value_as_str(value),
+            "http.route" => out.http_route = any_value_as_str(value),
             "http.url" => out.http_url = any_value_as_str(value),
             "url.full" => out.url_full = any_value_as_str(value),
+            "url.path" => out.url_path = any_value_as_str(value),
             "http.method" => out.http_method = any_value_as_str(value),
             "http.request.method" => out.http_request_method = any_value_as_str(value),
             "rpc.system" => out.rpc_system = any_value_as_str(value),
@@ -650,25 +654,33 @@ fn index_linked_consumers<'a>(
 /// reached rather than to the route being served. Kinds left unspecified stay
 /// eligible, which is what manual and legacy instrumentation emits.
 fn inbound_http_endpoint(span: &Span) -> Option<String> {
+    let classified = classify_span_attrs(&span.attributes);
+    inbound_http_endpoint_from_classified(&classified, span.kind)
+}
+
+fn inbound_http_endpoint_from_classified(
+    c: &ClassifiedAttrs<'_>,
+    span_kind: i32,
+) -> Option<String> {
     let usable = |s: &&str| !s.trim().is_empty();
-    get_str_attribute(&span.attributes, "http.route")
+    c.http_route
         .filter(usable)
         .map(crate::ingest::canonical_http_route)
         .or_else(|| {
-            if span.kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32 {
+            if span_kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32 {
                 return None;
             }
-            get_str_attribute(&span.attributes, "http.url")
+            c.http_url
                 .filter(usable)
-                .or_else(|| get_str_attribute(&span.attributes, "url.full").filter(usable))
-                .or_else(|| get_str_attribute(&span.attributes, "url.path").filter(usable))
+                .or_else(|| c.url_full.filter(usable))
+                .or_else(|| c.url_path.filter(usable))
                 .map(ToString::to_string)
         })
 }
 
-/// Resolve `source.endpoint`: nearest inbound HTTP route up the parent
-/// chain, then the outermost `code.*` frame for entry points that have
-/// none (scheduled jobs, message consumers), then `"unknown"`.
+/// Resolve the fallback for `source.endpoint`: nearest inbound HTTP route up
+/// the parent chain, then the outermost `code.*` frame for entry points that
+/// have none (scheduled jobs, message consumers), then `"unknown"`.
 ///
 /// One walk serves both. The frame kept is the outermost usable one, not
 /// the nearest: on a layered stack the nearest is the DAO every caller
@@ -1795,8 +1807,10 @@ fn convert_span<'a>(
         span.name.clone()
     };
 
-    let source_endpoint =
-        resolve_source_endpoint(classified.code_attrs(), &span.parent_span_id, span_index);
+    let source_endpoint = inbound_http_endpoint_from_classified(classified, span.kind)
+        .unwrap_or_else(|| {
+            resolve_source_endpoint(classified.code_attrs(), &span.parent_span_id, span_index)
+        });
 
     let parent_span_id = if span.parent_span_id.is_empty() {
         None

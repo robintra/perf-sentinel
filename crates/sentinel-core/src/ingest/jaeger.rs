@@ -350,7 +350,7 @@ fn convert_jaeger_span(
             .map(|route| crate::ingest::canonical_http_route(&route))
             .or_else(|| find_tag(tags, "http.target"))
             .filter(|s| !s.trim().is_empty()),
-        super::TagIoKind::HttpOut => None,
+        super::TagIoKind::HttpOut => inbound_http_endpoint(span),
     }
     .unwrap_or_else(|| resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index));
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
@@ -719,6 +719,37 @@ mod tests {
         let ingest = JaegerIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    }
+
+    #[test]
+    fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "POST /api/orders/{id}",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "span.kind", "value": "server" },
+                        { "key": "http.route", "value": "api/orders/{id}" },
+                        { "key": "http.url", "value": "http://order-svc/api/orders/42" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
     }
 
