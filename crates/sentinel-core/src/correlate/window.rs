@@ -118,41 +118,7 @@ impl TraceWindow {
         let Some(buf) = self.traces.peek_mut(trace_id) else {
             return 0;
         };
-        let parents: HashMap<(&str, &str), Option<&str>> = buf
-            .events
-            .iter()
-            .map(|event| {
-                (
-                    (event.event.service.as_ref(), event.event.span_id.as_str()),
-                    event.event.parent_span_id.as_deref(),
-                )
-            })
-            .collect();
-        let matching_events: Vec<(usize, &String)> = buf
-            .events
-            .iter()
-            .enumerate()
-            .filter_map(|(event_index, event)| {
-                let source = event.event.source.endpoint.trim();
-                if !source.is_empty() && source != "unknown" {
-                    return None;
-                }
-                let service = event.event.service.as_ref();
-                let root_endpoints = service_root_endpoints.get(service)?;
-                parent_chain_source_endpoint(&parents, service, root_endpoints, event)
-                    .map(|endpoint| (event_index, endpoint))
-            })
-            .collect();
-        drop(parents);
-        let updated = matching_events.len();
-        for (event_index, endpoint) in matching_events {
-            buf.events[event_index]
-                .event
-                .source
-                .endpoint
-                .clone_from(endpoint);
-        }
-        updated
+        reconcile_event_source_endpoint_groups(buf.events.make_contiguous(), service_root_endpoints)
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -222,6 +188,46 @@ impl TraceWindow {
             .peek(trace_id)
             .map(|buf| buf.events.iter().cloned().collect())
     }
+}
+
+/// Fill unresolved source endpoints in one trace's event slice.
+pub(crate) fn reconcile_event_source_endpoint_groups(
+    events: &mut [NormalizedEvent],
+    service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
+) -> usize {
+    let parents: HashMap<(&str, &str), Option<&str>> = events
+        .iter()
+        .map(|event| {
+            (
+                (event.event.service.as_ref(), event.event.span_id.as_str()),
+                event.event.parent_span_id.as_deref(),
+            )
+        })
+        .collect();
+    let matching_events: Vec<(usize, &String)> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(event_index, event)| {
+            let source = event.event.source.endpoint.trim();
+            if !source.is_empty() && source != "unknown" {
+                return None;
+            }
+            let service = event.event.service.as_ref();
+            let root_endpoints = service_root_endpoints.get(service)?;
+            parent_chain_source_endpoint(&parents, service, root_endpoints, event)
+                .map(|endpoint| (event_index, endpoint))
+        })
+        .collect();
+    drop(parents);
+    let updated = matching_events.len();
+    for (event_index, endpoint) in matching_events {
+        events[event_index]
+            .event
+            .source
+            .endpoint
+            .clone_from(endpoint);
+    }
+    updated
 }
 
 fn parent_chain_source_endpoint<'a>(
