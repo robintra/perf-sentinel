@@ -14,15 +14,27 @@ the chart version, to know which daemon image ships.
 
 ### Changed
 
-- `appVersion` moves to `0.11.2`. OTLP endpoint attribution follows the
-  outermost route in a contiguous same-service parent chain, and a framework
-  route name no longer wins over a usable `url.path` on the same span. The
-  daemon this chart deploys ingests OTLP directly, so a finding that
-  previously carried an inner route or `unknown` can move to the outer path,
-  which changes its acknowledgment signature and its persisted baseline
-  identity. Re-capture affected acknowledgments and report baselines with
-  `0.11.2`. Nothing in the chart changes beyond the version fields, but the
-  upgrade still rolls the pods: the image tag falls back to
+- `appVersion` moves to `0.11.2`. Endpoint attribution follows the outermost
+  route in a contiguous same-service parent chain, a framework route name no
+  longer wins over a usable `url.path` on the same span, a route missing its
+  leading slash gains one, and a SERVER span no longer produces an outbound
+  HTTP call. The daemon this chart deploys ingests OTLP directly, so a finding
+  that previously carried an inner route or `unknown` can move to another
+  endpoint, and on a fleet instrumented in legacy semantic conventions the
+  HTTP findings raised on SERVER spans disappear rather than move. Both change
+  acknowledgment signatures and persisted baseline identity, so re-capture
+  affected acknowledgments and report baselines with `0.11.2`. Those phantom
+  inbound calls also counted as I/O operations, so dropping them shrinks the
+  waste-ratio denominator and raises `io_waste_ratio` on identical traffic.
+  Re-check the `io_waste_ratio_max` shipped in `values.yaml` (default `0.30`)
+  against a `0.11.2` run before relying on the gate verdict.
+- The daemon holds more per-trace state than `0.11.1` did at the same
+  settings. `[daemon] max_events_per_trace` now caps the event ring, the
+  retained inbound endpoint contexts and the ancestry index independently, so
+  an unchanged `values.yaml` carries a larger memory envelope per trace. Worth
+  a look at `resources.limits.memory` before upgrading a pod that already runs
+  close to its ceiling. Nothing in the chart itself changes beyond the version
+  fields, but the upgrade still rolls the pods: the image tag falls back to
   `.Chart.AppVersion`, and `checksum/config` moves with the chart version the
   ConfigMap labels carry.
 
