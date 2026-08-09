@@ -190,16 +190,32 @@ fn child_of(span: &JaegerSpan) -> Option<&str> {
         .map(|r| r.span_id.as_str())
 }
 
-/// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
-/// kind, remaining HTTP fallbacks on any kind except CLIENT (an outbound
-/// call's URL names the callee, not the route being served).
+/// Inbound HTTP endpoint carried by an ancestor span: `http.route` on any
+/// kind, remaining HTTP fallbacks on any kind except CLIENT. Unspecified
+/// kinds remain eligible for legacy instrumentation.
 fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
+    http_endpoint(
+        span,
+        find_tag(&span.tags, "span.kind").as_deref() != Some("client"),
+    )
+}
+
+/// Inbound endpoint carried by the event span itself. A route template is a
+/// safe inbound signal on any kind; legacy URL fallbacks require SERVER.
+fn own_inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
+    http_endpoint(
+        span,
+        find_tag(&span.tags, "span.kind").as_deref() == Some("server"),
+    )
+}
+
+fn http_endpoint(span: &JaegerSpan, allow_url_fallback: bool) -> Option<String> {
     let usable = |s: &String| !s.trim().is_empty();
     find_tag(&span.tags, "http.route")
         .filter(usable)
         .map(|route| crate::ingest::canonical_http_route(&route))
         .or_else(|| {
-            if find_tag(&span.tags, "span.kind").as_deref() == Some("client") {
+            if !allow_url_fallback {
                 return None;
             }
             find_tag(&span.tags, "http.target")
@@ -350,7 +366,7 @@ fn convert_jaeger_span(
             .map(|route| crate::ingest::canonical_http_route(&route))
             .or_else(|| find_tag(tags, "http.target"))
             .filter(|s| !s.trim().is_empty()),
-        super::TagIoKind::HttpOut => inbound_http_endpoint(span),
+        super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
     }
     .unwrap_or_else(|| resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index));
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
@@ -751,6 +767,79 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    }
+
+    #[test]
+    fn unspecified_outgoing_url_uses_its_parent_server_route() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [
+                    {
+                        "spanID": "s1",
+                        "operationName": "POST /api/orders",
+                        "references": [],
+                        "startTime": 1720621921123000,
+                        "duration": 5000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "http.route", "value": "api/orders" }
+                        ]
+                    },
+                    {
+                        "spanID": "s2",
+                        "operationName": "GET",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "s1" }],
+                        "startTime": 1720621921123200,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "http.url", "value": "https://partner.example/v1/pay" }
+                        ]
+                    }
+                ],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        let outgoing = events
+            .iter()
+            .find(|event| event.event_type == EventType::HttpOut)
+            .expect("outgoing event present");
+
+        assert_eq!(outgoing.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn unspecified_root_url_does_not_self_source() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "GET",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "http.url", "value": "https://partner.example/v1/pay" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "unknown");
     }
 
     #[test]

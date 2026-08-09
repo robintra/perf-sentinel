@@ -860,6 +860,48 @@ fn root_client_url_does_not_become_an_inbound_source_endpoint() {
 }
 
 #[test]
+fn unspecified_outgoing_url_uses_its_parent_server_route() {
+    let parent = make_parent_span(&[10; 8], "POST /api/orders");
+    let child = make_http_span(
+        &[1; 16],
+        &[20; 8],
+        &[10; 8],
+        "http://partner.example/v1/pay",
+        "GET",
+        200,
+        1_720_621_921_000_000_000,
+        1_720_621_921_001_000_000,
+    );
+
+    let events = convert_otlp_request(&make_request("order-svc", vec![parent, child]));
+    let outgoing = events
+        .iter()
+        .find(|event| event.event_type == EventType::HttpOut)
+        .expect("outgoing event present");
+
+    assert_eq!(outgoing.source.endpoint, "POST /api/orders");
+}
+
+#[test]
+fn unspecified_root_url_does_not_self_source() {
+    let root = make_http_span(
+        &[1; 16],
+        &[10; 8],
+        &[],
+        "http://partner.example/v1/pay",
+        "GET",
+        200,
+        0,
+        1_000_000,
+    );
+
+    let events = convert_otlp_request(&make_request("order-svc", vec![root]));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].source.endpoint, "unknown");
+}
+
+#[test]
 fn slashless_parent_http_route_gets_a_canonical_leading_slash() {
     let parent = make_parent_span(&[10; 8], "api/fault/{kind}");
     let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
