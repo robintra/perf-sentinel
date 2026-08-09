@@ -701,7 +701,7 @@ jobs:
   diff:
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.11.1"
+      PERF_SENTINEL_VERSION: "0.11.2"
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
