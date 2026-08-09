@@ -300,7 +300,11 @@ fn convert_jaeger_span(
     {
         (super::TagIoKind::Sql, stmt)
     } else {
-        // Not an I/O span unless it carries an HTTP target.
+        if find_tag(tags, "span.kind").as_deref() == Some("server") {
+            return None;
+        }
+        // A SERVER URL describes the inbound request, not an outbound call.
+        // Unspecified legacy spans remain eligible for HTTP classification.
         (
             super::TagIoKind::HttpOut,
             find_tag(tags, "http.url").or_else(|| find_tag(tags, "url.full"))?,
@@ -739,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
+    fn server_route_and_legacy_url_is_context_not_http_out() {
         let json = r#"{
             "data": [{
                 "traceID": "t1",
@@ -764,9 +768,35 @@ mod tests {
             .ingest(json.as_bytes())
             .unwrap();
 
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::HttpOut);
-        assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn server_url_full_without_route_is_context_not_http_out() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "POST /api/orders/42",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "span.kind", "value": "server" },
+                        { "key": "url.full", "value": "http://order-svc/api/orders/42" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -839,6 +869,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].source.endpoint, "unknown");
     }
 
@@ -954,6 +985,11 @@ mod tests {
         }"#;
         let ingest = JaegerIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
+        let outbound = events
+            .iter()
+            .find(|event| event.event_type == EventType::HttpOut)
+            .expect("client outbound event present");
+        assert_eq!(outbound.target, "https://partner.example/v1/pay");
         let sql = events
             .iter()
             .find(|e| e.event_type == EventType::Sql)

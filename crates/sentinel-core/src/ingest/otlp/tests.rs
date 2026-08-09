@@ -762,7 +762,7 @@ fn parent_span_http_route_takes_precedence_over_http_url() {
 }
 
 #[test]
-fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
+fn server_route_and_legacy_url_is_context_not_http_out() {
     let root = Span {
         trace_id: vec![1; 16],
         span_id: vec![10; 8],
@@ -781,9 +781,25 @@ fn analyzable_server_event_uses_its_own_route_before_legacy_url() {
 
     let events = convert_otlp_request(&make_request("order-svc", vec![root]));
 
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event_type, EventType::HttpOut);
-    assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    assert!(events.is_empty());
+}
+
+#[test]
+fn server_url_full_without_route_is_context_not_http_out() {
+    let root = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        name: "POST /api/orders/42".to_string(),
+        kind: SPAN_KIND_SERVER,
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000,
+        attributes: vec![make_kv("url.full", "http://order-svc/api/orders/42")],
+        ..Default::default()
+    };
+
+    let events = convert_otlp_request(&make_request("order-svc", vec![root]));
+
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -856,6 +872,7 @@ fn root_client_url_does_not_become_an_inbound_source_endpoint() {
     let events = convert_otlp_request(&make_request("order-svc", vec![client]));
 
     assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
     assert_eq!(events[0].source.endpoint, "unknown");
 }
 
@@ -898,7 +915,79 @@ fn unspecified_root_url_does_not_self_source() {
     let events = convert_otlp_request(&make_request("order-svc", vec![root]));
 
     assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
     assert_eq!(events[0].source.endpoint, "unknown");
+}
+
+#[test]
+fn fastapi_chatty_trace_counts_only_client_spans() {
+    const CALL_COUNT: usize = 30;
+    const BASE_NS: u64 = 1_720_621_921_000_000_000;
+
+    let root = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        parent_span_id: vec![],
+        name: "GET /api/fault/chatty".to_string(),
+        kind: SPAN_KIND_SERVER,
+        start_time_unix_nano: BASE_NS,
+        end_time_unix_nano: BASE_NS + 100_000_000,
+        attributes: vec![
+            make_kv("http.route", "/api/fault/chatty"),
+            make_kv("http.url", "http://fastapi-svc/api/fault/chatty"),
+            make_kv("http.request.method", "GET"),
+        ],
+        ..Default::default()
+    };
+    let mut spans = Vec::with_capacity(1 + CALL_COUNT * 2);
+    spans.push(root);
+    for index in 0..CALL_COUNT {
+        let client_id = u8::try_from(index + 20).expect("small client index");
+        let server_id = u8::try_from(index + 80).expect("small server index");
+        let start_ns = BASE_NS + 1_000_000 + u64::try_from(index).expect("small index");
+
+        let mut inner_server = make_http_span(
+            &[1; 16],
+            &[server_id; 8],
+            &[client_id; 8],
+            "http://fastapi-svc/api/external/mock",
+            "GET",
+            200,
+            start_ns + 1,
+            start_ns + 2,
+        );
+        inner_server.kind = SPAN_KIND_SERVER;
+        inner_server
+            .attributes
+            .push(make_kv("http.route", "/api/external/mock"));
+        spans.push(inner_server);
+
+        let mut client = make_http_span(
+            &[1; 16],
+            &[client_id; 8],
+            &[10; 8],
+            "http://fastapi-svc/api/external/mock",
+            "GET",
+            200,
+            start_ns,
+            start_ns + 3,
+        );
+        client.kind = SPAN_KIND_CLIENT;
+        spans.push(client);
+    }
+
+    let events = convert_otlp_request(&make_request("fastapi-svc", spans));
+    assert_eq!(events.len(), CALL_COUNT);
+
+    let trace = crate::correlate::Trace {
+        trace_id: "01".repeat(16),
+        spans: crate::normalize::normalize_all(events),
+    };
+    let findings = crate::detect::chatty::detect_chatty(&trace, 20);
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].pattern.occurrences, CALL_COUNT);
+    assert_eq!(findings[0].source_endpoint, "/api/fault/chatty");
 }
 
 #[test]
