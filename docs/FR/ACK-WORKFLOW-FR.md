@@ -252,7 +252,13 @@ explicitement nommé, perf-sentinel sélectionne la route la plus externe de la
 chaîne contiguë ; il n'adopte jamais la route du service appelant. Un template
 sans slash initial est canonisé en l'ajoutant (`api/orders/{id}` devient
 `/api/orders/{id}`), de sorte que deux formes d'instrumentation équivalentes
-produisent la même signature.
+produisent la même signature. Certains frameworks placent plutôt un nom de
+route symbolique dans `http.route` et le chemin de requête dans `url.path`.
+Quand la route ne contient aucun `/` et que `url.path` est exploitable,
+perf-sentinel utilise `url.path` ; une route contenant `/` reste prioritaire, y
+compris les routes Django sans slash initial et les templates. Un nom de route
+sans `url.path` conserve le comportement prudent existant et reçoit un slash
+initial.
 
 Quand les services tracés émettent `http.route` :
 
@@ -297,7 +303,9 @@ Note de montée de version (0.11.2) : l'attribution d'endpoint conserve
 désormais le contexte parent OTLP valide et échantillonné entre les requêtes
 d'export du daemon et sélectionne la route la plus externe d'une chaîne
 contiguë du même service. Des findings auparavant associés à une route interne
-du framework ou à `unknown` peuvent donc changer de signature. Re-capturez les
+du framework ou à `unknown` peuvent donc changer de signature. Les findings
+dont le framework émettait un `http.route` symbolique à côté de `url.path`
+passent également du nom de route à ce chemin. Re-capturez les
 acquittements et les baselines de rapports persistés concernés avec 0.11.2.
 
 ### Les renommages de service invalident les acks

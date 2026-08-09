@@ -243,7 +243,12 @@ explicitly named service, perf-sentinel selects the outermost route in the
 contiguous chain; it never adopts the caller service's route. A route template
 without a leading slash is canonicalized with one (`api/orders/{id}` becomes
 `/api/orders/{id}`), so equivalent instrumentation shapes produce one
-signature.
+signature. Some frameworks instead put a symbolic route name in `http.route`
+and the request path in `url.path`. When the route contains no `/` and
+`url.path` is usable, perf-sentinel uses `url.path`; a route containing `/`
+remains authoritative, including slashless Django routes and templates. A
+symbolic route without `url.path` keeps the conservative existing behavior and
+is canonicalized with a leading slash.
 
 When traced services emit `http.route`:
 
@@ -282,7 +287,9 @@ churn.
 Upgrade note (0.11.2): endpoint attribution now keeps valid sampled parent
 context across daemon OTLP export requests and selects the outermost route in a
 contiguous same-service chain. Findings that previously used an inner framework
-route or `unknown` can therefore receive a different signature. Re-capture
+route or `unknown` can therefore receive a different signature. Findings whose
+framework emitted a symbolic `http.route` beside `url.path` also move from the
+route name to that path. Re-capture
 affected acknowledgments and persisted report baselines with 0.11.2.
 
 ### Service renames invalidate acks
