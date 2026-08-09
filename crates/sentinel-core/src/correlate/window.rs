@@ -37,11 +37,27 @@ impl Default for WindowConfig {
     }
 }
 
+#[derive(Clone)]
+struct ResolvedEndpoint {
+    endpoint: String,
+    depth: usize,
+}
+
+#[derive(Clone)]
+struct AncestryEntry {
+    parent_span_id: Option<String>,
+    resolution: Option<ResolvedEndpoint>,
+}
+
 /// Buffer for a single trace.
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_count: usize,
+    resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
+    needs_reconciliation: bool,
+    source_endpoint_generation: u64,
     /// Absolute timestamp (ms since epoch) of the last event pushed to this trace.
     /// Used for TTL eviction: the LRU cache handles relative access ordering.
     last_seen_ms: u64,
@@ -53,6 +69,9 @@ struct TraceBuffer {
 pub struct TraceWindow {
     config: WindowConfig,
     traces: LruCache<String, TraceBuffer>,
+    next_source_endpoint_generation: u64,
+    #[cfg(all(test, feature = "daemon"))]
+    reconciliation_passes: usize,
 }
 
 impl TraceWindow {
@@ -62,6 +81,9 @@ impl TraceWindow {
         Self {
             config,
             traces: LruCache::new(cap),
+            next_source_endpoint_generation: 0,
+            #[cfg(all(test, feature = "daemon"))]
+            reconciliation_passes: 0,
         }
     }
 
@@ -77,8 +99,14 @@ impl TraceWindow {
         // Fast path: trace already exists: get_mut auto-promotes to MRU.
         if let Some(buf) = self.traces.get_mut(event.event.trace_id.as_str()) {
             buf.last_seen_ms = now_ms;
-            apply_direct_source_endpoint(&mut event, &buf.source_endpoint_groups);
+            resolve_and_index_event(
+                &mut event,
+                &buf.source_endpoint_groups,
+                &mut buf.resolved_ancestry,
+                buf.resolved_ancestry_cap,
+            );
             buf.events.push_back(event);
+            buf.needs_reconciliation = true;
             // Ring buffer: drop oldest if over capacity
             if buf.events.len() > self.config.max_events_per_trace {
                 buf.events.pop_front();
@@ -88,20 +116,25 @@ impl TraceWindow {
 
         // Slow path: new trace, clone trace_id; push evicts LRU if at cap.
         let trace_id = event.event.trace_id.clone();
-        let mut events = VecDeque::with_capacity(8);
-        events.push_back(event);
+        let mut buffer = new_trace_buffer(now_ms, self.config.max_events_per_trace);
+        resolve_and_index_event(
+            &mut event,
+            &buffer.source_endpoint_groups,
+            &mut buffer.resolved_ancestry,
+            buffer.resolved_ancestry_cap,
+        );
+        buffer.events.push_back(event);
+        buffer.needs_reconciliation = true;
 
-        self.traces
-            .push(
-                trace_id,
-                TraceBuffer {
-                    events,
-                    source_endpoint_groups: HashMap::new(),
-                    source_endpoint_count: 0,
-                    last_seen_ms: now_ms,
-                },
-            )
-            .and_then(finish_trace_buffer)
+        let evicted = self.traces.push(trace_id, buffer);
+        #[cfg(all(test, feature = "daemon"))]
+        if evicted
+            .as_ref()
+            .is_some_and(|(_, buffer)| buffer.needs_reconciliation)
+        {
+            self.reconciliation_passes += 1;
+        }
+        evicted.and_then(finish_trace_buffer)
     }
 
     /// Retain SERVER-root context even when no I/O event exists yet.
@@ -119,25 +152,34 @@ impl TraceWindow {
             return None;
         }
         let root_cap = self.config.max_events_per_trace;
+        self.next_source_endpoint_generation = self.next_source_endpoint_generation.wrapping_add(1);
+        let source_endpoint_generation = self.next_source_endpoint_generation;
         if let Some(buf) = self.traces.peek_mut(trace_id) {
             merge_source_endpoint_groups(buf, service_root_endpoints, root_cap);
+            buf.source_endpoint_generation = source_endpoint_generation;
+            #[cfg(all(test, feature = "daemon"))]
+            {
+                self.reconciliation_passes += 1;
+            }
             reconcile_trace_buffer(buf);
             return None;
         }
 
-        let mut buf = TraceBuffer {
-            events: VecDeque::new(),
-            source_endpoint_groups: HashMap::new(),
-            source_endpoint_count: 0,
-            last_seen_ms: now_ms,
-        };
+        let mut buf = new_trace_buffer(now_ms, root_cap);
         merge_source_endpoint_groups(&mut buf, service_root_endpoints, root_cap);
         if buf.source_endpoint_count == 0 {
             return None;
         }
-        self.traces
-            .push(trace_id.to_string(), buf)
-            .and_then(finish_trace_buffer)
+        buf.source_endpoint_generation = source_endpoint_generation;
+        let evicted = self.traces.push(trace_id.to_string(), buf);
+        #[cfg(all(test, feature = "daemon"))]
+        if evicted
+            .as_ref()
+            .is_some_and(|(_, buffer)| buffer.needs_reconciliation)
+        {
+            self.reconciliation_passes += 1;
+        }
+        evicted.and_then(finish_trace_buffer)
     }
 
     /// Fill unresolved source endpoints below active SERVER roots in one trace.
@@ -145,9 +187,9 @@ impl TraceWindow {
     /// Uses `peek_mut` so a context-only update neither extends the trace TTL
     /// nor promotes it in the LRU. An already-evicted trace stays evicted.
     /// Builds one parent index and scans each unresolved event once, with the
-    /// same bounded ancestor walk as OTLP conversion. If a filtered non-I/O
-    /// intermediary is absent, the endpoint stays unknown rather than being
-    /// attributed to an unrelated root.
+    /// same bounded ancestor walk as OTLP conversion. A missing intermediary
+    /// stays unknown when multiple roots could match. At the valid minimum
+    /// ancestry cap of one, a sole retained root is the only safe fallback.
     pub fn reconcile_source_endpoint_groups(
         &mut self,
         trace_id: &str,
@@ -159,7 +201,21 @@ impl TraceWindow {
         let Some(buf) = self.traces.peek_mut(trace_id) else {
             return 0;
         };
-        reconcile_event_source_endpoint_groups(buf.events.make_contiguous(), service_root_endpoints)
+        #[cfg(all(test, feature = "daemon"))]
+        {
+            self.reconciliation_passes += 1;
+        }
+        let mut updated = 0;
+        for event in &mut buf.events {
+            updated += usize::from(resolve_and_index_event(
+                event,
+                service_root_endpoints,
+                &mut buf.resolved_ancestry,
+                buf.resolved_ancestry_cap,
+            ));
+        }
+        buf.needs_reconciliation = false;
+        updated
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -223,13 +279,50 @@ impl TraceWindow {
         self.traces.len()
     }
 
+    #[cfg(feature = "daemon")]
+    pub(crate) fn contains_trace(&self, trace_id: &str) -> bool {
+        self.traces.peek(trace_id).is_some()
+    }
+
+    #[cfg(feature = "daemon")]
+    pub(crate) fn source_endpoint_generation(&self, trace_id: &str) -> Option<u64> {
+        self.traces
+            .peek(trace_id)
+            .map(|buffer| buffer.source_endpoint_generation)
+    }
+
+    #[cfg(all(test, feature = "daemon"))]
+    pub(crate) fn reconciliation_passes(&self) -> usize {
+        self.reconciliation_passes
+    }
+
     /// Clone a trace's spans without evicting or promoting it in the LRU.
     /// Returns `None` if the trace is not in the window.
     #[must_use]
     pub fn peek_clone(&self, trace_id: &str) -> Option<Vec<NormalizedEvent>> {
-        self.traces
-            .peek(trace_id)
-            .map(|buf| buf.events.iter().cloned().collect())
+        self.traces.peek(trace_id).map(|buf| {
+            let mut events: Vec<_> = buf.events.iter().cloned().collect();
+            reconcile_cloned_events(
+                &mut events,
+                &buf.source_endpoint_groups,
+                buf.resolved_ancestry.as_ref(),
+                buf.resolved_ancestry_cap,
+            );
+            events
+        })
+    }
+}
+
+fn new_trace_buffer(now_ms: u64, per_trace_cap: usize) -> TraceBuffer {
+    TraceBuffer {
+        events: VecDeque::with_capacity(8),
+        source_endpoint_groups: HashMap::new(),
+        source_endpoint_count: 0,
+        resolved_ancestry: NonZeroUsize::new(per_trace_cap).map(|_| LruCache::unbounded()),
+        resolved_ancestry_cap: per_trace_cap,
+        needs_reconciliation: false,
+        source_endpoint_generation: 0,
+        last_seen_ms: now_ms,
     }
 }
 
@@ -261,38 +354,260 @@ fn merge_source_endpoint_groups(
     }
 }
 
-/// Apply the common direct-child case without scanning the whole trace.
-///
-fn apply_direct_source_endpoint(
+fn resolve_and_index_event(
     event: &mut NormalizedEvent,
     source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
-) {
+    resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
+) -> bool {
+    let mut updated = false;
+    let source_was_unknown = {
+        let source = event.event.source.endpoint.trim();
+        source.is_empty() || source == "unknown"
+    };
+    let parent_resolution = resolve_parent_endpoint(
+        &event.event.service,
+        event.event.parent_span_id.as_deref(),
+        source_endpoint_groups,
+        resolved_ancestry,
+        resolved_ancestry_cap,
+    );
+    if source_was_unknown
+        && let Some(parent) = &parent_resolution
+        && parent.depth < ANCESTOR_WALK_MAX_DEPTH
+    {
+        event.event.source.endpoint.clone_from(&parent.endpoint);
+        updated = true;
+    }
     let source = event.event.source.endpoint.trim();
-    if !source.is_empty() && source != "unknown" {
-        return;
-    }
-    let Some(root_endpoints) = source_endpoint_groups.get(event.event.service.as_ref()) else {
-        return;
+    let resolution = if !source.is_empty() && source != "unknown" {
+        let depth = parent_resolution.as_ref().map_or(0, |parent| {
+            parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
+        });
+        Some(ResolvedEndpoint {
+            endpoint: event.event.source.endpoint.clone(),
+            depth,
+        })
+    } else {
+        None
     };
-    let Some(parent_span_id) = event.event.parent_span_id.as_ref() else {
-        return;
-    };
-    if let Some(endpoint) = root_endpoints.get(parent_span_id) {
-        event.event.source.endpoint.clone_from(endpoint);
-    }
+    cache_ancestry_entry(
+        resolved_ancestry,
+        resolved_ancestry_cap,
+        (
+            Arc::clone(&event.event.service),
+            event.event.span_id.clone(),
+        ),
+        AncestryEntry {
+            parent_span_id: event.event.parent_span_id.clone(),
+            resolution,
+        },
+    );
+    updated
 }
 
 fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
-    reconcile_event_source_endpoint_groups(
-        buffer.events.make_contiguous(),
-        &buffer.source_endpoint_groups,
-    )
+    let TraceBuffer {
+        events,
+        source_endpoint_groups,
+        resolved_ancestry,
+        resolved_ancestry_cap,
+        ..
+    } = buffer;
+    let mut updated = 0;
+    for event in events.iter_mut() {
+        updated += usize::from(resolve_and_index_event(
+            event,
+            source_endpoint_groups,
+            resolved_ancestry,
+            *resolved_ancestry_cap,
+        ));
+    }
+    buffer.needs_reconciliation = false;
+    updated
+}
+
+fn resolve_parent_endpoint(
+    service: &Arc<str>,
+    parent_span_id: Option<&str>,
+    source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
+    resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
+) -> Option<ResolvedEndpoint> {
+    let roots = source_endpoint_groups.get(service.as_ref());
+    let mut current_span_id = parent_span_id?.to_string();
+    let mut traversed = Vec::new();
+
+    for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
+        if let Some(endpoint) =
+            roots.and_then(|root_endpoints| root_endpoints.get(&current_span_id))
+        {
+            compress_ancestry_path(resolved_ancestry, &traversed, endpoint, distance);
+            return Some(ResolvedEndpoint {
+                endpoint: endpoint.clone(),
+                depth: distance,
+            });
+        }
+
+        let key = (Arc::clone(service), current_span_id);
+        let Some(entry) = resolved_ancestry
+            .as_mut()
+            .and_then(|ancestry| ancestry.get(&key))
+            .cloned()
+        else {
+            return sole_root_endpoint(
+                roots,
+                distance,
+                resolved_ancestry.as_ref(),
+                resolved_ancestry_cap,
+            );
+        };
+        if let Some(resolution) = entry.resolution {
+            let depth = resolution.depth.saturating_add(distance);
+            compress_ancestry_path(resolved_ancestry, &traversed, &resolution.endpoint, depth);
+            return Some(ResolvedEndpoint {
+                endpoint: resolution.endpoint,
+                depth,
+            });
+        }
+        traversed.push(key);
+        let Some(parent_span_id) = entry.parent_span_id else {
+            return sole_root_endpoint(
+                roots,
+                distance,
+                resolved_ancestry.as_ref(),
+                resolved_ancestry_cap,
+            );
+        };
+        current_span_id = parent_span_id;
+    }
+    None
+}
+
+fn sole_root_endpoint(
+    roots: Option<&HashMap<String, String>>,
+    depth: usize,
+    resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
+) -> Option<ResolvedEndpoint> {
+    if resolved_ancestry_cap != 1 || resolved_ancestry?.len() != 1 {
+        return None;
+    }
+    let roots = roots?;
+    if roots.len() != 1 {
+        return None;
+    }
+    Some(ResolvedEndpoint {
+        endpoint: roots.values().next()?.clone(),
+        depth,
+    })
+}
+
+fn compress_ancestry_path(
+    resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
+    traversed: &[(Arc<str>, String)],
+    endpoint: &str,
+    immediate_parent_depth: usize,
+) {
+    let Some(ancestry) = resolved_ancestry else {
+        return;
+    };
+    for (offset, key) in traversed.iter().enumerate() {
+        if let Some(entry) = ancestry.get_mut(key) {
+            entry.resolution = Some(ResolvedEndpoint {
+                endpoint: endpoint.to_string(),
+                depth: immediate_parent_depth
+                    .saturating_sub(offset)
+                    .min(ANCESTOR_WALK_MAX_DEPTH),
+            });
+        }
+    }
+    if let Some(parent_key) = traversed.first() {
+        ancestry.get(parent_key);
+    }
+}
+
+fn cache_ancestry_entry(
+    resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
+    cap: usize,
+    key: (Arc<str>, String),
+    entry: AncestryEntry,
+) {
+    if let Some(ancestry) = resolved_ancestry {
+        ancestry.put(key, entry);
+        if ancestry.len() > cap {
+            ancestry.pop_lru();
+        }
+    }
+}
+
+fn reconcile_cloned_events(
+    events: &mut [NormalizedEvent],
+    source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
+    resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
+) {
+    for event in events.iter_mut() {
+        let source = event.event.source.endpoint.trim();
+        if !source.is_empty() && source != "unknown" {
+            continue;
+        }
+        let Some(parent_span_id) = event.event.parent_span_id.as_ref() else {
+            continue;
+        };
+        if let Some(parent) = peek_parent_endpoint(
+            &event.event.service,
+            parent_span_id,
+            source_endpoint_groups,
+            resolved_ancestry,
+            resolved_ancestry_cap,
+        ) && parent.depth < ANCESTOR_WALK_MAX_DEPTH
+        {
+            event.event.source.endpoint = parent.endpoint;
+        }
+    }
+    reconcile_event_source_endpoint_groups(events, source_endpoint_groups);
+}
+
+fn peek_parent_endpoint(
+    service: &Arc<str>,
+    parent_span_id: &str,
+    source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
+    resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
+) -> Option<ResolvedEndpoint> {
+    let roots = source_endpoint_groups.get(service.as_ref());
+    let mut current_span_id = parent_span_id;
+    for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
+        if let Some(endpoint) = roots.and_then(|root_endpoints| root_endpoints.get(current_span_id))
+        {
+            return Some(ResolvedEndpoint {
+                endpoint: endpoint.clone(),
+                depth: distance,
+            });
+        }
+        let key = (Arc::clone(service), current_span_id.to_string());
+        let Some(entry) = resolved_ancestry.and_then(|ancestry| ancestry.peek(&key)) else {
+            return sole_root_endpoint(roots, distance, resolved_ancestry, resolved_ancestry_cap);
+        };
+        if let Some(resolution) = &entry.resolution {
+            return Some(ResolvedEndpoint {
+                endpoint: resolution.endpoint.clone(),
+                depth: resolution.depth.saturating_add(distance),
+            });
+        }
+        let Some(parent_span_id) = entry.parent_span_id.as_deref() else {
+            return sole_root_endpoint(roots, distance, resolved_ancestry, resolved_ancestry_cap);
+        };
+        current_span_id = parent_span_id;
+    }
+    None
 }
 
 fn finish_trace_buffer(
     (trace_id, mut buffer): (String, TraceBuffer),
 ) -> Option<(String, Vec<NormalizedEvent>)> {
-    if !buffer.source_endpoint_groups.is_empty() {
+    if buffer.needs_reconciliation {
         reconcile_trace_buffer(&mut buffer);
     }
     let events = Vec::from(buffer.events);
@@ -793,6 +1108,45 @@ mod tests {
     }
 
     #[test]
+    fn compressed_ancestry_keeps_every_hop_beyond_the_depth_limit_unknown() {
+        let mut w = TraceWindow::new(WindowConfig::default());
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+
+        let mut parent = "root".to_string();
+        for depth in 1..=ANCESTOR_WALK_MAX_DEPTH {
+            let span_id = format!("within-{depth}");
+            w.push(
+                make_child("t1", "svc-a", &span_id, &parent, &span_id, "unknown"),
+                depth as u64,
+            );
+            parent = span_id;
+        }
+        w.push(make_child("t1", "svc-a", "a", "b", "a", "unknown"), 9);
+        w.push(make_child("t1", "svc-a", "b", &parent, "b", "unknown"), 10);
+        w.push(make_child("t1", "svc-a", "c", "a", "c", "unknown"), 11);
+        w.push(make_child("t1", "svc-a", "d", "b", "d", "unknown"), 12);
+
+        let trace = w.peek_clone("t1").expect("trace remains active");
+        for span_id in ["a", "b", "c", "d"] {
+            assert_eq!(
+                trace
+                    .iter()
+                    .find(|event| event.event.span_id == span_id)
+                    .expect("event retained")
+                    .event
+                    .source
+                    .endpoint,
+                "unknown",
+                "{span_id} is beyond the ancestor walk limit"
+            );
+        }
+    }
+
+    #[test]
     fn grouped_reconciliation_stays_bounded_under_many_unmatched_roots() {
         const ADVERSARIAL_SIZE: usize = 500;
 
@@ -1078,6 +1432,220 @@ mod tests {
     }
 
     #[test]
+    fn resolved_ancestry_survives_ring_rotation_for_shared_children() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 3,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        w.push(
+            make_child("t1", "svc-a", "intermediate", "root", "orders", "unknown"),
+            1,
+        );
+        for index in 0..10 {
+            w.push(
+                make_child(
+                    "t1",
+                    "svc-a",
+                    &format!("child-{index}"),
+                    "intermediate",
+                    "orders",
+                    "unknown",
+                ),
+                index + 2,
+            );
+        }
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(preview.len(), 3, "ring retains only the newest children");
+        assert!(
+            preview
+                .iter()
+                .all(|event| event.event.source.endpoint == "/api/orders")
+        );
+
+        let (trace_id, spans) = w.drain_all().pop().expect("one finished trace");
+        let findings =
+            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 0, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].source_endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn capacity_one_ancestry_keeps_the_referenced_parent_for_siblings() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        w.push(
+            make_child("t1", "svc-a", "parent", "root", "parent", "unknown"),
+            1,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child-1", "parent", "child-1", "unknown"),
+            2,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child-2", "parent", "child-2", "unknown"),
+            3,
+        );
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0].event.span_id, "child-2");
+        assert_eq!(preview[0].event.source.endpoint, "/api/orders");
+
+        let (_, events) = w.drain_all().pop().expect("one finished trace");
+        assert_eq!(events[0].event.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn resolved_ancestry_survives_out_of_order_parent_rotation() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 2,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        w.push(make_child("t1", "svc-a", "a", "b", "a", "unknown"), 1);
+        w.push(make_child("t1", "svc-a", "b", "root", "b", "unknown"), 2);
+        w.push(make_child("t1", "svc-a", "c", "a", "c", "unknown"), 3);
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        let c = preview
+            .iter()
+            .find(|event| event.event.span_id == "c")
+            .expect("newest child remains in the ring");
+        assert_eq!(c.event.source.endpoint, "/api/orders");
+
+        let (_, events) = w.drain_all().pop().expect("one finished trace");
+        let c = events
+            .iter()
+            .find(|event| event.event.span_id == "c")
+            .expect("newest child is drained");
+        assert_eq!(c.event.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn ancestry_cache_does_not_preallocate_the_per_trace_limit() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 100_000,
+            ..WindowConfig::default()
+        });
+        w.push(make_event("t1", "SELECT 1"), 0);
+
+        let buffer = w.traces.peek("t1").expect("trace remains active");
+        let ancestry = buffer
+            .resolved_ancestry
+            .as_ref()
+            .expect("positive cap enables ancestry retention");
+        assert_eq!(ancestry.cap(), NonZeroUsize::MAX);
+        assert_eq!(ancestry.len(), 1);
+    }
+
+    #[test]
+    fn resolved_ancestry_isolated_by_service_when_span_ids_collide() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 4,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([
+            (
+                Arc::from("svc-a"),
+                HashMap::from([("root".to_string(), "/api/a".to_string())]),
+            ),
+            (
+                Arc::from("svc-b"),
+                HashMap::from([("root".to_string(), "/api/b".to_string())]),
+            ),
+        ]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        w.push(
+            make_child("t1", "svc-a", "shared", "root", "a-parent", "unknown"),
+            1,
+        );
+        w.push(
+            make_child("t1", "svc-b", "shared", "root", "b-parent", "unknown"),
+            1,
+        );
+        w.push(
+            make_child("t1", "svc-a", "a-child", "shared", "a-child", "unknown"),
+            2,
+        );
+        w.push(
+            make_child("t1", "svc-b", "b-child", "shared", "b-child", "unknown"),
+            2,
+        );
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        let endpoint_for = |target: &str| {
+            preview
+                .iter()
+                .find(|event| event.event.target == target)
+                .expect("event retained")
+                .event
+                .source
+                .endpoint
+                .as_str()
+        };
+        assert_eq!(endpoint_for("a-child"), "/api/a");
+        assert_eq!(endpoint_for("b-child"), "/api/b");
+    }
+
+    #[test]
+    fn root_update_feeds_resolved_ancestry_before_parent_rotation() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 3,
+            ..WindowConfig::default()
+        });
+        w.push(
+            make_child("t1", "svc-a", "intermediate", "root", "orders", "unknown"),
+            0,
+        );
+        w.push(
+            make_child("t1", "svc-a", "early", "intermediate", "orders", "unknown"),
+            1,
+        );
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/orders".to_string())]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 2).is_none());
+        for index in 0..10 {
+            w.push(
+                make_child(
+                    "t1",
+                    "svc-a",
+                    &format!("late-{index}"),
+                    "intermediate",
+                    "orders",
+                    "unknown",
+                ),
+                index + 3,
+            );
+        }
+
+        assert!(
+            w.peek_clone("t1")
+                .expect("trace remains active")
+                .iter()
+                .all(|event| event.event.source.endpoint == "/api/orders")
+        );
+    }
+
+    #[test]
     fn early_root_storm_is_bounded_by_trace_and_per_trace_caps() {
         let mut w = TraceWindow::new(WindowConfig {
             max_events_per_trace: 3,
@@ -1111,6 +1679,12 @@ mod tests {
                 .iter()
                 .all(|(_, buffer)| buffer.source_endpoint_count <= 3)
         );
+        assert!(w.traces.iter().all(|(_, buffer)| {
+            buffer
+                .resolved_ancestry
+                .as_ref()
+                .is_none_or(|ancestry| ancestry.len() <= 3)
+        }));
         assert!(w.drain_all().is_empty(), "context-only drain stays empty");
         assert_eq!(w.active_traces(), 0);
     }

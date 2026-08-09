@@ -59,6 +59,8 @@ struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_count: usize,
+    resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
+    resolved_ancestry_cap: usize,
     last_seen_ms: u64,
 }
 ```
@@ -76,12 +78,27 @@ if buf.events.len() > self.config.max_events_per_trace {
 La capacité initiale est `VecDeque::with_capacity(8)` : une petite allocation pour les traces de courte durée qui évite les doublements répétés pour le cas courant de 1-10 événements.
 
 Une trace OTLP peut aussi conserver les contextes d'endpoint racine SERVER
-avant que ses événements I/O n'arrivent dans un lot ultérieur. Les événements
-et les contextes racine forment deux collections distinctes, **chacune**
-plafonnée par `max_events_per_trace`. Les traces ne contenant que du contexte
-utilisent le même LRU `max_active_traces` et la même éviction
-`trace_ttl_ms` que les traces avec événements ; les racines précoces ne peuvent
-donc pas créer un état non borné.
+avant que ses événements I/O n'arrivent dans un lot ultérieur, ainsi qu'un LRU
+d'ascendance de spans qui conserve le lien parent et la route résolue
+facultative après la rotation de l'événement. Il répare aussi l'arrivée du
+parent après l'enfant par une recherche bornée à huit sauts. Les événements,
+contextes racine et entrées d'ascendance forment trois collections distinctes,
+**chacune** plafonnée par `max_events_per_trace`. Le LRU d'ascendance alloue sa
+mémoire progressivement au lieu de réserver le plafond configuré pour chaque
+trace. Au plafond minimal valide de un, la rotation peut remplacer l'unique
+entrée parent ; une chaîne manquante n'utilise alors un fallback que si le
+service possède exactement une racine conservée. Les services multi-racines et
+les chaînes ayant épuisé la profondeur restent inconnus. Les traces ne contenant
+que du contexte utilisent le même LRU
+`max_active_traces` et la même éviction `trace_ttl_ms` que les traces avec
+événements ; les racines précoces et l'ascendance ne peuvent donc pas créer un
+état non borné.
+
+Dans un lot d'ingestion, chaque groupe de racines conservé reçoit une génération
+monotone de la fenêtre. Les événements comparent cette génération en O(1) et ne
+réappliquent le groupe qu'après une éviction ou un remplacement réel du
+contexte. Un groupe dépassant le plafond n'est donc tenté qu'une fois au lieu
+d'être rescanné pour chaque événement.
 
 ### Éviction TTL
 
@@ -127,18 +144,25 @@ La consommation mémoire maximale du TraceWindow peut être estimée :
 
 ```
 mémoire_max = max_active_traces × max_events_per_trace
-              × (taille_moyenne_événement + taille_moyenne_contexte_racine)
+              × (taille_moyenne_événement + taille_moyenne_contexte_racine
+                 + taille_moyenne_entrée_ascendance)
 ```
 
-Les deux collections par trace peuvent atteindre leur plafond. Avec les
+Les trois collections par trace peuvent chacune atteindre leur plafond. Avec les
 valeurs par défaut, la seule partie événements représente environ 5 Go au
 maximum théorique (10 000 × 1 000 × ~500 octets), auxquels s'ajoutent les
-contextes racine bornés séparément.
+contextes racine et entrées d'ascendance bornés séparément.
 
-En pratique, la plupart des traces ont bien moins d'événements que le cap. Avec des traces typiques de 10-50 événements :
+En pratique, la plupart des traces ont bien moins d'événements que le cap. Pour
+des traces typiques de 10 à 50 événements, la seule partie événements vaut
+environ :
 
 ```
 mémoire_typique = 10 000 × 50 × ~500 octets = ~250 Mo
 ```
+
+Les contextes racine et les entrées d'ascendance allouées progressivement
+s'ajoutent à cette estimation limitée aux événements ; le plafond configuré de
+1 000 entrées d'ascendance n'est pas préalloué pour chaque trace.
 
 La validation de la config plafonne `max_active_traces` à 1 000 000 et `max_events_per_trace` à 100 000 pour éviter les erreurs de configuration accidentelles.
