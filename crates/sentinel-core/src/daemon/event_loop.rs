@@ -1,7 +1,7 @@
 //! Daemon main event loop: ingest batches, evict expired traces, and route
 //! the resulting traces through detect + score + metrics + findings store.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -25,7 +25,7 @@ use crate::score::redfish::RedfishState;
 use crate::score::scaphandre::ScaphandreState;
 
 use super::findings_store;
-use super::sampling::apply_sampling;
+use super::sampling::{apply_sampling, should_sample};
 
 /// Config slice the main event loop needs, the values that are pulled out
 /// of `Config` once at startup and never change.
@@ -387,15 +387,14 @@ async fn ingest_event_batch(
     let event_count = events.len();
     // Normalize OUTSIDE the lock to minimize lock hold time.
     let normalized: Vec<_> = events.into_iter().map(normalize::normalize).collect();
-    let touched_trace_ids: HashSet<String> = normalized
-        .iter()
-        .map(|event| event.event.trace_id.clone())
-        .collect();
     for event in &normalized {
         service_meter.record(event.event.service.as_ref(), metrics);
     }
     let mut source_endpoint_groups = HashMap::new();
-    for update in source_endpoint_updates {
+    for update in source_endpoint_updates
+        .into_iter()
+        .filter(|update| should_sample(&update.trace_id, sampling_rate))
+    {
         source_endpoint_groups
             .entry(update.trace_id)
             .or_insert_with(HashMap::new)
@@ -432,12 +431,6 @@ async fn ingest_event_batch(
             // second grouping or persistent cache is created.
             for (trace_id, service_root_endpoints) in &source_endpoint_groups {
                 w.reconcile_source_endpoint_groups(trace_id, service_root_endpoints);
-            }
-            // A later I/O-only batch has no update map to drive the pass above.
-            // Only traces whose direct lookup could not resolve a parent chain
-            // request this bounded reconciliation against retained roots.
-            for trace_id in &touched_trace_ids {
-                w.reconcile_pending_source_endpoints(trace_id);
             }
         }
         metrics.active_traces.set(w.active_traces() as f64);
@@ -1401,6 +1394,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zero_sampling_drops_root_context_without_evicting_a_kept_trace() {
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
+            ..WindowConfig::default()
+        })));
+        window.lock().await.push(
+            make_normalized_messaging("kept", "span", "root", "orders"),
+            current_time_ms(),
+        );
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events: Vec::new(),
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "dropped".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root".to_string(),
+                    endpoint: "/api/dropped".to_string(),
+                }],
+            },
+            0.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        let guard = window.lock().await;
+        assert!(evicted.is_empty());
+        assert!(guard.peek_clone("kept").is_some());
+        assert!(guard.peek_clone("dropped").is_none());
+    }
+
+    #[tokio::test]
+    async fn partial_sampling_keeps_only_matching_root_context() {
+        let rate = 0.5;
+        let trace_id_for = |keep: bool| {
+            (0..10_000)
+                .map(|index| format!("sampling-root-{index}"))
+                .find(|trace_id| {
+                    let event = make_normalized_messaging(trace_id, "span", "root", "orders").event;
+                    apply_sampling(vec![event], rate).is_empty() != keep
+                })
+                .expect("sampling decision of requested kind")
+        };
+        let kept_trace_id = trace_id_for(true);
+        let dropped_trace_id = trace_id_for(false);
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
+            ..WindowConfig::default()
+        })));
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+        let root_batch = |trace_id: &str, endpoint: &str| super::super::IngestBatch {
+            events: Vec::new(),
+            source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                trace_id: trace_id.to_string(),
+                service: Arc::from("orders-svc"),
+                root_span_id: "root".to_string(),
+                endpoint: endpoint.to_string(),
+            }],
+        };
+
+        assert!(
+            ingest_event_batch(
+                root_batch(&kept_trace_id, "/api/kept"),
+                rate,
+                &window,
+                &metrics,
+                &mut service_meter,
+            )
+            .await
+            .is_empty()
+        );
+        assert!(window.lock().await.peek_clone(&kept_trace_id).is_some());
+        assert!(
+            ingest_event_batch(
+                root_batch(&dropped_trace_id, "/api/dropped"),
+                rate,
+                &window,
+                &metrics,
+                &mut service_meter,
+            )
+            .await
+            .is_empty()
+        );
+
+        let guard = window.lock().await;
+        assert!(guard.peek_clone(&kept_trace_id).is_some());
+        assert!(guard.peek_clone(&dropped_trace_id).is_none());
+    }
+
+    #[tokio::test]
     async fn same_batch_root_reconciles_new_trace_before_detection() {
         let metrics = MetricsState::new();
         let window = test_window();
@@ -1601,6 +1697,84 @@ mod tests {
                 .expect("trace remains active")
                 .iter()
                 .all(|event| event.event.source.endpoint == "/api/orders")
+        );
+    }
+
+    #[tokio::test]
+    async fn unresolved_io_only_batches_stay_within_the_bounded_work_budget() {
+        const BATCH_COUNT: usize = 500;
+        const EVENTS_PER_BATCH: usize = 100;
+        const EVENT_COUNT: usize = BATCH_COUNT * EVENTS_PER_BATCH;
+
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_events_per_trace: EVENT_COUNT,
+            ..WindowConfig::default()
+        })));
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+        ingest_event_batch(
+            super::super::IngestBatch {
+                events: Vec::new(),
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-1".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root".to_string(),
+                    endpoint: "/api/orders".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        let started = std::time::Instant::now();
+        for batch_index in 0..BATCH_COUNT {
+            let events = (0..EVENTS_PER_BATCH)
+                .map(|event_index| {
+                    let index = batch_index * EVENTS_PER_BATCH + event_index;
+                    make_normalized_messaging(
+                        "trace-1",
+                        &format!("span-{index}"),
+                        &format!("missing-{index}"),
+                        "orders",
+                    )
+                    .event
+                })
+                .collect();
+            assert!(
+                ingest_event_batch(
+                    super::super::IngestBatch {
+                        events,
+                        source_endpoint_updates: Vec::new(),
+                    },
+                    1.0,
+                    &window,
+                    &metrics,
+                    &mut service_meter,
+                )
+                .await
+                .is_empty()
+            );
+        }
+        let drained = window.lock().await.drain_all();
+
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].1.len(), EVENT_COUNT);
+        assert!(
+            drained[0]
+                .1
+                .iter()
+                .all(|event| event.event.source.endpoint == "unknown")
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "I/O-only batches repeatedly rescanned unresolved traces"
         );
     }
 

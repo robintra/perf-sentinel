@@ -57,6 +57,8 @@ Each trace stores its events in a `VecDeque<NormalizedEvent>`:
 ```rust
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
+    source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
+    source_endpoint_count: usize,
     last_seen_ms: u64,
 }
 ```
@@ -72,6 +74,12 @@ if buf.events.len() > self.config.max_events_per_trace {
 **Why `VecDeque`?** `Vec::remove(0)` is O(n) because it shifts all elements. `VecDeque::pop_front()` is O(1) because it is backed by a circular buffer. For traces with high event counts hitting the cap frequently, this avoids O(n^2) degradation.
 
 The initial capacity is `VecDeque::with_capacity(8)`: a small allocation for short-lived traces that avoids repeated doubling for the common case of 1-10 events.
+
+An OTLP trace can also retain SERVER-root endpoint contexts before its I/O
+events arrive in a later batch. Events and root contexts are separate
+collections, and **each** is capped at `max_events_per_trace`. Context-only
+traces use the same `max_active_traces` LRU and `trace_ttl_ms` eviction as
+event-bearing traces, so early roots cannot create unbounded state.
 
 ### TTL eviction
 
@@ -116,10 +124,13 @@ When converting evicted trace events from `VecDeque` to `Vec`:
 The maximum memory consumption of the TraceWindow can be estimated:
 
 ```
-max_memory = max_active_traces × max_events_per_trace × avg_event_size
-           = 10,000 × 1,000 × ~500 bytes
-           = ~5 GB (theoretical maximum)
+max_memory = max_active_traces × max_events_per_trace
+             × (avg_event_size + avg_root_context_size)
 ```
+
+The two per-trace collections can both reach their cap. With the defaults,
+the event portion alone is about 5 GB at the theoretical maximum
+(10,000 × 1,000 × ~500 bytes), plus the separately bounded root contexts.
 
 In practice, most traces have far fewer events than the cap. With typical traces of 10-50 events:
 
@@ -134,9 +145,10 @@ worst case is bounded per field by `sanitize_span_event` at every
 ingest boundary (OTLP, JSON, Jaeger, Zipkin), with `MAX_TARGET_LENGTH`
 (64 KiB per `target`) as the dominating term: a hostile or pathological
 emitter shipping maximal SQL text in every event can push a single
-trace to roughly 130 MB (1,000 events × ~130 KiB of capped strings,
-target plus template). Memory stays bounded, but the envelope is field
-caps × event cap × trace cap, not the typical estimate. Operators who
+trace's event collection to roughly 130 MB (1,000 events × ~130 KiB of
+capped strings, target plus template). Memory stays bounded, but the
+envelope includes both the event cap and the separate root-context cap,
+multiplied by the trace cap. Operators who
 suspect an oversized-text emitter should lower `max_events_per_trace`
 or `max_active_traces` (see the memory-pressure section of
 `docs/RUNBOOK.md`).

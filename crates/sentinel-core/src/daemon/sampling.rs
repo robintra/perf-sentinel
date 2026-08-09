@@ -103,11 +103,10 @@ fn hash_to_decision(hash: u64, rate: f64) -> bool {
     (hash as f64 / u64::MAX as f64) < rate
 }
 
-/// Deterministic per-trace sampling used by the unit tests. Production
-/// code goes through [`hash_trace_id`] + [`hash_to_decision`] directly
-/// in `apply_sampling` to avoid rehashing when the cache is consulted.
-#[cfg(test)]
-fn should_sample(trace_id: &str, rate: f64) -> bool {
+/// Deterministic per-trace decision shared by events and non-I/O trace
+/// context. `apply_sampling` uses the same hash-to-decision pair directly
+/// so its per-batch cache does not rehash repeated event trace IDs.
+pub(super) fn should_sample(trace_id: &str, rate: f64) -> bool {
     hash_to_decision(hash_trace_id(trace_id), rate)
 }
 
