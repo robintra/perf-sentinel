@@ -10,9 +10,6 @@ use tokio::time::{Duration, interval};
 use crate::correlate::Trace;
 use crate::correlate::window::{SourceEndpointParentGroups, TraceWindow};
 use crate::detect;
-#[cfg(test)]
-use crate::detect::sanitizer_aware::SanitizerAwareMode;
-use crate::detect::{Confidence, DetectConfig};
 use crate::normalize;
 use crate::report::metrics::MetricsState;
 use crate::report::{DatabaseWaste, GreenSummary, MessagingWaste};
@@ -23,6 +20,9 @@ use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::kepler::KeplerState;
 use crate::score::redfish::RedfishState;
 use crate::score::scaphandre::ScaphandreState;
+#[cfg(test)]
+use detect::sanitizer_aware::SanitizerAwareMode;
+use detect::{Confidence, DetectConfig};
 
 use super::findings_store;
 use super::sampling::{apply_sampling, should_sample};
@@ -227,7 +227,7 @@ async fn drive_event_loop(
     // from a malicious OTLP sender injecting millions of unique
     // `service.name` values.
     let mut service_meter = ServiceMeter {
-        known_services: std::collections::HashMap::new(),
+        known_services: HashMap::new(),
         max_service_cardinality: MAX_SERVICE_CARDINALITY,
         service_cap_warned: false,
     };
@@ -342,7 +342,7 @@ pub(crate) const MAX_SERVICE_CARDINALITY: usize = 1024;
 /// the label-hash plus `MetricVec` lock of `with_label_values` (the same
 /// cached-children pattern as the OTLP reject counters).
 struct ServiceMeter {
-    known_services: std::collections::HashMap<String, prometheus::Counter>,
+    known_services: HashMap<String, prometheus::Counter>,
     max_service_cardinality: usize,
     service_cap_warned: bool,
 }
@@ -745,14 +745,13 @@ fn build_tick_ctx<'s>(
     }
 
     // Slow path: materialize a merged snapshot and clone base.
-    let mut merged: std::collections::HashMap<String, score::carbon::EnergyEntry> =
-        std::collections::HashMap::with_capacity(
-            cloud_snap.len()
-                + redfish_snap.len()
-                + kepler_snap.len()
-                + scaph_snap.len()
-                + alumet_snap.len(),
-        );
+    let mut merged: HashMap<String, score::carbon::EnergyEntry> = HashMap::with_capacity(
+        cloud_snap.len()
+            + redfish_snap.len()
+            + kepler_snap.len()
+            + scaph_snap.len()
+            + alumet_snap.len(),
+    );
     for (service, energy_kwh) in cloud_snap {
         merged.insert(service, score::carbon::EnergyEntry::cloud(energy_kwh));
     }
@@ -1428,7 +1427,7 @@ mod tests {
         event.event.parent_span_id = Some("root-1".to_string());
         window.lock().await.push(event, current_time_ms());
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1479,7 +1478,7 @@ mod tests {
         nested_sql.event.parent_span_id = Some("nested-server".to_string());
         nested_sql.event.source.endpoint = "/api/payments/history".to_string();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1550,7 +1549,7 @@ mod tests {
         nested_sql.event.parent_span_id = Some("inner-server".to_string());
         nested_sql.event.source.endpoint = "/api/payments/history".to_string();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1620,7 +1619,7 @@ mod tests {
         callee_sql.event.parent_span_id = Some("callee-server".to_string());
         callee_sql.event.source.endpoint = "/api/payments/history".to_string();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1691,7 +1690,7 @@ mod tests {
             current_time_ms(),
         );
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1740,7 +1739,7 @@ mod tests {
             ..WindowConfig::default()
         })));
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1800,7 +1799,7 @@ mod tests {
             })
             .collect();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1829,8 +1828,8 @@ mod tests {
             .await
             .peek_clone("trace-new")
             .expect("new trace remains active");
-        let findings = crate::detect::slow::detect_slow(
-            &crate::correlate::Trace {
+        let findings = detect::slow::detect_slow(
+            &Trace {
                 trace_id: "trace-new".to_string(),
                 spans,
             },
@@ -1853,7 +1852,7 @@ mod tests {
         );
         let event = make_normalized_messaging("trace-1", "new", "root-1", "orders").event;
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1903,7 +1902,7 @@ mod tests {
             make_normalized_messaging("trace-b", "span-b", "root-b", "orders").event,
         ];
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -1953,7 +1952,7 @@ mod tests {
             })
             .collect();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -2022,7 +2021,7 @@ mod tests {
             })
             .collect();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -2055,7 +2054,7 @@ mod tests {
             ..WindowConfig::default()
         })));
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -2143,7 +2142,7 @@ mod tests {
         );
         trace_b.service = Arc::from("orders-svc");
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -2201,7 +2200,7 @@ mod tests {
         let metrics = MetricsState::new();
         let window = test_window();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -2218,11 +2217,10 @@ mod tests {
             .drain_all()
             .pop()
             .expect("one active trace");
-        let findings =
-            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 500, 3);
+        let findings = detect::slow::detect_slow(&Trace { trace_id, spans }, 500, 3);
         assert_eq!(findings.len(), 2);
         assert!(findings.iter().all(|finding| {
-            finding.finding_type == crate::detect::FindingType::SlowMessaging
+            finding.finding_type == detect::FindingType::SlowMessaging
                 && finding.pattern.occurrences == 3
         }));
         let mut endpoints: Vec<_> = findings
@@ -2251,7 +2249,7 @@ mod tests {
         let metrics = MetricsState::new();
         let window = test_window();
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -2291,8 +2289,7 @@ mod tests {
             .drain_all()
             .pop()
             .expect("one trace with I/O");
-        let findings =
-            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 500, 3);
+        let findings = detect::slow::detect_slow(&Trace { trace_id, spans }, 500, 3);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].source_endpoint, "/api/fastapi");
     }
@@ -2331,7 +2328,7 @@ mod tests {
             ..WindowConfig::default()
         })));
         let mut service_meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: MAX_SERVICE_CARDINALITY,
             service_cap_warned: false,
         };
@@ -3221,7 +3218,7 @@ mod tests {
     fn service_meter_overflow_counts_unattributed_ops() {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter {
-            known_services: std::collections::HashMap::new(),
+            known_services: HashMap::new(),
             max_service_cardinality: 2,
             service_cap_warned: false,
         };
@@ -3524,10 +3521,7 @@ mod tests {
         let findings = store.by_trace_id(&trace_id).await;
         assert_eq!(findings.len(), 1);
         let finding = &findings[0].finding;
-        assert_eq!(
-            finding.finding_type,
-            crate::detect::FindingType::SlowMessaging
-        );
+        assert_eq!(finding.finding_type, detect::FindingType::SlowMessaging);
         assert_eq!(finding.pattern.occurrences, 3);
         assert_eq!(finding.source_endpoint, "/api/shutdown");
         assert!(metrics.events_processed_total.get().abs() < f64::EPSILON);
