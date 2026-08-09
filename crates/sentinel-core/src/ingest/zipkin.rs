@@ -129,10 +129,20 @@ fn convert_zipkin_spans(
         .collect()
 }
 
-/// Inbound HTTP endpoint carried by this span's own tags: `http.route` on any
-/// kind, remaining HTTP fallbacks on any kind except CLIENT (an outbound
-/// call's URL names the callee, not the route being served).
+/// Inbound HTTP endpoint carried by an ancestor span: `http.route` on any
+/// kind, remaining HTTP fallbacks on any kind except CLIENT. Unspecified
+/// kinds remain eligible for legacy instrumentation.
 fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
+    http_endpoint(span, span.kind.as_deref() != Some("CLIENT"))
+}
+
+/// Inbound endpoint carried by the event span itself. A route template is a
+/// safe inbound signal on any kind; legacy URL fallbacks require SERVER.
+fn own_inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
+    http_endpoint(span, span.kind.as_deref() == Some("SERVER"))
+}
+
+fn http_endpoint(span: &ZipkinSpan, allow_url_fallback: bool) -> Option<String> {
     let tag = |key: &str| {
         span.tags
             .as_ref()
@@ -142,7 +152,7 @@ fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
     tag("http.route")
         .map(crate::ingest::canonical_http_route)
         .or_else(|| {
-            if span.kind.as_deref() == Some("CLIENT") {
+            if !allow_url_fallback {
                 return None;
             }
             tag("http.target")
@@ -287,7 +297,7 @@ fn convert_zipkin_span(
             .map(crate::ingest::canonical_http_route)
             .or_else(|| get_tag("http.target").map(ToString::to_string))
             .filter(|s| !s.trim().is_empty()),
-        super::TagIoKind::HttpOut => inbound_http_endpoint(span),
+        super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
     }
     .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
     let method = get_tag("code.function")
@@ -636,6 +646,64 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    }
+
+    #[test]
+    fn unspecified_outgoing_url_uses_its_parent_server_route() {
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "kind": "SERVER",
+                "name": "post /api/orders",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.route": "api/orders" }
+            },
+            {
+                "traceId": "t1",
+                "id": "s2",
+                "parentId": "s1",
+                "name": "get",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.url": "https://partner.example/v1/pay" }
+            }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        let outgoing = events
+            .iter()
+            .find(|event| event.event_type == EventType::HttpOut)
+            .expect("outgoing event present");
+
+        assert_eq!(outgoing.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn unspecified_root_url_does_not_self_source() {
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "get",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": { "http.url": "https://partner.example/v1/pay" }
+            }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "unknown");
     }
 
     #[test]

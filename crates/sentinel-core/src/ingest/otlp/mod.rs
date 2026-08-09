@@ -655,19 +655,31 @@ fn index_linked_consumers<'a>(
 /// eligible, which is what manual and legacy instrumentation emits.
 fn inbound_http_endpoint(span: &Span) -> Option<String> {
     let classified = classify_span_attrs(&span.attributes);
-    inbound_http_endpoint_from_classified(&classified, span.kind)
+    classified_inbound_http_endpoint(
+        &classified,
+        span.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32,
+    )
 }
 
-fn inbound_http_endpoint_from_classified(
+/// Inbound endpoint carried by the event span itself. A route template is a
+/// safe inbound signal on any kind; legacy URL fallbacks require SERVER.
+fn own_inbound_http_endpoint(c: &ClassifiedAttrs<'_>, span_kind: i32) -> Option<String> {
+    classified_inbound_http_endpoint(
+        c,
+        span_kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32,
+    )
+}
+
+fn classified_inbound_http_endpoint(
     c: &ClassifiedAttrs<'_>,
-    span_kind: i32,
+    allow_url_fallback: bool,
 ) -> Option<String> {
     let usable = |s: &&str| !s.trim().is_empty();
     c.http_route
         .filter(usable)
         .map(crate::ingest::canonical_http_route)
         .or_else(|| {
-            if span_kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32 {
+            if !allow_url_fallback {
                 return None;
             }
             c.http_url
@@ -1807,10 +1819,9 @@ fn convert_span<'a>(
         span.name.clone()
     };
 
-    let source_endpoint = inbound_http_endpoint_from_classified(classified, span.kind)
-        .unwrap_or_else(|| {
-            resolve_source_endpoint(classified.code_attrs(), &span.parent_span_id, span_index)
-        });
+    let source_endpoint = own_inbound_http_endpoint(classified, span.kind).unwrap_or_else(|| {
+        resolve_source_endpoint(classified.code_attrs(), &span.parent_span_id, span_index)
+    });
 
     let parent_span_id = if span.parent_span_id.is_empty() {
         None
