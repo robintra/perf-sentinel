@@ -690,19 +690,21 @@ fn classified_inbound_http_endpoint(
         })
 }
 
-/// Resolve the fallback for `source.endpoint`: nearest inbound HTTP route up
-/// the parent chain, then the outermost `code.*` frame for entry points that
-/// have none (scheduled jobs, message consumers), then `"unknown"`.
+/// Resolve `source.endpoint`: the outermost inbound HTTP route in this
+/// service's parent chain, then the outermost `code.*` frame for entry points
+/// that have none (scheduled jobs, message consumers), then `"unknown"`.
 ///
 /// One walk serves both. The frame kept is the outermost usable one, not
 /// the nearest: on a layered stack the nearest is the DAO every caller
 /// shares, which collides in the ack signature exactly as `"unknown"` did.
 /// A route always wins, since only an entry point carries one.
 fn resolve_source_endpoint<'a>(
+    own_endpoint: Option<String>,
     leaf: CodeAttrs<'a>,
     parent_span_id: &[u8],
     span_index: &HashMap<&[u8], &'a Span>,
 ) -> String {
+    let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame =
         crate::ingest::code_frame_endpoint(leaf.namespace, leaf.function_name);
     let mut current_parent_id = parent_span_id;
@@ -712,7 +714,7 @@ fn resolve_source_endpoint<'a>(
             break;
         };
         if let Some(route) = inbound_http_endpoint(parent) {
-            return route;
+            outermost_endpoint = Some(route);
         }
         let attrs = read_code_attrs(&parent.attributes);
         if let Some(frame) =
@@ -726,7 +728,9 @@ fn resolve_source_endpoint<'a>(
         current_parent_id = parent.parent_span_id.as_slice();
         depth += 1;
     }
-    outermost_frame.unwrap_or_else(|| "unknown".to_string())
+    outermost_endpoint
+        .or(outermost_frame)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 // ── Main conversion function ────────────────────────────────────────
@@ -1442,7 +1446,11 @@ fn source_endpoint_updates(
     request: &ExportTraceServiceRequest,
 ) -> Vec<crate::daemon::SourceEndpointUpdate> {
     let mut updates = Vec::new();
+    let span_indexes = build_span_indexes(request);
+    let empty_index = HashMap::new();
     for resource_spans in &request.resource_spans {
+        let service_name = resource_service_name(resource_spans);
+        let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
         let mut service = resource_service_name(resource_spans).to_string();
         crate::event::truncate_field(&mut service, crate::event::MAX_SERVICE_LENGTH);
         let service: Arc<str> = Arc::from(service);
@@ -1454,8 +1462,13 @@ fn source_endpoint_updates(
             if span.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32 {
                 continue;
             }
-            if let Some(endpoint) = inbound_http_endpoint(span) {
-                let mut endpoint = endpoint;
+            if let Some(own_endpoint) = inbound_http_endpoint(span) {
+                let mut endpoint = resolve_source_endpoint(
+                    Some(own_endpoint),
+                    CodeAttrs::default(),
+                    &span.parent_span_id,
+                    span_index,
+                );
                 crate::event::sanitize_source_endpoint(&mut endpoint);
                 if endpoint.trim().is_empty() {
                     continue;
@@ -1464,6 +1477,8 @@ fn source_endpoint_updates(
                     trace_id: bytes_to_hex(&span.trace_id),
                     service: Arc::clone(&service),
                     root_span_id: bytes_to_hex(&span.span_id),
+                    parent_span_id: (!span.parent_span_id.is_empty())
+                        .then(|| bytes_to_hex(&span.parent_span_id)),
                     endpoint,
                 });
             }
@@ -1823,9 +1838,12 @@ fn convert_span<'a>(
         span.name.clone()
     };
 
-    let source_endpoint = own_inbound_http_endpoint(classified, span.kind).unwrap_or_else(|| {
-        resolve_source_endpoint(classified.code_attrs(), &span.parent_span_id, span_index)
-    });
+    let source_endpoint = resolve_source_endpoint(
+        own_inbound_http_endpoint(classified, span.kind),
+        classified.code_attrs(),
+        &span.parent_span_id,
+        span_index,
+    );
 
     let parent_span_id = if span.parent_span_id.is_empty() {
         None

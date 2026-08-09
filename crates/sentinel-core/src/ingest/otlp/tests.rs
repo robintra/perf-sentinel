@@ -856,6 +856,142 @@ fn analyzable_server_root_routes_fanout_and_serialized_findings() {
 }
 
 #[test]
+fn nested_same_service_server_routes_pool_finding_to_outer_entrypoint() {
+    const QUERY_COUNT: usize = 20;
+    const BASE_NS: u64 = 1_720_621_921_000_000_000;
+
+    let outer = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        name: "POST /api/fault/pool-saturation".to_string(),
+        kind: SPAN_KIND_SERVER,
+        start_time_unix_nano: BASE_NS,
+        end_time_unix_nano: BASE_NS + 500_000_000,
+        attributes: vec![make_kv("http.route", "/api/fault/pool-saturation")],
+        ..Default::default()
+    };
+    let mut spans = Vec::with_capacity(1 + QUERY_COUNT * 2);
+    spans.push(outer);
+    for index in 0..QUERY_COUNT {
+        let server_id = u8::try_from(index + 20).expect("small server index");
+        let sql_id = u8::try_from(index + 80).expect("small SQL index");
+        spans.push(Span {
+            trace_id: vec![1; 16],
+            span_id: vec![server_id; 8],
+            parent_span_id: vec![10; 8],
+            name: "GET /api/payments/history".to_string(),
+            kind: SPAN_KIND_SERVER,
+            start_time_unix_nano: BASE_NS + 1_000_000,
+            end_time_unix_nano: BASE_NS + 300_000_000,
+            attributes: vec![make_kv("http.route", "/api/payments/history")],
+            ..Default::default()
+        });
+        spans.push(make_sql_span(
+            &[1; 16],
+            &[sql_id; 8],
+            &[server_id; 8],
+            &format!("SELECT * FROM payments WHERE id = {index}"),
+            BASE_NS + 2_000_000,
+            BASE_NS + 202_000_000,
+        ));
+    }
+
+    let request = make_request("laravel-svc", spans);
+    #[cfg(feature = "daemon")]
+    {
+        let updates = source_endpoint_updates(&request);
+        let nested_id = bytes_to_hex(&[20; 8]);
+        let nested = updates
+            .iter()
+            .find(|update| update.root_span_id == nested_id)
+            .expect("nested SERVER update present");
+        assert_eq!(nested.endpoint, "/api/fault/pool-saturation");
+        assert_eq!(nested.parent_span_id, Some(bytes_to_hex(&[10; 8])));
+    }
+
+    let events = convert_otlp_request(&request);
+    assert_eq!(events.len(), QUERY_COUNT);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.source.endpoint == "/api/fault/pool-saturation")
+    );
+
+    let trace = crate::correlate::Trace {
+        trace_id: "01".repeat(16),
+        spans: crate::normalize::normalize_all(events),
+    };
+    let findings = crate::detect::pool_saturation::detect_pool_saturation(&trace, 10);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].pattern.occurrences, QUERY_COUNT);
+    assert_eq!(findings[0].source_endpoint, "/api/fault/pool-saturation");
+}
+
+#[test]
+fn cross_service_server_boundary_keeps_callee_entrypoint() {
+    let trace_id = vec![2; 16];
+    let caller = Span {
+        trace_id: trace_id.clone(),
+        span_id: vec![30; 8],
+        name: "POST /api/orders".to_string(),
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/api/orders")],
+        ..Default::default()
+    };
+    let callee = Span {
+        trace_id: trace_id.clone(),
+        span_id: vec![40; 8],
+        parent_span_id: vec![30; 8],
+        name: "GET /api/payments/history".to_string(),
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/api/payments/history")],
+        ..Default::default()
+    };
+    let sql = make_sql_span(
+        &trace_id,
+        &[50; 8],
+        &[40; 8],
+        "SELECT * FROM payments",
+        0,
+        1_000_000,
+    );
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![
+            ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![make_kv("service.name", "orders-svc")],
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![caller],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![make_kv("service.name", "payments-svc")],
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![callee, sql],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+    };
+
+    let events = convert_otlp_request(&request);
+    let sql = events
+        .iter()
+        .find(|event| event.event_type == EventType::Sql)
+        .expect("callee SQL event present");
+    assert_eq!(&*sql.service, "payments-svc");
+    assert_eq!(sql.source.endpoint, "/api/payments/history");
+}
+
+#[test]
 fn root_client_url_does_not_become_an_inbound_source_endpoint() {
     let mut client = make_http_span(
         &[1; 16],

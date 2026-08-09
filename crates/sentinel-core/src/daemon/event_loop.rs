@@ -8,7 +8,7 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::{Duration, interval};
 
 use crate::correlate::Trace;
-use crate::correlate::window::TraceWindow;
+use crate::correlate::window::{SourceEndpointParentGroups, TraceWindow};
 use crate::detect;
 #[cfg(test)]
 use crate::detect::sanitizer_aware::SanitizerAwareMode;
@@ -372,6 +372,28 @@ impl ServiceMeter {
 /// Sample, normalize, meter, and push a batch of events into the window.
 /// Returns the LRU-evicted traces so the caller can route them through
 /// detect+score+store.
+fn retain_source_endpoint_context(
+    window: &mut TraceWindow,
+    trace_id: &str,
+    service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
+    service_root_parents: &SourceEndpointParentGroups,
+    now_ms: u64,
+    lru_evicted: &mut Vec<(String, Vec<normalize::NormalizedEvent>)>,
+    source_endpoint_generations: &mut HashMap<String, u64>,
+) {
+    if let Some(evicted) = window.retain_source_endpoint_context_groups(
+        trace_id,
+        service_root_endpoints,
+        service_root_parents,
+        now_ms,
+    ) {
+        lru_evicted.push(evicted);
+    }
+    if let Some(generation) = window.source_endpoint_generation(trace_id) {
+        source_endpoint_generations.insert(trace_id.to_string(), generation);
+    }
+}
+
 async fn ingest_event_batch(
     batch: super::IngestBatch,
     sampling_rate: f64,
@@ -391,10 +413,17 @@ async fn ingest_event_batch(
         service_meter.record(event.event.service.as_ref(), metrics);
     }
     let mut source_endpoint_groups = HashMap::new();
+    let mut source_endpoint_parent_groups = HashMap::new();
     for update in source_endpoint_updates
         .into_iter()
         .filter(|update| should_sample(&update.trace_id, sampling_rate))
     {
+        source_endpoint_parent_groups
+            .entry(update.trace_id.clone())
+            .or_insert_with(HashMap::new)
+            .entry(Arc::clone(&update.service))
+            .or_insert_with(HashMap::new)
+            .insert(update.root_span_id.clone(), update.parent_span_id);
         source_endpoint_groups
             .entry(update.trace_id)
             .or_insert_with(HashMap::new)
@@ -420,15 +449,15 @@ async fn ingest_event_batch(
             .cloned()
             .collect();
         for trace_id in &existing_update_ids {
-            let service_root_endpoints = &source_endpoint_groups[trace_id];
-            if let Some(evicted) =
-                w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
-            {
-                lru_evicted.push(evicted);
-            }
-            if let Some(generation) = w.source_endpoint_generation(trace_id) {
-                source_endpoint_generations.insert(trace_id.clone(), generation);
-            }
+            retain_source_endpoint_context(
+                &mut w,
+                trace_id,
+                &source_endpoint_groups[trace_id],
+                &source_endpoint_parent_groups[trace_id],
+                now_ms,
+                &mut lru_evicted,
+                &mut source_endpoint_generations,
+            );
         }
         let missing_update_ids: Vec<_> = source_endpoint_groups
             .keys()
@@ -436,15 +465,15 @@ async fn ingest_event_batch(
             .cloned()
             .collect();
         for trace_id in &missing_update_ids {
-            let service_root_endpoints = &source_endpoint_groups[trace_id];
-            if let Some(evicted) =
-                w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
-            {
-                lru_evicted.push(evicted);
-            }
-            if let Some(generation) = w.source_endpoint_generation(trace_id) {
-                source_endpoint_generations.insert(trace_id.clone(), generation);
-            }
+            retain_source_endpoint_context(
+                &mut w,
+                trace_id,
+                &source_endpoint_groups[trace_id],
+                &source_endpoint_parent_groups[trace_id],
+                now_ms,
+                &mut lru_evicted,
+                &mut source_endpoint_generations,
+            );
         }
         for event in normalized {
             let trace_id = event.event.trace_id.as_str();
@@ -453,14 +482,15 @@ async fn ingest_event_batch(
                 if expected_generation.is_none()
                     || w.source_endpoint_generation(trace_id) != expected_generation
                 {
-                    if let Some(evicted) =
-                        w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
-                    {
-                        lru_evicted.push(evicted);
-                    }
-                    if let Some(generation) = w.source_endpoint_generation(trace_id) {
-                        source_endpoint_generations.insert(trace_id.to_string(), generation);
-                    }
+                    retain_source_endpoint_context(
+                        &mut w,
+                        trace_id,
+                        service_root_endpoints,
+                        &source_endpoint_parent_groups[trace_id],
+                        now_ms,
+                        &mut lru_evicted,
+                        &mut source_endpoint_generations,
+                    );
                 }
             }
             if let Some(evicted) = w.push(event, now_ms) {
@@ -1390,6 +1420,7 @@ mod tests {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root-1".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/fault/slow-messaging".to_string(),
                 }],
             },
@@ -1420,6 +1451,144 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn late_outer_server_replaces_known_nested_route_within_service() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut nested_sql = make_normalized_for_service("trace-nested", "laravel-svc", "SELECT 1");
+        nested_sql.event.span_id = "sql".to_string();
+        nested_sql.event.parent_span_id = Some("nested-server".to_string());
+        nested_sql.event.source.endpoint = "/api/payments/history".to_string();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let first = super::super::IngestBatch {
+            events: vec![nested_sql.event],
+            source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                trace_id: "trace-nested".to_string(),
+                service: Arc::from("laravel-svc"),
+                root_span_id: "nested-server".to_string(),
+                parent_span_id: Some("outer-server".to_string()),
+                endpoint: "/api/payments/history".to_string(),
+            }],
+        };
+        assert!(
+            ingest_event_batch(first, 1.0, &window, &metrics, &mut service_meter,)
+                .await
+                .is_empty()
+        );
+        assert_eq!(
+            window
+                .lock()
+                .await
+                .peek_clone("trace-nested")
+                .expect("trace retained")[0]
+                .event
+                .source
+                .endpoint,
+            "/api/payments/history"
+        );
+
+        let outer = super::super::IngestBatch {
+            events: Vec::new(),
+            source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                trace_id: "trace-nested".to_string(),
+                service: Arc::from("laravel-svc"),
+                root_span_id: "outer-server".to_string(),
+                parent_span_id: None,
+                endpoint: "/api/fault/pool-saturation".to_string(),
+            }],
+        };
+        assert!(
+            ingest_event_batch(outer, 1.0, &window, &metrics, &mut service_meter,)
+                .await
+                .is_empty()
+        );
+
+        let trace = window
+            .lock()
+            .await
+            .peek_clone("trace-nested")
+            .expect("trace retained");
+        assert_eq!(trace[0].event.source.endpoint, "/api/fault/pool-saturation");
+        let finished = window.lock().await.drain_all();
+        assert_eq!(
+            finished[0].1[0].event.source.endpoint,
+            "/api/fault/pool-saturation"
+        );
+    }
+
+    #[tokio::test]
+    async fn late_caller_root_does_not_cross_the_service_boundary() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut callee_sql = make_normalized_for_service("trace-cross", "payments-svc", "SELECT 1");
+        callee_sql.event.span_id = "sql".to_string();
+        callee_sql.event.parent_span_id = Some("callee-server".to_string());
+        callee_sql.event.source.endpoint = "/api/payments/history".to_string();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        assert!(
+            ingest_event_batch(
+                super::super::IngestBatch {
+                    events: vec![callee_sql.event],
+                    source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                        trace_id: "trace-cross".to_string(),
+                        service: Arc::from("payments-svc"),
+                        root_span_id: "callee-server".to_string(),
+                        parent_span_id: Some("caller-server".to_string()),
+                        endpoint: "/api/payments/history".to_string(),
+                    }],
+                },
+                1.0,
+                &window,
+                &metrics,
+                &mut service_meter,
+            )
+            .await
+            .is_empty()
+        );
+        assert!(
+            ingest_event_batch(
+                super::super::IngestBatch {
+                    events: Vec::new(),
+                    source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                        trace_id: "trace-cross".to_string(),
+                        service: Arc::from("orders-svc"),
+                        root_span_id: "caller-server".to_string(),
+                        parent_span_id: None,
+                        endpoint: "/api/orders".to_string(),
+                    }],
+                },
+                1.0,
+                &window,
+                &metrics,
+                &mut service_meter,
+            )
+            .await
+            .is_empty()
+        );
+
+        let trace = window
+            .lock()
+            .await
+            .peek_clone("trace-cross")
+            .expect("trace retained");
+        assert_eq!(trace[0].event.source.endpoint, "/api/payments/history");
+        let finished = window.lock().await.drain_all();
+        assert_eq!(
+            finished[0].1[0].event.source.endpoint,
+            "/api/payments/history"
+        );
+    }
+
+    #[tokio::test]
     async fn zero_sampling_drops_root_context_without_evicting_a_kept_trace() {
         let metrics = MetricsState::new();
         let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
@@ -1443,6 +1612,7 @@ mod tests {
                     trace_id: "dropped".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/dropped".to_string(),
                 }],
             },
@@ -1489,6 +1659,7 @@ mod tests {
                 trace_id: trace_id.to_string(),
                 service: Arc::from("orders-svc"),
                 root_span_id: "root".to_string(),
+                parent_span_id: None,
                 endpoint: endpoint.to_string(),
             }],
         };
@@ -1550,6 +1721,7 @@ mod tests {
                     trace_id: "trace-new".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root-new".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/orders".to_string(),
                 }],
             },
@@ -1602,6 +1774,7 @@ mod tests {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root-1".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/orders".to_string(),
                 }],
             },
@@ -1651,6 +1824,7 @@ mod tests {
                     trace_id: "trace-a".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root-a".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/orders".to_string(),
                 }],
             },
@@ -1701,6 +1875,7 @@ mod tests {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root-1".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/orders".to_string(),
                 }],
             },
@@ -1751,6 +1926,7 @@ mod tests {
                 trace_id: "trace-1".to_string(),
                 service: Arc::from("orders-svc"),
                 root_span_id: format!("root-{index}"),
+                parent_span_id: None,
                 endpoint: format!("/api/{index}"),
             })
             .collect();
@@ -1799,6 +1975,7 @@ mod tests {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/orders".to_string(),
                 }],
             },
@@ -1887,6 +2064,7 @@ mod tests {
                     trace_id: "trace-a".to_string(),
                     service: Arc::from("orders-svc"),
                     root_span_id: "root-a".to_string(),
+                    parent_span_id: None,
                     endpoint: "/api/orders".to_string(),
                 }],
             },

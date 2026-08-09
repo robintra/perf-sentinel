@@ -44,6 +44,7 @@ pub(crate) struct SourceEndpointUpdate {
     pub(crate) trace_id: String,
     pub(crate) service: Arc<str>,
     pub(crate) root_span_id: String,
+    pub(crate) parent_span_id: Option<String>,
     pub(crate) endpoint: String,
 }
 
