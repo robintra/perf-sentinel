@@ -263,7 +263,8 @@ pub struct DaemonConfig {
     pub sampling_rate: f64,
     /// Per-trace cap applied independently to retained events, SERVER-root
     /// endpoint contexts, and span-ancestry entries (parent link plus optional
-    /// resolved endpoint).
+    /// resolved endpoint). Root ambiguity state is additionally bounded by the
+    /// number of services with a retained root context.
     pub max_events_per_trace: usize,
     /// Maximum payload size in bytes for JSON deserialization.
     pub max_payload_size: usize,

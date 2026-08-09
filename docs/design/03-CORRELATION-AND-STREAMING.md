@@ -86,7 +86,16 @@ Events, root contexts, and ancestry entries are separate collections, and
 progressively rather than reserving the configured cap for every trace.
 At the valid minimum cap of one, rotation may replace the sole parent entry;
 in that case a missing chain falls back only when the service has exactly one
-retained root. Multi-root services and depth-exhausted chains remain unknown.
+retained root and no distinct root for that service has been observed. A second
+distinct root marks the retained service as ambiguous even when the root cap
+drops that context; repeating an update for the same root does not. The
+ambiguity set is limited to services with retained roots. Multi-root services
+and depth-exhausted chains remain unknown. This single-root fallback is never
+persisted in the active event or ancestry state: it is applied only to a
+`peek_clone` result or to a detached trace at finalization. A later distinct
+root can therefore retract the provisional preview without rewriting active
+events. Explicit reconciliation first merges roots into this authoritative,
+bounded state before resolving events.
 Context-only traces use the same `max_active_traces` LRU and `trace_ttl_ms`
 eviction as event-bearing traces, so early roots and span ancestry cannot create
 unbounded state.

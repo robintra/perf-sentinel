@@ -87,9 +87,18 @@ contextes racine et entrées d'ascendance forment trois collections distinctes,
 mémoire progressivement au lieu de réserver le plafond configuré pour chaque
 trace. Au plafond minimal valide de un, la rotation peut remplacer l'unique
 entrée parent ; une chaîne manquante n'utilise alors un fallback que si le
-service possède exactement une racine conservée. Les services multi-racines et
-les chaînes ayant épuisé la profondeur restent inconnus. Les traces ne contenant
-que du contexte utilisent le même LRU
+service possède exactement une racine conservée et qu'aucune racine distincte
+n'a été observée pour ce service. Une seconde racine distincte marque le service
+conservé comme ambigu même si le plafond rejette ce contexte ; répéter une mise
+à jour de la même racine ne le fait pas. L'ensemble d'ambiguïté est limité aux
+services qui ont une racine conservée. Les services multi-racines et les chaînes
+ayant épuisé la profondeur restent inconnus. Ce fallback mono-racine n'est
+jamais persisté dans l'événement actif ni dans l'état d'ascendance : il est
+appliqué uniquement au résultat de `peek_clone` ou à une trace détachée lors de
+sa finalisation. Une racine distincte tardive peut ainsi rétracter l'aperçu
+provisoire sans réécrire les événements actifs. La réconciliation explicite
+fusionne d'abord les racines dans cet état autoritatif et borné avant de résoudre
+les événements. Les traces ne contenant que du contexte utilisent le même LRU
 `max_active_traces` et la même éviction `trace_ttl_ms` que les traces avec
 événements ; les racines précoces et l'ascendance ne peuvent donc pas créer un
 état non borné.
