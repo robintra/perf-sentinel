@@ -404,44 +404,70 @@ async fn ingest_event_batch(
     }
     let now_ms = current_time_ms();
     let mut lru_evicted = Vec::new();
+    let mut source_endpoint_generations = HashMap::new();
     {
-        // Lock held for O(batch_size) push() calls. Each push is O(1)
-        // amortized (LRU insert/promote). Per-batch event count is
+        // Lock held for O(batch_size) push() calls. Each push performs at most
+        // the fixed ancestor-depth bound of LRU lookups. Per-batch event count is
         // bounded by max_payload_size; the configurable
         // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
-        // Retain root-only batches in the same bounded trace window. Doing this
-        // before pushes also repairs an existing LRU trace before a later event
-        // in this batch can evict it.
-        for (trace_id, service_root_endpoints) in &source_endpoint_groups {
+        // Repair existing traces before a new context-only trace can evict
+        // them. The second pass then retains roots that arrived before their
+        // first I/O event.
+        let existing_update_ids: Vec<_> = source_endpoint_groups
+            .keys()
+            .filter(|trace_id| w.contains_trace(trace_id))
+            .cloned()
+            .collect();
+        for trace_id in &existing_update_ids {
+            let service_root_endpoints = &source_endpoint_groups[trace_id];
             if let Some(evicted) =
                 w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
             {
                 lru_evicted.push(evicted);
             }
+            if let Some(generation) = w.source_endpoint_generation(trace_id) {
+                source_endpoint_generations.insert(trace_id.clone(), generation);
+            }
+        }
+        let missing_update_ids: Vec<_> = source_endpoint_groups
+            .keys()
+            .filter(|trace_id| !w.contains_trace(trace_id))
+            .cloned()
+            .collect();
+        for trace_id in &missing_update_ids {
+            let service_root_endpoints = &source_endpoint_groups[trace_id];
+            if let Some(evicted) =
+                w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
+            {
+                lru_evicted.push(evicted);
+            }
+            if let Some(generation) = w.source_endpoint_generation(trace_id) {
+                source_endpoint_generations.insert(trace_id.clone(), generation);
+            }
         }
         for event in normalized {
+            let trace_id = event.event.trace_id.as_str();
+            if let Some(service_root_endpoints) = source_endpoint_groups.get(trace_id) {
+                let expected_generation = source_endpoint_generations.get(trace_id).copied();
+                if expected_generation.is_none()
+                    || w.source_endpoint_generation(trace_id) != expected_generation
+                {
+                    if let Some(evicted) =
+                        w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
+                    {
+                        lru_evicted.push(evicted);
+                    }
+                    if let Some(generation) = w.source_endpoint_generation(trace_id) {
+                        source_endpoint_generations.insert(trace_id.to_string(), generation);
+                    }
+                }
+            }
             if let Some(evicted) = w.push(event, now_ms) {
                 lru_evicted.push(evicted);
             }
         }
-        if event_count != 0 {
-            // Reuse the same bounded groups to repair unknown events inserted
-            // by this batch. Each pass remains one scan per updated trace; no
-            // second grouping or persistent cache is created.
-            for (trace_id, service_root_endpoints) in &source_endpoint_groups {
-                w.reconcile_source_endpoint_groups(trace_id, service_root_endpoints);
-            }
-        }
         metrics.active_traces.set(w.active_traces() as f64);
-    }
-    for (trace_id, events) in &mut lru_evicted {
-        if let Some(service_root_endpoints) = source_endpoint_groups.get(trace_id) {
-            crate::correlate::window::reconcile_event_source_endpoint_groups(
-                events,
-                service_root_endpoints,
-            );
-        }
     }
     metrics.events_processed_total.inc_by(event_count as f64);
     lru_evicted
@@ -1598,6 +1624,7 @@ mod tests {
                 .iter()
                 .all(|event| event.event.source.endpoint == "/api/orders")
         );
+        assert_eq!(window.lock().await.reconciliation_passes(), 1);
     }
 
     #[tokio::test]
@@ -1701,6 +1728,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn oversized_root_group_is_reconciled_once_per_batch() {
+        const CAP: usize = 100;
+
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_events_per_trace: CAP,
+            ..WindowConfig::default()
+        })));
+        window.lock().await.push(
+            make_normalized_messaging("trace-1", "existing", "root-0", "orders"),
+            current_time_ms(),
+        );
+        let events = (0..CAP)
+            .map(|index| {
+                make_normalized_messaging("trace-1", &format!("span-{index}"), "root-0", "orders")
+                    .event
+            })
+            .collect();
+        let source_endpoint_updates = (0..=CAP)
+            .map(|index| super::super::SourceEndpointUpdate {
+                trace_id: "trace-1".to_string(),
+                service: Arc::from("orders-svc"),
+                root_span_id: format!("root-{index}"),
+                endpoint: format!("/api/{index}"),
+            })
+            .collect();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events,
+                source_endpoint_updates,
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(evicted.is_empty());
+        assert_eq!(window.lock().await.reconciliation_passes(), 1);
+    }
+
+    #[tokio::test]
     async fn unresolved_io_only_batches_stay_within_the_bounded_work_budget() {
         const BATCH_COUNT: usize = 500;
         const EVENTS_PER_BATCH: usize = 100;
@@ -1773,7 +1849,7 @@ mod tests {
                 .all(|event| event.event.source.endpoint == "unknown")
         );
         assert!(
-            started.elapsed() < Duration::from_secs(5),
+            started.elapsed() < Duration::from_secs(2),
             "I/O-only batches repeatedly rescanned unresolved traces"
         );
     }
@@ -1824,6 +1900,7 @@ mod tests {
         assert_eq!(evicted.len(), 1);
         assert_eq!(evicted[0].0, "trace-a");
         assert_eq!(evicted[0].1[0].event.source.endpoint, "/api/orders");
+        assert_eq!(window.lock().await.reconciliation_passes(), 1);
     }
 
     #[tokio::test]

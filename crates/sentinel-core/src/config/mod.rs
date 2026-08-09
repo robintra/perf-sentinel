@@ -261,7 +261,9 @@ pub struct DaemonConfig {
     pub trace_ttl_ms: u64,
     /// Sampling rate for incoming traces (0.0 - 1.0).
     pub sampling_rate: f64,
-    /// Maximum events kept per trace (ring buffer size).
+    /// Per-trace cap applied independently to retained events, SERVER-root
+    /// endpoint contexts, and span-ancestry entries (parent link plus optional
+    /// resolved endpoint).
     pub max_events_per_trace: usize,
     /// Maximum payload size in bytes for JSON deserialization.
     pub max_payload_size: usize,

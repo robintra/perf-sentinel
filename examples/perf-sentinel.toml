@@ -189,8 +189,8 @@ json_socket = "/tmp/perf-sentinel.sock"   # default /tmp/perf-sentinel.sock
 max_active_traces = 10000          # default 10000, warns outside 1000..100000
 # How long a trace waits for late spans, in MILLISECONDS.
 trace_ttl_ms = 30000               # default 30000, bounds 100..3600000
-# I/O spans kept per trace. SERVER-root contexts have the same separate cap,
-# so one trace can retain both bounded collections. Past it spans are truncated.
+# I/O spans kept per trace. SERVER-root contexts and span-ancestry entries
+# (parent link plus optional endpoint) each have the same separate cap.
 max_events_per_trace = 1000        # default 1000, bounds 1..100000
 # Max single OTLP request, in bytes. Large because an exporter flushing its
 # queue when the process exits sends one big batch.
