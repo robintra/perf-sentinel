@@ -1242,10 +1242,12 @@ fn collect_warning_details(
                 TUNING,
                 format!(
                     "all {received} received OTLP spans were filtered as \
-                     non-analyzable (no db.statement, no http.url): the \
-                     daemon will never produce findings, check the \
-                     instrumentation exports I/O attributes or point \
-                     instrumented services at this endpoint"
+                     non-analyzable (no db.statement, no client-side \
+                     http.url): the daemon will never produce findings, \
+                     check the instrumentation exports I/O attributes on \
+                     CLIENT spans, since a SERVER span carrying a URL is \
+                     inbound work, or point instrumented services at this \
+                     endpoint"
                 ),
             ));
         }
