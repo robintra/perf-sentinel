@@ -565,12 +565,27 @@ Three things follow:
 
 Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
 
-Upgrade note (0.11.2): OTLP findings may move from an inner framework route
+Upgrade note (0.11.2): finding identity moves for three separate reasons, on
+OTLP, Jaeger and Zipkin alike. Findings may move from an inner framework route
 or `unknown` to the outermost route in their contiguous same-service chain,
-including when daemon exports arrive separately. Persisted finding baselines
-will show those identities once as resolved and new; regenerate them with
-0.11.2 before evaluating application changes. Trace-corpus baselines remain
-stable because both sides are re-analyzed by the current binary.
+including when daemon exports arrive separately. A framework route holding no
+`/` yields to a usable `url.path`, but only on the inbound side, so a
+kind-less instrumentation keeps the route name. And a route that omits its
+leading slash gains one, which moves findings that were already attributed
+correctly. Persisted finding baselines will show each moved identity once as
+resolved and once as new, so regenerate them with 0.11.2 before evaluating
+application changes. On a fleet instrumented in legacy semantic conventions,
+HTTP findings raised on SERVER spans disappear instead of moving, and show up
+as resolved with no fix behind them. Trace-corpus baselines remain stable
+because both sides are re-analyzed by the current binary.
+
+That same SERVER gate can turn a passing gate red. The phantom inbound calls
+counted as I/O operations, and dropping them shrinks the waste-ratio
+denominator while no avoidable operation leaves with it, so `io_waste_ratio`
+rises on identical traffic. A trace of eight instrumented hops over one
+six-query N+1 moves from 5/14 to 5/6, `high` to `critical`. Re-baseline
+`[thresholds] io_waste_ratio_max` against a 0.11.2 run of your own corpus
+before the first pipeline that enforces it.
 
 ```yaml
 # .github/workflows/perf-sentinel-diff.yml

@@ -299,14 +299,30 @@ instrumentation saine. Des URL instanciées avec des id en dur
 (`/api/orders/42`) signalent que `http.route` est absent et que les
 acks vont churner.
 
-Note de montée de version (0.11.2) : l'attribution d'endpoint conserve
-désormais le contexte parent OTLP valide et échantillonné entre les requêtes
-d'export du daemon et sélectionne la route la plus externe d'une chaîne
-contiguë du même service. Des findings auparavant associés à une route interne
-du framework ou à `unknown` peuvent donc changer de signature. Les findings
-dont le framework émettait un `http.route` symbolique à côté de `url.path`
-passent également du nom de route à ce chemin. Re-capturez les
-acquittements et les baselines de rapports persistés concernés avec 0.11.2.
+Note de montée de version (0.11.2) : l'attribution d'endpoint change de trois
+façons, aussi bien sur OTLP que sur Jaeger et Zipkin. Elle sélectionne la route
+la plus externe d'une chaîne contiguë du même service plutôt que la plus proche,
+et le daemon conserve le contexte parent valide et échantillonné entre les
+requêtes d'export OTLP, donc des findings auparavant associés à une route
+interne du framework ou à `unknown` peuvent changer de signature. Une route de
+framework ne contenant aucun `/` cède désormais devant un `url.path`
+exploitable, mais du côté entrant seulement, un span SERVER pour son propre
+endpoint ou un ancêtre non-CLIENT de la chaîne, donc une instrumentation qui ne
+pose jamais de kind conserve le nom de route. Enfin, une route dépourvue de
+slash initial en gagne un, ce qui déplace des findings déjà rattachés à la bonne
+route. Re-capturez les acquittements et les baselines de rapports persistés
+concernés avec 0.11.2.
+
+Par ailleurs, un span SERVER ne produit plus d'appel HTTP sortant, donc sur une
+flotte instrumentée en conventions sémantiques legacy certains findings HTTP
+disparaissent au lieu de se déplacer. Une analyse batch fraîche signale en
+`unmatched_acknowledgment` tout acquittement qui n'a rien supprimé, findings
+déplacés comme disparus. Lisez le message avant d'agir : quand l'endpoint a
+quand même émis des I/O, et un enfant SQL survivant sur le même handler y
+suffit, le message indique que le problème semble corrigé et que l'entrée peut
+être supprimée, ce qui est la mauvaise conclusion pour un acquittement dont le
+finding a seulement disparu avec la montée de version. Le daemon n'émet jamais
+cet avertissement, c'est un signal batch uniquement.
 
 ### Les renommages de service invalident les acks
 
