@@ -3,7 +3,7 @@
 //! Accumulates normalized events by `trace_id` with ring buffer, TTL eviction,
 //! and O(1) LRU eviction when max active traces is exceeded.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -53,6 +53,9 @@ struct AncestryEntry {
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
+    /// Services for which a distinct root was observed after one was retained.
+    /// Every entry therefore also exists in `source_endpoint_groups`.
+    ambiguous_source_endpoint_services: HashSet<Arc<str>>,
     source_endpoint_count: usize,
     resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
@@ -198,24 +201,16 @@ impl TraceWindow {
         if service_root_endpoints.is_empty() {
             return 0;
         }
+        let root_cap = self.config.max_events_per_trace;
         let Some(buf) = self.traces.peek_mut(trace_id) else {
             return 0;
         };
+        merge_source_endpoint_groups(buf, service_root_endpoints, root_cap);
         #[cfg(all(test, feature = "daemon"))]
         {
             self.reconciliation_passes += 1;
         }
-        let mut updated = 0;
-        for event in &mut buf.events {
-            updated += usize::from(resolve_and_index_event(
-                event,
-                service_root_endpoints,
-                &mut buf.resolved_ancestry,
-                buf.resolved_ancestry_cap,
-            ));
-        }
-        buf.needs_reconciliation = false;
-        updated
+        reconcile_trace_buffer(buf)
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -305,6 +300,7 @@ impl TraceWindow {
             reconcile_cloned_events(
                 &mut events,
                 &buf.source_endpoint_groups,
+                &buf.ambiguous_source_endpoint_services,
                 buf.resolved_ancestry.as_ref(),
                 buf.resolved_ancestry_cap,
             );
@@ -317,6 +313,7 @@ fn new_trace_buffer(now_ms: u64, per_trace_cap: usize) -> TraceBuffer {
     TraceBuffer {
         events: VecDeque::with_capacity(8),
         source_endpoint_groups: HashMap::new(),
+        ambiguous_source_endpoint_services: HashSet::new(),
         source_endpoint_count: 0,
         resolved_ancestry: NonZeroUsize::new(per_trace_cap).map(|_| LruCache::unbounded()),
         resolved_ancestry_cap: per_trace_cap,
@@ -340,6 +337,15 @@ fn merge_source_endpoint_groups(
             {
                 existing.clone_from(endpoint);
                 continue;
+            }
+            if buffer
+                .source_endpoint_groups
+                .get(service)
+                .is_some_and(|retained_roots| !retained_roots.is_empty())
+            {
+                buffer
+                    .ambiguous_source_endpoint_services
+                    .insert(Arc::clone(service));
             }
             if buffer.source_endpoint_count >= root_cap {
                 continue;
@@ -370,7 +376,6 @@ fn resolve_and_index_event(
         event.event.parent_span_id.as_deref(),
         source_endpoint_groups,
         resolved_ancestry,
-        resolved_ancestry_cap,
     );
     if source_was_unknown
         && let Some(parent) = &parent_resolution
@@ -432,7 +437,6 @@ fn resolve_parent_endpoint(
     parent_span_id: Option<&str>,
     source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
-    resolved_ancestry_cap: usize,
 ) -> Option<ResolvedEndpoint> {
     let roots = source_endpoint_groups.get(service.as_ref());
     let mut current_span_id = parent_span_id?.to_string();
@@ -455,12 +459,7 @@ fn resolve_parent_endpoint(
             .and_then(|ancestry| ancestry.get(&key))
             .cloned()
         else {
-            return sole_root_endpoint(
-                roots,
-                distance,
-                resolved_ancestry.as_ref(),
-                resolved_ancestry_cap,
-            );
+            return None;
         };
         if let Some(resolution) = entry.resolution {
             let depth = resolution.depth.saturating_add(distance);
@@ -472,12 +471,7 @@ fn resolve_parent_endpoint(
         }
         traversed.push(key);
         let Some(parent_span_id) = entry.parent_span_id else {
-            return sole_root_endpoint(
-                roots,
-                distance,
-                resolved_ancestry.as_ref(),
-                resolved_ancestry_cap,
-            );
+            return None;
         };
         current_span_id = parent_span_id;
     }
@@ -489,8 +483,9 @@ fn sole_root_endpoint(
     depth: usize,
     resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
+    source_endpoint_ambiguous: bool,
 ) -> Option<ResolvedEndpoint> {
-    if resolved_ancestry_cap != 1 || resolved_ancestry?.len() != 1 {
+    if source_endpoint_ambiguous || resolved_ancestry_cap != 1 || resolved_ancestry?.len() != 1 {
         return None;
     }
     let roots = roots?;
@@ -544,6 +539,7 @@ fn cache_ancestry_entry(
 fn reconcile_cloned_events(
     events: &mut [NormalizedEvent],
     source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
+    ambiguous_source_endpoint_services: &HashSet<Arc<str>>,
     resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
 ) {
@@ -559,6 +555,7 @@ fn reconcile_cloned_events(
             &event.event.service,
             parent_span_id,
             source_endpoint_groups,
+            ambiguous_source_endpoint_services,
             resolved_ancestry,
             resolved_ancestry_cap,
         ) && parent.depth < ANCESTOR_WALK_MAX_DEPTH
@@ -573,6 +570,7 @@ fn peek_parent_endpoint(
     service: &Arc<str>,
     parent_span_id: &str,
     source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
+    ambiguous_source_endpoint_services: &HashSet<Arc<str>>,
     resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
 ) -> Option<ResolvedEndpoint> {
@@ -588,7 +586,13 @@ fn peek_parent_endpoint(
         }
         let key = (Arc::clone(service), current_span_id.to_string());
         let Some(entry) = resolved_ancestry.and_then(|ancestry| ancestry.peek(&key)) else {
-            return sole_root_endpoint(roots, distance, resolved_ancestry, resolved_ancestry_cap);
+            return sole_root_endpoint(
+                roots,
+                distance,
+                resolved_ancestry,
+                resolved_ancestry_cap,
+                ambiguous_source_endpoint_services.contains(service),
+            );
         };
         if let Some(resolution) = &entry.resolution {
             return Some(ResolvedEndpoint {
@@ -597,7 +601,13 @@ fn peek_parent_endpoint(
             });
         }
         let Some(parent_span_id) = entry.parent_span_id.as_deref() else {
-            return sole_root_endpoint(roots, distance, resolved_ancestry, resolved_ancestry_cap);
+            return sole_root_endpoint(
+                roots,
+                distance,
+                resolved_ancestry,
+                resolved_ancestry_cap,
+                ambiguous_source_endpoint_services.contains(service),
+            );
         };
         current_span_id = parent_span_id;
     }
@@ -610,7 +620,16 @@ fn finish_trace_buffer(
     if buffer.needs_reconciliation {
         reconcile_trace_buffer(&mut buffer);
     }
-    let events = Vec::from(buffer.events);
+    let mut events = Vec::from(buffer.events);
+    if buffer.resolved_ancestry_cap == 1 {
+        reconcile_cloned_events(
+            &mut events,
+            &buffer.source_endpoint_groups,
+            &buffer.ambiguous_source_endpoint_services,
+            buffer.resolved_ancestry.as_ref(),
+            buffer.resolved_ancestry_cap,
+        );
+    }
     (!events.is_empty()).then_some((trace_id, events))
 }
 
@@ -1509,6 +1528,329 @@ mod tests {
     }
 
     #[test]
+    fn capacity_one_never_falls_back_across_truncated_same_service_roots() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let first_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-a".to_string(), "/api/a".to_string())]),
+        )]);
+        let second_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-b".to_string(), "/api/b".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("t1", &first_root, 0)
+                .is_none()
+        );
+        assert!(
+            w.retain_source_endpoint_groups("t1", &second_root, 1)
+                .is_none()
+        );
+        w.push(
+            make_child("t1", "svc-a", "parent", "root-b", "parent", "unknown"),
+            2,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child", "parent", "child", "unknown"),
+            3,
+        );
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0].event.source.endpoint, "unknown");
+
+        let (trace_id, spans) = w.drain_all().pop().expect("one finished trace");
+        assert_eq!(spans[0].event.source.endpoint, "unknown");
+        let findings =
+            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 0, 1);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].source_endpoint, "unknown");
+    }
+
+    #[test]
+    fn late_second_root_retracts_capacity_one_preview_and_finished_fallback() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let first_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-a".to_string(), "/api/a".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("t1", &first_root, 0)
+                .is_none()
+        );
+        w.push(
+            make_child("t1", "svc-a", "parent", "missing", "parent", "unknown"),
+            1,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child", "parent", "child", "unknown"),
+            2,
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "/api/a",
+            "one retained root permits a provisional preview fallback"
+        );
+
+        let second_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-b".to_string(), "/api/b".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("t1", &second_root, 3)
+                .is_none()
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown"
+        );
+        let (trace_id, spans) = w.drain_all().pop().expect("one finished trace");
+        assert_eq!(spans[0].event.source.endpoint, "unknown");
+        let findings =
+            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 0, 1);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].source_endpoint, "unknown");
+    }
+
+    #[test]
+    fn explicit_reconciliation_records_new_root_ambiguity_before_resolution() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let first_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-a".to_string(), "/api/a".to_string())]),
+        )]);
+        let second_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-b".to_string(), "/api/b".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("t1", &first_root, 0)
+                .is_none()
+        );
+        assert_eq!(w.reconcile_source_endpoint_groups("t1", &second_root), 0);
+        assert!(
+            w.traces
+                .peek("t1")
+                .expect("trace remains active")
+                .ambiguous_source_endpoint_services
+                .contains("svc-a")
+        );
+
+        w.push(
+            make_child("t1", "svc-a", "parent", "root-b", "parent", "unknown"),
+            1,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child", "parent", "child", "unknown"),
+            2,
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn duplicate_root_update_keeps_capacity_one_fallback_unambiguous() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let first_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/old".to_string())]),
+        )]);
+        let updated_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/current".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("t1", &first_root, 0)
+                .is_none()
+        );
+        assert!(
+            w.retain_source_endpoint_groups("t1", &updated_root, 1)
+                .is_none()
+        );
+        assert!(
+            w.traces
+                .peek("t1")
+                .expect("trace remains active")
+                .ambiguous_source_endpoint_services
+                .is_empty(),
+            "updating the same root must not make its service ambiguous"
+        );
+
+        w.push(
+            make_child("t1", "svc-a", "parent", "root", "parent", "unknown"),
+            2,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child-1", "parent", "child-1", "unknown"),
+            3,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child-2", "parent", "child-2", "unknown"),
+            4,
+        );
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(preview[0].event.span_id, "child-2");
+        assert_eq!(preview[0].event.source.endpoint, "/api/current");
+    }
+
+    #[test]
+    fn same_batch_truncated_root_marks_only_its_retained_service_ambiguous() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([
+                ("root-a".to_string(), "/api/a".to_string()),
+                ("root-b".to_string(), "/api/b".to_string()),
+            ]),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        let retained_root = w
+            .traces
+            .peek("t1")
+            .expect("trace remains active")
+            .source_endpoint_groups["svc-a"]
+            .keys()
+            .next()
+            .expect("one root retained")
+            .clone();
+        let dropped_root = if retained_root == "root-a" {
+            "root-b"
+        } else {
+            "root-a"
+        };
+        assert!(
+            w.traces
+                .peek("t1")
+                .expect("trace remains active")
+                .ambiguous_source_endpoint_services
+                .contains("svc-a")
+        );
+
+        w.push(
+            make_child("t1", "svc-a", "parent", dropped_root, "parent", "unknown"),
+            1,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child", "parent", "child", "unknown"),
+            2,
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn rejected_other_service_does_not_consume_ambiguity_state() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let first_root = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root-a".to_string(), "/api/a".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("t1", &first_root, 0)
+                .is_none()
+        );
+        for index in 0..100 {
+            let rejected_root = HashMap::from([(
+                Arc::from(format!("svc-rejected-{index}")),
+                HashMap::from([(format!("root-{index}"), format!("/api/{index}"))]),
+            )]);
+            assert!(
+                w.retain_source_endpoint_groups("t1", &rejected_root, index + 1)
+                    .is_none()
+            );
+        }
+        let buffer = w.traces.peek("t1").expect("trace remains active");
+        assert!(buffer.ambiguous_source_endpoint_services.is_empty());
+        assert_eq!(buffer.source_endpoint_groups.len(), 1);
+
+        w.push(
+            make_child(
+                "t1",
+                "svc-rejected-0",
+                "rejected-parent",
+                "root-0",
+                "rejected-parent",
+                "unknown",
+            ),
+            101,
+        );
+        w.push(
+            make_child(
+                "t1",
+                "svc-rejected-0",
+                "rejected-child",
+                "rejected-parent",
+                "rejected-child",
+                "unknown",
+            ),
+            102,
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown",
+            "a rejected service must not inherit the retained service's root"
+        );
+
+        w.push(
+            make_child("t1", "svc-a", "parent", "root-a", "parent", "unknown"),
+            103,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child-1", "parent", "child-1", "unknown"),
+            104,
+        );
+        w.push(
+            make_child("t1", "svc-a", "child-2", "parent", "child-2", "unknown"),
+            105,
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("trace remains active")[0]
+                .event
+                .source
+                .endpoint,
+            "/api/a"
+        );
+    }
+
+    #[test]
     fn resolved_ancestry_survives_out_of_order_parent_rotation() {
         let mut w = TraceWindow::new(WindowConfig {
             max_events_per_trace: 2,
@@ -1684,6 +2026,13 @@ mod tests {
                 .resolved_ancestry
                 .as_ref()
                 .is_none_or(|ancestry| ancestry.len() <= 3)
+        }));
+        assert!(w.traces.iter().all(|(_, buffer)| {
+            buffer.ambiguous_source_endpoint_services.len() <= buffer.source_endpoint_groups.len()
+                && buffer
+                    .ambiguous_source_endpoint_services
+                    .iter()
+                    .all(|service| buffer.source_endpoint_groups.contains_key(service))
         }));
         assert!(w.drain_all().is_empty(), "context-only drain stays empty");
         assert_eq!(w.active_traces(), 0);
