@@ -6,20 +6,11 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Fixed
 
-- OTLP endpoint attribution follows the outermost route in the contiguous
-  same-service parent chain without crossing a caller-service boundary. The
-  daemon retains valid sampled route and intermediate-parent context across
-  split exports under the existing per-trace, LRU and TTL bounds. Parent
-  indexes are keyed by trace and span id, anonymous resources stay local, and
-  every format now enforces the same eight-hop limit. Findings that previously
-  used an inner route or `unknown` can change acknowledgment signature and
-  persisted baseline identity; re-capture them with 0.11.2.
-- Framework route names are no longer mistaken for path templates when the
-  same span carries a usable `url.path`. For example, Symfony's
-  `http.route=app_fault_nplusonesql` now resolves to its accompanying
-  `/api/fault/n-plus-one-sql` path. A route containing `/` remains
-  authoritative, including slashless Django routes and templates. Affected
-  findings change acknowledgment and baseline identity and must be re-captured.
+- Endpoint attribution follows the outermost route in the contiguous same-service parent chain, stopping before a caller-service boundary, on OTLP (Tempo included), Jaeger (Jaeger Query included) and Zipkin alike. The daemon additionally retains valid sampled route and intermediate-parent context across split OTLP exports. Parent indexes are keyed by trace and span id, anonymous resources stay local, and every format now enforces the same eight-hop limit. That retained context is bounded by the existing trace LRU and TTL, but it is new state: `max_events_per_trace` now caps the event ring, the retained inbound endpoint contexts and the ancestry index independently, so an unchanged configuration holds a larger per-trace memory envelope than 0.11.1 did. Findings that previously used an inner route or `unknown` can change acknowledgment signature and persisted baseline identity, so re-capture them with 0.11.2.
+- A framework route name is no longer mistaken for a path template when the inbound handler span carries a usable `url.path`. Symfony's `http.route=app_fault_nplusonesql` now resolves to its accompanying `/api/fault/n-plus-one-sql`. The substitution needs the span to be the inbound side, SERVER for the span carrying the event and any non-CLIENT kind for an ancestor in the chain, so an instrumentation that never sets a span kind keeps the route name. A route holding a `/` anywhere stays authoritative, so a Django template such as `api/orders/{id}` is never replaced by a path. Affected findings change acknowledgment and baseline identity and must be re-captured.
+- An `http.route` that omits its leading slash now gains one, so Django's `api/orders/{id}` is reported as `/api/orders/{id}`. This applies to the routes the previous entry leaves authoritative, so a route can keep winning over `url.path` and still change value. Empty routes, full URLs and legacy method-prefixed routes (`GET /api/orders`) are untouched. It is a third source of identity change, and the only one that moves findings already attributed to the right route, so their acknowledgments and baselines need re-capturing too.
+- A SERVER span no longer produces an outbound HTTP call. Legacy semantic conventions put `http.url` on the inbound handler span as well as on the outbound client span, so admitting both double-counted every instrumented hop and invented self-directed edges, the same reason RPC spans have been CLIENT-only since 0.9.8. The gate covers OTLP, Jaeger (`span.kind=server`) and Zipkin (`kind=SERVER`). SQL is classified first, so a SERVER span carrying `db.statement` is still analyzed, and a span that sets no kind at all stays eligible for HTTP.
+- Check your CI thresholds before upgrading a fleet instrumented in legacy semantic conventions. Removing those phantom SERVER calls retires `excessive_fanout`, `chatty_service`, `redundant_http`, `n_plus_one_http` and `slow_http` findings along with their acknowledgments, but it also takes their I/O operations out of the waste-ratio denominator, and no avoidable operation leaves with them. The same traffic therefore scores a higher `io_waste_ratio` and can cross into a worse band, so `analyze --ci` can fail on unchanged code with unchanged thresholds. In a trace of eight instrumented hops over one six-query N+1, the ratio moves from 5/14 (`high`) to 5/6 (`critical`). Re-baseline `[thresholds] io_waste_ratio_max` against a 0.11.2 run before trusting the gate.
 
 ## [0.11.1] - 2026-08-07
 
