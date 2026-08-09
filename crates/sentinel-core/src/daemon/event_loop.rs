@@ -407,15 +407,33 @@ async fn ingest_event_batch(
         // bounded by max_payload_size; the configurable
         // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
-        for (trace_id, service_root_endpoints) in source_endpoint_groups {
-            w.reconcile_source_endpoint_groups(&trace_id, &service_root_endpoints);
+        // Reconcile first so an update for the current LRU trace is applied
+        // before a later event in this batch can evict it.
+        for (trace_id, service_root_endpoints) in &source_endpoint_groups {
+            w.reconcile_source_endpoint_groups(trace_id, service_root_endpoints);
         }
         for event in normalized {
             if let Some(evicted) = w.push(event, now_ms) {
                 lru_evicted.push(evicted);
             }
         }
+        if event_count != 0 {
+            // Reuse the same bounded groups to repair unknown events inserted
+            // by this batch. Each pass remains one scan per updated trace; no
+            // second grouping or persistent cache is created.
+            for (trace_id, service_root_endpoints) in &source_endpoint_groups {
+                w.reconcile_source_endpoint_groups(trace_id, service_root_endpoints);
+            }
+        }
         metrics.active_traces.set(w.active_traces() as f64);
+    }
+    for (trace_id, events) in &mut lru_evicted {
+        if let Some(service_root_endpoints) = source_endpoint_groups.get(trace_id) {
+            crate::correlate::window::reconcile_event_source_endpoint_groups(
+                events,
+                service_root_endpoints,
+            );
+        }
     }
     metrics.events_processed_total.inc_by(event_count as f64);
     lru_evicted
@@ -1356,13 +1374,218 @@ mod tests {
             .expect("active trace remains");
         assert_eq!(trace[0].event.source.endpoint, "/api/fault/slow-messaging");
         assert_eq!(trace.len(), 1, "context update is not an event");
-        assert_eq!(metrics.events_processed_total.get(), 0.0);
-        assert_eq!(
+        assert!(metrics.events_processed_total.get().abs() < f64::EPSILON);
+        assert!(
             metrics
                 .service_io_ops_total
                 .with_label_values(&["orders-svc"])
-                .get(),
-            0.0
+                .get()
+                .abs()
+                < f64::EPSILON
+        );
+    }
+
+    #[tokio::test]
+    async fn same_batch_root_reconciles_new_trace_before_detection() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let events = (0..3)
+            .map(|index| {
+                make_normalized_messaging(
+                    "trace-new",
+                    &format!("span-{index}"),
+                    "root-new",
+                    "orders",
+                )
+                .event
+            })
+            .collect();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events,
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-new".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root-new".to_string(),
+                    endpoint: "/api/orders".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(evicted.is_empty());
+        let spans = window
+            .lock()
+            .await
+            .peek_clone("trace-new")
+            .expect("new trace remains active");
+        let findings = crate::detect::slow::detect_slow(
+            &crate::correlate::Trace {
+                trace_id: "trace-new".to_string(),
+                spans,
+            },
+            500,
+            3,
+        );
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].source_endpoint, "/api/orders");
+        assert!((metrics.events_processed_total.get() - 3.0).abs() < f64::EPSILON);
+        assert!((metrics.active_traces.get() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn same_batch_root_reconciles_existing_and_new_events() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        window.lock().await.push(
+            make_normalized_messaging("trace-1", "old", "root-1", "orders"),
+            current_time_ms(),
+        );
+        let event = make_normalized_messaging("trace-1", "new", "root-1", "orders").event;
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events: vec![event],
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-1".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root-1".to_string(),
+                    endpoint: "/api/orders".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(evicted.is_empty());
+        let trace = window
+            .lock()
+            .await
+            .peek_clone("trace-1")
+            .expect("existing trace remains active");
+        assert_eq!(trace.len(), 2);
+        assert!(
+            trace
+                .iter()
+                .all(|event| event.event.source.endpoint == "/api/orders")
+        );
+    }
+
+    #[tokio::test]
+    async fn same_batch_root_reconciles_new_trace_evicted_during_ingest() {
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
+            ..WindowConfig::default()
+        })));
+        let events = vec![
+            make_normalized_messaging("trace-a", "span-a", "root-a", "orders").event,
+            make_normalized_messaging("trace-b", "span-b", "root-b", "orders").event,
+        ];
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events,
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-a".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root-a".to_string(),
+                    endpoint: "/api/orders".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert_eq!(evicted.len(), 1);
+        assert_eq!(evicted[0].0, "trace-a");
+        assert_eq!(evicted[0].1[0].event.source.endpoint, "/api/orders");
+    }
+
+    #[tokio::test]
+    async fn same_batch_reconciliation_stays_within_the_bounded_work_budget() {
+        const EVENT_COUNT: usize = 10_000;
+
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_events_per_trace: EVENT_COUNT,
+            ..WindowConfig::default()
+        })));
+        for index in 0..EVENT_COUNT / 2 {
+            window.lock().await.push(
+                make_normalized_messaging("trace-1", &format!("old-{index}"), "root-1", "orders"),
+                current_time_ms(),
+            );
+        }
+        let events = (0..EVENT_COUNT / 2)
+            .map(|index| {
+                make_normalized_messaging("trace-1", &format!("new-{index}"), "root-1", "orders")
+                    .event
+            })
+            .collect();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let started = std::time::Instant::now();
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events,
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-1".to_string(),
+                    service: Arc::from("orders-svc"),
+                    root_span_id: "root-1".to_string(),
+                    endpoint: "/api/orders".to_string(),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(evicted.is_empty());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "same-batch reconciliation exceeded the bounded-work budget"
+        );
+        assert!(
+            window
+                .lock()
+                .await
+                .peek_clone("trace-1")
+                .expect("trace remains active")
+                .iter()
+                .all(|event| event.event.source.endpoint == "/api/orders")
         );
     }
 
@@ -2653,7 +2876,7 @@ mod tests {
         );
         assert_eq!(finding.pattern.occurrences, 3);
         assert_eq!(finding.source_endpoint, "/api/shutdown");
-        assert_eq!(metrics.events_processed_total.get(), 0.0);
-        assert_eq!(metrics.traces_analyzed_total.get(), 1.0);
+        assert!(metrics.events_processed_total.get().abs() < f64::EPSILON);
+        assert!((metrics.traces_analyzed_total.get() - 1.0).abs() < f64::EPSILON);
     }
 }
