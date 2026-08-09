@@ -454,13 +454,10 @@ fn resolve_parent_endpoint(
         }
 
         let key = (Arc::clone(service), current_span_id);
-        let Some(entry) = resolved_ancestry
+        let entry = resolved_ancestry
             .as_mut()
             .and_then(|ancestry| ancestry.get(&key))
-            .cloned()
-        else {
-            return None;
-        };
+            .cloned()?;
         if let Some(resolution) = entry.resolution {
             let depth = resolution.depth.saturating_add(distance);
             compress_ancestry_path(resolved_ancestry, &traversed, &resolution.endpoint, depth);
@@ -470,9 +467,7 @@ fn resolve_parent_endpoint(
             });
         }
         traversed.push(key);
-        let Some(parent_span_id) = entry.parent_span_id else {
-            return None;
-        };
+        let parent_span_id = entry.parent_span_id?;
         current_span_id = parent_span_id;
     }
     None
