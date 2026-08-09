@@ -284,13 +284,27 @@ instrumentation. Instantiated URLs with hardcoded ids
 (`/api/orders/42`) indicate `http.route` is missing and acks will
 churn.
 
-Upgrade note (0.11.2): endpoint attribution now keeps valid sampled parent
-context across daemon OTLP export requests and selects the outermost route in a
-contiguous same-service chain. Findings that previously used an inner framework
-route or `unknown` can therefore receive a different signature. Findings whose
-framework emitted a symbolic `http.route` beside `url.path` also move from the
-route name to that path. Re-capture
-affected acknowledgments and persisted report baselines with 0.11.2.
+Upgrade note (0.11.2): endpoint attribution changed in three ways, on OTLP,
+Jaeger and Zipkin alike. It selects the outermost route in a contiguous
+same-service chain rather than the nearest one, and the daemon keeps valid
+sampled parent context across OTLP export requests, so findings that previously
+used an inner framework route or `unknown` can receive a different signature. A
+framework route holding no `/` now yields to a usable `url.path`, but only on
+the inbound side, a SERVER span for its own endpoint or a non-CLIENT ancestor in
+the chain, so an instrumentation that never sets a span kind keeps the route
+name. And a route that omits its leading slash gains one, which moves findings
+that were already attributed to the right route. Re-capture affected
+acknowledgments and persisted report baselines with 0.11.2.
+
+Separately, a SERVER span no longer produces an outbound HTTP call, so on a
+fleet instrumented in legacy semantic conventions some HTTP findings disappear
+rather than move. A fresh batch analysis flags every ack that suppressed
+nothing, moved and disappeared findings alike, as `unmatched_acknowledgment`.
+Read that message before acting on it: when the endpoint still emitted I/O, and
+a surviving SQL child on the same handler is enough for that, the message reads
+`the problem looks fixed and the entry can be removed`, which is the wrong
+conclusion for an ack whose finding only vanished with the upgrade. The daemon
+never emits this warning, it is a batch signal only.
 
 ### Service renames invalidate acks
 

@@ -677,13 +677,29 @@ Trois conséquences :
 
 Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.
 
-Note de montée de version (0.11.2) : des findings OTLP peuvent passer d'une
-route interne du framework ou de `unknown` à la route la plus externe de leur
-chaîne contiguë du même service, y compris quand les exports du daemon arrivent
-séparément. Une baseline de findings persistée montrera une fois ces identités
-comme résolues et nouvelles ; régénérez-la avec 0.11.2 avant d'évaluer les
-changements applicatifs. Les baselines constituées de corpus de traces restent
-stables, car les deux côtés sont ré-analysés par le binaire courant.
+Note de montée de version (0.11.2) : l'identité des findings se déplace pour
+trois raisons distinctes, aussi bien sur OTLP que sur Jaeger et Zipkin. Des
+findings peuvent passer d'une route interne du framework ou de `unknown` à la
+route la plus externe de leur chaîne contiguë du même service, y compris quand
+les exports du daemon arrivent séparément. Une route de framework ne contenant
+aucun `/` cède devant un `url.path` exploitable, mais du côté entrant seulement,
+donc une instrumentation sans kind conserve le nom de route. Enfin, une route
+dépourvue de slash initial en gagne un, ce qui déplace des findings déjà
+rattachés correctement. Une baseline de findings persistée montrera chaque
+identité déplacée une fois comme résolue et une fois comme nouvelle, régénérez-la
+donc avec 0.11.2 avant d'évaluer les changements applicatifs. Sur une flotte
+instrumentée en conventions sémantiques legacy, les findings HTTP levés sur des
+spans SERVER disparaissent au lieu de se déplacer, et ressortent comme résolus
+sans aucun correctif derrière. Les baselines constituées de corpus de traces
+restent stables, car les deux côtés sont ré-analysés par le binaire courant.
+
+Cette même porte SERVER peut faire virer au rouge une gate qui passait. Les
+appels entrants fantômes comptaient comme des opérations d'I/O, et les retirer
+réduit le dénominateur du ratio de gaspillage sans qu'aucune opération évitable
+ne parte avec, donc `io_waste_ratio` monte à trafic identique. Une trace de huit
+sauts instrumentés au-dessus d'un N+1 de six requêtes passe de 5/14 à 5/6, de
+`high` à `critical`. Ré-étalonnez `[thresholds] io_waste_ratio_max` sur une
+exécution 0.11.2 de votre propre corpus avant le premier pipeline qui l'applique.
 
 ```yaml
 # .github/workflows/perf-sentinel-diff.yml
