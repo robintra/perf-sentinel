@@ -40,6 +40,9 @@ impl Default for WindowConfig {
 /// Buffer for a single trace.
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
+    source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
+    source_endpoint_count: usize,
+    needs_source_reconcile: bool,
     /// Absolute timestamp (ms since epoch) of the last event pushed to this trace.
     /// Used for TTL eviction: the LRU cache handles relative access ordering.
     last_seen_ms: u64,
@@ -69,12 +72,14 @@ impl TraceWindow {
     /// on it before discarding. Returns `None` if no eviction was needed.
     pub fn push(
         &mut self,
-        event: NormalizedEvent,
+        mut event: NormalizedEvent,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
         // Fast path: trace already exists: get_mut auto-promotes to MRU.
         if let Some(buf) = self.traces.get_mut(event.event.trace_id.as_str()) {
             buf.last_seen_ms = now_ms;
+            buf.needs_source_reconcile |=
+                apply_direct_source_endpoint(&mut event, &buf.source_endpoint_groups);
             buf.events.push_back(event);
             // Ring buffer: drop oldest if over capacity
             if buf.events.len() > self.config.max_events_per_trace {
@@ -93,10 +98,50 @@ impl TraceWindow {
                 trace_id,
                 TraceBuffer {
                     events,
+                    source_endpoint_groups: HashMap::new(),
+                    source_endpoint_count: 0,
+                    needs_source_reconcile: false,
                     last_seen_ms: now_ms,
                 },
             )
-            .map(|(id, buf)| (id, Vec::from(buf.events)))
+            .and_then(finish_trace_buffer)
+    }
+
+    /// Retain SERVER-root context even when no I/O event exists yet.
+    ///
+    /// A new context-only entry participates in the same LRU and TTL bounds as
+    /// event-bearing traces. Updating an existing entry uses `peek_mut`, so it
+    /// neither refreshes TTL nor promotes the trace.
+    pub fn retain_source_endpoint_groups(
+        &mut self,
+        trace_id: &str,
+        service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
+        now_ms: u64,
+    ) -> Option<(String, Vec<NormalizedEvent>)> {
+        if service_root_endpoints.is_empty() {
+            return None;
+        }
+        let root_cap = self.config.max_events_per_trace;
+        if let Some(buf) = self.traces.peek_mut(trace_id) {
+            merge_source_endpoint_groups(buf, service_root_endpoints, root_cap);
+            reconcile_trace_buffer(buf);
+            return None;
+        }
+
+        let mut buf = TraceBuffer {
+            events: VecDeque::new(),
+            source_endpoint_groups: HashMap::new(),
+            source_endpoint_count: 0,
+            needs_source_reconcile: false,
+            last_seen_ms: now_ms,
+        };
+        merge_source_endpoint_groups(&mut buf, service_root_endpoints, root_cap);
+        if buf.source_endpoint_count == 0 {
+            return None;
+        }
+        self.traces
+            .push(trace_id.to_string(), buf)
+            .and_then(finish_trace_buffer)
     }
 
     /// Fill unresolved source endpoints below active SERVER roots in one trace.
@@ -119,6 +164,17 @@ impl TraceWindow {
             return 0;
         };
         reconcile_event_source_endpoint_groups(buf.events.make_contiguous(), service_root_endpoints)
+    }
+
+    /// Reconcile new events against root context retained by an earlier batch.
+    pub fn reconcile_pending_source_endpoints(&mut self, trace_id: &str) -> usize {
+        let Some(buf) = self.traces.peek_mut(trace_id) else {
+            return 0;
+        };
+        if !buf.needs_source_reconcile {
+            return 0;
+        }
+        reconcile_trace_buffer(buf)
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -147,8 +203,8 @@ impl TraceWindow {
         let expired_keys = self.collect_expired_keys(now_ms);
         let mut expired = Vec::with_capacity(expired_keys.len());
         for key in expired_keys {
-            if let Some((_id, buf)) = self.traces.pop_entry(&key) {
-                expired.push((key, Vec::from(buf.events)));
+            if let Some(entry) = self.traces.pop_entry(&key).and_then(finish_trace_buffer) {
+                expired.push(entry);
             }
         }
         expired
@@ -169,7 +225,9 @@ impl TraceWindow {
     pub fn drain_all(&mut self) -> Vec<(String, Vec<NormalizedEvent>)> {
         let mut result = Vec::with_capacity(self.traces.len());
         while let Some((id, buf)) = self.traces.pop_lru() {
-            result.push((id, Vec::from(buf.events)));
+            if let Some(entry) = finish_trace_buffer((id, buf)) {
+                result.push(entry);
+            }
         }
         result
     }
@@ -188,6 +246,85 @@ impl TraceWindow {
             .peek(trace_id)
             .map(|buf| buf.events.iter().cloned().collect())
     }
+}
+
+fn merge_source_endpoint_groups(
+    buffer: &mut TraceBuffer,
+    incoming: &HashMap<Arc<str>, HashMap<String, String>>,
+    root_cap: usize,
+) {
+    for (service, roots) in incoming {
+        for (root_span_id, endpoint) in roots {
+            if let Some(existing) = buffer
+                .source_endpoint_groups
+                .get_mut(service)
+                .and_then(|service_roots| service_roots.get_mut(root_span_id))
+            {
+                existing.clone_from(endpoint);
+                continue;
+            }
+            if buffer.source_endpoint_count >= root_cap {
+                continue;
+            }
+            buffer
+                .source_endpoint_groups
+                .entry(Arc::clone(service))
+                .or_default()
+                .insert(root_span_id.clone(), endpoint.clone());
+            buffer.source_endpoint_count += 1;
+        }
+    }
+}
+
+/// Apply the common direct-child case without scanning the whole trace.
+///
+/// Returns whether a later bounded parent-chain reconciliation is needed.
+fn apply_direct_source_endpoint(
+    event: &mut NormalizedEvent,
+    source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
+) -> bool {
+    let source = event.event.source.endpoint.trim();
+    if !source.is_empty() && source != "unknown" {
+        return false;
+    }
+    let Some(root_endpoints) = source_endpoint_groups.get(event.event.service.as_ref()) else {
+        return false;
+    };
+    let Some(parent_span_id) = event.event.parent_span_id.as_ref() else {
+        return false;
+    };
+    if let Some(endpoint) = root_endpoints.get(parent_span_id) {
+        event.event.source.endpoint.clone_from(endpoint);
+        false
+    } else {
+        true
+    }
+}
+
+fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
+    let updated = reconcile_event_source_endpoint_groups(
+        buffer.events.make_contiguous(),
+        &buffer.source_endpoint_groups,
+    );
+    buffer.needs_source_reconcile = buffer.events.iter().any(|event| {
+        let source = event.event.source.endpoint.trim();
+        (source.is_empty() || source == "unknown")
+            && event.event.parent_span_id.is_some()
+            && buffer
+                .source_endpoint_groups
+                .contains_key(event.event.service.as_ref())
+    });
+    updated
+}
+
+fn finish_trace_buffer(
+    (trace_id, mut buffer): (String, TraceBuffer),
+) -> Option<(String, Vec<NormalizedEvent>)> {
+    if buffer.needs_source_reconcile {
+        reconcile_trace_buffer(&mut buffer);
+    }
+    let events = Vec::from(buffer.events);
+    (!events.is_empty()).then_some((trace_id, events))
 }
 
 /// Fill unresolved source endpoints in one trace's event slice.
@@ -841,5 +978,169 @@ mod tests {
         assert_eq!(w.active_traces(), 1);
         assert!(w.peek_clone("evicted").is_none());
         assert!(w.peek_clone("active").is_some());
+    }
+
+    #[test]
+    fn early_root_context_reconciles_later_multi_service_events_and_drains_io() {
+        let mut w = TraceWindow::new(WindowConfig::default());
+        let source_endpoint_groups = HashMap::from([
+            (
+                Arc::from("svc-a"),
+                HashMap::from([
+                    ("root-a".to_string(), "/api/a".to_string()),
+                    ("root-a2".to_string(), "/api/a2".to_string()),
+                ]),
+            ),
+            (
+                Arc::from("svc-b"),
+                HashMap::from([("root-b".to_string(), "/api/b".to_string())]),
+            ),
+        ]);
+
+        assert!(
+            w.retain_source_endpoint_groups("t1", &source_endpoint_groups, 10)
+                .is_none()
+        );
+        assert_eq!(w.active_traces(), 1);
+        assert!(w.peek_clone("t1").expect("context retained").is_empty());
+        assert!(
+            w.push(make_child("t1", "svc-a", "a", "a-mid", "a", "unknown"), 20,)
+                .is_none()
+        );
+        assert_eq!(w.reconcile_pending_source_endpoints("t1"), 0);
+        assert!(
+            w.push(
+                make_child("t1", "svc-a", "a-mid", "root-a", "a-mid", "unknown"),
+                20,
+            )
+            .is_none()
+        );
+        assert!(
+            w.push(
+                make_child("t1", "svc-a", "a2", "root-a2", "a2", "unknown"),
+                20,
+            )
+            .is_none()
+        );
+        assert!(
+            w.push(make_child("t1", "svc-b", "b", "root-b", "b", "unknown"), 20,)
+                .is_none()
+        );
+        assert_eq!(w.reconcile_pending_source_endpoints("t1"), 1);
+
+        let trace = w.peek_clone("t1").expect("trace retained");
+        assert_eq!(trace[0].event.source.endpoint, "/api/a");
+        assert_eq!(trace[1].event.source.endpoint, "/api/a");
+        assert_eq!(trace[2].event.source.endpoint, "/api/a2");
+        assert_eq!(trace[3].event.source.endpoint, "/api/b");
+        assert_eq!(w.drain_all().len(), 1, "only non-empty traces are drained");
+        assert_eq!(w.active_traces(), 0);
+    }
+
+    #[test]
+    fn early_root_context_obeys_lru_without_resurrection_or_empty_eviction() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_active_traces: NonZeroUsize::new(2).expect("nonzero"),
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/root".to_string())]),
+        )]);
+
+        assert!(w.retain_source_endpoint_groups("a", &roots, 0).is_none());
+        assert!(w.retain_source_endpoint_groups("b", &roots, 1).is_none());
+        assert!(
+            w.retain_source_endpoint_groups("a", &roots, 2).is_none(),
+            "updating context neither evicts nor promotes"
+        );
+        assert!(
+            w.retain_source_endpoint_groups("c", &roots, 3).is_none(),
+            "evicting empty context produces no detection batch"
+        );
+        assert!(w.peek_clone("a").is_none(), "LRU context was evicted");
+        assert!(w.peek_clone("b").is_some());
+        assert!(w.peek_clone("c").is_some());
+
+        assert!(
+            w.push(
+                make_child("a", "svc-a", "late", "root", "late", "unknown"),
+                4,
+            )
+            .is_none()
+        );
+        assert_eq!(
+            w.peek_clone("a").expect("new event trace retained")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown",
+            "evicted context must not resurrect"
+        );
+    }
+
+    #[test]
+    fn early_root_context_expires_without_an_empty_detection_batch() {
+        let mut w = TraceWindow::new(WindowConfig {
+            trace_ttl_ms: 100,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([("root".to_string(), "/api/root".to_string())]),
+        )]);
+
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        assert!(w.evict_expired(101).is_empty());
+        assert_eq!(w.active_traces(), 0);
+        w.push(
+            make_child("t1", "svc-a", "late", "root", "late", "unknown"),
+            102,
+        );
+        assert_eq!(
+            w.peek_clone("t1").expect("new event trace retained")[0]
+                .event
+                .source
+                .endpoint,
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn early_root_storm_is_bounded_by_trace_and_per_trace_caps() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 3,
+            max_active_traces: NonZeroUsize::new(2).expect("nonzero"),
+            ..WindowConfig::default()
+        });
+        for index in 0..100 {
+            let roots = HashMap::from([(
+                Arc::from("svc-a"),
+                HashMap::from([(format!("root-{index}"), format!("/api/{index}"))]),
+            )]);
+            assert!(
+                w.retain_source_endpoint_groups(&format!("trace-{index}"), &roots, index)
+                    .is_none()
+            );
+        }
+        let many_roots = HashMap::from([(
+            Arc::from("svc-a"),
+            (0..100)
+                .map(|index| (format!("extra-root-{index}"), format!("/extra/{index}")))
+                .collect(),
+        )]);
+        assert!(
+            w.retain_source_endpoint_groups("trace-99", &many_roots, 100)
+                .is_none()
+        );
+
+        assert_eq!(w.active_traces(), 2);
+        assert!(
+            w.traces
+                .iter()
+                .all(|(_, buffer)| buffer.source_endpoint_count <= 3)
+        );
+        assert!(w.drain_all().is_empty(), "context-only drain stays empty");
+        assert_eq!(w.active_traces(), 0);
     }
 }

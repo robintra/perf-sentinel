@@ -1,7 +1,7 @@
 //! Daemon main event loop: ingest batches, evict expired traces, and route
 //! the resulting traces through detect + score + metrics + findings store.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -387,6 +387,10 @@ async fn ingest_event_batch(
     let event_count = events.len();
     // Normalize OUTSIDE the lock to minimize lock hold time.
     let normalized: Vec<_> = events.into_iter().map(normalize::normalize).collect();
+    let touched_trace_ids: HashSet<String> = normalized
+        .iter()
+        .map(|event| event.event.trace_id.clone())
+        .collect();
     for event in &normalized {
         service_meter.record(event.event.service.as_ref(), metrics);
     }
@@ -407,10 +411,15 @@ async fn ingest_event_batch(
         // bounded by max_payload_size; the configurable
         // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
-        // Reconcile first so an update for the current LRU trace is applied
-        // before a later event in this batch can evict it.
+        // Retain root-only batches in the same bounded trace window. Doing this
+        // before pushes also repairs an existing LRU trace before a later event
+        // in this batch can evict it.
         for (trace_id, service_root_endpoints) in &source_endpoint_groups {
-            w.reconcile_source_endpoint_groups(trace_id, service_root_endpoints);
+            if let Some(evicted) =
+                w.retain_source_endpoint_groups(trace_id, service_root_endpoints, now_ms)
+            {
+                lru_evicted.push(evicted);
+            }
         }
         for event in normalized {
             if let Some(evicted) = w.push(event, now_ms) {
@@ -423,6 +432,12 @@ async fn ingest_event_batch(
             // second grouping or persistent cache is created.
             for (trace_id, service_root_endpoints) in &source_endpoint_groups {
                 w.reconcile_source_endpoint_groups(trace_id, service_root_endpoints);
+            }
+            // A later I/O-only batch has no update map to drive the pass above.
+            // Only traces whose direct lookup could not resolve a parent chain
+            // request this bounded reconciliation against retained roots.
+            for trace_id in &touched_trace_ids {
+                w.reconcile_pending_source_endpoints(trace_id);
             }
         }
         metrics.active_traces.set(w.active_traces() as f64);
@@ -1696,6 +1711,70 @@ mod tests {
             .collect();
         endpoints.sort_unstable();
         assert_eq!(endpoints, ["/api/a", "/api/b"]);
+    }
+
+    #[tokio::test]
+    async fn daemon_otlp_root_first_batch_reconciles_later_io_through_real_ingest() {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+        let (tx, mut rx) = mpsc::channel(2);
+        let service =
+            crate::ingest::otlp::OtlpGrpcService::new_daemon_with_grouping(tx, None, Vec::new());
+        service
+            .export(tonic::Request::new(otlp_request(
+                "orders-svc",
+                vec![otlp_server_root(1, "/api/fastapi")],
+            )))
+            .await
+            .expect("early root export accepted");
+
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+        let root_batch = rx.recv().await.expect("early root batch sent");
+        assert!(
+            ingest_event_batch(root_batch, 1.0, &window, &metrics, &mut service_meter)
+                .await
+                .is_empty()
+        );
+        assert!(metrics.events_processed_total.get().abs() < f64::EPSILON);
+        assert!(
+            metrics
+                .service_io_ops_total
+                .with_label_values(&["orders-svc"])
+                .get()
+                .abs()
+                < f64::EPSILON
+        );
+
+        let children = (10..13)
+            .map(|span_id| otlp_messaging_span(1, span_id, "orders"))
+            .collect();
+        service
+            .export(tonic::Request::new(otlp_request("orders-svc", children)))
+            .await
+            .expect("later I/O export accepted");
+        let io_batch = rx.recv().await.expect("later I/O batch sent");
+        assert!(
+            ingest_event_batch(io_batch, 1.0, &window, &metrics, &mut service_meter)
+                .await
+                .is_empty()
+        );
+
+        let (trace_id, spans) = window
+            .lock()
+            .await
+            .drain_all()
+            .pop()
+            .expect("one trace with I/O");
+        let findings =
+            crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].source_endpoint, "/api/fastapi");
     }
 
     #[test]
