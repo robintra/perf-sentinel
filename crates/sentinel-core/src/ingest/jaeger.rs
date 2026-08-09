@@ -211,9 +211,9 @@ fn own_inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
 
 fn http_endpoint(span: &JaegerSpan, allow_url_fallback: bool) -> Option<String> {
     let usable = |s: &String| !s.trim().is_empty();
-    find_tag(&span.tags, "http.route")
-        .filter(usable)
-        .map(|route| crate::ingest::canonical_http_route(&route))
+    let route = find_tag(&span.tags, "http.route");
+    let url_path = find_tag(&span.tags, "url.path");
+    crate::ingest::http_route_endpoint(route.as_deref(), url_path.as_deref(), allow_url_fallback)
         .or_else(|| {
             if !allow_url_fallback {
                 return None;
@@ -224,6 +224,16 @@ fn http_endpoint(span: &JaegerSpan, allow_url_fallback: bool) -> Option<String> 
                 .or_else(|| find_tag(&span.tags, "url.full").filter(usable))
                 .or_else(|| find_tag(&span.tags, "url.path").filter(usable))
         })
+}
+
+fn own_sql_http_endpoint(span: &JaegerSpan) -> Option<String> {
+    crate::ingest::http_route_endpoint(
+        find_tag(&span.tags, "http.route").as_deref(),
+        find_tag(&span.tags, "url.path").as_deref(),
+        find_tag(&span.tags, "span.kind").as_deref() == Some("server"),
+    )
+    .or_else(|| find_tag(&span.tags, "http.target"))
+    .filter(|endpoint| !endpoint.trim().is_empty())
 }
 
 /// Code-frame endpoint carried by this span's own tags, stable spellings
@@ -394,10 +404,7 @@ fn convert_jaeger_span(
     // wins. On an outbound span it is the callee's path, so only the walk answers.
     let endpoint = resolve_source_endpoint(
         match io_kind {
-            super::TagIoKind::Sql => find_tag(tags, "http.route")
-                .map(|route| crate::ingest::canonical_http_route(&route))
-                .or_else(|| find_tag(tags, "http.target"))
-                .filter(|s| !s.trim().is_empty()),
+            super::TagIoKind::Sql => own_sql_http_endpoint(span),
             super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
         },
         tag_code_frame(tags),
@@ -772,6 +779,70 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    }
+
+    #[test]
+    fn named_route_uses_url_path_for_own_and_ancestor_endpoints() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [
+                    {
+                        "spanID": "root",
+                        "operationName": "request",
+                        "references": [],
+                        "startTime": 1720621921123000,
+                        "duration": 5000,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "http.route", "value": "app_fault_nplusonesql" },
+                            { "key": "url.path", "value": "/api/fault/n-plus-one-sql" }
+                        ]
+                    },
+                    {
+                        "spanID": "child",
+                        "operationName": "query",
+                        "references": [{ "refType": "CHILD_OF", "spanID": "root" }],
+                        "startTime": 1720621921123100,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "db.statement", "value": "SELECT 1" },
+                            { "key": "db.system", "value": "postgresql" }
+                        ]
+                    },
+                    {
+                        "traceID": "t2",
+                        "spanID": "own",
+                        "operationName": "query",
+                        "references": [],
+                        "startTime": 1720621921123200,
+                        "duration": 500,
+                        "processID": "p1",
+                        "tags": [
+                            { "key": "span.kind", "value": "server" },
+                            { "key": "db.statement", "value": "SELECT 2" },
+                            { "key": "db.system", "value": "postgresql" },
+                            { "key": "http.route", "value": "app_fault_nplusonesql" },
+                            { "key": "url.path", "value": "/api/fault/n-plus-one-sql" }
+                        ]
+                    }
+                ],
+                "processes": { "p1": { "serviceName": "symfony-svc" } }
+            }]
+        }"#;
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events.len(), 2);
+        assert!(
+            events
+                .iter()
+                .all(|event| event.source.endpoint == "/api/fault/n-plus-one-sql")
+        );
     }
 
     #[test]
