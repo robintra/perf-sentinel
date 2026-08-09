@@ -565,6 +565,13 @@ Three things follow:
 
 Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
 
+Upgrade note (0.11.2): OTLP findings may move from an inner framework route
+or `unknown` to the outermost route in their contiguous same-service chain,
+including when daemon exports arrive separately. Persisted finding baselines
+will show those identities once as resolved and new; regenerate them with
+0.11.2 before evaluating application changes. Trace-corpus baselines remain
+stable because both sides are re-analyzed by the current binary.
+
 ```yaml
 # .github/workflows/perf-sentinel-diff.yml
 name: perf-sentinel diff
@@ -665,4 +672,3 @@ jobs:
 Tweak the threshold logic in the final step to match your team's policy. Some teams gate on any new finding, others tolerate Info-level new findings and only fail on Warning or Critical regressions.
 
 ---
-

@@ -238,9 +238,12 @@ request identifiers. The contract is locked by unit tests in
 ### Critical dependency on `http.route`
 
 The `endpoint` component is derived from the OpenTelemetry `http.route`
-attribute on the parent HTTP span, which carries the route template
-(e.g. `/api/orders/{id}`) rather than the instantiated URL
-(`/api/orders/42`).
+attribute on the entry HTTP span or its same-service ancestors. For an
+explicitly named service, perf-sentinel selects the outermost route in the
+contiguous chain; it never adopts the caller service's route. A route template
+without a leading slash is canonicalized with one (`api/orders/{id}` becomes
+`/api/orders/{id}`), so equivalent instrumentation shapes produce one
+signature.
 
 When traced services emit `http.route`:
 
@@ -248,8 +251,10 @@ When traced services emit `http.route`:
 - Acknowledgments survive service restarts.
 - Acknowledgments survive normal traffic with rotating request IDs.
 
-When `http.route` is missing, perf-sentinel falls back to `http.url`,
-then to `url.full` (OTel v1.21+ stable convention). Each unique URL
+When `http.route` is missing on an explicitly SERVER span, perf-sentinel falls
+back to `http.url`, `url.full`, `url.path`, then `http.target` (depending on
+the ingest format). URL-only CLIENT spans remain outbound operations and are
+not mistaken for entry points. Each unique URL
 yields a different signature, ack churn becomes proportional to URL
 cardinality, and deferred findings reappear at every new request id.
 The fallback exists so the operator still sees a usable endpoint
@@ -273,6 +278,12 @@ Templates with placeholders (`/api/orders/{id}`) indicate healthy
 instrumentation. Instantiated URLs with hardcoded ids
 (`/api/orders/42`) indicate `http.route` is missing and acks will
 churn.
+
+Upgrade note (0.11.2): endpoint attribution now keeps valid sampled parent
+context across daemon OTLP export requests and selects the outermost route in a
+contiguous same-service chain. Findings that previously used an inner framework
+route or `unknown` can therefore receive a different signature. Re-capture
+affected acknowledgments and persisted report baselines with 0.11.2.
 
 ### Service renames invalidate acks
 

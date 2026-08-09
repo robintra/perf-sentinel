@@ -118,6 +118,12 @@ Socket unix JSON       /                               |
 ```
 
 - Les événements sont normalisés en dehors du verrou TraceWindow pour minimiser le temps de détention du verrou.
+- Les routes et liens parent OTLP valides et échantillonnés de services nommés sont conservés avec
+  les événements, afin que la fenêtre puisse résoudre une route d'entrée
+  externe du même service arrivée dans un export ultérieur. Les contextes
+  d'endpoint et entrées d'ascendance sont plafonnés séparément par
+  `max_events_per_trace`, partagent le LRU et le TTL de la trace et ne comptent
+  jamais comme événements I/O.
 - Les traces sont évincées lorsque le cache LRU est plein (`max_active_traces`) ou lorsque le TTL expire (`trace_ttl_ms`).
 - À l'éviction, la trace est analysée via les étapes detect et score.
 - Les findings sont émis en JSON délimité par des sauts de ligne sur stdout.
@@ -176,7 +182,7 @@ Un `FindingsStore` (ring buffer) retient les findings récents pour l'API (dimen
 | `QualityGate`     | quality_gate     | Résultat pass/fail avec évaluations individuelles des règles                                                                                           |
 | `Report`          | report           | Sortie d'analyse complète : métadonnées d'analyse, findings, résumé green, quality gate                                                                |
 | `Config`          | config           | Configuration parsée avec toutes les sections et champs validés                                                                                        |
-| `TraceWindow`     | correlate/window | Cache LRU de traces actives pour le mode streaming avec éviction TTL                                                                                   |
+| `TraceWindow`     | correlate/window | Cache LRU/TTL de traces actives avec contexte OTLP d'endpoint et de parent borné pour l'attribution entre exports                                      |
 
 ## Frontières des crates
 

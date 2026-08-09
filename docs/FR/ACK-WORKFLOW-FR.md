@@ -246,10 +246,13 @@ par les tests unitaires dans
 
 ### Dépendance critique à `http.route`
 
-Le composant `endpoint` est dérivé de l'attribut OpenTelemetry
-`http.route` sur le span HTTP parent, qui porte le template de route
-(par exemple `/api/orders/{id}`) plutôt que l'URL instanciée
-(`/api/orders/42`).
+Le composant `endpoint` est dérivé de l'attribut OpenTelemetry `http.route`
+sur le span HTTP d'entrée ou ses ancêtres du même service. Pour un service
+explicitement nommé, perf-sentinel sélectionne la route la plus externe de la
+chaîne contiguë ; il n'adopte jamais la route du service appelant. Un template
+sans slash initial est canonisé en l'ajoutant (`api/orders/{id}` devient
+`/api/orders/{id}`), de sorte que deux formes d'instrumentation équivalentes
+produisent la même signature.
 
 Quand les services tracés émettent `http.route` :
 
@@ -259,8 +262,10 @@ Quand les services tracés émettent `http.route` :
 - Les acks survivent au trafic normal avec des identifiants de
   requête tournants.
 
-Quand `http.route` est absent, perf-sentinel se rabat sur `http.url`,
-puis sur `url.full` (convention OTel stable v1.21+). Chaque URL
+Quand `http.route` est absent sur un span explicitement SERVER, perf-sentinel
+se rabat sur `http.url`, `url.full`, `url.path`, puis `http.target` selon le
+format d'ingestion. Les spans CLIENT portant uniquement une URL restent des
+opérations sortantes et ne sont pas pris pour des points d'entrée. Chaque URL
 unique produit une signature différente, le churn d'acks devient
 proportionnel à la cardinalité des URL, et les findings différés
 réapparaissent à chaque nouvel id de requête. Le fallback existe pour
@@ -287,6 +292,13 @@ Des templates avec placeholders (`/api/orders/{id}`) signalent une
 instrumentation saine. Des URL instanciées avec des id en dur
 (`/api/orders/42`) signalent que `http.route` est absent et que les
 acks vont churner.
+
+Note de montée de version (0.11.2) : l'attribution d'endpoint conserve
+désormais le contexte parent OTLP valide et échantillonné entre les requêtes
+d'export du daemon et sélectionne la route la plus externe d'une chaîne
+contiguë du même service. Des findings auparavant associés à une route interne
+du framework ou à `unknown` peuvent donc changer de signature. Re-capturez les
+acquittements et les baselines de rapports persistés concernés avec 0.11.2.
 
 ### Les renommages de service invalident les acks
 

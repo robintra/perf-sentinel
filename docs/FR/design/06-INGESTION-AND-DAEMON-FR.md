@@ -9,30 +9,30 @@
 
 ### Conception en deux passes
 
-`convert_otlp_request()` traite chaque bloc `resource_spans` en deux passes :
+`convert_otlp_request()` traite la requête en deux phases :
 
 **Passe 1 : Construction de l'index des spans :**
 ```rust
-let span_index: HashMap<&[u8], &Span> = scope_spans.iter()
-    .flat_map(|ss| &ss.spans)
-    .map(|span| (span.span_id.as_slice(), span))
-    .collect();
+// Pseudocode : les index nommés couvrent les blocs, les anonymes restent locaux.
+let per_service = build_span_indexes(request); // services nommés, tous blocs
 ```
 
 **Passe 2 : Conversion des spans I/O :**
 ```rust
-for span in &scope.spans {
-    if let Some(event) = convert_span(span, service_name, &span_index) {
-        events.push(event);
-    }
+// Pseudocode
+for resource_spans in &request.resource_spans {
+    let span_index = named_service_index_or_anonymous_block_index(resource_spans);
+    convert_resource_spans(resource_spans, span_index, &mut events);
 }
 ```
 
 **Pourquoi deux passes ?** Dans OTLP, un span parent peut apparaître après son enfant dans le message protobuf. La première passe construit une table de recherche pour que la seconde passe puisse résoudre `source.endpoint` en remontant la chaîne d'ancêtres. Une approche en une seule passe manquerait les spans parents définis plus loin dans le message.
 
-`source.endpoint` se résout en trois étapes, chacune servant de repli à la précédente : la route HTTP entrante la plus proche en remontant la chaîne (`http.route`, puis `http.url`, puis `url.full`), ensuite le cadre de code `code.*` pour les points d'entrée qui ne portent aucun attribut HTTP (jobs planifiés, consumers de messages), enfin le littéral `"unknown"`. La remontée est bornée par la même limite de profondeur que celle du parcours `code.*`. Ne résoudre que le parent direct laissait toute pile en couches sur `"unknown"`, puisque la route se trouve sur le span SERVER deux niveaux ou plus au-dessus d'un span JDBC feuille.
+`source.endpoint` se résout en trois étapes, chacune servant de repli à la précédente : la route HTTP entrante la plus externe dans la chaîne contiguë d'un service explicitement nommé (`http.route`, puis les fallbacks URL réservés aux spans SERVER), ensuite le cadre de code `code.*` le plus externe pour les points d'entrée sans attribut HTTP (jobs planifiés, consumers de messages), enfin le littéral `"unknown"`. Une ressource anonyme se limite à la route prouvée la plus proche, car un nom de service absent ne permet pas d'établir une frontière sûre entre blocs. Toute remontée s'arrête après exactement huit sauts.
 
-L'index utilise des clés `&[u8]` (octets bruts du span_id), évitant l'encodage hexadécimal juste pour la recherche. Un index est construit par `service.name`, couvrant tous les blocs `ResourceSpans` que ce service possède : le batch processor du collector découpe une même trace entre plusieurs blocs, et un index par bloc perdait l'endpoint à la frontière. Les services restent séparés pour qu'une feuille ne puisse pas adopter la route ou le cadre `code.*` d'un appelant dans une requête d'agrégation, ce qui nommerait un fichier d'un autre dépôt. L'index de chaque service est plafonné à 100 000 spans pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques, si bien qu'un service bruyant ne prive pas les autres de résolution de parent. Un `tracing::warn!` est émis quand un cap est atteint pour aider les opérateurs à diagnostiquer une résolution de parent dégradée.
+L'index utilise les paires d'octets bruts `(trace_id, span_id)`, évite l'encodage hexadécimal et empêche deux ids de span égaux dans deux traces de collisionner. Un index est construit par `service.name` explicite et couvre tous les blocs `ResourceSpans` de ce service. Les blocs anonymes reçoivent chacun un index local distinct. L'index de chaque service est plafonné à 100 000 spans pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques, si bien qu'un service bruyant ne prive pas les autres de résolution de parent. Un `tracing::warn!` est émis quand un cap est atteint pour aider les opérateurs à diagnostiquer une résolution de parent dégradée.
+
+Pour les services explicitement nommés, le daemon exporte en plus les ids de trace valides de 16 octets, les ids de span valides de 8 octets, les arêtes parent et les routes entrantes facultatives comme contexte source. La `TraceWindow` conserve ce contexte sous ses plafonds LRU, TTL et par trace existants : les spans INTERNAL intermédiaires et les routes d'entrée peuvent ainsi arriver dans des exports OTLP ultérieurs sans créer d'événement I/O synthétique. Le contexte anonyme reste local à la conversion et n'est pas retenu entre exports. Les ids invalides sont ignorés avant la création de clés hexadécimales. L'échantillonnage réutilise la même décision déterministe par id de trace que les événements I/O.
 
 ### Table de recherche `bytes_to_hex`
 

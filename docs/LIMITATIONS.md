@@ -13,7 +13,7 @@
 - [Slow findings and waste ratio](#slow-findings-and-waste-ratio): why slow findings do not contribute to the I/O waste ratio.
 - [Score interpretation](#score-interpretation): the healthy / moderate / high / critical bands for `io_intensity_score` and `io_waste_ratio`.
 - [Fanout detection requires `parent_span_id`](#fanout-detection-requires-parent_span_id): instrumentation prerequisite.
-- [Endpoint resolution stops at the export request](#endpoint-resolution-stops-at-the-export-request): why a trace split across two OTLP exports can report `unknown`.
+- [Endpoint resolution is bounded](#endpoint-resolution-is-bounded): how service boundaries, depth, sampling and trace-window caps limit attribution.
 - [`rss_peak_bytes` on Windows](#rss_peak_bytes-on-windows): why bench RSS is null on Windows.
 - [Upstream sampling and detection accuracy](#upstream-sampling-and-detection-accuracy): why 1-10% head-based sampling hides rare patterns and quiets cross-trace correlation.
 - [Sampling in daemon mode](#sampling-in-daemon-mode): consequences of `sampling_rate < 1.0`.
@@ -98,7 +98,14 @@ The two traces are deliberately **not** merged into one. Merging would put a tra
 
 The consequence is that the structural detectors stay inside one trace. `excessive_fanout` and `serialized_calls` see the publishes on the producer side, which is where a publish loop is detectable anyway, and see nothing of the consumer side of the same message. Only the first link of a span is read, so a batch consumer that drains many producers names one representative producer trace. A link pointing back into the span's own trace is dropped, so a value in this field always means a trace boundary was crossed.
 
-Resolution stops at the export request, the same bound as endpoint resolution. The `CONSUMER` ancestor must ride in the same OTLP request and the same service index, and the default `BatchSpanProcessor` enqueues a parent span when it ends, after its children, so a handler whose children end just before a scheduled flush ships them in one batch and the consumer parent in the next. The link is then simply absent, which is why the same handler can show the line on one run and not the next.
+Producer-link resolution stops at the export request. Unlike endpoint ancestry,
+the daemon does not retain `CONSUMER` link context between requests. The
+`CONSUMER` ancestor must ride in the same OTLP request and service index, and
+the default `BatchSpanProcessor` enqueues a parent span when it ends, after its
+children, so a handler whose children end just before a scheduled flush ships
+them in one batch and the consumer parent in the next. The link is then simply
+absent, which is why the same handler can show the line on one run and not the
+next.
 
 Only the OTLP path carries links. Jaeger models them as references and Zipkin v2 has none, so a trace imported from either format never has `link_trace_id` set.
 
@@ -174,30 +181,28 @@ Fanout detection (`excessive_fanout`) relies on the `parent_span_id` field to bu
 
 Fanout findings, like slow findings, are **not** counted as avoidable I/O in the waste ratio. They represent a structural concern (too many child operations per parent) rather than eliminable I/O.
 
-## Endpoint resolution stops at the export request
+## Endpoint resolution is bounded
 
-`source.endpoint` is resolved when a span is converted, by walking its ancestor
-chain inside the OTLP export request that carried it. One index is built per
-`service.name`, spanning every `ResourceSpans` block that service owns, so a
-collector that splits one trace across blocks resolves normally, and a walk
-never crosses into another service (a caller's route names another service's
-entry point, and its code frame lives in another repository).
+Within one OTLP request, `source.endpoint` is the outermost inbound HTTP route
+in the contiguous parent chain of an explicitly named `service.name`. Parent
+indexes span every `ResourceSpans` block for that service but are keyed by both
+trace id and span id, so they neither collide across traces nor cross into a
+caller service. An anonymous resource cannot prove that two blocks belong to
+the same service and therefore uses only the nearest route in its own block.
 
-The request is the outer boundary, and the collector's `batch` processor can
-flush one trace as two exports. A span whose route or code frame travelled in
-the other export resolves to `"unknown"`, which is honest but collides in the
-ack signature with every other unknown-endpoint finding of that service. This
-is inherent to resolving at conversion time: correlation happens later, in the
-trace window, but the endpoint is already stamped on the event by then.
+In daemon mode, valid sampled OTLP span ids, parent links and inbound routes
+from explicitly named services are also retained in the `TraceWindow`.
+Anonymous context is not retained across exports. This bounded context lets a route that
+arrives in a later export repair an earlier I/O event without creating a
+synthetic event or incrementing I/O metrics. The event ring, retained route
+contexts and ancestry index are each capped by `max_events_per_trace`; all share
+the trace LRU and TTL. Every ancestor walk stops after exactly eight hops.
 
-Lab measurement on a 245 MB capture across 12 ecosystems: 414 findings lost
-their endpoint this way, every one of them on a trace split across more than
-one export request, and none on a trace contained in a single request. It
-concentrates on services that instrument both sides of their own HTTP calls.
-Raising `send_batch_size` (or lowering `timeout`) on the collector's `batch`
-processor so a whole trace tends to fit in one export reduces it; a
-`groupbytrace` processor ahead of the exporter removes it outright, at the cost
-of buffering.
+Attribution can therefore still degrade to the nearest proven route or
+`"unknown"` after invalid identifiers, a missing `service.name`, sampling, the
+eight-hop limit, per-trace rotation, LRU eviction or TTL expiry. Batch commands
+do not retain context between separate export requests. Increasing caps or
+retention can recover more late context, but raises the bounded memory envelope.
 
 ## `rss_peak_bytes` on Windows
 

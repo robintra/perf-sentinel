@@ -118,6 +118,11 @@ JSON unix socket       /                               |
 ```
 
 - Events are normalized outside the TraceWindow lock to minimize lock hold time.
+- Valid sampled OTLP route and parent context from named services is retained alongside events, so
+  the window can resolve an outer same-service entry route that arrives in a
+  later export. Endpoint contexts and ancestry entries are independently
+  bounded by `max_events_per_trace`; they share the trace LRU and TTL and never
+  count as I/O events.
 - Traces are evicted when the LRU cache is full (`max_active_traces`) or when TTL expires (`trace_ttl_ms`).
 - On eviction, the trace is analyzed through detect and score stages.
 - Findings are emitted as newline-delimited JSON to stdout.
@@ -177,7 +182,7 @@ A `FindingsStore` ring buffer retains recent findings for the API (sized by `[da
 | `QualityGate`     | quality_gate     | Pass/fail result with individual rule evaluations                                                                                                     |
 | `Report`          | report           | Complete analysis output: analysis metadata, findings, green summary, quality gate                                                                    |
 | `Config`          | config           | Parsed configuration with all sections and validated fields                                                                                           |
-| `TraceWindow`     | correlate/window | LRU cache of active traces for streaming mode with TTL eviction                                                                                       |
+| `TraceWindow`     | correlate/window | LRU/TTL cache of active traces plus bounded OTLP endpoint and parent context for split-export attribution                                             |
 
 ## Crate boundaries
 

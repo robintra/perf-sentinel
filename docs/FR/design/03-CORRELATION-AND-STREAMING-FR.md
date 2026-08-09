@@ -58,6 +58,7 @@ Chaque trace stocke ses événements dans un `VecDeque<NormalizedEvent>` :
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
+    source_endpoint_parent_groups: HashMap<Arc<str>, HashMap<String, Option<String>>>,
     source_endpoint_count: usize,
     resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
@@ -77,13 +78,15 @@ if buf.events.len() > self.config.max_events_per_trace {
 
 La capacité initiale est `VecDeque::with_capacity(8)` : une petite allocation pour les traces de courte durée qui évite les doublements répétés pour le cas courant de 1-10 événements.
 
-Une trace OTLP peut aussi conserver les contextes d'endpoint racine SERVER
-avant que ses événements I/O n'arrivent dans un lot ultérieur, ainsi qu'un LRU
-d'ascendance de spans qui conserve le lien parent et la route résolue
-facultative après la rotation de l'événement. Il répare aussi l'arrivée du
-parent après l'enfant par une recherche bornée à huit sauts. Les événements,
-contextes racine et entrées d'ascendance forment trois collections distinctes,
-**chacune** plafonnée par `max_events_per_trace`. Le LRU d'ascendance alloue sa
+Une trace OTLP peut aussi conserver les contextes d'endpoint entrant avant que
+ses événements I/O n'arrivent dans un lot ultérieur. Chaque contexte porte son
+lien parent, et les spans intermédiaires non-I/O entrent dans le même LRU
+d'ascendance qui conserve le lien parent d'un événement et sa route prouvée
+facultative après rotation. Cela répare l'arrivée parent-après-enfant et les
+exports scindés par une recherche de huit sauts exactement, sans événement ni
+métrique I/O synthétique. Les événements, contextes d'endpoint et entrées
+d'ascendance forment trois collections distinctes, **chacune** plafonnée par
+`max_events_per_trace`. Le LRU d'ascendance alloue sa
 mémoire progressivement au lieu de réserver le plafond configuré pour chaque
 trace. Au plafond minimal valide de un, la rotation peut remplacer l'unique
 entrée parent ; une chaîne manquante n'utilise alors un fallback que si le
@@ -100,8 +103,9 @@ provisoire sans réécrire les événements actifs. La réconciliation explicite
 fusionne d'abord les racines dans cet état autoritatif et borné avant de résoudre
 les événements. Les traces ne contenant que du contexte utilisent le même LRU
 `max_active_traces` et la même éviction `trace_ttl_ms` que les traces avec
-événements ; les racines précoces et l'ascendance ne peuvent donc pas créer un
-état non borné.
+événements ; les routes précoces et l'ascendance intermédiaire ne peuvent donc
+pas créer un état non borné. Seuls les identifiants OTLP valides des traces
+conservées par l'échantillonneur déterministe du daemon entrent dans cet état.
 
 Dans un lot d'ingestion, chaque groupe de racines conservé reçoit une génération
 monotone de la fenêtre. Les événements comparent cette génération en O(1) et ne
@@ -153,14 +157,15 @@ La consommation mémoire maximale du TraceWindow peut être estimée :
 
 ```
 mémoire_max = max_active_traces × max_events_per_trace
-              × (taille_moyenne_événement + taille_moyenne_contexte_racine
+              × (taille_moyenne_événement + taille_moyenne_contexte_endpoint
                  + taille_moyenne_entrée_ascendance)
 ```
 
 Les trois collections par trace peuvent chacune atteindre leur plafond. Avec les
 valeurs par défaut, la seule partie événements représente environ 5 Go au
 maximum théorique (10 000 × 1 000 × ~500 octets), auxquels s'ajoutent les
-contextes racine et entrées d'ascendance bornés séparément.
+contextes d'endpoint (route plus table des parents) et entrées d'ascendance
+bornés séparément.
 
 En pratique, la plupart des traces ont bien moins d'événements que le cap. Pour
 des traces typiques de 10 à 50 événements, la seule partie événements vaut
@@ -170,7 +175,7 @@ environ :
 mémoire_typique = 10 000 × 50 × ~500 octets = ~250 Mo
 ```
 
-Les contextes racine et les entrées d'ascendance allouées progressivement
+Les contextes d'endpoint et les entrées d'ascendance allouées progressivement
 s'ajoutent à cette estimation limitée aux événements ; le plafond configuré de
 1 000 entrées d'ascendance n'est pas préalloué pour chaque trace.
 
