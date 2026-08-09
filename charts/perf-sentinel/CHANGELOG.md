@@ -10,6 +10,22 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.11.2]
+
+### Changed
+
+- `appVersion` moves to `0.11.2`. OTLP endpoint attribution follows the
+  outermost route in a contiguous same-service parent chain, and a framework
+  route name no longer wins over a usable `url.path` on the same span. The
+  daemon this chart deploys ingests OTLP directly, so a finding that
+  previously carried an inner route or `unknown` can move to the outer path,
+  which changes its acknowledgment signature and its persisted baseline
+  identity. Re-capture affected acknowledgments and report baselines with
+  `0.11.2`. Nothing in the chart changes beyond the version fields, but the
+  upgrade still rolls the pods: the image tag falls back to
+  `.Chart.AppVersion`, and `checksum/config` moves with the chart version the
+  ConfigMap labels carry.
+
 ## [0.11.1]
 
 ### Changed
