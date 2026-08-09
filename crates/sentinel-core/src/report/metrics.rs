@@ -72,17 +72,18 @@ impl OtlpRejectReason {
 ///
 /// Used as the `reason` label of `perf_sentinel_otlp_spans_filtered_total`.
 /// Variants are pre-warmed to 0 at startup. Span-level filtering is
-/// deliberate (only SQL and outbound-HTTP spans are analyzable, see
+/// deliberate (only SQL and client-side outbound spans are analyzable, see
 /// docs/LIMITATIONS.md); the counter exists so a fleet whose spans all
 /// filter out is visible instead of silently yielding no findings while
 /// every OTLP request keeps returning success.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OtlpSpanFilterReason {
-    /// Span carries no `db.*` statement and no HTTP url or method.
+    /// Span carries no `db.*` statement and no HTTP url or method, or is a
+    /// SERVER span whose URL describes its own inbound request.
     NotIo,
     /// Span has `db.system` but no `db.statement`/`db.query.text` to analyze.
     MissingDbStatement,
-    /// Span has an HTTP method but no `http.url`/`url.full` to analyze.
+    /// Non-SERVER span with an HTTP method but no `http.url`/`url.full`.
     MissingHttpUrl,
     /// Span names a non-SQL datastore in `db.system` (Redis, `MongoDB`, ...).
     /// Dropped on purpose, not an instrumentation gap, so it is excluded

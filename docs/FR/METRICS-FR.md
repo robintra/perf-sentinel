@@ -135,13 +135,17 @@ analysable. Valeurs du label `reason` de
 `perf_sentinel_otlp_spans_filtered_total`, pré-warmées à 0 :
 
 - `not_io` : le span ne porte ni statement `db.*` ni url ou méthode
-  HTTP (span interne, hit de cache, middleware...). Dominant attendu
-  sur les flottes bien instrumentées.
+  HTTP (span interne, hit de cache, middleware...). Depuis 0.11.2,
+  cela couvre aussi un span SERVER dont l'URL décrit sa propre requête
+  entrante, puisqu'il s'agit d'un traitement entrant et non d'un appel
+  sortant amputé. Dominant attendu sur les flottes bien instrumentées.
 - `missing_db_statement` : le span a `db.system` mais ni
   `db.statement` ni `db.query.text`. Typique des drivers configurés
   pour omettre le texte des requêtes.
 - `missing_http_url` : le span a une méthode HTTP mais ni `http.url`
-  ni `url.full`.
+  ni `url.full`, et n'est pas un span SERVER. Un traitement entrant ne
+  porte légitimement qu'une méthode et un chemin, le compter comme un
+  manque signalerait un problème d'instrumentation inexistant.
 - `non_sql_datastore` : le span nomme un store non-SQL (Redis,
   MongoDB, ...) dans `db.system`. Écarté à dessein, pas un manque
   d'instrumentation (voir [`LIMITATIONS-FR.md`](./LIMITATIONS-FR.md)).

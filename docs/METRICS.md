@@ -132,13 +132,17 @@ arrive but none carries an analyzable attribute.
 pre-warmed to 0:
 
 - `not_io`: span carries no `db.*` statement and no HTTP url or
-  method (internal span, cache hit, middleware...). Expected to
-  dominate on well-instrumented fleets.
+  method (internal span, cache hit, middleware...). Since 0.11.2 this
+  also covers a SERVER span whose URL describes its own inbound
+  request, since that is inbound work rather than a stripped outbound
+  call. Expected to dominate on well-instrumented fleets.
 - `missing_db_statement`: span has `db.system` but neither
   `db.statement` nor `db.query.text`. Typical of drivers configured
   to omit query text.
 - `missing_http_url`: span has an HTTP method but neither `http.url`
-  nor `url.full`.
+  nor `url.full`, and is not a SERVER span. An inbound handler
+  legitimately carries just a method and a path, so counting it as a
+  gap would report an instrumentation problem that does not exist.
 - `non_sql_datastore`: span names a non-SQL store (Redis, MongoDB, ...)
   in `db.system`. Dropped on purpose, not an instrumentation gap (see
   [`LIMITATIONS.md`](./LIMITATIONS.md)).
