@@ -262,15 +262,18 @@ const MAX_SPANS_PER_SERVICE: usize = 100_000;
 
 /// Byte length of a valid `OTel` trace id. The proto bounds nothing.
 const TRACE_ID_LEN: usize = 16;
+/// Byte length of a valid `OTel` span or parent-span id.
+#[cfg(feature = "daemon")]
+const SPAN_ID_LEN: usize = 8;
 
 /// Parent-lookup index per `service.name`, built once for a whole request.
-type ServiceSpanIndexes<'a> = HashMap<&'a str, HashMap<&'a [u8], &'a Span>>;
+type ServiceSpanIndexes<'a> = HashMap<&'a str, HashMap<SpanKey<'a>, &'a Span>>;
 
 /// Link-bearing CONSUMER spans grouped by parent, per `service.name`.
 ///
 /// A parent can hold several, so unlike [`ServiceSpanIndexes`] the value is a
 /// list: picking one at index time would decide by payload order.
-type ServiceConsumerIndexes<'a> = HashMap<&'a str, HashMap<&'a [u8], Vec<&'a Span>>>;
+type ServiceConsumerIndexes<'a> = HashMap<&'a str, HashMap<SpanKey<'a>, Vec<&'a Span>>>;
 
 /// Code-frame attributes read from a single span's attribute set.
 ///
@@ -471,28 +474,28 @@ fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
 /// `CODE_ATTRS_MAX_DEPTH` to prevent loops on malformed parent chains.
 fn walk_parents_for_code_attrs<'a>(
     leaf: CodeAttrs<'a>,
+    trace_id: &'a [u8],
     parent_span_id: &[u8],
-    span_index: &HashMap<&[u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
 ) -> CodeAttrs<'a> {
     if leaf.has_any() || parent_span_id.is_empty() {
         return leaf;
     }
     let mut current_parent_id = parent_span_id;
-    let mut depth = 0;
-    loop {
-        let Some(parent) = span_index.get(current_parent_id) else {
+    for _ in 0..CODE_ATTRS_MAX_DEPTH {
+        let Some(parent) = span_index.get(&(trace_id, current_parent_id)) else {
             return CodeAttrs::default();
         };
         let attrs = read_code_attrs(&parent.attributes);
         if attrs.has_any() {
             return attrs;
         }
-        if parent.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
+        if parent.parent_span_id.is_empty() {
             return CodeAttrs::default();
         }
         current_parent_id = parent.parent_span_id.as_slice();
-        depth += 1;
     }
+    CodeAttrs::default()
 }
 
 /// Producer trace this span's work was triggered by, or `None`.
@@ -508,8 +511,8 @@ fn walk_parents_for_code_attrs<'a>(
 /// See `docs/design/06-INGESTION-AND-DAEMON.md`.
 fn resolve_producer_link<'a>(
     span: &'a Span,
-    span_index: &HashMap<&'a [u8], &'a Span>,
-    consumers_by_parent: &HashMap<&'a [u8], Vec<&'a Span>>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
+    consumers_by_parent: &HashMap<SpanKey<'a>, Vec<&'a Span>>,
 ) -> Option<Arc<str>> {
     let valid =
         |id: &[u8]| id.len() == TRACE_ID_LEN && id != span.trace_id && id.iter().any(|&b| b != 0);
@@ -529,7 +532,7 @@ fn resolve_producer_link<'a>(
             return None;
         }
         consumers_by_parent
-            .get(parent_id)?
+            .get(&(span.trace_id.as_slice(), parent_id))?
             .iter()
             .filter(|c| {
                 c.trace_id == span.trace_id
@@ -617,7 +620,7 @@ fn any_linked_consumer(request: &ExportTraceServiceRequest) -> bool {
 /// blocks warns once instead of once per block.
 fn index_linked_consumers<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
-    index: &mut HashMap<&'a [u8], Vec<&'a Span>>,
+    index: &mut HashMap<SpanKey<'a>, Vec<&'a Span>>,
     kept: &mut usize,
 ) {
     let linked_consumers = resource_spans
@@ -640,7 +643,10 @@ fn index_linked_consumers<'a>(
             }
             return;
         }
-        index.entry(&span.parent_span_id).or_default().push(span);
+        index
+            .entry((span.trace_id.as_slice(), span.parent_span_id.as_slice()))
+            .or_default()
+            .push(span);
         *kept += 1;
     }
 }
@@ -701,32 +707,39 @@ fn classified_inbound_http_endpoint(
 fn resolve_source_endpoint<'a>(
     own_endpoint: Option<String>,
     leaf: CodeAttrs<'a>,
+    trace_id: &'a [u8],
     parent_span_id: &[u8],
-    span_index: &HashMap<&[u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
+    outermost_same_service: bool,
 ) -> String {
+    if !outermost_same_service && let Some(endpoint) = own_endpoint {
+        return endpoint;
+    }
     let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame =
         crate::ingest::code_frame_endpoint(leaf.namespace, leaf.function_name);
     let mut current_parent_id = parent_span_id;
-    let mut depth = 0;
-    while !current_parent_id.is_empty() {
-        let Some(parent) = span_index.get(current_parent_id) else {
+    for _ in 0..CODE_ATTRS_MAX_DEPTH {
+        if current_parent_id.is_empty() {
+            break;
+        }
+        let Some(parent) = span_index.get(&(trace_id, current_parent_id)) else {
             break;
         };
         if let Some(route) = inbound_http_endpoint(parent) {
+            if !outermost_same_service {
+                return route;
+            }
             outermost_endpoint = Some(route);
         }
         let attrs = read_code_attrs(&parent.attributes);
         if let Some(frame) =
             crate::ingest::code_frame_endpoint(attrs.namespace, attrs.function_name)
+            && (outermost_same_service || outermost_frame.is_none())
         {
             outermost_frame = Some(frame);
         }
-        if depth >= CODE_ATTRS_MAX_DEPTH {
-            break;
-        }
         current_parent_id = parent.parent_span_id.as_slice();
-        depth += 1;
     }
     outermost_endpoint
         .or(outermost_frame)
@@ -746,28 +759,37 @@ fn resolve_source_endpoint<'a>(
 fn build_span_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes<'_> {
     let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
     for resource_spans in &request.resource_spans {
-        let index = per_service
-            .entry(resource_service_name(resource_spans))
-            .or_default();
-        for scope_spans in &resource_spans.scope_spans {
-            for span in &scope_spans.spans {
-                // A span with no id would be indexed under the empty key, which
-                // is exactly the `parent_span_id` every root span carries.
-                if span.span_id.is_empty() {
-                    continue;
-                }
-                if index.len() >= MAX_SPANS_PER_SERVICE {
-                    tracing::warn!(
-                        "OTLP span index capped at {} entries for one service, parent lookup may be degraded for its remaining spans",
-                        MAX_SPANS_PER_SERVICE
-                    );
-                    break;
-                }
-                index.insert(&span.span_id, span);
-            }
+        let service = resource_service_name(resource_spans);
+        if service == "unknown" {
+            continue;
         }
+        let index = per_service.entry(service).or_default();
+        index_resource_spans(resource_spans, index);
     }
     per_service
+}
+
+fn index_resource_spans<'a>(
+    resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+    index: &mut HashMap<SpanKey<'a>, &'a Span>,
+) {
+    for scope_spans in &resource_spans.scope_spans {
+        for span in &scope_spans.spans {
+            // A span with no id would be indexed under the empty key, which
+            // is exactly the `parent_span_id` every root span carries.
+            if span.span_id.is_empty() {
+                continue;
+            }
+            if index.len() >= MAX_SPANS_PER_SERVICE {
+                tracing::warn!(
+                    "OTLP span index capped at {} entries for one service, parent lookup may be degraded for its remaining spans",
+                    MAX_SPANS_PER_SERVICE
+                );
+                return;
+            }
+            index.insert(span_key(span), span);
+        }
+    }
 }
 
 /// `service.name` from the resource attributes, or `"unknown"`. Shared by the
@@ -782,13 +804,13 @@ fn resource_service_name(
         .unwrap_or("unknown")
 }
 
-/// Build a `span_id -> instrumentation scope name` index alongside the
-/// span index. Same [`MAX_SPANS_PER_SERVICE`] cap, entries beyond it simply
+/// Build a `(trace_id, span_id) -> instrumentation scope name` index alongside
+/// the span index. Same [`MAX_SPANS_PER_SERVICE`] cap, entries beyond it simply
 /// lose scope attribution.
 fn build_scope_index(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
-) -> HashMap<&[u8], &str> {
-    let mut index: HashMap<&[u8], &str> = HashMap::new();
+) -> HashMap<SpanKey<'_>, &str> {
+    let mut index: HashMap<SpanKey<'_>, &str> = HashMap::new();
     let mut count = 0usize;
     'outer: for scope_spans in &resource_spans.scope_spans {
         let scope_name = scope_spans.scope.as_ref().map_or("", |s| s.name.as_str());
@@ -796,7 +818,7 @@ fn build_scope_index(
             continue;
         }
         for span in &scope_spans.spans {
-            index.insert(&span.span_id, scope_name);
+            index.insert(span_key(span), scope_name);
             count += 1;
             if count >= MAX_SPANS_PER_SERVICE {
                 break 'outer;
@@ -812,14 +834,14 @@ fn build_scope_index(
 /// chain.
 fn collect_instrumentation_scopes(
     span: &Span,
-    span_index: &HashMap<&[u8], &Span>,
-    scope_index: &HashMap<&[u8], &str>,
+    span_index: &HashMap<SpanKey<'_>, &Span>,
+    scope_index: &HashMap<SpanKey<'_>, &str>,
 ) -> Vec<Arc<str>> {
     let mut out: Vec<Arc<str>> = Vec::new();
     let mut current = span;
     let mut depth = 0;
     loop {
-        if let Some(name) = scope_index.get(current.span_id.as_slice())
+        if let Some(name) = scope_index.get(&span_key(current))
             && !out.iter().any(|s| s.as_ref() == *name)
         {
             out.push(Arc::from(*name));
@@ -827,7 +849,9 @@ fn collect_instrumentation_scopes(
         if current.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
             return out;
         }
-        let Some(parent) = span_index.get(current.parent_span_id.as_slice()) else {
+        let Some(parent) =
+            span_index.get(&(span.trace_id.as_slice(), current.parent_span_id.as_slice()))
+        else {
             return out;
         };
         current = *parent;
@@ -910,7 +934,7 @@ const SIBLING_DONOR_LOOKBACK: usize = 8;
 /// walk, so a span is never its own ancestor.
 fn walk_same_trace_ancestors<'a>(
     span: &'a Span,
-    span_index: &HashMap<&'a [u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
     mut visit: impl FnMut(&'a Span) -> bool,
 ) {
     let mut current = span;
@@ -918,7 +942,9 @@ fn walk_same_trace_ancestors<'a>(
         if current.parent_span_id.is_empty() {
             return;
         }
-        let Some(&parent) = span_index.get(current.parent_span_id.as_slice()) else {
+        let Some(&parent) =
+            span_index.get(&(span.trace_id.as_slice(), current.parent_span_id.as_slice()))
+        else {
             return;
         };
         if parent.trace_id != span.trace_id || parent.span_id == span.span_id {
@@ -1066,7 +1092,7 @@ fn collect_stitch_participants<'a>(
 fn suppress_layered_duplicates<'a>(
     donors: &[StitchDonor<'a>],
     donor_by_id: &HashMap<SpanKey<'a>, usize>,
-    span_index: &HashMap<&'a [u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
 ) -> Vec<bool> {
     let mut suppressed = vec![false; donors.len()];
     for (i, donor) in donors.iter().enumerate() {
@@ -1095,7 +1121,7 @@ fn suppress_layered_duplicates<'a>(
 /// their own stitched event.
 fn split_layered_orphans<'a>(
     orphans: &[&'a Span],
-    span_index: &HashMap<&'a [u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
 ) -> (Vec<(&'a Span, SpanKey<'a>)>, Vec<&'a Span>) {
     let orphan_keys: HashSet<SpanKey<'a>> = orphans.iter().map(|o| span_key(o)).collect();
     let mut deferred = Vec::new();
@@ -1190,7 +1216,7 @@ fn nearest_donor(
 fn bucket_surviving_donors<'a>(
     donors: &[StitchDonor<'a>],
     donor_suppressed: &[bool],
-    span_index: &HashMap<&'a [u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
 ) -> (
     HashMap<SpanKey<'a>, Vec<usize>>,
     HashMap<SpanKey<'a>, Vec<usize>>,
@@ -1235,7 +1261,7 @@ fn collect_orphan_candidates<'a>(
     donor_consumed: &[bool],
     donors_by_parent: &HashMap<SpanKey<'a>, Vec<usize>>,
     donors_by_ancestor: &HashMap<SpanKey<'a>, Vec<usize>>,
-    span_index: &HashMap<&'a [u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
     candidates: &mut Vec<usize>,
 ) {
     if !orphan.parent_span_id.is_empty()
@@ -1300,7 +1326,7 @@ fn collect_orphan_candidates<'a>(
 /// per-query sequential.
 fn compute_stitch_decisions<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
-    span_index: &HashMap<&'a [u8], &'a Span>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
     classified: &[ClassifiedAttrs<'a>],
 ) -> HashMap<SpanKey<'a>, StitchDecision<'a>> {
     let (donors, orphans) = collect_stitch_participants(resource_spans, classified);
@@ -1380,10 +1406,10 @@ fn compute_stitch_decisions<'a>(
 /// outbound URL (legacy `http.url`, stable `url.full`), or an RPC callee
 /// (`rpc.system` with `rpc.service`/`rpc.method` or the span name) are
 /// skipped; see `classify_io_event`. Parent lookup is done within the same
-/// request. `source.endpoint` resolves to the nearest inbound HTTP route up
-/// the parent chain, then to the `code.*` frame for entry points that have
-/// none (scheduled jobs, message consumers), and only otherwise to
-/// `"unknown"`.
+/// request. For an explicitly named service, `source.endpoint` resolves to
+/// the outermost inbound HTTP route in its contiguous parent chain;
+/// anonymous resources conservatively use the nearest route. Entry points
+/// without a route fall back to `code.*`, then to `"unknown"`.
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
     convert_otlp_request_counted(request).0
@@ -1426,10 +1452,20 @@ pub fn convert_otlp_request_counted_with_grouping(
 
     for resource_spans in &request.resource_spans {
         let service_name = resource_service_name(resource_spans);
+        let anonymous_index = if service_name == "unknown" {
+            let mut index = HashMap::new();
+            index_resource_spans(resource_spans, &mut index);
+            Some(index)
+        } else {
+            None
+        };
+        let span_index = anonymous_index
+            .as_ref()
+            .unwrap_or_else(|| span_indexes.get(service_name).unwrap_or(&empty_index));
         convert_resource_spans(
             resource_spans,
             grouping_attributes,
-            span_indexes.get(service_name).unwrap_or(&empty_index),
+            span_index,
             consumer_indexes
                 .get(service_name)
                 .unwrap_or(&empty_consumers),
@@ -1450,8 +1486,11 @@ fn source_endpoint_updates(
     let empty_index = HashMap::new();
     for resource_spans in &request.resource_spans {
         let service_name = resource_service_name(resource_spans);
+        if service_name == "unknown" {
+            continue;
+        }
         let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
-        let mut service = resource_service_name(resource_spans).to_string();
+        let mut service = service_name.to_string();
         crate::event::truncate_field(&mut service, crate::event::MAX_SERVICE_LENGTH);
         let service: Arc<str> = Arc::from(service);
         for span in resource_spans
@@ -1459,29 +1498,43 @@ fn source_endpoint_updates(
             .iter()
             .flat_map(|scope| &scope.spans)
         {
-            if span.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32 {
+            if span.trace_id.len() != TRACE_ID_LEN
+                || span.span_id.len() != SPAN_ID_LEN
+                || (!span.parent_span_id.is_empty() && span.parent_span_id.len() != SPAN_ID_LEN)
+            {
                 continue;
             }
-            if let Some(own_endpoint) = inbound_http_endpoint(span) {
-                let mut endpoint = resolve_source_endpoint(
+            let mut endpoint = inbound_http_endpoint(span).map(|own_endpoint| {
+                resolve_source_endpoint(
                     Some(own_endpoint),
                     CodeAttrs::default(),
+                    &span.trace_id,
                     &span.parent_span_id,
                     span_index,
-                );
-                crate::event::sanitize_source_endpoint(&mut endpoint);
-                if endpoint.trim().is_empty() {
-                    continue;
-                }
-                updates.push(crate::daemon::SourceEndpointUpdate {
-                    trace_id: bytes_to_hex(&span.trace_id),
-                    service: Arc::clone(&service),
-                    root_span_id: bytes_to_hex(&span.span_id),
-                    parent_span_id: (!span.parent_span_id.is_empty())
-                        .then(|| bytes_to_hex(&span.parent_span_id)),
-                    endpoint,
-                });
+                    true,
+                )
+            });
+            if let Some(endpoint) = &mut endpoint {
+                crate::event::sanitize_source_endpoint(endpoint);
             }
+            if endpoint
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+            {
+                endpoint = None;
+            }
+            let parent_span_id =
+                (!span.parent_span_id.is_empty()).then(|| bytes_to_hex(&span.parent_span_id));
+            if endpoint.is_none() && parent_span_id.is_none() {
+                continue;
+            }
+            updates.push(crate::daemon::SourceEndpointUpdate {
+                trace_id: bytes_to_hex(&span.trace_id),
+                service: Arc::clone(&service),
+                span_id: bytes_to_hex(&span.span_id),
+                parent_span_id,
+                endpoint,
+            });
         }
     }
     updates
@@ -1491,8 +1544,8 @@ fn source_endpoint_updates(
 fn convert_resource_spans<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
     grouping_attributes: Option<&[Arc<str>]>,
-    span_index: &HashMap<&'a [u8], &'a Span>,
-    consumer_index: &HashMap<&'a [u8], Vec<&'a Span>>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
+    consumer_index: &HashMap<SpanKey<'a>, Vec<&'a Span>>,
     events: &mut Vec<SpanEvent>,
     stats: &mut SpanConversionStats,
 ) {
@@ -1765,11 +1818,11 @@ fn convert_span<'a>(
     service_arc: &Arc<str>,
     resource_grouping: &[(Arc<str>, Option<Arc<str>>)],
     resource_cloud_region: Option<&Arc<str>>,
-    span_index: &HashMap<&[u8], &Span>,
-    scope_index: &HashMap<&[u8], &str>,
+    span_index: &HashMap<SpanKey<'_>, &Span>,
+    scope_index: &HashMap<SpanKey<'_>, &str>,
     stitched_statement: Option<&'a str>,
     cached_attrs: Option<&ClassifiedAttrs<'a>>,
-    consumer_index: &HashMap<&'a [u8], Vec<&'a Span>>,
+    consumer_index: &HashMap<SpanKey<'a>, Vec<&'a Span>>,
 ) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let grouping = resolve_grouping(resource_grouping, span);
 
@@ -1824,25 +1877,22 @@ fn convert_span<'a>(
     // code.* attributes: leaf attrs first, walk parents only when empty.
     // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
     // user frame sits on a parent.
-    let code =
-        walk_parents_for_code_attrs(classified.code_attrs(), &span.parent_span_id, span_index);
+    let code = walk_parents_for_code_attrs(
+        classified.code_attrs(),
+        &span.trace_id,
+        &span.parent_span_id,
+        span_index,
+    );
 
-    // Source method comes from the direct parent, unchanged: it is display
-    // metadata and does not enter the ack signature.
-    let source_method = if span.parent_span_id.is_empty() {
-        span.name.clone()
-    } else if let Some(parent) = span_index.get(span.parent_span_id.as_slice()) {
-        get_str_attribute(&parent.attributes, "code.function")
-            .map_or_else(|| parent.name.clone(), ToString::to_string)
-    } else {
-        span.name.clone()
-    };
+    let source_method = resolve_source_method(span, span_index);
 
     let source_endpoint = resolve_source_endpoint(
         own_inbound_http_endpoint(classified, span.kind),
         classified.code_attrs(),
+        &span.trace_id,
         &span.parent_span_id,
         span_index,
+        service_arc.as_ref() != "unknown",
     );
 
     let parent_span_id = if span.parent_span_id.is_empty() {
@@ -1898,6 +1948,23 @@ fn convert_span<'a>(
     };
     crate::event::sanitize_span_event(&mut event);
     Ok(event)
+}
+
+/// Display-only method from the direct parent; it does not enter the ack
+/// signature and deliberately does not follow the endpoint ancestor walk.
+fn resolve_source_method(span: &Span, span_index: &HashMap<SpanKey<'_>, &Span>) -> String {
+    if span.parent_span_id.is_empty() {
+        return span.name.clone();
+    }
+    span_index
+        .get(&(span.trace_id.as_slice(), span.parent_span_id.as_slice()))
+        .map_or_else(
+            || span.name.clone(),
+            |parent| {
+                get_str_attribute(&parent.attributes, "code.function")
+                    .map_or_else(|| parent.name.clone(), ToString::to_string)
+            },
+        )
 }
 
 // ── gRPC service implementation ─────────────────────────────────────

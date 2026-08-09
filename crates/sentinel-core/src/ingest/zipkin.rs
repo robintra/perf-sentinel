@@ -189,11 +189,10 @@ fn zipkin_service_name(span: &ZipkinSpan) -> Option<&str> {
 }
 
 fn same_zipkin_service(leaf: &ZipkinSpan, ancestor: &ZipkinSpan) -> bool {
-    match (zipkin_service_name(leaf), zipkin_service_name(ancestor)) {
-        (Some(leaf_service), Some(ancestor_service)) => leaf_service == ancestor_service,
-        (None, None) => true,
-        _ => false,
-    }
+    matches!(
+        (zipkin_service_name(leaf), zipkin_service_name(ancestor)),
+        (Some(leaf_service), Some(ancestor_service)) if leaf_service == ancestor_service
+    )
 }
 
 /// Walk the contiguous same-service `parentId` chain: the outermost inbound
@@ -204,28 +203,39 @@ fn resolve_source_endpoint(
     leaf: &ZipkinSpan,
     span_index: &HashMap<(&str, &str), &ZipkinSpan>,
 ) -> String {
+    let anonymous_service = zipkin_service_name(leaf).is_none();
+    if anonymous_service && let Some(endpoint) = own_endpoint {
+        return endpoint;
+    }
     let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame = tag_code_frame(leaf);
     let mut current = leaf.parent_id.as_deref();
-    let mut depth = 0;
-    while let Some(pid) = current {
+    for _ in 0..crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
+        let Some(pid) = current else {
+            break;
+        };
         let Some(parent) = span_index.get(&(leaf.trace_id.as_str(), pid)) else {
             break;
         };
-        if !same_zipkin_service(leaf, parent) {
+        if anonymous_service {
+            if zipkin_service_name(parent).is_some() {
+                break;
+            }
+        } else if !same_zipkin_service(leaf, parent) {
             break;
         }
         if let Some(route) = inbound_http_endpoint(parent) {
+            if anonymous_service {
+                return route;
+            }
             outermost_endpoint = Some(route);
         }
-        if let Some(frame) = tag_code_frame(parent) {
+        if let Some(frame) = tag_code_frame(parent)
+            && (!anonymous_service || outermost_frame.is_none())
+        {
             outermost_frame = Some(frame);
         }
-        if depth >= crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
-            break;
-        }
         current = parent.parent_id.as_deref();
-        depth += 1;
     }
     outermost_endpoint
         .or(outermost_frame)
@@ -939,6 +949,54 @@ mod tests {
         assert_eq!(same_service.source.endpoint, "/api/fault/pool-saturation");
         assert_eq!(cross_service.source.endpoint, "/api/payments/history");
         assert_eq!(&*cross_service.service, "payments-svc");
+    }
+
+    #[test]
+    fn absent_services_keep_the_nearest_route() {
+        let json = r#"[
+            { "traceId": "t", "id": "caller", "kind": "SERVER",
+              "tags": { "http.route": "/api/orders" } },
+            { "traceId": "t", "id": "callee", "parentId": "caller", "kind": "SERVER",
+              "tags": { "http.route": "/api/payments/history" } },
+            { "traceId": "t", "id": "sql", "parentId": "callee",
+              "tags": { "db.statement": "SELECT 1", "db.system": "postgresql" } }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        assert_eq!(events[0].source.endpoint, "/api/payments/history");
+    }
+
+    #[test]
+    fn route_at_hop_nine_is_outside_the_shared_depth_limit() {
+        let mut spans = vec![serde_json::json!({
+            "traceId": "t", "id": "p9", "kind": "SERVER",
+            "localEndpoint": { "serviceName": "svc" },
+            "tags": { "http.route": "/too-deep" }
+        })];
+        for id in (1_u8..9).rev() {
+            spans.push(serde_json::json!({
+                "traceId": "t", "id": format!("p{id}"), "parentId": format!("p{}", id + 1),
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": if id == 8 {
+                    serde_json::json!({ "http.route": "/at-limit" })
+                } else {
+                    serde_json::json!({})
+                }
+            }));
+        }
+        spans.push(serde_json::json!({
+            "traceId": "t", "id": "sql", "parentId": "p1",
+            "localEndpoint": { "serviceName": "svc" },
+            "tags": { "db.statement": "SELECT 1", "db.system": "postgresql" }
+        }));
+        let payload = serde_json::to_string(&spans).unwrap();
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(payload.as_bytes())
+            .unwrap();
+        assert_eq!(events[0].source.endpoint, "/at-limit");
     }
 
     #[test]

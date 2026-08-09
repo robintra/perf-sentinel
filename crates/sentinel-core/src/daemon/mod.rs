@@ -39,17 +39,20 @@ use listeners::{
     setup_kepler_scraper, setup_redfish_scraper, setup_scaphandre_scraper, spawn_listeners,
 };
 
-/// Source context carried by a non-I/O OTLP SERVER span.
+/// Bounded OTLP source context carried independently of normalized I/O events.
+/// `endpoint` is present for an inbound entry span and absent for an
+/// intermediate parent edge.
 pub(crate) struct SourceEndpointUpdate {
     pub(crate) trace_id: String,
     pub(crate) service: Arc<str>,
-    pub(crate) root_span_id: String,
+    pub(crate) span_id: String,
     pub(crate) parent_span_id: Option<String>,
-    pub(crate) endpoint: String,
+    pub(crate) endpoint: Option<String>,
 }
 
 /// One bounded daemon ingest message. JSON batches carry only `events`;
-/// OTLP can additionally carry context from SERVER spans filtered as non-I/O.
+/// OTLP can additionally carry endpoint and parent context from spans that do
+/// not themselves normalize into I/O events.
 pub(crate) struct IngestBatch {
     pub(crate) events: Vec<SpanEvent>,
     pub(crate) source_endpoint_updates: Vec<SourceEndpointUpdate>,

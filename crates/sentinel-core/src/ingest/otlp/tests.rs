@@ -903,9 +903,12 @@ fn nested_same_service_server_routes_pool_finding_to_outer_entrypoint() {
         let nested_id = bytes_to_hex(&[20; 8]);
         let nested = updates
             .iter()
-            .find(|update| update.root_span_id == nested_id)
+            .find(|update| update.span_id == nested_id)
             .expect("nested SERVER update present");
-        assert_eq!(nested.endpoint, "/api/fault/pool-saturation");
+        assert_eq!(
+            nested.endpoint.as_deref(),
+            Some("/api/fault/pool-saturation")
+        );
         assert_eq!(nested.parent_span_id, Some(bytes_to_hex(&[10; 8])));
     }
 
@@ -989,6 +992,201 @@ fn cross_service_server_boundary_keeps_callee_entrypoint() {
         .expect("callee SQL event present");
     assert_eq!(&*sql.service, "payments-svc");
     assert_eq!(sql.source.endpoint, "/api/payments/history");
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn source_context_rejects_every_invalid_otlp_identifier() {
+    let valid = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![2; 8],
+        parent_span_id: vec![3; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/valid")],
+        ..Default::default()
+    };
+    let mut invalid = Vec::new();
+    for length in [15, 17] {
+        let mut span = valid.clone();
+        span.trace_id.resize(length, 1);
+        invalid.push(span);
+    }
+    for length in [7, 9] {
+        let mut span = valid.clone();
+        span.span_id.resize(length, 2);
+        invalid.push(span);
+        let mut span = valid.clone();
+        span.parent_span_id.resize(length, 3);
+        invalid.push(span);
+    }
+
+    for invalid in invalid {
+        let updates = source_endpoint_updates(&make_request("svc", vec![invalid]));
+        assert!(
+            updates.is_empty(),
+            "invalid ids must not create context keys"
+        );
+    }
+    let updates = source_endpoint_updates(&make_request("svc", vec![valid]));
+    assert_eq!(updates.len(), 1);
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn source_context_keeps_internal_edges_and_unspecified_routes() {
+    let outer = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Unspecified as i32,
+        attributes: vec![make_kv("http.route", "/api/fault/pool-saturation")],
+        ..Default::default()
+    };
+    let internal = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Internal as i32,
+        ..Default::default()
+    };
+
+    let updates = source_endpoint_updates(&make_request("laravel-svc", vec![outer, internal]));
+    assert_eq!(updates.len(), 2);
+    let outer = updates
+        .iter()
+        .find(|update| update.span_id == bytes_to_hex(&[10; 8]))
+        .expect("unspecified route context present");
+    let internal = updates
+        .iter()
+        .find(|update| update.span_id == bytes_to_hex(&[20; 8]))
+        .expect("internal parent edge present");
+    assert_eq!(
+        outer.endpoint.as_deref(),
+        Some("/api/fault/pool-saturation")
+    );
+    assert!(internal.endpoint.is_none());
+    assert_eq!(internal.parent_span_id, Some(bytes_to_hex(&[10; 8])));
+}
+
+#[test]
+fn span_index_keeps_same_span_ids_separate_between_traces() {
+    let route = |trace: u8, endpoint: &str| Span {
+        trace_id: vec![trace; 16],
+        span_id: vec![10; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", endpoint)],
+        ..Default::default()
+    };
+    let sql_a = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000);
+    let sql_b = make_sql_span(&[2; 16], &[20; 8], &[10; 8], "SELECT 2", 0, 1_000);
+
+    let events = convert_otlp_request(&make_request(
+        "shared-svc",
+        vec![route(1, "/trace-a"), sql_a, route(2, "/trace-b"), sql_b],
+    ));
+    let endpoint_for = |trace_id: &str| {
+        events
+            .iter()
+            .find(|event| event.trace_id == trace_id && event.event_type == EventType::Sql)
+            .expect("SQL event present")
+            .source
+            .endpoint
+            .as_str()
+    };
+    assert_eq!(endpoint_for(&bytes_to_hex(&[1; 16])), "/trace-a");
+    assert_eq!(endpoint_for(&bytes_to_hex(&[2; 16])), "/trace-b");
+}
+
+#[test]
+fn missing_service_uses_nearest_route_without_crossing_resource_blocks() {
+    let caller = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/api/orders")],
+        ..Default::default()
+    };
+    let callee = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/api/payments/history")],
+        ..Default::default()
+    };
+    let sql = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000);
+    let anonymous = |spans| ResourceSpans {
+        resource: Some(Resource::default()),
+        scope_spans: vec![ScopeSpans {
+            spans,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![anonymous(vec![caller]), anonymous(vec![callee, sql])],
+    };
+
+    let events = convert_otlp_request(&request);
+    let sql = events
+        .iter()
+        .find(|event| event.event_type == EventType::Sql)
+        .expect("SQL event present");
+    assert_eq!(sql.service.as_ref(), "unknown");
+    assert_eq!(sql.source.endpoint, "/api/payments/history");
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn missing_service_context_is_not_retained_across_export_blocks() {
+    let route = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/api/caller")],
+        ..Default::default()
+    };
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource::default()),
+            scope_spans: vec![ScopeSpans {
+                spans: vec![route],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    };
+
+    assert!(source_endpoint_updates(&request).is_empty());
+}
+
+#[test]
+fn endpoint_route_at_hop_nine_is_outside_the_shared_depth_limit() {
+    let mut spans = vec![Span {
+        trace_id: vec![1; 16],
+        span_id: vec![9; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: vec![make_kv("http.route", "/too-deep")],
+        ..Default::default()
+    }];
+    for id in (1_u8..9).rev() {
+        spans.push(Span {
+            trace_id: vec![1; 16],
+            span_id: vec![id; 8],
+            parent_span_id: vec![id + 1; 8],
+            attributes: if id == 8 {
+                vec![make_kv("http.route", "/at-limit")]
+            } else {
+                Vec::new()
+            },
+            ..Default::default()
+        });
+    }
+    spans.push(make_sql_span(
+        &[1; 16], &[20; 8], &[1; 8], "SELECT 1", 0, 1_000,
+    ));
+
+    let events = convert_otlp_request(&make_request("svc", spans));
+    assert_eq!(events[0].source.endpoint, "/at-limit");
 }
 
 #[test]
@@ -3248,8 +3446,11 @@ mod http_handler {
         let update = &batch.source_endpoint_updates[0];
         assert_eq!(update.trace_id, "01".repeat(16));
         assert_eq!(update.service.as_ref(), "orders-svc");
-        assert_eq!(update.root_span_id, "01".repeat(8));
-        assert_eq!(update.endpoint, "/api/fault/slow-messaging");
+        assert_eq!(update.span_id, "01".repeat(8));
+        assert_eq!(
+            update.endpoint.as_deref(),
+            Some("/api/fault/slow-messaging")
+        );
     }
 
     #[tokio::test]

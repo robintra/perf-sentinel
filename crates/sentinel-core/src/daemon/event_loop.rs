@@ -27,6 +27,8 @@ use crate::score::scaphandre::ScaphandreState;
 use super::findings_store;
 use super::sampling::{apply_sampling, should_sample};
 
+type TraceSourceEndpointGroups<T> = HashMap<String, HashMap<Arc<str>, HashMap<String, T>>>;
+
 /// Config slice the main event loop needs, the values that are pulled out
 /// of `Config` once at startup and never change.
 #[derive(Clone, Copy)]
@@ -369,9 +371,7 @@ impl ServiceMeter {
     }
 }
 
-/// Sample, normalize, meter, and push a batch of events into the window.
-/// Returns the LRU-evicted traces so the caller can route them through
-/// detect+score+store.
+/// Merge one trace's sampled endpoint context and collect any LRU eviction.
 fn retain_source_endpoint_context(
     window: &mut TraceWindow,
     trace_id: &str,
@@ -394,6 +394,39 @@ fn retain_source_endpoint_context(
     }
 }
 
+fn group_source_endpoint_updates(
+    updates: Vec<super::SourceEndpointUpdate>,
+    sampling_rate: f64,
+) -> (
+    TraceSourceEndpointGroups<String>,
+    TraceSourceEndpointGroups<Option<String>>,
+) {
+    let mut endpoints = HashMap::new();
+    let mut parents = HashMap::new();
+    for update in updates
+        .into_iter()
+        .filter(|update| should_sample(&update.trace_id, sampling_rate))
+    {
+        parents
+            .entry(update.trace_id.clone())
+            .or_insert_with(HashMap::new)
+            .entry(Arc::clone(&update.service))
+            .or_insert_with(HashMap::new)
+            .insert(update.span_id.clone(), update.parent_span_id);
+        if let Some(endpoint) = update.endpoint {
+            endpoints
+                .entry(update.trace_id)
+                .or_insert_with(HashMap::new)
+                .entry(update.service)
+                .or_insert_with(HashMap::new)
+                .insert(update.span_id, endpoint);
+        }
+    }
+    (endpoints, parents)
+}
+
+/// Sample, normalize, meter, and push a batch of events into the window.
+/// Returns LRU-evicted traces for detect, score, and storage.
 async fn ingest_event_batch(
     batch: super::IngestBatch,
     sampling_rate: f64,
@@ -412,38 +445,19 @@ async fn ingest_event_batch(
     for event in &normalized {
         service_meter.record(event.event.service.as_ref(), metrics);
     }
-    let mut source_endpoint_groups = HashMap::new();
-    let mut source_endpoint_parent_groups = HashMap::new();
-    for update in source_endpoint_updates
-        .into_iter()
-        .filter(|update| should_sample(&update.trace_id, sampling_rate))
-    {
-        source_endpoint_parent_groups
-            .entry(update.trace_id.clone())
-            .or_insert_with(HashMap::new)
-            .entry(Arc::clone(&update.service))
-            .or_insert_with(HashMap::new)
-            .insert(update.root_span_id.clone(), update.parent_span_id);
-        source_endpoint_groups
-            .entry(update.trace_id)
-            .or_insert_with(HashMap::new)
-            .entry(update.service)
-            .or_insert_with(HashMap::new)
-            .insert(update.root_span_id, update.endpoint);
-    }
+    let (source_endpoint_groups, source_endpoint_parent_groups) =
+        group_source_endpoint_updates(source_endpoint_updates, sampling_rate);
     let now_ms = current_time_ms();
     let mut lru_evicted = Vec::new();
     let mut source_endpoint_generations = HashMap::new();
+    let empty_source_endpoint_groups = HashMap::new();
     {
-        // Lock held for O(batch_size) push() calls. Each push performs at most
-        // the fixed ancestor-depth bound of LRU lookups. Per-batch event count is
-        // bounded by max_payload_size; the configurable
-        // ingest_queue_capacity bounds how many batches queue up.
+        // Each push performs at most the fixed ancestor-depth bound of lookups;
+        // payload and queue caps bound work held behind this lock.
         let mut w = window.lock().await;
-        // Repair existing traces before a new context-only trace can evict
-        // them. The second pass then retains roots that arrived before their
-        // first I/O event.
-        let existing_update_ids: Vec<_> = source_endpoint_groups
+        // Repair existing traces before a new context-only trace can evict them;
+        // the second pass retains context that preceded the first I/O event.
+        let existing_update_ids: Vec<_> = source_endpoint_parent_groups
             .keys()
             .filter(|trace_id| w.contains_trace(trace_id))
             .cloned()
@@ -452,14 +466,16 @@ async fn ingest_event_batch(
             retain_source_endpoint_context(
                 &mut w,
                 trace_id,
-                &source_endpoint_groups[trace_id],
+                source_endpoint_groups
+                    .get(trace_id)
+                    .unwrap_or(&empty_source_endpoint_groups),
                 &source_endpoint_parent_groups[trace_id],
                 now_ms,
                 &mut lru_evicted,
                 &mut source_endpoint_generations,
             );
         }
-        let missing_update_ids: Vec<_> = source_endpoint_groups
+        let missing_update_ids: Vec<_> = source_endpoint_parent_groups
             .keys()
             .filter(|trace_id| !w.contains_trace(trace_id))
             .cloned()
@@ -468,7 +484,9 @@ async fn ingest_event_batch(
             retain_source_endpoint_context(
                 &mut w,
                 trace_id,
-                &source_endpoint_groups[trace_id],
+                source_endpoint_groups
+                    .get(trace_id)
+                    .unwrap_or(&empty_source_endpoint_groups),
                 &source_endpoint_parent_groups[trace_id],
                 now_ms,
                 &mut lru_evicted,
@@ -477,7 +495,7 @@ async fn ingest_event_batch(
         }
         for event in normalized {
             let trace_id = event.event.trace_id.as_str();
-            if let Some(service_root_endpoints) = source_endpoint_groups.get(trace_id) {
+            if let Some(service_root_parents) = source_endpoint_parent_groups.get(trace_id) {
                 let expected_generation = source_endpoint_generations.get(trace_id).copied();
                 if expected_generation.is_none()
                     || w.source_endpoint_generation(trace_id) != expected_generation
@@ -485,8 +503,10 @@ async fn ingest_event_batch(
                     retain_source_endpoint_context(
                         &mut w,
                         trace_id,
-                        service_root_endpoints,
-                        &source_endpoint_parent_groups[trace_id],
+                        source_endpoint_groups
+                            .get(trace_id)
+                            .unwrap_or(&empty_source_endpoint_groups),
+                        service_root_parents,
                         now_ms,
                         &mut lru_evicted,
                         &mut source_endpoint_generations,
@@ -1419,9 +1439,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root-1".to_string(),
+                    span_id: "root-1".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/fault/slow-messaging".to_string(),
+                    endpoint: Some("/api/fault/slow-messaging".to_string()),
                 }],
             },
             1.0,
@@ -1469,9 +1489,9 @@ mod tests {
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                 trace_id: "trace-nested".to_string(),
                 service: Arc::from("laravel-svc"),
-                root_span_id: "nested-server".to_string(),
+                span_id: "nested-server".to_string(),
                 parent_span_id: Some("outer-server".to_string()),
-                endpoint: "/api/payments/history".to_string(),
+                endpoint: Some("/api/payments/history".to_string()),
             }],
         };
         assert!(
@@ -1496,9 +1516,9 @@ mod tests {
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                 trace_id: "trace-nested".to_string(),
                 service: Arc::from("laravel-svc"),
-                root_span_id: "outer-server".to_string(),
+                span_id: "outer-server".to_string(),
                 parent_span_id: None,
-                endpoint: "/api/fault/pool-saturation".to_string(),
+                endpoint: Some("/api/fault/pool-saturation".to_string()),
             }],
         };
         assert!(
@@ -1511,6 +1531,77 @@ mod tests {
             .lock()
             .await
             .peek_clone("trace-nested")
+            .expect("trace retained");
+        assert_eq!(trace[0].event.source.endpoint, "/api/fault/pool-saturation");
+        let finished = window.lock().await.drain_all();
+        assert_eq!(
+            finished[0].1[0].event.source.endpoint,
+            "/api/fault/pool-saturation"
+        );
+    }
+
+    #[tokio::test]
+    async fn late_outer_route_crosses_a_retained_internal_edge() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut nested_sql =
+            make_normalized_for_service("trace-internal", "laravel-svc", "SELECT 1");
+        nested_sql.event.span_id = "sql".to_string();
+        nested_sql.event.parent_span_id = Some("inner-server".to_string());
+        nested_sql.event.source.endpoint = "/api/payments/history".to_string();
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        let first = super::super::IngestBatch {
+            events: vec![nested_sql.event],
+            source_endpoint_updates: vec![
+                super::super::SourceEndpointUpdate {
+                    trace_id: "trace-internal".to_string(),
+                    service: Arc::from("laravel-svc"),
+                    span_id: "inner-server".to_string(),
+                    parent_span_id: Some("internal".to_string()),
+                    endpoint: Some("/api/payments/history".to_string()),
+                },
+                super::super::SourceEndpointUpdate {
+                    trace_id: "trace-internal".to_string(),
+                    service: Arc::from("laravel-svc"),
+                    span_id: "internal".to_string(),
+                    parent_span_id: Some("outer".to_string()),
+                    endpoint: None,
+                },
+            ],
+        };
+        assert!(
+            ingest_event_batch(first, 1.0, &window, &metrics, &mut service_meter)
+                .await
+                .is_empty()
+        );
+        assert!((metrics.events_processed_total.get() - 1.0).abs() < f64::EPSILON);
+
+        let outer = super::super::IngestBatch {
+            events: Vec::new(),
+            source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                trace_id: "trace-internal".to_string(),
+                service: Arc::from("laravel-svc"),
+                span_id: "outer".to_string(),
+                parent_span_id: None,
+                endpoint: Some("/api/fault/pool-saturation".to_string()),
+            }],
+        };
+        assert!(
+            ingest_event_batch(outer, 1.0, &window, &metrics, &mut service_meter)
+                .await
+                .is_empty()
+        );
+        assert!((metrics.events_processed_total.get() - 1.0).abs() < f64::EPSILON);
+
+        let trace = window
+            .lock()
+            .await
+            .peek_clone("trace-internal")
             .expect("trace retained");
         assert_eq!(trace[0].event.source.endpoint, "/api/fault/pool-saturation");
         let finished = window.lock().await.drain_all();
@@ -1541,9 +1632,9 @@ mod tests {
                     source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                         trace_id: "trace-cross".to_string(),
                         service: Arc::from("payments-svc"),
-                        root_span_id: "callee-server".to_string(),
+                        span_id: "callee-server".to_string(),
                         parent_span_id: Some("caller-server".to_string()),
-                        endpoint: "/api/payments/history".to_string(),
+                        endpoint: Some("/api/payments/history".to_string()),
                     }],
                 },
                 1.0,
@@ -1561,9 +1652,9 @@ mod tests {
                     source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                         trace_id: "trace-cross".to_string(),
                         service: Arc::from("orders-svc"),
-                        root_span_id: "caller-server".to_string(),
+                        span_id: "caller-server".to_string(),
                         parent_span_id: None,
-                        endpoint: "/api/orders".to_string(),
+                        endpoint: Some("/api/orders".to_string()),
                     }],
                 },
                 1.0,
@@ -1611,9 +1702,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "dropped".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root".to_string(),
+                    span_id: "root".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/dropped".to_string(),
+                    endpoint: Some("/api/dropped".to_string()),
                 }],
             },
             0.0,
@@ -1658,9 +1749,9 @@ mod tests {
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                 trace_id: trace_id.to_string(),
                 service: Arc::from("orders-svc"),
-                root_span_id: "root".to_string(),
+                span_id: "root".to_string(),
                 parent_span_id: None,
-                endpoint: endpoint.to_string(),
+                endpoint: Some(endpoint.to_string()),
             }],
         };
 
@@ -1720,9 +1811,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-new".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root-new".to_string(),
+                    span_id: "root-new".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/orders".to_string(),
+                    endpoint: Some("/api/orders".to_string()),
                 }],
             },
             1.0,
@@ -1773,9 +1864,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root-1".to_string(),
+                    span_id: "root-1".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/orders".to_string(),
+                    endpoint: Some("/api/orders".to_string()),
                 }],
             },
             1.0,
@@ -1823,9 +1914,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-a".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root-a".to_string(),
+                    span_id: "root-a".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/orders".to_string(),
+                    endpoint: Some("/api/orders".to_string()),
                 }],
             },
             1.0,
@@ -1874,9 +1965,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root-1".to_string(),
+                    span_id: "root-1".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/orders".to_string(),
+                    endpoint: Some("/api/orders".to_string()),
                 }],
             },
             1.0,
@@ -1925,9 +2016,9 @@ mod tests {
             .map(|index| super::super::SourceEndpointUpdate {
                 trace_id: "trace-1".to_string(),
                 service: Arc::from("orders-svc"),
-                root_span_id: format!("root-{index}"),
+                span_id: format!("root-{index}"),
                 parent_span_id: None,
-                endpoint: format!("/api/{index}"),
+                endpoint: Some(format!("/api/{index}")),
             })
             .collect();
         let mut service_meter = ServiceMeter {
@@ -1974,9 +2065,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root".to_string(),
+                    span_id: "root".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/orders".to_string(),
+                    endpoint: Some("/api/orders".to_string()),
                 }],
             },
             1.0,
@@ -2063,9 +2154,9 @@ mod tests {
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
                     trace_id: "trace-a".to_string(),
                     service: Arc::from("orders-svc"),
-                    root_span_id: "root-a".to_string(),
+                    span_id: "root-a".to_string(),
                     parent_span_id: None,
-                    endpoint: "/api/orders".to_string(),
+                    endpoint: Some("/api/orders".to_string()),
                 }],
             },
             1.0,
