@@ -151,7 +151,8 @@ impl TraceWindow {
         evicted.and_then(finish_trace_buffer)
     }
 
-    /// Retain SERVER-root context even when no I/O event exists yet.
+    /// Retain endpoint and intermediate-parent context even when no I/O event
+    /// exists yet.
     ///
     /// A new context-only entry participates in the same LRU and TTL bounds as
     /// event-bearing traces. Updating an existing entry uses `peek_mut`, so it
@@ -177,7 +178,7 @@ impl TraceWindow {
         service_root_parents: &SourceEndpointParentGroups,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
-        if service_root_endpoints.is_empty() {
+        if service_root_endpoints.is_empty() && service_root_parents.is_empty() {
             return None;
         }
         let root_cap = self.config.max_events_per_trace;
@@ -206,7 +207,12 @@ impl TraceWindow {
             service_root_parents,
             root_cap,
         );
-        if buf.source_endpoint_count == 0 {
+        if buf.source_endpoint_count == 0
+            && buf
+                .resolved_ancestry
+                .as_ref()
+                .is_none_or(LruCache::is_empty)
+        {
             return None;
         }
         buf.source_endpoint_generation = source_endpoint_generation;
@@ -221,7 +227,7 @@ impl TraceWindow {
         evicted.and_then(finish_trace_buffer)
     }
 
-    /// Fill unresolved source endpoints below active SERVER roots in one trace.
+    /// Fill unresolved source endpoints below retained entry spans in one trace.
     ///
     /// Uses `peek_mut` so a context-only update neither extends the trace TTL
     /// nor promotes it in the LRU. An already-evicted trace stays evicted.
@@ -369,6 +375,28 @@ fn merge_source_endpoint_groups(
     incoming_parents: &SourceEndpointParentGroups,
     root_cap: usize,
 ) {
+    for (service, parents) in incoming_parents {
+        for (span_id, parent_span_id) in parents {
+            let key = (Arc::clone(service), span_id.clone());
+            if let Some(entry) = buffer
+                .resolved_ancestry
+                .as_mut()
+                .and_then(|ancestry| ancestry.get_mut(&key))
+            {
+                entry.parent_span_id.clone_from(parent_span_id);
+            } else {
+                cache_ancestry_entry(
+                    &mut buffer.resolved_ancestry,
+                    buffer.resolved_ancestry_cap,
+                    key,
+                    AncestryEntry {
+                        parent_span_id: parent_span_id.clone(),
+                        resolution: None,
+                    },
+                );
+            }
+        }
+    }
     for (service, roots) in incoming {
         for (root_span_id, endpoint) in roots {
             if let Some(existing) = buffer
@@ -1988,6 +2016,36 @@ mod tests {
             retained_parents
                 .keys()
                 .all(|root_span_id| retained_roots.contains_key(root_span_id))
+        );
+    }
+
+    #[test]
+    fn parent_only_context_uses_the_existing_ancestry_cap() {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let parents = HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([
+                ("internal-a".to_string(), Some("outer".to_string())),
+                ("internal-b".to_string(), Some("outer".to_string())),
+            ]),
+        )]);
+
+        assert!(
+            w.retain_source_endpoint_context_groups("t1", &HashMap::new(), &parents, 0)
+                .is_none()
+        );
+        let buffer = w.traces.peek("t1").expect("context-only trace retained");
+        assert_eq!(buffer.source_endpoint_count, 0);
+        assert_eq!(
+            buffer
+                .resolved_ancestry
+                .as_ref()
+                .expect("positive cap creates ancestry cache")
+                .len(),
+            1
         );
     }
 

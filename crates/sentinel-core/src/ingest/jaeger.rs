@@ -278,8 +278,10 @@ fn resolve_source_endpoint(
     let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame = leaf_frame;
     let mut current = child_of(leaf);
-    let mut depth = 0;
-    while let Some(pid) = current {
+    for _ in 0..crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
+        let Some(pid) = current else {
+            break;
+        };
         let Some(parent) = span_index.get(pid) else {
             break;
         };
@@ -292,11 +294,7 @@ fn resolve_source_endpoint(
         if let Some(frame) = tag_code_frame(&parent.tags) {
             outermost_frame = Some(frame);
         }
-        if depth >= crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
-            break;
-        }
         current = child_of(parent);
-        depth += 1;
     }
     outermost_endpoint
         .or(outermost_frame)
@@ -1141,6 +1139,48 @@ mod tests {
         assert_eq!(same_service.source.endpoint, "/api/fault/pool-saturation");
         assert_eq!(cross_service.source.endpoint, "/api/payments/history");
         assert_eq!(&*cross_service.service, "payments-svc");
+    }
+
+    #[test]
+    fn route_at_hop_nine_is_outside_the_shared_depth_limit() {
+        let mut spans = vec![serde_json::json!({
+            "spanID": "p9", "operationName": "server", "references": [],
+            "startTime": 1, "duration": 1, "processID": "svc",
+            "tags": [{ "key": "http.route", "value": "/too-deep" }]
+        })];
+        for id in (1_u8..9).rev() {
+            spans.push(serde_json::json!({
+                "spanID": format!("p{id}"), "operationName": "internal",
+                "references": [{ "refType": "CHILD_OF", "spanID": format!("p{}", id + 1) }],
+                "startTime": 1, "duration": 1, "processID": "svc",
+                "tags": if id == 8 {
+                    serde_json::json!([{ "key": "http.route", "value": "/at-limit" }])
+                } else {
+                    serde_json::json!([])
+                }
+            }));
+        }
+        spans.push(serde_json::json!({
+            "spanID": "sql", "operationName": "query",
+            "references": [{ "refType": "CHILD_OF", "spanID": "p1" }],
+            "startTime": 1, "duration": 1, "processID": "svc",
+            "tags": [
+                { "key": "db.statement", "value": "SELECT 1" },
+                { "key": "db.system", "value": "postgresql" }
+            ]
+        }));
+        let payload = serde_json::json!({
+            "data": [{
+                "traceID": "trace", "spans": spans,
+                "processes": { "svc": { "serviceName": "svc" } }
+            }]
+        })
+        .to_string();
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(payload.as_bytes())
+            .unwrap();
+        assert_eq!(events[0].source.endpoint, "/at-limit");
     }
 
     #[test]
