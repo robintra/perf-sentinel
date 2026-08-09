@@ -369,6 +369,26 @@ fn new_trace_buffer(now_ms: u64, per_trace_cap: usize) -> TraceBuffer {
     }
 }
 
+/// Carry the batch's parent link for one root, on both the update and the
+/// insert path of [`merge_source_endpoint_groups`].
+fn carry_incoming_parent(
+    buffer: &mut TraceBuffer,
+    incoming_parents: &SourceEndpointParentGroups,
+    service: &Arc<str>,
+    root_span_id: &str,
+) {
+    if let Some(parent) = incoming_parents
+        .get(service)
+        .and_then(|service_parents| service_parents.get(root_span_id))
+    {
+        buffer
+            .source_endpoint_parent_groups
+            .entry(Arc::clone(service))
+            .or_default()
+            .insert(root_span_id.to_string(), parent.clone());
+    }
+}
+
 fn merge_source_endpoint_groups(
     buffer: &mut TraceBuffer,
     incoming: &HashMap<Arc<str>, HashMap<String, String>>,
@@ -405,16 +425,7 @@ fn merge_source_endpoint_groups(
                 .and_then(|service_roots| service_roots.get_mut(root_span_id))
             {
                 existing.clone_from(endpoint);
-                if let Some(parent) = incoming_parents
-                    .get(service)
-                    .and_then(|service_parents| service_parents.get(root_span_id))
-                {
-                    buffer
-                        .source_endpoint_parent_groups
-                        .entry(Arc::clone(service))
-                        .or_default()
-                        .insert(root_span_id.clone(), parent.clone());
-                }
+                carry_incoming_parent(buffer, incoming_parents, service, root_span_id);
                 continue;
             }
             if buffer
@@ -434,16 +445,7 @@ fn merge_source_endpoint_groups(
                 .entry(Arc::clone(service))
                 .or_default()
                 .insert(root_span_id.clone(), endpoint.clone());
-            if let Some(parent) = incoming_parents
-                .get(service)
-                .and_then(|service_parents| service_parents.get(root_span_id))
-            {
-                buffer
-                    .source_endpoint_parent_groups
-                    .entry(Arc::clone(service))
-                    .or_default()
-                    .insert(root_span_id.clone(), parent.clone());
-            }
+            carry_incoming_parent(buffer, incoming_parents, service, root_span_id);
             buffer.source_endpoint_count += 1;
         }
     }
