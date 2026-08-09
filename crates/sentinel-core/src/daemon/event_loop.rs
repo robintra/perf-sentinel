@@ -2297,6 +2297,61 @@ mod tests {
         assert_eq!(findings[0].source_endpoint, "/api/fastapi");
     }
 
+    #[tokio::test]
+    async fn daemon_otlp_blank_service_does_not_link_separate_exports_at_cap_one() {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+        let (tx, mut rx) = mpsc::channel(2);
+        let service =
+            crate::ingest::otlp::OtlpGrpcService::new_daemon_with_grouping(tx, None, Vec::new());
+        service
+            .export(tonic::Request::new(otlp_request(
+                " \t ",
+                vec![otlp_server_root(1, "/api/anonymous")],
+            )))
+            .await
+            .expect("anonymous root export accepted");
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+
+        service
+            .export(tonic::Request::new(otlp_request(
+                " \t ",
+                vec![otlp_messaging_span(1, 10, "orders")],
+            )))
+            .await
+            .expect("anonymous I/O export accepted");
+        let batch = rx.recv().await.expect("anonymous I/O batch sent");
+        let metrics = MetricsState::new();
+        let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
+            ..WindowConfig::default()
+        })));
+        let mut service_meter = ServiceMeter {
+            known_services: std::collections::HashMap::new(),
+            max_service_cardinality: MAX_SERVICE_CARDINALITY,
+            service_cap_warned: false,
+        };
+
+        assert!(
+            ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter)
+                .await
+                .is_empty()
+        );
+        let (_, spans) = window
+            .lock()
+            .await
+            .drain_all()
+            .pop()
+            .expect("one anonymous trace");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].event.service.as_ref(), "unknown");
+        assert_eq!(spans[0].event.source.endpoint, "unknown");
+    }
+
     #[test]
     fn evict_expired_returns_traces() {
         let config = WindowConfig {
