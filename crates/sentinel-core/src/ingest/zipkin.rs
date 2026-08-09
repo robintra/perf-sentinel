@@ -149,8 +149,7 @@ fn http_endpoint(span: &ZipkinSpan, allow_url_fallback: bool) -> Option<String> 
             .and_then(|t| t.get(key).map(String::as_str))
             .filter(|s| !s.trim().is_empty())
     };
-    tag("http.route")
-        .map(crate::ingest::canonical_http_route)
+    crate::ingest::http_route_endpoint(tag("http.route"), tag("url.path"), allow_url_fallback)
         .or_else(|| {
             if !allow_url_fallback {
                 return None;
@@ -325,10 +324,13 @@ fn convert_zipkin_span(
     // On a DB span an HTTP tag is the inbound route propagated onto it, so it
     // wins. On an outbound span it is the callee's path, so only the walk answers.
     let own_endpoint = match io_kind {
-        super::TagIoKind::Sql => get_tag("http.route")
-            .map(crate::ingest::canonical_http_route)
-            .or_else(|| get_tag("http.target").map(ToString::to_string))
-            .filter(|s| !s.trim().is_empty()),
+        super::TagIoKind::Sql => crate::ingest::http_route_endpoint(
+            get_tag("http.route"),
+            get_tag("url.path"),
+            span.kind.as_deref() == Some("SERVER"),
+        )
+        .or_else(|| get_tag("http.target").map(ToString::to_string))
+        .filter(|s| !s.trim().is_empty()),
         super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
     };
     let endpoint = resolve_source_endpoint(own_endpoint, span, span_index);
@@ -651,6 +653,64 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "/api/orders/{id}");
+    }
+
+    #[test]
+    fn named_route_uses_url_path_for_own_and_ancestor_endpoints() {
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "root",
+                "name": "request",
+                "kind": "SERVER",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "symfony-svc" },
+                "tags": {
+                    "http.route": "app_fault_nplusonesql",
+                    "url.path": "/api/fault/n-plus-one-sql"
+                }
+            },
+            {
+                "traceId": "t1",
+                "id": "child",
+                "parentId": "root",
+                "name": "query",
+                "timestamp": 1720621921123100,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "symfony-svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql"
+                }
+            },
+            {
+                "traceId": "t2",
+                "id": "own",
+                "name": "query",
+                "kind": "SERVER",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "symfony-svc" },
+                "tags": {
+                    "db.statement": "SELECT 2",
+                    "db.system": "postgresql",
+                    "http.route": "app_fault_nplusonesql",
+                    "url.path": "/api/fault/n-plus-one-sql"
+                }
+            }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events.len(), 2);
+        assert!(
+            events
+                .iter()
+                .all(|event| event.source.endpoint == "/api/fault/n-plus-one-sql")
+        );
     }
 
     #[test]

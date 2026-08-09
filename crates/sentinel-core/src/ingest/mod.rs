@@ -36,6 +36,24 @@ pub(crate) fn canonical_http_route(route: &str) -> String {
     }
 }
 
+/// Resolve an `http.route`, preferring `url.path` only when the route is a
+/// framework name rather than a path. A slash anywhere keeps slashless path
+/// templates (for example Django's `api/orders/{id}`) authoritative.
+pub(crate) fn http_route_endpoint(
+    route: Option<&str>,
+    url_path: Option<&str>,
+    allow_url_path: bool,
+) -> Option<String> {
+    let route = route.filter(|route| !route.trim().is_empty())?;
+    if allow_url_path
+        && !route.contains('/')
+        && let Some(path) = url_path.filter(|path| !path.trim().is_empty())
+    {
+        return Some(path.to_string());
+    }
+    Some(canonical_http_route(route))
+}
+
 /// `db.system` values for datastores whose `db.statement` is not
 /// relational SQL and would be mangled by the SQL tokenizer (cache,
 /// document, wide-column, graph, search, time-series stores).
@@ -333,7 +351,7 @@ pub trait IngestSource {
 mod tests {
     use super::{
         NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, canonical_http_route,
-        code_frame_endpoint, is_non_sql_db_system, is_sql_db_system,
+        code_frame_endpoint, http_route_endpoint, is_non_sql_db_system, is_sql_db_system,
     };
 
     #[test]
@@ -346,6 +364,38 @@ mod tests {
         ] {
             assert_eq!(canonical_http_route(route), route);
         }
+    }
+
+    #[test]
+    fn named_http_route_uses_url_path_without_reclassifying_path_routes() {
+        assert_eq!(
+            http_route_endpoint(
+                Some("app_fault_nplusonesql"),
+                Some("/api/fault/n-plus-one-sql"),
+                true,
+            )
+            .as_deref(),
+            Some("/api/fault/n-plus-one-sql")
+        );
+        for route in [
+            "api/fault/n-plus-one-sql",
+            "/api/fault/{kind}",
+            "POST /api/fault/{kind}",
+            "https://example.test/api/fault/{kind}",
+        ] {
+            assert_eq!(
+                http_route_endpoint(Some(route), Some("/wrong"), true),
+                Some(canonical_http_route(route))
+            );
+        }
+        assert_eq!(
+            http_route_endpoint(Some("app_fault_nplusonesql"), None, true).as_deref(),
+            Some("/app_fault_nplusonesql")
+        );
+        assert_eq!(
+            http_route_endpoint(Some("outbound_payment"), Some("/v1/pay"), false,).as_deref(),
+            Some("/outbound_payment")
+        );
     }
 
     #[test]

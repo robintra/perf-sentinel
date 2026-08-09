@@ -681,19 +681,16 @@ fn classified_inbound_http_endpoint(
     allow_url_fallback: bool,
 ) -> Option<String> {
     let usable = |s: &&str| !s.trim().is_empty();
-    c.http_route
-        .filter(usable)
-        .map(crate::ingest::canonical_http_route)
-        .or_else(|| {
-            if !allow_url_fallback {
-                return None;
-            }
-            c.http_url
-                .filter(usable)
-                .or_else(|| c.url_full.filter(usable))
-                .or_else(|| c.url_path.filter(usable))
-                .map(ToString::to_string)
-        })
+    crate::ingest::http_route_endpoint(c.http_route, c.url_path, allow_url_fallback).or_else(|| {
+        if !allow_url_fallback {
+            return None;
+        }
+        c.http_url
+            .filter(usable)
+            .or_else(|| c.url_full.filter(usable))
+            .or_else(|| c.url_path.filter(usable))
+            .map(ToString::to_string)
+    })
 }
 
 /// Resolve `source.endpoint`: the outermost inbound HTTP route in this

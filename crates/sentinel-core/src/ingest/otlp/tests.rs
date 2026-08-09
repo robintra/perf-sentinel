@@ -1392,6 +1392,66 @@ fn slashless_parent_http_route_gets_a_canonical_leading_slash() {
 }
 
 #[test]
+fn named_route_uses_url_path_for_own_and_ancestor_endpoints() {
+    let route_tags = || {
+        vec![
+            make_kv("http.route", "app_fault_nplusonesql"),
+            make_kv("url.path", "/api/fault/n-plus-one-sql"),
+        ]
+    };
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        kind: SPAN_KIND_SERVER,
+        attributes: route_tags(),
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    let mut own = make_sql_span(&[2; 16], &[30; 8], &[], "SELECT 2", 0, 1_000_000);
+    own.kind = SPAN_KIND_SERVER;
+    own.attributes.extend(route_tags());
+    let request = make_request("symfony-svc", vec![parent, child, own]);
+
+    let events = convert_otlp_request(&request);
+    assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.source.endpoint == "/api/fault/n-plus-one-sql")
+    );
+
+    #[cfg(feature = "daemon")]
+    {
+        let updates = source_endpoint_updates(&request);
+        let root = updates
+            .iter()
+            .find(|update| update.span_id == bytes_to_hex(&[10; 8]))
+            .expect("SERVER root context present");
+        assert_eq!(root.endpoint.as_deref(), Some("/api/fault/n-plus-one-sql"));
+    }
+}
+
+#[test]
+fn client_named_route_does_not_unlock_url_path_fallback() {
+    let parent = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![10; 8],
+        kind: SPAN_KIND_CLIENT,
+        attributes: vec![
+            make_kv("http.route", "outbound_payment"),
+            make_kv("url.path", "/v1/pay"),
+        ],
+        ..Default::default()
+    };
+    let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+
+    let events = convert_otlp_request(&make_request("order-svc", vec![parent, child]));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].source.endpoint, "/outbound_payment");
+}
+
+#[test]
 fn parent_span_http_url_used_only_when_route_absent() {
     // Documented fallback: instrumentation that omits http.route
     // (legacy SDK, manual instrumentation) loses signature stability
