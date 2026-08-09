@@ -42,7 +42,6 @@ struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_count: usize,
-    needs_source_reconcile: bool,
     /// Absolute timestamp (ms since epoch) of the last event pushed to this trace.
     /// Used for TTL eviction: the LRU cache handles relative access ordering.
     last_seen_ms: u64,
@@ -78,8 +77,7 @@ impl TraceWindow {
         // Fast path: trace already exists: get_mut auto-promotes to MRU.
         if let Some(buf) = self.traces.get_mut(event.event.trace_id.as_str()) {
             buf.last_seen_ms = now_ms;
-            buf.needs_source_reconcile |=
-                apply_direct_source_endpoint(&mut event, &buf.source_endpoint_groups);
+            apply_direct_source_endpoint(&mut event, &buf.source_endpoint_groups);
             buf.events.push_back(event);
             // Ring buffer: drop oldest if over capacity
             if buf.events.len() > self.config.max_events_per_trace {
@@ -100,7 +98,6 @@ impl TraceWindow {
                     events,
                     source_endpoint_groups: HashMap::new(),
                     source_endpoint_count: 0,
-                    needs_source_reconcile: false,
                     last_seen_ms: now_ms,
                 },
             )
@@ -132,7 +129,6 @@ impl TraceWindow {
             events: VecDeque::new(),
             source_endpoint_groups: HashMap::new(),
             source_endpoint_count: 0,
-            needs_source_reconcile: false,
             last_seen_ms: now_ms,
         };
         merge_source_endpoint_groups(&mut buf, service_root_endpoints, root_cap);
@@ -164,17 +160,6 @@ impl TraceWindow {
             return 0;
         };
         reconcile_event_source_endpoint_groups(buf.events.make_contiguous(), service_root_endpoints)
-    }
-
-    /// Reconcile new events against root context retained by an earlier batch.
-    pub fn reconcile_pending_source_endpoints(&mut self, trace_id: &str) -> usize {
-        let Some(buf) = self.traces.peek_mut(trace_id) else {
-            return 0;
-        };
-        if !buf.needs_source_reconcile {
-            return 0;
-        }
-        reconcile_trace_buffer(buf)
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -278,49 +263,36 @@ fn merge_source_endpoint_groups(
 
 /// Apply the common direct-child case without scanning the whole trace.
 ///
-/// Returns whether a later bounded parent-chain reconciliation is needed.
 fn apply_direct_source_endpoint(
     event: &mut NormalizedEvent,
     source_endpoint_groups: &HashMap<Arc<str>, HashMap<String, String>>,
-) -> bool {
+) {
     let source = event.event.source.endpoint.trim();
     if !source.is_empty() && source != "unknown" {
-        return false;
+        return;
     }
     let Some(root_endpoints) = source_endpoint_groups.get(event.event.service.as_ref()) else {
-        return false;
+        return;
     };
     let Some(parent_span_id) = event.event.parent_span_id.as_ref() else {
-        return false;
+        return;
     };
     if let Some(endpoint) = root_endpoints.get(parent_span_id) {
         event.event.source.endpoint.clone_from(endpoint);
-        false
-    } else {
-        true
     }
 }
 
 fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
-    let updated = reconcile_event_source_endpoint_groups(
+    reconcile_event_source_endpoint_groups(
         buffer.events.make_contiguous(),
         &buffer.source_endpoint_groups,
-    );
-    buffer.needs_source_reconcile = buffer.events.iter().any(|event| {
-        let source = event.event.source.endpoint.trim();
-        (source.is_empty() || source == "unknown")
-            && event.event.parent_span_id.is_some()
-            && buffer
-                .source_endpoint_groups
-                .contains_key(event.event.service.as_ref())
-    });
-    updated
+    )
 }
 
 fn finish_trace_buffer(
     (trace_id, mut buffer): (String, TraceBuffer),
 ) -> Option<(String, Vec<NormalizedEvent>)> {
-    if buffer.needs_source_reconcile {
+    if !buffer.source_endpoint_groups.is_empty() {
         reconcile_trace_buffer(&mut buffer);
     }
     let events = Vec::from(buffer.events);
@@ -1007,7 +979,6 @@ mod tests {
             w.push(make_child("t1", "svc-a", "a", "a-mid", "a", "unknown"), 20,)
                 .is_none()
         );
-        assert_eq!(w.reconcile_pending_source_endpoints("t1"), 0);
         assert!(
             w.push(
                 make_child("t1", "svc-a", "a-mid", "root-a", "a-mid", "unknown"),
@@ -1026,14 +997,14 @@ mod tests {
             w.push(make_child("t1", "svc-b", "b", "root-b", "b", "unknown"), 20,)
                 .is_none()
         );
-        assert_eq!(w.reconcile_pending_source_endpoints("t1"), 1);
 
-        let trace = w.peek_clone("t1").expect("trace retained");
+        let mut drained = w.drain_all();
+        assert_eq!(drained.len(), 1, "only non-empty traces are drained");
+        let (_, trace) = drained.pop().expect("trace finished");
         assert_eq!(trace[0].event.source.endpoint, "/api/a");
         assert_eq!(trace[1].event.source.endpoint, "/api/a");
         assert_eq!(trace[2].event.source.endpoint, "/api/a2");
         assert_eq!(trace[3].event.source.endpoint, "/api/b");
-        assert_eq!(w.drain_all().len(), 1, "only non-empty traces are drained");
         assert_eq!(w.active_traces(), 0);
     }
 

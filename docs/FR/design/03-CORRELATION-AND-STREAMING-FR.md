@@ -57,6 +57,8 @@ Chaque trace stocke ses événements dans un `VecDeque<NormalizedEvent>` :
 ```rust
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
+    source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
+    source_endpoint_count: usize,
     last_seen_ms: u64,
 }
 ```
@@ -72,6 +74,14 @@ if buf.events.len() > self.config.max_events_per_trace {
 **Pourquoi `VecDeque` ?** `Vec::remove(0)` est O(n) car il décale tous les éléments. `VecDeque::pop_front()` est O(1) car il est soutenu par un buffer circulaire. Pour les traces avec un grand nombre d'événements atteignant fréquemment le cap, cela évite une dégradation en O(n^2).
 
 La capacité initiale est `VecDeque::with_capacity(8)` : une petite allocation pour les traces de courte durée qui évite les doublements répétés pour le cas courant de 1-10 événements.
+
+Une trace OTLP peut aussi conserver les contextes d'endpoint racine SERVER
+avant que ses événements I/O n'arrivent dans un lot ultérieur. Les événements
+et les contextes racine forment deux collections distinctes, **chacune**
+plafonnée par `max_events_per_trace`. Les traces ne contenant que du contexte
+utilisent le même LRU `max_active_traces` et la même éviction
+`trace_ttl_ms` que les traces avec événements ; les racines précoces ne peuvent
+donc pas créer un état non borné.
 
 ### Éviction TTL
 
@@ -116,10 +126,14 @@ Lors de la conversion des événements de trace évincés de `VecDeque` vers `Ve
 La consommation mémoire maximale du TraceWindow peut être estimée :
 
 ```
-mémoire_max = max_active_traces × max_events_per_trace × taille_moyenne_événement
-            = 10 000 × 1 000 × ~500 octets
-            = ~5 Go (maximum théorique)
+mémoire_max = max_active_traces × max_events_per_trace
+              × (taille_moyenne_événement + taille_moyenne_contexte_racine)
 ```
+
+Les deux collections par trace peuvent atteindre leur plafond. Avec les
+valeurs par défaut, la seule partie événements représente environ 5 Go au
+maximum théorique (10 000 × 1 000 × ~500 octets), auxquels s'ajoutent les
+contextes racine bornés séparément.
 
 En pratique, la plupart des traces ont bien moins d'événements que le cap. Avec des traces typiques de 10-50 événements :
 
