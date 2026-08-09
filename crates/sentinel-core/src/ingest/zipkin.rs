@@ -6,8 +6,8 @@
 //! ```
 //!
 //! `source.endpoint` walks the `parentId` chain with the same rules as the
-//! OTLP path: nearest inbound HTTP route first, otherwise the outermost
-//! application `code.*` frame, otherwise `"unknown"`.
+//! OTLP path: outermost inbound HTTP route in the event service first,
+//! otherwise the outermost application `code.*` frame, otherwise `"unknown"`.
 
 use crate::event::{EventSource, SpanEvent};
 use crate::ingest::IngestSource;
@@ -181,13 +181,30 @@ fn tag_code_frame(span: &ZipkinSpan) -> Option<String> {
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function)
 }
 
-/// Walk the `parentId` chain: nearest inbound HTTP route wins, otherwise the
-/// outermost usable code frame (starting from the leaf's own), otherwise
-/// `"unknown"`. Same rules and depth bound as the OTLP path.
+fn zipkin_service_name(span: &ZipkinSpan) -> Option<&str> {
+    span.local_endpoint
+        .as_ref()
+        .and_then(|endpoint| endpoint.service_name.as_deref())
+        .filter(|service| !service.is_empty())
+}
+
+fn same_zipkin_service(leaf: &ZipkinSpan, ancestor: &ZipkinSpan) -> bool {
+    match (zipkin_service_name(leaf), zipkin_service_name(ancestor)) {
+        (Some(leaf_service), Some(ancestor_service)) => leaf_service == ancestor_service,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+/// Walk the contiguous same-service `parentId` chain: the outermost inbound
+/// HTTP route wins, otherwise the outermost usable code frame (starting from
+/// the leaf's own), otherwise `"unknown"`. Same depth bound as the OTLP path.
 fn resolve_source_endpoint(
+    own_endpoint: Option<String>,
     leaf: &ZipkinSpan,
     span_index: &HashMap<(&str, &str), &ZipkinSpan>,
 ) -> String {
+    let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame = tag_code_frame(leaf);
     let mut current = leaf.parent_id.as_deref();
     let mut depth = 0;
@@ -195,8 +212,11 @@ fn resolve_source_endpoint(
         let Some(parent) = span_index.get(&(leaf.trace_id.as_str(), pid)) else {
             break;
         };
+        if !same_zipkin_service(leaf, parent) {
+            break;
+        }
         if let Some(route) = inbound_http_endpoint(parent) {
-            return route;
+            outermost_endpoint = Some(route);
         }
         if let Some(frame) = tag_code_frame(parent) {
             outermost_frame = Some(frame);
@@ -207,7 +227,9 @@ fn resolve_source_endpoint(
         current = parent.parent_id.as_deref();
         depth += 1;
     }
-    outermost_frame.unwrap_or_else(|| "unknown".to_string())
+    outermost_endpoint
+        .or(outermost_frame)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn convert_zipkin_span(
@@ -258,11 +280,7 @@ fn convert_zipkin_span(
             .to_string(),
     };
 
-    let service: Arc<str> = span
-        .local_endpoint
-        .as_ref()
-        .and_then(|ep| ep.service_name.as_deref())
-        .map_or_else(|| Arc::from(""), Arc::from);
+    let service: Arc<str> = zipkin_service_name(span).map_or_else(|| Arc::from(""), Arc::from);
     let grouping =
         crate::ingest::collect_grouping(grouping_attributes, |key| get_tag(key).map(Arc::from));
 
@@ -296,14 +314,14 @@ fn convert_zipkin_span(
 
     // On a DB span an HTTP tag is the inbound route propagated onto it, so it
     // wins. On an outbound span it is the callee's path, so only the walk answers.
-    let endpoint = match io_kind {
+    let own_endpoint = match io_kind {
         super::TagIoKind::Sql => get_tag("http.route")
             .map(crate::ingest::canonical_http_route)
             .or_else(|| get_tag("http.target").map(ToString::to_string))
             .filter(|s| !s.trim().is_empty()),
         super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
-    }
-    .unwrap_or_else(|| resolve_source_endpoint(span, span_index));
+    };
+    let endpoint = resolve_source_endpoint(own_endpoint, span, span_index);
     let method = get_tag("code.function")
         .map(String::from)
         .or_else(|| span.name.clone())
@@ -831,6 +849,96 @@ mod tests {
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
         assert_eq!(sql.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn outermost_route_stops_at_the_service_boundary() {
+        let json = r#"[
+            {
+                "traceId": "same-service",
+                "id": "outer",
+                "kind": "SERVER",
+                "name": "post /api/fault/pool-saturation",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "laravel-svc" },
+                "tags": { "http.route": "/api/fault/pool-saturation" }
+            },
+            {
+                "traceId": "same-service",
+                "id": "nested",
+                "parentId": "outer",
+                "kind": "SERVER",
+                "name": "get /api/payments/history",
+                "timestamp": 1720621921123100,
+                "duration": 3000,
+                "localEndpoint": { "serviceName": "laravel-svc" },
+                "tags": { "http.route": "/api/payments/history" }
+            },
+            {
+                "traceId": "same-service",
+                "id": "sql",
+                "parentId": "nested",
+                "name": "query",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "laravel-svc" },
+                "tags": {
+                    "db.statement": "SELECT * FROM payments",
+                    "db.system": "postgresql"
+                }
+            },
+            {
+                "traceId": "cross-service",
+                "id": "caller",
+                "kind": "SERVER",
+                "name": "post /api/orders",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "orders-svc" },
+                "tags": { "http.route": "/api/orders" }
+            },
+            {
+                "traceId": "cross-service",
+                "id": "callee",
+                "parentId": "caller",
+                "kind": "SERVER",
+                "name": "get /api/payments/history",
+                "timestamp": 1720621921123100,
+                "duration": 3000,
+                "localEndpoint": { "serviceName": "payments-svc" },
+                "tags": { "http.route": "/api/payments/history" }
+            },
+            {
+                "traceId": "cross-service",
+                "id": "sql",
+                "parentId": "callee",
+                "name": "query",
+                "timestamp": 1720621921123200,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "payments-svc" },
+                "tags": {
+                    "db.statement": "SELECT * FROM payments",
+                    "db.system": "postgresql"
+                }
+            }
+        ]"#;
+
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        let same_service = events
+            .iter()
+            .find(|event| event.trace_id == "same-service")
+            .expect("same-service SQL event present");
+        let cross_service = events
+            .iter()
+            .find(|event| event.trace_id == "cross-service")
+            .expect("cross-service SQL event present");
+
+        assert_eq!(same_service.source.endpoint, "/api/fault/pool-saturation");
+        assert_eq!(cross_service.source.endpoint, "/api/payments/history");
+        assert_eq!(&*cross_service.service, "payments-svc");
     }
 
     #[test]

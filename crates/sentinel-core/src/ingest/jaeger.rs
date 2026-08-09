@@ -6,8 +6,8 @@
 //! ```
 //!
 //! `source.endpoint` walks the `CHILD_OF` chain with the same rules as the
-//! OTLP path: nearest inbound HTTP route first, otherwise the outermost
-//! application `code.*` frame, otherwise `"unknown"`.
+//! OTLP path: outermost inbound HTTP route in the event service first,
+//! otherwise the outermost application `code.*` frame, otherwise `"unknown"`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -242,23 +242,52 @@ fn tag_code_frame(tags: &[JaegerTag]) -> Option<String> {
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function.as_deref())
 }
 
-/// Walk the `CHILD_OF` chain: nearest inbound HTTP route wins, otherwise the
-/// outermost usable code frame (starting from the leaf's own), otherwise
-/// `"unknown"`. Same rules and depth bound as the OTLP path.
+fn same_jaeger_service(
+    leaf: &JaegerSpan,
+    ancestor: &JaegerSpan,
+    process_metadata: &HashMap<&str, ProcessMetadata>,
+) -> bool {
+    if leaf.process_id == ancestor.process_id {
+        return true;
+    }
+    match (
+        process_metadata
+            .get(leaf.process_id.as_str())
+            .map(|metadata| metadata.0.as_ref())
+            .filter(|service| !service.is_empty()),
+        process_metadata
+            .get(ancestor.process_id.as_str())
+            .map(|metadata| metadata.0.as_ref())
+            .filter(|service| !service.is_empty()),
+    ) {
+        (Some(leaf_service), Some(ancestor_service)) => leaf_service == ancestor_service,
+        _ => false,
+    }
+}
+
+/// Walk the contiguous same-service `CHILD_OF` chain: the outermost inbound
+/// HTTP route wins, otherwise the outermost usable code frame (starting from
+/// the leaf's own), otherwise `"unknown"`. Same depth bound as the OTLP path.
 fn resolve_source_endpoint(
+    own_endpoint: Option<String>,
     leaf_frame: Option<String>,
-    parent_id: Option<&str>,
+    leaf: &JaegerSpan,
+    process_metadata: &HashMap<&str, ProcessMetadata>,
     span_index: &HashMap<&str, &JaegerSpan>,
 ) -> String {
+    let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame = leaf_frame;
-    let mut current = parent_id;
+    let mut current = child_of(leaf);
     let mut depth = 0;
     while let Some(pid) = current {
         let Some(parent) = span_index.get(pid) else {
             break;
         };
+        if !same_jaeger_service(leaf, parent, process_metadata) {
+            break;
+        }
         if let Some(route) = inbound_http_endpoint(parent) {
-            return route;
+            outermost_endpoint = Some(route);
         }
         if let Some(frame) = tag_code_frame(&parent.tags) {
             outermost_frame = Some(frame);
@@ -269,7 +298,9 @@ fn resolve_source_endpoint(
         current = child_of(parent);
         depth += 1;
     }
-    outermost_frame.unwrap_or_else(|| "unknown".to_string())
+    outermost_endpoint
+        .or(outermost_frame)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn convert_jaeger_span(
@@ -310,8 +341,6 @@ fn convert_jaeger_span(
             find_tag(tags, "http.url").or_else(|| find_tag(tags, "url.full"))?,
         )
     };
-    let event_type = io_kind.event_type();
-
     let operation = match io_kind {
         super::TagIoKind::Sql => db_system.unwrap_or("sql").to_string(),
         super::TagIoKind::HttpOut => find_tag(tags, "http.method")
@@ -365,14 +394,19 @@ fn convert_jaeger_span(
 
     // On a DB span an HTTP tag is the inbound route propagated onto it, so it
     // wins. On an outbound span it is the callee's path, so only the walk answers.
-    let endpoint = match io_kind {
-        super::TagIoKind::Sql => find_tag(tags, "http.route")
-            .map(|route| crate::ingest::canonical_http_route(&route))
-            .or_else(|| find_tag(tags, "http.target"))
-            .filter(|s| !s.trim().is_empty()),
-        super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
-    }
-    .unwrap_or_else(|| resolve_source_endpoint(tag_code_frame(tags), child_of(span), span_index));
+    let endpoint = resolve_source_endpoint(
+        match io_kind {
+            super::TagIoKind::Sql => find_tag(tags, "http.route")
+                .map(|route| crate::ingest::canonical_http_route(&route))
+                .or_else(|| find_tag(tags, "http.target"))
+                .filter(|s| !s.trim().is_empty()),
+            super::TagIoKind::HttpOut => own_inbound_http_endpoint(span),
+        },
+        tag_code_frame(tags),
+        span,
+        process_metadata,
+        span_index,
+    );
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
     let mut event = SpanEvent {
@@ -388,7 +422,7 @@ fn convert_jaeger_span(
         // multi-region scoring with Jaeger ingestion should set
         // [green.service_regions] in the config to map service -> region.
         cloud_region: None,
-        event_type,
+        event_type: io_kind.event_type(),
         operation,
         target,
         duration_us: span.duration,
@@ -995,6 +1029,118 @@ mod tests {
             .find(|e| e.event_type == EventType::Sql)
             .expect("sql leaf present");
         assert_eq!(sql.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // One fixture proves both sides of the service boundary.
+    fn outermost_route_stops_at_the_service_boundary() {
+        let json = r#"{
+            "data": [
+                {
+                    "traceID": "same-service",
+                    "spans": [
+                        {
+                            "spanID": "outer",
+                            "operationName": "POST /api/fault/pool-saturation",
+                            "references": [],
+                            "startTime": 1720621921123000,
+                            "duration": 5000,
+                            "processID": "laravel",
+                            "tags": [
+                                { "key": "span.kind", "value": "server" },
+                                { "key": "http.route", "value": "/api/fault/pool-saturation" }
+                            ]
+                        },
+                        {
+                            "spanID": "nested",
+                            "operationName": "GET /api/payments/history",
+                            "references": [{ "refType": "CHILD_OF", "spanID": "outer" }],
+                            "startTime": 1720621921123100,
+                            "duration": 3000,
+                            "processID": "laravel",
+                            "tags": [
+                                { "key": "span.kind", "value": "server" },
+                                { "key": "http.route", "value": "/api/payments/history" }
+                            ]
+                        },
+                        {
+                            "spanID": "sql",
+                            "operationName": "query",
+                            "references": [{ "refType": "CHILD_OF", "spanID": "nested" }],
+                            "startTime": 1720621921123200,
+                            "duration": 500,
+                            "processID": "laravel",
+                            "tags": [
+                                { "key": "db.statement", "value": "SELECT * FROM payments" },
+                                { "key": "db.system", "value": "postgresql" }
+                            ]
+                        }
+                    ],
+                    "processes": { "laravel": { "serviceName": "laravel-svc" } }
+                },
+                {
+                    "traceID": "cross-service",
+                    "spans": [
+                        {
+                            "spanID": "caller",
+                            "operationName": "POST /api/orders",
+                            "references": [],
+                            "startTime": 1720621921123000,
+                            "duration": 5000,
+                            "processID": "orders",
+                            "tags": [
+                                { "key": "span.kind", "value": "server" },
+                                { "key": "http.route", "value": "/api/orders" }
+                            ]
+                        },
+                        {
+                            "spanID": "callee",
+                            "operationName": "GET /api/payments/history",
+                            "references": [{ "refType": "CHILD_OF", "spanID": "caller" }],
+                            "startTime": 1720621921123100,
+                            "duration": 3000,
+                            "processID": "payments",
+                            "tags": [
+                                { "key": "span.kind", "value": "server" },
+                                { "key": "http.route", "value": "/api/payments/history" }
+                            ]
+                        },
+                        {
+                            "spanID": "sql",
+                            "operationName": "query",
+                            "references": [{ "refType": "CHILD_OF", "spanID": "callee" }],
+                            "startTime": 1720621921123200,
+                            "duration": 500,
+                            "processID": "payments",
+                            "tags": [
+                                { "key": "db.statement", "value": "SELECT * FROM payments" },
+                                { "key": "db.system", "value": "postgresql" }
+                            ]
+                        }
+                    ],
+                    "processes": {
+                        "orders": { "serviceName": "orders-svc" },
+                        "payments": { "serviceName": "payments-svc" }
+                    }
+                }
+            ]
+        }"#;
+
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        let same_service = events
+            .iter()
+            .find(|event| event.trace_id == "same-service")
+            .expect("same-service SQL event present");
+        let cross_service = events
+            .iter()
+            .find(|event| event.trace_id == "cross-service")
+            .expect("cross-service SQL event present");
+
+        assert_eq!(same_service.source.endpoint, "/api/fault/pool-saturation");
+        assert_eq!(cross_service.source.endpoint, "/api/payments/history");
+        assert_eq!(&*cross_service.service, "payments-svc");
     }
 
     #[test]
