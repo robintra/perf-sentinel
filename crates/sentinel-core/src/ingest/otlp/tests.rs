@@ -1135,6 +1135,61 @@ fn missing_service_uses_nearest_route_without_crossing_resource_blocks() {
     assert_eq!(sql.source.endpoint, "/api/payments/history");
 }
 
+#[test]
+fn blank_service_names_stay_anonymous_across_resource_blocks() {
+    for blank_service in ["", " \t "] {
+        let caller = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![10; 8],
+            kind: SPAN_KIND_SERVER,
+            attributes: vec![make_kv("http.route", "/api/orders")],
+            ..Default::default()
+        };
+        let callee = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![20; 8],
+            parent_span_id: vec![10; 8],
+            kind: SPAN_KIND_SERVER,
+            attributes: vec![make_kv("http.route", "/api/payments/history")],
+            ..Default::default()
+        };
+        let sql = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000);
+        let resource = |spans| ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv("service.name", blank_service)],
+                ..Default::default()
+            }),
+            scope_spans: vec![ScopeSpans {
+                spans,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![resource(vec![caller]), resource(vec![callee, sql])],
+        };
+
+        let events = convert_otlp_request(&request);
+        let sql = events
+            .iter()
+            .find(|event| event.event_type == EventType::Sql)
+            .expect("SQL event present");
+        assert_eq!(sql.service.as_ref(), "unknown");
+        assert_eq!(sql.source.endpoint, "/api/payments/history");
+    }
+}
+
+#[test]
+fn nonblank_service_name_keeps_its_display_value() {
+    let request = make_request(
+        " payments-svc ",
+        vec![make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000)],
+    );
+
+    let events = convert_otlp_request(&request);
+    assert_eq!(events[0].service.as_ref(), " payments-svc ");
+}
+
 #[cfg(feature = "daemon")]
 #[test]
 fn missing_service_context_is_not_retained_across_export_blocks() {

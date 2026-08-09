@@ -792,8 +792,9 @@ fn index_resource_spans<'a>(
     }
 }
 
-/// `service.name` from the resource attributes, or `"unknown"`. Shared by the
-/// span index and the emitted events so both agree.
+/// Non-blank `service.name` from the resource attributes, or `"unknown"`.
+/// Shared by the span index and the emitted events so both agree. The blank
+/// check does not trim a useful display value.
 fn resource_service_name(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
 ) -> &str {
@@ -801,6 +802,7 @@ fn resource_service_name(
         .resource
         .as_ref()
         .and_then(|r| get_str_attribute(&r.attributes, "service.name"))
+        .filter(|service| !service.trim().is_empty())
         .unwrap_or("unknown")
 }
 
