@@ -194,6 +194,17 @@ fn same_zipkin_service(leaf: &ZipkinSpan, ancestor: &ZipkinSpan) -> bool {
     )
 }
 
+/// Whether the ancestor walk stops before `parent`. An anonymous leaf stays
+/// inside the anonymous run and stops at the first named ancestor, a named
+/// leaf stops at the first ancestor of another service.
+fn walk_stops_at(anonymous_service: bool, leaf: &ZipkinSpan, parent: &ZipkinSpan) -> bool {
+    if anonymous_service {
+        zipkin_service_name(parent).is_some()
+    } else {
+        !same_zipkin_service(leaf, parent)
+    }
+}
+
 /// Walk the contiguous same-service `parentId` chain: the outermost inbound
 /// HTTP route wins, otherwise the outermost usable code frame (starting from
 /// the leaf's own), otherwise `"unknown"`. Same depth bound as the OTLP path.
@@ -216,11 +227,7 @@ fn resolve_source_endpoint(
         let Some(parent) = span_index.get(&(leaf.trace_id.as_str(), pid)) else {
             break;
         };
-        if anonymous_service {
-            if zipkin_service_name(parent).is_some() {
-                break;
-            }
-        } else if !same_zipkin_service(leaf, parent) {
+        if walk_stops_at(anonymous_service, leaf, parent) {
             break;
         }
         if let Some(route) = inbound_http_endpoint(parent) {
