@@ -309,6 +309,18 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #                                                  # "env:VAR" indirection, such a value is taken literally
 # toml_path = ".perf-sentinel-acknowledgments.toml"   # default .perf-sentinel-acknowledgments.toml
 
+# --- /!\ Batched export to PerfSentinelHub /!\ ----------------------------
+# Coalesces repeated signatures and never blocks detection. Mount the API
+# key as a Secret-backed file; never put its value in this TOML file.
+# [daemon.hub_export]
+# enabled = true
+# endpoint = "https://hub.example.com/api/import/findings"
+# source_id = "production-a"
+# api_key_file = "/run/secrets/perf-sentinel-hub-api-key"
+# batch_size = 100                 # default 100, bounds 1..100
+# flush_interval_secs = 5          # default 5, bounds 1..300
+# max_pending = 10000              # default 10000, bounds 1..1000000
+
 # --- /!\ Browser access to the query API ------------------------------------
 # Empty means no browser origin can read the API, which is the safe state.
 # Full origins (scheme + host + optional port, no trailing slash). "*" is

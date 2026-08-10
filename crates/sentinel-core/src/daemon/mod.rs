@@ -12,6 +12,7 @@ pub mod query_api;
 pub mod traces_store;
 
 mod event_loop;
+mod hub_export;
 #[cfg(unix)]
 mod json_socket;
 mod listeners;
@@ -109,6 +110,19 @@ pub enum DaemonError {
         #[source]
         source: ack::AckError,
     },
+    /// Hub exporter could not read its API key file.
+    #[error("failed to read PerfSentinelHub API key from '{path}'")]
+    HubExportSecretRead {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// Hub exporter API key file was empty, short, or contained controls.
+    #[error("PerfSentinelHub API key in '{path}' is invalid")]
+    HubExportSecretInvalid { path: String },
+    /// The validated Hub export endpoint could not be parsed as an HTTP URI.
+    #[error("PerfSentinelHub export endpoint is invalid")]
+    HubExportEndpoint,
     /// `[reporting] intent = "official"` is configured but the org-config
     /// is missing fields required for a publishable disclosure. Every
     /// missing or invalid field is listed in `errors`.
@@ -224,6 +238,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let findings_store = Arc::new(findings_store::FindingsStore::new(
         config.daemon.max_retained_findings,
     ));
+    let hub_export = hub_export::HubExporter::spawn(&config.daemon.hub_export, metrics.clone())?;
+    let hub_export_buffer = hub_export.as_ref().map(hub_export::HubExporter::buffer);
     // Masked span trees for the findings the store keeps, so an exported
     // report still draws a tree once the correlation window has moved on.
     // Only /api/export/report reads it: with the API off or the findings
@@ -379,6 +395,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         &window,
         metrics,
         findings_store,
+        hub_export_buffer,
         traces_store,
         correlator,
         &detect_config,

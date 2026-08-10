@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The live daemon can push findings to PerfSentinelHub through the opt-in `[daemon.hub_export]` exporter. It sends a signature immediately when first discovered or worsened, then at most once per hour while it recurs; pending occurrences are coalesced to their latest value. Requests hold at most 100 findings, retry with bounded exponential backoff and jitter, and cap pending plus recently acknowledged signature memory (10,000 entries each by default) instead of issuing one request per detection. Hub export never blocks trace analysis. `perf_sentinel_hub_export_pending` exposes the current backlog and `perf_sentinel_hub_export_dropped_total` counts invalid or capacity-evicted entries. The API key is read from a mounted file, never from the TOML value itself.
+
 ## [0.11.2] - 2026-08-09
 
 ### Fixed

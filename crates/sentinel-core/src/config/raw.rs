@@ -19,8 +19,8 @@ use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use super::validate::has_control_char;
 use super::{
     Config, DEFAULT_FULCIO_URL, DEFAULT_REKOR_URL, DaemonAckConfig, DaemonArchiveConfig,
-    DaemonConfig, DaemonCorsConfig, DaemonEnvironment, DaemonTlsConfig, DetectionConfig,
-    GreenConfig, ReportingConfig, SigstoreConfig, ThresholdsConfig,
+    DaemonConfig, DaemonCorsConfig, DaemonEnvironment, DaemonHubExportConfig, DaemonTlsConfig,
+    DetectionConfig, GreenConfig, ReportingConfig, SigstoreConfig, ThresholdsConfig,
 };
 
 #[derive(Deserialize, Default)]
@@ -268,6 +268,19 @@ pub(super) struct DaemonSection {
     ack: DaemonAckSection,
     cors: DaemonCorsSection,
     archive: ArchiveSection,
+    hub_export: HubExportSection,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+struct HubExportSection {
+    enabled: Option<bool>,
+    endpoint: Option<String>,
+    source_id: Option<String>,
+    api_key_file: Option<String>,
+    batch_size: Option<usize>,
+    flush_interval_secs: Option<u64>,
+    max_pending: Option<usize>,
 }
 
 /// Raw deserialization target for `[daemon.correlation]`.
@@ -604,6 +617,31 @@ impl From<RawConfig> for Config {
                     }
                 },
                 archive: convert_archive_section(&raw.daemon.archive),
+                hub_export: DaemonHubExportConfig {
+                    enabled: raw
+                        .daemon
+                        .hub_export
+                        .enabled
+                        .unwrap_or(daemon_defaults.hub_export.enabled),
+                    endpoint: raw.daemon.hub_export.endpoint,
+                    source_id: raw.daemon.hub_export.source_id,
+                    api_key_file: raw.daemon.hub_export.api_key_file,
+                    batch_size: raw
+                        .daemon
+                        .hub_export
+                        .batch_size
+                        .unwrap_or(daemon_defaults.hub_export.batch_size),
+                    flush_interval_secs: raw
+                        .daemon
+                        .hub_export
+                        .flush_interval_secs
+                        .unwrap_or(daemon_defaults.hub_export.flush_interval_secs),
+                    max_pending: raw
+                        .daemon
+                        .hub_export
+                        .max_pending
+                        .unwrap_or(daemon_defaults.hub_export.max_pending),
+                },
             },
             reporting: ReportingConfig {
                 intent: raw.reporting.intent,

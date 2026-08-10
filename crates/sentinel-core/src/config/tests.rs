@@ -2487,6 +2487,45 @@ api_key = \"\"
 }
 
 #[test]
+fn hub_export_is_disabled_by_default() {
+    let config = load_from_str("").unwrap();
+
+    assert!(!config.daemon.hub_export.enabled);
+    assert_eq!(config.daemon.hub_export.batch_size, 100);
+    assert_eq!(config.daemon.hub_export.flush_interval_secs, 5);
+    assert_eq!(config.daemon.hub_export.max_pending, 10_000);
+}
+
+#[test]
+fn enabled_hub_export_requires_a_bounded_complete_configuration() {
+    let missing = load_from_str("[daemon.hub_export]\nenabled = true")
+        .unwrap_err()
+        .to_string();
+    assert!(missing.contains("hub_export") && missing.contains("endpoint"));
+
+    let valid = r#"
+        [daemon.hub_export]
+        enabled = true
+        endpoint = "https://hub.example/api/import/findings"
+        source_id = "production-a"
+        api_key_file = "/run/secrets/hub-api-key"
+        batch_size = 100
+        flush_interval_secs = 5
+        max_pending = 10000
+        "#;
+    assert!(load_from_str(valid).is_ok());
+
+    for invalid in [
+        valid.replace("batch_size = 100", "batch_size = 101"),
+        valid.replace("flush_interval_secs = 5", "flush_interval_secs = 0"),
+        valid.replace("max_pending = 10000", "max_pending = 0"),
+        valid.replace("source_id = \"production-a\"", "source_id = \"bad/source\""),
+    ] {
+        assert!(load_from_str(&invalid).is_err(), "accepted {invalid}");
+    }
+}
+
+#[test]
 fn validate_daemon_ack_rejects_short_api_key() {
     let toml = "
 [daemon.ack]
