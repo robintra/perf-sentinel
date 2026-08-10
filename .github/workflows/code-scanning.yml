@@ -41,7 +41,7 @@ jobs:
           matcher: false
 
       - name: Install clippy-sarif and sarif-fmt
-        uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2.85.5
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -59,7 +59,7 @@ jobs:
           echo "Clippy SARIF generated at clippy.sarif"
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: clippy.sarif
           category: clippy
