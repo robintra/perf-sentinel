@@ -36,8 +36,9 @@ use event_loop::{
     run_event_loop,
 };
 use listeners::{
-    setup_alumet_scraper, setup_cloud_scraper, setup_correlator, setup_emaps_scraper,
-    setup_kepler_scraper, setup_redfish_scraper, setup_scaphandre_scraper, spawn_listeners,
+    init_ack_resources, setup_alumet_scraper, setup_cloud_scraper, setup_correlator,
+    setup_emaps_scraper, setup_kepler_scraper, setup_redfish_scraper, setup_scaphandre_scraper,
+    spawn_listeners,
 };
 
 /// Bounded OTLP source context carried independently of normalized I/O events.
@@ -238,7 +239,15 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let findings_store = Arc::new(findings_store::FindingsStore::new(
         config.daemon.max_retained_findings,
     ));
-    let hub_export = hub_export::HubExporter::spawn(&config.daemon.hub_export, metrics.clone())?;
+    // Shared with the Hub exporter: a pushed envelope must carry the same
+    // acknowledgment annotation the query API adds to a polled one.
+    let (toml_acks, ack_store) = init_ack_resources(&config).await?;
+    let hub_export = hub_export::HubExporter::spawn(
+        &config.daemon.hub_export,
+        metrics.clone(),
+        toml_acks.clone(),
+        ack_store.clone(),
+    )?;
     let hub_export_buffer = hub_export.as_ref().map(hub_export::HubExporter::buffer);
     // Masked span trees for the findings the store keeps, so an exported
     // report still draws a tree once the correlation window has moved on.
@@ -269,6 +278,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         correlator.clone(),
         metrics.clone(),
         green_summary_cell.clone(),
+        toml_acks,
+        ack_store,
     )
     .await?;
 

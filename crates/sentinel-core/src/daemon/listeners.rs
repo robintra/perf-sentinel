@@ -69,6 +69,8 @@ pub(super) async fn spawn_listeners(
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
+    toml_acks: Arc<HashMap<String, query_api::ResolvedTomlAck>>,
+    ack_store: Option<Arc<AckStore>>,
 ) -> Result<
     (
         tokio::task::JoinHandle<()>,
@@ -106,7 +108,6 @@ pub(super) async fn spawn_listeners(
         Arc::clone(&metrics),
         grouping_attributes(config),
     );
-    let (toml_acks, ack_store) = init_ack_resources(config).await?;
     // Memory-guard flag for the JSON socket door, cloned before `metrics`
     // moves into the HTTP router state.
     let over_memory = metrics.ingest_over_memory_limit.clone();
@@ -218,7 +219,11 @@ fn spawn_grpc_listener(
 ///   This keeps a quirky filesystem (parallel test isolation, missing
 ///   `HOME`, denied write perms on `~/.local/share`) from taking the
 ///   whole daemon down for an opt-in feature.
-async fn init_ack_resources(
+///
+/// Called once before the listeners and the Hub exporter start: both must
+/// annotate a finding with the same acknowledgment, or a pushed envelope
+/// would contradict the polled one for the same signature.
+pub(super) async fn init_ack_resources(
     config: &Config,
 ) -> Result<
     (

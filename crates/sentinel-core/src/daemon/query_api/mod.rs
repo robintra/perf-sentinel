@@ -317,7 +317,12 @@ async fn handle_findings(
     Json(result)
 }
 
-fn lookup_ack(
+/// Resolve the active acknowledgment for a signature, TOML first.
+///
+/// Shared with the Hub exporter (`daemon::hub_export`): a pushed envelope
+/// carries the same annotation as the polled one, so the Hub cannot end up
+/// storing an un-annotated copy of an acknowledged finding.
+pub(super) fn lookup_ack(
     signature: &str,
     toml: &HashMap<String, ResolvedTomlAck>,
     daemon: &HashMap<String, AckEntry>,
