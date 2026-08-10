@@ -395,6 +395,16 @@ fn merge_source_endpoint_groups(
     incoming_parents: &SourceEndpointParentGroups,
     root_cap: usize,
 ) {
+    index_incoming_ancestry(buffer, incoming_parents);
+    merge_incoming_roots(buffer, incoming, incoming_parents, root_cap);
+}
+
+/// Record the batch's parent links in the ancestry cache, refreshing an
+/// entry already there rather than evicting it.
+fn index_incoming_ancestry(
+    buffer: &mut TraceBuffer,
+    incoming_parents: &SourceEndpointParentGroups,
+) {
     for (service, parents) in incoming_parents {
         for (span_id, parent_span_id) in parents {
             let key = (Arc::clone(service), span_id.clone());
@@ -417,6 +427,16 @@ fn merge_source_endpoint_groups(
             }
         }
     }
+}
+
+/// Fold the batch's roots into the retained ones, under `root_cap`. A
+/// service that already holds a different root becomes ambiguous.
+fn merge_incoming_roots(
+    buffer: &mut TraceBuffer,
+    incoming: &HashMap<Arc<str>, HashMap<String, String>>,
+    incoming_parents: &SourceEndpointParentGroups,
+    root_cap: usize,
+) {
     for (service, roots) in incoming {
         for (root_span_id, endpoint) in roots {
             if let Some(existing) = buffer
