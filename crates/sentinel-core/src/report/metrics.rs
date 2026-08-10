@@ -372,6 +372,10 @@ pub struct MetricsState {
     /// Findings currently retained in the query ring buffer. Pairs with
     /// `max_retained_findings` for a headroom panel.
     pub stored_findings: Gauge,
+    /// Distinct signatures waiting for Hub export.
+    pub hub_export_pending: Gauge,
+    /// Signatures evicted or rejected by the bounded Hub export buffer.
+    pub hub_export_dropped_total: IntCounter,
     /// Total traces analyzed since daemon start.
     pub traces_analyzed_total: Counter,
     /// Total events processed since daemon start.
@@ -657,6 +661,18 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let hub_export_pending = Gauge::new(
+            "perf_sentinel_hub_export_pending",
+            "Distinct signatures waiting for PerfSentinelHub export",
+        )
+        .expect("metric creation should not fail");
+
+        let hub_export_dropped_total = IntCounter::new(
+            "perf_sentinel_hub_export_dropped_total",
+            "Signatures evicted or rejected by the bounded PerfSentinelHub export buffer",
+        )
+        .expect("metric creation should not fail");
+
         let traces_analyzed_total = Counter::new(
             "perf_sentinel_traces_analyzed_total",
             "Total traces analyzed since start",
@@ -774,6 +790,12 @@ impl MetricsState {
             .expect("registration should not fail");
         registry
             .register(Box::new(stored_findings.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(hub_export_pending.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(hub_export_dropped_total.clone()))
             .expect("registration should not fail");
         registry
             .register(Box::new(traces_analyzed_total.clone()))
@@ -1106,6 +1128,8 @@ impl MetricsState {
             analysis_queue_capacity,
             max_retained_findings,
             stored_findings,
+            hub_export_pending,
+            hub_export_dropped_total,
             traces_analyzed_total,
             events_processed_total,
             active_traces,

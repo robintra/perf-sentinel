@@ -25,6 +25,7 @@ use detect::sanitizer_aware::SanitizerAwareMode;
 use detect::{Confidence, DetectConfig};
 
 use super::findings_store;
+use super::hub_export::HubExportBuffer;
 use super::sampling::{apply_sampling, should_sample};
 
 type TraceSourceEndpointGroups<T> = HashMap<String, HashMap<Arc<str>, HashMap<String, T>>>;
@@ -130,6 +131,7 @@ struct AnalysisWorkerCtx {
     confidence: Confidence,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
+    hub_export: Option<Arc<HubExportBuffer>>,
     traces_store: Arc<super::traces_store::TracesStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     green_summary_cell: Arc<RwLock<GreenSummary>>,
@@ -154,6 +156,7 @@ pub(super) async fn run_event_loop(
     window: &Arc<Mutex<TraceWindow>>,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
+    hub_export: Option<Arc<HubExportBuffer>>,
     traces_store: Arc<super::traces_store::TracesStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     detect_config: &DetectConfig,
@@ -176,6 +179,7 @@ pub(super) async fn run_event_loop(
             confidence: loop_cfg.confidence,
             metrics: metrics.clone(),
             findings_store,
+            hub_export,
             traces_store,
             correlator,
             green_summary_cell,
@@ -318,6 +322,7 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
                 metrics: &wctx.metrics,
                 confidence: wctx.confidence,
                 findings_store: &wctx.findings_store,
+                hub_export: wctx.hub_export.as_deref(),
                 traces_store: &wctx.traces_store,
                 correlator: wctx.correlator.as_deref(),
                 green_summary_cell: &wctx.green_summary_cell,
@@ -958,6 +963,7 @@ struct ProcessTracesCtx<'a> {
     metrics: &'a MetricsState,
     confidence: Confidence,
     findings_store: &'a findings_store::FindingsStore,
+    hub_export: Option<&'a HubExportBuffer>,
     traces_store: &'a super::traces_store::TracesStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
@@ -1072,6 +1078,12 @@ async fn process_traces(
 
     let now_ms = current_time_ms();
     if !findings.is_empty() {
+        if let Some(export) = ctx.hub_export {
+            let dropped = export.push_batch(&findings, now_ms);
+            ctx.metrics.hub_export_dropped_total.inc_by(dropped);
+            #[allow(clippy::cast_precision_loss)]
+            ctx.metrics.hub_export_pending.set(export.len() as f64);
+        }
         ctx.findings_store.push_batch(&findings, now_ms).await;
         ctx.traces_store.retain_for(&trace_structs, &findings).await;
         // Refresh the ring-buffer occupancy gauge (paired with the
@@ -1343,6 +1355,7 @@ mod tests {
             metrics,
             confidence: Confidence::DaemonStaging,
             findings_store,
+            hub_export: None,
             correlator: None,
             green_summary_cell,
             archive_tx: None,
@@ -3083,6 +3096,7 @@ mod tests {
             confidence: Confidence::DaemonStaging,
             metrics: metrics.clone(),
             findings_store: findings_store.clone(),
+            hub_export: None,
             correlator: None,
             green_summary_cell: green_summary_cell.clone(),
             archive_tx: None,

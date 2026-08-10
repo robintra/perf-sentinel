@@ -302,6 +302,7 @@ impl Config {
         self.validate_daemon_ack()?;
         self.validate_daemon_cors()?;
         self.validate_daemon_archive()?;
+        self.validate_daemon_hub_export()?;
         self.validate_reporting()?;
         self.validate_cross_section_consistency()?;
         Ok(())
@@ -505,6 +506,69 @@ impl Config {
             && has_control_char(path)
         {
             return Err("[daemon.ack] toml_path contains control characters".to_string());
+        }
+        Ok(())
+    }
+
+    fn validate_daemon_hub_export(&self) -> Result<(), String> {
+        let export = &self.daemon.hub_export;
+        check_range("hub_export.batch_size", &export.batch_size, &1, &100)?;
+        check_range(
+            "hub_export.flush_interval_secs",
+            &export.flush_interval_secs,
+            &1,
+            &300,
+        )?;
+        check_range(
+            "hub_export.max_pending",
+            &export.max_pending,
+            &1,
+            &1_000_000,
+        )?;
+        if !export.enabled {
+            return Ok(());
+        }
+
+        let endpoint = export
+            .endpoint
+            .as_deref()
+            .ok_or("[daemon.hub_export] endpoint is required when enabled = true")?;
+        if has_control_char(endpoint)
+            || (!endpoint.starts_with("http://") && !endpoint.starts_with("https://"))
+            || endpoint.contains(['?', '#'])
+            || !endpoint.ends_with("/api/import/findings")
+        {
+            return Err(
+                "[daemon.hub_export] endpoint must be an HTTP(S) URL ending in /api/import/findings without query, fragment, credentials, or controls"
+                    .to_string(),
+            );
+        }
+        validate_http_authority(endpoint, "[daemon.hub_export] endpoint")?;
+
+        let source_id = export
+            .source_id
+            .as_deref()
+            .ok_or("[daemon.hub_export] source_id is required when enabled = true")?;
+        if source_id.is_empty()
+            || source_id.len() > 64
+            || !source_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        {
+            return Err(
+                "[daemon.hub_export] source_id must contain 1-64 ASCII letters, digits, '.', '_' or '-'"
+                    .to_string(),
+            );
+        }
+
+        let key_file = export
+            .api_key_file
+            .as_deref()
+            .ok_or("[daemon.hub_export] api_key_file is required when enabled = true")?;
+        if key_file.trim().is_empty() || has_control_char(key_file) {
+            return Err(
+                "[daemon.hub_export] api_key_file is blank or contains controls".to_string(),
+            );
         }
         Ok(())
     }

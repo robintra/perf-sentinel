@@ -314,6 +314,20 @@ pub struct DaemonConfig {
     /// Optional per-window `Report` archive writer. `None` (default)
     /// means no archive is written. Consumed by `perf-sentinel disclose`.
     pub archive: Option<DaemonArchiveConfig>,
+    /// Optional batched exporter to `PerfSentinelHub`.
+    pub hub_export: DaemonHubExportConfig,
+}
+
+/// Bounded, opt-in export of live daemon findings to `PerfSentinelHub`.
+#[derive(Debug, Clone)]
+pub struct DaemonHubExportConfig {
+    pub enabled: bool,
+    pub endpoint: Option<String>,
+    pub source_id: Option<String>,
+    pub api_key_file: Option<String>,
+    pub batch_size: usize,
+    pub flush_interval_secs: u64,
+    pub max_pending: usize,
 }
 
 /// TLS material. Both fields must be set together (or both `None`).
@@ -476,6 +490,21 @@ impl Default for DaemonConfig {
             cors: DaemonCorsConfig::default(),
             correlation: crate::detect::correlate_cross::CorrelationConfig::default(),
             archive: None,
+            hub_export: DaemonHubExportConfig::default(),
+        }
+    }
+}
+
+impl Default for DaemonHubExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: None,
+            source_id: None,
+            api_key_file: None,
+            batch_size: 100,
+            flush_interval_secs: 5,
+            max_pending: 10_000,
         }
     }
 }
