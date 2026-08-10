@@ -1492,51 +1492,62 @@ fn source_endpoint_updates(
         let mut service = service_name.to_string();
         crate::event::truncate_field(&mut service, crate::event::MAX_SERVICE_LENGTH);
         let service: Arc<str> = Arc::from(service);
-        for span in resource_spans
-            .scope_spans
-            .iter()
-            .flat_map(|scope| &scope.spans)
-        {
-            if span.trace_id.len() != TRACE_ID_LEN
-                || span.span_id.len() != SPAN_ID_LEN
-                || (!span.parent_span_id.is_empty() && span.parent_span_id.len() != SPAN_ID_LEN)
-            {
-                continue;
-            }
-            let mut endpoint = inbound_http_endpoint(span).map(|own_endpoint| {
-                resolve_source_endpoint(
-                    Some(own_endpoint),
-                    CodeAttrs::default(),
-                    &span.trace_id,
-                    &span.parent_span_id,
-                    span_index,
-                    true,
-                )
-            });
-            if let Some(endpoint) = &mut endpoint {
-                crate::event::sanitize_source_endpoint(endpoint);
-            }
-            if endpoint
-                .as_deref()
-                .is_some_and(|value| value.trim().is_empty())
-            {
-                endpoint = None;
-            }
-            let parent_span_id =
-                (!span.parent_span_id.is_empty()).then(|| bytes_to_hex(&span.parent_span_id));
-            if endpoint.is_none() && parent_span_id.is_none() {
-                continue;
-            }
-            updates.push(crate::daemon::SourceEndpointUpdate {
-                trace_id: bytes_to_hex(&span.trace_id),
-                service: Arc::clone(&service),
-                span_id: bytes_to_hex(&span.span_id),
-                parent_span_id,
-                endpoint,
-            });
-        }
+        updates.extend(
+            resource_spans
+                .scope_spans
+                .iter()
+                .flat_map(|scope| &scope.spans)
+                .filter_map(|span| span_endpoint_update(span, &service, span_index)),
+        );
     }
     updates
+}
+
+/// The endpoint update one span carries, or `None` when its identifiers are
+/// malformed or it holds neither an endpoint nor a parent link.
+#[cfg(feature = "daemon")]
+fn span_endpoint_update<'a>(
+    span: &'a Span,
+    service: &Arc<str>,
+    span_index: &HashMap<SpanKey<'a>, &'a Span>,
+) -> Option<crate::daemon::SourceEndpointUpdate> {
+    if span.trace_id.len() != TRACE_ID_LEN
+        || span.span_id.len() != SPAN_ID_LEN
+        || (!span.parent_span_id.is_empty() && span.parent_span_id.len() != SPAN_ID_LEN)
+    {
+        return None;
+    }
+    let mut endpoint = inbound_http_endpoint(span).map(|own_endpoint| {
+        resolve_source_endpoint(
+            Some(own_endpoint),
+            CodeAttrs::default(),
+            &span.trace_id,
+            &span.parent_span_id,
+            span_index,
+            true,
+        )
+    });
+    if let Some(endpoint) = &mut endpoint {
+        crate::event::sanitize_source_endpoint(endpoint);
+    }
+    if endpoint
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        endpoint = None;
+    }
+    let parent_span_id =
+        (!span.parent_span_id.is_empty()).then(|| bytes_to_hex(&span.parent_span_id));
+    if endpoint.is_none() && parent_span_id.is_none() {
+        return None;
+    }
+    Some(crate::daemon::SourceEndpointUpdate {
+        trace_id: bytes_to_hex(&span.trace_id),
+        service: Arc::clone(service),
+        span_id: bytes_to_hex(&span.span_id),
+        parent_span_id,
+        endpoint,
+    })
 }
 
 /// Convert one `ResourceSpans` block, appending to `events` and `stats`.
