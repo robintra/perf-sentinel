@@ -576,6 +576,7 @@
 <h3 id="events-reçus-mais-aucun-finding" class="ps-h3">Events reçus mais aucun finding</h3>
 <ol>
 <li><strong>Vérifiez les attributs de span.</strong> perf-sentinel ne traite que les spans avec <code class="ps-ic">db.statement</code>/<code class="ps-ic">db.query.text</code> (SQL) ou <code class="ps-ic">http.url</code>/<code class="ps-ic">url.full</code> (HTTP).</li>
+<li><strong>Vérifiez le kind du span.</strong> Depuis 0.11.2, un span <code class="ps-ic">SERVER</code> portant une URL HTTP est un traitement entrant et non un appel sortant, il ne produit donc aucun finding HTTP même si l'attribut est présent. Les flottes en conventions sémantiques legacy, qui posent aussi <code class="ps-ic">http.url</code> sur le span de traitement, perdent ainsi les appels qu'elles voyaient auparavant. Un appel sortant se présente comme un span <code class="ps-ic">CLIENT</code> du côté de l'appelant.</li>
 <li><strong>Vérifiez les seuils de détection.</strong> Le seuil N+1 par défaut est 5 occurrences du même template normalisé dans la même trace.</li>
 <li><strong>Vérifiez la normalisation des URLs.</strong> perf-sentinel remplace les segments numériques par <code class="ps-ic">{id}</code> et les UUIDs par <code class="ps-ic">{uuid}</code>. Les identifiants texte ne sont pas normalisés.</li>
 </ol>

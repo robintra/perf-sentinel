@@ -503,6 +503,7 @@
 <h3 id="events-received-but-no-findings" class="ps-h3">Events received but no findings</h3>
 <ol>
 <li><strong>Check span attributes.</strong> perf-sentinel only processes spans with <code class="ps-ic">db.statement</code>/<code class="ps-ic">db.query.text</code> (SQL) or <code class="ps-ic">http.url</code>/<code class="ps-ic">url.full</code> (HTTP). Other spans are skipped.</li>
+<li><strong>Check the span kind.</strong> Since 0.11.2 a <code class="ps-ic">SERVER</code> span carrying an HTTP URL is inbound work, not an outbound call, so it produces no HTTP finding even though the attribute is present. Fleets on legacy semantic conventions, which set <code class="ps-ic">http.url</code> on the handler span too, lose the calls they used to see this way. A <code class="ps-ic">CLIENT</code> span on the caller's side is what an outbound call looks like.</li>
 <li><strong>Check detection thresholds.</strong> The default N+1 threshold is 5 occurrences of the same normalized template within the same trace. If your trace has fewer than 5 repeated calls, no finding is generated.</li>
 <li><strong>Check URL normalization.</strong> perf-sentinel replaces numeric path segments with <code class="ps-ic">{id}</code> and UUIDs with <code class="ps-ic">{uuid}</code>. If your repeated URLs differ only by a string identifier (e.g., <code class="ps-ic">/account/alice</code>, <code class="ps-ic">/account/bob</code>), they will not be grouped into the same template.</li>
 </ol>

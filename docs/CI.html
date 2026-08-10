@@ -293,6 +293,8 @@
 <li>An acked finding is filtered from both sides, so its real fix resolves nothing here. The <code class="ps-ic">unmatched_acknowledgment</code> warning is that signal, see <a href="/docs/ACKNOWLEDGMENTS">Acknowledgments</a>.</li>
 </ul>
 <p class="ps-p">Upgrade note (0.9.22): finding identity is keyed on <code class="ps-ic">(type, service, source_endpoint, template)</code>, and <code class="ps-ic">source_endpoint</code> now resolves entry points that previously reported <code class="ps-ic">unknown</code> (see <a href="/docs/ACKNOWLEDGMENTS#signature-format">Acknowledgments</a>). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the <code class="ps-ic">report --before baseline.json</code> gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to <code class="ps-ic">diff --before</code> sees no churn at all, both sides are re-analyzed by the current binary.</p>
+<p class="ps-p">Upgrade note (0.11.2): finding identity moves for three separate reasons, on OTLP, Jaeger and Zipkin alike. Findings may move from an inner framework route or <code class="ps-ic">unknown</code> to the outermost route in their contiguous same-service chain, including when daemon exports arrive separately. A framework route holding no <code class="ps-ic">/</code> yields to a usable <code class="ps-ic">url.path</code>, but only on the inbound side, so a kind-less instrumentation keeps the route name. And a route that omits its leading slash gains one, which moves findings that were already attributed correctly. Persisted finding baselines will show each moved identity once as resolved and once as new, so regenerate them with 0.11.2 before evaluating application changes. On a fleet instrumented in legacy semantic conventions, HTTP findings raised on SERVER spans disappear instead of moving, and show up as resolved with no fix behind them. Trace-corpus baselines remain stable because both sides are re-analyzed by the current binary.</p>
+<p class="ps-p">That same SERVER gate can turn a passing gate red. The phantom inbound calls counted as I/O operations, and dropping them shrinks the waste-ratio denominator while no avoidable operation leaves with it, so <code class="ps-ic">io_waste_ratio</code> rises on identical traffic. A trace of eight instrumented hops over one six-query N+1 moves from 5/14 to 5/6, <code class="ps-ic">high</code> to <code class="ps-ic">critical</code>. Re-baseline <code class="ps-ic">[thresholds] io_waste_ratio_max</code> against a 0.11.2 run of your own corpus before the first pipeline that enforces it.</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--term-comment)"># .github/workflows/perf-sentinel-diff.yml</span>
 <span style="color:var(--code-sub)">name</span>: perf-sentinel diff
 
@@ -308,7 +310,7 @@
 <span style="color:var(--code-sub)">  diff</span>:
 <span style="color:var(--code-sub)">    runs-on</span>: ubuntu-latest
 <span style="color:var(--code-sub)">    env</span>:
-<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.11.1"
+<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.11.2"
 <span style="color:var(--code-sub)">    steps</span>:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 <span style="color:var(--code-sub)">        with</span>:
