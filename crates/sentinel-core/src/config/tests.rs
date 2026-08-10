@@ -2525,6 +2525,62 @@ fn enabled_hub_export_requires_a_bounded_complete_configuration() {
     }
 }
 
+/// The endpoint check decides where the daemon is allowed to send findings,
+/// so every arm of it is pinned: a hole here is a destination the operator
+/// cannot anticipate from the config, and an accepted `?`/`#` also corrupts
+/// the `?source_id=` the exporter appends.
+#[test]
+fn enabled_hub_export_rejects_every_unanticipated_destination() {
+    let valid = r#"
+        [daemon.hub_export]
+        enabled = true
+        endpoint = "https://hub.example/api/import/findings"
+        source_id = "production-a"
+        api_key_file = "/run/secrets/hub-api-key"
+        "#;
+    assert!(load_from_str(valid).is_ok());
+
+    for (label, endpoint) in [
+        ("scheme", "ftp://hub.example/api/import/findings"),
+        ("no scheme", "hub.example/api/import/findings"),
+        ("query", "https://hub.example/api/import/findings?x=1"),
+        ("fragment", "https://hub.example/api/import/findings#f"),
+        ("wrong path", "https://hub.example/api/findings"),
+        ("trailing slash", "https://hub.example/api/import/findings/"),
+        (
+            "credentials",
+            "https://user:pw@hub.example/api/import/findings",
+        ),
+        (
+            "control char",
+            "https://hub.exa\u{7f}mple/api/import/findings",
+        ),
+        ("empty authority", "https:///api/import/findings"),
+    ] {
+        let invalid = valid.replace("https://hub.example/api/import/findings", endpoint);
+        assert!(load_from_str(&invalid).is_err(), "accepted {label}");
+    }
+
+    for (label, line) in [
+        ("missing source_id", "source_id = \"production-a\""),
+        (
+            "missing api_key_file",
+            "api_key_file = \"/run/secrets/hub-api-key\"",
+        ),
+    ] {
+        let invalid = valid.replace(line, "");
+        assert!(load_from_str(&invalid).is_err(), "accepted {label}");
+    }
+
+    for (label, key_file) in [("blank", "   "), ("control char", "/run/sec\u{1}ret")] {
+        let invalid = valid.replace("/run/secrets/hub-api-key", key_file);
+        assert!(
+            load_from_str(&invalid).is_err(),
+            "accepted {label} key file"
+        );
+    }
+}
+
 #[test]
 fn validate_daemon_ack_rejects_short_api_key() {
     let toml = "
