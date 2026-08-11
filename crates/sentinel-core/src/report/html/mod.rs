@@ -505,8 +505,8 @@ fn culprit_of(f: &crate::detect::Finding) -> Culprit {
         ),
         f.finding_type.clone(),
         f.pattern.template.clone(),
-        f.effective_grouping()
-            .map(|g| (g.key.to_string(), g.value.to_string())),
+        f.grouping_identity()
+            .map(|(key, value)| (key.to_string(), value.to_string())),
     )
 }
 

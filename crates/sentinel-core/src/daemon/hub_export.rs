@@ -242,7 +242,9 @@ impl HubExportBuffer {
 /// detection. The revision only moves when the severity worsens: an equal
 /// repeat that lands while the batch is in flight must still be cleared by
 /// its acknowledgment, or the exporter re-sends the same batch every round
-/// trip instead of honouring the flush interval.
+/// trip instead of honouring the flush interval. The trade is that such a
+/// repeat refreshes the payload the acknowledgment then drops, so the Hub
+/// keeps the snapshot's trace id, never one newer than the send.
 fn merge_pending(state: &mut PendingState, finding: &Finding, now_ms: u64) {
     // Severity is ordered Critical < Warning < Info: strictly smaller is worse.
     let worsened = state
