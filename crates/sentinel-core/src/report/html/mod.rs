@@ -482,7 +482,9 @@ fn culprit_key(
     key
 }
 
-type SlowCulprit = (
+/// `(trace_id, browser key, finding type, template, grouping identity)`.
+/// The same shape for both the slow and the direct lists.
+type Culprit = (
     String,
     String,
     crate::detect::FindingType,
@@ -490,13 +492,23 @@ type SlowCulprit = (
     Option<(String, String)>,
 );
 
-type DirectCulprit = (
-    String,
-    String,
-    crate::detect::FindingType,
-    String,
-    Option<(String, String)>,
-);
+/// The published finding as the culprit lists carry it.
+fn culprit_of(f: &crate::detect::Finding) -> Culprit {
+    (
+        f.trace_id.clone(),
+        culprit_key(
+            &f.trace_id,
+            f.effective_grouping(),
+            &f.signature,
+            &f.first_timestamp,
+            &f.last_timestamp,
+        ),
+        f.finding_type.clone(),
+        f.pattern.template.clone(),
+        f.effective_grouping()
+            .map(|g| (g.key.to_string(), g.value.to_string())),
+    )
+}
 
 fn grouping_matches(event: &crate::event::SpanEvent, expected: Option<&(String, String)>) -> bool {
     event.grouping_identity() == expected.map(|(key, value)| (key.as_str(), value.as_str()))
@@ -528,10 +540,10 @@ struct CulpritIndex {
     ambiguous: HashSet<String>,
     /// Slow findings can span several traces, so they cannot be matched by
     /// rerunning the per-trace detector. Keep the representative trace rule.
-    slow: Vec<SlowCulprit>,
+    slow: Vec<Culprit>,
     /// Findings whose exact members follow directly from the published type
     /// and template, without rerunning a threshold rule.
-    direct: Vec<DirectCulprit>,
+    direct: Vec<Culprit>,
 }
 
 impl CulpritIndex {
@@ -553,40 +565,14 @@ impl CulpritIndex {
                     | FindingType::NPlusOneMessaging
                     | FindingType::ChattyService
             ) {
-                direct.push((
-                    f.trace_id.clone(),
-                    culprit_key(
-                        &f.trace_id,
-                        f.effective_grouping(),
-                        &f.signature,
-                        &f.first_timestamp,
-                        &f.last_timestamp,
-                    ),
-                    f.finding_type.clone(),
-                    f.pattern.template.clone(),
-                    f.effective_grouping()
-                        .map(|g| (g.key.to_string(), g.value.to_string())),
-                ));
+                direct.push(culprit_of(f));
                 continue;
             }
             if matches!(
                 f.finding_type,
                 FindingType::SlowSql | FindingType::SlowHttp | FindingType::SlowMessaging
             ) {
-                slow.push((
-                    f.trace_id.clone(),
-                    culprit_key(
-                        &f.trace_id,
-                        f.effective_grouping(),
-                        &f.signature,
-                        &f.first_timestamp,
-                        &f.last_timestamp,
-                    ),
-                    f.finding_type.clone(),
-                    f.pattern.template.clone(),
-                    f.effective_grouping()
-                        .map(|g| (g.key.to_string(), g.value.to_string())),
-                ));
+                slow.push(culprit_of(f));
                 continue;
             }
             if !matches!(

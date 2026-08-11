@@ -2440,6 +2440,31 @@ pub fn trace_service(
         .max_decoding_message_size(max_payload)
 }
 
+/// A tonic server with the resource caps every gRPC listener shares: a
+/// request timeout, an HTTP/2 stream cap doubling as the per-connection
+/// concurrency limit, and a process-wide in-flight request limit. Only
+/// the numbers differ between capture and the daemon, so the shape stays
+/// here rather than drifting apart in two call sites.
+#[cfg(feature = "daemon")]
+#[must_use]
+pub(crate) fn hardened_grpc_server(
+    max_concurrent_streams: u32,
+    max_concurrent_requests: usize,
+) -> tonic::transport::Server<
+    tower::layer::util::Stack<
+        tower::limit::GlobalConcurrencyLimitLayer,
+        tower::layer::util::Identity,
+    >,
+> {
+    tonic::transport::Server::builder()
+        .timeout(std::time::Duration::from_mins(1))
+        .max_concurrent_streams(Some(max_concurrent_streams))
+        .concurrency_limit_per_connection(max_concurrent_streams as usize)
+        .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+            max_concurrent_requests,
+        ))
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 /// One SQL CLIENT span, the shape an OTLP exporter puts on the wire. Shared by

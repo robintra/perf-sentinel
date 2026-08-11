@@ -86,14 +86,7 @@ fn fanout_impl<'a>(
         let template =
             parent_span.map_or_else(|| format!("parent:{parent_id}"), |s| s.template.to_string());
 
-        let child_span_ids = if collect_spans {
-            child_indices
-                .iter()
-                .map(|&i| trace.spans[i].event.span_id.as_str())
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let child_span_ids = crate::detect::member_span_ids(trace, child_indices, collect_spans);
         findings.push((
             Finding {
                 finding_type: FindingType::ExcessiveFanout,

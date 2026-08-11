@@ -572,11 +572,7 @@ mod tests {
             .with_grouping_attributes(vec!["tenant.id".into(), "k8s.namespace.name".into()])
             .ingest(&raw)
             .unwrap();
-        let captured: Vec<(&str, &str)> = configured[0]
-            .grouping
-            .iter()
-            .map(|g| (g.key.as_ref(), g.value.as_ref()))
-            .collect();
+        let captured = crate::test_helpers::grouping_pairs(&configured[0].grouping);
         assert_eq!(
             captured,
             vec![("tenant.id", "acme"), ("k8s.namespace.name", "prod-eu")]

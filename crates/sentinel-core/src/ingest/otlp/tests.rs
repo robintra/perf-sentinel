@@ -2443,11 +2443,7 @@ fn grouping_is_extracted_from_resource_attributes() {
 
     let events = convert_otlp_request(&req);
 
-    let captured: Vec<(&str, &str)> = events[0]
-        .grouping
-        .iter()
-        .map(|g| (g.key.as_ref(), g.value.as_ref()))
-        .collect();
+    let captured = crate::test_helpers::grouping_pairs(&events[0].grouping);
     assert_eq!(
         captured,
         vec![

@@ -368,14 +368,7 @@ mod tests {
     #[test]
     fn equal_grouping_values_from_different_keys_do_not_share_one_pool() {
         let mut events = make_concurrent_sql("trace-1", "svc", 6, 200_000);
-        for (i, event) in events.iter_mut().enumerate() {
-            let key = if i < 3 {
-                "tenant.id"
-            } else {
-                "k8s.namespace.name"
-            };
-            event.grouping = crate::test_helpers::grouping(key, "prod");
-        }
+        crate::test_helpers::split_grouping_keys_same_value(&mut events);
         let trace = make_trace(events);
 
         let findings = detect_pool_saturation(&trace, 4);

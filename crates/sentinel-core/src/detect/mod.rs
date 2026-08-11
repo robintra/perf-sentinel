@@ -153,13 +153,28 @@ impl Finding {
         self.grouping.first().map(|g| g.value.as_ref())
     }
 
-    /// Borrowed `(key, value)` for a partition key. Both halves, never the
-    /// value alone: two attributes can carry the same value.
+    /// Borrowed `(key, value)` for a partition key.
     #[must_use]
     pub fn grouping_identity(&self) -> Option<(&str, &str)> {
-        self.grouping
-            .first()
-            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+        self.grouping.first().map(GroupingAttribute::identity)
+    }
+}
+
+/// Span ids of the spans a finding is built from, for the HTML evidence
+/// highlight. Empty when the caller does not collect them, so batch runs
+/// that never render spans pay nothing.
+pub(crate) fn member_span_ids<'a>(
+    trace: &'a Trace,
+    indices: &[usize],
+    collect_spans: bool,
+) -> Vec<&'a str> {
+    if collect_spans {
+        indices
+            .iter()
+            .map(|&i| trace.spans[i].event.span_id.as_str())
+            .collect()
+    } else {
+        Vec::new()
     }
 }
 

@@ -320,6 +320,16 @@ pub struct GroupingAttribute {
     pub value: Arc<str>,
 }
 
+impl GroupingAttribute {
+    /// Borrowed `(key, value)`. Both halves, never the value alone:
+    /// `tenant.id=prod` and `k8s.namespace.name=prod` are two deployments,
+    /// not one.
+    #[must_use]
+    pub fn identity(&self) -> (&str, &str) {
+        (self.key.as_ref(), self.value.as_ref())
+    }
+}
+
 /// A single span event representing an I/O operation (SQL query, HTTP call).
 ///
 /// Strings repeated across events of the same workload are stored as
@@ -404,14 +414,10 @@ impl SpanEvent {
         self.grouping.first().map(|g| g.value.as_ref())
     }
 
-    /// Borrowed `(key, value)` for a `HashMap` partition key. Both halves,
-    /// never the value alone: `tenant.id=prod` and `k8s.namespace.name=prod`
-    /// are two deployments, not one.
+    /// Borrowed `(key, value)` for a `HashMap` partition key.
     #[must_use]
     pub fn grouping_identity(&self) -> Option<(&str, &str)> {
-        self.grouping
-            .first()
-            .map(|g| (g.key.as_ref(), g.value.as_ref()))
+        self.grouping.first().map(GroupingAttribute::identity)
     }
 
     /// Build a [`CodeLocation`] from this span's `code_*` fields.

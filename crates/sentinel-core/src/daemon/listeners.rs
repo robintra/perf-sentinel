@@ -184,19 +184,16 @@ fn spawn_grpc_listener(
             tracing::info!("OTLP gRPC listening on {addr}");
         }
         let incoming = tls_tcp_incoming(listener, tls_acceptor);
-        if let Err(e) = tonic::transport::Server::builder()
-            .timeout(Duration::from_mins(1))
-            .max_concurrent_streams(Some(GRPC_MAX_CONCURRENT_STREAMS))
-            .concurrency_limit_per_connection(GRPC_MAX_CONCURRENT_STREAMS as usize)
-            .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
-                GRPC_MAX_CONCURRENT_REQUESTS,
-            ))
-            .add_service(tonic::service::interceptor::InterceptedService::new(
-                crate::ingest::otlp::trace_service(grpc_service, max_payload),
-                memory_gate,
-            ))
-            .serve_with_incoming(incoming)
-            .await
+        if let Err(e) = crate::ingest::otlp::hardened_grpc_server(
+            GRPC_MAX_CONCURRENT_STREAMS,
+            GRPC_MAX_CONCURRENT_REQUESTS,
+        )
+        .add_service(tonic::service::interceptor::InterceptedService::new(
+            crate::ingest::otlp::trace_service(grpc_service, max_payload),
+            memory_gate,
+        ))
+        .serve_with_incoming(incoming)
+        .await
         {
             tracing::error!("gRPC server error: {e}");
         }
