@@ -259,8 +259,10 @@ fn merge_pending(state: &mut PendingState, finding: &Finding, now_ms: u64) {
         pending.finding.seen_count = pending.finding.seen_count.saturating_add(1);
         pending.finding.first_seen_ms = pending.finding.first_seen_ms.min(now_ms);
         pending.finding.stored_at_ms = pending.finding.stored_at_ms.max(now_ms);
-        if let Some(revision) = revision {
+        if finding.severity <= pending.finding.finding.severity {
             pending.finding.finding = finding.clone();
+        }
+        if let Some(revision) = revision {
             pending.revision = revision;
         }
     }
@@ -631,6 +633,19 @@ mod tests {
         assert_eq!(pending[0].finding.seen_count, 3);
         assert_eq!(pending[0].finding.first_seen_ms, 10);
         assert_eq!(pending[0].finding.stored_at_ms, 20);
+    }
+
+    #[test]
+    fn pending_repeat_keeps_the_latest_finding_payload() {
+        let buffer = HubExportBuffer::new(10);
+
+        buffer.push_batch(&[finding("a", "old-trace")], 10);
+        buffer.push_batch(&[finding("a", "latest-trace")], 20);
+
+        assert_eq!(
+            buffer.snapshot(100)[0].finding.finding.trace_id,
+            "latest-trace"
+        );
     }
 
     #[test]
