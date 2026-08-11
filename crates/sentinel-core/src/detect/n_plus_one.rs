@@ -411,14 +411,7 @@ mod tests {
     #[test]
     fn equal_grouping_values_from_different_keys_do_not_form_one_n_plus_one() {
         let mut events = crate::test_helpers::make_sql_series_events(6);
-        for (i, event) in events.iter_mut().enumerate() {
-            let key = if i < 3 {
-                "tenant.id"
-            } else {
-                "k8s.namespace.name"
-            };
-            event.grouping = crate::test_helpers::grouping(key, "prod");
-        }
+        crate::test_helpers::split_grouping_keys_same_value(&mut events);
         let trace = make_trace(events);
 
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);

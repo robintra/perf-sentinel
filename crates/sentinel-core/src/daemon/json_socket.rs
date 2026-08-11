@@ -199,6 +199,26 @@ mod tests {
     use super::*;
     use tokio::time::Duration;
 
+    /// Spawn the connection handler on the server half, with no grouping
+    /// attributes and the memory guard clear. `max_payload` is the only
+    /// knob these tests vary.
+    fn spawn_handler(
+        server: tokio::net::UnixStream,
+        tx: mpsc::Sender<super::super::IngestBatch>,
+        max_payload: usize,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            handle_json_connection(
+                server,
+                tx,
+                max_payload,
+                Arc::from(vec![]),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
+        })
+    }
+
     #[tokio::test]
     async fn handle_json_connection_happy_path_forwards_events() {
         use tokio::io::AsyncWriteExt;
@@ -208,16 +228,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
         // Spawn the connection handler (reads from `server`).
-        let handle = tokio::spawn(async move {
-            handle_json_connection(
-                server,
-                tx,
-                1024 * 1024,
-                Arc::from(vec![]),
-                Arc::new(AtomicBool::new(false)),
-            )
-            .await;
-        });
+        let handle = spawn_handler(server, tx, 1024 * 1024);
 
         // Write one NDJSON line with a minimal valid SpanEvent array,
         // then close the client half so the server sees EOF and returns.
@@ -276,16 +287,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
         // Small max_payload so the line is over the limit.
-        let handle = tokio::spawn(async move {
-            handle_json_connection(
-                server,
-                tx,
-                32,
-                Arc::from(vec![]),
-                Arc::new(AtomicBool::new(false)),
-            )
-            .await;
-        });
+        let handle = spawn_handler(server, tx, 32);
 
         let mut client = client;
         // This line is > 32 bytes, triggers the "line exceeds max payload size" branch.
@@ -310,16 +312,7 @@ mod tests {
         let (client, server) = UnixStream::pair().unwrap();
         let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
-        let handle = tokio::spawn(async move {
-            handle_json_connection(
-                server,
-                tx,
-                1024 * 1024,
-                Arc::from(vec![]),
-                Arc::new(AtomicBool::new(false)),
-            )
-            .await;
-        });
+        let handle = spawn_handler(server, tx, 1024 * 1024);
 
         let mut client = client;
         // Malformed: hits the Err(e) branch in the match.

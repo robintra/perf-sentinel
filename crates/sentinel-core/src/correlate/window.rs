@@ -930,6 +930,30 @@ mod tests {
         event
     }
 
+    /// Endpoint attributed to the span carrying `target` in a snapshot.
+    /// Panics when the target is absent, which is a broken fixture.
+    fn endpoint_for<'a>(trace: &'a [NormalizedEvent], target: &str) -> &'a str {
+        trace
+            .iter()
+            .find(|event| event.event.target == target)
+            .expect("event present")
+            .event
+            .source
+            .endpoint
+            .as_str()
+    }
+
+    /// Two roots on `svc-a`, the shape the retain tests share.
+    fn two_root_groups() -> HashMap<Arc<str>, HashMap<String, String>> {
+        HashMap::from([(
+            Arc::from("svc-a"),
+            HashMap::from([
+                ("root-a".to_string(), "/api/a".to_string()),
+                ("root-b".to_string(), "/api/b".to_string()),
+            ]),
+        )])
+    }
+
     fn push_unknown_chain(
         window: &mut TraceWindow,
         prefix: &str,
@@ -1183,19 +1207,10 @@ mod tests {
             2
         );
         let t1 = w.peek_clone("t1").expect("trace remains active");
-        let endpoint_for = |target: &str| {
-            t1.iter()
-                .find(|event| event.event.target == target)
-                .expect("event present")
-                .event
-                .source
-                .endpoint
-                .as_str()
-        };
-        assert_eq!(endpoint_for("SELECT 1"), "/api/fault/slow-messaging");
-        assert_eq!(endpoint_for("SELECT 2"), "/api/fault/slow-messaging");
-        assert_eq!(endpoint_for("SELECT 3"), "/already-known");
-        assert_eq!(endpoint_for("SELECT 4"), "unknown");
+        assert_eq!(endpoint_for(&t1, "SELECT 1"), "/api/fault/slow-messaging");
+        assert_eq!(endpoint_for(&t1, "SELECT 2"), "/api/fault/slow-messaging");
+        assert_eq!(endpoint_for(&t1, "SELECT 3"), "/already-known");
+        assert_eq!(endpoint_for(&t1, "SELECT 4"), "unknown");
         assert_eq!(
             w.peek_clone("t2").expect("other trace remains")[0]
                 .event
@@ -1294,23 +1309,13 @@ mod tests {
             w.reconcile_source_endpoint_groups("t1", &service_root_endpoints);
 
             let trace = w.peek_clone("t1").expect("trace remains active");
-            let endpoint_for = |target: &str| {
-                trace
-                    .iter()
-                    .find(|event| event.event.target == target)
-                    .expect("event present")
-                    .event
-                    .source
-                    .endpoint
-                    .as_str()
-            };
-            assert_eq!(endpoint_for("a-direct"), "/api/a");
-            assert_eq!(endpoint_for("a-mid"), "/api/a");
-            assert_eq!(endpoint_for("a-leaf"), "/api/a");
-            assert_eq!(endpoint_for("b-direct"), "/api/b");
-            assert_eq!(endpoint_for("missing-chain"), "unknown");
-            assert_eq!(endpoint_for("known"), "/already-known");
-            assert_eq!(endpoint_for("other-service"), "unknown");
+            assert_eq!(endpoint_for(&trace, "a-direct"), "/api/a");
+            assert_eq!(endpoint_for(&trace, "a-mid"), "/api/a");
+            assert_eq!(endpoint_for(&trace, "a-leaf"), "/api/a");
+            assert_eq!(endpoint_for(&trace, "b-direct"), "/api/b");
+            assert_eq!(endpoint_for(&trace, "missing-chain"), "unknown");
+            assert_eq!(endpoint_for(&trace, "known"), "/already-known");
+            assert_eq!(endpoint_for(&trace, "other-service"), "unknown");
         }
     }
 
@@ -1343,20 +1348,10 @@ mod tests {
         w.reconcile_source_endpoint_groups("t1", &service_root_endpoints);
 
         let trace = w.peek_clone("t1").expect("trace remains active");
-        let endpoint_for = |target: &str| {
-            trace
-                .iter()
-                .find(|event| event.event.target == target)
-                .expect("event present")
-                .event
-                .source
-                .endpoint
-                .as_str()
-        };
-        assert_eq!(endpoint_for("within-leaf"), "/at-limit");
-        assert_eq!(endpoint_for("deep-leaf"), "unknown");
+        assert_eq!(endpoint_for(&trace, "within-leaf"), "/at-limit");
+        assert_eq!(endpoint_for(&trace, "deep-leaf"), "unknown");
         for index in 0..9 {
-            assert_eq!(endpoint_for(&format!("cycle-{index}")), "unknown");
+            assert_eq!(endpoint_for(&trace, &format!("cycle-{index}")), "unknown");
         }
     }
 
@@ -1479,19 +1474,9 @@ mod tests {
             2
         );
         let trace = w.peek_clone("t1").expect("trace remains active");
-        let endpoint_for = |target: &str| {
-            trace
-                .iter()
-                .find(|event| event.event.target == target)
-                .expect("event present")
-                .event
-                .source
-                .endpoint
-                .as_str()
-        };
-        assert_eq!(endpoint_for("a-child"), "/api/a");
-        assert_eq!(endpoint_for("b-child"), "/api/b");
-        assert_eq!(endpoint_for("known-child"), "/already-known");
+        assert_eq!(endpoint_for(&trace, "a-child"), "/api/a");
+        assert_eq!(endpoint_for(&trace, "b-child"), "/api/b");
+        assert_eq!(endpoint_for(&trace, "known-child"), "/already-known");
     }
 
     #[test]
@@ -1957,13 +1942,7 @@ mod tests {
             max_events_per_trace: 1,
             ..WindowConfig::default()
         });
-        let roots = HashMap::from([(
-            Arc::from("svc-a"),
-            HashMap::from([
-                ("root-a".to_string(), "/api/a".to_string()),
-                ("root-b".to_string(), "/api/b".to_string()),
-            ]),
-        )]);
+        let roots = two_root_groups();
         assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
         let retained_root = w
             .traces
@@ -2077,13 +2056,7 @@ mod tests {
             max_events_per_trace: 2,
             ..WindowConfig::default()
         });
-        let roots = HashMap::from([(
-            Arc::from("svc-a"),
-            HashMap::from([
-                ("root-a".to_string(), "/api/a".to_string()),
-                ("root-b".to_string(), "/api/b".to_string()),
-            ]),
-        )]);
+        let roots = two_root_groups();
         let parents = HashMap::from([(
             Arc::from("svc-a"),
             HashMap::from([
@@ -2266,18 +2239,8 @@ mod tests {
         );
 
         let preview = w.peek_clone("t1").expect("trace remains active");
-        let endpoint_for = |target: &str| {
-            preview
-                .iter()
-                .find(|event| event.event.target == target)
-                .expect("event retained")
-                .event
-                .source
-                .endpoint
-                .as_str()
-        };
-        assert_eq!(endpoint_for("a-child"), "/api/a");
-        assert_eq!(endpoint_for("b-child"), "/api/b");
+        assert_eq!(endpoint_for(&preview, "a-child"), "/api/a");
+        assert_eq!(endpoint_for(&preview, "b-child"), "/api/b");
     }
 
     #[test]

@@ -271,19 +271,16 @@ fn spawn_grpc(
     let service = OtlpGrpcService::new_raw(tx, Some(metrics));
     tokio::spawn(async move {
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
-        if let Err(e) = tonic::transport::Server::builder()
-            .timeout(Duration::from_mins(1))
-            .max_concurrent_streams(Some(GRPC_MAX_CONCURRENT_STREAMS))
-            .concurrency_limit_per_connection(GRPC_MAX_CONCURRENT_STREAMS as usize)
-            .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
-                GRPC_MAX_CONCURRENT_REQUESTS,
-            ))
-            .add_service(crate::ingest::otlp::trace_service(
-                service,
-                MAX_PAYLOAD_BYTES,
-            ))
-            .serve_with_incoming(incoming)
-            .await
+        if let Err(e) = crate::ingest::otlp::hardened_grpc_server(
+            GRPC_MAX_CONCURRENT_STREAMS,
+            GRPC_MAX_CONCURRENT_REQUESTS,
+        )
+        .add_service(crate::ingest::otlp::trace_service(
+            service,
+            MAX_PAYLOAD_BYTES,
+        ))
+        .serve_with_incoming(incoming)
+        .await
         {
             tracing::error!("capture gRPC server error: {e}");
         }

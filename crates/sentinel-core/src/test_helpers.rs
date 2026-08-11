@@ -422,3 +422,23 @@ pub fn grouping(key: &str, value: &str) -> Vec<GroupingAttribute> {
 pub fn k8s_grouping(value: &str) -> Vec<GroupingAttribute> {
     grouping("k8s.namespace.name", value)
 }
+
+/// Borrowed `(key, value)` pairs, in order, for the grouping assertions
+/// every ingest test writes.
+pub fn grouping_pairs(grouping: &[GroupingAttribute]) -> Vec<(&str, &str)> {
+    grouping.iter().map(GroupingAttribute::identity).collect()
+}
+
+/// Split `events` across two grouping keys carrying the same value: the
+/// first three get `tenant.id=prod`, the rest `k8s.namespace.name=prod`.
+/// Detectors must keep the two apart instead of merging on the value.
+pub fn split_grouping_keys_same_value(events: &mut [SpanEvent]) {
+    for (i, event) in events.iter_mut().enumerate() {
+        let key = if i < 3 {
+            "tenant.id"
+        } else {
+            "k8s.namespace.name"
+        };
+        event.grouping = grouping(key, "prod");
+    }
+}

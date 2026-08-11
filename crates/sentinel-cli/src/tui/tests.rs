@@ -75,6 +75,17 @@ fn make_test_app() -> App {
     App::new(findings, traces)
 }
 
+/// Give the selected finding a code location, the fixture that makes
+/// `draw_detail_panel` insert the `Source:` row.
+fn set_code_location(app: &mut App) {
+    app.all_findings[0].code_location = Some(sentinel_core::event::CodeLocation {
+        function: Some("load_orders".to_string()),
+        filepath: Some("svc/orders.rs".to_string()),
+        lineno: Some(42),
+        namespace: None,
+    });
+}
+
 /// A 100x20 Inspect area at the origin: vertical border at row 10
 /// (`rows = [50,50]`), top row spans rows 0..10, column borders at
 /// x=20 and x=50 (`cols = [20,30,50]`).
@@ -542,19 +553,13 @@ fn detail_line_count_matches_the_rendered_metadata_rows() {
 /// it silently reorders the panel.
 #[test]
 fn source_row_stays_below_endpoint_when_a_grouping_row_is_present() {
-    use sentinel_core::event::CodeLocation;
     let mut app = make_test_app();
     app.active_panel = Panel::Detail;
     app.all_findings[0].grouping = vec![GroupingAttribute {
         key: "k8s.namespace.name".into(),
         value: "prod-eu".into(),
     }];
-    app.all_findings[0].code_location = Some(CodeLocation {
-        function: Some("load_orders".to_string()),
-        filepath: Some("svc/orders.rs".to_string()),
-        lineno: Some(42),
-        namespace: None,
-    });
+    set_code_location(&mut app);
 
     let buf = render_once(&mut app, 320, 40);
     let mut rows: Vec<String> = Vec::new();
@@ -600,19 +605,11 @@ fn grouping_key_is_sanitized_in_the_detail_panel() {
 
 #[test]
 fn detail_line_count_counts_code_location_row() {
-    use sentinel_core::event::CodeLocation;
     let mut app = make_test_app();
     app.active_panel = Panel::Detail;
     let without = app.detail_panel_line_count();
-    // current_finding() resolves to all_findings[0] for the default
-    // selection; give it a code location so draw_detail_panel inserts
-    // the "Source:" row.
-    app.all_findings[0].code_location = Some(CodeLocation {
-        function: Some("load_orders".to_string()),
-        filepath: Some("svc/orders.rs".to_string()),
-        lineno: Some(42),
-        namespace: None,
-    });
+    // current_finding() resolves to all_findings[0] for the default selection.
+    set_code_location(&mut app);
     let with = app.detail_panel_line_count();
     assert_eq!(
         with,

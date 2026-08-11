@@ -145,14 +145,7 @@ fn redundant_impl<'a>(
             suggested_fix: None,
             signature: String::new(),
         };
-        let span_ids = if collect_spans {
-            indices
-                .iter()
-                .map(|&i| trace.spans[i].event.span_id.as_str())
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let span_ids = crate::detect::member_span_ids(trace, indices, collect_spans);
         findings.push((finding, span_ids));
     }
 
