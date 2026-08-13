@@ -14,6 +14,17 @@ the chart version, to know which daemon image ships.
 
 ### Changed
 
+- **`appVersion` 0.12.0 rejects an unknown key in `config.toml` instead of
+  ignoring it.** Sixteen config structures used to accept anything serde did
+  not recognize, silently, `[thresholds]`, `[detection]`, `[green]`,
+  `[daemon]`, `[daemon.correlation]`, `[daemon.ack]`, `[daemon.cors]` and
+  every energy-backend section among them. A `values.yaml` carrying a stale or
+  misspelled key rendered a ConfigMap the daemon accepted and ran degraded on;
+  after this upgrade the same ConfigMap stops the daemon at startup and the
+  pod enters `CrashLoopBackOff`. Validate before rolling it out: render the
+  ConfigMap with `helm template` and load the result once with
+  `perf-sentinel analyze --config <file>`, the error names the offending key.
+  Keys removed in 0.6.0 keep their own migration message.
 - `appVersion` moves to `0.12.0`. Connection and session management statements
   (`COMMIT`, `SET`, `SELECT set_config(...)`, pool pings) no longer surface as
   `n_plus_one_sql`, `redundant_sql` or links of a `serialized_calls` chain. A

@@ -378,6 +378,24 @@ config:
     # lag_threshold_ms = 2000
     # max_tracked_pairs = 10000
 
+    # Push findings to PerfSentinelHub. Off by default. A signature is sent
+    # when first discovered or when its severity worsens, then at most hourly
+    # while it recurs, so this is not one request per detection. Export never
+    # blocks trace analysis. perf_sentinel_hub_export_pending is the backlog
+    # and perf_sentinel_hub_export_dropped_total counts what was evicted.
+    #
+    # api_key_file must point at a Secret-backed file, never at a value in
+    # this file: the config lands in a ConfigMap, which is not a secret store.
+    # Mount the key with extraVolumes / extraVolumeMounts at the path below.
+    # [daemon.hub_export]
+    # enabled = true
+    # endpoint = "https://hub.example.com/api/import/findings"
+    # source_id = "production-a"
+    # api_key_file = "/run/secrets/perf-sentinel-hub-api-key"
+    # batch_size = 100
+    # flush_interval_secs = 5
+    # max_pending = 10000
+
   # -- Ordered TOML fragments, rendered into a second ConfigMap and mounted
   # read-only at /etc/perf-sentinel/.perf-sentinel.d/. The daemon loads them
   # by ascending filename priority, then applies `config.toml` above as the
