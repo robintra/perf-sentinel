@@ -34,6 +34,7 @@
 - [OTel source code attributes](#otel-source-code-attributes): the `code.*` attributes required for `code_location`.
 - [Daemon query API](#daemon-query-api): no built-in auth, gate via network policy or reverse proxy.
 - [Automated pg_stat ingestion from Prometheus](#automated-pg_stat-ingestion-from-prometheus): prerequisites for the `--prometheus` flag.
+- [Automated mysql-stat ingestion from Prometheus](#automated-mysql-stat-ingestion-from-prometheus): the collector is off by default and carries no call count.
 - [Secrets and credentials](#secrets-and-credentials): env-var-preferred pattern for scrapers.
 - [Electricity Maps API](#electricity-maps-api): API-key handling and caveats.
 - [Tempo ingestion](#tempo-ingestion): protobuf format requirement.
@@ -798,6 +799,20 @@ The `--prometheus` flag on `pg-stat` scrapes metrics exposed by `postgres_export
 - Only the metrics available in the Prometheus exporter are used. Some fields present in the raw `pg_stat_statements` view (e.g. `blk_read_time`, `blk_write_time`) may not be exposed by all exporter versions.
 
 The existing `--input` file path mode is unchanged and remains the recommended approach for CI pipelines.
+
+Both `pg-stat` and `mysql-stat` accept `--metric` and `--query-label` to name the series and the label carrying the statement text, because an exporter running a hand-written query or a recording rule names its own. Without a label match the ranking falls back to the opaque identifier (`queryid`, `digest`) rather than collapsing every row into one.
+
+## Automated mysql-stat ingestion from Prometheus
+
+The `--prometheus` flag on `mysql-stat` scrapes `mysqld_exporter`'s `perf_schema.eventsstatements` collector, which is **off by default**: the exporter needs `--collect.perf_schema.eventsstatements`.
+
+That series carries cumulated execution time and nothing else, which shapes the whole report:
+
+- `calls`, `rows_sent` and `rows_examined` are `0` for every entry, because the exporter publishes no counts. They are reported as zero rather than invented.
+- `mean_exec_time` therefore equals `total_exec_time`, not a per-call average.
+- Of the four rankings `mysql-stat` prints, only "top by total_exec_time" carries a signal. "top by calls" and "top by rows_examined" rank on all-zero columns and "top by mean_exec_time" repeats the first, so read them as placeholders.
+
+A `performance_schema` file export (`--input`) carries `COUNT_STAR`, `SUM_ROWS_SENT` and `SUM_ROWS_EXAMINED` and is the richer of the two inputs. Prefer it whenever the export is available; the Prometheus path is for fleets where only the exporter is reachable.
 
 ## Secrets and credentials
 

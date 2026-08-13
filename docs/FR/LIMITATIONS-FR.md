@@ -34,6 +34,7 @@
 - [Attributs de code source OTel](#attributs-de-code-source-otel) : les attributs `code.*` requis pour `code_location`.
 - [API de requêtage du daemon](#api-de-requêtage-du-daemon) : pas d'auth intégrée, à gater via network policy ou reverse proxy.
 - [Ingestion automatisée pg_stat depuis Prometheus](#ingestion-automatisée-pg_stat-depuis-prometheus) : prérequis pour le flag `--prometheus`.
+- [Ingestion automatisée mysql-stat depuis Prometheus](#ingestion-automatisée-mysql-stat-depuis-prometheus) : collecteur désactivé par défaut et sans compteur d'appels.
 - [Secrets et credentials](#secrets-et-credentials) : pattern env-var-prioritaire pour les scrapers.
 - [API Electricity Maps](#api-electricity-maps) : gestion de la clé d'API et caveats.
 - [Ingestion Tempo](#ingestion-tempo) : prérequis du format protobuf.
@@ -807,6 +808,20 @@ Le flag `--prometheus` de `pg-stat` scrape les métriques exposées par `postgre
 - Seules les métriques disponibles dans l'exporteur Prometheus sont utilisées. Certains champs présents dans la vue `pg_stat_statements` brute (ex. `blk_read_time`, `blk_write_time`) peuvent ne pas être exposés par toutes les versions de l'exporteur.
 
 Le mode `--input` par fichier existant est inchangé et reste l'approche recommandée pour les pipelines CI.
+
+`pg-stat` et `mysql-stat` acceptent tous deux `--metric` et `--query-label` pour nommer la série et le label qui porte le texte de la requête, car un exporteur qui exécute une requête écrite à la main ou une recording rule nomme les siens. Sans correspondance de label, le classement retombe sur l'identifiant opaque (`queryid`, `digest`) plutôt que de fondre toutes les lignes en une seule.
+
+## Ingestion automatisée mysql-stat depuis Prometheus
+
+Le flag `--prometheus` de `mysql-stat` scrape le collecteur `perf_schema.eventsstatements` de `mysqld_exporter`, qui est **désactivé par défaut** : l'exporteur a besoin de `--collect.perf_schema.eventsstatements`.
+
+Cette série ne porte que le temps d'exécution cumulé, ce qui conditionne tout le rapport :
+
+- `calls`, `rows_sent` et `rows_examined` valent `0` pour chaque entrée, car l'exporteur ne publie aucun compteur. Ils sont rapportés à zéro plutôt qu'inventés.
+- `mean_exec_time` est donc égal à `total_exec_time`, ce n'est pas une moyenne par appel.
+- Sur les quatre classements affichés par `mysql-stat`, seul "top by total_exec_time" porte un signal. "top by calls" et "top by rows_examined" classent sur des colonnes entièrement nulles et "top by mean_exec_time" répète le premier : lisez-les comme des espaces réservés.
+
+Un export fichier de `performance_schema` (`--input`) porte `COUNT_STAR`, `SUM_ROWS_SENT` et `SUM_ROWS_EXAMINED` et reste la plus riche des deux entrées. Préférez-la dès que l'export est disponible ; le chemin Prometheus vise les parcs où seul l'exporteur est joignable.
 
 ## Secrets et credentials
 

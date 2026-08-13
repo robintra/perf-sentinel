@@ -711,7 +711,9 @@ La structure en attente est une table de dernières valeurs, pas une file
 illimitée. Une signature est envoyée dès sa première découverte ou si sa
 sévérité empire, puis rafraîchie au plus une fois par heure tant qu'elle se
 répète. La table en attente et le cache des succès récents sont chacun bornés
-à `max_pending` ; seule une éviction de la table en attente augmente
+à `max_pending` ; évincer du cache des succès récents n'est pas une perte et
+n'est pas compté, alors qu'une éviction de la table en attente, un finding trop
+gros et un lot rejeté par le Hub avec un 4xx non rejouable augmentent tous
 `perf_sentinel_hub_export_dropped_total`. Un échec HTTP conserve le lot
 fusionné et déclenche un retry avec backoff exponentiel et jitter ; un
 redémarrage efface les deux caches. Requêtes et corps JSON sont bornés à 100
