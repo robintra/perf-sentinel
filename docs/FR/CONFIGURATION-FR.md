@@ -36,7 +36,11 @@ refusé. Les fichiers qui ne se terminent pas par `.toml` sont ignorés.
 Lorsque les deux valeurs sont des tables, elles fusionnent récursivement.
 Toute autre valeur plus tardive remplace la précédente à la même clé. Le
 document fusionné final doit toujours respecter le schéma de configuration
-typé. Les exemples réservent ces plages :
+typé. Depuis la 0.12.0 ce schéma est strict : une clé ou un nom de table
+qu'aucune section ne déclare fait échouer le chargement au lieu d'être
+ignoré, donc un réglage mal orthographié arrête la commande au lieu de
+laisser silencieusement la valeur par défaut en place. Les exemples réservent
+ces plages :
 
 | Priorité    | Usage                                                    |
 |-------------|----------------------------------------------------------|
@@ -576,7 +580,7 @@ calibration_file = ".perf-sentinel-calibration.toml"
 
 #### `perf-sentinel tempo` (pas de section de config)
 
-La sous-commande `tempo` s'exécute en **mode batch** (pas daemon), récupère les traces depuis l'API HTTP d'un Grafana Tempo et les passe dans le pipeline d'analyse standard. Ses réglages propres sont des flags CLI uniquement, il n'existe pas de section `[tempo]` : `--endpoint` est obligatoire, `--max-traces` vaut `100` par défaut, aux côtés de `--trace-id`, `--service`, `--lookback` et `--auth-header`. Lancez `perf-sentinel tempo --help` pour la liste à jour. Une table `[tempo]` écrite dans le fichier de config est ignorée en silence, comme toute table racine inconnue. Le fichier `--config` s'applique quand même pour le reste, les seuils et la détection en particulier, puisque les traces récupérées passent par le même pipeline.
+La sous-commande `tempo` s'exécute en **mode batch** (pas daemon), récupère les traces depuis l'API HTTP d'un Grafana Tempo et les passe dans le pipeline d'analyse standard. Ses réglages propres sont des flags CLI uniquement, il n'existe pas de section `[tempo]` : `--endpoint` est obligatoire, `--max-traces` vaut `100` par défaut, aux côtés de `--trace-id`, `--service`, `--lookback` et `--auth-header`. Lancez `perf-sentinel tempo --help` pour la liste à jour. Une table `[tempo]` écrite dans le fichier de config fait échouer le chargement depuis la 0.12.0, comme toute table racine inconnue. Le fichier `--config` s'applique quand même pour le reste, les seuils et la détection en particulier, puisque les traces récupérées passent par le même pipeline.
 
 ### `[daemon]`
 

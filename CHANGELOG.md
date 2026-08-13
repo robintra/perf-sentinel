@@ -6,7 +6,11 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Added
 
-- `report --pg-stat-metric` and `--pg-stat-query-label` point the Prometheus scrape at an exporter that does not run the `postgres_exporter` built-in query. The defaults are unchanged (`pg_stat_statements_seconds_total`, label `query`), so nothing moves for a stock exporter. An exporter running hand-written SQL names its own columns and derives the series from them, which left the `pg_stat` tab silently empty: the series never matched, and even once pointed at the right one the statement text sat under whatever label that query chose, so the report fell back to `queryid` and showed opaque identifiers the Explain cross-navigation cannot match. Library callers of `ingest::pg_stat::fetch_from_prometheus` now pass a `&PrometheusPgStat`, whose `Default` reproduces the previous behavior exactly.
+- `report --pg-stat-metric` and `--pg-stat-query-label`, and the same pair as `pg-stat --metric` and `--query-label`, point the Prometheus scrape at an exporter that does not run the `postgres_exporter` built-in query. The defaults are unchanged (`pg_stat_statements_seconds_total`, label `query`), so nothing moves for a stock exporter. An exporter running hand-written SQL names its own columns and derives the series from them, which left the `pg_stat` tab silently empty: the series never matched, and even once pointed at the right one the statement text sat under whatever label that query chose, so the report fell back to `queryid` and showed opaque identifiers the Explain cross-navigation cannot match. The series is validated against the bare PromQL metric-name grammar before it reaches the query string, where it lands unencoded: a separator such as `&` or `#` would otherwise split or truncate the request rather than fail. Library callers of `ingest::pg_stat::fetch_from_prometheus` now pass a `&PrometheusPgStat`, whose `Default` reproduces the previous behavior exactly.
+
+### Fixed
+
+- `pg-stat --prometheus` no longer under-scrapes when `--top-n` is small. It passed the requested count straight to `topk`, while `report --pg-stat-prometheus` has always raised it to a 200-row floor first, for the reason that floor exists: `rank_pg_stat` emits four rankings and only one of them is keyed on the series `topk` orders by. `pg-stat --prometheus --top-n 5` therefore ranked by calls, by mean and by rows over the five slowest statements alone rather than over the hot-spot distribution.
 
 ## [0.12.0] - 2026-08-13
 
