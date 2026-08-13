@@ -2173,6 +2173,14 @@ fn load_report_from_input(
 /// when the user does not set `--pg-stat-top`.
 const DEFAULT_PG_STAT_TOP: usize = 10;
 
+/// Lower bound on a Prometheus scrape when only a small `--top-n` is set.
+/// `rank_pg_stat` emits four rankings keyed on different columns and only
+/// one of them is keyed on the `topk` metric, so scraping just `top_n`
+/// biases the others. Shared by the `pg-stat` and `mysql-stat` paths so the
+/// two cannot drift.
+#[cfg(feature = "daemon")]
+pub(crate) const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
+
 /// Parse a saved baseline report and diff it against the current run.
 /// Applies the same BOM strip and depth cap as `--input` in Report
 /// mode. Exits `EXIT_TOOLING_ERROR` on failure, never a quality-gate
@@ -2278,6 +2286,20 @@ async fn cmd_report(
         // `75` bucket a pipeline may tolerate. See docs/CI.md "Exit codes".
         std::process::exit(2);
     }
+    // Same OR-of-flags pairing for --mysql-stat-top, checked here rather
+    // than after the pg-stat branch below: a usage error must not cost a
+    // Prometheus scrape before it exits.
+    #[cfg(feature = "daemon")]
+    let has_mysql_stat_source = mysql_stat_path.is_some() || mysql_stat_prometheus.is_some();
+    #[cfg(not(feature = "daemon"))]
+    let has_mysql_stat_source = mysql_stat_path.is_some();
+    if mysql_stat_top.is_some() && !has_mysql_stat_source {
+        #[cfg(feature = "daemon")]
+        eprintln!("Error: --mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus");
+        #[cfg(not(feature = "daemon"))]
+        eprintln!("Error: --mysql-stat-top requires --mysql-stat");
+        std::process::exit(2);
+    }
     let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
 
     // --pg-stat / --pg-stat-prometheus are mutually exclusive at the
@@ -2312,21 +2334,6 @@ async fn cmd_report(
         }
     };
 
-    // --mysql-stat-top now accepts either source, which clap `requires`
-    // cannot express, so the pairing is checked here exactly like
-    // --pg-stat-top above, down to the usage exit code.
-    #[cfg(feature = "daemon")]
-    let has_mysql_stat_source = mysql_stat_path.is_some() || mysql_stat_prometheus.is_some();
-    #[cfg(not(feature = "daemon"))]
-    let has_mysql_stat_source = mysql_stat_path.is_some();
-    if mysql_stat_top.is_some() && !has_mysql_stat_source {
-        #[cfg(feature = "daemon")]
-        eprintln!("Error: --mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus");
-        #[cfg(not(feature = "daemon"))]
-        eprintln!("Error: --mysql-stat-top requires --mysql-stat");
-        std::process::exit(2);
-    }
-
     // --mysql-stat and --mysql-stat-prometheus are mutually exclusive by
     // clap `conflicts_with`, so at most one of the two branches runs.
     let mysql_top_n = mysql_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
@@ -2337,8 +2344,8 @@ async fn cmd_report(
         {
             match mysql_stat_prometheus {
                 Some(url) => {
-                    let resolved_auth = mysql_stat_auth_header
-                        .or_else(|| std::env::var("PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER").ok());
+                    let resolved_auth =
+                        mysql_stat::resolve_mysql_stat_auth_header(mysql_stat_auth_header);
                     Some(
                         mysql_stat::load_mysql_stat_from_prometheus(
                             url,
