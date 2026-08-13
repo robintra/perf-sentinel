@@ -578,6 +578,19 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "NAME_VALUE", requires = "pg_stat_prometheus")]
         pg_stat_auth_header: Option<String>,
+        /// Series holding cumulated execution time on that Prometheus
+        /// (default: `pg_stat_statements_seconds_total`, the
+        /// `postgres_exporter` built-in query). Set it when the exporter
+        /// runs a hand-written query, which names its own columns.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "pg_stat_prometheus")]
+        pg_stat_metric: Option<String>,
+        /// Label carrying the SQL text on that series (default: `query`).
+        /// Without a match the report falls back to `queryid`, leaving
+        /// opaque identifiers instead of statements.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "LABEL", requires = "pg_stat_prometheus")]
+        pg_stat_query_label: Option<String>,
         /// Path to a baseline report JSON, as produced by `analyze
         /// --format json`. When set, the dashboard shows a Diff tab
         /// comparing the current run against the baseline.
@@ -1369,6 +1382,10 @@ async fn dispatch_command(command: Commands) {
             pg_stat_prometheus,
             #[cfg(feature = "daemon")]
             pg_stat_auth_header,
+            #[cfg(feature = "daemon")]
+            pg_stat_metric,
+            #[cfg(feature = "daemon")]
+            pg_stat_query_label,
             before,
             pg_stat_top,
             mysql_stat,
@@ -1381,6 +1398,16 @@ async fn dispatch_command(command: Commands) {
         } => {
             #[cfg(feature = "daemon")]
             let daemon_url = validate_daemon_url_or_exit(daemon_url);
+            // Defaults describe the postgres_exporter built-in query; an
+            // exporter running its own SQL names its own columns.
+            #[cfg(feature = "daemon")]
+            let pg_stat_prom = {
+                let d = sentinel_core::ingest::pg_stat::PrometheusPgStat::default();
+                sentinel_core::ingest::pg_stat::PrometheusPgStat {
+                    series: pg_stat_metric.unwrap_or(d.series),
+                    query_label: pg_stat_query_label.unwrap_or(d.query_label),
+                }
+            };
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),
@@ -1391,6 +1418,8 @@ async fn dispatch_command(command: Commands) {
                 pg_stat_prometheus.as_deref(),
                 #[cfg(feature = "daemon")]
                 pg_stat_auth_header,
+                #[cfg(feature = "daemon")]
+                &pg_stat_prom,
                 before.as_deref(),
                 // `try_from` over `as` so a 16-bit target drops the
                 // flag instead of truncating silently. No supported
@@ -2073,6 +2102,7 @@ async fn cmd_report(
     pg_stat_path: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
     #[cfg(feature = "daemon")] pg_stat_auth_header: Option<String>,
+    #[cfg(feature = "daemon")] pg_stat_prom: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     before_path: Option<&std::path::Path>,
     pg_stat_top: Option<usize>,
     mysql_stat_path: Option<&std::path::Path>,
@@ -2143,6 +2173,7 @@ async fn cmd_report(
                             url,
                             &config,
                             top_n,
+                            pg_stat_prom,
                             resolved_auth.as_deref(),
                         )
                         .await,

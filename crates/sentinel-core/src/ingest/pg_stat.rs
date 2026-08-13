@@ -424,10 +424,43 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 
 // ── Prometheus scrape path ─────────────────────────────────────────
 
+/// Which series and label carry `pg_stat_statements` on a given Prometheus.
+///
+/// The defaults match the `postgres_exporter` built-in query. A deployment
+/// that publishes its own hand-written query names its own columns, and the
+/// exporter derives the series from them, so neither name is ours to assume.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[derive(Debug, Clone)]
+pub struct PrometheusPgStat {
+    /// Series ranked by `topk`, holding the cumulated execution time in seconds.
+    pub series: String,
+    /// Label carrying the SQL text. Falls back to `queryid` when absent, which
+    /// leaves the report with opaque identifiers rather than statements.
+    pub query_label: String,
+}
+
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+impl Default for PrometheusPgStat {
+    fn default() -> Self {
+        Self {
+            series: "pg_stat_statements_seconds_total".to_string(),
+            query_label: "query".to_string(),
+        }
+    }
+}
+
+/// Build the `topk` instant query. Only the comma needs encoding: the
+/// parentheses and underscores are safe in a URL query string.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+fn build_prometheus_query(top_n: usize, opts: &PrometheusPgStat) -> String {
+    format!("topk({top_n}%2C%20{})", opts.series)
+}
+
 /// Fetch `pg_stat_statements` data from a Prometheus endpoint.
 ///
-/// Queries the Prometheus HTTP API for `pg_stat_statements_seconds_total`
-/// metrics exposed by `postgres_exporter`, converts them to
+/// Queries the Prometheus HTTP API for the series named by `opts`
+/// (defaulting to the `postgres_exporter` built-in
+/// `pg_stat_statements_seconds_total`), converts the result to
 /// [`PgStatEntry`] structs, and normalizes SQL templates.
 ///
 /// When `auth_header` is `Some`, the `"Name: Value"` string is parsed
@@ -446,6 +479,7 @@ pub async fn fetch_from_prometheus(
     endpoint: &str,
     top_n: usize,
     auth_header: Option<&str>,
+    opts: &PrometheusPgStat,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
     use crate::ingest::auth_header::AuthHeader;
 
@@ -468,9 +502,7 @@ pub async fn fetch_from_prometheus(
     }
 
     let client = crate::http_client::build_client();
-    // PromQL query. The parentheses and underscores are safe for URL
-    // query strings, so we only need to encode the comma.
-    let query = format!("topk({top_n}%2C%20pg_stat_statements_seconds_total)");
+    let query = build_prometheus_query(top_n, opts);
     let url = format!("{endpoint}/api/v1/query?query={query}");
     let uri: crate::http_client::Uri = url
         .parse()
@@ -495,7 +527,7 @@ pub async fn fetch_from_prometheus(
         ))
     })?;
 
-    parse_prometheus_response(&body)
+    parse_prometheus_response(&body, opts)
 }
 
 /// Validate a user-supplied Prometheus endpoint string.
@@ -546,7 +578,10 @@ fn validate_prometheus_endpoint(endpoint: &str) -> Result<(), PgStatError> {
 
 /// Parse a Prometheus instant query response into `PgStatEntry` structs.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
-fn parse_prometheus_response(body: &[u8]) -> Result<Vec<PgStatEntry>, PgStatError> {
+fn parse_prometheus_response(
+    body: &[u8],
+    opts: &PrometheusPgStat,
+) -> Result<Vec<PgStatEntry>, PgStatError> {
     let json: serde_json::Value = serde_json::from_slice(body)
         .map_err(|e| PgStatError::PrometheusFormat(format!("invalid JSON: {e}")))?;
 
@@ -560,7 +595,7 @@ fn parse_prometheus_response(body: &[u8]) -> Result<Vec<PgStatEntry>, PgStatErro
     for result in results {
         let metric = result.get("metric").unwrap_or(&serde_json::Value::Null);
         let query_text = metric
-            .get("query")
+            .get(opts.query_label.as_str())
             .or_else(|| metric.get("queryid"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
@@ -979,7 +1014,7 @@ mod tests {
             }
         }"#;
 
-        let entries = parse_prometheus_response(json).unwrap();
+        let entries = parse_prometheus_response(json, &PrometheusPgStat::default()).unwrap();
         assert_eq!(entries.len(), 2);
         assert!((entries[0].total_exec_time_ms - 4500.0).abs() < f64::EPSILON);
         assert!((entries[1].total_exec_time_ms - 1200.0).abs() < f64::EPSILON);
@@ -991,14 +1026,14 @@ mod tests {
     #[test]
     fn parse_prometheus_response_empty_result() {
         let json = br#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
-        let entries = parse_prometheus_response(json).unwrap();
+        let entries = parse_prometheus_response(json, &PrometheusPgStat::default()).unwrap();
         assert!(entries.is_empty());
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]
     #[test]
     fn parse_prometheus_response_invalid_json() {
-        let result = parse_prometheus_response(b"not json");
+        let result = parse_prometheus_response(b"not json", &PrometheusPgStat::default());
         assert_matches!(result, Err(PgStatError::PrometheusFormat(_)));
     }
 
@@ -1040,15 +1075,71 @@ mod tests {
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_series_name_defaults_to_the_official_exporter() {
+        let opts = PrometheusPgStat::default();
+        assert!(
+            build_prometheus_query(10, &opts).contains("pg_stat_statements_seconds_total"),
+            "the postgres_exporter built-in series stays the default"
+        );
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_series_name_is_overridable() {
+        // A deployment whose exporter publishes a hand-written query names
+        // its columns itself, so the series is not ours to dictate.
+        let opts = PrometheusPgStat {
+            series: "pg_stat_statements_total_exec_time".to_string(),
+            ..PrometheusPgStat::default()
+        };
+        let query = build_prometheus_query(10, &opts);
+        assert!(
+            query.contains("pg_stat_statements_total_exec_time"),
+            "{query}"
+        );
+        assert!(!query.contains("seconds_total"), "{query}");
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_query_label_is_overridable() {
+        let body = br#"{"status":"success","data":{"resultType":"vector","result":[
+            {"metric":{"__name__":"x","query_sample":"SELECT 1 FROM t","calls":"7"},
+             "value":[1,"2.5"]}]}}"#;
+        let opts = PrometheusPgStat {
+            query_label: "query_sample".to_string(),
+            ..PrometheusPgStat::default()
+        };
+        let entries = parse_prometheus_response(body, &opts).expect("parse");
+        assert_eq!(entries[0].query, "SELECT 1 FROM t");
+        assert_eq!(entries[0].calls, 7);
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_query_label_still_falls_back_to_queryid() {
+        let body = br#"{"status":"success","data":{"resultType":"vector","result":[
+            {"metric":{"__name__":"x","queryid":"12345"},"value":[1,"1.0"]}]}}"#;
+        let entries = parse_prometheus_response(body, &PrometheusPgStat::default()).expect("parse");
+        assert_eq!(entries[0].query, "12345");
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
     #[tokio::test]
     async fn fetch_from_prometheus_sends_auth_header_on_wire() {
         let body = r#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
         let response = crate::test_helpers::http_200_text("application/json", body);
         let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
 
-        let entries = fetch_from_prometheus(&endpoint, 5, Some("Authorization: Bearer topsecret"))
-            .await
-            .expect("fetch_from_prometheus must succeed");
+        let entries = fetch_from_prometheus(
+            &endpoint,
+            5,
+            Some("Authorization: Bearer topsecret"),
+            &PrometheusPgStat::default(),
+        )
+        .await
+        .expect("fetch_from_prometheus must succeed");
         assert!(entries.is_empty());
 
         let captured = rx.recv().await.expect("captured request");
@@ -1064,9 +1155,14 @@ mod tests {
     #[cfg(any(feature = "daemon", feature = "tempo"))]
     #[tokio::test]
     async fn fetch_from_prometheus_rejects_invalid_auth_header() {
-        let err = fetch_from_prometheus("http://prometheus.local:9090", 5, Some("NoColonHere"))
-            .await
-            .expect_err("malformed auth header must be rejected");
+        let err = fetch_from_prometheus(
+            "http://prometheus.local:9090",
+            5,
+            Some("NoColonHere"),
+            &PrometheusPgStat::default(),
+        )
+        .await
+        .expect_err("malformed auth header must be rejected");
         match err {
             PgStatError::PrometheusRequest(msg) => {
                 assert!(

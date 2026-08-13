@@ -39,7 +39,14 @@ aucun `fetch()` n'est émis vers un host quelconque.
   normalisé correspond à une ligne. `--pg-stat-prometheus <URL>`
   scrape un `postgres_exporter` one-shot à la place d'un fichier
   (mutuellement exclusif, `--pg-stat-auth-header` optionnel), et
-  `--pg-stat-top <N>` dimensionne les rankings (défaut 10).
+  `--pg-stat-top <N>` dimensionne les rankings (défaut 10). Le scrape
+  suppose la requête intégrée de `postgres_exporter`, qui publie
+  `pg_stat_statements_seconds_total` avec un label `query`. Un exporter
+  qui exécute une requête écrite à la main nomme ses propres colonnes :
+  `--pg-stat-metric <SERIE>` et `--pg-stat-query-label <LABEL>` pointent
+  alors le scrape vers ces noms. Sans label correspondant, l'onglet
+  retombe sur `queryid` et affiche des identifiants opaques au lieu des
+  requêtes, et la navigation croisée ne peut plus rien apparier.
 - `--mysql-stat <FICHIER>` embarque un export
   `events_statements_summary_by_digest` CSV ou JSON (MySQL Performance
   Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
