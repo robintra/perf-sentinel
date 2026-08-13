@@ -11,6 +11,8 @@ pub mod lookback;
 pub mod mysql_stat;
 pub mod otlp;
 pub mod pg_stat;
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+pub(crate) mod prometheus_scrape;
 #[cfg(feature = "tempo")]
 pub mod tempo;
 #[cfg(any(feature = "tempo", feature = "jaeger-query"))]
