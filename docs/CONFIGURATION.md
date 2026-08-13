@@ -600,14 +600,15 @@ Streaming mode (`perf-sentinel watch`) settings.
 
 Daemon limits accept any value inside their hard bounds (rejected at config load), but `perf-sentinel watch` emits a one-shot `WARN` log at startup when a value falls outside the recommended comfort zone. The warning is informational: the daemon still runs. Use it as a sanity check that an unusual value was deliberate.
 
-| Field                   | Comfort zone             | Why values outside the zone are unusual                                                                                     |
-|-------------------------|--------------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `max_payload_size`      | 256 KiB to 16 MiB        | Smaller may reject legitimate OTLP batches; larger increases ingest latency and RSS                                         |
-| `max_active_traces`     | 1,000 to 100,000         | Smaller triggers aggressive LRU eviction; larger grows memory roughly linearly                                              |
-| `max_events_per_trace`  | 100 to 10,000            | Smaller truncates complex traces; larger rarely improves detection quality                                                  |
-| `max_retained_findings` | 100 to 100,000 (or `0`)  | Smaller evicts findings before `/api/findings` can serve them; larger holds a backlog. `0` disables the store and is silent |
-| `trace_ttl_ms`          | 1,000 to 600,000         | Below 1s flushes traces before slow spans land; above 10min keeps near-dead traces                                          |
-| `max_fanout`            | 5 to 1,000               | Smaller floods the findings store with noise; larger suppresses most fanout detections                                      |
+| Field                   | Comfort zone            | Why values outside the zone are unusual                                                                                                                                                                                                                            |
+|-------------------------|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `max_payload_size`      | 256 KiB to 16 MiB       | Smaller may reject legitimate OTLP batches; larger increases ingest latency and RSS                                                                                                                                                                                |
+| `max_active_traces`     | 1,000 to 100,000        | Smaller triggers aggressive LRU eviction; larger grows memory roughly linearly                                                                                                                                                                                     |
+| `max_events_per_trace`  | 100 to 10,000           | Smaller truncates complex traces; larger rarely improves detection quality                                                                                                                                                                                         |
+| `max_retained_findings` | 100 to 100,000 (or `0`) | Smaller evicts findings before `/api/findings` can serve them; larger holds a backlog. `0` disables the store and is silent                                                                                                                                        |
+| `trace_ttl_ms`          | 1,000 to 600,000        | Below 1s flushes traces before slow spans land; above 10min keeps near-dead traces                                                                                                                                                                                 |
+| `max_fanout`            | 5 to 1,000              | Smaller floods the findings store with noise; larger suppresses most fanout detections                                                                                                                                                                             |
+| `max_tracked_pairs`     | 10,000 to 200,000       | Pairs scale with finding types times services, so the 10,000 default covers a handful of services and a seven-service fleet already overruns it. Once the cap is reached the reported correlations are an arbitrary subset, with no marker on the output saying so |
 
 Comfort zones judge the static value at startup. At runtime the daemon
 complements them with a settings advisor: when lifetime counters show a
@@ -628,7 +629,7 @@ Cross-trace temporal correlation in daemon mode. When enabled, the daemon detect
 | `lag_threshold_ms`   | integer | `2000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                                       |
 | `min_co_occurrences` | integer | `3`     | Minimum number of co-occurrences before a correlation is reported                                                         |
 | `min_confidence`     | float   | `0.5`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
-| `max_tracked_pairs`  | integer | `1000`  | Maximum number of finding pairs tracked simultaneously. Prevents unbounded memory growth from high-cardinality findings   |
+| `max_tracked_pairs`  | integer | `10000` | Maximum number of finding pairs tracked simultaneously. Prevents unbounded memory growth from high-cardinality findings   |
 
 ```toml
 [daemon.correlation]
