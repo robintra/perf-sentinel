@@ -106,40 +106,66 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
 #[must_use]
 pub fn is_session_command(template: &str) -> bool {
     // The statement terminator belongs to the text, not to the keyword:
-    // `COMMIT;` is as common in a `db.statement` as `COMMIT`.
-    let mut words = template.split_whitespace().map(|w| w.trim_end_matches(';'));
+    // `COMMIT;` is as common in a `db.statement` as `COMMIT`. A terminator
+    // spaced off its statement (`BEGIN ;`) trims to nothing, and an empty
+    // word would be compared against the keyword lists below.
+    let mut words = template
+        .split_whitespace()
+        .map(|w| w.trim_end_matches(';'))
+        .filter(|w| !w.is_empty());
     let Some(first) = words.next().map(str::to_ascii_lowercase) else {
         return false;
     };
     match first.as_str() {
         // Transaction control then session setup. `start` covers START
-        // TRANSACTION, `release` covers RELEASE SAVEPOINT.
+        // TRANSACTION, `release` covers RELEASE SAVEPOINT. `values(?)` is the
+        // unspaced DB2 and H2 ping, narrowed to the lone literal exactly like
+        // the spaced spellings below: a `values(` prefix match would also
+        // claim `VALUES(?,?),(?,?)`, a table constructor written without a
+        // space after the keyword.
+        // `show` is deliberately absent: `SHOW COLUMNS FROM t` is schema
+        // introspection a dynamic-schema ORM runs once per entity, and both
+        // batching and caching apply to it.
         "commit" | "rollback" | "savepoint" | "release" | "start" | "set" | "reset" | "discard"
-        | "use" | "show" => true,
+        | "use" | "values(?)" => true,
+        // The one stored procedure that is pure connection reset. Any other
+        // `EXEC` is a procedure call, and an N+1 of those is real.
+        "exec" | "execute" => words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("sp_reset_connection")),
         // Bare `BEGIN` and its transaction forms only: `BEGIN pkg.proc(?);
         // END;` is an Oracle anonymous block, the standard shape of a JDBC
         // `CallableStatement`, and an N+1 of stored-procedure calls is real.
+        // `tran` is the T-SQL abbreviation of `BEGIN TRANSACTION`.
         "begin" => words.next().is_none_or(|w| {
-            ["transaction", "work", "isolation", "read", "deferrable"]
-                .iter()
-                .any(|kw| w.eq_ignore_ascii_case(kw))
+            [
+                "transaction",
+                "tran",
+                "work",
+                "isolation",
+                "read",
+                "deferrable",
+            ]
+            .iter()
+            .any(|kw| w.eq_ignore_ascii_case(kw))
         }),
         "alter" => words
             .next()
             .is_some_and(|w| w.eq_ignore_ascii_case("session")),
-        // `VALUES(?)`, the DB2 and H2 ping, holds no whitespace.
-        _ if first.starts_with("values(") => true,
         // The spaced spellings of the same ping (`VALUES 1`, `VALUES (1)`),
         // narrowed to a lone literal so a `VALUES` table constructor stays
         // visible.
         "values" => words.next().is_some_and(|w| w == "?" || w == "(?)"),
         // Deliberately not `SELECT ?`: `SELECT 1` normalizes into it, but so
         // does any select of a bare literal, and the ambiguity is not worth it.
+        // Deliberately not `SELECT @@…`: `@@version` is a per-checkout probe
+        // but `@@IDENTITY` and `@@ROWCOUNT` are emitted once per statement to
+        // fetch generated keys, and batching those is a real remediation.
         "select" => words.next().is_some_and(|w| {
             let rest = w.to_ascii_lowercase();
-            rest.starts_with("set_config(")
-                || rest.starts_with("current_setting(")
-                || rest.starts_with("@@")
+            // Accept the schema-qualified spelling: pg_catalog.set_config(...)
+            let bare = rest.rsplit('.').next().unwrap_or(rest.as_str());
+            bare.starts_with("set_config(") || bare.starts_with("current_setting(")
         }),
         _ => false,
     }
@@ -900,10 +926,12 @@ mod tests {
             "ROLLBACK",
             "SAVEPOINT sp1",
             "RELEASE SAVEPOINT sp1",
+            "BEGIN TRAN", // T-SQL abbreviation
             // Drivers that keep the terminator in `db.statement`.
             "COMMIT;",
             "BEGIN;",
             "ROLLBACK;",
+            "BEGIN ;", // terminator spaced off, trims to an empty word
         ] {
             assert!(
                 is_session_command(&normalize_sql(query).template),
@@ -915,14 +943,15 @@ mod tests {
     #[test]
     fn session_command_recognizes_per_vendor_session_setup() {
         for query in [
-            "SET search_path TO public",             // PostgreSQL
-            "SET NAMES utf8mb4",                     // MySQL
-            "ALTER SESSION SET foo = 'x'",           // Oracle
-            "USE mydb",                              // MySQL / SQL Server
-            "RESET ALL",                             // PostgreSQL
-            "DISCARD ALL",                           // PostgreSQL
-            "SELECT current_setting('search_path')", // PostgreSQL
-            "SHOW TRANSACTION ISOLATION LEVEL",      // PostgreSQL / MySQL
+            "SET search_path TO public",                            // PostgreSQL
+            "SET NAMES utf8mb4",                                    // MySQL
+            "ALTER SESSION SET foo = 'x'",                          // Oracle
+            "USE mydb",                                             // MySQL / SQL Server
+            "RESET ALL",                                            // PostgreSQL
+            "DISCARD ALL",                                          // PostgreSQL
+            "SELECT current_setting('search_path')",                // PostgreSQL
+            "SELECT pg_catalog.set_config('app.tenant', ?, false)", // schema-qualified
+            "EXEC sp_reset_connection",                             // SQL Server, per checkout
         ] {
             assert!(
                 is_session_command(&normalize_sql(query).template),
@@ -937,11 +966,28 @@ mod tests {
             "VALUES(1)",
             "VALUES 1", // DB2 / Derby, the spaced spelling
             "VALUES (1)",
-            "SELECT @@version",
         ] {
             assert!(
                 is_session_command(&normalize_sql(query).template),
                 "{query} should be a session command"
+            );
+        }
+    }
+
+    #[test]
+    fn session_command_leaves_per_entity_statements_alone() {
+        // Emitted once per row or per entity, not once per connection
+        // checkout: batching and caching both apply, so these stay visible.
+        for query in [
+            "SHOW COLUMNS FROM orders", // schema introspection, one per entity
+            "SHOW CREATE TABLE orders",
+            "SELECT @@IDENTITY", // generated keys, one per insert
+            "SELECT @@ROWCOUNT",
+            "EXEC load_order_line ?, ?", // stored procedure call
+        ] {
+            assert!(
+                !is_session_command(&normalize_sql(query).template),
+                "{query} should not be a session command"
             );
         }
     }
@@ -965,8 +1011,11 @@ mod tests {
             // Oracle anonymous block: the JDBC CallableStatement shape, and
             // the one an N+1 of stored-procedure calls hides behind.
             "BEGIN order_pkg.load_line(:1, :2); END;",
-            // A VALUES table constructor is data, not a ping.
+            // A VALUES table constructor is data, not a ping, whether or not
+            // it is spaced off the keyword.
             "VALUES (1, 'a'), (2, 'b')",
+            "VALUES(1,'a'),(2,'b')",
+            "VALUES(1, 2)",
         ] {
             assert!(
                 !is_session_command(&normalize_sql(query).template),

@@ -112,8 +112,10 @@ fn serialized_impl<'a>(
     findings
 }
 
-/// Parse the sibling timestamps into intervals. A span whose timestamp
-/// does not parse is dropped: it cannot be placed on the timeline.
+/// Parse the sibling timestamps into intervals. Two kinds of sibling are
+/// dropped: a span whose timestamp does not parse, which cannot be placed
+/// on the timeline, and a SQL session command, which is not parallelizable
+/// work.
 fn timed_children<'a>(trace: &'a Trace, child_indices: &[usize]) -> Vec<TimedSpan<'a>> {
     let mut timed: Vec<TimedSpan<'a>> = Vec::with_capacity(child_indices.len());
     for &idx in child_indices {
