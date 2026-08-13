@@ -6,6 +6,14 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Added
 
+- `mysql-stat` can scrape a `mysqld_exporter` instead of reading a file, through `--prometheus` with `--auth-header`, and `report` gains the matching `--mysql-stat-prometheus`. The PostgreSQL side has had this since the flag existed; MySQL only accepted a file, so a fleet already exporting Performance Schema digests to Prometheus had to dump them by hand. Both entry points take `--metric` and `--query-label` (`--mysql-stat-metric` and `--mysql-stat-query-label` on `report`), defaulting to `mysql_perf_schema_events_statements_seconds_total` and `digest_text`, because a recording rule renames the series and a missing label leaves the report showing opaque `digest` hashes instead of statements. The collector is off by default on the exporter and needs `--collect.perf_schema.eventsstatements`. The scrape carries cumulated seconds and no call count, so it leaves `calls` at zero and the mean equal to the total rather than inventing one: a file export carries `COUNT_STAR` and stays the richer input.
+
+### Changed
+
+- Endpoint validation, series-name validation and the instant-query transport now live in `ingest::prometheus_scrape`, shared by the `pg_stat` and `mysql_stat` scrapes instead of existing once per ingester. The guards reject credentials in the URL, non-http schemes, control characters and any series name outside the bare PromQL grammar, and duplicating that set would have meant two copies drifting apart. No behavior change on the PostgreSQL path.
+
+### Added
+
 - `report --pg-stat-metric` and `--pg-stat-query-label`, and the same pair as `pg-stat --metric` and `--query-label`, point the Prometheus scrape at an exporter that does not run the `postgres_exporter` built-in query. The defaults are unchanged (`pg_stat_statements_seconds_total`, label `query`), so nothing moves for a stock exporter. An exporter running hand-written SQL names its own columns and derives the series from them, which left the `pg_stat` tab silently empty: the series never matched, and even once pointed at the right one the statement text sat under whatever label that query chose, so the report fell back to `queryid` and showed opaque identifiers the Explain cross-navigation cannot match. The series is validated against the bare PromQL metric-name grammar before it reaches the query string, where it lands unencoded: a separator such as `&` or `#` would otherwise split or truncate the request rather than fail. Library callers of `ingest::pg_stat::fetch_from_prometheus` now pass a `&PrometheusPgStat`, whose `Default` reproduces the previous behavior exactly.
 
 ### Fixed

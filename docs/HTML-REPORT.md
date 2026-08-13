@@ -50,6 +50,19 @@ stays strict (`default-src 'none'`), there is no
   `mysql_stat` tab with the same ranking sub-switcher (fourth ranking:
   rows examined). `--mysql-stat-top <N>` sizes the rankings
   (default 10).
+- `--mysql-stat-prometheus <URL>` scrapes the same digests from a
+  `mysqld_exporter` instead of a file, with `--mysql-stat-auth-header`
+  for an authenticated endpoint. It needs
+  `--collect.perf_schema.eventsstatements` on the exporter, which is off
+  by default. The scrape assumes
+  `mysql_perf_schema_events_statements_seconds_total` with a
+  `digest_text` label; a recording rule names its own series, so
+  `--mysql-stat-metric <SERIES>` and `--mysql-stat-query-label <LABEL>`
+  point the scrape at those names. Without a matching label the tab falls
+  back to `digest` and shows opaque hashes instead of statements. The
+  exporter publishes cumulated seconds and no call count, so the scrape
+  leaves `calls` at zero and the mean equal to the total: a file export
+  carries `COUNT_STAR` and is the richer of the two inputs.
 
 ## Interactive features
 

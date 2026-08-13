@@ -52,6 +52,20 @@ aucun `fetch()` n'est émis vers un host quelconque.
   Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
   sous-sélecteur de rankings (quatrième ranking : lignes examinées).
   `--mysql-stat-top <N>` dimensionne les rankings (défaut 10).
+- `--mysql-stat-prometheus <URL>` récupère les mêmes digests depuis un
+  `mysqld_exporter` au lieu d'un fichier, avec `--mysql-stat-auth-header`
+  pour un endpoint authentifié. Il faut
+  `--collect.perf_schema.eventsstatements` sur l'exporteur, désactivé par
+  défaut. Le scrape suppose
+  `mysql_perf_schema_events_statements_seconds_total` avec un label
+  `digest_text` ; une recording rule nomme sa propre série, donc
+  `--mysql-stat-metric <SERIE>` et `--mysql-stat-query-label <LABEL>`
+  pointent le scrape vers ces noms. Sans label correspondant, l'onglet
+  retombe sur `digest` et affiche des hachages opaques au lieu des
+  requêtes. L'exporteur publie des secondes cumulées et aucun compteur
+  d'appels, le scrape laisse donc `calls` à zéro et la moyenne égale au
+  total : un export fichier porte `COUNT_STAR` et reste la source la plus
+  riche des deux.
 
 ## Fonctions interactives
 
