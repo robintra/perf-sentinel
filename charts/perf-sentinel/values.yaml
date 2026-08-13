@@ -366,10 +366,17 @@ config:
     # docs/HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon.
     # sampling_rate = 1.0
 
+    # Cross-trace correlation is off by default. Enabling it without raising
+    # max_tracked_pairs (default 10000) silently truncates: pairs scale with
+    # finding types times services, so a handful of services overruns the cap
+    # and the correlations you read are an arbitrary subset of the real ones.
+    # perf_sentinel_correlator_pairs_evicted_total counts what was dropped,
+    # and the daemon logs a warning the first time it happens.
     # [daemon.correlation]
     # enabled = true
     # window_minutes = 10
     # lag_threshold_ms = 2000
+    # max_tracked_pairs = 10000
 
   # -- Ordered TOML fragments, rendered into a second ConfigMap and mounted
   # read-only at /etc/perf-sentinel/.perf-sentinel.d/. The daemon loads them

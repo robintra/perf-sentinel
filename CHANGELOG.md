@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Docs
+
+- `docs/CONFIGURATION.md` documented `[daemon.correlation] max_tracked_pairs` as defaulting to `1000`; the code has used `10000` since the knob existed, which is what `docs/RUNBOOK.md` already said. An operator sizing a fleet against the wrong default under-provisions by a factor of ten. The knob also gains a comfort-zone entry and now appears in the chart's commented `[daemon.correlation]` block, which listed the three other keys and silently omitted the one that truncates: pairs scale with finding types times services, so enabling correlation on a seven-service fleet overruns the cap and `/api/correlations` returns an arbitrary subset with nothing on the output saying so. `perf_sentinel_correlator_pairs_evicted_total` is the signal that it is happening.
+
 ### Added
 
 - The live daemon can push findings to PerfSentinelHub through the opt-in `[daemon.hub_export]` exporter. It sends a signature immediately when first discovered or worsened, then at most once per hour while it recurs; pending occurrences are coalesced to their latest value. Requests hold at most 100 findings, retry with bounded exponential backoff and jitter, and cap pending plus recently acknowledged signature memory (10,000 entries each by default) instead of issuing one request per detection. Hub export never blocks trace analysis. `perf_sentinel_hub_export_pending` exposes the current backlog and `perf_sentinel_hub_export_dropped_total` counts invalid or capacity-evicted entries. The API key is read from a mounted file, never from the TOML value itself.
