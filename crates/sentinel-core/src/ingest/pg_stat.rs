@@ -466,28 +466,12 @@ impl PrometheusPgStat {
 
 /// Reject a series name that is not a bare `PromQL` metric name.
 ///
-/// The name lands unencoded in the query string, so anything outside
-/// `[a-zA-Z_:][a-zA-Z0-9_:]*` either breaks the URL (a space, a brace) or
-/// smuggles a second parameter into it (`&`, `#`). Rejecting beats
-/// encoding: a label selector or a whole expression here is a mistake, and
-/// naming it is more useful than a downstream "invalid URL".
+/// Delegates to the shared guard so `pg-stat` and `mysql-stat` cannot drift
+/// on what they accept in a query string.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn validate_series_name(series: &str) -> Result<(), PgStatError> {
-    let head_ok = matches!(
-        series.as_bytes().first(),
-        Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b':')
-    );
-    if head_ok
-        && series
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b':')
-    {
-        return Ok(());
-    }
-    Err(PgStatError::PrometheusRequest(format!(
-        "series name must be a bare PromQL metric name \
-         matching [a-zA-Z_:][a-zA-Z0-9_:]*, got `{series}`"
-    )))
+    crate::ingest::prometheus_scrape::validate_series_name(series)
+        .map_err(PgStatError::PrometheusRequest)
 }
 
 /// Build the `topk` instant query. Only the comma needs encoding: the
@@ -495,7 +479,7 @@ fn validate_series_name(series: &str) -> Result<(), PgStatError> {
 /// [`validate_series_name`] keeps the series inside that same safe set.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn build_prometheus_query(top_n: usize, opts: &PrometheusPgStat) -> String {
-    format!("topk({top_n}%2C%20{})", opts.series)
+    crate::ingest::prometheus_scrape::build_topk_query(top_n, &opts.series)
 }
 
 /// Fetch `pg_stat_statements` data from a Prometheus endpoint.
@@ -523,54 +507,20 @@ pub async fn fetch_from_prometheus(
     auth_header: Option<&str>,
     opts: &PrometheusPgStat,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
-    use crate::ingest::auth_header::AuthHeader;
-
-    // Validate the endpoint URL before issuing the request. Consistent with
-    // the Scaphandre and cloud energy scrapers, we reject malformed URLs,
-    // non-http(s) schemes, and credentials in the authority.
+    // Validate the endpoint and the operator-supplied series before issuing
+    // the request, through the guards `mysql-stat` shares.
     validate_prometheus_endpoint(endpoint)?;
-    // The series is operator-supplied since `--pg-stat-metric`, and it goes
-    // into the query string unencoded.
     validate_series_name(&opts.series)?;
 
-    // Parse the optional auth header once. Reuse the existing
-    // PrometheusRequest variant for the error path, same shape as the
-    // URL parse failure above.
-    let parsed_auth = auth_header
-        .map(AuthHeader::parse)
-        .transpose()
-        .map_err(|msg| PgStatError::PrometheusRequest(format!("invalid auth header: {msg}")))?;
-    if parsed_auth.is_some() && endpoint.starts_with("http://") {
-        tracing::warn!(
-            "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
-        );
-    }
-
-    let client = crate::http_client::build_client();
     let query = build_prometheus_query(top_n, opts);
-    let url = format!("{endpoint}/api/v1/query?query={query}");
-    let uri: crate::http_client::Uri = url
-        .parse()
-        .map_err(|e| PgStatError::PrometheusRequest(format!("invalid URL: {e}")))?;
-
-    let timeout = std::time::Duration::from_secs(30);
-    let body = crate::http_client::fetch_get(
-        &client,
-        &uri,
+    let body = crate::ingest::prometheus_scrape::fetch_instant_query(
+        endpoint,
+        &query,
+        auth_header,
         "perf-sentinel/pg-stat",
-        timeout,
-        parsed_auth.as_ref(),
     )
     .await
-    .map_err(|e| {
-        // Redact the endpoint before surfacing the transport error, so
-        // credentials accidentally embedded in the URL never leak to
-        // stdout/stderr.
-        PgStatError::PrometheusRequest(format!(
-            "{e} (endpoint: {})",
-            crate::http_client::redact_endpoint(&uri)
-        ))
-    })?;
+    .map_err(PgStatError::PrometheusRequest)?;
 
     parse_prometheus_response(&body, opts)
 }
@@ -584,41 +534,8 @@ pub async fn fetch_from_prometheus(
 ///   since credentials must flow via env vars or a `.pgpass`-style file
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn validate_prometheus_endpoint(endpoint: &str) -> Result<(), PgStatError> {
-    if endpoint.bytes().any(|b| b < 0x20 || b == 0x7f) {
-        return Err(PgStatError::PrometheusRequest(
-            "endpoint must not contain ASCII control characters".to_string(),
-        ));
-    }
-    let uri: crate::http_client::Uri = endpoint
-        .parse()
-        .map_err(|e| PgStatError::PrometheusRequest(format!("invalid endpoint URL: {e}")))?;
-
-    match uri.scheme_str() {
-        Some("http" | "https") => {}
-        Some(other) => {
-            return Err(PgStatError::PrometheusRequest(format!(
-                "unsupported scheme `{other}`, only http and https are accepted"
-            )));
-        }
-        None => {
-            return Err(PgStatError::PrometheusRequest(
-                "endpoint URL must include a scheme (http:// or https://)".to_string(),
-            ));
-        }
-    }
-
-    // Check for userinfo. `hyper::Uri::authority()` returns the full
-    // `[user[:pass]@]host[:port]` string; if it contains `@`, credentials
-    // are embedded.
-    if let Some(authority) = uri.authority()
-        && authority.as_str().contains('@')
-    {
-        return Err(PgStatError::PrometheusRequest(
-            "credentials in the URL are not accepted; use env vars instead".to_string(),
-        ));
-    }
-
-    Ok(())
+    crate::ingest::prometheus_scrape::validate_endpoint(endpoint)
+        .map_err(PgStatError::PrometheusRequest)
 }
 
 /// Parse a Prometheus instant query response into `PgStatEntry` structs.
