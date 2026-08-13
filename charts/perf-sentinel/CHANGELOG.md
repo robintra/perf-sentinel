@@ -10,11 +10,11 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
-## [0.11.3]
+## [0.12.0]
 
 ### Changed
 
-- `appVersion` moves to `0.11.3`. Connection and session management statements
+- `appVersion` moves to `0.12.0`. Connection and session management statements
   (`COMMIT`, `SET`, `SELECT set_config(...)`, pool pings) no longer surface as
   `n_plus_one_sql`, `redundant_sql` or links of a `serialized_calls` chain. A
   pooled driver emits one per connection checkout, so a request borrowing N
@@ -23,7 +23,7 @@ the chart version, to know which daemon image ships.
   report fewer findings on identical traffic. Those statements keep counting as
   I/O operations, so `total_io_ops` and the carbon figures hold, but they leave
   `avoidable_io_ops`, which lowers `io_waste_ratio`: re-check the
-  `io_waste_ratio_max` shipped in `values.yaml` (default 0.30) against a 0.11.3
+  `io_waste_ratio_max` shipped in `values.yaml` (default 0.30) against a 0.12.0
   run before relying on the gate verdict, since a threshold calibrated on
   0.11.2 is now looser than intended.
 - The commented `[daemon.correlation]` block in `values.yaml` gains
