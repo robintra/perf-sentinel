@@ -45,7 +45,7 @@ pub(crate) async fn load_mysql_stat_from_prometheus(
     opts: &sentinel_core::ingest::mysql_stat::PrometheusMySqlStat,
     auth_header: Option<&str>,
 ) -> sentinel_core::ingest::mysql_stat::MySqlStatReport {
-    let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
+    let scrape_budget = top_n.max(crate::PROMETHEUS_SCRAPE_FLOOR);
     match sentinel_core::ingest::mysql_stat::fetch_from_prometheus(
         url,
         scrape_budget,
@@ -64,14 +64,6 @@ pub(crate) async fn load_mysql_stat_from_prometheus(
         }
     }
 }
-
-/// Lower bound on the Prometheus scrape size when only a small `--top-n`
-/// is set. `rank_mysql_stat` emits several rankings keyed on different
-/// columns; feeding it only the `top_n` by `seconds_total` (the upstream
-/// `topk` metric) biases the others. Same floor and same reason as the
-/// `pg-stat` path.
-#[cfg(feature = "daemon")]
-const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
 
 /// Run the `mysql-stat` command with prometheus-or-input branching, kept
 /// out of the main dispatch so the match stays flat. Mirrors
@@ -95,7 +87,7 @@ pub(crate) async fn dispatch_mysql_stat(
         let resolved_auth = resolve_mysql_stat_auth_header(auth_header);
         let entries = sentinel_core::ingest::mysql_stat::fetch_from_prometheus(
             prom_endpoint,
-            top_n.max(PROMETHEUS_SCRAPE_FLOOR),
+            top_n.max(crate::PROMETHEUS_SCRAPE_FLOOR),
             resolved_auth.as_deref(),
             opts,
         )
@@ -113,18 +105,31 @@ pub(crate) async fn dispatch_mysql_stat(
     }
     let Some(path) = input else {
         #[cfg(feature = "daemon")]
-        eprintln!("Either --input or --prometheus is required");
+        eprintln!("Error: either --input or --prometheus is required");
         #[cfg(not(feature = "daemon"))]
-        eprintln!("--input is required");
-        std::process::exit(crate::EXIT_TOOLING_ERROR);
+        eprintln!("Error: --input is required");
+        // Exit 2, clap's usage-error code: no source at all is a permanent
+        // invocation mistake, not the tolerable 75 tooling bucket. Same
+        // reasoning as the --pg-stat-top pairing check in `cmd_report`.
+        std::process::exit(2);
     };
     cmd_mysql_stat(path, top_n, traces, config, format);
 }
 
 /// Resolve the auth header from the flag, falling back to the env var so a
-/// token never has to appear in a shell history or a process list.
+/// token never has to appear in a shell history or a process list. Warns on
+/// the flag path for the same reason `pg-stat` does: an argument is visible
+/// in the process list.
 #[cfg(feature = "daemon")]
-fn resolve_mysql_stat_auth_header(flag: Option<String>) -> Option<String> {
+pub(crate) fn resolve_mysql_stat_auth_header(flag: Option<String>) -> Option<String> {
+    if flag.is_some() {
+        tracing::warn!(
+            "mysql-stat auth header supplied via a CLI flag. \
+             Prefer the PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER environment variable \
+             to avoid exposing the credential through the process argument list \
+             or shell history."
+        );
+    }
     flag.or_else(|| std::env::var("PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER").ok())
 }
 

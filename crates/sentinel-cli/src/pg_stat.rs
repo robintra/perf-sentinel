@@ -33,7 +33,7 @@ pub(crate) async fn dispatch_pg_stat(
             prom_endpoint,
             // Same floor as the `report` path: `rank_pg_stat` emits four
             // rankings and only one of them is keyed on the `topk` metric.
-            top_n.max(PROMETHEUS_SCRAPE_FLOOR),
+            top_n.max(crate::PROMETHEUS_SCRAPE_FLOOR),
             resolved_auth.as_deref(),
             opts,
         )
@@ -50,22 +50,16 @@ pub(crate) async fn dispatch_pg_stat(
     }
     let Some(path) = input else {
         #[cfg(feature = "daemon")]
-        eprintln!("Either --input or --prometheus is required");
+        eprintln!("Error: either --input or --prometheus is required");
         #[cfg(not(feature = "daemon"))]
-        eprintln!("--input is required");
-        std::process::exit(crate::EXIT_TOOLING_ERROR);
+        eprintln!("Error: --input is required");
+        // Exit 2, clap's usage-error code: no source at all is a permanent
+        // invocation mistake, not the tolerable 75 tooling bucket. Same
+        // reasoning as the --pg-stat-top pairing check in `cmd_report`.
+        std::process::exit(2);
     };
     cmd_pg_stat(path, top_n, traces, config, format);
 }
-
-/// Lower bound on the Prometheus scrape size when only a small
-/// `--pg-stat-top` is set. `rank_pg_stat` emits four rankings keyed on
-/// different columns; feeding it only the `top_n` by `seconds_total`
-/// (the upstream `topk` metric) biases the three non-time rankings.
-/// Always scrape at least this many rows so the secondary rankings see
-/// the full hot-spot distribution.
-#[cfg(feature = "daemon")]
-const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
 
 /// Ingest a `pg_stat_statements` CSV or JSON file and produce the
 /// ranking report the HTML dashboard embeds. Exits `EXIT_TOOLING_ERROR`
@@ -103,7 +97,7 @@ pub(crate) async fn load_pg_stat_from_prometheus(
     opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     auth_header: Option<&str>,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
-    let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
+    let scrape_budget = top_n.max(crate::PROMETHEUS_SCRAPE_FLOOR);
     match sentinel_core::ingest::pg_stat::fetch_from_prometheus(
         url,
         scrape_budget,
