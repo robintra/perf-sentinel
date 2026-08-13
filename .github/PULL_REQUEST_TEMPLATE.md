@@ -30,8 +30,9 @@ Versioning (release PRs only):
 - [ ] `workspace.package.version` bumped in root `Cargo.toml`
 - [ ] Intra-workspace `perf-sentinel-core = { version = "x.y.z", path = ... }` pin synced in `crates/sentinel-cli/Cargo.toml`
 - [ ] `PERF_SENTINEL_VERSION` synced in `docs/ci-templates/` and the snippets in `docs/CI.md` / `docs/FR/CI-FR.md`
-- [ ] `charts/perf-sentinel/Chart.yaml` (Helm chart) bumped in lockstep
+- [ ] `charts/perf-sentinel/Chart.yaml` (Helm chart) bumped in lockstep: chart `version`, `appVersion`, the `artifacthub.io/images` tag and a new `artifacthub.io/changes` entry, plus the matching `charts/perf-sentinel/CHANGELOG.md` section
 - [ ] `./scripts/check-tag-version.sh vX.Y.Z` passes locally
+- [ ] `./scripts/check-chart-appversion-annotation.sh` and `./scripts/check-chart-version-bumped.sh main` pass locally
 
 ## Related issues
 
