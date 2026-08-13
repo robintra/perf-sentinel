@@ -77,7 +77,21 @@ version: A.B.C        # bump on every chart change
 appVersion: "X.Y.Z"   # tracks the perf-sentinel release
 ```
 
+Three annotations in the same file move with `appVersion`, and only the first one is obvious:
+
+- `artifacthub.io/images`: the `ghcr.io/robintra/perf-sentinel:X.Y.Z` tag. Artifact Hub advertises this image, so a stale tag there points readers at the previous daemon. `scripts/check-chart-appversion-annotation.sh` runs in PR CI and fails the build when it trails `appVersion`.
+- `artifacthub.io/changes`: a new entry per release, describing the change from the operator's point of view.
+- `charts/perf-sentinel/CHANGELOG.md`: the matching section, which `scripts/check-chart-version-bumped.sh` requires.
+
 `scripts/check-chart-version-bumped.sh` runs in PR CI and rejects any chart change without a version bump and a `CHANGELOG.md` entry under `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` validates the chart tag at release time.
+
+The chart checks are all runnable locally, and cheaper than a CI round trip:
+
+```bash
+scripts/check-chart-appversion-annotation.sh
+scripts/check-chart-version-bumped.sh main
+scripts/check-helm-tag-version.sh chart-vA.B.C
+```
 
 **Standalone chart-only fix (lockstep exception):** a chart bug that needs fixing without any binary change (e.g. `values.schema.json` 0.9.16, see `charts/perf-sentinel/CHANGELOG.md`) can be released on its own via a `chart-vA.B.C` tag, which triggers `helm-release.yml` directly with no `v*` app tag and no lab-validation gate. `appVersion` stays on the last released application version, so it temporarily trails the chart `version`. **The next application release must jump `appVersion`/chart `version` forward by the number of chart-only releases taken in the meantime.** One skipped release from 0.9.15 chart-only 0.9.16 means the next app release is 0.9.17, not 0.9.16, so the two numbers land back on the same value instead of staying permanently offset by one.
 

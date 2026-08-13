@@ -77,7 +77,21 @@ version: A.B.C        # à bumper à chaque changement du chart
 appVersion: "X.Y.Z"   # suit la release perf-sentinel
 ```
 
+Trois annotations du même fichier bougent avec `appVersion`, et seule la première saute aux yeux :
+
+- `artifacthub.io/images` : le tag `ghcr.io/robintra/perf-sentinel:X.Y.Z`. Artifact Hub annonce cette image, donc un tag périmé y pointe les lecteurs vers le daemon précédent. `scripts/check-chart-appversion-annotation.sh` tourne dans la CI des PR et fait échouer le build quand il traîne derrière `appVersion`.
+- `artifacthub.io/changes` : une nouvelle entrée par release, décrivant le changement du point de vue de l'opérateur.
+- `charts/perf-sentinel/CHANGELOG.md` : la section correspondante, que `scripts/check-chart-version-bumped.sh` exige.
+
 `scripts/check-chart-version-bumped.sh` tourne dans la CI des PR et rejette tout changement de chart sans bump de version et sans entrée `CHANGELOG.md` sous `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` validera le tag du chart au moment de la release.
+
+Les contrôles du chart sont tous exécutables en local, et moins coûteux qu'un aller-retour CI :
+
+```bash
+scripts/check-chart-appversion-annotation.sh
+scripts/check-chart-version-bumped.sh main
+scripts/check-helm-tag-version.sh chart-vA.B.C
+```
 
 **Fix chart-only isolé (exception au lockstep) :** un bug du chart qui doit être corrigé sans aucun changement du binaire (par exemple `values.schema.json` 0.9.16, voir `charts/perf-sentinel/CHANGELOG.md`) peut être releasé seul via un tag `chart-vA.B.C`, qui déclenche directement `helm-release.yml`, sans tag d'application `v*` et sans gate de validation lab. `appVersion` reste sur la dernière version applicative publiée, donc il traîne temporairement derrière le `version` du chart. **La prochaine release applicative doit faire avancer `appVersion`/`version` du chart du nombre de releases chart-only prises entre-temps.** Une release sautée de 0.9.15 vers un chart-only 0.9.16 veut dire que la prochaine release applicative est en 0.9.17, pas 0.9.16, pour que les deux numéros retombent sur la même valeur au lieu de rester décalés en permanence.
 
