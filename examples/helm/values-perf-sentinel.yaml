@@ -50,10 +50,16 @@ config:
 
     # Cross-trace correlation is useful for long-running POCs where a
     # recurring pattern emerges over several minutes. Turn off in CI.
+    # Pairs are keyed by (finding type, service, template, grouping), so a
+    # handful of services overruns the 10000 default and the correlator
+    # recycles pairs: what /api/correlations then returns is an arbitrary
+    # subset, with nothing on the output saying so. Watch
+    # perf_sentinel_correlator_pairs_evicted_total and raise this to match.
     [daemon.correlation]
     enabled = true
     window_minutes = 10
     lag_threshold_ms = 2000
+    max_tracked_pairs = 10000
 
   # No energy backend here on purpose. Without one the carbon figures come
   # from the embedded model, which needs no scraper and no extra service.

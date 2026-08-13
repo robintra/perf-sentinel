@@ -257,6 +257,12 @@ window_minutes = 10        # default 10, in MINUTES here
 lag_threshold_ms = 5000    # default 5000, max lag between two events
 min_co_occurrences = 5     # default 5, pairs seen fewer times are dropped
 min_confidence = 0.7       # default 0.7, below this a pair is not reported
+# Pairs are keyed by (finding type, service, template, grouping), so the
+# count grows with the topology, not with traffic: a handful of services
+# overruns this default. Past the cap the correlator recycles pairs and
+# /api/correlations returns an arbitrary subset, with no marker on the
+# output. perf_sentinel_correlator_pairs_evicted_total is the signal, and
+# the daemon logs a warning the first time it evicts.
 max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 
 # --- What your deployment topology changes ---------------------------------
