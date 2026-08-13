@@ -24,7 +24,7 @@ use super::{
 };
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct RawConfig {
     thresholds: ThresholdsSection,
     detection: DetectionSection,
@@ -34,7 +34,7 @@ pub(super) struct RawConfig {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct ReportingSection {
     intent: Option<String>,
     confidentiality_level: Option<String>,
@@ -45,14 +45,14 @@ struct ReportingSection {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct SigstoreSection {
     rekor_url: Option<String>,
     fulcio_url: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct ArchiveSection {
     path: Option<String>,
     max_size_mb: Option<u64>,
@@ -60,7 +60,7 @@ struct ArchiveSection {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 #[allow(clippy::struct_field_names)] // fields like `n_plus_one_sql_critical_max` repeat the struct context but match the TOML keys
 struct ThresholdsSection {
     n_plus_one_sql_critical_max: Option<u32>,
@@ -71,7 +71,7 @@ struct ThresholdsSection {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DetectionSection {
     window_duration_ms: Option<u64>,
     n_plus_one_min_occurrences: Option<u32>,
@@ -86,7 +86,7 @@ struct DetectionSection {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct GreenSection {
     enabled: Option<bool>,
     default_region: Option<String>,
@@ -113,7 +113,7 @@ pub(super) struct GreenSection {
 /// when `endpoint` is set: an empty table (no fields) leaves
 /// `Config::green.scaphandre = None`.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct ScaphandreSection {
     pub(super) endpoint: Option<String>,
     pub(super) scrape_interval_secs: Option<u64>,
@@ -127,7 +127,7 @@ pub(super) struct ScaphandreSection {
 /// `endpoint` is set. The optional `metric_kind` string accepts
 /// `"container"` (default) or `"process"`.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct KeplerSection {
     pub(super) endpoint: Option<String>,
     pub(super) scrape_interval_secs: Option<u64>,
@@ -199,7 +199,7 @@ pub(super) struct RedfishSection {
 /// Converted to a `CloudEnergyConfig` during `RawConfig -> Config` only
 /// when `prometheus_endpoint` is set.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct CloudSection {
     pub(super) prometheus_endpoint: Option<String>,
     pub(super) scrape_interval_secs: Option<u64>,
@@ -216,7 +216,7 @@ pub(super) struct CloudSection {
 /// - Instance type: `{ provider = "aws", instance_type = "m5.large" }`
 /// - Manual watts: `{ idle_watts = 45, max_watts = 120 }`
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct CloudServiceRaw {
     provider: Option<String>,
     instance_type: Option<String>,
@@ -230,7 +230,7 @@ pub(super) struct CloudServiceRaw {
 /// Converted to an `ElectricityMapsConfig` during `RawConfig -> Config`
 /// only when `api_key` is set (directly or via env var).
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct ElectricityMapsSection {
     pub(super) api_key: Option<String>,
     pub(super) endpoint: Option<String>,
@@ -241,7 +241,7 @@ pub(super) struct ElectricityMapsSection {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(super) struct DaemonSection {
     listen_address: Option<String>,
     listen_port_http: Option<u16>,
@@ -285,7 +285,7 @@ struct HubExportSection {
 
 /// Raw deserialization target for `[daemon.correlation]`.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct CorrelationSection {
     enabled: Option<bool>,
     window_minutes: Option<u64>,
@@ -297,7 +297,7 @@ struct CorrelationSection {
 
 /// Raw deserialization target for `[daemon.ack]`.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DaemonAckSection {
     enabled: Option<bool>,
     storage_path: Option<String>,
@@ -307,7 +307,7 @@ struct DaemonAckSection {
 
 /// Raw deserialization target for `[daemon.cors]`.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct DaemonCorsSection {
     allowed_origins: Vec<String>,
 }
