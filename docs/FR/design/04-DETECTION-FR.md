@@ -25,6 +25,7 @@ Pour une trace avec 50 spans, chacun ayant un template de 40 caractères, les cl
 
 ### Algorithme
 
+0. Ignorer les spans SQL dont le template est une commande de session (`normalize::sql::is_session_command`)
 1. Grouper les spans par `(&EventType, &str template)`
 2. Ignorer les groupes avec moins de `threshold` occurrences (défaut 5)
 3. Compter les **jeux de paramètres distincts** via `HashSet<&[String]>`
@@ -152,6 +153,10 @@ HashMap<(&EventType, &str, &[String]), Vec<usize>>
 La clé en trois parties inclut le slice complet des paramètres, garantissant que deux spans avec le même template mais des paramètres différents sont dans des groupes différents. C'est le comportement correct : la détection redondante signale les **doublons exacts** (même template ET mêmes paramètres).
 
 L'utilisation de `&[String]` au lieu de joindre les paramètres en une seule chaîne prévient un bug subtil de collision : `["a,b"]` (un paramètre contenant une virgule) et `["a", "b"]` (deux paramètres) produiraient la même clé jointe `"a,b"` mais sont des jeux de paramètres sémantiquement différents.
+
+### Commandes de session
+
+Comme pour la détection N+1, le regroupement ignore les spans SQL dont le template est une commande de session. Un driver poolé en émet une par acquisition de connexion : une requête qui en emprunte N remonterait N doublons exacts qu'aucun cache ne peut dédupliquer. Ces statements restent comptés dans `total_io_ops` mais sortent de `avoidable_io_ops`, qui est dérivé des findings : `io_waste_ratio` baisse donc, et un seuil `io_waste_ratio_max` calibré sur une version antérieure devient plus permissif.
 
 ### Sévérité
 

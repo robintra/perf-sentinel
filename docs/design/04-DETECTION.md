@@ -25,6 +25,7 @@ For a trace with 50 spans, each having a 40-character template string, borrowed 
 
 ### Algorithm
 
+0. Skip SQL spans whose template is a session command (`normalize::sql::is_session_command`)
 1. Group spans by `(&EventType, &str template)`
 2. Skip groups with fewer than `threshold` occurrences (default 5)
 3. Count **distinct parameter sets** via `HashSet<&[String]>`
@@ -152,6 +153,10 @@ HashMap<(&EventType, &str, &[String]), Vec<usize>>
 The three-part key includes the full params slice, ensuring that two spans with the same template but different params are in different groups. This is the correct behavior: redundant detection flags **exact duplicates** (same template AND same params).
 
 The use of `&[String]` instead of joining params into a single string prevents a subtle collision bug: `["a,b"]` (one param containing a comma) and `["a", "b"]` (two params) would produce the same joined key `"a,b"` but are semantically different parameter sets.
+
+### Session commands
+
+Like N+1 detection, grouping skips SQL spans whose template is a session command. A pooled driver emits one per connection checkout, so a request borrowing N connections would report N exact duplicates that no cache can deduplicate. These statements stay in `total_io_ops` but leave `avoidable_io_ops`, which is derived from findings: `io_waste_ratio` therefore falls, and an `io_waste_ratio_max` calibrated on an earlier version becomes looser.
 
 ### Severity
 
