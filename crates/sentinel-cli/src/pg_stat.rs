@@ -20,6 +20,7 @@ pub(crate) async fn dispatch_pg_stat(
     input: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] prometheus: Option<&str>,
     #[cfg(feature = "daemon")] auth_header: Option<String>,
+    #[cfg(feature = "daemon")] opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     top_n: usize,
     traces: Option<&std::path::Path>,
     config: Option<&std::path::Path>,
@@ -30,9 +31,11 @@ pub(crate) async fn dispatch_pg_stat(
         let resolved_auth = resolve_pg_stat_auth_header(auth_header);
         let entries = sentinel_core::ingest::pg_stat::fetch_from_prometheus(
             prom_endpoint,
-            top_n,
+            // Same floor as the `report` path: `rank_pg_stat` emits four
+            // rankings and only one of them is keyed on the `topk` metric.
+            top_n.max(PROMETHEUS_SCRAPE_FLOOR),
             resolved_auth.as_deref(),
-            &sentinel_core::ingest::pg_stat::PrometheusPgStat::default(),
+            opts,
         )
         .await
         .unwrap_or_else(|e| {
