@@ -33,8 +33,10 @@ Non-TOML files in the directory are ignored.
 
 When both values are tables, they merge recursively. Any other later value
 replaces the earlier value at the same key. The final merged document must
-still match the typed configuration schema. The examples use these reserved
-bands:
+still match the typed configuration schema. Since 0.12.0 that schema is
+strict: a key or a table name no section declares fails the load instead of
+being ignored, so a misspelled knob stops the command rather than silently
+leaving the default in place. The examples use these reserved bands:
 
 | Priority     | Purpose                                                 |
 |--------------|---------------------------------------------------------|
@@ -569,7 +571,7 @@ calibration_file = ".perf-sentinel-calibration.toml"
 
 #### `perf-sentinel tempo` (no config section)
 
-The `tempo` subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. Its own settings are CLI flags only, there is no `[tempo]` section: `--endpoint` is required, `--max-traces` defaults to `100`, alongside `--trace-id`, `--service`, `--lookback` and `--auth-header`. Run `perf-sentinel tempo --help` for the current list. A `[tempo]` table written into the config file is ignored in silence, as any unknown top-level table is. The `--config` file still applies for everything else, thresholds and detection in particular, since the fetched traces go through the same pipeline.
+The `tempo` subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. Its own settings are CLI flags only, there is no `[tempo]` section: `--endpoint` is required, `--max-traces` defaults to `100`, alongside `--trace-id`, `--service`, `--lookback` and `--auth-header`. Run `perf-sentinel tempo --help` for the current list. A `[tempo]` table written into the config file fails the load since 0.12.0, as any unknown top-level table does. The `--config` file still applies for everything else, thresholds and detection in particular, since the fetched traces go through the same pipeline.
 
 ### `[daemon]`
 
