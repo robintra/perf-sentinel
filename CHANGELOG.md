@@ -4,13 +4,14 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-13
+
 ### BREAKING CHANGES
 
 **An unknown key in `.perf-sentinel.toml` now fails the load instead of being ignored.** Sixteen of the twenty-two config structures accepted anything serde did not recognize, silently. A deployment that wrote `cpu_metrik`, `max_tracked_pairz` or `max_retaind_findings` read its own file, saw the knob it meant to set, and ran on the default: the misconfiguration was invisible in the file, in the logs and on `/metrics`. `[thresholds]`, `[detection]`, `[green]`, `[daemon]`, `[daemon.correlation]`, `[daemon.ack]`, `[daemon.cors]`, `[reporting]` and every energy-backend section were in that set, which is to say every section a deployment actually edits. They now carry `deny_unknown_fields`, so the load fails with serde's own message, which names the offending key and lists the valid ones beside it.
 
 Migration: a config carrying a stale or misspelled key now stops the daemon at startup instead of running degraded. Load it once with `perf-sentinel analyze --config <file>` before rolling it out, the error names the key. Keys removed in 0.6.0 keep their dedicated migration message, that scan runs before serde and is unaffected.
 
-## [0.11.3] - 2026-08-13
 
 ### Docs
 
