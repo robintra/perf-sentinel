@@ -332,6 +332,7 @@ Pool saturation findings have `green_impact.estimated_extra_io_ops = 0`. High co
 
 ### Algorithm
 
+0. Drop SQL siblings whose template is a session command: a `COMMIT` cannot move off the chain, and counting it inflates both the link count and the sequential total
 1. Group sibling spans by `parent_span_id`
 2. For each parent group, sort children by **end time** (ascending)
 3. Find the longest non-overlapping subsequence via dynamic programming (Weighted Interval Scheduling with unit weights)

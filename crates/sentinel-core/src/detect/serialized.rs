@@ -8,6 +8,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
+use crate::event::EventType;
+use crate::normalize::sql;
 
 use super::n_plus_one::parse_timestamp_ms;
 use super::{Confidence, Finding, FindingType, Pattern, Severity, TraceIndices};
@@ -116,6 +118,11 @@ fn timed_children<'a>(trace: &'a Trace, child_indices: &[usize]) -> Vec<TimedSpa
     let mut timed: Vec<TimedSpan<'a>> = Vec::with_capacity(child_indices.len());
     for &idx in child_indices {
         let span = &trace.spans[idx];
+        // Not parallelizable work: a COMMIT cannot move off the chain, and
+        // counting it inflates both the link count and the sequential total.
+        if span.event.event_type == EventType::Sql && sql::is_session_command(&span.template) {
+            continue;
+        }
         if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
             let start_us = start_ms.saturating_mul(1000);
             timed.push(TimedSpan {
@@ -415,6 +422,55 @@ mod tests {
         assert_eq!(findings[0].finding_type, FindingType::SerializedCalls);
         assert_eq!(findings[0].severity, Severity::Info);
         assert_eq!(findings[0].pattern.occurrences, 4);
+    }
+
+    #[test]
+    fn session_commands_are_not_links_of_a_serialized_chain() {
+        let mut events = Vec::new();
+        let mut root = make_http_event_with_duration(
+            "trace-1",
+            "root",
+            "http://gateway/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            1_000_000,
+        );
+        root.parent_span_id = None;
+        events.push(root);
+
+        // BEGIN -> three independent reads -> COMMIT, strictly sequential.
+        let chain = [
+            "BEGIN",
+            "SELECT id FROM order_item WHERE order_id = 1",
+            "SELECT name FROM customer WHERE id = 2",
+            "SELECT total FROM invoice WHERE order_id = 3",
+            "COMMIT",
+        ];
+        for (i, statement) in chain.iter().enumerate() {
+            let mut child = make_sql_event_with_duration(
+                "trace-1",
+                &format!("child-{i}"),
+                statement,
+                &format!("2025-07-10T14:32:01.{:03}Z", 100 + i * 120),
+                100_000,
+            );
+            child.parent_span_id = Some("root".to_string());
+            events.push(child);
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
+
+        // The three reads are genuinely serialized and must still be reported.
+        assert_eq!(findings.len(), 1, "the real chain is still a finding");
+        assert_eq!(
+            findings[0].pattern.occurrences, 3,
+            "only the three reads count as links"
+        );
+        assert!(
+            !findings[0].suggestion.contains("BEGIN") && !findings[0].suggestion.contains("COMMIT"),
+            "no advice to parallelize transaction control: {}",
+            findings[0].suggestion
+        );
     }
 
     #[test]
