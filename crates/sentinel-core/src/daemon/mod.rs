@@ -436,6 +436,15 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     )
     .await;
 
+    // Drain the Hub exporter before the archive, for the same reason the
+    // archive is drained at all: what the loop produced but has not shipped
+    // is still owed to a consumer. The exporter goes first because its
+    // budget is the one that can expire, and the archive is a local write
+    // that will not.
+    if let Some(mut exporter) = hub_export {
+        exporter.shutdown().await;
+    }
+
     if let Some(handle) = archive_handle {
         drop(handle.tx);
         let _ = handle.join.await;

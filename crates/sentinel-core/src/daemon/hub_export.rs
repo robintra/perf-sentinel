@@ -68,7 +68,17 @@ pub(super) struct HubExportBuffer {
 pub(super) struct HubExporter {
     buffer: Arc<HubExportBuffer>,
     handle: tokio::task::JoinHandle<()>,
+    shutdown: Arc<tokio::sync::Notify>,
 }
+
+/// How long a graceful shutdown waits for the exporter to flush what it
+/// still holds.
+///
+/// Bounded on purpose: an unreachable Hub must not hold the daemon past
+/// the orchestrator's grace period, where the next signal is SIGKILL and
+/// nothing gets flushed at all. Ten seconds is one full request timeout
+/// plus room for the retry the flush may need.
+const SHUTDOWN_DRAIN_BUDGET: Duration = Duration::from_secs(10);
 
 impl HubExporter {
     pub(super) fn spawn(
@@ -102,8 +112,10 @@ impl HubExporter {
             .parse::<http_client::Uri>()
             .map_err(|_| super::DaemonError::HubExportEndpoint)?;
         let buffer = Arc::new(HubExportBuffer::new(config.max_pending));
+        let shutdown = Arc::new(tokio::sync::Notify::new());
         let handle = tokio::spawn(run_exporter(
             buffer.clone(),
+            shutdown.clone(),
             metrics,
             uri,
             api_key,
@@ -114,11 +126,41 @@ impl HubExporter {
                 store: ack_store,
             },
         ));
-        Ok(Some(Self { buffer, handle }))
+        Ok(Some(Self {
+            buffer,
+            handle,
+            shutdown,
+        }))
     }
 
     pub(super) fn buffer(&self) -> Arc<HubExportBuffer> {
         self.buffer.clone()
+    }
+
+    /// Flush what the exporter still holds, then stop it.
+    ///
+    /// Without this the task was aborted on drop and every pending
+    /// signature died with it, so a rolling upgrade lost each finding
+    /// discovered since the last flush. Mirrors how the archive writer is
+    /// drained, with a budget on top because the Hub is a remote the
+    /// archive is not: the wait ends either when the buffer empties or
+    /// when `SHUTDOWN_DRAIN_BUDGET` runs out, and the `Drop` below still
+    /// aborts whatever is left.
+    pub(super) async fn shutdown(&mut self) {
+        let pending = self.buffer.len();
+        self.shutdown.notify_one();
+        if tokio::time::timeout(SHUTDOWN_DRAIN_BUDGET, &mut self.handle)
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                pending = self.buffer.len(),
+                budget_secs = SHUTDOWN_DRAIN_BUDGET.as_secs(),
+                "Hub export drain timed out, the findings still pending are dropped"
+            );
+        } else if pending > 0 {
+            tracing::info!(pending, "Hub export drained before shutdown");
+        }
     }
 }
 
@@ -355,8 +397,10 @@ enum ExportOutcome {
     Retry(String),
 }
 
+#[allow(clippy::too_many_arguments)] // one task, every dependency injected for the tests
 async fn run_exporter(
     buffer: Arc<HubExportBuffer>,
+    shutdown: Arc<tokio::sync::Notify>,
     metrics: Arc<MetricsState>,
     uri: http_client::Uri,
     api_key: String,
@@ -367,10 +411,27 @@ async fn run_exporter(
     let client = http_client::build_client_with_body();
     let mut delay = flush_interval;
     let mut failures = 0_u32;
+    // Once shutdown fires the loop stops waiting for the next interval and
+    // flushes until the buffer empties. It never returns on a full buffer
+    // it cannot send: `HubExporter::shutdown` owns the time budget and
+    // aborts, so the retry policy stays the same on both paths.
+    let mut draining = false;
     loop {
-        tokio::time::sleep(delay).await;
+        if draining {
+            // Still yield between attempts, otherwise an unreachable Hub
+            // turns the drain budget into a spin.
+            tokio::time::sleep(delay.min(Duration::from_millis(250))).await;
+        } else {
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                () = shutdown.notified() => draining = true,
+            }
+        }
         let mut batch = buffer.snapshot(batch_size);
         if batch.is_empty() {
+            if draining {
+                return;
+            }
             delay = flush_interval;
             continue;
         }
@@ -830,6 +891,78 @@ mod tests {
         assert!(matches!(classify(StatusCode::OK), ExportOutcome::Accepted));
         // Advisory backpressure stays near the Hub's own Retry-After.
         assert!(retry_delay(BUSY_FAILURE_CAP, 40) <= Duration::from_secs(6));
+    }
+
+    /// The exporter used to sit in `sleep(flush_interval)` with no way out,
+    /// so shutdown could only `abort()` it and drop the buffer. With an hour
+    /// between flushes, a task that still honours the interval fails this
+    /// test by timing out.
+    #[tokio::test]
+    async fn shutdown_stops_the_exporter_instead_of_waiting_for_the_next_flush() {
+        let buffer = Arc::new(HubExportBuffer::new(10));
+        let shutdown = Arc::new(tokio::sync::Notify::new());
+        let handle = tokio::spawn(run_exporter(
+            buffer,
+            shutdown.clone(),
+            Arc::new(MetricsState::new()),
+            "http://127.0.0.1:1/api/import/findings"
+                .parse::<http_client::Uri>()
+                .expect("static uri"),
+            "k".repeat(32),
+            100,
+            Duration::from_hours(1),
+            acks(None),
+        ));
+
+        // Let the task reach its wait before signalling, so the test covers
+        // the select! arm rather than a notify that lands first.
+        tokio::task::yield_now().await;
+        shutdown.notify_one();
+
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("shutdown must end the exporter well inside its flush interval")
+            .expect("exporter task panicked");
+    }
+
+    /// A pending buffer the Hub cannot accept must not turn the drain into
+    /// an unbounded wait: `HubExporter::shutdown` owns the budget, and the
+    /// loop only has to keep yielding until it expires.
+    #[tokio::test]
+    async fn a_drain_against_an_unreachable_hub_still_yields() {
+        let buffer = Arc::new(HubExportBuffer::new(10));
+        buffer.push_batch(&[finding("a", "trace")], 1);
+        let shutdown = Arc::new(tokio::sync::Notify::new());
+        let handle = tokio::spawn(run_exporter(
+            buffer.clone(),
+            shutdown.clone(),
+            Arc::new(MetricsState::new()),
+            "http://127.0.0.1:1/api/import/findings"
+                .parse::<http_client::Uri>()
+                .expect("static uri"),
+            "k".repeat(32),
+            100,
+            Duration::from_hours(1),
+            acks(None),
+        ));
+
+        tokio::task::yield_now().await;
+        shutdown.notify_one();
+
+        // The connection is refused, so the entry stays pending and the task
+        // keeps retrying. What matters is that it retries rather than
+        // spinning or exiting silently, and that the caller can abort it.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(600), handle)
+                .await
+                .is_err(),
+            "an undeliverable batch must keep the drain alive for its budget"
+        );
+        assert_eq!(
+            1,
+            buffer.len(),
+            "nothing was acknowledged, so nothing is lost"
+        );
     }
 
     fn acks(acked_signature: Option<&str>) -> AckSources {
