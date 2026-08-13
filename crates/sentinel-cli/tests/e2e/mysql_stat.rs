@@ -142,3 +142,97 @@ fn cli_mysql_stat_malformed_input_exits_tooling_error() {
         "malformed input must exit EXIT_TOOLING_ERROR (75), not 1"
     );
 }
+
+// ── Prometheus scrape surface ──────────────────────────────────────
+//
+// The scrape itself needs a live Prometheus, so these cover what can be
+// asserted without one: the flag wiring, the pairing rules clap enforces,
+// and the exit-code contract. A `requires` id typo or a flipped argument
+// order would otherwise ship green.
+
+#[test]
+fn cli_mysql_stat_without_any_source_exits_usage_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["mysql-stat"])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--input"),
+        "stderr should name the missing flag, got: {stderr}"
+    );
+    // A permanent invocation mistake is a usage error, never the tolerable
+    // 75 bucket a pipeline may ignore. See docs/CI.md "Exit codes".
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "no source at all must exit 2, not EXIT_TOOLING_ERROR"
+    );
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_mysql_stat_series_flags_require_the_prometheus_endpoint() {
+    for flag in ["--metric", "--query-label"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+            .args(["mysql-stat", "--input", "unused.csv", flag, "whatever"])
+            .env("RUST_LOG", "error")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to execute perf-sentinel");
+
+        assert!(!output.status.success(), "{flag} alone must be rejected");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("--prometheus"),
+            "{flag} should point at its companion flag, got: {stderr}"
+        );
+    }
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_mysql_stat_rejects_a_series_name_that_escapes_the_query_string() {
+    // Rejected before any request leaves the process, so an unreachable
+    // endpoint is fine here: reaching the network would itself be the bug.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "mysql-stat",
+            "--prometheus",
+            "http://127.0.0.1:1",
+            "--metric",
+            "mysql&admin=1",
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("bare PromQL metric name"),
+        "stderr should name the grammar it violates, got: {stderr}"
+    );
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_mysql_stat_help_lists_the_prometheus_flags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["mysql-stat", "--help"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    let help = String::from_utf8_lossy(&output.stdout);
+    for flag in ["--prometheus", "--auth-header", "--metric", "--query-label"] {
+        assert!(help.contains(flag), "mysql-stat --help should list {flag}");
+    }
+}
