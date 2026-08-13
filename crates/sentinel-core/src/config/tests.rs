@@ -119,6 +119,55 @@ fn fragment_legacy_key_error_names_its_source_file() {
 }
 
 #[test]
+fn a_misspelled_key_is_rejected_in_every_section() {
+    // Silent acceptance is worse than a startup failure: the operator reads
+    // their own file, sees the knob they meant to set, and runs on the
+    // default. Every section a deployment edits is covered here.
+    for (label, toml) in [
+        ("[thresholds]", "[thresholds]\nio_waste_ratio_maxx = 0.5\n"),
+        (
+            "[detection]",
+            "[detection]\nn_plus_one_min_occurences = 5\n",
+        ),
+        ("[green]", "[green]\nenbled = true\n"),
+        (
+            "[green.cloud]",
+            "[green.cloud]\nprometheus_endpoint = \"http://p:9090\"\ncpu_metrik = \"up\"\n",
+        ),
+        ("[daemon]", "[daemon]\nmax_retaind_findings = 500\n"),
+        (
+            "[daemon.correlation]",
+            "[daemon.correlation]\nenabled = true\nmax_tracked_pairz = 5000\n",
+        ),
+        ("[daemon.ack]", "[daemon.ack]\nenabld = true\n"),
+        (
+            "[daemon.cors]",
+            "[daemon.cors]\nallowed_origin = [\"http://x\"]\n",
+        ),
+        ("[reporting]", "[reporting]\nintnt = \"official\"\n"),
+        ("top level", "n_plus_one_treshold = 5\n"),
+    ] {
+        assert!(
+            load_from_str(toml).is_err(),
+            "{label}: a misspelled key must fail the load, not fall back to the default"
+        );
+    }
+}
+
+#[test]
+fn the_legacy_key_message_survives_strict_parsing() {
+    // Rejecting unknown keys must not swallow the migration hint: the
+    // legacy scan runs before serde and owns these names.
+    let err = load_from_str("listen_port = 4318\n").expect_err("legacy key must be rejected");
+    let msg = err.to_string();
+    assert!(msg.contains("listen_port"), "{msg}");
+    assert!(
+        msg.contains("0.6.0"),
+        "the migration path must survive: {msg}"
+    );
+}
+
+#[test]
 fn every_example_config_loads() {
     // The Redfish and Scaphandre snippets shipped for months in a shape the
     // parser rejects, because nothing ever fed an example file back through
