@@ -719,6 +719,15 @@ fusionné et déclenche un retry avec backoff exponentiel et jitter ; un
 redémarrage efface les deux caches. Requêtes et corps JSON sont bornés à 100
 findings et 2 Mio. Utilisez HTTPS hors réseau privé de confiance.
 
+À l'arrêt propre (SIGTERM, `helm upgrade`, redémarrage progressif), l'exporteur
+vide ce qu'il détient encore avant que le processus ne se termine, pendant au
+plus 10 secondes. Ce budget est délibéré : un Hub injoignable ne doit pas
+retenir le daemon au-delà du délai de grâce de l'orchestrateur, où le signal
+suivant est SIGKILL et où plus rien n'est transmis. Quand le budget expire, les
+findings encore en attente sont perdus et un `WARN` en donne le nombre.
+Dimensionnez `terminationGracePeriodSeconds` au-dessus de ce budget pour que le
+drain ait la place de s'exécuter, sinon le pod est tué en plein envoi.
+
 Montez la clé API depuis un fichier adossé à un Secret. Ne la mettez ni dans
 une ConfigMap ni dans `.perf-sentinel.toml`. Avec le chart Helm, utilisez
 `extraVolumes` et `extraVolumeMounts` pour exposer la clé au chemin
