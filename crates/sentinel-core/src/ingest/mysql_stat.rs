@@ -87,6 +87,10 @@ pub enum MySqlStatError {
     MissingColumn(String),
     #[error("empty input")]
     EmptyInput,
+    #[error("Prometheus request failed: {0}")]
+    PrometheusRequest(String),
+    #[error("Prometheus response format error: {0}")]
+    PrometheusFormat(String),
 }
 
 /// Raw JSON entry matching common digest export shapes: raw
@@ -466,6 +470,207 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
     }
 
     Ok(entries)
+}
+
+// ── Prometheus scrape path ─────────────────────────────────────────
+
+/// Which series and label carry the Performance Schema digests on a given
+/// Prometheus.
+///
+/// The defaults match `mysqld_exporter`'s `perf_schema.eventsstatements`
+/// collector, which is not enabled by default: it needs
+/// `--collect.perf_schema.eventsstatements` on the exporter. A deployment
+/// scraping through a recording rule or a hand-written exporter names its
+/// own series, so neither name is ours to assume.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[derive(Debug, Clone)]
+pub struct PrometheusMySqlStat {
+    /// Series ranked by `topk`, holding the cumulated execution time in seconds.
+    pub series: String,
+    /// Label carrying the statement digest text. Falls back to `digest` when
+    /// absent, which leaves the report with opaque hashes rather than SQL.
+    pub query_label: String,
+}
+
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+impl Default for PrometheusMySqlStat {
+    fn default() -> Self {
+        Self {
+            series: "mysql_perf_schema_events_statements_seconds_total".to_string(),
+            query_label: "digest_text".to_string(),
+        }
+    }
+}
+
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+impl PrometheusMySqlStat {
+    /// Apply the overrides an operator supplied, keeping the defaults for the
+    /// rest. Lives here so the CLI entry points never restate the defaults.
+    #[must_use]
+    pub fn with_overrides(series: Option<String>, query_label: Option<String>) -> Self {
+        let d = Self::default();
+        Self {
+            series: series.unwrap_or(d.series),
+            query_label: query_label.unwrap_or(d.query_label),
+        }
+    }
+}
+
+/// Fetch Performance Schema digests from a Prometheus endpoint.
+///
+/// Queries the Prometheus HTTP API for the series named by `opts`, converts
+/// the result to [`MySqlStatEntry`] structs, and normalizes SQL templates.
+///
+/// The exporter publishes cumulated seconds and no call count, so `calls`
+/// stays `0` and the mean is left equal to the total rather than invented.
+/// A file export carries `COUNT_STAR` and is the richer input of the two.
+///
+/// # Errors
+///
+/// Returns [`MySqlStatError::PrometheusRequest`] on transport errors, an
+/// invalid endpoint, an invalid series name or an invalid auth header, and
+/// [`MySqlStatError::PrometheusFormat`] if the response cannot be parsed.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+pub async fn fetch_from_prometheus(
+    endpoint: &str,
+    top_n: usize,
+    auth_header: Option<&str>,
+    opts: &PrometheusMySqlStat,
+) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
+    use crate::ingest::prometheus_scrape as scrape;
+
+    scrape::validate_endpoint(endpoint).map_err(MySqlStatError::PrometheusRequest)?;
+    scrape::validate_series_name(&opts.series).map_err(MySqlStatError::PrometheusRequest)?;
+
+    let query = scrape::build_topk_query(top_n, &opts.series);
+    let body =
+        scrape::fetch_instant_query(endpoint, &query, auth_header, "perf-sentinel/mysql-stat")
+            .await
+            .map_err(MySqlStatError::PrometheusRequest)?;
+
+    parse_prometheus_response(&body, opts)
+}
+
+/// Parse a Prometheus instant query response into `MySqlStatEntry` structs.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+fn parse_prometheus_response(
+    body: &[u8],
+    opts: &PrometheusMySqlStat,
+) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
+    use crate::ingest::prometheus_scrape as scrape;
+
+    let results = scrape::instant_query_results(body).map_err(MySqlStatError::PrometheusFormat)?;
+
+    let mut entries = Vec::with_capacity(results.len());
+    for result in &results {
+        let metric = result.get("metric").unwrap_or(&serde_json::Value::Null);
+        // `digest` is the fallback for the same reason `queryid` is on the
+        // PostgreSQL side: an opaque identifier still groups, where "unknown"
+        // would collapse every row into one.
+        let query_text = metric
+            .get(opts.query_label.as_str())
+            .or_else(|| metric.get("digest"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let schema_name = metric
+            .get("schema")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        let total_exec_time_ms = scrape::sample_value(result) * 1000.0;
+        let normalized = normalize_sql(&query_text);
+
+        entries.push(MySqlStatEntry {
+            query: query_text,
+            normalized_template: normalized.template,
+            schema_name,
+            calls: 0,
+            total_exec_time_ms,
+            mean_exec_time_ms: total_exec_time_ms,
+            rows_sent: 0,
+            rows_examined: 0,
+            seen_in_traces: false,
+        });
+    }
+
+    Ok(entries)
+}
+
+#[cfg(all(test, any(feature = "daemon", feature = "tempo")))]
+mod prometheus_tests {
+    use super::{PrometheusMySqlStat, parse_prometheus_response};
+
+    fn body(label: &str) -> Vec<u8> {
+        format!(
+            r#"{{"data":{{"result":[
+                {{"metric":{{"schema":"shop","digest":"a1b2","{label}":"SELECT * FROM orders WHERE id = ?"}},
+                 "value":[1,"2.5"]}}
+            ]}}}}"#
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn defaults_match_the_mysqld_exporter_collector() {
+        let d = PrometheusMySqlStat::default();
+        assert_eq!(
+            "mysql_perf_schema_events_statements_seconds_total",
+            d.series
+        );
+        assert_eq!("digest_text", d.query_label);
+    }
+
+    #[test]
+    fn seconds_become_milliseconds_and_the_schema_label_is_kept() {
+        let entries =
+            parse_prometheus_response(&body("digest_text"), &PrometheusMySqlStat::default())
+                .expect("well-formed response");
+        assert_eq!(1, entries.len());
+        assert!((entries[0].total_exec_time_ms - 2500.0).abs() < f64::EPSILON);
+        assert_eq!(Some("shop".to_string()), entries[0].schema_name);
+        assert_eq!("SELECT * FROM orders WHERE id = ?", entries[0].query);
+    }
+
+    #[test]
+    fn query_label_is_overridable() {
+        // A recording rule or a hand-written exporter names its own label,
+        // so the digest text is not always under `digest_text`.
+        let opts = PrometheusMySqlStat::with_overrides(None, Some("statement".to_string()));
+        let entries =
+            parse_prometheus_response(&body("statement"), &opts).expect("well-formed response");
+        assert_eq!("SELECT * FROM orders WHERE id = ?", entries[0].query);
+    }
+
+    #[test]
+    fn a_missing_label_falls_back_to_the_opaque_digest() {
+        // `digest` still groups rows apart, where "unknown" would collapse
+        // every statement into one.
+        let entries =
+            parse_prometheus_response(&body("other_label"), &PrometheusMySqlStat::default())
+                .expect("well-formed response");
+        assert_eq!("a1b2", entries[0].query);
+    }
+
+    #[test]
+    fn the_exporter_carries_no_call_count_so_the_mean_is_the_total() {
+        // The series is cumulated seconds only. Reporting a fabricated mean
+        // would be worse than repeating the total, which the file export
+        // (COUNT_STAR) is there to refine.
+        let entries =
+            parse_prometheus_response(&body("digest_text"), &PrometheusMySqlStat::default())
+                .expect("well-formed response");
+        assert_eq!(0, entries[0].calls);
+        assert!(
+            (entries[0].mean_exec_time_ms - entries[0].total_exec_time_ms).abs() < f64::EPSILON
+        );
+    }
+
+    #[test]
+    fn a_malformed_envelope_is_a_format_error() {
+        assert!(parse_prometheus_response(b"{}", &PrometheusMySqlStat::default()).is_err());
+    }
 }
 
 #[cfg(test)]

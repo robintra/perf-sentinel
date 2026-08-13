@@ -34,6 +34,100 @@ pub(crate) fn load_mysql_stat_from_file(
     }
 }
 
+/// Scrape a `mysqld_exporter` endpoint one-shot and produce the ranking
+/// report the HTML dashboard embeds. Exits `EXIT_TOOLING_ERROR` on
+/// transport or parse failure, `mysql-stat` has no quality gate to breach.
+/// Mirrors `load_pg_stat_from_prometheus`.
+#[cfg(feature = "daemon")]
+pub(crate) async fn load_mysql_stat_from_prometheus(
+    url: &str,
+    top_n: usize,
+    opts: &sentinel_core::ingest::mysql_stat::PrometheusMySqlStat,
+    auth_header: Option<&str>,
+) -> sentinel_core::ingest::mysql_stat::MySqlStatReport {
+    let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
+    match sentinel_core::ingest::mysql_stat::fetch_from_prometheus(
+        url,
+        scrape_budget,
+        auth_header,
+        opts,
+    )
+    .await
+    {
+        Ok(entries) => sentinel_core::ingest::mysql_stat::rank_mysql_stat(&entries, top_n),
+        Err(e) => {
+            eprintln!(
+                "Error scraping --mysql-stat-prometheus {url}: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
+        }
+    }
+}
+
+/// Lower bound on the Prometheus scrape size when only a small `--top-n`
+/// is set. `rank_mysql_stat` emits several rankings keyed on different
+/// columns; feeding it only the `top_n` by `seconds_total` (the upstream
+/// `topk` metric) biases the others. Same floor and same reason as the
+/// `pg-stat` path.
+#[cfg(feature = "daemon")]
+const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
+
+/// Run the `mysql-stat` command with prometheus-or-input branching, kept
+/// out of the main dispatch so the match stays flat. Mirrors
+/// `dispatch_pg_stat`.
+#[allow(clippy::too_many_arguments)]
+// The only `.await` is the daemon-gated Prometheus fetch below, so the
+// no-default-features build sees an async fn with no await.
+#[cfg_attr(not(feature = "daemon"), allow(clippy::unused_async))]
+pub(crate) async fn dispatch_mysql_stat(
+    input: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] prometheus: Option<&str>,
+    #[cfg(feature = "daemon")] auth_header: Option<String>,
+    #[cfg(feature = "daemon")] opts: &sentinel_core::ingest::mysql_stat::PrometheusMySqlStat,
+    top_n: usize,
+    traces: Option<&std::path::Path>,
+    config: Option<&std::path::Path>,
+    format: MySqlStatOutputFormat,
+) {
+    #[cfg(feature = "daemon")]
+    if let Some(prom_endpoint) = prometheus {
+        let resolved_auth = resolve_mysql_stat_auth_header(auth_header);
+        let entries = sentinel_core::ingest::mysql_stat::fetch_from_prometheus(
+            prom_endpoint,
+            top_n.max(PROMETHEUS_SCRAPE_FLOOR),
+            resolved_auth.as_deref(),
+            opts,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!(
+                "Prometheus fetch failed: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
+            std::process::exit(crate::EXIT_TOOLING_ERROR);
+        });
+        let config = load_config(config);
+        run_mysql_stat_pipeline(entries, top_n, traces, &config, format);
+        return;
+    }
+    let Some(path) = input else {
+        #[cfg(feature = "daemon")]
+        eprintln!("Either --input or --prometheus is required");
+        #[cfg(not(feature = "daemon"))]
+        eprintln!("--input is required");
+        std::process::exit(crate::EXIT_TOOLING_ERROR);
+    };
+    cmd_mysql_stat(path, top_n, traces, config, format);
+}
+
+/// Resolve the auth header from the flag, falling back to the env var so a
+/// token never has to appear in a shell history or a process list.
+#[cfg(feature = "daemon")]
+fn resolve_mysql_stat_auth_header(flag: Option<String>) -> Option<String> {
+    flag.or_else(|| std::env::var("PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER").ok())
+}
+
 /// Run the `mysql-stat` subcommand: parse the digest export, optionally
 /// cross-reference against trace findings, rank, and print.
 pub(crate) fn cmd_mysql_stat(

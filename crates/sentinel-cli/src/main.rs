@@ -3,7 +3,12 @@
 #![allow(clippy::cast_possible_truncation)] // u128 -> u64 for elapsed_ms, f64 -> usize for percentile index
 #![allow(clippy::cast_precision_loss)] // usize -> f64 for throughput and latency computation
 #![allow(clippy::cast_sign_loss)] // i64 (libc::ru_maxrss) -> usize for RSS bytes on macOS
-#![allow(clippy::items_after_statements)] // bench report struct defined near its use
+#![allow(clippy::items_after_statements)]
+// bench report struct defined near its use
+// `Commands` is parsed once at startup and dropped after the dispatch, so the
+// gap between `Report` (the flag-heaviest subcommand) and the rest costs one
+// stack frame, not memory held for the run.
+#![allow(clippy::large_enum_variant)]
 
 // See `docs/design/07-CLI-CONFIG-RELEASE.md` § "Allocator on musl builds".
 #[cfg(target_env = "musl")]
@@ -501,7 +506,32 @@ enum Commands {
     MySqlStat {
         /// Path to an `events_statements_summary_by_digest` CSV or JSON export.
         #[arg(short, long)]
-        input: PathBuf,
+        input: Option<PathBuf>,
+        /// Prometheus endpoint to scrape Performance Schema digests from.
+        /// Needs `--collect.perf_schema.eventsstatements` on `mysqld_exporter`,
+        /// which is off by default.
+        #[cfg(feature = "daemon")]
+        #[arg(long)]
+        prometheus: Option<String>,
+        /// Optional auth header for --prometheus. Example:
+        /// --auth-header "Authorization: Bearer ${TOKEN}". Falls back to
+        /// the `PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER` env var when unset.
+        #[cfg(feature = "daemon")]
+        #[arg(long)]
+        auth_header: Option<String>,
+        /// Series holding cumulated execution time on that Prometheus
+        /// (default: `mysql_perf_schema_events_statements_seconds_total`,
+        /// the `mysqld_exporter` built-in). Set it when scraping through a
+        /// recording rule, which names its own series.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "prometheus")]
+        metric: Option<String>,
+        /// Label carrying the digest text on that series (default:
+        /// `digest_text`). Without a match the report falls back to
+        /// `digest`, leaving opaque hashes instead of statements.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "LABEL", requires = "prometheus")]
+        query_label: Option<String>,
         /// Number of top digests per ranking (default 10).
         #[arg(long, default_value = "10")]
         top_n: usize,
@@ -626,10 +656,33 @@ enum Commands {
         /// as `pg_stat`.
         #[arg(long, value_name = "FILE")]
         mysql_stat: Option<PathBuf>,
+        /// Prometheus endpoint to scrape Performance Schema digests from,
+        /// instead of reading a file. Needs
+        /// `--collect.perf_schema.eventsstatements` on `mysqld_exporter`,
+        /// which is off by default.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "URL", conflicts_with = "mysql_stat")]
+        mysql_stat_prometheus: Option<String>,
+        /// Auth header for --mysql-stat-prometheus, as `Name: Value`.
+        /// Falls back to `PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER` when unset.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "NAME_VALUE", requires = "mysql_stat_prometheus")]
+        mysql_stat_auth_header: Option<String>,
+        /// Series holding cumulated execution time on that Prometheus
+        /// (default: `mysql_perf_schema_events_statements_seconds_total`).
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
+        mysql_stat_metric: Option<String>,
+        /// Label carrying the digest text on that series (default:
+        /// `digest_text`). Without a match the tab falls back to `digest`
+        /// and shows opaque hashes instead of statements.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "LABEL", requires = "mysql_stat_prometheus")]
+        mysql_stat_query_label: Option<String>,
         /// Override the number of top entries per `mysql_stat` ranking
-        /// (default: 10). Only meaningful with --mysql-stat: supplying it
-        /// without the companion flag errors.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=10_000), requires = "mysql_stat")]
+        /// (default: 10). Only meaningful with --mysql-stat or
+        /// --mysql-stat-prometheus.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         mysql_stat_top: Option<u32>,
         /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
         /// filename in the current working directory.
@@ -1358,12 +1411,38 @@ async fn dispatch_command(command: Commands) {
         }
         Commands::MySqlStat {
             input,
+            #[cfg(feature = "daemon")]
+            prometheus,
+            #[cfg(feature = "daemon")]
+            auth_header,
+            #[cfg(feature = "daemon")]
+            metric,
+            #[cfg(feature = "daemon")]
+            query_label,
             top_n,
             traces,
             config,
             format,
         } => {
-            mysql_stat::cmd_mysql_stat(&input, top_n, traces.as_deref(), config.as_deref(), format);
+            #[cfg(feature = "daemon")]
+            let opts = sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(
+                metric,
+                query_label,
+            );
+            mysql_stat::dispatch_mysql_stat(
+                input.as_deref(),
+                #[cfg(feature = "daemon")]
+                prometheus.as_deref(),
+                #[cfg(feature = "daemon")]
+                auth_header,
+                #[cfg(feature = "daemon")]
+                &opts,
+                top_n,
+                traces.as_deref(),
+                config.as_deref(),
+                format,
+            )
+            .await;
         }
         #[cfg(feature = "daemon")]
         Commands::Query { daemon, action } => {
@@ -1411,6 +1490,14 @@ async fn dispatch_command(command: Commands) {
             before,
             pg_stat_top,
             mysql_stat,
+            #[cfg(feature = "daemon")]
+            mysql_stat_prometheus,
+            #[cfg(feature = "daemon")]
+            mysql_stat_auth_header,
+            #[cfg(feature = "daemon")]
+            mysql_stat_metric,
+            #[cfg(feature = "daemon")]
+            mysql_stat_query_label,
             mysql_stat_top,
             acknowledgments,
             no_acknowledgments,
@@ -1427,6 +1514,14 @@ async fn dispatch_command(command: Commands) {
                 pg_stat_metric,
                 pg_stat_query_label,
             );
+            // Same reasoning for the mysqld_exporter collector: a recording
+            // rule renames the series, so neither name is ours to assume.
+            #[cfg(feature = "daemon")]
+            let mysql_stat_prom =
+                sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(
+                    mysql_stat_metric,
+                    mysql_stat_query_label,
+                );
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),
@@ -1446,6 +1541,12 @@ async fn dispatch_command(command: Commands) {
                 // to keep the cast honest.
                 pg_stat_top.and_then(|n| usize::try_from(n).ok()),
                 mysql_stat.as_deref(),
+                #[cfg(feature = "daemon")]
+                mysql_stat_prometheus.as_deref(),
+                #[cfg(feature = "daemon")]
+                mysql_stat_auth_header,
+                #[cfg(feature = "daemon")]
+                &mysql_stat_prom,
                 mysql_stat_top.and_then(|n| usize::try_from(n).ok()),
                 acknowledgments.as_deref(),
                 no_acknowledgments,
@@ -2125,6 +2226,10 @@ async fn cmd_report(
     before_path: Option<&std::path::Path>,
     pg_stat_top: Option<usize>,
     mysql_stat_path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] mysql_stat_prometheus: Option<&str>,
+    #[cfg(feature = "daemon")] mysql_stat_auth_header: Option<String>,
+    #[cfg(feature = "daemon")]
+    mysql_stat_prom: &sentinel_core::ingest::mysql_stat::PrometheusMySqlStat,
     mysql_stat_top: Option<usize>,
     acknowledgments_path: Option<&std::path::Path>,
     no_acknowledgments: bool,
@@ -2207,11 +2312,51 @@ async fn cmd_report(
         }
     };
 
-    // --mysql-stat-top is tied to --mysql-stat by clap `requires`, so
-    // no post-parse OR-of-flags validation is needed here.
+    // --mysql-stat-top now accepts either source, which clap `requires`
+    // cannot express, so the pairing is checked here exactly like
+    // --pg-stat-top above, down to the usage exit code.
+    #[cfg(feature = "daemon")]
+    let has_mysql_stat_source = mysql_stat_path.is_some() || mysql_stat_prometheus.is_some();
+    #[cfg(not(feature = "daemon"))]
+    let has_mysql_stat_source = mysql_stat_path.is_some();
+    if mysql_stat_top.is_some() && !has_mysql_stat_source {
+        #[cfg(feature = "daemon")]
+        eprintln!("Error: --mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus");
+        #[cfg(not(feature = "daemon"))]
+        eprintln!("Error: --mysql-stat-top requires --mysql-stat");
+        std::process::exit(2);
+    }
+
+    // --mysql-stat and --mysql-stat-prometheus are mutually exclusive by
+    // clap `conflicts_with`, so at most one of the two branches runs.
     let mysql_top_n = mysql_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
-    let mysql_stat =
-        mysql_stat_path.map(|path| mysql_stat::load_mysql_stat_from_file(path, mysql_top_n));
+    let mysql_stat = if let Some(path) = mysql_stat_path {
+        Some(mysql_stat::load_mysql_stat_from_file(path, mysql_top_n))
+    } else {
+        #[cfg(feature = "daemon")]
+        {
+            match mysql_stat_prometheus {
+                Some(url) => {
+                    let resolved_auth = mysql_stat_auth_header
+                        .or_else(|| std::env::var("PERF_SENTINEL_MYSQLSTAT_AUTH_HEADER").ok());
+                    Some(
+                        mysql_stat::load_mysql_stat_from_prometheus(
+                            url,
+                            mysql_top_n,
+                            mysql_stat_prom,
+                            resolved_auth.as_deref(),
+                        )
+                        .await,
+                    )
+                }
+                None => None,
+            }
+        }
+        #[cfg(not(feature = "daemon"))]
+        {
+            None
+        }
+    };
 
     let diff = before_path.map(|path| {
         load_diff_against_baseline(
