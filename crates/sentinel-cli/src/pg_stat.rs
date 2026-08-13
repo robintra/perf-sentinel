@@ -32,6 +32,7 @@ pub(crate) async fn dispatch_pg_stat(
             prom_endpoint,
             top_n,
             resolved_auth.as_deref(),
+            &sentinel_core::ingest::pg_stat::PrometheusPgStat::default(),
         )
         .await
         .unwrap_or_else(|e| {
@@ -96,11 +97,17 @@ pub(crate) async fn load_pg_stat_from_prometheus(
     url: &str,
     _config: &Config,
     top_n: usize,
+    opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     auth_header: Option<&str>,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
-    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, scrape_budget, auth_header)
-        .await
+    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(
+        url,
+        scrape_budget,
+        auth_header,
+        opts,
+    )
+    .await
     {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {

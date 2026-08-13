@@ -38,7 +38,13 @@ stays strict (`default-src 'none'`), there is no
   row. `--pg-stat-prometheus <URL>` scrapes a `postgres_exporter`
   one-shot instead of a file (mutually exclusive, optional
   `--pg-stat-auth-header`), and `--pg-stat-top <N>` sizes the rankings
-  (default 10).
+  (default 10). The scrape assumes the `postgres_exporter` built-in
+  query, which publishes `pg_stat_statements_seconds_total` with a
+  `query` label. An exporter running a hand-written query names its own
+  columns, so `--pg-stat-metric <SERIES>` and `--pg-stat-query-label
+  <LABEL>` point the scrape at those names. Without a matching label the
+  tab falls back to `queryid` and shows opaque identifiers instead of
+  statements, and the cross-navigation cannot match anything.
 - `--mysql-stat <FILE>` embeds an `events_statements_summary_by_digest`
   CSV or JSON export (MySQL Performance Schema): the dashboard gains a
   `mysql_stat` tab with the same ranking sub-switcher (fourth ranking:

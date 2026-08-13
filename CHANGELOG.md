@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Added
+
+- `report --pg-stat-metric` and `--pg-stat-query-label` point the Prometheus scrape at an exporter that does not run the `postgres_exporter` built-in query. The defaults are unchanged (`pg_stat_statements_seconds_total`, label `query`), so nothing moves for a stock exporter. An exporter running hand-written SQL names its own columns and derives the series from them, which left the `pg_stat` tab silently empty: the series never matched, and even once pointed at the right one the statement text sat under whatever label that query chose, so the report fell back to `queryid` and showed opaque identifiers the Explain cross-navigation cannot match. Library callers of `ingest::pg_stat::fetch_from_prometheus` now pass a `&PrometheusPgStat`, whose `Default` reproduces the previous behavior exactly.
+
 ## [0.12.0] - 2026-08-13
 
 ### BREAKING CHANGES
