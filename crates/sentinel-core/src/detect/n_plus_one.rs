@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
-use crate::normalize::NormalizedEvent;
+use crate::normalize::{NormalizedEvent, sql};
 
 use super::sanitizer_aware::{self, SanitizerAwareMode, SanitizerVerdict};
 use super::{ClassificationMethod, Finding, FindingType, Severity};
@@ -61,6 +61,10 @@ pub fn detect_n_plus_one(
     let mut groups: HashMap<NPlusOneKey<'_>, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
+        // One per connection checkout, not one per row. No batching applies.
+        if span.event.event_type == EventType::Sql && sql::is_session_command(&span.template) {
+            continue;
+        }
         groups
             .entry((
                 &span.event.event_type,
@@ -379,6 +383,41 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 6);
         assert_eq!(findings[0].pattern.distinct_params, 6);
         assert!(findings[0].suggestion.contains("batch"));
+    }
+
+    #[test]
+    fn session_commands_never_form_an_n_plus_one() {
+        let mut events: Vec<SpanEvent> = (1..=10)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT set_config(?, ?, false)",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 10),
+                )
+            })
+            .collect();
+        // Positive control: the genuine N+1 the checkouts used to outrank must
+        // still be reported, so the skip cannot pass by silencing everything.
+        events.extend((1..=5).map(|i| {
+            make_sql_event(
+                "trace-1",
+                &format!("order-{i}"),
+                &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", 200 + i * 10),
+            )
+        }));
+        let trace = make_trace(events);
+
+        // `Always` forces the sanitizer path, the one that fires in production
+        // on a pooled driver: identical template, no params.
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert!(
+            findings[0].pattern.template.contains("order_item"),
+            "ten connection checkouts are not an N+1: {findings:?}"
+        );
     }
 
     #[test]

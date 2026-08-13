@@ -96,6 +96,55 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
     collapse_in_lists(t.template, t.has_in_list, t.params)
 }
 
+/// True when a normalized `template` manages the connection rather than the
+/// application's data: transaction control, session setup, or a pool
+/// validation ping. Vendor-neutral (`PostgreSQL`, `MySQL`, Oracle, DB2).
+///
+/// A pooled driver emits one per connection checkout, so N checkouts look like
+/// N identical statements. Real work, still counted in the I/O and carbon
+/// figures, but not an N+1: no batching remediation applies.
+#[must_use]
+pub fn is_session_command(template: &str) -> bool {
+    // The statement terminator belongs to the text, not to the keyword:
+    // `COMMIT;` is as common in a `db.statement` as `COMMIT`.
+    let mut words = template.split_whitespace().map(|w| w.trim_end_matches(';'));
+    let Some(first) = words.next().map(str::to_ascii_lowercase) else {
+        return false;
+    };
+    match first.as_str() {
+        // Transaction control then session setup. `start` covers START
+        // TRANSACTION, `release` covers RELEASE SAVEPOINT.
+        "commit" | "rollback" | "savepoint" | "release" | "start" | "set" | "reset" | "discard"
+        | "use" | "show" => true,
+        // Bare `BEGIN` and its transaction forms only: `BEGIN pkg.proc(?);
+        // END;` is an Oracle anonymous block, the standard shape of a JDBC
+        // `CallableStatement`, and an N+1 of stored-procedure calls is real.
+        "begin" => words.next().is_none_or(|w| {
+            ["transaction", "work", "isolation", "read", "deferrable"]
+                .iter()
+                .any(|kw| w.eq_ignore_ascii_case(kw))
+        }),
+        "alter" => words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("session")),
+        // `VALUES(?)`, the DB2 and H2 ping, holds no whitespace.
+        _ if first.starts_with("values(") => true,
+        // The spaced spellings of the same ping (`VALUES 1`, `VALUES (1)`),
+        // narrowed to a lone literal so a `VALUES` table constructor stays
+        // visible.
+        "values" => words.next().is_some_and(|w| w == "?" || w == "(?)"),
+        // Deliberately not `SELECT ?`: `SELECT 1` normalizes into it, but so
+        // does any select of a bare literal, and the ambiguity is not worth it.
+        "select" => words.next().is_some_and(|w| {
+            let rest = w.to_ascii_lowercase();
+            rest.starts_with("set_config(")
+                || rest.starts_with("current_setting(")
+                || rest.starts_with("@@")
+        }),
+        _ => false,
+    }
+}
+
 /// Slice `query` by byte bounds, asserting in debug builds that both
 /// bounds fall on UTF-8 char boundaries.
 ///
@@ -831,5 +880,104 @@ mod tests {
         let r = normalize_sql("SELECT * FROM t WHERE name = ''''");
         assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
         assert_eq!(r.params, vec!["'"]);
+    }
+
+    // -- Session commands --
+
+    #[test]
+    fn session_command_recognizes_postgres_set_config() {
+        let template = normalize_sql("SELECT set_config('app.tenant', 'acme', false)").template;
+        assert!(is_session_command(&template));
+    }
+
+    #[test]
+    fn session_command_recognizes_transaction_control() {
+        for query in [
+            "BEGIN",
+            "BEGIN TRANSACTION",
+            "START TRANSACTION",
+            "COMMIT",
+            "ROLLBACK",
+            "SAVEPOINT sp1",
+            "RELEASE SAVEPOINT sp1",
+            // Drivers that keep the terminator in `db.statement`.
+            "COMMIT;",
+            "BEGIN;",
+            "ROLLBACK;",
+        ] {
+            assert!(
+                is_session_command(&normalize_sql(query).template),
+                "{query} should be a session command"
+            );
+        }
+    }
+
+    #[test]
+    fn session_command_recognizes_per_vendor_session_setup() {
+        for query in [
+            "SET search_path TO public",             // PostgreSQL
+            "SET NAMES utf8mb4",                     // MySQL
+            "ALTER SESSION SET foo = 'x'",           // Oracle
+            "USE mydb",                              // MySQL / SQL Server
+            "RESET ALL",                             // PostgreSQL
+            "DISCARD ALL",                           // PostgreSQL
+            "SELECT current_setting('search_path')", // PostgreSQL
+            "SHOW TRANSACTION ISOLATION LEVEL",      // PostgreSQL / MySQL
+        ] {
+            assert!(
+                is_session_command(&normalize_sql(query).template),
+                "{query} should be a session command"
+            );
+        }
+    }
+
+    #[test]
+    fn session_command_recognizes_pool_validation_pings() {
+        for query in [
+            "VALUES(1)",
+            "VALUES 1", // DB2 / Derby, the spaced spelling
+            "VALUES (1)",
+            "SELECT @@version",
+        ] {
+            assert!(
+                is_session_command(&normalize_sql(query).template),
+                "{query} should be a session command"
+            );
+        }
+    }
+
+    #[test]
+    fn session_command_leaves_bare_literal_selects_alone() {
+        // `SELECT 1` normalizes to the same template as `SELECT 'anything'`,
+        // so claiming it as a ping would silence real queries.
+        assert!(!is_session_command(&normalize_sql("SELECT 1").template));
+    }
+
+    #[test]
+    fn session_command_rejects_business_queries() {
+        for query in [
+            "SELECT id FROM orders WHERE tenant = 'acme'",
+            // Hibernate alias shape, the one most at risk of a false positive.
+            "select e1_0.id, e1_0.label from app.entity e1_0",
+            "INSERT INTO notification (id) VALUES ('x')",
+            "UPDATE settings SET value = 'x' WHERE id = 1",
+            "DELETE FROM sessions WHERE id = 1",
+            // Oracle anonymous block: the JDBC CallableStatement shape, and
+            // the one an N+1 of stored-procedure calls hides behind.
+            "BEGIN order_pkg.load_line(:1, :2); END;",
+            // A VALUES table constructor is data, not a ping.
+            "VALUES (1, 'a'), (2, 'b')",
+        ] {
+            assert!(
+                !is_session_command(&normalize_sql(query).template),
+                "{query} should not be a session command"
+            );
+        }
+    }
+
+    #[test]
+    fn session_command_ignores_leading_whitespace_and_case() {
+        let template = normalize_sql("\n\t  commit  ").template;
+        assert!(is_session_command(&template));
     }
 }

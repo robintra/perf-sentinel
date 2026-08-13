@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
+use crate::normalize::sql;
 
 use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
@@ -57,6 +58,11 @@ fn redundant_impl<'a>(
         // Messaging carries no params, so every publish to one destination
         // would group as a duplicate. Two messages are never the same message.
         if span.event.event_type == EventType::Messaging {
+            continue;
+        }
+        // One per connection checkout, not a repeated read. Caching applies to
+        // neither.
+        if span.event.event_type == EventType::Sql && sql::is_session_command(&span.template) {
             continue;
         }
         groups
@@ -171,6 +177,39 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert_eq!(findings[0].pattern.distinct_params, 1);
         assert!(findings[0].suggestion.contains("cache"));
+    }
+
+    #[test]
+    fn session_commands_are_never_redundant() {
+        let mut events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT set_config(?, ?, false)",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 10),
+                )
+            })
+            .collect();
+        // Positive control: a real duplicate in the same trace must survive,
+        // so the skip cannot pass by silencing everything.
+        events.extend((1..=2).map(|i| {
+            make_sql_event(
+                "trace-1",
+                &format!("order-{i}"),
+                "SELECT * FROM order_item WHERE order_id = 42",
+                &format!("2025-07-10T14:32:01.{:03}Z", 200 + i * 10),
+            )
+        }));
+        let trace = make_trace(events);
+
+        let findings = detect_redundant(&trace, &[]);
+
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert!(
+            findings[0].pattern.template.contains("order_item"),
+            "six connection checkouts are not a redundant query: {findings:?}"
+        );
     }
 
     #[test]
