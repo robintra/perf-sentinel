@@ -429,7 +429,12 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 /// The defaults match the `postgres_exporter` built-in query. A deployment
 /// that publishes its own hand-written query names its own columns, and the
 /// exporter derives the series from them, so neither name is ours to assume.
+///
+/// `#[non_exhaustive]` so a future knob stays a minor bump rather than a
+/// breaking change: external crates build it with [`Self::default`] or
+/// [`Self::with_overrides`], never a struct literal.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct PrometheusPgStat {
     /// Series ranked by `topk`, holding the cumulated execution time in seconds.

@@ -482,7 +482,12 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
 /// `--collect.perf_schema.eventsstatements` on the exporter. A deployment
 /// scraping through a recording rule or a hand-written exporter names its
 /// own series, so neither name is ours to assume.
+///
+/// `#[non_exhaustive]` so a future knob stays a minor bump rather than a
+/// breaking change: external crates build it with [`Self::default`] or
+/// [`Self::with_overrides`], never a struct literal.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct PrometheusMySqlStat {
     /// Series ranked by `topk`, holding the cumulated execution time in seconds.
