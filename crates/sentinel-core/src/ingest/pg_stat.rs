@@ -449,8 +449,50 @@ impl Default for PrometheusPgStat {
     }
 }
 
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+impl PrometheusPgStat {
+    /// Apply optional CLI overrides on top of the `postgres_exporter`
+    /// defaults. Keeps the default names in one place, so a caller that
+    /// overrides neither reproduces the pre-0.12.0 behavior exactly.
+    #[must_use]
+    pub fn with_overrides(series: Option<String>, query_label: Option<String>) -> Self {
+        let defaults = Self::default();
+        Self {
+            series: series.unwrap_or(defaults.series),
+            query_label: query_label.unwrap_or(defaults.query_label),
+        }
+    }
+}
+
+/// Reject a series name that is not a bare `PromQL` metric name.
+///
+/// The name lands unencoded in the query string, so anything outside
+/// `[a-zA-Z_:][a-zA-Z0-9_:]*` either breaks the URL (a space, a brace) or
+/// smuggles a second parameter into it (`&`, `#`). Rejecting beats
+/// encoding: a label selector or a whole expression here is a mistake, and
+/// naming it is more useful than a downstream "invalid URL".
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+fn validate_series_name(series: &str) -> Result<(), PgStatError> {
+    let head_ok = matches!(
+        series.as_bytes().first(),
+        Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b':')
+    );
+    if head_ok
+        && series
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b':')
+    {
+        return Ok(());
+    }
+    Err(PgStatError::PrometheusRequest(format!(
+        "series name must be a bare PromQL metric name \
+         matching [a-zA-Z_:][a-zA-Z0-9_:]*, got `{series}`"
+    )))
+}
+
 /// Build the `topk` instant query. Only the comma needs encoding: the
-/// parentheses and underscores are safe in a URL query string.
+/// parentheses and underscores are safe in a URL query string, and
+/// [`validate_series_name`] keeps the series inside that same safe set.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn build_prometheus_query(top_n: usize, opts: &PrometheusPgStat) -> String {
     format!("topk({top_n}%2C%20{})", opts.series)
@@ -487,6 +529,9 @@ pub async fn fetch_from_prometheus(
     // the Scaphandre and cloud energy scrapers, we reject malformed URLs,
     // non-http(s) schemes, and credentials in the authority.
     validate_prometheus_endpoint(endpoint)?;
+    // The series is operator-supplied since `--pg-stat-metric`, and it goes
+    // into the query string unencoded.
+    validate_series_name(&opts.series)?;
 
     // Parse the optional auth header once. Reuse the existing
     // PrometheusRequest variant for the error path, same shape as the
@@ -1099,6 +1144,29 @@ mod tests {
             "{query}"
         );
         assert!(!query.contains("seconds_total"), "{query}");
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_series_name_rejects_anything_but_a_metric_name() {
+        // The series is interpolated into the query string unencoded, so a
+        // separator would split the parameter or truncate it into a fragment.
+        for bad in [
+            "",
+            "9starts_with_a_digit",
+            "pg_stat&injected=1",
+            "pg_stat#frag",
+            "pg_stat total",
+            "pg_stat{job=\"db\"}",
+            "topk(1, x)",
+        ] {
+            assert!(
+                validate_series_name(bad).is_err(),
+                "`{bad}` must be rejected before it reaches the URL"
+            );
+        }
+        assert!(validate_series_name("pg_stat_statements_total_exec_time").is_ok());
+        assert!(validate_series_name(":recorded_rule:sum").is_ok());
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]

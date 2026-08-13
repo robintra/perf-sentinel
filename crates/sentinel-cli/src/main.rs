@@ -465,6 +465,19 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long)]
         auth_header: Option<String>,
+        /// Series holding cumulated execution time on that Prometheus
+        /// (default: `pg_stat_statements_seconds_total`, the
+        /// `postgres_exporter` built-in query). Set it when the exporter
+        /// runs a hand-written query, which names its own columns.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "prometheus")]
+        metric: Option<String>,
+        /// Label carrying the SQL text on that series (default: `query`).
+        /// Without a match the ranking falls back to `queryid`, leaving
+        /// opaque identifiers instead of statements.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "LABEL", requires = "prometheus")]
+        query_label: Option<String>,
         /// Number of top queries per ranking (default 10).
         #[arg(long, default_value = "10")]
         top_n: usize,
@@ -1316,6 +1329,10 @@ async fn dispatch_command(command: Commands) {
             prometheus,
             #[cfg(feature = "daemon")]
             auth_header,
+            #[cfg(feature = "daemon")]
+            metric,
+            #[cfg(feature = "daemon")]
+            query_label,
             top_n,
             traces,
             config,
@@ -1327,6 +1344,11 @@ async fn dispatch_command(command: Commands) {
                 prometheus.as_deref(),
                 #[cfg(feature = "daemon")]
                 auth_header,
+                #[cfg(feature = "daemon")]
+                &sentinel_core::ingest::pg_stat::PrometheusPgStat::with_overrides(
+                    metric,
+                    query_label,
+                ),
                 top_n,
                 traces.as_deref(),
                 config.as_deref(),
@@ -1401,13 +1423,10 @@ async fn dispatch_command(command: Commands) {
             // Defaults describe the postgres_exporter built-in query; an
             // exporter running its own SQL names its own columns.
             #[cfg(feature = "daemon")]
-            let pg_stat_prom = {
-                let d = sentinel_core::ingest::pg_stat::PrometheusPgStat::default();
-                sentinel_core::ingest::pg_stat::PrometheusPgStat {
-                    series: pg_stat_metric.unwrap_or(d.series),
-                    query_label: pg_stat_query_label.unwrap_or(d.query_label),
-                }
-            };
+            let pg_stat_prom = sentinel_core::ingest::pg_stat::PrometheusPgStat::with_overrides(
+                pg_stat_metric,
+                pg_stat_query_label,
+            );
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),
