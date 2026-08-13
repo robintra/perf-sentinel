@@ -614,7 +614,6 @@ Les limites du daemon acceptent toute valeur à l'intérieur de leurs bornes dur
 | `max_retained_findings` | 100 à 100 000 (ou `0`) | Plus petit évince les findings avant que `/api/findings` ne puisse les servir ; plus grand garde un backlog en mémoire. `0` désactive le store et reste silencieux                                                                                                                                                                          |
 | `trace_ttl_ms`          | 1 000 à 600 000        | Sous 1s, les traces sont vidées avant que les spans lents n'arrivent ; au-dessus de 10min, des traces presque mortes restent en mémoire                                                                                                                                                                                                     |
 | `max_fanout`            | 5 à 1 000              | Plus petit inonde le store de findings de bruit ; plus grand supprime la plupart des détections de fanout                                                                                                                                                                                                                                   |
-| `max_tracked_pairs`     | 10 000 à 200 000       | Les paires croissent comme le nombre de types de findings multiplié par le nombre de services : le défaut de 10 000 couvre une poignée de services, et une flotte de sept services le dépasse déjà. Une fois le plafond atteint, les corrélations rapportées sont un sous-ensemble arbitraire, sans marqueur sur la sortie pour le signaler |
 
 Les zones de confort jugent la valeur statique au démarrage. Au
 runtime, le daemon les complète avec un conseiller de réglages : quand
@@ -636,7 +635,7 @@ Corrélation temporelle cross-trace en mode daemon. Quand activé, le daemon dé
 | `lag_threshold_ms`   | entier   | `2000`  | Décalage temporel maximum en millisecondes entre deux findings pour les considérer co-occurrents                                   |
 | `min_co_occurrences` | entier   | `3`     | Nombre minimum de co-occurrences avant de remonter une corrélation                                                                 |
 | `min_confidence`     | flottant | `0.5`   | Score de confiance minimum (0.0 à 1.0) pour remonter une corrélation. Calculé comme `co_occurrence_count / total_occurrences_of_A` |
-| `max_tracked_pairs`  | entier   | `10000` | Nombre maximum de paires de findings suivies simultanément. Empêche la croissance mémoire non bornée                               |
+| `max_tracked_pairs`  | entier   | `10000` | Nombre maximum de paires de findings suivies simultanément. Empêche la croissance mémoire non bornée. Les paires croissent comme le nombre de types de findings multiplié par le nombre de services : une poignée de services peut dépasser le défaut, et au-delà du plafond `/api/correlations` renvoie un sous-ensemble arbitraire sans que la sortie le signale. `perf_sentinel_correlator_pairs_evicted_total` est le signal, et le daemon loggue un avertissement à la première éviction. Pas de contrôle de zone de confort au démarrage |
 
 ```toml
 [daemon.correlation]
