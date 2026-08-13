@@ -1171,7 +1171,11 @@ async fn process_traces(
 /// Unix epoch (effectively a configuration error). Downstream code treats
 /// the timestamp as a monotonic-ish sort key; a single zero tick produces
 /// visible bucketing but no correctness issue.
-fn current_time_ms() -> u64 {
+///
+/// Shared with `daemon::hub_export`: its hourly re-send suppression compares
+/// its own stamps against the ones stamped here, so the two must read the
+/// same clock the same way.
+pub(super) fn current_time_ms() -> u64 {
     if let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
     } else {
