@@ -279,6 +279,7 @@ Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`
 
 ### Algorithme
 
+0. Écarter les spans SQL frères dont le template est une commande de session : un `COMMIT` ne peut pas sortir de la chaîne, et le compter gonfle à la fois le nombre de maillons et le total séquentiel
 1. Grouper les spans frères par `parent_span_id`
 2. Pour chaque groupe, trier les enfants par **temps de fin** (croissant)
 3. Trouver la plus longue sous-séquence non chevauchante via programmation dynamique (Weighted Interval Scheduling avec poids unitaires)
