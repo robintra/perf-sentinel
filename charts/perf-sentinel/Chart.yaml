@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.11.2
-appVersion: "0.11.2"
+version: 0.11.3
+appVersion: "0.11.3"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,6 +36,10 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.11.3: connection and session management statements (COMMIT, SET, SELECT set_config(...), pool pings) no longer surface as n_plus_one_sql, redundant_sql or links of a serialized_calls chain. A pooled driver emits one per connection checkout, so a request borrowing N connections showed N identical statements behind a remediation that cannot apply to a SET or a COMMIT. The daemon this chart deploys will report fewer findings on identical traffic. Those statements keep counting as I/O operations, so total_io_ops and the carbon figures hold, but they leave avoidable_io_ops, which lowers io_waste_ratio: re-check the io_waste_ratio_max shipped in values.yaml (default 0.30) against a 0.11.3 run before relying on the gate verdict, since a threshold calibrated on 0.11.2 is now looser than intended. The commented [daemon.correlation] block also gains max_tracked_pairs, the one key of that section it silently omitted, which truncates /api/correlations without saying so once pairs overrun its 10000 default. No template change beyond the version fields, but upgrading still rolls the pods: the image tag falls back to .Chart.AppVersion and checksum/config moves with the chart version the ConfigMap labels carry."
+    - kind: added
+      description: "appVersion 0.11.3: the commented reference gains [daemon.hub_export], off by default. The live daemon can push findings to PerfSentinelHub, sending a signature when first discovered or worsened and then at most once per hour while it recurs, with requests holding at most 100 findings and retrying under bounded backoff with jitter. The API key is read from a mounted file, never from the value itself, so supply it through an existing Secret rather than in values.yaml. perf_sentinel_hub_export_pending and perf_sentinel_hub_export_dropped_total expose the backlog and the drops."
     - kind: changed
       description: "appVersion 0.11.2: endpoint attribution follows the outermost route in a contiguous same-service parent chain without crossing a caller-service boundary, a framework route name such as Symfony's app_fault_nplusonesql no longer wins over a usable url.path on the same span, a route missing its leading slash gains one, and a SERVER span no longer produces an outbound HTTP call. The daemon this chart deploys ingests OTLP directly, so a finding that previously carried an inner route or unknown can move to another endpoint, and on a fleet instrumented in legacy semantic conventions the HTTP findings raised on SERVER spans disappear rather than move. Both change acknowledgment signatures and persisted baseline identity, so re-capture affected acknowledgments and report baselines with 0.11.2. Those phantom inbound calls also counted as I/O operations, so dropping them shrinks the waste-ratio denominator and raises io_waste_ratio on identical traffic, re-check the io_waste_ratio_max shipped in values.yaml (default 0.30) against a 0.11.2 run before relying on the gate verdict. The daemon also holds more per-trace state at the same settings, since max_events_per_trace now caps the event ring, the retained inbound endpoint contexts and the ancestry index independently, so check resources.limits.memory before upgrading a pod that already runs close to its ceiling. Nothing in the chart itself changes beyond the version fields, but upgrading still rolls the pods: the image tag falls back to .Chart.AppVersion and checksum/config moves with the chart version the ConfigMap labels carry."
     - kind: changed

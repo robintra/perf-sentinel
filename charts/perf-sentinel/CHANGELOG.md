@@ -10,6 +10,46 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.11.3]
+
+### Changed
+
+- `appVersion` moves to `0.11.3`. Connection and session management statements
+  (`COMMIT`, `SET`, `SELECT set_config(...)`, pool pings) no longer surface as
+  `n_plus_one_sql`, `redundant_sql` or links of a `serialized_calls` chain. A
+  pooled driver emits one per connection checkout, so a request borrowing N
+  connections showed N identical statements behind a remediation that cannot
+  apply to a `SET` or a `COMMIT`. The daemon this chart deploys will therefore
+  report fewer findings on identical traffic. Those statements keep counting as
+  I/O operations, so `total_io_ops` and the carbon figures hold, but they leave
+  `avoidable_io_ops`, which lowers `io_waste_ratio`: re-check the
+  `io_waste_ratio_max` shipped in `values.yaml` (default 0.30) against a 0.11.3
+  run before relying on the gate verdict, since a threshold calibrated on
+  0.11.2 is now looser than intended.
+- The commented `[daemon.correlation]` block in `values.yaml` gains
+  `max_tracked_pairs`, the one key of that section it silently omitted. Pairs
+  scale with finding types times services, so enabling correlation on a
+  seven-service fleet overruns the cap and `/api/correlations` returns an
+  arbitrary subset with nothing on the output saying so. The knob defaults to
+  `10000` and, unlike the other daemon limits, gets no comfort-zone warning at
+  startup. `perf_sentinel_correlator_pairs_evicted_total` is the signal that
+  truncation is happening.
+
+### Added
+
+- `[daemon.hub_export]` in the commented reference, off by default. The live
+  daemon can push findings to PerfSentinelHub, sending a signature when first
+  discovered or worsened and then at most once per hour while it recurs.
+  Requests hold at most 100 findings and retry with bounded backoff and jitter.
+  The API key is read from a mounted file, never from the value itself, so
+  supply it through an existing Secret rather than in `values.yaml`.
+  `perf_sentinel_hub_export_pending` and
+  `perf_sentinel_hub_export_dropped_total` expose the backlog and the drops.
+
+No template change beyond the version fields, but upgrading still rolls the
+pods: the image tag falls back to `.Chart.AppVersion` and `checksum/config`
+moves with the chart version the ConfigMap labels carry.
+
 ## [0.11.2]
 
 ### Changed
