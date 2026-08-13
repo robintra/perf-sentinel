@@ -699,8 +699,10 @@ max_pending = 10000
 The pending structure is a latest-value table, not an unbounded queue. A
 signature is sent immediately when first discovered or when its severity
 worsens, then refreshed at most hourly while it recurs. Both the pending table
-and the recent-success cache are capped at `max_pending`; only a pending-table
-eviction increments `perf_sentinel_hub_export_dropped_total`. Failed requests
+and the recent-success cache are capped at `max_pending`; evicting from the
+recent-success cache is not a loss and is not counted, while a pending-table
+eviction, an oversized finding and a batch the Hub rejects with an unretryable
+4xx all increment `perf_sentinel_hub_export_dropped_total`. Failed requests
 retain their coalesced batch and retry with exponential backoff and jitter; a
 daemon restart clears both caches. Requests and JSON bodies are bounded to 100
 findings and 2 MiB. Use HTTPS outside a trusted private network.
