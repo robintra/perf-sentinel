@@ -153,6 +153,14 @@ Slow findings (`slow_sql`, `slow_http`) represent operations that are **necessar
 
 This is by design: the waste ratio measures how much I/O could be eliminated (N+1, redundant), while slow findings highlight operations that need optimization (indexing, caching) rather than elimination.
 
+## Session commands and waste ratio
+
+Connection and session management statements follow the same rule for the same reason. A pooled driver emits one per connection checkout, so a request borrowing N connections shows N identical `COMMIT`, `SET` or `SELECT set_config(?, ?, false)` statements. The repetition detectors skip them (`normalize::sql::is_session_command`), so they never become an `n_plus_one_sql`, a `redundant_sql`, or a link of a `serialized_calls` chain: no batching, caching or parallelization remediation applies to transaction control.
+
+They remain I/O operations and stay in `total_io_ops`, in per-service attribution and in the total carbon figure, because that work does happen. What they leave is `avoidable_io_ops`, which is derived from findings. A deployment upgrading into this behavior therefore sees `io_waste_ratio` fall, along with `estimated_optimization_potential_kgco2eq` and the disclosed avoidable energy, with no change in application behavior. A `[thresholds] io_waste_ratio_max` calibrated before the change is looser than intended and should be re-baselined.
+
+The exclusion is narrow by construction: it covers only what a driver emits once per connection checkout. Statements emitted once per row or per entity stay visible, because batching them is a real fix. `SELECT 1` is not treated as a pool ping (it normalizes to the same template as a select of any bare literal), nor are `SHOW COLUMNS` (schema introspection, one per entity), `SELECT @@IDENTITY` (generated keys, one per insert), or Oracle's `BEGIN pkg.proc(?); END;` anonymous block (a stored-procedure call, and an N+1 of those is real).
+
 ## Score interpretation
 
 The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io_intensity_score` and `io_waste_ratio` and the same classification ships in the JSON report as sibling fields `io_intensity_band` and `io_waste_ratio_band`. Reference tables live in the main README.

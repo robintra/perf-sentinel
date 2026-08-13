@@ -158,6 +158,14 @@ Les findings lents (`slow_sql`, `slow_http`) représentent des opérations qui s
 
 C'est un choix de conception : le ratio de gaspillage mesure combien d'I/O pourraient être éliminées (N+1, redondant), tandis que les findings lents mettent en évidence des opérations nécessitant une optimisation (indexation, cache) plutôt qu'une élimination.
 
+## Commandes de session et ratio de gaspillage
+
+Les commandes de gestion de connexion et de session suivent la même règle, pour la même raison. Un driver poolé en émet une par acquisition de connexion : une requête qui en emprunte N affiche N `COMMIT`, `SET` ou `SELECT set_config(?, ?, false)` identiques. Les détecteurs de répétition les ignorent (`normalize::sql::is_session_command`), elles ne deviennent donc jamais un `n_plus_one_sql`, un `redundant_sql`, ni un maillon d'une chaîne `serialized_calls` : aucune remédiation par batch, cache ou parallélisation ne s'applique au contrôle transactionnel.
+
+Elles restent des opérations d'I/O et demeurent dans `total_io_ops`, dans l'attribution par service et dans le total carbone, parce que ce travail a bien lieu. Ce qu'elles quittent, c'est `avoidable_io_ops`, dérivé des findings. Un déploiement qui monte de version voit donc baisser `io_waste_ratio`, ainsi que `estimated_optimization_potential_kgco2eq` et l'énergie évitable publiée, sans que l'application ait changé. Un seuil `[thresholds] io_waste_ratio_max` calibré avant ce changement devient plus permissif que prévu et doit être recalibré.
+
+L'exclusion est étroite par construction : elle ne couvre que ce qu'un driver émet une fois par acquisition de connexion. Les statements émis une fois par ligne ou par entité restent visibles, puisque les batcher est un vrai correctif. `SELECT 1` n'est pas traité comme un ping de pool (il se normalise vers le même template que la sélection de n'importe quel littéral), pas plus que `SHOW COLUMNS` (introspection de schéma, une par entité), `SELECT @@IDENTITY` (clés générées, une par insertion) ou le bloc anonyme Oracle `BEGIN pkg.proc(?); END;` (un appel de procédure stockée, et un N+1 de ces appels est réel).
+
 ## Interprétation des scores
 
 La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côté de `io_intensity_score` et `io_waste_ratio` et la même classification est émise dans le rapport JSON sous forme de champs siblings `io_intensity_band` et `io_waste_ratio_band`. Les tables de référence sont dans le README principal.
