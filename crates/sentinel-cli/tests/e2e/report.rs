@@ -1289,3 +1289,134 @@ fn cli_report_malformed_mysql_stat_exits_tooling_error() {
         "a malformed mysql_stat source is a tooling failure (75), not a gate breach"
     );
 }
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_report_rejects_both_mysql_stat_and_mysql_stat_prometheus() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mysql_stat_fixture = format!(
+        "{}/../../tests/fixtures/mysql_perf_schema.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--mysql-stat",
+            &mysql_stat_fixture,
+            "--mysql-stat-prometheus",
+            "http://localhost:9090",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        !output.status.success(),
+        "mutual-exclusion must fail the invocation"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--mysql-stat") && stderr.contains("--mysql-stat-prometheus"),
+        "clap conflict message must mention both flags, got:\n{stderr}"
+    );
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_report_mysql_stat_series_flags_require_the_prometheus_endpoint() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    for flag in [
+        "--mysql-stat-metric",
+        "--mysql-stat-query-label",
+        "--mysql-stat-auth-header",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+            .args([
+                "report",
+                "--input",
+                &fixture,
+                flag,
+                "whatever",
+                "--output",
+                out_path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("spawn");
+        assert!(!output.status.success(), "{flag} alone must be rejected");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("--mysql-stat-prometheus"),
+            "{flag} should point at its companion flag, got:\n{stderr}"
+        );
+    }
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_report_mysql_stat_top_accepts_either_source_and_rejects_neither() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    // The pairing is checked after parsing, since clap `requires` cannot
+    // express "one of two flags". It must still block, and before any I/O.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--mysql-stat-top",
+            "5",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(!output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a usage error must exit 2, not the tolerable 75 bucket"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--mysql-stat-prometheus"),
+        "the message should name both accepted sources, got:\n{stderr}"
+    );
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_report_help_lists_the_mysql_stat_prometheus_flags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["report", "--help"])
+        .output()
+        .expect("spawn");
+
+    let help = String::from_utf8_lossy(&output.stdout);
+    for flag in [
+        "--mysql-stat-prometheus",
+        "--mysql-stat-auth-header",
+        "--mysql-stat-metric",
+        "--mysql-stat-query-label",
+    ] {
+        assert!(help.contains(flag), "report --help should list {flag}");
+    }
+}
