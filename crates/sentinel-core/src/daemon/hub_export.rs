@@ -7,6 +7,9 @@ use chrono::Utc;
 use serde::Serialize;
 
 use super::ack::{AckEntry, AckStore};
+// The event loop's clock, not a second one: `push_batch` stamps findings with
+// it and the hourly re-send suppression compares against those stamps.
+use super::event_loop::current_time_ms as unix_time_ms;
 use super::findings_store::StoredFinding;
 use super::query_api::{FindingResponse, ResolvedTomlAck, lookup_ack};
 use crate::config::DaemonHubExportConfig;
@@ -503,19 +506,38 @@ async fn annotate(batch: &[PendingExport], acks: &AckSources) -> Vec<FindingResp
         .collect()
 }
 
+/// Serialize the largest prefix of `batch` that fits the body cap, popping
+/// from the end so the caller can keep its acknowledgment aligned.
+///
+/// An oversized body shrinks proportionally to how far over the cap it is,
+/// not one finding at a time: findings are within an order of magnitude of
+/// each other, so this converges in a couple of passes instead of
+/// re-serializing up to `batch_size` times for one huge outlier.
 fn bounded_payload(batch: &mut Vec<FindingResponse>) -> Option<Vec<u8>> {
     while !batch.is_empty() {
         let payload = ExportPayload {
             producer_version: env!("CARGO_PKG_VERSION"),
             findings: batch,
         };
-        match serde_json::to_vec(&payload) {
+        let over_by = match serde_json::to_vec(&payload) {
             Ok(body) if body.len() <= MAX_EXPORT_BODY_BYTES => return Some(body),
-            Ok(_) | Err(_) if batch.len() > 1 => {
-                batch.pop();
-            }
-            Ok(_) | Err(_) => return None,
+            // Serialization of owned scalars does not fail, but a poisoned
+            // entry must still shrink the batch rather than spin.
+            Err(_) => batch.len(),
+            Ok(body) => body.len(),
+        };
+        if batch.len() == 1 {
+            return None;
         }
+        // Keep the prefix the cap can hold, and always drop at least one.
+        let keep = batch
+            .len()
+            .saturating_mul(MAX_EXPORT_BODY_BYTES)
+            .checked_div(over_by)
+            .unwrap_or(0)
+            .min(batch.len() - 1)
+            .max(1);
+        batch.truncate(keep);
     }
     None
 }
@@ -533,14 +555,6 @@ fn jitter_seed() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| u64::from(duration.subsec_nanos()))
-}
-
-fn unix_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| {
-            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-        })
 }
 
 #[cfg(test)]
@@ -758,6 +772,30 @@ mod tests {
             annotated[0].acknowledged_by,
             Some(AckSource::Toml { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_batch_shrinks_to_the_prefix_that_fits() {
+        let buffer = HubExportBuffer::new(10);
+        for i in 0..3 {
+            let mut big = finding(&format!("sig-{i}"), "trace");
+            big.pattern.template = "x".repeat(MAX_EXPORT_BODY_BYTES / 2);
+            buffer.push_batch(&[big], 1);
+        }
+        let mut annotated = annotate(&buffer.snapshot(100), &acks(None)).await;
+
+        let body = bounded_payload(&mut annotated).expect("a prefix must fit");
+
+        assert!(body.len() <= MAX_EXPORT_BODY_BYTES);
+        // Popped from the end only, so the caller's `batch.truncate` stays
+        // aligned with what actually went over the wire.
+        assert_eq!(annotated.len(), 1);
+        assert_eq!(annotated[0].stored.finding.signature, "sig-0");
+
+        // A single finding that cannot fit has no prefix left to keep.
+        let mut alone = annotate(&buffer.snapshot(1), &acks(None)).await;
+        alone[0].stored.finding.pattern.template = "x".repeat(MAX_EXPORT_BODY_BYTES + 1);
+        assert!(bounded_payload(&mut alone).is_none());
     }
 
     #[test]
