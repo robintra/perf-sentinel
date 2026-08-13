@@ -707,6 +707,15 @@ retain their coalesced batch and retry with exponential backoff and jitter; a
 daemon restart clears both caches. Requests and JSON bodies are bounded to 100
 findings and 2 MiB. Use HTTPS outside a trusted private network.
 
+On a graceful shutdown (SIGTERM, `helm upgrade`, a rolling restart) the
+exporter flushes what it still holds before the process exits, for up to
+10 seconds. That budget is deliberate: an unreachable Hub must not hold the
+daemon past the orchestrator's grace period, where the next signal is
+SIGKILL and nothing is flushed at all. When the budget expires, the findings
+still pending are dropped and a `WARN` names how many. Size
+`terminationGracePeriodSeconds` above that budget so the drain has room to
+run, otherwise the pod is killed mid-flush.
+
 Mount the API key as a Secret-backed file. Do not put it in a ConfigMap or in
 `.perf-sentinel.toml`. With the Helm chart, use `extraVolumes` and
 `extraVolumeMounts` to expose the key at the configured `api_key_file` path.
