@@ -9,6 +9,19 @@ async function loadDashboard(page: Page, hash = "") {
   await page.waitForSelector("[role=tablist]");
 }
 
+// The service, type and grouping filters live inside one disclosure per family
+// and accept several values at once, so their state is a checkbox rather than a
+// pressed pill. Severity and "All" are still chips, in their own radiogroup.
+function filterBox(page: Page, key: string) {
+  return page.locator(`#findings-filters input[type=checkbox][data-key="${key}"]`);
+}
+function filterTrigger(page: Page, group: string) {
+  return page.locator(`#findings-filters details[data-filter-group="${group}"] .ps-filter-trigger-label`);
+}
+async function openFilterMenu(page: Page, group: string) {
+  await page.locator(`#findings-filters details[data-filter-group="${group}"] summary`).click();
+}
+
 test("1. dashboard loads with filename in title", async ({ page }) => {
   await loadDashboard(page);
   await expect(page).toHaveTitle(/perf-sentinel: .+\.json/);
@@ -195,6 +208,8 @@ test("11. j key moves selection and the detail pane follows it", async ({ page }
 test("12. density defaults to comfort and the toggle persists compact", async ({ page }) => {
   await loadDashboard(page);
   await expect(page.locator("html")).toHaveAttribute("data-density", "comfort");
+  // Density and theme now sit behind the gear, so the menu opens first.
+  await page.locator("#topbar-settings summary").click();
   await page.locator("#density-toggle").click();
   await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
   await page.reload();
@@ -470,23 +485,47 @@ test("25. a hash naming an absent service does not silently empty the list", asy
   await loadDashboard(page, "#findings&service=ghost-svc-does-not-exist");
   expect(await page.locator("#findings-list .ps-row").count(),
     "an unknown service must be ignored, not applied").toBeGreaterThan(0);
+  await expect(page.locator("#findings-filters input[type=checkbox]:checked"),
+    "an ignored value must leave no box ticked").toHaveCount(0);
+  await expect(filterTrigger(page, "svc"), "and the menu must read as idle").toHaveText("Service");
   const active = await page.locator("#findings-filters .ps-chip.active").getAttribute("data-key");
   expect(active).toBe("all");
 
   // A real service from the data still applies.
   await loadDashboard(page, "#findings&service=order-svc");
-  expect(await page.locator("#findings-filters .ps-chip.active").getAttribute("data-key"))
-    .toBe("svc:order-svc");
+  await expect(filterBox(page, "svc:order-svc")).toBeChecked();
+  await expect(filterTrigger(page, "svc")).toHaveText("Service · 1");
+});
+
+test("25b. several values in one family are OR'd, and the families AND together", async ({ page }) => {
+  await loadDashboard(page, "#findings");
+  const all = await page.locator("#findings-list .ps-row").count();
+
+  await loadDashboard(page, "#findings&type=n_plus_one_sql");
+  const oneType = await page.locator("#findings-list .ps-row").count();
+  await loadDashboard(page, "#findings&type=n_plus_one_sql,redundant_sql");
+  const twoTypes = await page.locator("#findings-list .ps-row").count();
+  await expect(filterTrigger(page, "type")).toHaveText("Type · 2");
+  expect(twoTypes, "a second type widens the list").toBeGreaterThan(oneType);
+  expect(twoTypes, "but never past the unfiltered set").toBeLessThanOrEqual(all);
+
+  // Adding a family narrows, because groups AND with each other.
+  await loadDashboard(page, "#findings&type=n_plus_one_sql,redundant_sql&service=order-svc");
+  const narrowed = await page.locator("#findings-list .ps-row").count();
+  expect(narrowed, "a service on top narrows the same set").toBeLessThanOrEqual(twoTypes);
 });
 
 test("26. type and effective grouping filters combine and expose ARIA state", async ({ page }) => {
   await loadDashboard(page, `#findings&grouping=${encodeURIComponent(K8S_PROD_EU)}&type=n_plus_one_sql`);
 
-  const namespaceChip = page.locator(`#findings-filters .ps-chip[data-key="group:${K8S_PROD_EU}"]`);
-  const typeChip = page.locator('#findings-filters .ps-chip[data-key="type:n_plus_one_sql"]');
-  await expect(namespaceChip).toHaveText("k8s.namespace.name=prod-eu");
-  await expect(namespaceChip).toHaveAttribute("aria-pressed", "true");
-  await expect(typeChip).toHaveAttribute("aria-pressed", "true");
+  // The menu is named after the attribute key, so each option only carries the
+  // value. Spelling "k8s.namespace.name=" on every option repeated the header.
+  await expect(filterTrigger(page, "group")).toHaveText("k8s.namespace.name · 1");
+  await openFilterMenu(page, "group");
+  await expect(page.locator(`#findings-filters details[data-filter-group="group"] label`)
+    .filter({ hasText: "prod-eu" })).toHaveCount(1);
+  await expect(filterBox(page, `group:${K8S_PROD_EU}`)).toBeChecked();
+  await expect(filterBox(page, "type:n_plus_one_sql")).toBeChecked();
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
   const labels = await page.locator("#findings-list .ps-fin-type").allTextContents();
   expect(labels.every((label) => label.trim() === "N+1 SQL")).toBe(true);
@@ -495,18 +534,16 @@ test("26. type and effective grouping filters combine and expose ARIA state", as
 test("27. the second grouping attribute is the fallback when the first is absent", async ({ page }) => {
   await loadDashboard(page, `#findings&grouping=${encodeURIComponent(SERVICE_FINANCE)}`);
 
-  await expect(page.locator(`#findings-filters .ps-chip[data-key="group:${SERVICE_FINANCE}"]`))
-    .toHaveAttribute("aria-pressed", "true");
+  await expect(filterBox(page, `group:${SERVICE_FINANCE}`)).toBeChecked();
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
 
   await page.evaluate(() => { location.hash = "#findings&grouping=ghost"; });
-  await expect(page.locator(`#findings-filters .ps-chip[data-key="group:${SERVICE_FINANCE}"]`))
-    .toHaveAttribute("aria-pressed", "false");
+  await expect(filterBox(page, `group:${SERVICE_FINANCE}`)).not.toBeChecked();
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
 
   await loadDashboard(page, "#findings&service=chat-svc");
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
-  await expect(page.locator('#findings-filters .ps-chip[data-key="group:"]')).toHaveCount(0);
+  await expect(page.locator('#findings-filters input[data-key="group:"]')).toHaveCount(0);
   await page.locator("#findings-list .ps-row").first().click();
   await expect(page.locator("#explain-detail-head .ps-meta-grid"))
     .not.toContainText(/service\.namespace|k8s\.namespace\.name/);
@@ -538,8 +575,7 @@ test("29. grouping filters and occurrence evidence fit a narrow viewport", async
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, "the filters and evidence must not widen the page").toBeLessThanOrEqual(1);
-  await expect(page.locator(`#findings-filters .ps-chip[data-key="group:${K8S_PROD_EU}"]`))
-    .toHaveAttribute("aria-pressed", "true");
+  await expect(filterBox(page, `group:${K8S_PROD_EU}`)).toBeChecked();
   await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first()).toBeVisible();
 });
 
@@ -651,17 +687,36 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
 });
 
 test("28. the sort control does not masquerade as an applied filter", async ({ page }) => {
-  // `.active` marks an applied filter. The sort chips share `.ps-chip` for
-  // the look, so giving them `.active` too made every "which filter is on"
-  // selector ambiguous, which is how test 25 broke.
+  // `.active` marks an applied filter. The sort chips share `.ps-chip` for the
+  // look, so giving them `.active` too made every "which filter is on" selector
+  // ambiguous, which is how test 25 broke. Sort now also lives in the panel
+  // toolbar rather than among the filters, which is the structural half of the
+  // same guarantee.
   await loadDashboard(page, "#findings");
+  await expect(page.locator("#findings-sort [data-sort-key]"),
+    "sort belongs to the toolbar, not to the filter row").toHaveCount(2);
+  await expect(page.locator("#findings-filters [data-sort-key]")).toHaveCount(0);
   expect(await page.locator("#findings-filters .ps-chip.active").count(),
-    "exactly one chip may claim to be the applied filter").toBe(1);
+    "with no filter applied only the All chip is active").toBe(1);
   await page.locator('[data-sort-key="impact"]').click();
   expect(await page.locator("#findings-filters .ps-chip.active").count(),
-    "switching the sort must not add a second applied filter").toBe(1);
+    "switching the sort must not mark a filter as applied").toBe(1);
   expect(await page.locator('[data-sort-key="impact"].ps-sort-on').count(),
     "the active sort carries its own marker").toBe(1);
+});
+
+test("28b. a filter menu closes on Escape without clearing the filters", async ({ page }) => {
+  // A <details> is neither a dialog nor a text field, so without its own tier in
+  // the Escape ladder the keydown fell through to "clear the filter chips" and
+  // wiped a selection the user only meant to stop editing.
+  await loadDashboard(page, "#findings&service=order-svc");
+  await openFilterMenu(page, "svc");
+  await expect(page.locator('#findings-filters details[data-filter-group="svc"]'))
+    .toHaveAttribute("open", "");
+  await page.keyboard.press("Escape");
+  await expect(page.locator('#findings-filters details[data-filter-group="svc"]'))
+    .not.toHaveAttribute("open", "");
+  await expect(filterBox(page, "svc:order-svc"), "the selection must survive").toBeChecked();
 });
 
 test("26. wide tables scroll inside their card instead of being clipped", async ({ page }) => {

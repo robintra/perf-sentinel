@@ -109,7 +109,10 @@ test("01 findings with severity + service filters", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#findings");
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
-  await page.locator('#findings-filters .ps-chip[data-key="svc:order-svc"]').click();
+  // The service filter lives in a disclosure now, so it opens before it ticks.
+  // Left open on purpose: the still is meant to show what the menu holds.
+  await page.locator('#findings-filters details[data-filter-group="svc"] summary').click();
+  await page.locator('#findings-filters input[data-key="svc:order-svc"]').click();
   const path = outPath("findings", theme);
   await clipScreenshot(page, path);
   expectScreenshotWritten(path);

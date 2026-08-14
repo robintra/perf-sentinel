@@ -1695,9 +1695,11 @@ fn tabs_and_panels_carry_aria_roles() {
 
 #[test]
 fn chips_carry_aria_radio_and_pressed_states() {
-    // pg_stat rankings form a radiogroup. Findings filters split
-    // into a severity radiogroup and a service toggle group where
-    // every service chip carries `aria-pressed`.
+    // pg_stat rankings and finding severity are radiogroups. The three
+    // multi-value families are disclosure menus whose accessible name comes
+    // from the FILTER_GROUPS table, so assert the table entries rather than a
+    // setter call: every group must keep a name, including the two that used
+    // to be untested and could have vanished in silence.
     assert!(
         TEMPLATE.contains("\"role\", \"radiogroup\""),
         "radiogroup role setter missing"
@@ -1710,9 +1712,15 @@ fn chips_carry_aria_radio_and_pressed_states() {
         TEMPLATE.contains("\"aria-label\", \"Finding severity\""),
         "Finding severity radiogroup label missing"
     );
+    for group in ["Finding type", "Finding service", "Finding grouping"] {
+        assert!(
+            TEMPLATE.contains(&format!("aria: \"{group}\"")),
+            "{group} menu label missing from FILTER_GROUPS"
+        );
+    }
     assert!(
-        TEMPLATE.contains("\"aria-label\", \"Finding service\""),
-        "Finding service group label missing"
+        TEMPLATE.contains("\"aria-label\", \"Sort findings\""),
+        "Sort findings group label missing"
     );
     assert!(
         TEMPLATE.contains("\"aria-checked\""),

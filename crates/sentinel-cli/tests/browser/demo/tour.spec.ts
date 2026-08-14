@@ -38,9 +38,13 @@ test("dashboard tour", async ({ page }, testInfo) => {
   // Severity filter: Warning chip narrows the list to 3 warnings.
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
   await pause(page, 1400);
-  // Stack a service filter on top: order-svc leaves only the two N+1s.
-  await page.locator('#findings-filters .ps-chip[data-key="svc:order-svc"]').click();
+  // Stack a service filter on top: order-svc leaves only the two N+1s. The
+  // menu opening is part of the tour, so it gets its own beat.
+  await page.locator('#findings-filters details[data-filter-group="svc"] summary').click();
+  await pause(page, 900);
+  await page.locator('#findings-filters input[data-key="svc:order-svc"]').click();
   await pause(page, 1400);
+  await page.keyboard.press("Escape");
   // Reset with "All".
   await page.locator('#findings-filters .ps-chip[data-key="all"]').click();
   await pause(page, 900);
@@ -110,10 +114,17 @@ test("dashboard tour", async ({ page }, testInfo) => {
   // change (e.g. adding a fourth state) surfaces loudly instead of
   // producing a silently-wrong GIF.
   const cycleTo = async (target: "dark" | "light") => {
+    // The toggle sits inside the gear menu, which must be open for the click to
+    // land. Reopening each turn rather than once: the menu closes on any
+    // outside pointer event, and the tour clicks elsewhere between beats.
     for (let i = 0; i < 3; i += 1) {
       const now = await page.evaluate(() =>
         document.documentElement.getAttribute("data-theme"));
       if (now === target) return;
+      const settings = page.locator("#topbar-settings");
+      if (!(await settings.evaluate((node: HTMLDetailsElement) => node.open))) {
+        await page.locator("#topbar-settings summary").click();
+      }
       await page.locator("#theme-toggle").click();
       await pause(page, 300);
     }

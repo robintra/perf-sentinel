@@ -90,7 +90,7 @@
      itself stretches to the full grid-cell height (no empty gap below the
      nav on tabs taller than the viewport). */
   .ps-sidebar-sticky { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
-  .ps-brand-block { padding: 20px 18px 14px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+  .ps-brand-block { padding: 20px 18px 18px; display: flex; flex-direction: column; align-items: flex-start; }
   .ps-brand { display: block; text-decoration: none; }
   .ps-logo { display: none; }
   .ps-logo svg, .ps-logo img { height: 34px; width: auto; display: block; }
@@ -98,7 +98,6 @@
      light/dark by applyTheme, so exactly one variant shows. */
   :root[data-theme="dark"] .ps-logo-dark { display: block; }
   :root[data-theme="light"] .ps-logo-light { display: block; }
-  .ps-brand-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; color: var(--text-3); padding-left: 2px; }
   .ps-nav { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; flex: 1; overflow: auto; }
   .ps-nav-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3); padding: 10px 9px 6px; }
   /* Pill nav: no separators, soft pill hover, solid pill + bold when selected. */
@@ -143,8 +142,16 @@
   .ps-sidebar-foot-version { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
   .ps-main { display: flex; flex-direction: column; min-width: 0; }
-  .ps-topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; row-gap: 10px; flex-wrap: wrap; padding: 18px 28px 8px; border-bottom: 0; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(8px); }
-  .ps-topbar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+  /* Three tracks rather than a flex row: the search must sit on the bar's
+     centre line, and two flex siblings with the same grow factor only share the
+     free space evenly, they do not end up the same width when their contents
+     differ. minmax(0, 1fr) makes the side tracks equal outright. */
+  .ps-topbar { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; row-gap: 10px; padding: 18px 28px 8px; border-bottom: 0; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(8px); }
+  /* Title and actions share an identical basis of zero so the free space splits
+     evenly and the search box between them lands on the bar's centre line,
+     whatever the title reads or how many daemon controls are showing. */
+  .ps-topbar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .ps-topbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
   .ps-topbar-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3); }
   .ps-topbar-h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
   .ps-gate-pass, .ps-gate-fail { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 20px; font-size: 11.5px; font-family: var(--font-ui); font-weight: 700; white-space: nowrap; }
@@ -165,10 +172,22 @@
   .ps-theme-toggle .ps-th-svg { flex: none; color: var(--brand-text); }
   .ps-theme-toggle.ps-anim .ps-th-svg { animation: ps-spin-in .44s cubic-bezier(.34,1.5,.5,1); }
   .ps-theme-toggle.ps-anim .ps-th-lbl { animation: ps-fade .3s ease; }
+  /* Display settings behind one gear. <details> carries open/close, keyboard
+     activation and the disclosure semantics, so there is no menu widget to
+     build. The panel is absolutely positioned: opening it must not reflow the
+     bar, which would shift the search box off centre. */
+  .ps-settings { position: relative; display: inline-flex; }
+  .ps-settings-trigger { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box; border: 1px solid var(--btn-bd); border-radius: 999px; color: var(--btn-fg); background: var(--surface-2); cursor: pointer; list-style: none; transition: border-color .25s ease, color .25s ease, background .25s ease; }
+  .ps-settings-trigger::-webkit-details-marker { display: none; }
+  .ps-settings-trigger:hover, .ps-settings[open] .ps-settings-trigger { border-color: var(--brand); color: var(--brand-2); background: var(--accent-bg); }
+  .ps-settings-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border-2); border-radius: 12px; background: var(--surface); }
+  /* #density-toggle carries its own width (id beats a class), so both buttons
+     are pinned here through an id-strength selector or they come out uneven. */
+  .ps-settings-menu .ps-theme-toggle, .ps-settings-menu #density-toggle { width: 128px; justify-content: flex-start; padding: 0 12px; }
   /* One search box, in the top bar, and it is the only search input in the
      report. The focus ring lives on the box (see .ps-search-box:focus-within),
      the input itself is borderless and transparent inside it. */
-  .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-2); background: var(--surface-2); border-radius: 999px; padding: 0 11px; height: 34px; flex: 0 0 390px; min-width: 0; }
+  .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-2); background: var(--surface-2); border-radius: 999px; padding: 0 11px; height: 34px; width: 390px; max-width: 100%; min-width: 0; }
   /* Real magnifier icon (CSS mask) instead of the text glyph. */
   .ps-search-box .ps-search-glyph { font-size: 0; flex: none; width: 14px; height: 14px; background-color: var(--text-3);
     -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>') center / contain no-repeat;
@@ -300,9 +319,25 @@
   .ps-chip[data-sev="info"] { color: var(--info-fg); background: var(--info-bg); border-color: transparent; }
   .ps-chip[data-sev].active { box-shadow: inset 0 0 0 1px currentColor; }
   .ps-findings-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 6px; }
-  /* margin-left: auto parks the sort at the row's right edge, visually
-     apart from the filters it does not belong to. */
-  .ps-sort-group { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+
+  /* One disclosure per filter family. The trigger is a .ps-chip so a collapsed
+     menu is indistinguishable from the pills it replaced, and it takes .active
+     from the same rule when the group filters. */
+  .ps-filter-menu { position: relative; display: inline-flex; }
+  .ps-filter-trigger { display: inline-flex; align-items: center; gap: 6px; list-style: none; user-select: none; }
+  .ps-filter-trigger::-webkit-details-marker { display: none; }
+  /* The caret is drawn here rather than in the DOM: an ::after keeps the
+     trigger's text node alone, so reading its label needs no filtering. */
+  .ps-filter-trigger::after { content: ""; width: 0; height: 0; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4px solid currentColor; opacity: .75; }
+  .ps-filter-menu[open] .ps-filter-trigger::after { transform: rotate(180deg); }
+  .ps-filter-options { position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; min-width: 190px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; border: 1px solid var(--border-2); border-radius: 12px; background: var(--surface); }
+  .ps-filter-option { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; font-family: var(--font-ui); font-size: 12px; color: var(--text-2); cursor: pointer; white-space: nowrap; }
+  .ps-filter-option:hover { background: var(--surface-2); }
+  .ps-filter-option input { flex: none; accent-color: var(--brand); cursor: pointer; }
+
+  /* No margin-left: auto any more. Sort sits at the start of the panel toolbar,
+     whose left edge already lines up with the findings column below it. */
+  .ps-sort-group { display: inline-flex; align-items: center; gap: 8px; }
   .ps-sort-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
   /* -------- lists / rows -------- */
@@ -515,7 +550,10 @@
   :root[data-theme="dark"] .ps-diff-section-resolved { background-color: color-mix(in srgb, var(--ok-bg) 72%, #000); }
   .ps-quality-gate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
   .ps-section-title { font-size: 14px; font-weight: 600; margin: 0; color: var(--text); }
-  .ps-panel-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .ps-panel-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* The auto margin, not space-between: the other tabs' toolbars have their
+     buttons as direct children and space-between would scatter them. */
+  .ps-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .ps-export-btn, .ps-copy-link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 11.5px; border-radius: 999px; border: 1px solid var(--btn-bd); background: var(--surface-2); cursor: pointer; color: var(--btn-fg); font-family: var(--font-ui); font-weight: 600; }
   .ps-export-btn:hover, .ps-copy-link-btn:hover { border-color: var(--brand); color: var(--brand-2); background: var(--accent-bg); }
   /* Button icons as CSS masks: they survive textContent swaps ("Copied"). */
@@ -602,7 +640,7 @@
   /* Search-match highlight injected by the highlighter module. */
   mark.ps-mark { background: color-mix(in srgb, var(--brand) 24%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 
-  /* -------- density (compact by default, toggled from the topbar) -------- */
+  /* -------- density (comfort by default, toggled from the topbar gear) -------- */
   :root[data-density="compact"] { --r: 13px; --r-sm: 7px; }
   :root[data-density="compact"] body { font-size: 12.5px; }
   :root[data-density="compact"] .ps-content { padding: 16px 22px 0; }
@@ -657,7 +695,7 @@
        to. "Forget key" shares the class but is a bare label. */
     body.ps-live #ps-refresh-btn { width: 34px; padding: 0; justify-content: center; gap: 0; }
     #ps-refresh-btn span { display: none; }
-    .ps-search-box { flex: 1 1 180px; min-width: 140px; }
+    .ps-search-box { width: 240px; min-width: 140px; }
   }
 
   /* Narrow viewports (small windows, embedded iframes): give the content room
@@ -671,7 +709,11 @@
     .ps-metrics { grid-template-columns: repeat(2, 1fr); }
     .ps-overview-cols, .ps-diff-cols, .ps-triage { grid-template-columns: 1fr; }
     .ps-meta-grid { grid-template-columns: repeat(2, 1fr); }
-    .ps-search-box { flex: 1 1 auto; min-width: 0; }
+    /* Too narrow for three tracks: stack them, which is what the flex-wrap did
+       before, and let the search span the full row. */
+    .ps-topbar { grid-template-columns: 1fr; }
+    .ps-topbar-actions { justify-content: flex-start; }
+    .ps-search-box { width: 100%; min-width: 0; }
     .ps-footer { --footer-inset: 22px; min-height: 0; padding-top: 18px; padding-bottom: 14px; }
   }
   /* On short viewports a pinned footer costs too much reading space. */
@@ -700,7 +742,6 @@
     <div class="ps-sidebar-sticky">
     <div class="ps-brand-block">
       <a class="ps-brand" href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer" aria-label="perf-sentinel, perf-sentinel.dev">{{BRAND_LOGO}}</a>
-      <span class="ps-brand-eyebrow">HTML REPORT</span>
     </div>
     <div class="ps-nav" id="tabs" role="tablist" aria-label="Dashboard sections" aria-orientation="vertical">
       <div class="ps-nav-eyebrow">// sections</div>
@@ -721,12 +762,12 @@
         <span class="ps-topbar-eyebrow" id="topbar-eyebrow"></span>
         <div class="ps-title-row"><h1 class="ps-topbar-h1" id="topbar-h1">Overview</h1></div>
       </div>
-      <div class="ps-topbar-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
-        <div class="ps-search-box" id="topbar-search-box">
-          <span class="ps-search-glyph">⌕</span>
-          <input type="search" class="ps-search" id="topbar-search" placeholder="Search findings, templates, endpoints…" aria-label="Search findings, templates, endpoints" />
-          <span class="ps-search-kbd">⌘K</span>
-        </div>
+      <div class="ps-search-box" id="topbar-search-box">
+        <span class="ps-search-glyph">⌕</span>
+        <input type="search" class="ps-search" id="topbar-search" placeholder="Search findings, templates, endpoints…" aria-label="Search findings, templates, endpoints" />
+        <span class="ps-search-kbd">⌘K</span>
+      </div>
+      <div class="ps-topbar-actions">
         <span id="topbar-gate"></span>
         <output class="ps-daemon-status" id="ps-daemon-status" aria-live="polite">
           <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
@@ -734,8 +775,13 @@
         </output>
         <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data"><svg class="ps-refresh-ico" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 5.35A6 6 0 1 0 14 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"></path><path d="M14 2v3.5h-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg><span>Refresh</span></button>
         <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
-        <button class="ps-theme-toggle" id="density-toggle" type="button" aria-label="Toggle UI density"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect class="b1" x="2" y="2.4" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b2" x="2" y="7.05" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b3" x="2" y="11.7" width="12" height="1.9" rx="0.95" fill="currentColor"></rect></svg><span id="density-label">Comfort</span></button>
-        <button class="ps-theme-toggle" id="theme-toggle" type="button">System</button>
+        <details class="ps-settings" id="topbar-settings">
+          <summary class="ps-settings-trigger" aria-label="Display settings" title="Display settings"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.9" fill="none"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg></summary>
+          <div class="ps-settings-menu">
+            <button class="ps-theme-toggle" id="density-toggle" type="button" aria-label="Toggle UI density"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect class="b1" x="2" y="2.4" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b2" x="2" y="7.05" width="12" height="1.9" rx="0.95" fill="currentColor"></rect><rect class="b3" x="2" y="11.7" width="12" height="1.9" rx="0.95" fill="currentColor"></rect></svg><span id="density-label">Comfort</span></button>
+            <button class="ps-theme-toggle" id="theme-toggle" type="button">System</button>
+          </div>
+        </details>
       </div>
     </header>
 
@@ -753,12 +799,15 @@
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-panel-toolbar">
-      <label class="ps-include-acked-wrap" id="findings-include-acked-wrap">
-        <input type="checkbox" id="findings-include-acked" />
-        <span>Show acknowledged</span>
-      </label>
-      <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
-      <button type="button" class="ps-copy-link-btn" id="findings-copy-link" data-copy-link-tab="findings">Copy link</button>
+      <div class="ps-sort-group" id="findings-sort"></div>
+      <div class="ps-toolbar-actions">
+        <label class="ps-include-acked-wrap" id="findings-include-acked-wrap">
+          <input type="checkbox" id="findings-include-acked" />
+          <span>Show acknowledged</span>
+        </label>
+        <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
+        <button type="button" class="ps-copy-link-btn" id="findings-copy-link" data-copy-link-tab="findings">Copy link</button>
+      </div>
     </div>
     <div class="ps-triage">
       <div class="ps-card">
@@ -903,7 +952,7 @@
       <span class="ps-kbd">/</span> search
       <span class="ps-kbd">esc</span> back
       <button type="button" class="ps-kbd" id="footer-shortcuts" style="cursor: pointer; background: transparent;">?</button> shortcuts
-      <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">perf-sentinel</a> &middot; design &amp; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
+      <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">Perf Sentinel</a> &middot; design &amp; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
     </footer>
   </main>
 </div>
@@ -2296,10 +2345,7 @@
       // or sitting past the first page. Clear the chips, reveal acked findings
       // if the target is one, and grow the shown count to its position, else
       // resetShownCount would cap the render at LIST_CAP and the click dies.
-      filterState.severity = null;
-      filterState.service = null;
-      filterState.type = null;
-      filterState.grouping = null;
+      resetFilterState();
       syncFilterChips();
       if (findingHiddenByAck(f)) {
         var toggle = document.getElementById("findings-include-acked");
@@ -2391,7 +2437,25 @@
   }
 
   // -------- filters --------
-  var filterState = { severity: null, service: null, type: null, grouping: null };
+  // Severity stays single-valued: its chips are a radiogroup and "All" is the
+  // reset. The other three accept several values at once, OR'd inside a group
+  // and AND'ed across groups. Arrays rather than Sets so the hash keeps a
+  // stable order between a copied link and the state it restores.
+  var filterState = { severity: null, services: [], types: [], groupings: [] };
+  var FILTER_GROUPS = [
+    { prefix: "type", field: "types", label: "Type", aria: "Finding type" },
+    { prefix: "svc", field: "services", label: "Service", aria: "Finding service" },
+    { prefix: "group", field: "groupings", label: "Grouping", aria: "Finding grouping" }
+  ];
+  function filterGroupByPrefix(prefix) {
+    return FILTER_GROUPS.find(function (g) { return g.prefix === prefix; }) || null;
+  }
+  function toggleFilterValue(field, value) {
+    var list = filterState[field];
+    var at = list.indexOf(value);
+    if (at === -1) list.push(value);
+    else list.splice(at, 1);
+  }
   // Findings-list sort: one primary key with a direction, the other
   // axis as an automatic descending tie-break. "severity" ranks the
   // single worst detection, "impact" ranks the signature's aggregate
@@ -2451,64 +2515,91 @@
     setAttr(counter, "id", "findings-count");
     root.appendChild(counter);
 
-    var serviceGroup = el("span", "ps-chip-group", null);
-    setAttr(serviceGroup, "role", "group");
-    setAttr(serviceGroup, "aria-label", "Finding service");
-    root.appendChild(serviceGroup);
+    // The three multi-value families each collapse into one disclosure. Flat,
+    // they were 26 pills across two wrapping rows, and nothing said which of
+    // them combined with which.
+    function appendMenu(group, entries) {
+      if (!entries.length) return;
+      var menu = el("details", "ps-filter-menu", null);
+      setAttr(menu, "data-filter-group", group.prefix);
+      var trigger = el("summary", "ps-chip ps-filter-trigger", null);
+      setAttr(trigger, "aria-label", group.aria);
+      trigger.appendChild(el("span", "ps-filter-trigger-label", group.label));
+      menu.appendChild(trigger);
+      var options = el("div", "ps-filter-options", null);
+      setAttr(options, "role", "group");
+      setAttr(options, "aria-label", group.aria);
+      entries.forEach(function (entry) {
+        var key = group.prefix + ":" + entry.key;
+        var row = el("label", "ps-filter-option", null);
+        var box = el("input", null, null);
+        box.type = "checkbox";
+        setAttr(box, "data-key", key);
+        box.addEventListener("change", function () { onFilterClick(key); });
+        row.appendChild(box);
+        row.appendChild(el("span", "ps-filter-option-label", entry.label));
+        options.appendChild(row);
+      });
+      menu.appendChild(options);
+      root.appendChild(menu);
+    }
+
+    var types = Object.create(null);
+    findings.forEach(function (f) { types[f.type || f.finding_type] = true; });
+    appendMenu(filterGroupByPrefix("type"), Object.keys(types).sort().map(function (type) {
+      return { key: type, label: typeLabel(type) };
+    }));
 
     var services = Object.create(null);
     findings.forEach(function (f) { services[f.service] = true; });
-    Object.keys(services).sort().forEach(function (s) {
-      appendChip(serviceGroup, s, "svc:" + s, "button", "aria-pressed");
-    });
+    appendMenu(filterGroupByPrefix("svc"), Object.keys(services).sort().map(function (s) {
+      return { key: s, label: s };
+    }));
 
-    var typeGroup = el("span", "ps-chip-group", null);
-    setAttr(typeGroup, "role", "group");
-    setAttr(typeGroup, "aria-label", "Finding type");
-    root.appendChild(typeGroup);
-    var types = Object.create(null);
-    findings.forEach(function (f) { types[f.type || f.finding_type] = true; });
-    Object.keys(types).sort().forEach(function (type) {
-      appendChip(typeGroup, typeLabel(type), "type:" + type, "button", "aria-pressed");
-    });
-
-    var groupingGroup = el("span", "ps-chip-group", null);
-    setAttr(groupingGroup, "role", "group");
-    setAttr(groupingGroup, "aria-label", "Finding grouping");
     var groupings = Object.create(null);
+    var groupingKey = "";
     findings.forEach(function (f) {
       var identity = findingGroupingIdentity(f);
-      if (identity) groupings[identity] = findingGroupingLabel(f);
+      if (!identity) return;
+      groupings[identity] = findingGroupingLabel(f);
+      var grouping = findingGrouping(f);
+      if (grouping && !groupingKey) groupingKey = grouping.key;
     });
-    root.appendChild(groupingGroup);
-    Object.keys(groupings).sort(function (a, b) {
+    var groupingGroup = filterGroupByPrefix("group");
+    // Name the menu after the attribute it filters on, since that key is what
+    // the pills used to spell out on every one of them.
+    if (groupingKey) groupingGroup.label = groupingKey;
+    appendMenu(groupingGroup, Object.keys(groupings).sort(function (a, b) {
       return groupings[a].localeCompare(groupings[b]);
-    }).forEach(function (identity) {
-      appendChip(
-        groupingGroup,
-        groupings[identity],
-        "group:" + identity,
-        "button",
-        "aria-pressed"
-      );
-    });
+    }).map(function (identity) {
+      // The pill label repeated "key=value"; inside a menu named after the key,
+      // only the value carries information.
+      var label = groupings[identity];
+      var eq = label.indexOf("=");
+      return { key: identity, label: eq === -1 ? label : label.slice(eq + 1) };
+    }));
 
-    var sortGroup = el("span", "ps-chip-group ps-sort-group", null);
-    setAttr(sortGroup, "role", "group");
-    setAttr(sortGroup, "aria-label", "Sort findings");
-    sortGroup.appendChild(el("span", "ps-sort-label", "sort"));
+    syncFilterChips();
+    syncSortChips();
+  }
+
+  /// Sort lives in the panel toolbar, on the row above the findings column, so
+  /// it is not mistaken for one more filter at the end of the pill run.
+  function renderSortChips() {
+    var host = document.getElementById("findings-sort");
+    if (!host) return;
+    host.textContent = "";
+    setAttr(host, "role", "group");
+    setAttr(host, "aria-label", "Sort findings");
+    host.appendChild(el("span", "ps-sort-label", "sort"));
     ["severity", "impact"].forEach(function (key) {
       var btn = el("button", "ps-chip");
       btn.type = "button";
       setAttr(btn, "data-sort-key", key);
       setAttr(btn, "aria-pressed", "false");
       btn.addEventListener("click", function () { onSortClick(key); });
-      sortGroup.appendChild(btn);
+      host.appendChild(btn);
     });
-    root.appendChild(sortGroup);
-
-    syncFilterChips();
-    syncSortChips();
   }
   // Click the inactive key to switch (direction resets to descending),
   // click the active one to flip the direction.
@@ -2540,49 +2631,71 @@
   }
   function onFilterClick(key) {
     if (key === "all") {
-      filterState.severity = null;
-      filterState.service = null;
-      filterState.type = null;
-      filterState.grouping = null;
+      resetFilterState();
     } else if (key.startsWith("sev:")) {
       var sv = key.slice(4);
       filterState.severity = filterState.severity === sv ? null : sv;
-    } else if (key.startsWith("svc:")) {
-      var svc = key.slice(4);
-      filterState.service = filterState.service === svc ? null : svc;
-    } else if (key.startsWith("type:")) {
-      var type = key.slice(5);
-      filterState.type = filterState.type === type ? null : type;
-    } else if (key.startsWith("group:")) {
-      var grouping = key.slice(6);
-      filterState.grouping = filterState.grouping === grouping ? null : grouping;
+    } else {
+      var at = key.indexOf(":");
+      var group = at === -1 ? null : filterGroupByPrefix(key.slice(0, at));
+      if (group) toggleFilterValue(group.field, key.slice(at + 1));
     }
     syncFilterChips();
     resetShownCount();
     renderFindingsList();
     scheduleHashWrite();
   }
+  function resetFilterState() {
+    filterState.severity = null;
+    FILTER_GROUPS.forEach(function (group) { filterState[group.field] = []; });
+  }
+  /// Keep only the hash values that some finding still carries, so a shared
+  /// link that outlived its report restores a visible state rather than an
+  /// empty list with nothing checked to explain it.
+  function keepKnownFilterValues(values, project) {
+    if (!Array.isArray(values)) return [];
+    return values.filter(function (value) {
+      return findings.some(function (f) { return project(f) === value; });
+    });
+  }
   function syncFilterChips() {
-    var anyActive = !!(
-      filterState.severity || filterState.service || filterState.type || filterState.grouping
-    );
+    var anyActive = anyFilterChipActive();
     document.querySelectorAll("#findings-filters .ps-chip").forEach(function (chip) {
       // Sort chips share the look but not the filter state machine.
       if (chip.dataset.sortKey) return;
+      // Menu triggers carry their own state, handled below.
+      if (chip.classList.contains("ps-filter-trigger")) return;
       var key = chip.dataset.key;
       var active = false;
       if (key === "all") active = !anyActive;
       else if (key === "sev:" + filterState.severity) active = true;
-      else if (key === "svc:" + filterState.service) active = true;
-      else if (key === "type:" + filterState.type) active = true;
-      else if (key === "group:" + filterState.grouping) active = true;
       chip.classList.toggle("active", active);
-      // Severity chips and "All" are radio-role, service chips are
-      // toggle buttons. Pick the right ARIA state attribute per chip.
+      // Severity chips and "All" are radio-role, so they report aria-checked.
       var role = chip.getAttribute("role");
       var stateAttr = role === "radio" ? "aria-checked" : "aria-pressed";
       setAttr(chip, stateAttr, active ? "true" : "false");
     });
+    FILTER_GROUPS.forEach(syncFilterMenu);
+  }
+  /// Reflect one group's selection onto its checkboxes and its collapsed
+  /// trigger, which reads "Type" when idle and "Type · 2" once it filters.
+  function syncFilterMenu(group) {
+    var menu = document.querySelector('#findings-filters details[data-filter-group="' + group.prefix + '"]');
+    if (!menu) return;
+    var selected = filterState[group.field];
+    menu.querySelectorAll('input[type="checkbox"][data-key]').forEach(function (box) {
+      var value = box.dataset.key.slice(group.prefix.length + 1);
+      box.checked = selected.indexOf(value) !== -1;
+    });
+    var trigger = menu.querySelector("summary");
+    var label = menu.querySelector(".ps-filter-trigger-label");
+    if (label) label.textContent = selected.length ? group.label + " · " + selected.length : group.label;
+    if (trigger) {
+      trigger.classList.toggle("active", selected.length > 0);
+      setAttr(trigger, "aria-label", selected.length
+        ? group.aria + " (" + selected.length + " selected)"
+        : group.aria);
+    }
   }
 
   // -------- findings list --------
@@ -2621,8 +2734,7 @@
   }
 
   function anyFindingsFilterActive() {
-    if (filterState.severity || filterState.service || filterState.type ||
-        filterState.grouping || globalSearchTerm()) return true;
+    if (anyFilterChipActive() || globalSearchTerm()) return true;
     // The ack toggle also narrows the list, so an all-acked empty list is a
     // filtered empty, not an empty report.
     return findings.some(findingHiddenByAck);
@@ -2646,11 +2758,12 @@
     // Sorted by the active sortState (severity-worst-first by default)
     // and stable, so the report's own type/trace order survives inside
     // each band. The CSV export shares this order.
+    // OR inside a group, AND between groups: an empty group filters nothing.
     return findings.filter(function (f) {
       if (filterState.severity && f.severity !== filterState.severity) return false;
-      if (filterState.service && f.service !== filterState.service) return false;
-      if (filterState.type && (f.type || f.finding_type) !== filterState.type) return false;
-      if (filterState.grouping && findingGroupingIdentity(f) !== filterState.grouping) return false;
+      if (filterState.services.length && filterState.services.indexOf(f.service) === -1) return false;
+      if (filterState.types.length && filterState.types.indexOf(f.type || f.finding_type) === -1) return false;
+      if (filterState.groupings.length && filterState.groupings.indexOf(findingGroupingIdentity(f)) === -1) return false;
       if (findingHiddenByAck(f)) return false;
       return findingMatchesSearch(f, term);
     }).sort(compareFindings);
@@ -5201,6 +5314,10 @@
   // token), not a key=value pair. Stored as a Set so existence checks
   // are O(1) regardless of how many keys land here in the future.
   var HASH_KEYS = new Set(["search", "ranking", "severity", "service", "type", "grouping"]);
+  // These three carry several values. Each value is percent-encoded on its own
+  // before the comma join, so a comma inside a value (a grouping identity can
+  // hold any attribute text) survives the round trip instead of splitting it.
+  var HASH_LIST_KEYS = new Set(["service", "type", "grouping"]);
   function readHash() {
     var raw = (location.hash || "").replace(/^#/, "");
     if (!raw) return null;
@@ -5214,6 +5331,10 @@
       if (!HASH_KEYS.has(k)) return;
       var v = p.slice(eq + 1);
       try {
+        if (HASH_LIST_KEYS.has(k)) {
+          state[k] = v.split(",").filter(Boolean).map(decodeURIComponent);
+          return;
+        }
         v = decodeURIComponent(v);
       } catch {
         // Malformed percent-encoding in a shared URL, keep the raw
@@ -5233,9 +5354,9 @@
     if (term) state.search = term;
     if (currentTab === "findings") {
       if (filterState.severity) state.severity = filterState.severity;
-      if (filterState.service) state.service = filterState.service;
-      if (filterState.type) state.type = filterState.type;
-      if (filterState.grouping) state.grouping = filterState.grouping;
+      if (filterState.services.length) state.service = filterState.services.slice();
+      if (filterState.types.length) state.type = filterState.types.slice();
+      if (filterState.groupings.length) state.grouping = filterState.groupings.slice();
     }
     if (currentTab === "pgstat") {
       state.ranking = rankingSlugForIndex(activeRankingIndex);
@@ -5248,7 +5369,9 @@
     var parts = [state.tab];
     ["search", "ranking", "severity", "service", "type", "grouping"].forEach(function (k) {
       var v = state[k];
-      if (v !== null && v !== undefined && v !== "") {
+      if (Array.isArray(v)) {
+        if (v.length) parts.push(k + "=" + v.map(encodeURIComponent).join(","));
+      } else if (v !== null && v !== undefined && v !== "") {
         parts.push(k + "=" + encodeURIComponent(String(v)));
       }
     });
@@ -5298,29 +5421,16 @@
     // shows the correct view. Severity / service chips modify
     // filterState and re-render the findings list.
     if (state.tab === "findings") {
-      filterState.severity = null;
-      filterState.service = null;
-      filterState.type = null;
-      filterState.grouping = null;
+      resetFilterState();
       if (state.severity === "critical" || state.severity === "warning" || state.severity === "info") {
         filterState.severity = state.severity;
       }
-      // Only honor a service that a chip actually exists for. A stale or
-      // hand-edited hash naming an absent service would filter the list to
-      // nothing with no active chip to explain why.
-      if (state.service && findings.some(function (f) { return f.service === state.service; })) {
-        filterState.service = state.service;
-      }
-      if (state.type && findings.some(function (f) {
-        return (f.type || f.finding_type) === state.type;
-      })) {
-        filterState.type = state.type;
-      }
-      if (state.grouping && findings.some(function (f) {
-        return findingGroupingIdentity(f) === state.grouping;
-      })) {
-        filterState.grouping = state.grouping;
-      }
+      // Only honor values an option actually exists for. A stale or hand-edited
+      // hash naming an absent service would filter the list to nothing with no
+      // checked box to explain why.
+      filterState.services = keepKnownFilterValues(state.service, function (f) { return f.service; });
+      filterState.types = keepKnownFilterValues(state.type, function (f) { return f.type || f.finding_type; });
+      filterState.groupings = keepKnownFilterValues(state.grouping, findingGroupingIdentity);
       syncFilterChips();
     }
     if (state.tab === "pgstat") {
@@ -5403,15 +5513,12 @@
   }
 
   function anyFilterChipActive() {
-    return !!(
-      filterState.severity || filterState.service || filterState.type || filterState.grouping
-    );
+    return !!filterState.severity || FILTER_GROUPS.some(function (group) {
+      return filterState[group.field].length > 0;
+    });
   }
   function clearFilterChips() {
-    filterState.severity = null;
-    filterState.service = null;
-    filterState.type = null;
-    filterState.grouping = null;
+    resetFilterState();
     syncFilterChips();
     resetShownCount();
     renderFindingsList();
@@ -5431,6 +5538,32 @@
   }
   /// Escape ladder: close a modal, close search, clear filter chips.
   /// Each tier returns as soon as it acts.
+  var DISCLOSURE_SELECTOR = "details.ps-settings[open], details.ps-filter-menu[open]";
+  /// Close one disclosure and hand focus back to its own trigger, so Escape
+  /// leaves the keyboard where the user opened the menu from.
+  function closeDisclosure(details) {
+    if (!details || !details.open) return;
+    details.open = false;
+    var trigger = details.querySelector("summary");
+    if (trigger) trigger.focus();
+  }
+  /// Close every disclosure except the one being interacted with. No focus move
+  /// here: this runs on an outside click, where the pointer is already choosing
+  /// the next focus target.
+  function closeOtherDisclosures(except) {
+    document.querySelectorAll(DISCLOSURE_SELECTOR).forEach(function (menu) {
+      if (menu !== except) menu.open = false;
+    });
+  }
+  // One document-level listener rather than one per menu: the filter menus are
+  // rebuilt on every render, and per-menu listeners would leak with them.
+  document.addEventListener("pointerdown", function (ev) {
+    var target = ev.target;
+    var inside = target && typeof target.closest === "function"
+      ? target.closest("details.ps-settings, details.ps-filter-menu")
+      : null;
+    closeOtherDisclosures(inside);
+  });
   function handleEscape(ev) {
     if (isCheatsheetOpen()) {
       closeCheatsheet();
@@ -5443,6 +5576,15 @@
     var openDlg = document.querySelector("dialog[open]");
     if (openDlg) {
       openDlg.close();
+      ev.preventDefault();
+      return;
+    }
+    // Same reason for the disclosure menus. A <details> is neither a dialog nor
+    // a text field, so without this tier Escape would fall through to the chip
+    // clear below and wipe filters the user never asked to lose.
+    var openMenu = document.querySelector(DISCLOSURE_SELECTOR);
+    if (openMenu) {
+      closeDisclosure(openMenu);
       ev.preventDefault();
       return;
     }
@@ -5649,6 +5791,7 @@
     // Gate rules render inside the Overview hero (renderOverviewHero); there
     // is no longer a standalone gate-rules table.
     renderOverviewPanel();
+    renderSortChips();
     renderFilterChips();
     restorePersistedPgStatRanking();
     renderFindingsList();
