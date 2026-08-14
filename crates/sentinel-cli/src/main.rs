@@ -208,6 +208,13 @@ enum Commands {
         /// Override the daemon gRPC (OTLP) listen port.
         #[arg(long)]
         listen_port_grpc: Option<u16>,
+        /// Override the number of findings carried by one
+        /// `/api/export/report` snapshot. Takes precedence over
+        /// `[daemon] max_export_findings`. Raise it to report on a busy
+        /// daemon, whose store holds far more than one snapshot ships;
+        /// costs a few KB of response body per finding.
+        #[arg(long, value_name = "N")]
+        max_export_findings: Option<usize>,
     },
 
     /// Receive OTLP traces into a file for batch analysis, without a
@@ -1345,12 +1352,14 @@ async fn dispatch_command(command: Commands) {
             listen_address,
             listen_port_http,
             listen_port_grpc,
+            max_export_findings,
         } => {
             cmd_watch(
                 config.as_deref(),
                 listen_address,
                 listen_port_http,
                 listen_port_grpc,
+                max_export_findings,
             )
             .await;
         }
@@ -2849,6 +2858,7 @@ async fn cmd_watch(
     listen_address: Option<String>,
     listen_port_http: Option<u16>,
     listen_port_grpc: Option<u16>,
+    max_export_findings: Option<usize>,
 ) {
     let mut config = load_config(config_path);
     if let Some(addr) = listen_address {
@@ -2860,8 +2870,12 @@ async fn cmd_watch(
     if let Some(port) = listen_port_grpc {
         config.daemon.listen_port_grpc = port;
     }
-    // Re-run strict validation so CLI overrides on listen_addr / ports
-    // are checked. Advisory warnings are NOT re-emitted here (they were
+    if let Some(n) = max_export_findings {
+        config.daemon.max_export_findings = n;
+    }
+    // Re-run strict validation so CLI overrides on listen_addr, ports and
+    // max_export_findings are checked against the same bounds the config
+    // file goes through. Advisory warnings are NOT re-emitted here (they were
     // emitted once at load), only the non-loopback security advisory
     // is re-checked because it is the only one affected by overrides.
     if let Err(e) = config.validate() {
