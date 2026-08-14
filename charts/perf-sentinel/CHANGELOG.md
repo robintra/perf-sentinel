@@ -10,6 +10,12 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.12.1]
+
+### Fixed
+
+- `volumeClaimTemplates` now spells out `apiVersion: v1` and `kind: PersistentVolumeClaim`. A claim template needs neither, but the API server defaults them on the live object, so a GitOps controller diffing the cluster against the rendered chart saw two lines it could never reconcile and held the application `OutOfSync` forever. The rendered manifest is otherwise unchanged, and no `StatefulSet` field is mutated, so the upgrade is a no-op for the running pods.
+
 ## [0.12.0]
 
 ### Changed

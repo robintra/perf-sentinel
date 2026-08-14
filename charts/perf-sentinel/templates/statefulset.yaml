@@ -30,7 +30,13 @@ spec:
       {{- include "perf-sentinel.podSpec" . | nindent 6 }}
   {{- if .Values.workload.statefulset.persistence.enabled }}
   volumeClaimTemplates:
-    - metadata:
+    # apiVersion and kind are spelled out even though a claim template needs
+    # neither: the API server defaults them, so a GitOps controller comparing
+    # the live object against the rendered chart reports a permanent diff and
+    # never reaches Synced. Emitting them makes the two sides match.
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: data
       spec:
         accessModes:
