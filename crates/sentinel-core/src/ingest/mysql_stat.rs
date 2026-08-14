@@ -571,7 +571,7 @@ pub async fn fetch_from_prometheus(
     let calls_body = match opts.calls_series.as_deref() {
         Some(series) => match scrape::fetch_instant_query(
             endpoint,
-            series,
+            &scrape::build_counter_query(top_n, &opts.series, series, "digest"),
             auth_header,
             "perf-sentinel/mysql-stat",
         )

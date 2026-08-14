@@ -88,6 +88,22 @@ pub(crate) fn build_topk_query(top_n: usize, series: &str) -> String {
     format!("topk({top_n}%2C%20{series})")
 }
 
+/// Build the call-counter query, intersected with the ranked statements.
+///
+/// Unfiltered, a `pg_stat_statements.max = 10000` instance overruns the body
+/// cap in [`crate::http_client`] and the counts fall back to zero, which is
+/// the hole this second query exists to close. `join_label` is a caller
+/// constant (`queryid`, `digest`), never an operator string.
+pub(crate) fn build_counter_query(
+    top_n: usize,
+    series: &str,
+    calls_series: &str,
+    join_label: &str,
+) -> String {
+    let ranked = build_topk_query(top_n, series);
+    format!("{calls_series}%20and%20on({join_label})%20{ranked}")
+}
+
 /// Run an instant query against a Prometheus endpoint and return the body.
 ///
 /// The endpoint and the query are the caller's to validate beforehand. The
@@ -184,6 +200,18 @@ pub(crate) fn counter_by_label(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_counter_query_is_bounded_by_the_ranked_set() {
+        // Nothing but the metric names, the encoded comma and the encoded
+        // spaces: anything else in a URL query string is a bug.
+        let query = build_counter_query(10, "pg_seconds_total", "pg_calls_total", "queryid");
+        assert_eq!(
+            query,
+            "pg_calls_total%20and%20on(queryid)%20topk(10%2C%20pg_seconds_total)"
+        );
+        assert!(!query.contains(' '), "a raw space would break the URL");
+    }
 
     #[test]
     fn series_name_accepts_the_exporter_defaults() {
