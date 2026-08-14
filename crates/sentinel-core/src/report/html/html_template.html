@@ -458,6 +458,13 @@
   /* Diff · Severity changes: Before/After pills and headers centered. */
   #diff-sev-table th:nth-child(3), #diff-sev-table th:nth-child(4),
   #diff-sev-table td:nth-child(3), #diff-sev-table td:nth-child(4) { text-align: center; }
+  /* The SQL column holds the widest content of the pg_stat and mysql_stat
+     tables. `anywhere`, not `break-word`: only `anywhere` shrinks the
+     cell's intrinsic minimum width, which is what stops a 120-char column
+     list from pushing the figures out of the card and scrolling it
+     sideways. Breaks land after the commas addCommaBreaks marks, and
+     fall back to mid-token on a list written without spaces. */
+  .ps-pg-template { overflow-wrap: anywhere; }
   #pgstat-body tr.hilite { background: var(--crit-bg); }
   #pgstat-body tr.hilite td:first-child { color: var(--crit-fg); font-weight: 600; }
   /* pg_stat controls row: "rank by" label + ranking chips, then the actions.
@@ -3939,6 +3946,7 @@
       setAttr(tr, "data-template", entry.normalized_template);
       var tplTd = el("td", "ps-pg-template");
       highlightInto(tplTd, entry.normalized_template);
+      addCommaBreaks(tplTd);
       tr.appendChild(tplTd);
       tr.appendChild(el("td", null, fmtNum(entry.calls || 0)));
       tr.appendChild(el("td", null, fmtNum((entry.total_exec_time_ms || 0).toFixed(1))));
@@ -4076,6 +4084,7 @@
       setAttr(tr, "data-template", entry.normalized_template);
       var tplTd = el("td", "ps-pg-template");
       highlightInto(tplTd, entry.normalized_template);
+      addCommaBreaks(tplTd);
       tr.appendChild(tplTd);
       tr.appendChild(el("td", null, entry.schema_name || ""));
       tr.appendChild(el("td", null, fmtNum(entry.calls || 0)));
