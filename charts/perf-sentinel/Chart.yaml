@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.12.1
-appVersion: "0.12.0"
+version: 0.13.0
+appVersion: "0.13.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,11 +36,13 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: added
+      description: "appVersion 0.13.0. The pg-stat and mysql-stat Prometheus scrapes join every counter the exporters publish as a series of its own, so the rankings by calls and by rows examined carry real figures instead of zeros. New flags name or skip each series and state what the time series counts."
     - kind: fixed
-      description: "chart-only 0.12.1 (appVersion stays 0.12.0): volumeClaimTemplates now spells out apiVersion and kind. A claim template needs neither, but the API server defaults them on the live object, so a GitOps controller diffing the cluster against the rendered chart saw two lines it could never reconcile and held the application OutOfSync forever. The rendered manifest is otherwise unchanged and no StatefulSet field is mutated, so upgrading does not roll the pods."
+      description: "The daemon re-reads its TOML acknowledgments file every minute, so an edit to a mounted ConfigMap applies without restarting the pod, and a ConfigMap projection is no longer refused as a symlink. Mount the ConfigMap as a directory rather than with subPath, which freezes the file against that reload."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.12.0
+      image: ghcr.io/robintra/perf-sentinel:0.13.0
       platforms:
         - linux/amd64
         - linux/arm64

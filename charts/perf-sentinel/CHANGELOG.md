@@ -10,6 +10,24 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.13.0]
+
+### Changed
+
+- `appVersion` moves to `0.13.0`. The `pg-stat` and `mysql-stat` Prometheus
+  scrapes now join every counter the exporters publish as a series of its own,
+  so the rankings by calls and by rows examined carry real figures rather than
+  zeros, and each query folds on an identity that keeps two database servers
+  apart. No chart-level template change.
+
+### Fixed
+
+- The daemon re-reads its TOML acknowledgments file every minute, so an edit to
+  a mounted `ConfigMap` applies without restarting the pod, and a `ConfigMap`
+  projection is no longer refused as a symlink. Mount the `ConfigMap` as a
+  directory rather than with `subPath`: a `subPath` mount freezes the file at
+  mount time and defeats that reload. See `docs/HELM-DEPLOYMENT.md`.
+
 ## [0.12.1]
 
 ### Fixed
