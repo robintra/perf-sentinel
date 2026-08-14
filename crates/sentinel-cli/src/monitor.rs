@@ -2316,15 +2316,21 @@ mod tests {
         // is the body that cannot be read. Reported as a bare STALE, the
         // operator investigates the network instead of the configuration.
         let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        // Verbatim from `query::fetch_json_reporting`: the header budget is
+        // the constraint that message is written against, so asserting a
+        // shorter stand-in would pass while the real one lost its tail.
         state.apply(FetchOutcome::Unreachable(Some(
-            "/api/export/report returned more than the 8 MB this client reads: \
-             lower `[daemon] max_export_findings` or `max_retained_traces`"
+            "/api/export/report over the 8 MB read limit: lower max_export_findings \
+             or max_retained_traces"
                 .to_string(),
         )));
         assert!(state.stale);
         let shown =
             stale_reason(state.last_error.as_deref()).expect("reason must reach the header");
         assert!(shown.contains("8 MB"), "{shown}");
+        // The action, not just the symptom: a reason cut before naming the
+        // knob leaves the operator exactly where the bare marker did.
+        assert!(shown.contains("lower max_export_findings"), "{shown}");
         assert!(shown.chars().count() <= HEADER_REASON_MAX_CHARS);
 
         // A tick that fails without a nameable cause keeps the header bare.
