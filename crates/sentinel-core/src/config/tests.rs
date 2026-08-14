@@ -4097,3 +4097,44 @@ fn accepts_zero_max_export_findings_for_an_envelope_only_snapshot() {
     let result = load_from_str("[daemon]\nmax_export_findings = 0");
     assert!(result.is_ok(), "expected 0 to parse, got {result:?}");
 }
+
+// --- combined export budget: the two knobs share one response body ---
+
+#[test]
+fn snapshot_budget_is_quiet_inside_the_body_limit() {
+    // The shipped defaults, and the values a report-oriented daemon ends
+    // up with, must not nag.
+    assert_eq!(super::validate::snapshot_budget_warning(1_000, 50), None);
+    assert_eq!(super::validate::snapshot_budget_warning(1_000, 150), None);
+}
+
+#[test]
+fn snapshot_budget_warns_when_both_knobs_stay_in_their_comfort_zones() {
+    // The failure this exists for: 2000 is the top of max_export_findings'
+    // comfort zone and 400 sits inside max_retained_traces' (10..=500), yet
+    // together they project ~15 MB, far past the 8 MiB the query clients
+    // read the snapshot with. Neither knob's own advisory sees the sum.
+    let w = super::validate::snapshot_budget_warning(2_000, 400)
+        .expect("in-comfort pair over the limit must warn");
+    assert!(w.contains("max_export_findings"), "{w}");
+    assert!(w.contains("max_retained_traces"), "{w}");
+}
+
+#[test]
+fn snapshot_budget_warns_on_retained_traces_alone() {
+    // 500 is the documented comfort ceiling for max_retained_traces, and
+    // at ~20 KB a tree it already blows the limit on its own.
+    assert!(super::validate::snapshot_budget_warning(1_000, 500).is_some());
+}
+
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+#[test]
+fn snapshot_read_limit_matches_the_client_cap() {
+    // Config validation compiles without the features gating http_client,
+    // so the budget advisory carries its own copy of the limit. If the
+    // real cap moves, the advisory must move with it.
+    assert_eq!(
+        super::validate::SNAPSHOT_READ_LIMIT_BYTES,
+        crate::http_client::MAX_BODY_BYTES
+    );
+}

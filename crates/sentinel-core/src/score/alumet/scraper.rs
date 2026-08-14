@@ -71,7 +71,8 @@ fn fetch_error_reason(err: &FetchError) -> AlumetScrapeReason {
         FetchError::Transport(_) => AlumetScrapeReason::Unreachable,
         FetchError::Timeout => AlumetScrapeReason::Timeout,
         FetchError::HttpStatus(_) => AlumetScrapeReason::HttpError,
-        FetchError::BodyRead(_) => AlumetScrapeReason::BodyReadError,
+        // A body over the cap is still a body the scrape could not read.
+        FetchError::BodyRead(_) | FetchError::BodyTooLarge(_) => AlumetScrapeReason::BodyReadError,
         FetchError::RequestBuild(_) => AlumetScrapeReason::RequestError,
     }
 }

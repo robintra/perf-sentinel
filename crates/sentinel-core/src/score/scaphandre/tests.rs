@@ -979,16 +979,16 @@ async fn fetch_metrics_once_rejects_oversized_body() {
     let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
     let err = fetch_metrics_once(&client, &uri, None)
         .await
-        .expect_err("oversized body must fail with BodyRead (LengthLimit)");
+        .expect_err("oversized body must fail");
     server.await.unwrap();
+    // BodyTooLarge, not BodyRead: the overrun is the one body failure an
+    // operator can act on, so it carries the limit rather than a string
+    // that happened to mention it.
     match err {
-        ScraperError::Fetch(crate::http_client::FetchError::BodyRead(msg)) => {
-            assert!(
-                msg.to_ascii_lowercase().contains("length") || msg.contains("limit"),
-                "expected length-limit error, got: {msg}"
-            );
+        ScraperError::Fetch(crate::http_client::FetchError::BodyTooLarge(limit)) => {
+            assert_eq!(limit, crate::http_client::MAX_BODY_BYTES);
         }
-        other => panic!("expected Fetch(BodyRead), got {other:?}"),
+        other => panic!("expected Fetch(BodyTooLarge), got {other:?}"),
     }
 }
 

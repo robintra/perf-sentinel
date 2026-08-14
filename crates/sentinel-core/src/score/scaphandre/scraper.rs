@@ -124,7 +124,10 @@ fn fetch_error_reason(err: &FetchError) -> ScaphandreScrapeReason {
         FetchError::Transport(_) => ScaphandreScrapeReason::Unreachable,
         FetchError::Timeout => ScaphandreScrapeReason::Timeout,
         FetchError::HttpStatus(_) => ScaphandreScrapeReason::HttpError,
-        FetchError::BodyRead(_) => ScaphandreScrapeReason::BodyReadError,
+        // A body over the cap is still a body the scrape could not read.
+        FetchError::BodyRead(_) | FetchError::BodyTooLarge(_) => {
+            ScaphandreScrapeReason::BodyReadError
+        }
         FetchError::RequestBuild(_) => ScaphandreScrapeReason::RequestError,
     }
 }
