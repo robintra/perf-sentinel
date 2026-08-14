@@ -550,6 +550,12 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "LABEL", requires = "prometheus")]
         query_label: Option<String>,
+        /// Label carrying the schema name (default: `schema`). It is part of
+        /// the identity every query folds on, so a recording rule that renames
+        /// it merges two schemas into one row with their times summed.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "LABEL", requires = "prometheus")]
+        schema_label: Option<String>,
         /// Series holding `COUNT_STAR` (default:
         /// `mysql_perf_schema_events_statements_total`). Fetched in a second
         /// query and joined on `digest`, because the exporter publishes the
@@ -733,6 +739,12 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "LABEL", requires = "mysql_stat_prometheus")]
         mysql_stat_query_label: Option<String>,
+        /// Label carrying the schema name (default: `schema`). It is part of
+        /// the identity every query folds on, so a recording rule that renames
+        /// it merges two schemas into one row with their times summed.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "LABEL", requires = "mysql_stat_prometheus")]
+        mysql_stat_schema_label: Option<String>,
         /// Series holding `COUNT_STAR` (default:
         /// `mysql_perf_schema_events_statements_total`). Fetched in a second
         /// query and joined on `digest`, because the exporter publishes the
@@ -1493,6 +1505,8 @@ async fn dispatch_command(command: Commands) {
             #[cfg(feature = "daemon")]
             query_label,
             #[cfg(feature = "daemon")]
+            schema_label,
+            #[cfg(feature = "daemon")]
             calls_metric,
             #[cfg(feature = "daemon")]
             unit,
@@ -1502,8 +1516,13 @@ async fn dispatch_command(command: Commands) {
             format,
         } => {
             #[cfg(feature = "daemon")]
-            let opts =
-                mysql_stat_prometheus_opts(metric, query_label, calls_metric, unit.as_deref());
+            let opts = mysql_stat_prometheus_opts(
+                metric,
+                query_label,
+                schema_label,
+                calls_metric,
+                unit.as_deref(),
+            );
             mysql_stat::dispatch_mysql_stat(
                 input.as_deref(),
                 #[cfg(feature = "daemon")]
@@ -1578,6 +1597,8 @@ async fn dispatch_command(command: Commands) {
             #[cfg(feature = "daemon")]
             mysql_stat_query_label,
             #[cfg(feature = "daemon")]
+            mysql_stat_schema_label,
+            #[cfg(feature = "daemon")]
             mysql_stat_calls_metric,
             #[cfg(feature = "daemon")]
             mysql_stat_unit,
@@ -1601,6 +1622,7 @@ async fn dispatch_command(command: Commands) {
             let mysql_stat_prom = mysql_stat_prometheus_opts(
                 mysql_stat_metric,
                 mysql_stat_query_label,
+                mysql_stat_schema_label,
                 mysql_stat_calls_metric,
                 mysql_stat_unit.as_deref(),
             );
@@ -1797,11 +1819,15 @@ fn pg_stat_prometheus_opts(
 fn mysql_stat_prometheus_opts(
     metric: Option<String>,
     query_label: Option<String>,
+    schema_label: Option<String>,
     calls_metric: Option<String>,
     unit: Option<&str>,
 ) -> sentinel_core::ingest::mysql_stat::PrometheusMySqlStat {
     use sentinel_core::ingest::mysql_stat::{MySqlStatTimeUnit, PrometheusMySqlStat};
     let mut opts = PrometheusMySqlStat::with_overrides(metric, query_label);
+    if let Some(label) = schema_label {
+        opts.schema_label = label;
+    }
     if let Some(series) = calls_metric {
         opts.calls_series = (!series.is_empty()).then_some(series);
     }

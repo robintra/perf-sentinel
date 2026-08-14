@@ -644,7 +644,7 @@ fn parse_prometheus_response(
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
     // identity -> calls, empty when no second query was made.
     let call_counts = match calls_body {
-        Some(raw) => crate::ingest::prometheus_scrape::counter_by_labels(raw, PG_IDENTITY)
+        Some(raw) => crate::ingest::prometheus_scrape::counter_by_labels(raw, PG_IDENTITY, "calls")
             .map_err(PgStatError::PrometheusFormat)?,
         None => std::collections::HashMap::new(),
     };
