@@ -282,8 +282,10 @@ pub struct DaemonConfig {
     /// holding tens of thousands of findings ships a slice of its most
     /// recent, and the default keeps the historical size. Raising it
     /// grows the response body and the HTML rendered from it by a few KB
-    /// per finding, so it trades report weight for coverage. Zero exports
-    /// the envelope alone, gate verdict and green figures included.
+    /// per finding, so it trades report weight for coverage. The cap also
+    /// bounds what the exported `quality_gate` counts, so zero exports the
+    /// envelope alone and its gate passes whatever the daemon detected:
+    /// a probe polling that shape is reading a constant, not a verdict.
     pub max_export_findings: usize,
     /// Maximum number of traces whose masked spans are retained for
     /// `/api/export/report`, so an exported report still draws a span

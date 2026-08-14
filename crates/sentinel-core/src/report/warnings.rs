@@ -128,5 +128,7 @@ mod tests {
         assert_eq!(COLD_START, "cold_start");
         assert_eq!(INGESTION_DROPS, "ingestion_drops");
         assert_eq!(TUNING, "tuning");
+        assert_eq!(UNMATCHED_ACKNOWLEDGMENT, "unmatched_acknowledgment");
+        assert_eq!(SNAPSHOT_SCOPE, "snapshot_scope");
     }
 }

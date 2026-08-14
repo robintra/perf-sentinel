@@ -161,6 +161,8 @@ struct ConfigSlim {
     #[serde(default)]
     max_retained_findings: usize,
     #[serde(default)]
+    max_export_findings: usize,
+    #[serde(default)]
     max_retained_traces: usize,
     #[serde(default)]
     ingest_queue_capacity: usize,
@@ -1221,6 +1223,13 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         &c.max_retained_findings.to_string(),
         &d.max_retained_findings.to_string(),
         "Findings kept in the query ring buffer; oldest evicted past it. /api/findings folds them by signature for display.",
+    );
+    config_row(
+        &mut lines,
+        "max_export_findings",
+        &c.max_export_findings.to_string(),
+        &d.max_export_findings.to_string(),
+        "Findings one /api/export/report snapshot carries; the exported quality gate counts only those.",
     );
     config_row(
         &mut lines,

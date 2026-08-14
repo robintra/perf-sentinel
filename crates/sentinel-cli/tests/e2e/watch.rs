@@ -68,6 +68,28 @@ fn cli_watch_help_documents_listen_address_override() {
         stdout.contains("--listen-port-grpc"),
         "watch --help should advertise --listen-port-grpc, got: {stdout}"
     );
+    assert!(
+        stdout.contains("--max-export-findings"),
+        "watch --help should advertise --max-export-findings, got: {stdout}"
+    );
+}
+
+#[test]
+fn cli_watch_rejects_max_export_findings_past_the_ceiling() {
+    // The override goes through the same validation as the config file,
+    // so a typo is refused at startup rather than at the first request.
+    // No listener is bound on this path, hence no port to reserve.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["watch", "--max-export-findings", "100001"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(!output.status.success(), "startup should have been refused");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("max_export_findings"),
+        "the error should name the rejected knob, got: {stderr}"
+    );
 }
 
 #[test]

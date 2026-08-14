@@ -423,7 +423,7 @@ variance JSON des BMC sur la réponse `/Power`.
 
 ## Kinds de warning : transitoire vs collant
 
-`Report.warning_details` (depuis 0.5.19) compte trois kinds stables,
+`Report.warning_details` (depuis 0.5.19) compte cinq kinds stables,
 chacun avec un cycle de vie différent. La distinction compte pour la
 stratégie de monitoring : un warning transitoire se résout seul, un
 collant persiste jusqu'au redémarrage du daemon.
@@ -433,6 +433,8 @@ collant persiste jusqu'au redémarrage du daemon.
 | `cold_start`      | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon                             | Premier batch réussi (les deux compteurs strictement positifs)                     |
 | `ingestion_drops` | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full" ou "memory_pressure"} > 0` depuis le démarrage | Redémarrage du daemon (reset du compteur)                                          |
 | `tuning`          | Mixte        | Un compteur lifetime montre un réglage sous-dimensionné pour la charge, ou `sampling_rate` est sous 1.0 (voir dessous) | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre, un changement de config pour la règle `sampling_rate` |
+| `unmatched_acknowledgment` | Par run | Un acquittement actif n'a rien supprimé dans cette analyse                                         | Le run suivant où son finding réapparaît, ou la suppression de l'acquittement                  |
+| `snapshot_scope`  | Toujours     | Chaque réponse `/api/export/report` : les chiffres green décrivent un seul batch, et une seconde entrée apparaît quand le store contient plus de findings que l'export n'en expédie | Jamais, il décrit le payload plutôt qu'une panne. La sortie batch ne porte aucune des deux entrées |
 
 `cold_start` est un warning d'état : "le snapshot n'est pas
 significatif maintenant". `ingestion_drops` est un warning d'audit :
