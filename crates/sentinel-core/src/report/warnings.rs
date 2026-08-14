@@ -43,6 +43,12 @@ pub const TUNING: &str = "tuning";
 /// otherwise the message keeps both. Only emitted on fresh analyses.
 pub const UNMATCHED_ACKNOWLEDGMENT: &str = "unmatched_acknowledgment";
 
+/// Stable kind for the reach of a daemon snapshot: which slice of the
+/// findings store it carries, and which population its green figures
+/// describe. Only emitted by `/api/export/report`, never in batch,
+/// where every number comes from the same pass over the input.
+pub const SNAPSHOT_SCOPE: &str = "snapshot_scope";
+
 /// Operator-facing snapshot warning with a stable category.
 ///
 /// `kind` is suitable for alerting and aggregation across runs (e.g.
