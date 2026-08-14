@@ -30,11 +30,12 @@ const SIBLING = resolve(ROOT, '../perf-sentinel/target/release/perf-sentinel');
 const bin = process.env.PERF_SENTINEL || (existsSync(SIBLING) ? SIBLING : 'perf-sentinel');
 
 // Keep in lockstep with the embed/theme-sync logic in index.html + fr/index.html.
-// `#density-toggle` is named on its own: it shares the .ps-theme-toggle class for
-// styling, so the class alone would hide it only by accident.
+// Since 0.13.1 the report keeps both controls inside one `.ps-settings` gear, so
+// hiding that disclosure hides the pair. Hiding the two buttons alone would leave
+// the gear in the bar, opening on an empty menu.
 const PATCH = `<script>try{var k='perf-sentinel:theme';var m=(location.search.match(/[?&]theme=(dark|light)(?:&|$)/)||[])[1];if(m)sessionStorage.setItem(k,m)}catch(e){}
 if(window.self!==window.top){try{document.documentElement.setAttribute('data-density','compact')}catch(e){}
-try{var ps=document.createElement('style');ps.textContent='.ps-theme-toggle,#density-toggle{display:none!important}';(document.head||document.documentElement).appendChild(ps)}catch(e){}}
+try{var ps=document.createElement('style');ps.textContent='.ps-settings{display:none!important}';(document.head||document.documentElement).appendChild(ps)}catch(e){}}
 window.addEventListener('message',function(e){if(e.origin!==location.origin)return;var t=e.data&&e.data.psTheme;if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);try{sessionStorage.setItem('perf-sentinel:theme',t)}catch(_){}}});</script>`;
 
 console.log(`[embed-dashboard] generating exemple/dashboard.html via ${bin}`);
@@ -54,6 +55,13 @@ if (html.includes('psTheme')) {
   }
   if (densityBootstrap === -1 || densityBootstrap > headEnd) {
     console.error('[embed-dashboard] the report no longer bootstraps density in <head>; the forced compact would be a no-op or would fight the report. Re-check the patch against the template.');
+    process.exit(1);
+  }
+  // Same kind of guard for what the framed stylesheet hides: if the settings
+  // disclosure is gone, the rule silently stops hiding anything and the preview
+  // ships a theme control the site is supposed to own.
+  if (!html.includes('class="ps-settings"')) {
+    console.error('[embed-dashboard] the report no longer wraps its display controls in .ps-settings; the framed stylesheet would hide nothing. Re-check the patch against the template.');
     process.exit(1);
   }
   html = `${html.slice(0, headEnd)}${PATCH}\n${html.slice(headEnd)}`;
