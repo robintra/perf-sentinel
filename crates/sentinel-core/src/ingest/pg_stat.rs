@@ -507,12 +507,21 @@ fn validate_series_name(series: &str) -> Result<(), PgStatError> {
         .map_err(PgStatError::PrometheusRequest)
 }
 
-/// Build the `topk` instant query. Only the comma needs encoding: the
-/// parentheses and underscores are safe in a URL query string, and
-/// [`validate_series_name`] keeps the series inside that same safe set.
+/// Identity of a `pg_stat_statements` row. `postgres_exporter` also labels by
+/// `datname` and `user`, which the report does not carry: both series fold on
+/// this key so the time and the call count describe the same rows.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+const PG_IDENTITY: &[&str] = &["queryid"];
+
+/// Build the `topk` instant query, aggregated on the statement identity plus
+/// the label carrying its text.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn build_prometheus_query(top_n: usize, opts: &PrometheusPgStat) -> String {
-    crate::ingest::prometheus_scrape::build_topk_query(top_n, &opts.series)
+    crate::ingest::prometheus_scrape::build_topk_query(
+        top_n,
+        &opts.series,
+        &["queryid", opts.query_label.as_str()],
+    )
 }
 
 /// Fetch `pg_stat_statements` data from a Prometheus endpoint.
@@ -544,6 +553,10 @@ pub async fn fetch_from_prometheus(
     // the request, through the guards `mysql-stat` shares.
     validate_prometheus_endpoint(endpoint)?;
     validate_series_name(&opts.series)?;
+    // The query label now lands in the `sum by (...)` clause, not only in the
+    // response it is read back from.
+    crate::ingest::prometheus_scrape::validate_label_name(&opts.query_label)
+        .map_err(PgStatError::PrometheusRequest)?;
     // The call-counter series lands in the same query string, unencoded, so it
     // needs the same guard: an operator typo carrying `&` or `#` would smuggle
     // a second parameter into the URL rather than fail.
@@ -567,10 +580,10 @@ pub async fn fetch_from_prometheus(
     let calls_body = match opts.calls_series.as_deref() {
         Some(series) => {
             let calls_query = crate::ingest::prometheus_scrape::build_counter_query(
-                top_n,
-                &opts.series,
                 series,
+                PG_IDENTITY,
                 "queryid",
+                &query,
             );
             match crate::ingest::prometheus_scrape::fetch_instant_query(
                 endpoint,
@@ -618,9 +631,9 @@ fn parse_prometheus_response(
     calls_body: Option<&[u8]>,
     opts: &PrometheusPgStat,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
-    // queryid -> calls, empty when no second query was made.
+    // identity -> calls, empty when no second query was made.
     let call_counts = match calls_body {
-        Some(raw) => crate::ingest::prometheus_scrape::counter_by_label(raw, "queryid")
+        Some(raw) => crate::ingest::prometheus_scrape::counter_by_labels(raw, PG_IDENTITY)
             .map_err(PgStatError::PrometheusFormat)?,
         None => std::collections::HashMap::new(),
     };
@@ -661,11 +674,10 @@ fn parse_prometheus_response(
         // the correct path; the previous `.as_u64().map(|_| "")` branch was
         // dead code that silently produced 0 for non-string values.
         // A label named `calls` is not a thing any exporter publishes; the
-        // count comes from the joined series, keyed by queryid.
-        let calls = metric
-            .get("queryid")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|id| call_counts.get(id).copied())
+        // count comes from the joined series, on the same identity both
+        // queries aggregated by.
+        let calls = crate::ingest::prometheus_scrape::identity_key(metric, PG_IDENTITY)
+            .and_then(|key| call_counts.get(&key).copied())
             .unwrap_or(0);
 
         #[allow(clippy::cast_precision_loss)]

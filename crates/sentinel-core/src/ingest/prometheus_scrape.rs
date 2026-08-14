@@ -79,29 +79,71 @@ pub(crate) fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Build the `topk` instant query over a validated series name.
+/// Reject a label name that is not a bare `PromQL` label.
 ///
-/// Only the comma needs encoding: the parentheses and underscores are safe
-/// in a URL query string, and [`validate_series_name`] keeps the series
-/// inside that same safe set.
-pub(crate) fn build_topk_query(top_n: usize, series: &str) -> String {
-    format!("topk({top_n}%2C%20{series})")
+/// Same reasoning as [`validate_series_name`], one grammar tighter: a label
+/// carries no `:`, and the operator-supplied query label now lands inside a
+/// `sum by (...)` clause rather than only being read back off the response.
+pub(crate) fn validate_label_name(label: &str) -> Result<(), String> {
+    let head_ok = matches!(
+        label.as_bytes().first(),
+        Some(b'a'..=b'z' | b'A'..=b'Z' | b'_')
+    );
+    if head_ok
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "label name must be a bare PromQL label matching \
+         [a-zA-Z_][a-zA-Z0-9_]*, got `{label}`"
+    ))
 }
 
-/// Build the call-counter query, intersected with the ranked statements.
+/// Encode a `by (...)` clause over validated label names, deduplicated so an
+/// operator naming an identity label as the query label cannot repeat it.
+fn by_clause(labels: &[&str]) -> String {
+    let mut seen: Vec<&str> = Vec::with_capacity(labels.len());
+    for l in labels {
+        if !seen.contains(l) {
+            seen.push(l);
+        }
+    }
+    format!("by%20({})", seen.join("%2C%20"))
+}
+
+/// Build the `topk` instant query, aggregated over the identity labels.
+///
+/// The exporters label one statement once per database, user or schema, so
+/// the raw series ranks the same statement several times and splits its time
+/// across those rows. `sum by (...)` folds them into the row the report
+/// shows, which is also the row the call counter is joined onto.
+///
+/// Only the comma and the spaces need encoding: parentheses and underscores
+/// are safe in a URL query string, and the validators keep every name inside
+/// that same safe set.
+pub(crate) fn build_topk_query(top_n: usize, series: &str, group_by: &[&str]) -> String {
+    let by = by_clause(group_by);
+    format!("topk({top_n}%2C%20sum%20{by}%20({series}))")
+}
+
+/// Build the call-counter query: aggregated on the same identity, then
+/// intersected with the ranked statements.
 ///
 /// Unfiltered, a `pg_stat_statements.max = 10000` instance overruns the body
 /// cap in [`crate::http_client`] and the counts fall back to zero, which is
 /// the hole this second query exists to close. `join_label` is a caller
 /// constant (`queryid`, `digest`), never an operator string.
 pub(crate) fn build_counter_query(
-    top_n: usize,
-    series: &str,
     calls_series: &str,
+    group_by: &[&str],
     join_label: &str,
+    ranked_query: &str,
 ) -> String {
-    let ranked = build_topk_query(top_n, series);
-    format!("{calls_series}%20and%20on({join_label})%20{ranked}")
+    let by = by_clause(group_by);
+    format!("sum%20{by}%20({calls_series})%20and%20on({join_label})%20{ranked_query}")
 }
 
 /// Run an instant query against a Prometheus endpoint and return the body.
@@ -168,40 +210,57 @@ pub(crate) fn sample_value(result: &serde_json::Value) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Index a counter series by an identity label.
+/// Separator for a composite identity key. A byte no `PromQL` label value
+/// can carry, so two label sets never collide into one key.
+const KEY_SEP: char = '\u{1}';
+
+/// Join label values into the key both sides of the call-count join use.
+///
+/// The first label is the identifier and is required: without it the row is
+/// dropped rather than matched on anything else, since the statement text is
+/// often truncated and a wrong join is worse than a missing count. The rest
+/// read as empty when absent, so an exporter that omits one still joins as
+/// long as it omits it on both series.
+pub(crate) fn identity_key(metric: &serde_json::Value, labels: &[&str]) -> Option<String> {
+    let value = |label: &&str| metric.get(*label).and_then(serde_json::Value::as_str);
+    let mut key = value(labels.first()?)?.to_string();
+    for label in labels.iter().skip(1) {
+        key.push(KEY_SEP);
+        key.push_str(value(label).unwrap_or_default());
+    }
+    Some(key)
+}
+
+/// Index a counter series by its identity labels.
 ///
 /// Both scrapes need a call count that the exporter publishes as a series of
 /// its own rather than a label, keyed by `queryid` on `PostgreSQL` and by
-/// `digest` on `MySQL`. Rows without that label are dropped rather than
-/// matched on anything else: the statement text is often truncated by the
-/// exporter, so two distinct statements can share it and a wrong join is
-/// worse than a missing count.
-///
-/// Rows sharing an identity are summed, not overwritten: `postgres_exporter`
-/// labels the counter by `datname` and `user` as well as `queryid`, so one
-/// statement run against two databases arrives as two rows, and keeping the
-/// last one would report a fraction of its calls as the whole.
-pub(crate) fn counter_by_label(
+/// `digest` plus `schema` on `MySQL`. The query aggregates on that same
+/// identity, so the sum here only guards against an exporter that splits it
+/// further.
+pub(crate) fn counter_by_labels(
     body: &[u8],
-    label: &str,
+    labels: &[&str],
 ) -> Result<std::collections::HashMap<String, u64>, String> {
     let results = instant_query_results(body)?;
     let mut counts: std::collections::HashMap<String, u64> =
         std::collections::HashMap::with_capacity(results.len());
     for result in &results {
-        let Some(id) = result
-            .get("metric")
-            .and_then(|m| m.get(label))
-            .and_then(serde_json::Value::as_str)
-        else {
+        let Some(key) = result.get("metric").and_then(|m| identity_key(m, labels)) else {
             continue;
         };
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let count = sample_value(result).max(0.0) as u64;
         counts
-            .entry(id.to_string())
+            .entry(key)
             .and_modify(|total| *total = total.saturating_add(count))
             .or_insert(count);
+    }
+    if counts.is_empty() && !results.is_empty() {
+        tracing::warn!(
+            labels = ?labels,
+            "call-count series carries none of the join labels; counts stay at zero"
+        );
     }
     Ok(counts)
 }
@@ -211,29 +270,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_counter_query_is_bounded_by_the_ranked_set() {
-        // Nothing but the metric names, the encoded comma and the encoded
-        // spaces: anything else in a URL query string is a bug.
-        let query = build_counter_query(10, "pg_seconds_total", "pg_calls_total", "queryid");
+    fn the_counter_query_folds_on_the_identity_and_is_bounded_by_the_ranked_set() {
+        // Nothing but the names, the encoded commas and the encoded spaces:
+        // anything else in a URL query string is a bug.
+        let ranked = build_topk_query(10, "pg_seconds_total", &["queryid", "query"]);
+        let query = build_counter_query("pg_calls_total", &["queryid"], "queryid", &ranked);
         assert_eq!(
             query,
-            "pg_calls_total%20and%20on(queryid)%20topk(10%2C%20pg_seconds_total)"
+            "sum%20by%20(queryid)%20(pg_calls_total)%20and%20on(queryid)%20\
+             topk(10%2C%20sum%20by%20(queryid%2C%20query)%20(pg_seconds_total))"
         );
         assert!(!query.contains(' '), "a raw space would break the URL");
     }
 
     #[test]
+    fn the_by_clause_drops_a_repeated_label() {
+        // `--query-label queryid` would otherwise emit `by (queryid, queryid)`.
+        assert_eq!(
+            build_topk_query(5, "s", &["queryid", "queryid"]),
+            "topk(5%2C%20sum%20by%20(queryid)%20(s))"
+        );
+    }
+
+    #[test]
     fn counter_rows_sharing_an_identity_are_summed() {
-        // postgres_exporter labels the counter by datname and user too, so one
-        // queryid arrives once per database. Keeping the last row would report
-        // a fraction of the calls as the whole and inflate the mean with it.
+        // The query already folds on the identity; this only guards against an
+        // exporter that splits it further, and against a row with no identifier.
         let body = br#"{"data":{"result":[
             {"metric":{"queryid":"42","datname":"app"},"value":[1,"7"]},
             {"metric":{"queryid":"42","datname":"reporting"},"value":[1,"3"]},
             {"metric":{"datname":"app"},"value":[1,"99"]}]}}"#;
-        let counts = counter_by_label(body, "queryid").expect("parse");
+        let counts = counter_by_labels(body, &["queryid"]).expect("parse");
         assert_eq!(counts.get("42").copied(), Some(10));
-        assert_eq!(counts.len(), 1, "a row without the label is dropped");
+        assert_eq!(counts.len(), 1, "a row without the identifier is dropped");
+    }
+
+    #[test]
+    fn a_composite_identity_keeps_the_schemas_apart() {
+        // One digest in two schemas is two rows, and each must keep its own
+        // count: summing them onto both would inflate every mean.
+        let body = br#"{"data":{"result":[
+            {"metric":{"digest":"a1","schema":"shop"},"value":[1,"7"]},
+            {"metric":{"digest":"a1","schema":"crm"},"value":[1,"3"]}]}}"#;
+        let counts = counter_by_labels(body, &["digest", "schema"]).expect("parse");
+        assert_eq!(counts.len(), 2);
+        let metric = serde_json::json!({"digest": "a1", "schema": "shop"});
+        let key = identity_key(&metric, &["digest", "schema"]).expect("key");
+        assert_eq!(counts.get(&key).copied(), Some(7));
+    }
+
+    #[test]
+    fn an_absent_trailing_label_still_joins() {
+        // An exporter omitting `schema` omits it on both series, so the two
+        // sides still meet; only the identifier itself is mandatory.
+        let body = br#"{"data":{"result":[{"metric":{"digest":"a1"},"value":[1,"4"]}]}}"#;
+        let counts = counter_by_labels(body, &["digest", "schema"]).expect("parse");
+        let metric = serde_json::json!({"digest": "a1"});
+        let key = identity_key(&metric, &["digest", "schema"]).expect("key");
+        assert_eq!(counts.get(&key).copied(), Some(4));
+        assert!(identity_key(&serde_json::json!({"schema": "shop"}), &["digest"]).is_none());
     }
 
     #[test]
@@ -278,11 +373,25 @@ mod tests {
     }
 
     #[test]
-    fn topk_query_encodes_only_the_comma() {
+    fn topk_query_encodes_only_the_commas_and_spaces() {
         assert_eq!(
-            build_topk_query(10, "mysql_perf_schema_events_statements_seconds_total"),
-            "topk(10%2C%20mysql_perf_schema_events_statements_seconds_total)"
+            build_topk_query(
+                10,
+                "mysql_perf_schema_events_statements_seconds_total",
+                &["digest", "digest_text", "schema"]
+            ),
+            "topk(10%2C%20sum%20by%20(digest%2C%20digest_text%2C%20schema)%20\
+             (mysql_perf_schema_events_statements_seconds_total))"
         );
+    }
+
+    #[test]
+    fn label_name_rejects_what_a_series_name_would_allow() {
+        assert!(validate_label_name("digest_text").is_ok());
+        // A colon is legal in a metric name and never in a label.
+        for label in ["ns:recorded", "has space", "x&y", "9lead", ""] {
+            assert!(validate_label_name(label).is_err(), "{label}");
+        }
     }
 
     #[test]
