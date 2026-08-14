@@ -238,7 +238,7 @@ pub(super) async fn init_ack_resources(
     let toml_path = toml_ack_path(config);
     let configured = config.daemon.ack.toml_path.is_some();
     let toml_acks = match load_toml_acks(&toml_path, configured)? {
-        Some(acks) => {
+        TomlAckLoad::Loaded(acks) => {
             tracing::info!(
                 path = %toml_path.display(),
                 count = acks.len(),
@@ -246,17 +246,20 @@ pub(super) async fn init_ack_resources(
             );
             acks
         }
+        // `load_toml_acks` already warned with the reason. Claiming a load
+        // here would contradict it on the next line.
+        TomlAckLoad::Unreadable => HashMap::new(),
         // A configured path that is not there is an operator typo or an
         // unmounted volume, not a project without acks: say so at WARN
         // rather than advising the option they already set.
-        None if configured => {
+        TomlAckLoad::Absent if configured => {
             tracing::warn!(
                 path = %toml_path.display(),
                 "Configured CI ack TOML not found, starting with no acks"
             );
             HashMap::new()
         }
-        None => {
+        TomlAckLoad::Absent => {
             tracing::info!(
                 path = %toml_path.display(),
                 "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
@@ -293,7 +296,17 @@ fn toml_ack_path(config: &Config) -> PathBuf {
     )
 }
 
-/// Read and resolve the TOML acks, or `None` when there is no usable file.
+/// Outcome of one ack TOML read. The three cases read differently to an
+/// operator, so they stay apart rather than collapsing into an empty map:
+/// absence keeps the previous acks on reload, an unreadable file was already
+/// reported by its own WARN, and only a parse names a baseline.
+enum TomlAckLoad {
+    Loaded(HashMap<String, query_api::ResolvedTomlAck>),
+    Unreadable,
+    Absent,
+}
+
+/// Read and resolve the TOML acks.
 ///
 /// `load_from_file_if_present` is what tells absence from an empty file: an
 /// unmounted volume or a deleted `ConfigMap` would otherwise un-acknowledge
@@ -301,14 +314,11 @@ fn toml_ack_path(config: &Config) -> PathBuf {
 /// error, so a permission problem on a configured path is loud rather than
 /// silently indistinguishable from a project with no acks.
 ///
-/// Silent by design: the reload task runs this every minute, so the one-line
-/// summary belongs to the callers that decide what absence means.
-fn load_toml_acks(
-    toml_path: &Path,
-    configured: bool,
-) -> Result<Option<HashMap<String, query_api::ResolvedTomlAck>>, DaemonError> {
+/// Otherwise silent by design: the reload task runs this every minute, so the
+/// one-line summary belongs to the callers that decide what absence means.
+fn load_toml_acks(toml_path: &Path, configured: bool) -> Result<TomlAckLoad, DaemonError> {
     let file = match acknowledgments::load_from_file_if_present(toml_path) {
-        Ok(None) => return Ok(None),
+        Ok(None) => return Ok(TomlAckLoad::Absent),
         Ok(Some(f)) => f,
         Err(e) if configured => {
             return Err(DaemonError::AckTomlLoad {
@@ -322,9 +332,9 @@ fn load_toml_acks(
                 error = %e,
                 "Failed to load CI ack TOML at default path, baseline empty"
             );
-            // `Some` and not `None`: the file is there and unusable, so the
-            // caller must not go on to report it as absent.
-            return Ok(Some(HashMap::new()));
+            // Not `Absent`: the file is there and unusable, so the caller must
+            // neither report it as missing nor claim it loaded.
+            return Ok(TomlAckLoad::Unreadable);
         }
     };
     let now = Utc::now();
@@ -343,7 +353,7 @@ fn load_toml_acks(
             )
         })
         .collect();
-    Ok(Some(toml_acks))
+    Ok(TomlAckLoad::Loaded(toml_acks))
 }
 
 /// Resolve the storage path and open the JSONL store. Returns the
@@ -585,7 +595,7 @@ pub(super) fn spawn_ack_toml_reload(
                 match load_toml_acks(&path, true) {
                     // A vanished file is not an edit: an unmounted volume or a
                     // deleted ConfigMap must not decide for the team.
-                    Ok(None) => {
+                    Ok(TomlAckLoad::Absent) => {
                         if !missing_warned {
                             missing_warned = true;
                             tracing::warn!(
@@ -594,7 +604,7 @@ pub(super) fn spawn_ack_toml_reload(
                             );
                         }
                     }
-                    Ok(Some(next)) => {
+                    Ok(TomlAckLoad::Loaded(next)) => {
                         missing_warned = false;
                         let before = toml_acks.len();
                         let after = next.len();
@@ -603,10 +613,16 @@ pub(super) fn spawn_ack_toml_reload(
                             tracing::info!(before, after, "Reloaded CI ack TOML");
                         }
                     }
-                    Err(e) => tracing::warn!(
-                        error = %e,
-                        "Failed to reload CI ack TOML, keeping the previous acks"
-                    ),
+                    // The path is configured here, so an unusable file comes
+                    // back as `Err`. Both mean the file is present.
+                    Ok(TomlAckLoad::Unreadable) => missing_warned = false,
+                    Err(e) => {
+                        missing_warned = false;
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to reload CI ack TOML, keeping the previous acks"
+                        );
+                    }
                 }
             }
         },
