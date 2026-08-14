@@ -17,7 +17,10 @@ npx playwright test
 L'étape `global-setup.ts` de la suite :
 
 1. Construit le binaire release via `cargo build --release --bin
-   perf-sentinel` lorsque `target/release/perf-sentinel` est absent.
+   perf-sentinel`, à chaque exécution et pas seulement quand le binaire
+   est absent. La suite teste ce que le template embarqué produit, donc
+   un binaire périmé la ferait passer contre du code qui n'existe plus.
+   Cargo ne fait rien en quelques secondes quand rien n'a changé.
 2. Rend un tableau de bord HTML à partir de
    `tests/fixtures/report_realistic.json` et du fichier pg_stat CSV
    vers `fixtures/dashboard.html`.

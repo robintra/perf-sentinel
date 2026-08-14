@@ -121,8 +121,13 @@ The severity row is a single choice: `All`, then one pill per severity
 present, each carrying its count.
 
 The three other families collapse into one menu each, in the order
-`Type`, `Service`, then the attribute the findings are grouped by, named
-after that attribute key. Every menu accepts several values at once.
+`Type`, `Service`, then the attribute the findings are grouped by. That
+last menu is named after the attribute key when the report only has one,
+and each option then carries the value alone. A report mixing keys (say
+`k8s.namespace.name` on some findings and `service.namespace` on others)
+keeps the generic `Grouping` name and spells `key=value` on every option,
+since there the key is what tells the values apart. Every menu accepts
+several values at once.
 Values inside one menu are OR'd, and the menus AND with each other, so
 `Type: N+1 SQL, Slow SQL` with `Service: order-svc` reads as "either of
 those two problems, on that one service". A menu that filters says so

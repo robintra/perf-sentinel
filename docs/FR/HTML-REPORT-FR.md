@@ -126,8 +126,13 @@ La rangée de sévérité est un choix unique : `All`, puis une pastille par
 sévérité présente, chacune portant son compte.
 
 Les trois autres familles se replient chacune dans un menu, dans l'ordre
-`Type`, `Service`, puis l'attribut de regroupement, nommé d'après la clé
-de cet attribut. Chaque menu accepte plusieurs valeurs. Les valeurs d'un
+`Type`, `Service`, puis l'attribut de regroupement. Ce dernier menu prend
+le nom de la clé d'attribut quand le rapport n'en contient qu'une, et
+chaque option ne porte alors que la valeur. Un rapport qui mélange les
+clés (par exemple `k8s.namespace.name` sur certains findings et
+`service.namespace` sur d'autres) garde le nom générique `Grouping` et
+écrit `clé=valeur` sur chaque option, puisque c'est la clé qui distingue
+les valeurs. Chaque menu accepte plusieurs valeurs. Les valeurs d'un
 même menu sont combinées par OU, et les menus entre eux par ET :
 `Type : N+1 SQL, Slow SQL` avec `Service : order-svc` se lit donc
 "l'un ou l'autre de ces deux problèmes, sur ce seul service". Un menu qui
