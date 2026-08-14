@@ -242,15 +242,18 @@ pub(crate) fn identity_key(metric: &serde_json::Value, labels: &[&str]) -> Optio
 
 /// Index a counter series by its identity labels.
 ///
-/// Both scrapes need a call count that the exporter publishes as a series of
-/// its own rather than a label, keyed by `queryid` on `PostgreSQL` and by
-/// `digest` plus `schema` on `MySQL`. The query aggregates on that same
-/// identity, so the sum here only guards against an exporter that splits it
-/// further.
+/// Both scrapes need counters the exporter publishes as series of their own
+/// rather than labels, keyed by `queryid` on `PostgreSQL` and by `digest` plus
+/// the schema on `MySQL`. The query aggregates on that same identity, so the
+/// sum here only guards against an exporter that splits it further.
+///
+/// `series` names the metric that was queried, for the warning: a scrape that
+/// silently reports zero is the failure this whole join exists to prevent, and
+/// the operator needs the name to know which flag to reach for.
 pub(crate) fn counter_by_labels(
     body: &[u8],
     labels: &[&str],
-    what: &str,
+    series: &str,
 ) -> Result<std::collections::HashMap<String, u64>, String> {
     let results = instant_query_results(body)?;
     let mut counts: std::collections::HashMap<String, u64> =
@@ -266,12 +269,12 @@ pub(crate) fn counter_by_labels(
             .and_modify(|total| *total = total.saturating_add(count))
             .or_insert(count);
     }
-    // Not gated on a non-empty result set: the query is intersected with the
-    // ranked statements, so a series name that does not exist comes back empty
-    // rather than label-less, and that is the case an operator needs told.
+    // The caller only calls this when the ranking itself found rows, so an
+    // empty index here means the counter is missing, not that the database is
+    // idle. Warned because a silent zero is the failure this join prevents.
     if counts.is_empty() {
         tracing::warn!(
-            counter = what,
+            series,
             labels = ?labels,
             "counter query yielded no usable row, either the series does not \
              exist or it carries none of the join labels; the column stays at zero"
@@ -289,7 +292,7 @@ mod tests {
         // Nothing but the names, the encoded commas and the encoded spaces:
         // anything else in a URL query string is a bug.
         let ranked = build_topk_query(10, "pg_seconds_total", &["queryid", "query"]);
-        let query = build_counter_query("pg_calls_total", &["queryid"], "queryid", &ranked);
+        let query = build_counter_query("pg_calls_total", &["queryid"], &ranked);
         assert_eq!(
             query,
             "sum%20by%20(queryid)%20(pg_calls_total)%20and%20on(queryid)%20\
