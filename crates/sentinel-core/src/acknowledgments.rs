@@ -139,6 +139,28 @@ pub fn enrich_with_signatures(findings: &mut [Finding]) {
     }
 }
 
+/// True when a symlink resolves to a target under its own directory.
+///
+/// Refusing every symlink made the file unusable from a Kubernetes `ConfigMap`,
+/// which is the obvious way to ship it: the `kubelet` writes the payload into a
+/// timestamped directory, points `..data` at it, and leaves one symlink per
+/// key. The target never leaves the mount, so following it grants no reach the
+/// caller did not already have by naming that directory.
+///
+/// A link resolving anywhere else stays refused, which is the case the check
+/// was written for: a hostile link dropped in a CI working tree, aimed at a
+/// sensitive file elsewhere on the host. Both sides are canonicalized first,
+/// so a `..` segment in the target cannot walk back out.
+fn symlink_stays_in_its_directory(path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let (Ok(dir), Ok(target)) = (parent.canonicalize(), path.canonicalize()) else {
+        return false;
+    };
+    target.starts_with(&dir)
+}
+
 /// Load acknowledgments from a TOML file.
 ///
 /// Returns `Ok(default)` when the file does not exist, so a project
@@ -158,7 +180,11 @@ pub fn enrich_with_signatures(findings: &mut [Finding]) {
 /// - [`AcknowledgmentLoadError::Parse`] when the TOML cannot be parsed.
 /// - [`AcknowledgmentLoadError::InvalidDate`] when an `expires_at` value is
 ///   not a valid `YYYY-MM-DD` ISO 8601 date.
+/// - [`AcknowledgmentLoadError::SymlinkRefused`] when the path is a symlink
+///   resolving outside its own directory.
 pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, AcknowledgmentLoadError> {
+    // See `symlink_stays_in_its_directory` for why a link is not refused
+    // outright.
     // Use symlink_metadata so a symlink at the configured path does not
     // redirect the read to a sensitive file (e.g. a hostile collaborator
     // landing a symlink to /etc/passwd in a CI runner working tree). The
@@ -166,7 +192,7 @@ pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, Acknowledgment
     // mirrors it for the read-side baseline.
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
-            if meta.file_type().is_symlink() {
+            if meta.file_type().is_symlink() && !symlink_stays_in_its_directory(path) {
                 return Err(AcknowledgmentLoadError::SymlinkRefused);
             }
         }
@@ -384,6 +410,58 @@ pub enum AcknowledgmentLoadError {
 
     #[error("Acknowledgments file is a symlink, refusing to follow")]
     SymlinkRefused,
+}
+
+#[cfg(test)]
+mod symlink_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Reproduce how Kubernetes projects a `ConfigMap`: the real file lives in a
+    /// timestamped directory, `..data` points at it, and each key is a symlink
+    /// through that indirection. Nothing escapes the mount.
+    fn project_like_kubernetes(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let data = dir.join("..2026_08_14_09_00_00");
+        std::fs::create_dir_all(&data).expect("create data dir");
+        std::fs::write(data.join(name), body).expect("write payload");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("..2026_08_14_09_00_00", dir.join("..data")).ok();
+            std::os::unix::fs::symlink(Path::new("..data").join(name), dir.join(name))
+                .expect("link key");
+        }
+        dir.join(name)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_configmap_projection_is_readable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = project_like_kubernetes(
+            dir.path(),
+            "acks.toml",
+            "[[acknowledged]]\nsignature = \"a:b:c:d\"\nacknowledged_by = \"x\"\nacknowledged_at = \"2026-08-14T00:00:00Z\"\nreason = \"y\"\n",
+        );
+        let file = load_from_file(&path).expect("a ConfigMap mount must load");
+        assert_eq!(file.acknowledged.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_escaping_the_directory_is_still_refused() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = tempfile::tempdir().expect("tempdir");
+        std::fs::write(outside.path().join("secret.toml"), "").expect("write");
+        let link = dir.path().join("acks.toml");
+        std::os::unix::fs::symlink(outside.path().join("secret.toml"), &link).expect("link");
+        assert!(
+            matches!(
+                load_from_file(&link),
+                Err(AcknowledgmentLoadError::SymlinkRefused)
+            ),
+            "a link pointing outside its own directory stays refused"
+        );
+    }
 }
 
 #[cfg(test)]

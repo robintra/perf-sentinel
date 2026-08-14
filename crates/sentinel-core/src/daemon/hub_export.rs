@@ -11,7 +11,7 @@ use super::ack::{AckEntry, AckStore};
 // it and the hourly re-send suppression compares against those stamps.
 use super::event_loop::current_time_ms as unix_time_ms;
 use super::findings_store::StoredFinding;
-use super::query_api::{FindingResponse, ResolvedTomlAck, lookup_ack};
+use super::query_api::{FindingResponse, lookup_ack};
 use crate::config::DaemonHubExportConfig;
 use crate::detect::Finding;
 use crate::http_client;
@@ -20,7 +20,7 @@ use crate::report::metrics::MetricsState;
 /// The acknowledgment sources the query API reads, shared with the exporter so
 /// a pushed envelope carries the same `acknowledged_by` as a polled one.
 struct AckSources {
-    toml: Arc<HashMap<String, ResolvedTomlAck>>,
+    toml: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     store: Option<Arc<AckStore>>,
 }
 
@@ -84,7 +84,7 @@ impl HubExporter {
     pub(super) fn spawn(
         config: &DaemonHubExportConfig,
         metrics: Arc<MetricsState>,
-        toml_acks: Arc<HashMap<String, ResolvedTomlAck>>,
+        toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
         ack_store: Option<Arc<AckStore>>,
     ) -> Result<Option<Self>, super::DaemonError> {
         if !config.enabled {
@@ -561,7 +561,12 @@ async fn annotate(batch: &[PendingExport], acks: &AckSources) -> Vec<FindingResp
     batch
         .iter()
         .map(|item| FindingResponse {
-            acknowledged_by: lookup_ack(&item.finding.finding.signature, &acks.toml, &daemon, now),
+            acknowledged_by: lookup_ack(
+                &item.finding.finding.signature,
+                &acks.toml.load(),
+                &daemon,
+                now,
+            ),
             stored: item.finding.clone(),
         })
         .collect()
@@ -985,7 +990,7 @@ mod tests {
             );
         }
         AckSources {
-            toml: Arc::new(toml),
+            toml: Arc::new(crate::daemon::ack_toml_state::AckTomlState::new(toml)),
             store: None,
         }
     }
