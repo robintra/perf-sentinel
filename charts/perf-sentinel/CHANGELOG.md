@@ -10,6 +10,22 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.13.1]
+
+### Changed
+
+- `appVersion` moves to `0.13.1`. The daemon config gains
+  `max_export_findings`, which sizes the `/api/export/report` slice apart from
+  the browsing cap on `/api/findings`, so a daemon retaining tens of thousands
+  of findings is no longer stuck shipping 1000 of them. Startup warns when that
+  knob and `max_retained_traces` together project a snapshot past the 8 MiB body
+  limit the query clients read it with, naming both. The snapshot also states
+  its own scope in `warning_details`, so the capped finding slice and the
+  per-batch green figures cannot be read as one population. No chart-level
+  template change. Operators who raise `max_export_findings` through
+  `daemon.config` should watch the projected snapshot size the daemon logs at
+  startup.
+
 ## [0.13.0]
 
 ### Changed

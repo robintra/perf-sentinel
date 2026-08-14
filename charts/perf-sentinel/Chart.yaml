@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.13.0
-appVersion: "0.13.0"
+version: 0.13.1
+appVersion: "0.13.1"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,12 +37,14 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: added
-      description: "appVersion 0.13.0. The pg-stat and mysql-stat Prometheus scrapes join every counter the exporters publish as a series of its own, so the rankings by calls and by rows examined carry real figures instead of zeros. New flags name or skip each series and state what the time series counts."
+      description: "appVersion 0.13.1. The daemon config gains max_export_findings, which sizes the /api/export/report slice independently of the browsing cap on /api/findings, so a daemon retaining tens of thousands of findings can ship more than 1000 of them. Startup warns when it and max_retained_traces together project a snapshot past the 8 MiB body limit the query clients read it with."
+    - kind: changed
+      description: "The exported snapshot states its own scope in warning_details, so a reader cannot take the capped finding slice and the per-batch green figures for one population. The HTML dashboard groups the findings filters into one menu per family, each accepting several values."
     - kind: fixed
-      description: "The daemon re-reads its TOML acknowledgments file every minute, so an edit to a mounted ConfigMap applies without restarting the pod, and a ConfigMap projection is no longer refused as a symlink. Mount the ConfigMap as a directory rather than with subPath, which freezes the file against that reload."
+      description: "An oversized snapshot reports the read limit instead of reading as an unreachable daemon, and long SQL statements wrap in the pg_stat and mysql_stat tables instead of scrolling their card sideways."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.13.0
+      image: ghcr.io/robintra/perf-sentinel:0.13.1
       platforms:
         - linux/amd64
         - linux/arm64
