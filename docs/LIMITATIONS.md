@@ -34,7 +34,7 @@
 - [OTel source code attributes](#otel-source-code-attributes): the `code.*` attributes required for `code_location`.
 - [Daemon query API](#daemon-query-api): no built-in auth, gate via network policy or reverse proxy.
 - [Automated pg_stat ingestion from Prometheus](#automated-pg_stat-ingestion-from-prometheus): prerequisites for the `--prometheus` flag.
-- [Automated mysql-stat ingestion from Prometheus](#automated-mysql-stat-ingestion-from-prometheus): the collector is off by default and carries no call count.
+- [Automated mysql-stat ingestion from Prometheus](#automated-mysql-stat-ingestion-from-prometheus): the collector is off by default and carries no row counts.
 - [Secrets and credentials](#secrets-and-credentials): env-var-preferred pattern for scrapers.
 - [Electricity Maps API](#electricity-maps-api): API-key handling and caveats.
 - [Tempo ingestion](#tempo-ingestion): protobuf format requirement.
@@ -806,13 +806,13 @@ Both `pg-stat` and `mysql-stat` accept `--metric` and `--query-label` to name th
 
 The `--prometheus` flag on `mysql-stat` scrapes `mysqld_exporter`'s `perf_schema.eventsstatements` collector, which is **off by default**: the exporter needs `--collect.perf_schema.eventsstatements`.
 
-That series carries cumulated execution time and nothing else, which shapes the whole report:
+That series carries cumulated execution time. `COUNT_STAR` is published as a series of its own, `mysql_perf_schema_events_statements_total`, so a second query fetches it and joins on `digest` (`--calls-metric` renames it, an empty value skips it). Row counts have no series at all, which shapes the rest of the report:
 
-- `calls`, `rows_sent` and `rows_examined` are `0` for every entry, because the exporter publishes no counts. They are reported as zero rather than invented.
-- `mean_exec_time` therefore equals `total_exec_time`, not a per-call average.
-- Of the four rankings `mysql-stat` prints, only "top by total_exec_time" carries a signal. "top by calls" and "top by rows_examined" rank on all-zero columns and "top by mean_exec_time" repeats the first, so read them as placeholders.
+- `rows_sent` and `rows_examined` are `0` for every entry, because the exporter publishes no counts. They are reported as zero rather than invented.
+- "top by rows_examined" therefore ranks on an all-zero column, so read it as a placeholder.
+- Without the call-count join (`--calls-metric ""`, or a series the exporter does not publish), `calls` stays at `0`, `mean_exec_time` repeats `total_exec_time`, and two more rankings lose their signal.
 
-A `performance_schema` file export (`--input`) carries `COUNT_STAR`, `SUM_ROWS_SENT` and `SUM_ROWS_EXAMINED` and is the richer of the two inputs. Prefer it whenever the export is available; the Prometheus path is for fleets where only the exporter is reachable.
+A `performance_schema` file export (`--input`) carries `SUM_ROWS_SENT` and `SUM_ROWS_EXAMINED` on top of `COUNT_STAR` and is the richer of the two inputs. Prefer it whenever the export is available; the Prometheus path is for fleets where only the exporter is reachable.
 
 ## Secrets and credentials
 

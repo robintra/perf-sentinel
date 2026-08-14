@@ -638,8 +638,8 @@ enum Commands {
         /// `pg_stat_statements_calls_total`). Fetched in a second query and
         /// joined on `queryid`, because every exporter publishes calls as a
         /// series of its own rather than a label. Pass an empty value to skip
-        /// that query: the rankings by calls and by mean execution time are
-        /// then empty.
+        /// that query: the calls ranking then stays at zero and the mean
+        /// ranking repeats the total.
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "SERIES", requires = "pg_stat_prometheus")]
         pg_stat_calls_metric: Option<String>,
@@ -701,8 +701,8 @@ enum Commands {
         /// `mysql_perf_schema_events_statements_total`). Fetched in a second
         /// query and joined on `digest`, because the exporter publishes the
         /// call count as a series of its own rather than a label. Pass an
-        /// empty value to skip that query: the rankings by calls and by mean
-        /// execution time are then empty.
+        /// empty value to skip that query: the calls ranking then stays at
+        /// zero and the mean ranking repeats the total.
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
         mysql_stat_calls_metric: Option<String>,
