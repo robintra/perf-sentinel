@@ -47,6 +47,16 @@ aucun `fetch()` n'est émis vers un host quelconque.
   alors le scrape vers ces noms. Sans label correspondant, l'onglet
   retombe sur `queryid` et affiche des identifiants opaques au lieu des
   requêtes, et la navigation croisée ne peut plus rien apparier.
+  Deux autres options couvrent ce qu'une requête écrite à la main change
+  au-delà des noms. `--pg-stat-calls-metric <SERIE>` nomme le compteur
+  d'appels, récupéré par une seconde requête et joint sur `queryid`, car
+  tous les exporters publient les appels comme une série à part et non
+  comme un label ; une valeur vide saute cette requête et accepte des
+  classements vides par appels et par temps moyen. `--pg-stat-unit
+  seconds|milliseconds` déclare ce que compte la série de temps :
+  `pg_stat_statements` compte en millisecondes, la requête intégrée de
+  l'exporter convertit en secondes, et lire l'une pour l'autre se trompe
+  d'un facteur mille.
 - `--mysql-stat <FICHIER>` embarque un export
   `events_statements_summary_by_digest` CSV ou JSON (MySQL Performance
   Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
