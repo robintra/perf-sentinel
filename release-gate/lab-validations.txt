@@ -97,3 +97,8 @@ v0.12.0	7425309	2026-08-13	PASS
 # release.yml runs check-tag-version.sh alone, the lab gate is an operator pre-flight that
 # CI never executes. This ledger is append-only and the gate matches the version string
 # exactly, so a later run cannot retro-validate them, they stay without a PASS for good.
+#
+# Superseded 2026-08-14. The hub work reached a point where the lab could run again, so
+# the entry below is a real PASS on the seven scoped targets, product revision 4f40cf8d.
+# The note above still holds for v0.13.0: append-only means it keeps no attestation.
+v0.13.1	aa834b8	2026-08-14	PASS
