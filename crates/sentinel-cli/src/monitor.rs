@@ -2320,14 +2320,14 @@ mod tests {
         // the constraint that message is written against, so asserting a
         // shorter stand-in would pass while the real one lost its tail.
         state.apply(FetchOutcome::Unreachable(Some(
-            "/api/export/report over the 8 MB read limit: lower max_export_findings \
+            "/api/export/report over the 8 MiB read limit: lower max_export_findings \
              or max_retained_traces"
                 .to_string(),
         )));
         assert!(state.stale);
         let shown =
             stale_reason(state.last_error.as_deref()).expect("reason must reach the header");
-        assert!(shown.contains("8 MB"), "{shown}");
+        assert!(shown.contains("8 MiB"), "{shown}");
         // The action, not just the symptom: a reason cut before naming the
         // knob leaves the operator exactly where the bare marker did.
         assert!(shown.contains("lower max_export_findings"), "{shown}");

@@ -87,8 +87,9 @@ const APPROX_TRACE_BYTES: usize = 20_000;
 /// `traces_store::snapshot_for` measures each tree and skips the ones
 /// that would cross it, so projecting `max_retained_traces` unclamped
 /// warns about bytes that never ship and points the operator at the one
-/// knob already bounded.
-const EMBEDDED_TRACES_BUDGET_BYTES: usize = SNAPSHOT_READ_LIMIT_BYTES / 2;
+/// knob already bounded. `embedded_traces_budget_matches_the_export`
+/// fails if the two drift.
+pub(super) const EMBEDDED_TRACES_BUDGET_BYTES: usize = SNAPSHOT_READ_LIMIT_BYTES / 2;
 
 /// `Some(message)` when `max_export_findings` and `max_retained_traces`
 /// together project a snapshot past the body limit the query clients read
@@ -96,7 +97,7 @@ const EMBEDDED_TRACES_BUDGET_BYTES: usize = SNAPSHOT_READ_LIMIT_BYTES / 2;
 ///
 /// The two knobs fill the same response body, but each is comfort-checked
 /// alone, so a pair sitting inside both zones (2000 findings, 400 traces)
-/// still projects ~11 MB. Nothing downstream reports that: `fetch_json`
+/// still projects ~11 MiB. Nothing downstream reports that: `fetch_json`
 /// reduces the oversize read to `None`, and `query inspect` then renders
 /// its "no analysis summary" hint as though the daemon were empty.
 pub(super) fn snapshot_budget_warning(findings: usize, traces: usize) -> Option<String> {
@@ -111,14 +112,16 @@ pub(super) fn snapshot_budget_warning(findings: usize, traces: usize) -> Option<
     if projected <= limit {
         return None;
     }
-    let mb = |b: usize| b / (1024 * 1024);
+    // Rounded, not truncated: 11.2 MiB reported as "10 MiB" would understate
+    // the overrun the operator is being asked to fix.
+    let mib = |b: usize| b.div_ceil(1024 * 1024);
     Some(format!(
         "max_export_findings = {findings} and max_retained_traces = {traces} project a \
-         snapshot around {} MB, past the {} MB body limit `query inspect` and `query \
+         snapshot around {} MiB, past the {} MiB body limit `query inspect` and `query \
          monitor` fetch /api/export/report with. Over it they show no data rather than \
          an error. Lower either knob.",
-        mb(projected),
-        mb(limit),
+        mib(projected),
+        mib(limit),
     ))
 }
 
