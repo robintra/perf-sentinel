@@ -483,6 +483,24 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "LABEL", requires = "prometheus")]
         query_label: Option<String>,
+        /// Series holding the call counter (default:
+        /// `pg_stat_statements_calls_total`). Fetched in a second query and
+        /// joined on `queryid`, because every exporter publishes calls as a
+        /// series of its own rather than a label. Pass an empty value to skip
+        /// that query: the calls ranking then stays at zero and the mean
+        /// ranking repeats the total.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "prometheus")]
+        calls_metric: Option<String>,
+        /// Unit of the time series: `seconds` (default, the
+        /// `postgres_exporter` built-in) or `milliseconds`
+        /// (`pg_stat_statements` counts in milliseconds, and a hand-written
+        /// exporter query usually forwards that column untouched). Reading
+        /// one for the other is off by a factor of a thousand.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "UNIT", requires = "prometheus",
+              value_parser = ["seconds", "milliseconds"])]
+        unit: Option<String>,
         /// Number of top queries per ranking (default 10).
         #[arg(long, default_value = "10")]
         top_n: usize,
@@ -532,6 +550,15 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "LABEL", requires = "prometheus")]
         query_label: Option<String>,
+        /// Series holding `COUNT_STAR` (default:
+        /// `mysql_perf_schema_events_statements_total`). Fetched in a second
+        /// query and joined on `digest`, because the exporter publishes the
+        /// call count as a series of its own rather than a label. Pass an
+        /// empty value to skip that query: the calls ranking then stays at
+        /// zero and the mean ranking repeats the total.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "prometheus")]
+        calls_metric: Option<String>,
         /// Number of top digests per ranking (default 10).
         #[arg(long, default_value = "10")]
         top_n: usize,
@@ -1413,6 +1440,10 @@ async fn dispatch_command(command: Commands) {
             metric,
             #[cfg(feature = "daemon")]
             query_label,
+            #[cfg(feature = "daemon")]
+            calls_metric,
+            #[cfg(feature = "daemon")]
+            unit,
             top_n,
             traces,
             config,
@@ -1425,10 +1456,7 @@ async fn dispatch_command(command: Commands) {
                 #[cfg(feature = "daemon")]
                 auth_header,
                 #[cfg(feature = "daemon")]
-                &sentinel_core::ingest::pg_stat::PrometheusPgStat::with_overrides(
-                    metric,
-                    query_label,
-                ),
+                &pg_stat_prometheus_opts(metric, query_label, calls_metric, unit.as_deref()),
                 top_n,
                 traces.as_deref(),
                 config.as_deref(),
@@ -1446,16 +1474,15 @@ async fn dispatch_command(command: Commands) {
             metric,
             #[cfg(feature = "daemon")]
             query_label,
+            #[cfg(feature = "daemon")]
+            calls_metric,
             top_n,
             traces,
             config,
             format,
         } => {
             #[cfg(feature = "daemon")]
-            let opts = sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(
-                metric,
-                query_label,
-            );
+            let opts = mysql_stat_prometheus_opts(metric, query_label, calls_metric);
             mysql_stat::dispatch_mysql_stat(
                 input.as_deref(),
                 #[cfg(feature = "daemon")]
@@ -1540,38 +1567,19 @@ async fn dispatch_command(command: Commands) {
         } => {
             #[cfg(feature = "daemon")]
             let daemon_url = validate_daemon_url_or_exit(daemon_url);
-            // Defaults describe the postgres_exporter built-in query; an
-            // exporter running its own SQL names its own columns.
             #[cfg(feature = "daemon")]
-            let mut pg_stat_prom = sentinel_core::ingest::pg_stat::PrometheusPgStat::with_overrides(
+            let pg_stat_prom = pg_stat_prometheus_opts(
                 pg_stat_metric,
                 pg_stat_query_label,
+                pg_stat_calls_metric,
+                pg_stat_unit.as_deref(),
             );
-            // An empty value means "do not run the second query", which is
-            // how an operator opts out of the join when their exporter has no
-            // call counter at all.
             #[cfg(feature = "daemon")]
-            if let Some(series) = pg_stat_calls_metric {
-                pg_stat_prom.calls_series = (!series.is_empty()).then_some(series);
-            }
-            #[cfg(feature = "daemon")]
-            if pg_stat_unit.as_deref() == Some("milliseconds") {
-                pg_stat_prom.unit = sentinel_core::ingest::pg_stat::PgStatTimeUnit::Milliseconds;
-            }
-            // Same reasoning for the mysqld_exporter collector: a recording
-            // rule renames the series, so neither name is ours to assume.
-            #[cfg(feature = "daemon")]
-            let mut mysql_stat_prom =
-                sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(
-                    mysql_stat_metric,
-                    mysql_stat_query_label,
-                );
-            // An empty value opts out of the second query, for an exporter
-            // that publishes no call counter at all.
-            #[cfg(feature = "daemon")]
-            if let Some(series) = mysql_stat_calls_metric {
-                mysql_stat_prom.calls_series = (!series.is_empty()).then_some(series);
-            }
+            let mysql_stat_prom = mysql_stat_prometheus_opts(
+                mysql_stat_metric,
+                mysql_stat_query_label,
+                mysql_stat_calls_metric,
+            );
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),
@@ -1730,6 +1738,49 @@ fn resolve_auth_header_or_exit(direct: Option<String>, env_var: Option<String>) 
         eprintln!("Error: {e}");
         std::process::exit(EXIT_TOOLING_ERROR);
     })
+}
+
+/// Assemble the `pg_stat` scrape options. Shared by `pg-stat --prometheus` and
+/// `report --pg-stat-prometheus`, which run the same scrape and must not drift
+/// on what their flags mean.
+///
+/// Defaults describe the `postgres_exporter` built-in query; an exporter
+/// running its own SQL names its own columns. An empty `calls_metric` means
+/// "do not run the second query", which is how an operator opts out of the
+/// join when their exporter has no call counter at all.
+#[cfg(feature = "daemon")]
+fn pg_stat_prometheus_opts(
+    metric: Option<String>,
+    query_label: Option<String>,
+    calls_metric: Option<String>,
+    unit: Option<&str>,
+) -> sentinel_core::ingest::pg_stat::PrometheusPgStat {
+    use sentinel_core::ingest::pg_stat::{PgStatTimeUnit, PrometheusPgStat};
+    let mut opts = PrometheusPgStat::with_overrides(metric, query_label);
+    if let Some(series) = calls_metric {
+        opts.calls_series = (!series.is_empty()).then_some(series);
+    }
+    if unit == Some("milliseconds") {
+        opts.unit = PgStatTimeUnit::Milliseconds;
+    }
+    opts
+}
+
+/// Same reasoning for the `mysqld_exporter` collector: a recording rule renames
+/// the series, so neither name is ours to assume, and an empty `calls_metric`
+/// opts out of the second query.
+#[cfg(feature = "daemon")]
+fn mysql_stat_prometheus_opts(
+    metric: Option<String>,
+    query_label: Option<String>,
+    calls_metric: Option<String>,
+) -> sentinel_core::ingest::mysql_stat::PrometheusMySqlStat {
+    let mut opts =
+        sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(metric, query_label);
+    if let Some(series) = calls_metric {
+        opts.calls_series = (!series.is_empty()).then_some(series);
+    }
+    opts
 }
 
 /// Validates `report --daemon-url`. Exits `EXIT_TOOLING_ERROR` on a
