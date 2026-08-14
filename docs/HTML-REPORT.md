@@ -49,8 +49,8 @@ stays strict (`default-src 'none'`), there is no
   `--pg-stat-calls-metric <SERIES>` names the call counter, fetched in a
   second query and joined on `queryid`, because every exporter publishes
   calls as a series of its own rather than a label; pass an empty value
-  to skip that query and accept empty rankings by calls and by mean
-  execution time. `--pg-stat-unit seconds|milliseconds` states what the
+  to skip that query: the calls ranking then stays at zero and the mean
+  ranking repeats the total. `--pg-stat-unit seconds|milliseconds` states what the
   time series counts: `pg_stat_statements` itself counts milliseconds,
   the exporter built-in converts to seconds, and reading one for the
   other is off by a factor of a thousand.
@@ -72,8 +72,8 @@ stays strict (`default-src 'none'`), there is no
   exporter publishes `COUNT_STAR` as a series of its own rather than a
   label, so it is fetched in a second query and joined on `digest`;
   `--mysql-stat-calls-metric <SERIES>` names it, and an empty value skips
-  that query and accepts empty rankings by calls and by mean execution
-  time. A file export still carries rows sent and rows examined, which no
+  that query: the calls ranking then stays at zero and the mean ranking
+  repeats the total. A file export still carries rows sent and rows examined, which no
   single exporter series provides, so it remains the richer input.
 
 ## Interactive features

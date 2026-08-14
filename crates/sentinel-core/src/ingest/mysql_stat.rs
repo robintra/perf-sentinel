@@ -533,9 +533,12 @@ impl PrometheusMySqlStat {
 /// Queries the Prometheus HTTP API for the series named by `opts`, converts
 /// the result to [`MySqlStatEntry`] structs, and normalizes SQL templates.
 ///
-/// The exporter publishes cumulated seconds and no call count, so `calls`
-/// stays `0` and the mean is left equal to the total rather than invented.
-/// A file export carries `COUNT_STAR` and is the richer input of the two.
+/// The exporter publishes `COUNT_STAR` as a series of its own rather than a
+/// label, so a second query fetches it and joins on `digest`. That query is
+/// skipped when [`PrometheusMySqlStat::calls_series`] is `None`, which leaves
+/// `calls` at `0` and the mean equal to the total rather than invented. A file
+/// export also carries rows sent and rows examined, which no single exporter
+/// series provides, and stays the richer input.
 ///
 /// # Errors
 ///
@@ -582,8 +585,8 @@ pub async fn fetch_from_prometheus(
                 tracing::warn!(
                     series,
                     error = %e,
-                    "call-count series unavailable; rankings by calls and by mean \
-                     execution time will be empty"
+                    "call-count series unavailable; the calls ranking stays at zero \
+                     and the mean ranking repeats the total"
                 );
                 None
             }

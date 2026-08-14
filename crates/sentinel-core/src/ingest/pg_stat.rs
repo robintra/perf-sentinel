@@ -585,8 +585,8 @@ pub async fn fetch_from_prometheus(
                     tracing::warn!(
                         series,
                         error = %e,
-                        "call-count series unavailable; rankings by calls and by mean \
-                         execution time will be empty"
+                        "call-count series unavailable; the calls ranking stays at zero \
+                         and the mean ranking repeats the total"
                     );
                     None
                 }

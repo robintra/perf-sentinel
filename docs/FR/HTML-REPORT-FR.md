@@ -51,8 +51,8 @@ aucun `fetch()` n'est émis vers un host quelconque.
   au-delà des noms. `--pg-stat-calls-metric <SERIE>` nomme le compteur
   d'appels, récupéré par une seconde requête et joint sur `queryid`, car
   tous les exporters publient les appels comme une série à part et non
-  comme un label ; une valeur vide saute cette requête et accepte des
-  classements vides par appels et par temps moyen. `--pg-stat-unit
+  comme un label ; une valeur vide saute cette requête : le classement par
+  appels reste alors à zéro et le classement par moyenne répète le total. `--pg-stat-unit
   seconds|milliseconds` déclare ce que compte la série de temps :
   `pg_stat_statements` compte en millisecondes, la requête intégrée de
   l'exporter convertit en secondes, et lire l'une pour l'autre se trompe
@@ -75,8 +75,8 @@ aucun `fetch()` n'est émis vers un host quelconque.
   requêtes. L'exporteur publie `COUNT_STAR` comme une série à part et non
   comme un label : elle est récupérée par une seconde requête et jointe
   sur `digest`, `--mysql-stat-calls-metric <SERIE>` la nomme, et une
-  valeur vide saute cette requête en acceptant des classements vides par
-  appels et par temps moyen. Un export fichier porte encore les lignes
+  valeur vide saute cette requête : le classement par appels reste alors à
+  zéro et le classement par moyenne répète le total. Un export fichier porte encore les lignes
   envoyées et examinées, qu'aucune série unique de l'exporteur ne
   fournit, et reste donc la source la plus riche.
 
