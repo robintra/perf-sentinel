@@ -369,12 +369,11 @@ impl Config {
     /// explicit (they changed the config) and a hard reject would force
     /// workarounds (e.g., iptables) that are harder to audit.
     ///
-    /// Kept separate from `validate()` because it is the only check
-    /// that depends on CLI overrides (`--listen-address`), so the daemon
-    /// entrypoint calls it a second time after applying the overrides.
-    /// The other advisory warnings inside `validate()` are config-only
-    /// and must be emitted exactly once, at load time, to avoid making
-    /// an operator believe the daemon validates the same config twice.
+    /// Kept separate from `validate()` because it must run even when the
+    /// caller never re-validates. Note that the daemon entrypoint does
+    /// call `validate()` a second time after applying its CLI overrides,
+    /// so the advisory warnings inside it are emitted twice when a config
+    /// file was loaded, the second pass reading the overridden values.
     pub fn warn_listen_addr_if_non_loopback(&self) {
         if !self.daemon_is_loopback() {
             tracing::warn!(
