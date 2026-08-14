@@ -235,20 +235,35 @@ pub(super) async fn init_ack_resources(
             None,
         ));
     }
-    let toml_acks = load_toml_acks(config)?;
     let toml_path = toml_ack_path(config);
-    if toml_path.exists() {
-        tracing::info!(
-            path = %toml_path.display(),
-            count = toml_acks.len(),
-            "Loaded CI ack TOML baseline"
-        );
-    } else {
-        tracing::info!(
-            path = %toml_path.display(),
-            "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
-        );
-    }
+    let configured = config.daemon.ack.toml_path.is_some();
+    let toml_acks = match load_toml_acks(&toml_path, configured)? {
+        Some(acks) => {
+            tracing::info!(
+                path = %toml_path.display(),
+                count = acks.len(),
+                "Loaded CI ack TOML baseline"
+            );
+            acks
+        }
+        // A configured path that is not there is an operator typo or an
+        // unmounted volume, not a project without acks: say so at WARN
+        // rather than advising the option they already set.
+        None if configured => {
+            tracing::warn!(
+                path = %toml_path.display(),
+                "Configured CI ack TOML not found, starting with no acks"
+            );
+            HashMap::new()
+        }
+        None => {
+            tracing::info!(
+                path = %toml_path.display(),
+                "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
+            );
+            HashMap::new()
+        }
+    };
     let store = match init_store(config).await {
         Ok(s) => Some(s),
         Err((e, configured_path)) => {
@@ -278,14 +293,24 @@ fn toml_ack_path(config: &Config) -> PathBuf {
     )
 }
 
-/// Read and resolve the TOML acks. Silent by design: the reload task runs this
-/// every minute, so the one-line summary belongs to the caller that runs once.
+/// Read and resolve the TOML acks, or `None` when there is no usable file.
+///
+/// `load_from_file` reports a missing path as an empty file, which is the right
+/// default for a project with no acks and the wrong one for a reload: an
+/// unmounted volume or a deleted `ConfigMap` would un-acknowledge everything.
+/// Separating the two here keeps that distinction in one place rather than in
+/// every caller.
+///
+/// Silent by design: the reload task runs this every minute, so the one-line
+/// summary belongs to the callers that decide what absence means.
 fn load_toml_acks(
-    config: &Config,
-) -> Result<HashMap<String, query_api::ResolvedTomlAck>, DaemonError> {
-    let configured = config.daemon.ack.toml_path.is_some();
-    let toml_path = toml_ack_path(config);
-    let file = match acknowledgments::load_from_file(&toml_path) {
+    toml_path: &Path,
+    configured: bool,
+) -> Result<Option<HashMap<String, query_api::ResolvedTomlAck>>, DaemonError> {
+    if !toml_path.exists() {
+        return Ok(None);
+    }
+    let file = match acknowledgments::load_from_file(toml_path) {
         Ok(f) => f,
         Err(e) if configured => {
             return Err(DaemonError::AckTomlLoad {
@@ -299,7 +324,7 @@ fn load_toml_acks(
                 error = %e,
                 "Failed to load CI ack TOML at default path, baseline empty"
             );
-            return Ok(HashMap::new());
+            return Ok(None);
         }
     };
     let now = Utc::now();
@@ -318,7 +343,7 @@ fn load_toml_acks(
             )
         })
         .collect();
-    Ok(toml_acks)
+    Ok(Some(toml_acks))
 }
 
 /// Resolve the storage path and open the JSONL store. Returns the
@@ -544,28 +569,33 @@ pub(super) fn spawn_ack_toml_reload(
     // Nothing configured means the default path, which is a repo-relative
     // file the daemon does not own. Only poll what an operator pointed us at.
     config.daemon.ack.toml_path.as_ref()?;
+    // Only the path and its provenance travel into the task: a whole `Config`
+    // clone would stay alive for the process lifetime to read one string.
     let path = toml_ack_path(config);
-    let config = config.clone();
     Some(crate::daemon::task_guard::AbortOnDrop(tokio::spawn(
         async move {
             let mut ticker = tokio::time::interval(ACK_TOML_RELOAD_INTERVAL);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             ticker.tick().await; // the first tick fires immediately, skip it
+            // Latched so a deleted ConfigMap logs once rather than once a
+            // minute forever, the same warn-once shape the memory watcher uses.
+            let mut missing_warned = false;
             loop {
                 ticker.tick().await;
-                // A vanished file is not an edit. `load_from_file` reports a
-                // missing path as an empty file, which is the right default at
-                // startup and would un-acknowledge everything here: an unmounted
-                // volume or a deleted ConfigMap must not decide for the team.
-                if !path.exists() {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "CI ack TOML has disappeared, keeping the previous acks"
-                    );
-                    continue;
-                }
-                match load_toml_acks(&config) {
-                    Ok(next) => {
+                match load_toml_acks(&path, true) {
+                    // A vanished file is not an edit: an unmounted volume or a
+                    // deleted ConfigMap must not decide for the team.
+                    Ok(None) => {
+                        if !missing_warned {
+                            missing_warned = true;
+                            tracing::warn!(
+                                path = %path.display(),
+                                "CI ack TOML has disappeared, keeping the previous acks"
+                            );
+                        }
+                    }
+                    Ok(Some(next)) => {
+                        missing_warned = false;
                         let before = toml_acks.len();
                         let after = next.len();
                         toml_acks.store(next);

@@ -47,7 +47,7 @@ impl AckTomlState {
         self.inner.store(Arc::new(next));
     }
 
-    /// Number of acks currently held, for the startup and reload logs.
+    /// Number of acks currently held, for the reload log's before/after pair.
     #[must_use]
     pub fn len(&self) -> usize {
         self.inner.load().len()
