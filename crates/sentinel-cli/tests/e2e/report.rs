@@ -1331,7 +1331,7 @@ fn cli_report_rejects_both_mysql_stat_and_mysql_stat_prometheus() {
 
 #[cfg(feature = "daemon")]
 #[test]
-fn cli_report_mysql_stat_series_flags_require_the_prometheus_endpoint() {
+fn cli_report_series_flags_require_the_prometheus_endpoint() {
     let fixture = format!(
         "{}/../../tests/fixtures/report_realistic.json",
         env!("CARGO_MANIFEST_DIR")
@@ -1339,10 +1339,31 @@ fn cli_report_mysql_stat_series_flags_require_the_prometheus_endpoint() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out_path = dir.path().join("report.html");
 
-    for flag in [
-        "--mysql-stat-metric",
-        "--mysql-stat-query-label",
-        "--mysql-stat-auth-header",
+    // (flag, value, companion the error must name). `--pg-stat-unit` carries a
+    // closed value set, so it needs a value clap accepts to reach the
+    // requires check at all.
+    for (flag, value, companion) in [
+        ("--mysql-stat-metric", "whatever", "--mysql-stat-prometheus"),
+        (
+            "--mysql-stat-query-label",
+            "whatever",
+            "--mysql-stat-prometheus",
+        ),
+        (
+            "--mysql-stat-auth-header",
+            "whatever",
+            "--mysql-stat-prometheus",
+        ),
+        (
+            "--mysql-stat-calls-metric",
+            "whatever",
+            "--mysql-stat-prometheus",
+        ),
+        ("--pg-stat-metric", "whatever", "--pg-stat-prometheus"),
+        ("--pg-stat-query-label", "whatever", "--pg-stat-prometheus"),
+        ("--pg-stat-auth-header", "whatever", "--pg-stat-prometheus"),
+        ("--pg-stat-calls-metric", "whatever", "--pg-stat-prometheus"),
+        ("--pg-stat-unit", "milliseconds", "--pg-stat-prometheus"),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
             .args([
@@ -1350,7 +1371,7 @@ fn cli_report_mysql_stat_series_flags_require_the_prometheus_endpoint() {
                 "--input",
                 &fixture,
                 flag,
-                "whatever",
+                value,
                 "--output",
                 out_path.to_str().unwrap(),
             ])
@@ -1359,8 +1380,8 @@ fn cli_report_mysql_stat_series_flags_require_the_prometheus_endpoint() {
         assert!(!output.status.success(), "{flag} alone must be rejected");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.contains("--mysql-stat-prometheus"),
-            "{flag} should point at its companion flag, got:\n{stderr}"
+            stderr.contains(companion),
+            "{flag} should point at {companion}, got:\n{stderr}"
         );
     }
 }
