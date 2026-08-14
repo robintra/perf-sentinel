@@ -1544,8 +1544,33 @@ impl Config {
         }
         // The daemon zeroes the traces store when nothing can serve it,
         // so a sized knob in that shape is silently inert: say so
-        // instead of comfort-checking a value that does nothing.
+        // instead of comfort-checking a value that does nothing. The same
+        // pair gates the export slice, which reads that same store.
         let traces_store_served = self.daemon.api_enabled && self.daemon.max_retained_findings > 0;
+        if self.daemon.max_export_findings > 0 && !traces_store_served {
+            tracing::warn!(
+                field = "max_export_findings",
+                value = self.daemon.max_export_findings,
+                "max_export_findings is ignored: only /api/export/report reads it, and \
+                 api_enabled = false or max_retained_findings = 0 leaves it nothing to ship"
+            );
+        }
+        if traces_store_served {
+            // The floor is not comfort, it is correctness: at 0 the export
+            // carries no findings and `quality_gate` counts none, so the
+            // snapshot reports a passing gate whatever the daemon saw. The
+            // ceiling is the 8 MiB body limit `query inspect` and `query
+            // monitor` read the snapshot through, at a few KB per finding.
+            warn_outside_comfort_zone(
+                "max_export_findings",
+                &self.daemon.max_export_findings,
+                &1,
+                &2_000,
+                "the export ships no findings and its quality gate counts none, so it passes \
+                 whatever the daemon detected",
+                "the snapshot can outgrow the 8 MiB body limit the query clients fetch it with",
+            );
+        }
         if self.daemon.max_retained_traces > 0 && !traces_store_served {
             tracing::warn!(
                 field = "max_retained_traces",

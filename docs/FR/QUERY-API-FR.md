@@ -283,7 +283,8 @@ Les valeurs sont figées au démarrage du daemon.
 (`listen_addr`, `listen_port`, `listen_port_grpc`, `json_socket`,
 `max_active_traces`, `trace_ttl_ms`, `sampling_rate`,
 `max_events_per_trace`, `max_payload_size`, `environment`,
-`max_retained_findings`, `ingest_queue_capacity`,
+`max_retained_findings`, `max_export_findings`,
+`max_retained_traces`, `memory_high_water_pct`, `ingest_queue_capacity`,
 `analysis_queue_capacity`, `api_enabled`), les sous-systèmes résumés
 (`tls_configured`, `ack_enabled`, `ack_api_key_set`,
 `cors_allowed_origins`, `archive_configured`) et le bloc de corrélation

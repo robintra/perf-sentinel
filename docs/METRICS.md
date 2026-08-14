@@ -403,7 +403,7 @@ values on top of the shared HTTP set: `invalid_json`, `path_missing`,
 
 ## Warning kinds: transient vs sticky
 
-`Report.warning_details` (since 0.5.19) has three stable kinds today,
+`Report.warning_details` (since 0.5.19) has five stable kinds today,
 each with a different lifecycle. The distinction matters for
 monitoring strategies: a transient warning self-resolves, a sticky one
 persists until the daemon restarts.
@@ -413,6 +413,8 @@ persists until the daemon restarts.
 | `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon                            | First successful batch (both counters strictly positive)                     |
 | `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full" or "memory_pressure"} > 0` since daemon start | Daemon restart (counter reset)                                               |
 | `tuning`          | Mixed     | A lifetime counter shows a config knob undersized for the observed load, or `sampling_rate` is below 1.0 (see below) | Daemon restart for counter-driven rules, load drop for the trace-window rule, a config change for the `sampling_rate` rule |
+| `unmatched_acknowledgment` | Per-run | An active acknowledgment suppressed nothing in this analysis                                    | The next run where its finding reappears, or removing the acknowledgment                      |
+| `snapshot_scope`  | Always    | Every `/api/export/report` response: the green figures describe one batch, and a second entry appears when the store holds more findings than the export ships | Never, it describes the payload rather than a fault. Batch output carries neither entry |
 
 `cold_start` is a state warning: "the snapshot is not meaningful right
 now". `ingestion_drops` is an audit warning: "at some point since

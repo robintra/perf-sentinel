@@ -841,7 +841,7 @@ test("39. the ack modal warns when a signature spans grouped and ungrouped rows"
   await expect(scope).toContainText("no grouping");
 });
 
-test("43. long SQL templates wrap instead of scrolling the pg_stat table sideways", async ({ page }) => {
+test("40. long SQL templates wrap instead of scrolling the pg_stat table sideways", async ({ page }) => {
   // A pg_stat template is a full statement, routinely past 100 characters
   // and often a comma-separated column list with no space to break at.
   // Without a wrap rule the cell sets the table's minimum width and pushes
@@ -850,7 +850,15 @@ test("43. long SQL templates wrap instead of scrolling the pg_stat table sideway
   await loadDashboard(page, "#pgstat");
   await expect(page.locator("#pgstat-body tr").first()).toBeVisible();
 
+  // The committed CSV has no statement anywhere near the length that
+  // triggered this, so the assertion would hold with or without the fix.
+  // Plant the real shape instead: a 200-char column list with no space in
+  // it, which only `overflow-wrap: anywhere` can shrink below its own
+  // width. `break-word` leaves the intrinsic minimum intact and overflows.
   const overflow = await page.locator("#pgstat-table").evaluate((table) => {
+    const td = table.querySelector("#pgstat-body td.ps-pg-template") as HTMLElement;
+    const cols = Array.from({ length: 20 }, (_, i) => `order_item_column_${i}`);
+    td.textContent = `SELECT ${cols.join(",")} FROM order_item WHERE order_id = $1`;
     const card = (table as HTMLElement).closest(".ps-card") as HTMLElement;
     return card.scrollWidth - card.clientWidth;
   });

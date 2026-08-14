@@ -460,6 +460,10 @@ struct ConfigResponse {
     max_payload_size: usize,
     environment: &'static str,
     max_retained_findings: usize,
+    /// `[daemon] max_export_findings`, or the `watch --max-export-findings`
+    /// override: the file is not authoritative, so the effective value has
+    /// to travel here.
+    max_export_findings: usize,
     max_retained_traces: usize,
     ingest_queue_capacity: usize,
     analysis_queue_capacity: usize,
@@ -497,6 +501,7 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
         max_payload_size: d.max_payload_size,
         environment: d.environment.as_str(),
         max_retained_findings: d.max_retained_findings,
+        max_export_findings: d.max_export_findings,
         max_retained_traces: d.max_retained_traces,
         ingest_queue_capacity: d.ingest_queue_capacity,
         analysis_queue_capacity: d.analysis_queue_capacity,
@@ -686,12 +691,15 @@ fn counter_as_usize(counter: u64, name: &'static str) -> usize {
 /// State what the snapshot actually covers.
 ///
 /// Two facts a consumer cannot recover from the payload: the findings
-/// are capped at [`MAX_FINDINGS_LIMIT`], and the green figures are the
-/// event loop's latest per-batch [`GreenSummary`], not an aggregate over
-/// the findings listed beside them. On a busy daemon both describe a
-/// fraction of the store, so the carbon totals otherwise read as the
-/// daemon's lifetime. Batch output carries neither warning: there every
-/// number comes from the same pass.
+/// are capped at `[daemon] max_export_findings`, and the green figures
+/// are the event loop's latest per-batch [`GreenSummary`], not an
+/// aggregate over the findings listed beside them. On a busy daemon both
+/// describe a fraction of the store, so the carbon totals otherwise read
+/// as the daemon's lifetime. The cap also feeds `quality_gate`, whose
+/// count rules only ever see the exported slice, so the truncation line
+/// says so: a reader treating a green gate as the daemon's verdict is
+/// the failure this warning exists to prevent. Batch output carries
+/// neither warning: there every number comes from the same pass.
 fn snapshot_scope_warnings(exported: usize, retained: usize) -> Vec<crate::report::Warning> {
     use crate::report::warnings::SNAPSHOT_SCOPE;
 
@@ -701,7 +709,8 @@ fn snapshot_scope_warnings(exported: usize, retained: usize) -> Vec<crate::repor
             SNAPSHOT_SCOPE,
             format!(
                 "Findings capped at {exported} of {retained} retained: the most \
-                 recent ones, not the whole store"
+                 recent ones, not the whole store, and the quality gate below \
+                 counts only these"
             ),
         ));
     }
@@ -778,6 +787,13 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     // browsing API, this one sizes a deliberate export, and an operator
     // reporting on a busy daemon needs to raise the second without
     // widening every page of the first.
+    //
+    // Read the store size BEFORE the query, not after: the event loop
+    // keeps pushing, and a count taken afterwards can exceed a slice that
+    // was never truncated, making the export claim a cap it did not hit.
+    // Taken first it is a lower bound at query time, so `retained >
+    // exported` only holds when findings really were dropped.
+    let retained = state.findings_store.len().await;
     let stored = state
         .findings_store
         .query(&FindingsFilter {
@@ -825,10 +841,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     let traces_usize = counter_as_usize(traces_analyzed, "traces_analyzed");
 
     let mut warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
-    warning_details.extend(snapshot_scope_warnings(
-        findings.len(),
-        state.findings_store.len().await,
-    ));
+    warning_details.extend(snapshot_scope_warnings(findings.len(), retained));
 
     let embedded_traces = export_embedded_traces(&state, &findings).await;
 
