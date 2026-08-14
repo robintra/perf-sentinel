@@ -596,9 +596,13 @@ pub(crate) async fn fetch_json_reporting<T: serde::de::DeserializeOwned>(
         sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
             .await
             .map_err(|e| match e {
+                // Kept under `monitor::HEADER_REASON_MAX_CHARS` so the
+                // truncated header still carries the action: the fix is a
+                // setting on the peer, and a reason cut before it names one
+                // is no better than the bare [STALE] marker it replaces.
                 sentinel_core::http_client::FetchError::BodyTooLarge(limit) => format!(
-                    "{path} returned more than the {} MB this client reads: lower \
-                     `[daemon] max_export_findings` or `max_retained_traces`",
+                    "{path} over the {} MB read limit: lower max_export_findings \
+                     or max_retained_traces",
                     limit / (1024 * 1024)
                 ),
                 other => other.to_string(),
