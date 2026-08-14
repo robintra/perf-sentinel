@@ -91,3 +91,9 @@ v0.11.0	214ea6f	2026-08-07	PASS
 # and Quarkus gates before remaining exhaustive coverage moved to blocking CI.
 v0.11.2	0b5b78f	2026-08-09	PASS
 v0.12.0	7425309	2026-08-13	PASS
+# No entry for v0.13.0, nor for any version tagged until this note is superseded. The
+# simulation lab is paused while the hub it runs on is being finished, so those releases
+# ship without a lab attestation rather than with a failed one. Nothing was bypassed:
+# release.yml runs check-tag-version.sh alone, the lab gate is an operator pre-flight that
+# CI never executes. This ledger is append-only and the gate matches the version string
+# exactly, so a later run cannot retro-validate them, they stay without a PASS for good.
