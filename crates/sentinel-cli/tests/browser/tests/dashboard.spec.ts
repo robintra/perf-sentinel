@@ -840,3 +840,26 @@ test("39. the ack modal warns when a signature spans grouped and ungrouped rows"
   await expect(scope).toContainText("tenant.id");
   await expect(scope).toContainText("no grouping");
 });
+
+test("43. long SQL templates wrap instead of scrolling the pg_stat table sideways", async ({ page }) => {
+  // A pg_stat template is a full statement, routinely past 100 characters
+  // and often a comma-separated column list with no space to break at.
+  // Without a wrap rule the cell sets the table's minimum width and pushes
+  // the figures out of the card, which then scrolls horizontally.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await loadDashboard(page, "#pgstat");
+  await expect(page.locator("#pgstat-body tr").first()).toBeVisible();
+
+  const overflow = await page.locator("#pgstat-table").evaluate((table) => {
+    const card = (table as HTMLElement).closest(".ps-card") as HTMLElement;
+    return card.scrollWidth - card.clientWidth;
+  });
+  expect(overflow).toBe(0);
+
+  // mysql_stat labels its template cell with the same class and is off in
+  // this fixture, so assert the rule rather than the rendered table: only
+  // `anywhere` shrinks the intrinsic minimum width, `break-word` does not.
+  const wrap = await page.locator("#pgstat-body td.ps-pg-template").first()
+    .evaluate((td) => getComputedStyle(td as HTMLElement).overflowWrap);
+  expect(wrap).toBe("anywhere");
+});
