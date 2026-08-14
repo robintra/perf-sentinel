@@ -189,6 +189,23 @@ fn symlink_stays_in_its_directory(path: &Path) -> bool {
 /// - [`AcknowledgmentLoadError::SymlinkRefused`] when the path is a symlink
 ///   resolving outside its own directory.
 pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, AcknowledgmentLoadError> {
+    Ok(load_from_file_if_present(path)?.unwrap_or_default())
+}
+
+/// Load acknowledgments, or `None` when the file is not there.
+///
+/// The daemon reload has to tell absence from an empty file: a deleted
+/// `ConfigMap` or an unmounted volume must keep the previous acks rather than
+/// un-acknowledge everything. Asking [`Path::exists`] first would answer that
+/// question one syscall early, leave the file free to vanish before the read,
+/// and fold a permission error into "not there".
+///
+/// # Errors
+///
+/// The same set as [`load_from_file`], minus the absent-file case.
+pub fn load_from_file_if_present(
+    path: &Path,
+) -> Result<Option<AcknowledgmentsFile>, AcknowledgmentLoadError> {
     // See `symlink_stays_in_its_directory` for why a link is not refused
     // outright.
     // Use symlink_metadata so a symlink at the configured path does not
@@ -203,11 +220,18 @@ pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, Acknowledgment
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(AcknowledgmentsFile::default());
+            return Ok(None);
         }
         Err(err) => return Err(AcknowledgmentLoadError::Io(err)),
     }
-    let file = std::fs::File::open(path).map_err(AcknowledgmentLoadError::Io)?;
+    // The file can still vanish between the stat and the open, which is a
+    // `ConfigMap` swap, not an edit. Report it as absent so the caller keeps
+    // what it already had.
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(AcknowledgmentLoadError::Io(err)),
+    };
     // `take(cap + 1)` closes the TOCTOU window between metadata().len()
     // and read(): we read at most cap+1 bytes, and reject if we hit the
     // cap+1th byte. Same pattern as `read_file_capped` in the CLI.
@@ -236,7 +260,7 @@ pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, Acknowledgment
         }
     }
 
-    Ok(parsed)
+    Ok(Some(parsed))
 }
 
 /// Apply acknowledgments to a `Report` in place.
@@ -440,15 +464,6 @@ mod symlink_tests {
     }
 
     #[test]
-    fn a_bare_filename_resolves_against_the_current_directory() {
-        // `Path::parent` of a bare name is the empty path, which canonicalizes
-        // to nothing. Reading that as "no directory" would refuse the daemon's
-        // own CWD-relative default. `Cargo.toml` is the crate root's own file,
-        // so it is under the CWD by construction and needs no fixture.
-        assert!(symlink_stays_in_its_directory(Path::new("Cargo.toml")));
-    }
-
-    #[test]
     fn a_configmap_projection_is_readable() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = project_like_kubernetes(
@@ -485,6 +500,36 @@ mod tests {
     use crate::test_helpers::make_finding;
     use chrono::TimeZone;
     use core::assert_matches;
+
+    #[test]
+    fn a_bare_filename_resolves_against_the_current_directory() {
+        // `Path::parent` of a bare name is the empty path, which canonicalizes
+        // to nothing. Reading that as "no directory" would refuse the daemon's
+        // own CWD-relative default, on every platform, so this stays out of the
+        // unix-only symlink module. `Cargo.toml` is the crate root's own file,
+        // so it is under the CWD by construction and needs no fixture.
+        assert!(symlink_stays_in_its_directory(Path::new("Cargo.toml")));
+    }
+
+    #[test]
+    fn an_absent_file_is_told_from_an_empty_one() {
+        // The daemon reload keeps the previous acks on absence and replaces
+        // them on an empty file, so the two must not answer alike.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("nope.toml");
+        assert!(
+            load_from_file_if_present(&missing)
+                .expect("absence is not an error")
+                .is_none()
+        );
+        let empty = dir.path().join("empty.toml");
+        std::fs::write(&empty, "").expect("write");
+        assert!(
+            load_from_file_if_present(&empty)
+                .expect("an empty file parses")
+                .is_some_and(|f| f.acknowledged.is_empty())
+        );
+    }
 
     fn empty_report(findings: Vec<Finding>) -> Report {
         Report {
