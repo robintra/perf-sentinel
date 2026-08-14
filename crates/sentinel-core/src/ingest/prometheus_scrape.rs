@@ -134,15 +134,17 @@ pub(crate) fn build_topk_query(top_n: usize, series: &str, group_by: &[&str]) ->
 ///
 /// Unfiltered, a `pg_stat_statements.max = 10000` instance overruns the body
 /// cap in [`crate::http_client`] and the counts fall back to zero, which is
-/// the hole this second query exists to close. `join_label` is a caller
-/// constant (`queryid`, `digest`), never an operator string.
+/// the hole this second query exists to close. The intersection joins on the
+/// first `group_by` entry, the identifier both series are guaranteed to carry
+/// (`queryid`, `digest`), which is a caller constant and never an operator
+/// string.
 pub(crate) fn build_counter_query(
     calls_series: &str,
     group_by: &[&str],
-    join_label: &str,
     ranked_query: &str,
 ) -> String {
     let by = by_clause(group_by);
+    let join_label = group_by.first().copied().unwrap_or_default();
     format!("sum%20{by}%20({calls_series})%20and%20on({join_label})%20{ranked_query}")
 }
 
@@ -187,13 +189,18 @@ pub(crate) async fn fetch_instant_query(
 /// Returns the array so each caller can map its own labels into its own
 /// entry type, which is the only part that differs between them.
 pub(crate) fn instant_query_results(body: &[u8]) -> Result<Vec<serde_json::Value>, String> {
-    let json: serde_json::Value =
+    let mut json: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("invalid JSON: {e}"))?;
-    json.get("data")
-        .and_then(|d| d.get("result"))
-        .and_then(|r| r.as_array())
-        .cloned()
-        .ok_or_else(|| "missing data.result array".to_string())
+    // Taken, not cloned: `--top-n 10000` rows of statement text would otherwise
+    // be duplicated whole just to hand them to the caller.
+    match json
+        .get_mut("data")
+        .and_then(|d| d.get_mut("result"))
+        .map(serde_json::Value::take)
+    {
+        Some(serde_json::Value::Array(results)) => Ok(results),
+        _ => Err("missing data.result array".to_string()),
+    }
 }
 
 /// Read the sample value of one instant-query result.
