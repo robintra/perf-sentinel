@@ -48,16 +48,7 @@ pub(crate) async fn dispatch_pg_stat(
         cmd_pg_stat_from_entries(entries, top_n, traces, config, format);
         return;
     }
-    let Some(path) = input else {
-        #[cfg(feature = "daemon")]
-        eprintln!("Error: either --input or --prometheus is required");
-        #[cfg(not(feature = "daemon"))]
-        eprintln!("Error: --input is required");
-        // Exit 2, clap's usage-error code: no source at all is a permanent
-        // invocation mistake, not the tolerable 75 tooling bucket. Same
-        // reasoning as the --pg-stat-top pairing check in `cmd_report`.
-        std::process::exit(2);
-    };
+    let path = crate::require_input_path(input);
     cmd_pg_stat(path, top_n, traces, config, format);
 }
 
