@@ -601,7 +601,7 @@ pub(crate) async fn fetch_json_reporting<T: serde::de::DeserializeOwned>(
                 // setting on the peer, and a reason cut before it names one
                 // is no better than the bare [STALE] marker it replaces.
                 sentinel_core::http_client::FetchError::BodyTooLarge(limit) => format!(
-                    "{path} over the {} MB read limit: lower max_export_findings \
+                    "{path} over the {} MiB read limit: lower max_export_findings \
                      or max_retained_traces",
                     limit / (1024 * 1024)
                 ),

@@ -654,7 +654,11 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
 /// findings and correlations are capped by count, not bytes, so a
 /// pathological store can in principle still overflow the fetch limit.
 /// That risk predates the trees, the budget keeps them from widening it.
-const EMBEDDED_TRACES_BYTE_BUDGET: usize = crate::http_client::MAX_BODY_BYTES / 2;
+///
+/// `pub(crate)` so `config::validate`, which projects the snapshot size
+/// without the features that gate this module, can assert its own copy
+/// still matches.
+pub(crate) const EMBEDDED_TRACES_BYTE_BUDGET: usize = crate::http_client::MAX_BODY_BYTES / 2;
 
 /// Span trees for the exported findings. The correlation window has
 /// usually dropped them by now, which is why they are retained

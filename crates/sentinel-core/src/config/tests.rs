@@ -4145,3 +4145,16 @@ fn snapshot_read_limit_matches_the_client_cap() {
         crate::http_client::MAX_BODY_BYTES
     );
 }
+
+#[cfg(feature = "daemon")]
+#[test]
+fn embedded_traces_budget_matches_the_export() {
+    // The clamp on the span-tree term is the whole reason the advisory does
+    // not blame max_retained_traces for bytes that never ship. Its copy of
+    // the budget drifts as silently as the read limit would, so it is pinned
+    // to the export's own constant the same way.
+    assert_eq!(
+        super::validate::EMBEDDED_TRACES_BUDGET_BYTES,
+        crate::daemon::query_api::EMBEDDED_TRACES_BYTE_BUDGET
+    );
+}
