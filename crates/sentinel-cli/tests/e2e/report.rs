@@ -1365,6 +1365,11 @@ fn cli_report_series_flags_require_the_prometheus_endpoint() {
         ("--pg-stat-calls-metric", "whatever", "--pg-stat-prometheus"),
         ("--pg-stat-unit", "milliseconds", "--pg-stat-prometheus"),
         (
+            "--mysql-stat-schema-label",
+            "whatever",
+            "--mysql-stat-prometheus",
+        ),
+        (
             "--mysql-stat-unit",
             "picoseconds",
             "--mysql-stat-prometheus",

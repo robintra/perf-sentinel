@@ -184,6 +184,7 @@ fn cli_mysql_stat_series_flags_require_the_prometheus_endpoint() {
         ("--metric", "whatever"),
         ("--query-label", "whatever"),
         ("--calls-metric", "whatever"),
+        ("--schema-label", "whatever"),
         ("--unit", "seconds"),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
@@ -248,6 +249,7 @@ fn cli_mysql_stat_help_lists_the_prometheus_flags() {
         "--metric",
         "--query-label",
         "--calls-metric",
+        "--schema-label",
         "--unit",
     ] {
         assert!(help.contains(flag), "mysql-stat --help should list {flag}");
