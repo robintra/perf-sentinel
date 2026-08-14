@@ -77,8 +77,8 @@ stays strict (`default-src 'none'`), there is no
   states what the time series counts: Performance Schema counts
   `SUM_TIMER_WAIT` in picoseconds, the collector converts to seconds, and a
   recording rule usually forwards the column untouched. A file export still
-  carries rows sent and rows examined, which no single exporter series
-  provides, so it remains the richer input.
+  carries rows sent and rows examined, which the scrape does not fetch, so
+  it remains the richer input.
 
 ## Interactive features
 

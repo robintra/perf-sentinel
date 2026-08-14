@@ -34,7 +34,7 @@
 - [OTel source code attributes](#otel-source-code-attributes): the `code.*` attributes required for `code_location`.
 - [Daemon query API](#daemon-query-api): no built-in auth, gate via network policy or reverse proxy.
 - [Automated pg_stat ingestion from Prometheus](#automated-pg_stat-ingestion-from-prometheus): prerequisites for the `--prometheus` flag.
-- [Automated mysql-stat ingestion from Prometheus](#automated-mysql-stat-ingestion-from-prometheus): the collector is off by default and carries no row counts.
+- [Automated mysql-stat ingestion from Prometheus](#automated-mysql-stat-ingestion-from-prometheus): the collector is off by default and the row counters are not fetched.
 - [Secrets and credentials](#secrets-and-credentials): env-var-preferred pattern for scrapers.
 - [Electricity Maps API](#electricity-maps-api): API-key handling and caveats.
 - [Tempo ingestion](#tempo-ingestion): protobuf format requirement.
@@ -806,9 +806,9 @@ Both `pg-stat` and `mysql-stat` accept `--metric`, `--query-label` and `--calls-
 
 The `--prometheus` flag on `mysql-stat` scrapes `mysqld_exporter`'s `perf_schema.eventsstatements` collector, which is **off by default**: the exporter needs `--collect.perf_schema.eventsstatements`.
 
-That series carries cumulated execution time. `COUNT_STAR` is published as a series of its own, `mysql_perf_schema_events_statements_total`, so a second query fetches it and joins on `digest` (`--calls-metric` renames it, an empty value skips it). Row counts have no series at all, which shapes the rest of the report:
+That series carries cumulated execution time. `COUNT_STAR` is published as a series of its own, `mysql_perf_schema_events_statements_total`, so a second query fetches it and joins on `digest` (`--calls-metric` renames it, an empty value skips it). The row counters are not fetched, which shapes the rest of the report:
 
-- `rows_sent` and `rows_examined` are `0` for every entry, because the exporter publishes no counts. They are reported as zero rather than invented.
+- `rows_sent` and `rows_examined` are `0` for every entry, because the scrape queries neither. They are reported as zero rather than invented.
 - "top by rows_examined" therefore ranks on an all-zero column, so read it as a placeholder.
 - Without the call-count join (`--calls-metric ""`, or a series the exporter does not publish), `calls` stays at `0`, `mean_exec_time` repeats `total_exec_time`, and two more rankings lose their signal.
 
