@@ -69,16 +69,19 @@ stays strict (`default-src 'none'`), there is no
   `--mysql-stat-metric <SERIES>` and `--mysql-stat-query-label <LABEL>`
   point the scrape at those names. Without a matching label the tab falls
   back to `digest` and shows opaque hashes instead of statements. The
-  exporter publishes `COUNT_STAR` as a series of its own rather than a
-  label, so it is fetched in a second query and joined on `digest`;
-  `--mysql-stat-calls-metric <SERIES>` names it, and an empty value skips
-  that query: the calls ranking then stays at zero and the mean ranking
-  repeats the total. `--mysql-stat-unit seconds|milliseconds|picoseconds`
+  collector publishes `COUNT_STAR`, `SUM_ROWS_SENT` and
+  `SUM_ROWS_EXAMINED` as series of their own rather than labels, so one
+  query each fetches them and joins on the digest identity;
+  `--mysql-stat-calls-metric <SERIES>` names the call counter, and an empty
+  value skips that query: the calls ranking then stays at zero and the mean
+  ranking repeats the total. That identity is `digest` plus the schema
+  label, so `--mysql-stat-schema-label <LABEL>` names it when a recording
+  rule does, which otherwise merges two schemas into one row.
+  `--mysql-stat-unit seconds|milliseconds|picoseconds`
   states what the time series counts: Performance Schema counts
   `SUM_TIMER_WAIT` in picoseconds, the collector converts to seconds, and a
-  recording rule usually forwards the column untouched. A file export still
-  carries rows sent and rows examined, which the scrape does not fetch, so
-  it remains the richer input.
+  recording rule usually forwards the column untouched. A file export needs
+  no collector enabled on the exporter, which is what still recommends it.
 
 ## Interactive features
 
