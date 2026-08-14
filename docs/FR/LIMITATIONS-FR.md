@@ -809,7 +809,7 @@ Le flag `--prometheus` de `pg-stat` scrape les métriques exposées par `postgre
 
 Le mode `--input` par fichier existant est inchangé et reste l'approche recommandée pour les pipelines CI.
 
-`pg-stat` et `mysql-stat` acceptent tous deux `--metric` et `--query-label` pour nommer la série et le label qui porte le texte de la requête, car un exporteur qui exécute une requête écrite à la main ou une recording rule nomme les siens. Sans correspondance de label, le classement retombe sur l'identifiant opaque (`queryid`, `digest`) plutôt que de fondre toutes les lignes en une seule.
+`pg-stat` et `mysql-stat` acceptent tous deux `--metric`, `--query-label` et `--calls-metric` pour nommer la série de temps, le label qui porte le texte de la requête et la série du compteur d'appels, car un exporteur qui exécute une requête écrite à la main ou une recording rule nomme les siens. `pg-stat` prend aussi `--unit seconds|milliseconds`. Sans correspondance de label, le classement retombe sur l'identifiant opaque (`queryid`, `digest`) plutôt que de fondre toutes les lignes en une seule.
 
 ## Ingestion automatisée mysql-stat depuis Prometheus
 

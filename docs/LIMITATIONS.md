@@ -800,7 +800,7 @@ The `--prometheus` flag on `pg-stat` scrapes metrics exposed by `postgres_export
 
 The existing `--input` file path mode is unchanged and remains the recommended approach for CI pipelines.
 
-Both `pg-stat` and `mysql-stat` accept `--metric` and `--query-label` to name the series and the label carrying the statement text, because an exporter running a hand-written query or a recording rule names its own. Without a label match the ranking falls back to the opaque identifier (`queryid`, `digest`) rather than collapsing every row into one.
+Both `pg-stat` and `mysql-stat` accept `--metric`, `--query-label` and `--calls-metric` to name the time series, the label carrying the statement text and the call-counter series, because an exporter running a hand-written query or a recording rule names its own. `pg-stat` also takes `--unit seconds|milliseconds`. Without a label match the ranking falls back to the opaque identifier (`queryid`, `digest`) rather than collapsing every row into one.
 
 ## Automated mysql-stat ingestion from Prometheus
 
