@@ -76,9 +76,13 @@ aucun `fetch()` n'est émis vers un host quelconque.
   comme un label : elle est récupérée par une seconde requête et jointe
   sur `digest`, `--mysql-stat-calls-metric <SERIE>` la nomme, et une
   valeur vide saute cette requête : le classement par appels reste alors à
-  zéro et le classement par moyenne répète le total. Un export fichier porte encore les lignes
-  envoyées et examinées, qu'aucune série unique de l'exporteur ne
-  fournit, et reste donc la source la plus riche.
+  zéro et le classement par moyenne répète le total.
+  `--mysql-stat-unit seconds|milliseconds|picoseconds` déclare ce que
+  compte la série de temps : Performance Schema compte `SUM_TIMER_WAIT` en
+  picosecondes, le collecteur convertit en secondes, et une recording rule
+  transmet en général la colonne telle quelle. Un export fichier porte
+  encore les lignes envoyées et examinées, qu'aucune série unique de
+  l'exporteur ne fournit, et reste donc la source la plus riche.
 
 ## Fonctions interactives
 
