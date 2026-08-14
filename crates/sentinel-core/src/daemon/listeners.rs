@@ -295,11 +295,11 @@ fn toml_ack_path(config: &Config) -> PathBuf {
 
 /// Read and resolve the TOML acks, or `None` when there is no usable file.
 ///
-/// `load_from_file` reports a missing path as an empty file, which is the right
-/// default for a project with no acks and the wrong one for a reload: an
-/// unmounted volume or a deleted `ConfigMap` would un-acknowledge everything.
-/// Separating the two here keeps that distinction in one place rather than in
-/// every caller.
+/// `load_from_file_if_present` is what tells absence from an empty file: an
+/// unmounted volume or a deleted `ConfigMap` would otherwise un-acknowledge
+/// everything on the next reload. A file that is there but unreadable stays an
+/// error, so a permission problem on a configured path is loud rather than
+/// silently indistinguishable from a project with no acks.
 ///
 /// Silent by design: the reload task runs this every minute, so the one-line
 /// summary belongs to the callers that decide what absence means.
@@ -307,11 +307,9 @@ fn load_toml_acks(
     toml_path: &Path,
     configured: bool,
 ) -> Result<Option<HashMap<String, query_api::ResolvedTomlAck>>, DaemonError> {
-    if !toml_path.exists() {
-        return Ok(None);
-    }
-    let file = match acknowledgments::load_from_file(toml_path) {
-        Ok(f) => f,
+    let file = match acknowledgments::load_from_file_if_present(toml_path) {
+        Ok(None) => return Ok(None),
+        Ok(Some(f)) => f,
         Err(e) if configured => {
             return Err(DaemonError::AckTomlLoad {
                 path: toml_path.display().to_string(),
@@ -324,7 +322,9 @@ fn load_toml_acks(
                 error = %e,
                 "Failed to load CI ack TOML at default path, baseline empty"
             );
-            return Ok(None);
+            // `Some` and not `None`: the file is there and unusable, so the
+            // caller must not go on to report it as absent.
+            return Ok(Some(HashMap::new()));
         }
     };
     let now = Utc::now();
