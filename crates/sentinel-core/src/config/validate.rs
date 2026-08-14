@@ -1440,6 +1440,15 @@ impl Config {
             &0,
             &10_000_000,
         )?;
+        // Bounds one response body, not the store: a finding serializes to
+        // a few KB, so 100k already means a snapshot in the hundreds of MB.
+        // 0 is documented as "envelope only, no findings".
+        check_range(
+            "max_export_findings",
+            &self.daemon.max_export_findings,
+            &0,
+            &100_000,
+        )?;
         // Each entry is a whole span tree bounded by max_events_per_trace,
         // far heavier than one finding, hence the much lower cap.
         check_range(

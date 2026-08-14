@@ -4061,3 +4061,37 @@ region = "eu-wets-3"
         .and_then(|d| d.region);
     assert_eq!(region.as_deref(), Some("eu-wets-3"));
 }
+
+// --- max_export_findings: the /api/export/report slice ---
+
+#[test]
+fn max_export_findings_defaults_to_the_findings_api_cap() {
+    // The export used to be pinned to MAX_FINDINGS_LIMIT. Keeping that as
+    // the default means an operator who sets nothing sees no change.
+    let cfg = load_from_str("[daemon]").expect("parse");
+    assert_eq!(cfg.daemon.max_export_findings, 1000);
+}
+
+#[test]
+fn accepts_raised_max_export_findings() {
+    let cfg = load_from_str("[daemon]\nmax_export_findings = 10000").expect("parse");
+    assert_eq!(cfg.daemon.max_export_findings, 10_000);
+}
+
+#[test]
+fn rejects_max_export_findings_above_the_hard_ceiling() {
+    // Each finding serializes to a few KB, so the ceiling bounds the
+    // response body rather than the store.
+    let result = load_from_str("[daemon]\nmax_export_findings = 100001");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("max_export_findings"), "got: {err}");
+}
+
+#[test]
+fn accepts_zero_max_export_findings_for_a_gate_only_snapshot() {
+    // 0 exports the envelope with no findings: the gate verdict and the
+    // green figures still travel, which is all a probe needs.
+    let result = load_from_str("[daemon]\nmax_export_findings = 0");
+    assert!(result.is_ok(), "expected 0 to parse, got {result:?}");
+}

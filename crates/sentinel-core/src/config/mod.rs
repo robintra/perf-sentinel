@@ -276,6 +276,15 @@ pub struct DaemonConfig {
     pub environment: DaemonEnvironment,
     /// Maximum number of findings retained by the daemon query API.
     pub max_retained_findings: usize,
+    /// Maximum number of findings carried by one `/api/export/report`
+    /// snapshot. Separate from the `/api/findings` cap, which paginates a
+    /// browsing API, where this one sizes a deliberate export: a store
+    /// holding tens of thousands of findings ships a slice of its most
+    /// recent, and the default keeps the historical size. Raising it
+    /// grows the response body and the HTML rendered from it by a few KB
+    /// per finding, so it trades report weight for coverage. Zero exports
+    /// the envelope alone, gate verdict and green figures included.
+    pub max_export_findings: usize,
     /// Maximum number of traces whose masked spans are retained for
     /// `/api/export/report`, so an exported report still draws a span
     /// tree. Zero disables retention. Costs memory in proportion to
@@ -480,6 +489,9 @@ impl Default for DaemonConfig {
             max_payload_size: 16 * 1024 * 1024,
             environment: DaemonEnvironment::Staging,
             max_retained_findings: 10_000,
+            // Matches the historical hardcoded export cap, so an operator
+            // who sets nothing sees the snapshot they saw before.
+            max_export_findings: 1_000,
             max_retained_traces: 50,
             ingest_queue_capacity: 1024,
             analysis_queue_capacity: 1024,

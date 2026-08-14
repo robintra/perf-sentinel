@@ -1764,3 +1764,51 @@ async fn handle_export_report_states_what_the_snapshot_covers() {
     assert_eq!(scope.len(), 1, "got: {scope:?}");
     assert!(scope[0].contains("batch"), "{}", scope[0]);
 }
+
+#[tokio::test]
+async fn export_findings_are_capped_by_max_export_findings() {
+    // The cap used to be the hardcoded MAX_FINDINGS_LIMIT, which left an
+    // operator reporting on a busy daemon with no way to widen the slice.
+    let mut state = make_state_with_correlator(None).clone_for_test();
+    state.daemon_config.max_export_findings = 3;
+    let state = Arc::new(state);
+    state.metrics.events_processed_total.inc_by(40.0);
+    state.metrics.traces_analyzed_total.inc_by(10.0);
+
+    let findings: Vec<_> = (0..10)
+        .map(|_| {
+            crate::test_helpers::make_finding(
+                detect::FindingType::NPlusOneSql,
+                detect::Severity::Warning,
+            )
+        })
+        .collect();
+    state.findings_store.push_batch(&findings, 1000).await;
+
+    let app = query_api_router(Arc::clone(&state));
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).unwrap();
+
+    // The store holds 10, the export carries 3, and says so.
+    assert_eq!(state.findings_store.len().await, 10);
+    assert_eq!(report.findings.len(), 3);
+    let scope: Vec<&str> = report
+        .warning_details
+        .iter()
+        .filter(|w| w.kind == crate::report::warnings::SNAPSHOT_SCOPE)
+        .map(|w| w.message.as_str())
+        .collect();
+    assert_eq!(scope.len(), 2, "truncation must be announced: {scope:?}");
+    assert!(
+        scope[0].contains('3') && scope[0].contains("10"),
+        "{}",
+        scope[0]
+    );
+}

@@ -772,16 +772,19 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         });
     }
 
-    // Snapshot findings. Cap at MAX_FINDINGS_LIMIT to mirror
-    // `/api/findings`, a huge store should not serialize into an
-    // unbounded response body.
+    // Snapshot findings, capped by `[daemon] max_export_findings` so a
+    // huge store does not serialize into an unbounded response body. Its
+    // own knob rather than the `/api/findings` one: that cap paginates a
+    // browsing API, this one sizes a deliberate export, and an operator
+    // reporting on a busy daemon needs to raise the second without
+    // widening every page of the first.
     let stored = state
         .findings_store
         .query(&FindingsFilter {
             service: None,
             finding_type: None,
             severity: None,
-            limit: MAX_FINDINGS_LIMIT,
+            limit: state.daemon_config.max_export_findings,
         })
         .await;
     // Raw per-trace detections, NOT folded. This snapshot is documented
