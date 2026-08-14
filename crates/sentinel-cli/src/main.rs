@@ -2044,6 +2044,22 @@ fn fragment_priority(name: &str) -> Option<u8> {
 /// block devices) whose metadata reports 0 bytes. Shared by the trace
 /// file reader and the calibrate energy-CSV reader so the capped-read
 /// logic lives in one place.
+/// The `--input` path, or exit 2 when the subcommand was given no source.
+///
+/// Exit 2 is clap's usage-error code: no source at all is a permanent
+/// invocation mistake, not the tolerable 75 tooling bucket. Same reasoning as
+/// the `--pg-stat-top` pairing check in `cmd_report`. Shared by `pg-stat` and
+/// `mysql-stat`, whose message differs only by the flags they accept.
+pub(crate) fn require_input_path(input: Option<&std::path::Path>) -> &std::path::Path {
+    input.unwrap_or_else(|| {
+        #[cfg(feature = "daemon")]
+        eprintln!("Error: either --input or --prometheus is required");
+        #[cfg(not(feature = "daemon"))]
+        eprintln!("Error: --input is required");
+        std::process::exit(2);
+    })
+}
+
 fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
