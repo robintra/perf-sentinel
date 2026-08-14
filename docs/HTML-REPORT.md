@@ -102,16 +102,43 @@ on top. The active sort persists per table, and `Copy link` appends it
 to the shared URL through the `tsort` hash key so the recipient lands
 on the same order.
 
-### UI density
+### Display settings
 
-The report opens in comfort density. The topbar `Comfort`/`Compact`
-button switches to a tighter layout that fits more rows per screen, and
-the choice persists in the browser. Hovering the button previews the
-mode it will switch to.
+The gear at the right of the topbar holds the two display controls, so
+the bar carries the report's state rather than its preferences. It opens
+downwards, closes on `Esc` or on a click outside, and neither action
+touches the filters underneath it.
+
+The report opens in comfort density. The `Comfort`/`Compact` button
+switches to a tighter layout that fits more rows per screen, and the
+choice persists in the browser. Hovering the button previews the mode it
+will switch to. Beside it, the theme button cycles System, Light and
+Dark.
+
+### Filtering findings
+
+The severity row is a single choice: `All`, then one pill per severity
+present, each carrying its count.
+
+The three other families collapse into one menu each, in the order
+`Type`, `Service`, then the attribute the findings are grouped by, named
+after that attribute key. Every menu accepts several values at once.
+Values inside one menu are OR'd, and the menus AND with each other, so
+`Type: N+1 SQL, Slow SQL` with `Service: order-svc` reads as "either of
+those two problems, on that one service". A menu that filters says so
+when collapsed, as `Type · 2`.
+
+Sort sits on the row below, aligned with the findings column it orders,
+because it ranks the list rather than narrowing it.
+
+Filters and search both land in the URL, so `Copy link` reproduces the
+exact view. A value the report no longer contains is dropped on restore
+rather than applied, which is why a stale link opens on a visible list
+instead of an empty one.
 
 ### Search
 
-The topbar box is the only search input, and one query filters every
+The topbar box is the only search input, centred in the bar, and one query filters every
 searchable tab at once: Findings, pg_stat, mysql_stat, Diff and
 Correlations. Each of those tabs reports its own match count in its
 sidebar badge, so you can type from any tab, including Overview and

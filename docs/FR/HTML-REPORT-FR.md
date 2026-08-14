@@ -107,17 +107,44 @@ surbrillance reste épinglée en tête. Le tri actif persiste par
 tableau, et `Copy link` l'ajoute à l'URL partagée via la clé de hash
 `tsort` pour que le destinataire retrouve le même ordre.
 
-### Densité d'interface
+### Réglages d'affichage
+
+L'engrenage à droite de la barre du haut regroupe les deux réglages
+d'affichage, pour que la barre porte l'état du rapport plutôt que les
+préférences. Il se déroule vers le bas, se ferme sur `Esc` ou sur un clic
+à l'extérieur, et ni l'un ni l'autre ne touche aux filtres en dessous.
 
 Le rapport s'ouvre en densité confortable. Le bouton `Comfort`/`Compact`
-de la barre du haut bascule vers une mise en page plus serrée qui
-affiche davantage de lignes par écran, et le choix persiste dans le
-navigateur. Survoler le bouton prévisualise le mode vers lequel il va
-basculer.
+bascule vers une mise en page plus serrée qui affiche davantage de lignes
+par écran, et le choix persiste dans le navigateur. Survoler le bouton
+prévisualise le mode vers lequel il va basculer. À côté, le bouton de
+thème fait défiler System, Light et Dark.
+
+### Filtrer les findings
+
+La rangée de sévérité est un choix unique : `All`, puis une pastille par
+sévérité présente, chacune portant son compte.
+
+Les trois autres familles se replient chacune dans un menu, dans l'ordre
+`Type`, `Service`, puis l'attribut de regroupement, nommé d'après la clé
+de cet attribut. Chaque menu accepte plusieurs valeurs. Les valeurs d'un
+même menu sont combinées par OU, et les menus entre eux par ET :
+`Type : N+1 SQL, Slow SQL` avec `Service : order-svc` se lit donc
+"l'un ou l'autre de ces deux problèmes, sur ce seul service". Un menu qui
+filtre l'annonce une fois replié, sous la forme `Type · 2`.
+
+Le tri occupe la rangée suivante, aligné sur la colonne des findings
+qu'il ordonne, puisqu'il classe la liste au lieu de la restreindre.
+
+Les filtres et la recherche passent tous deux par l'URL, donc
+`Copy link` reproduit la vue exacte. Une valeur que le rapport ne
+contient plus est écartée à la restauration plutôt qu'appliquée, ce qui
+explique qu'un lien périmé s'ouvre sur une liste visible et non vide.
 
 ### Recherche
 
-La barre de la topbar est le seul champ de recherche, et une requête
+La barre de la topbar est le seul champ de recherche, centré dans la
+barre, et une requête
 unique filtre tous les onglets filtrables à la fois : Findings, pg_stat,
 mysql_stat, Diff et Correlations. Chacun de ces onglets affiche son
 propre nombre de correspondances dans sa pastille de la barre latérale,

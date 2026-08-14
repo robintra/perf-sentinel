@@ -485,7 +485,7 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings-dark.png">
-  <img alt="dashboard report : Findings avec chips Warning + order-svc actifs" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
+  <img alt="dashboard report : Findings restreints par la sévérité Warning et le menu Service" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
 </picture>
 
 <picture>

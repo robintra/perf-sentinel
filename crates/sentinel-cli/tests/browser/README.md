@@ -16,7 +16,10 @@ npx playwright test
 The suite's `global-setup.ts` step:
 
 1. Builds the release binary with `cargo build --release --bin
-   perf-sentinel` when `target/release/perf-sentinel` is missing.
+   perf-sentinel`, every run and not only when the binary is missing.
+   The suite asserts on what the embedded template emits, so a stale
+   binary would pass the suite against code that no longer exists.
+   Cargo no-ops in seconds when nothing changed.
 2. Renders an HTML dashboard from
    `tests/fixtures/report_realistic.json` plus the pg_stat CSV
    fixture into `fixtures/dashboard.html`.
