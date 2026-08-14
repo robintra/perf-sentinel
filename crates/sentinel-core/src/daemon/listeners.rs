@@ -236,6 +236,19 @@ pub(super) async fn init_ack_resources(
         ));
     }
     let toml_acks = load_toml_acks(config)?;
+    let toml_path = toml_ack_path(config);
+    if toml_path.exists() {
+        tracing::info!(
+            path = %toml_path.display(),
+            count = toml_acks.len(),
+            "Loaded CI ack TOML baseline"
+        );
+    } else {
+        tracing::info!(
+            path = %toml_path.display(),
+            "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
+        );
+    }
     let store = match init_store(config).await {
         Ok(s) => Some(s),
         Err((e, configured_path)) => {
@@ -257,15 +270,21 @@ pub(super) async fn init_ack_resources(
     ))
 }
 
+/// The configured ack TOML path, else the CWD-relative default.
+fn toml_ack_path(config: &Config) -> PathBuf {
+    config.daemon.ack.toml_path.as_deref().map_or_else(
+        || PathBuf::from(".perf-sentinel-acknowledgments.toml"),
+        |s| Path::new(s).to_path_buf(),
+    )
+}
+
+/// Read and resolve the TOML acks. Silent by design: the reload task runs this
+/// every minute, so the one-line summary belongs to the caller that runs once.
 fn load_toml_acks(
     config: &Config,
 ) -> Result<HashMap<String, query_api::ResolvedTomlAck>, DaemonError> {
     let configured = config.daemon.ack.toml_path.is_some();
-    let toml_path = config.daemon.ack.toml_path.as_deref().map_or_else(
-        || PathBuf::from(".perf-sentinel-acknowledgments.toml"),
-        |s| Path::new(s).to_path_buf(),
-    );
-    let path_existed = toml_path.exists();
+    let toml_path = toml_ack_path(config);
     let file = match acknowledgments::load_from_file(&toml_path) {
         Ok(f) => f,
         Err(e) if configured => {
@@ -299,18 +318,6 @@ fn load_toml_acks(
             )
         })
         .collect();
-    if path_existed {
-        tracing::info!(
-            path = %toml_path.display(),
-            count = toml_acks.len(),
-            "Loaded CI ack TOML baseline"
-        );
-    } else {
-        tracing::info!(
-            path = %toml_path.display(),
-            "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
-        );
-    }
     Ok(toml_acks)
 }
 
