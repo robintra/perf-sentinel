@@ -578,8 +578,8 @@ const MYSQL_IDENTITY: &[&str] = &["digest", "schema"];
 /// label, so a second query fetches it and joins on `digest`. That query is
 /// skipped when [`PrometheusMySqlStat::calls_series`] is `None`, which leaves
 /// `calls` at `0` and the mean equal to the total rather than invented. A file
-/// export also carries rows sent and rows examined, which no single exporter
-/// series provides, and stays the richer input.
+/// export also carries rows sent and rows examined, which this scrape does not
+/// fetch, and stays the richer input.
 ///
 /// # Errors
 ///
@@ -763,8 +763,6 @@ mod prometheus_tests {
         assert_eq!(entries[0].calls, 0, "no match means no invented count");
         assert!((entries[0].mean_exec_time_ms - 4500.0).abs() < 0.001);
     }
-
-    use super::{MySqlStatTimeUnit, PrometheusMySqlStat, parse_prometheus_response};
 
     fn body(label: &str) -> Vec<u8> {
         format!(

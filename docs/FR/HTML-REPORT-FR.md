@@ -81,8 +81,8 @@ aucun `fetch()` n'est émis vers un host quelconque.
   compte la série de temps : Performance Schema compte `SUM_TIMER_WAIT` en
   picosecondes, le collecteur convertit en secondes, et une recording rule
   transmet en général la colonne telle quelle. Un export fichier porte
-  encore les lignes envoyées et examinées, qu'aucune série unique de
-  l'exporteur ne fournit, et reste donc la source la plus riche.
+  encore les lignes envoyées et examinées, que la collecte ne récupère
+  pas, et reste donc la source la plus riche.
 
 ## Fonctions interactives
 

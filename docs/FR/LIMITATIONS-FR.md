@@ -34,7 +34,7 @@
 - [Attributs de code source OTel](#attributs-de-code-source-otel) : les attributs `code.*` requis pour `code_location`.
 - [API de requêtage du daemon](#api-de-requêtage-du-daemon) : pas d'auth intégrée, à gater via network policy ou reverse proxy.
 - [Ingestion automatisée pg_stat depuis Prometheus](#ingestion-automatisée-pg_stat-depuis-prometheus) : prérequis pour le flag `--prometheus`.
-- [Ingestion automatisée mysql-stat depuis Prometheus](#ingestion-automatisée-mysql-stat-depuis-prometheus) : collecteur désactivé par défaut et sans compteur de lignes.
+- [Ingestion automatisée mysql-stat depuis Prometheus](#ingestion-automatisée-mysql-stat-depuis-prometheus) : collecteur désactivé par défaut, compteurs de lignes non récupérés.
 - [Secrets et credentials](#secrets-et-credentials) : pattern env-var-prioritaire pour les scrapers.
 - [API Electricity Maps](#api-electricity-maps) : gestion de la clé d'API et caveats.
 - [Ingestion Tempo](#ingestion-tempo) : prérequis du format protobuf.
@@ -815,9 +815,9 @@ Le mode `--input` par fichier existant est inchangé et reste l'approche recomma
 
 Le flag `--prometheus` de `mysql-stat` scrape le collecteur `perf_schema.eventsstatements` de `mysqld_exporter`, qui est **désactivé par défaut** : l'exporteur a besoin de `--collect.perf_schema.eventsstatements`.
 
-Cette série porte le temps d'exécution cumulé. `COUNT_STAR` est publié comme une série à part, `mysql_perf_schema_events_statements_total`, récupérée par une seconde requête et jointe sur `digest` (`--calls-metric` la renomme, une valeur vide la saute). Les compteurs de lignes n'ont aucune série, ce qui conditionne le reste du rapport :
+Cette série porte le temps d'exécution cumulé. `COUNT_STAR` est publié comme une série à part, `mysql_perf_schema_events_statements_total`, récupérée par une seconde requête et jointe sur `digest` (`--calls-metric` la renomme, une valeur vide la saute). Les compteurs de lignes ne sont pas récupérés, ce qui conditionne le reste du rapport :
 
-- `rows_sent` et `rows_examined` valent `0` pour chaque entrée, car l'exporteur ne publie aucun compteur. Ils sont rapportés à zéro plutôt qu'inventés.
+- `rows_sent` et `rows_examined` valent `0` pour chaque entrée, car la collecte n'interroge ni l'un ni l'autre. Ils sont rapportés à zéro plutôt qu'inventés.
 - "top by rows_examined" classe donc sur une colonne entièrement nulle : lisez-le comme un espace réservé.
 - Sans la jointure du compteur d'appels (`--calls-metric ""`, ou une série que l'exporteur ne publie pas), `calls` reste à `0`, `mean_exec_time` répète `total_exec_time`, et deux classements de plus perdent leur signal.
 
