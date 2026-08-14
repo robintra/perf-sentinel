@@ -75,8 +75,9 @@ aucun `fetch()` n'est émis vers un host quelconque.
   requêtes. Le collecteur publie `COUNT_STAR`, `SUM_ROWS_SENT` et
   `SUM_ROWS_EXAMINED` comme des séries à part et non comme des labels :
   une requête chacune les récupère et les joint sur l'identité du digest,
-  `--mysql-stat-calls-metric <SERIE>` nomme le compteur d'appels, et une
-  valeur vide saute cette requête : le classement par appels reste alors à
+  `--mysql-stat-calls-metric <SERIE>`, `--mysql-stat-rows-sent-metric
+  <SERIE>` et `--mysql-stat-rows-examined-metric <SERIE>` les nomment, et une
+  valeur vide saute la requête correspondante : le classement par appels reste alors à
   zéro et le classement par moyenne répète le total. Cette identité est
   `digest` plus le label de schéma, donc
   `--mysql-stat-schema-label <LABEL>` le nomme quand une recording rule le
