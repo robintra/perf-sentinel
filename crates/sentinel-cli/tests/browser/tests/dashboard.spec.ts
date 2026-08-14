@@ -518,12 +518,16 @@ test("25b. several values in one family are OR'd, and the families AND together"
 test("26. type and effective grouping filters combine and expose ARIA state", async ({ page }) => {
   await loadDashboard(page, `#findings&grouping=${encodeURIComponent(K8S_PROD_EU)}&type=n_plus_one_sql`);
 
-  // The menu is named after the attribute key, so each option only carries the
-  // value. Spelling "k8s.namespace.name=" on every option repeated the header.
-  await expect(filterTrigger(page, "group")).toHaveText("k8s.namespace.name · 1");
+  // This fixture groups some findings by k8s.namespace.name and others by
+  // service.namespace, so the menu keeps its generic name and every option
+  // keeps its own key. Dropping the key here filed "finance" under a header
+  // reading "k8s.namespace.name".
+  await expect(filterTrigger(page, "group")).toHaveText("Grouping · 1");
   await openFilterMenu(page, "group");
   await expect(page.locator(`#findings-filters details[data-filter-group="group"] label`)
-    .filter({ hasText: "prod-eu" })).toHaveCount(1);
+    .filter({ hasText: "k8s.namespace.name=prod-eu" })).toHaveCount(1);
+  await expect(page.locator(`#findings-filters details[data-filter-group="group"] label`)
+    .filter({ hasText: "service.namespace=finance" })).toHaveCount(1);
   await expect(filterBox(page, `group:${K8S_PROD_EU}`)).toBeChecked();
   await expect(filterBox(page, "type:n_plus_one_sql")).toBeChecked();
   expect(await page.locator("#findings-list .ps-row").count()).toBeGreaterThan(0);
@@ -717,6 +721,24 @@ test("28b. a filter menu closes on Escape without clearing the filters", async (
   await expect(page.locator('#findings-filters details[data-filter-group="svc"]'))
     .not.toHaveAttribute("open", "");
   await expect(filterBox(page, "svc:order-svc"), "the selection must survive").toBeChecked();
+});
+
+test("28c. Escape in the search box clears the query, menu open or not", async ({ page }) => {
+  // Cmd+K moves focus into the search without any pointer event, so a menu
+  // opened by keyboard is still open behind it. Escape typed in a field belongs
+  // to that field: the menu tier must not intercept it and bounce focus back to
+  // the trigger with the query left in place.
+  await loadDashboard(page, "#findings");
+  await openFilterMenu(page, "svc");
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("order");
+  await expect(page.locator("#topbar-search")).toHaveValue("order");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#topbar-search"), "the field owns this Escape").toHaveValue("");
+  // closeSearch blurs on purpose, so the assertion is where focus did not go:
+  // the menu trigger, which is where the disclosure tier would have sent it.
+  await expect(page.locator('#findings-filters details[data-filter-group="svc"] summary'))
+    .not.toBeFocused();
 });
 
 test("26. wide tables scroll inside their card instead of being clipped", async ({ page }) => {

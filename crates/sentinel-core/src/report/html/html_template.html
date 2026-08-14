@@ -2450,6 +2450,9 @@
   function filterGroupByPrefix(prefix) {
     return FILTER_GROUPS.find(function (g) { return g.prefix === prefix; }) || null;
   }
+  // The grouping menu is renamed after its attribute key when the report only
+  // has one; captured here so the generic name is not spelled a second time.
+  var GROUPING_MENU_LABEL = filterGroupByPrefix("group").label;
   function toggleFilterValue(field, value) {
     var list = filterState[field];
     var at = list.indexOf(value);
@@ -2558,25 +2561,35 @@
 
     var groupings = Object.create(null);
     var groupingKey = "";
+    var mixedGroupingKeys = false;
     findings.forEach(function (f) {
       var identity = findingGroupingIdentity(f);
       if (!identity) return;
       groupings[identity] = findingGroupingLabel(f);
       var grouping = findingGrouping(f);
-      if (grouping && !groupingKey) groupingKey = grouping.key;
+      if (!grouping) return;
+      if (!groupingKey) groupingKey = grouping.key;
+      else if (grouping.key !== groupingKey) mixedGroupingKeys = true;
     });
     var groupingGroup = filterGroupByPrefix("group");
     // Name the menu after the attribute it filters on, since that key is what
-    // the pills used to spell out on every one of them.
-    if (groupingKey) groupingGroup.label = groupingKey;
+    // the pills used to spell out on every one of them. Only when the report
+    // has a single key: one mixing k8s.namespace.name with service.namespace
+    // would otherwise file the second one's values under the first one's name.
+    var oneGroupingKey = !!groupingKey && !mixedGroupingKeys;
+    groupingGroup.label = oneGroupingKey ? groupingKey : GROUPING_MENU_LABEL;
     appendMenu(groupingGroup, Object.keys(groupings).sort(function (a, b) {
       return groupings[a].localeCompare(groupings[b]);
     }).map(function (identity) {
       // The pill label repeated "key=value"; inside a menu named after the key,
-      // only the value carries information.
+      // only the value carries information. With several keys in one report the
+      // key is what tells the values apart, so it stays.
       var label = groupings[identity];
       var eq = label.indexOf("=");
-      return { key: identity, label: eq === -1 ? label : label.slice(eq + 1) };
+      return {
+        key: identity,
+        label: oneGroupingKey && eq !== -1 ? label.slice(eq + 1) : label
+      };
     }));
 
     syncFilterChips();
@@ -4756,7 +4769,7 @@
 
   // -------- density toggle --------
   // The head bootstrap script already stamped data-density before first
-  // paint (compact unless localStorage says comfort). The label previews
+  // paint (comfort unless localStorage says compact). The label previews
   // the target mode while hovered, and shows the current one otherwise.
   (function wireDensityToggle() {
     var btn = document.getElementById("density-toggle");
@@ -5579,17 +5592,22 @@
       ev.preventDefault();
       return;
     }
-    // Same reason for the disclosure menus. A <details> is neither a dialog nor
-    // a text field, so without this tier Escape would fall through to the chip
-    // clear below and wipe filters the user never asked to lose.
-    var openMenu = document.querySelector(DISCLOSURE_SELECTOR);
-    if (openMenu) {
-      closeDisclosure(openMenu);
+    // The search box outranks the menus: Escape typed in a field belongs to
+    // that field. A menu can be open behind it (Cmd+K moves focus without any
+    // pointer event, so nothing closed it), and stealing this keydown would
+    // leave the query in place and throw focus back to the menu trigger.
+    if (isSearchInputFocused()) {
+      closeSearch(document.activeElement);
       ev.preventDefault();
       return;
     }
-    if (isSearchInputFocused()) {
-      closeSearch(document.activeElement);
+    // Same reason as the dialog tier for the disclosure menus. A <details> is
+    // neither a dialog nor a text field, so without this tier Escape would fall
+    // through to the chip clear below and wipe filters the user never asked to
+    // lose.
+    var openMenu = document.querySelector(DISCLOSURE_SELECTOR);
+    if (openMenu) {
+      closeDisclosure(openMenu);
       ev.preventDefault();
       return;
     }
