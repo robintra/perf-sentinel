@@ -585,9 +585,10 @@ impl PrometheusMySqlStat {
 
     /// Identity every query folds on, and every counter joins on. `digest`
     /// leads because it is the identifier: a row without it is dropped rather
-    /// than matched on the schema alone.
-    fn identity(&self) -> [&str; 2] {
-        ["digest", self.schema_label.as_str()]
+    /// than matched on the schema alone. `instance` and `job` keep two servers
+    /// apart, and read as empty when the exporter omits them.
+    fn identity(&self) -> [&str; 4] {
+        ["digest", self.schema_label.as_str(), "instance", "job"]
     }
 }
 
@@ -636,49 +637,48 @@ pub async fn fetch_from_prometheus(
         scrape::validate_label_name(label).map_err(MySqlStatError::PrometheusRequest)?;
     }
 
-    let query = scrape::build_topk_query(
-        top_n,
-        &opts.series,
-        &[
-            "digest",
-            opts.query_label.as_str(),
-            opts.schema_label.as_str(),
-        ],
-    );
+    // The ranked query folds on the same identity every counter joins on, plus
+    // the label carrying the statement text.
+    let identity = opts.identity();
+    let mut group_by = identity.to_vec();
+    group_by.push(opts.query_label.as_str());
+    let query = scrape::build_topk_query(top_n, &opts.series, &group_by);
     let body =
         scrape::fetch_instant_query(endpoint, &query, auth_header, "perf-sentinel/mysql-stat")
             .await
             .map_err(MySqlStatError::PrometheusRequest)?;
 
-    // One query per counter the digest view carries as a series of its own.
-    // A failure is not fatal: the timings are already in hand, and a report
-    // ranked by time beats no report at all.
-    let identity = opts.identity();
-    let counters = ScrapedCounters {
-        calls: fetch_counter(
+    // One query per counter the digest view carries as a series of its own,
+    // issued together since none of them feeds another. A failure is not fatal:
+    // the timings are already in hand, and a report ranked by time beats no
+    // report at all.
+    let (calls, rows_sent, rows_examined) = tokio::join!(
+        fetch_counter(
             endpoint,
             auth_header,
             &query,
             opts.calls_series.as_deref(),
             &identity,
-        )
-        .await,
-        rows_sent: fetch_counter(
+        ),
+        fetch_counter(
             endpoint,
             auth_header,
             &query,
             opts.rows_sent_series.as_deref(),
             &identity,
-        )
-        .await,
-        rows_examined: fetch_counter(
+        ),
+        fetch_counter(
             endpoint,
             auth_header,
             &query,
             opts.rows_examined_series.as_deref(),
             &identity,
-        )
-        .await,
+        ),
+    );
+    let counters = ScrapedCounters {
+        calls,
+        rows_sent,
+        rows_examined,
     };
 
     parse_prometheus_response(&body, &counters, opts)
@@ -708,7 +708,7 @@ async fn fetch_counter(
     use crate::ingest::prometheus_scrape as scrape;
 
     let series = series?;
-    let query = scrape::build_counter_query(series, identity, "digest", ranked_query);
+    let query = scrape::build_counter_query(series, identity, ranked_query);
     match scrape::fetch_instant_query(endpoint, &query, auth_header, "perf-sentinel/mysql-stat")
         .await
     {
@@ -733,22 +733,26 @@ fn parse_prometheus_response(
 ) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
     use crate::ingest::prometheus_scrape as scrape;
 
-    // identity -> counter, empty when that query was skipped or failed.
-    let identity = opts.identity();
-    let index = |raw: Option<&bytes::Bytes>, series: &str| {
-        raw.map_or_else(
-            || Ok(std::collections::HashMap::new()),
-            |raw| {
-                scrape::counter_by_labels(raw, &identity, series)
-                    .map_err(MySqlStatError::PrometheusFormat)
-            },
-        )
-    };
-    let call_counts = index(counters.calls.as_ref(), "calls")?;
-    let rows_sent = index(counters.rows_sent.as_ref(), "rows sent")?;
-    let rows_examined = index(counters.rows_examined.as_ref(), "rows examined")?;
-
     let results = scrape::instant_query_results(body).map_err(MySqlStatError::PrometheusFormat)?;
+
+    // identity -> counter, empty when that query was skipped or failed. Not
+    // indexed at all when the ranking came back empty: a database with no
+    // digests yet would otherwise warn once per counter about series that are
+    // fine.
+    let identity = opts.identity();
+    let index = |raw: Option<&bytes::Bytes>, series: Option<&String>| match (raw, series) {
+        (Some(raw), Some(series)) if !results.is_empty() => {
+            scrape::counter_by_labels(raw, &identity, series)
+                .map_err(MySqlStatError::PrometheusFormat)
+        }
+        _ => Ok(std::collections::HashMap::new()),
+    };
+    let call_counts = index(counters.calls.as_ref(), opts.calls_series.as_ref())?;
+    let rows_sent = index(counters.rows_sent.as_ref(), opts.rows_sent_series.as_ref())?;
+    let rows_examined = index(
+        counters.rows_examined.as_ref(),
+        opts.rows_examined_series.as_ref(),
+    )?;
 
     let mut entries = Vec::with_capacity(results.len());
     for result in &results {
@@ -861,6 +865,29 @@ mod prometheus_tests {
         assert_eq!(entries[0].calls, 9);
         assert_eq!(entries[0].rows_sent, 90);
         assert_eq!(entries[0].rows_examined, 7000);
+    }
+
+    #[test]
+    fn two_servers_stay_two_rows() {
+        // One Prometheus scraping several database servers: folding them
+        // together would sum times across machines into a row naming none.
+        let timings = br#"{"data":{"result":[
+            {"metric":{"digest_text":"SELECT 1","digest":"abc","instance":"db1:9104"},"value":[1,"4.5"]},
+            {"metric":{"digest_text":"SELECT 1","digest":"abc","instance":"db2:9104"},"value":[1,"1.5"]}]}}"#;
+        let counters = ScrapedCounters {
+            calls: Some(bytes::Bytes::from_static(
+                br#"{"data":{"result":[
+                    {"metric":{"digest":"abc","instance":"db1:9104"},"value":[1,"9"]},
+                    {"metric":{"digest":"abc","instance":"db2:9104"},"value":[1,"3"]}]}}"#,
+            )),
+            ..Default::default()
+        };
+        let entries =
+            parse_prometheus_response(timings, &counters, &PrometheusMySqlStat::default())
+                .expect("parse");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].calls, 9, "each server keeps its own count");
+        assert_eq!(entries[1].calls, 3);
     }
 
     #[test]

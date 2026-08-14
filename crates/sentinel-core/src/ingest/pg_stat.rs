@@ -518,21 +518,24 @@ fn validate_series_name(series: &str) -> Result<(), PgStatError> {
         .map_err(PgStatError::PrometheusRequest)
 }
 
-/// Identity of a `pg_stat_statements` row. `postgres_exporter` also labels by
-/// `datname` and `user`, which the report does not carry: both series fold on
-/// this key so the time and the call count describe the same rows.
+/// Identity of a `pg_stat_statements` row: every query folds on it, so the
+/// time and the counts describe the same rows.
+///
+/// `datname` and `user` are deliberately absent, so one statement is one
+/// ranked row whichever database it ran against. `instance` and `job` are
+/// present for the opposite reason: a Prometheus scraping several servers
+/// must not sum their times into one row that names no server. They read as
+/// empty when the exporter omits them, which still joins.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
-const PG_IDENTITY: &[&str] = &["queryid"];
+const PG_IDENTITY: &[&str] = &["queryid", "instance", "job"];
 
 /// Build the `topk` instant query, aggregated on the statement identity plus
 /// the label carrying its text.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn build_prometheus_query(top_n: usize, opts: &PrometheusPgStat) -> String {
-    crate::ingest::prometheus_scrape::build_topk_query(
-        top_n,
-        &opts.series,
-        &["queryid", opts.query_label.as_str()],
-    )
+    let mut group_by = PG_IDENTITY.to_vec();
+    group_by.push(opts.query_label.as_str());
+    crate::ingest::prometheus_scrape::build_topk_query(top_n, &opts.series, &group_by)
 }
 
 /// Fetch `pg_stat_statements` data from a Prometheus endpoint.
@@ -590,12 +593,8 @@ pub async fn fetch_from_prometheus(
     // report at all. The counts stay at zero and the CLI says so.
     let calls_body = match opts.calls_series.as_deref() {
         Some(series) => {
-            let calls_query = crate::ingest::prometheus_scrape::build_counter_query(
-                series,
-                PG_IDENTITY,
-                "queryid",
-                &query,
-            );
+            let calls_query =
+                crate::ingest::prometheus_scrape::build_counter_query(series, PG_IDENTITY, &query);
             match crate::ingest::prometheus_scrape::fetch_instant_query(
                 endpoint,
                 &calls_query,
@@ -643,13 +642,18 @@ fn parse_prometheus_response(
     opts: &PrometheusPgStat,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
     // identity -> calls, empty when no second query was made.
-    let call_counts = match calls_body {
-        Some(raw) => crate::ingest::prometheus_scrape::counter_by_labels(raw, PG_IDENTITY, "calls")
-            .map_err(PgStatError::PrometheusFormat)?,
-        None => std::collections::HashMap::new(),
-    };
     let results = crate::ingest::prometheus_scrape::instant_query_results(body)
         .map_err(PgStatError::PrometheusFormat)?;
+
+    // Not indexed when the ranking came back empty: an instance with no
+    // statements yet would otherwise warn about a series that is fine.
+    let call_counts = match (calls_body, opts.calls_series.as_deref()) {
+        (Some(raw), Some(series)) if !results.is_empty() => {
+            crate::ingest::prometheus_scrape::counter_by_labels(raw, PG_IDENTITY, series)
+                .map_err(PgStatError::PrometheusFormat)?
+        }
+        _ => std::collections::HashMap::new(),
+    };
 
     let mut entries = Vec::with_capacity(results.len());
     for result in &results {
