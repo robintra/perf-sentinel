@@ -565,9 +565,15 @@ pub async fn fetch_from_prometheus(
     // report at all. The counts stay at zero and the CLI says so.
     let calls_body = match opts.calls_series.as_deref() {
         Some(series) => {
+            let calls_query = crate::ingest::prometheus_scrape::build_counter_query(
+                top_n,
+                &opts.series,
+                series,
+                "queryid",
+            );
             match crate::ingest::prometheus_scrape::fetch_instant_query(
                 endpoint,
-                series,
+                &calls_query,
                 auth_header,
                 "perf-sentinel/pg-stat",
             )
