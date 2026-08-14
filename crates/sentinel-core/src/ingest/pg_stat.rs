@@ -440,6 +440,17 @@ pub enum PgStatTimeUnit {
     Milliseconds,
 }
 
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+impl PgStatTimeUnit {
+    /// Convert a sample to milliseconds, the unit every entry carries.
+    fn to_ms(self, value: f64) -> f64 {
+        match self {
+            Self::Seconds => value * 1000.0,
+            Self::Milliseconds => value,
+        }
+    }
+}
+
 /// Which series and label carry `pg_stat_statements` on a given Prometheus.
 ///
 /// The defaults match the `postgres_exporter` built-in query. A deployment
@@ -637,17 +648,11 @@ fn parse_prometheus_response(
             .map_err(PgStatError::PrometheusFormat)?,
         None => std::collections::HashMap::new(),
     };
-    let json: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|e| PgStatError::PrometheusFormat(format!("invalid JSON: {e}")))?;
-
-    let results = json
-        .get("data")
-        .and_then(|d| d.get("result"))
-        .and_then(|r| r.as_array())
-        .ok_or_else(|| PgStatError::PrometheusFormat("missing data.result array".to_string()))?;
+    let results = crate::ingest::prometheus_scrape::instant_query_results(body)
+        .map_err(PgStatError::PrometheusFormat)?;
 
     let mut entries = Vec::with_capacity(results.len());
-    for result in results {
+    for result in &results {
         let metric = result.get("metric").unwrap_or(&serde_json::Value::Null);
         let query_text = metric
             .get(opts.query_label.as_str())
@@ -656,23 +661,10 @@ fn parse_prometheus_response(
             .unwrap_or("unknown")
             .to_string();
 
-        // value is [timestamp, "string_value"]
-        let value = result
-            .get("value")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.get(1))
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(0.0);
+        let total_exec_time_ms = opts
+            .unit
+            .to_ms(crate::ingest::prometheus_scrape::sample_value(result));
 
-        let total_exec_time_ms = match opts.unit {
-            PgStatTimeUnit::Seconds => value * 1000.0,
-            PgStatTimeUnit::Milliseconds => value,
-        };
-
-        // Prometheus label values are always strings. `.as_str() + parse` is
-        // the correct path; the previous `.as_u64().map(|_| "")` branch was
-        // dead code that silently produced 0 for non-string values.
         // A label named `calls` is not a thing any exporter publishes; the
         // count comes from the joined series, on the same identity both
         // queries aggregated by.
