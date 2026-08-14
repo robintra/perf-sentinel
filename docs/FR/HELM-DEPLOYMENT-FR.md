@@ -356,16 +356,15 @@ workload:
 Le seul mode où les acks runtime (`POST /api/findings/{sig}/ack`, depuis 0.5.20) fonctionnent. Activer la persistance monte un PVC sur `/var/lib/perf-sentinel`, et le chart pointe lui-même `[daemon.ack] storage_path` et `[daemon.archive] path` dessus, de sorte que l'audit trail des acks et l'archive de divulgation survivent aux redémarrages et aux replanifications de pod. Les acks TOML CI
 (`.perf-sentinel-acknowledgments.toml`) sont en lecture seule au runtime et n'ont pas besoin de PVC, seul le JSONL côté daemon en a besoin.
 
-> **Monter le TOML d'acks CI : utilisez `subPath`.** Une ConfigMap projette chaque clé sous forme de symlink (`clé -> ..data/clé`), et le loader refuse de suivre un symlink, un durcissement contre un lien hostile pointant vers un fichier sensible. Un montage ConfigMap classique fait donc refuser le démarrage au daemon, avec `caused by: Acknowledgments file is a symlink, refusing to follow` sous l'erreur de démarrage. Montez avec `subPath`, qui matérialise un vrai fichier :
+> **Monter le TOML d'acks CI : un montage ConfigMap classique suffit.** Une ConfigMap projette chaque clé sous forme de symlink (`clé -> ..data/clé`). Le loader suit un symlink qui résout sous son propre répertoire, c'est-à-dire exactement cette projection, et refuse celui qui résout ailleurs, le durcissement contre un lien hostile pointant vers un fichier sensible (`caused by: Acknowledgments file is a symlink resolving outside its own directory, refusing to follow`). Montez la ConfigMap comme un répertoire et pointez `[daemon.ack] toml_path` sur la clé projetée :
 >
 > ```yaml
 > volumeMounts:
 >   - name: ci-acks
->     mountPath: /etc/perf-sentinel/acknowledgments.toml
->     subPath: acknowledgments.toml
+>     mountPath: /etc/perf-sentinel/acks
 > ```
 >
-> Pointez `[daemon.ack] toml_path` sur ce chemin. La contrepartie de `subPath` est que le fichier ne se met plus à jour en place quand la ConfigMap change, ce qui convient de toute façon à une baseline d'acks livrée par PR.
+> Avec `toml_path = "/etc/perf-sentinel/acks/acknowledgments.toml"`, le daemon relit le fichier chaque minute, donc une modification de la ConfigMap s'applique sans redémarrer le pod. `subPath` fonctionne toujours et matérialise un vrai fichier, mais il fige le contenu au moment du montage : un changement de ConfigMap demande alors un rollout.
 
 ```yaml
 workload:

@@ -430,24 +430,26 @@ and the disclosure archive survive pod restarts and rescheduling. CI
 TOML acks (`.perf-sentinel-acknowledgments.toml`) are read-only at
 runtime and do not need a PVC, only the daemon-side JSONL does.
 
-> **Mounting the CI ack TOML: use `subPath`.** A ConfigMap projects
-> every key as a symlink (`key -> ..data/key`), and the loader refuses
-> to follow a symlink, a hardening against a hostile link pointing at a
-> sensitive file. A plain ConfigMap mount therefore makes the daemon
-> refuse to start, with `caused by: Acknowledgments file is a symlink,
-> refusing to follow` under the startup error. Mount with `subPath`,
-> which materialises a real file:
+> **Mounting the CI ack TOML: a plain ConfigMap mount works.** A
+> ConfigMap projects every key as a symlink (`key -> ..data/key`). The
+> loader follows a symlink that resolves under its own directory, which
+> is exactly that projection, and refuses one resolving anywhere else,
+> the hardening against a hostile link pointing at a sensitive file
+> (`caused by: Acknowledgments file is a symlink resolving outside its
+> own directory, refusing to follow`). Mount the ConfigMap as a
+> directory and point `[daemon.ack] toml_path` at the projected key:
 >
 > ```yaml
 > volumeMounts:
 >   - name: ci-acks
->     mountPath: /etc/perf-sentinel/acknowledgments.toml
->     subPath: acknowledgments.toml
+>     mountPath: /etc/perf-sentinel/acks
 > ```
 >
-> Point `[daemon.ack] toml_path` at that path. The trade-off of
-> `subPath` is that the file no longer updates in place when the
-> ConfigMap changes, which suits an ack baseline shipped by PR anyway.
+> With `toml_path = "/etc/perf-sentinel/acks/acknowledgments.toml"` the
+> daemon re-reads the file every minute, so a ConfigMap edit applies
+> without a pod restart. `subPath` still works and materialises a real
+> file, but it freezes the content at mount time, so a ConfigMap change
+> then needs a rollout.
 
 ```yaml
 workload:
