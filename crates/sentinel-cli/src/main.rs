@@ -2875,9 +2875,11 @@ async fn cmd_watch(
     }
     // Re-run strict validation so CLI overrides on listen_addr, ports and
     // max_export_findings are checked against the same bounds the config
-    // file goes through. Advisory warnings are NOT re-emitted here (they were
-    // emitted once at load), only the non-loopback security advisory
-    // is re-checked because it is the only one affected by overrides.
+    // file goes through. This second pass also re-emits the daemon-limit
+    // advisories, now reading the overrides rather than the file values, so
+    // a raised max_export_findings is comfort-checked against what will
+    // actually run. The non-loopback security advisory sits outside
+    // `validate()` and is re-checked separately below.
     if let Err(e) = config.validate() {
         eprintln!("Error: invalid daemon configuration after CLI overrides: {e}");
         std::process::exit(1);
