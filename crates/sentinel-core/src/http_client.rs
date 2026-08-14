@@ -124,10 +124,34 @@ pub enum FetchError {
     Transport(#[source] hyper_util::client::legacy::Error),
     #[error("body read failed: {0}")]
     BodyRead(String),
+    /// The response outgrew [`MAX_BODY_BYTES`]. Distinct from
+    /// [`FetchError::BodyRead`] because it is the one body failure an
+    /// operator can act on: it names a payload the peer built too large,
+    /// typically a daemon whose export knobs are set past what its own
+    /// clients can read, not a broken transfer.
+    #[error("response exceeded the {0} byte body limit")]
+    BodyTooLarge(usize),
     #[error("endpoint returned HTTP {0}")]
     HttpStatus(u16),
     #[error("request timed out")]
     Timeout,
+}
+
+/// Tell a body that outgrew [`MAX_BODY_BYTES`] apart from a transfer that
+/// broke for any other reason.
+///
+/// `Limited` reports the overrun as a `LengthLimitError` boxed inside the
+/// body error, so the two are indistinguishable through `Display` alone,
+/// and collapsing them loses the only one an operator can fix.
+fn classify_body_error(e: &(dyn std::error::Error + 'static)) -> FetchError {
+    let mut source = Some(e);
+    while let Some(err) = source {
+        if err.is::<http_body_util::LengthLimitError>() {
+            return FetchError::BodyTooLarge(MAX_BODY_BYTES);
+        }
+        source = err.source();
+    }
+    FetchError::BodyRead(format!("{e}"))
 }
 
 /// Perform a `GET` request with a timeout and body size cap.
@@ -178,7 +202,7 @@ pub async fn fetch_get(
     let collected = limited
         .collect()
         .await
-        .map_err(|e| FetchError::BodyRead(format!("{e}")))?;
+        .map_err(|e| classify_body_error(e.as_ref()))?;
     Ok(collected.to_bytes())
 }
 
@@ -237,7 +261,7 @@ pub async fn fetch_with_body(
     let collected = limited
         .collect()
         .await
-        .map_err(|e| FetchError::BodyRead(format!("{e}")))?;
+        .map_err(|e| classify_body_error(e.as_ref()))?;
     Ok((status, collected.to_bytes()))
 }
 
@@ -346,6 +370,57 @@ mod tests {
             .to_bytes();
         assert_eq!(&body[..], b"hello");
         server.await.unwrap();
+    }
+
+    /// A body past `MAX_BODY_BYTES` must surface as `BodyTooLarge`, not
+    /// as a generic `BodyRead`: it is the one body failure whose fix is a
+    /// configuration change on the peer, and the CLI reports it as such.
+    #[tokio::test]
+    async fn fetch_get_reports_an_oversized_body_distinctly() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let over = MAX_BODY_BYTES + 1024;
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                 Content-Length: {over}\r\nConnection: close\r\n\r\n"
+            );
+            let _ = socket.write_all(head.as_bytes()).await;
+            // Written in chunks: one 8 MB allocation in the test process
+            // is wasteful when the client aborts at the limit anyway.
+            let chunk = vec![b'x'; 64 * 1024];
+            let mut sent = 0usize;
+            while sent < over {
+                if socket.write_all(&chunk).await.is_err() {
+                    break;
+                }
+                sent += chunk.len();
+            }
+            let _ = socket.shutdown().await;
+        });
+
+        let client = build_client();
+        let uri: Uri = format!("http://{addr}/").parse().unwrap();
+        let err = fetch_get(
+            &client,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(10),
+            None,
+        )
+        .await
+        .expect_err("a body over the cap must fail");
+        assert!(
+            matches!(err, FetchError::BodyTooLarge(n) if n == MAX_BODY_BYTES),
+            "expected BodyTooLarge, got {err:?}"
+        );
+        server.abort();
     }
 
     /// Confirms that when an `AuthHeader` is passed, the header name and

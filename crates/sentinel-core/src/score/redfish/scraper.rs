@@ -56,7 +56,8 @@ fn fetch_error_reason(err: &FetchError) -> RedfishScrapeReason {
         FetchError::Transport(_) => RedfishScrapeReason::Unreachable,
         FetchError::Timeout => RedfishScrapeReason::Timeout,
         FetchError::HttpStatus(_) => RedfishScrapeReason::HttpError,
-        FetchError::BodyRead(_) => RedfishScrapeReason::BodyReadError,
+        // A body over the cap is still a body the scrape could not read.
+        FetchError::BodyRead(_) | FetchError::BodyTooLarge(_) => RedfishScrapeReason::BodyReadError,
         FetchError::RequestBuild(_) => RedfishScrapeReason::RequestError,
     }
 }

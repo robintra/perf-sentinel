@@ -569,14 +569,41 @@ pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
     path: &str,
     timeout: std::time::Duration,
 ) -> Option<T> {
+    fetch_json_reporting(client, base_url, path, timeout)
+        .await
+        .ok()
+}
+
+/// Sibling of [`fetch_json`] that keeps the failure reason instead of
+/// flattening it to `None`.
+///
+/// Used for `/api/export/report`, the one payload whose size an operator
+/// controls: a body over the client's limit there means the daemon's
+/// export knobs were raised past what its own clients can read, and
+/// reporting that as a plain unreachable daemon sends the reader looking
+/// at the network for a configuration problem.
+#[cfg(feature = "tui")]
+pub(crate) async fn fetch_json_reporting<T: serde::de::DeserializeOwned>(
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+    path: &str,
+    timeout: std::time::Duration,
+) -> Result<T, String> {
     let uri = format!("{base_url}{path}")
         .parse::<sentinel_core::http_client::Uri>()
-        .ok()?;
+        .map_err(|e| format!("invalid URL: {e}"))?;
     let body =
         sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
             .await
-            .ok()?;
-    serde_json::from_slice(&body).ok()
+            .map_err(|e| match e {
+                sentinel_core::http_client::FetchError::BodyTooLarge(limit) => format!(
+                    "{path} returned more than the {} MB this client reads: lower \
+                     `[daemon] max_export_findings` or `max_retained_traces`",
+                    limit / (1024 * 1024)
+                ),
+                other => other.to_string(),
+            })?;
+    serde_json::from_slice(&body).map_err(|e| format!("{path}: malformed response ({e})"))
 }
 
 #[cfg(feature = "tui")]

@@ -251,7 +251,11 @@ fn trend_point(s: &Snapshot) -> TrendPoint {
 /// on screen and flips the stale indicator.
 enum FetchOutcome {
     Snapshot(Box<Snapshot>),
-    Unreachable,
+    /// Carries why the tick failed, when the cause is worth naming: a
+    /// snapshot too large for this client reads as an unreachable daemon
+    /// otherwise, sending the operator to the network for what is a
+    /// configuration problem.
+    Unreachable(Option<String>),
 }
 
 struct MonitorState {
@@ -263,6 +267,9 @@ struct MonitorState {
     /// True when the most recent poll failed; `latest` then shows the
     /// last good data.
     stale: bool,
+    /// Why the most recent poll failed, when naming it helps. `None`
+    /// before the first failure and on any successful tick.
+    last_error: Option<String>,
     last_update: Option<Instant>,
     /// Body line count per tab (TABS order), recomputed once per
     /// snapshot instead of rebuilding the line vectors on every
@@ -302,6 +309,7 @@ impl MonitorState {
             scroll: 0,
             latest: None,
             stale: false,
+            last_error: None,
             last_update: None,
             line_counts: [0; TABS.len()],
             history: VecDeque::new(),
@@ -445,9 +453,10 @@ impl MonitorState {
                 self.scroll = self.scroll.min(self.line_count().saturating_sub(1));
                 self.dirty = true;
             }
-            FetchOutcome::Unreachable => {
-                self.dirty = self.dirty || !self.stale;
+            FetchOutcome::Unreachable(reason) => {
+                self.dirty = self.dirty || !self.stale || self.last_error != reason;
                 self.stale = true;
+                self.last_error = reason;
             }
         }
     }
@@ -552,7 +561,7 @@ async fn fetch_snapshot(
     // scraper table forward so only the former shows the old-daemon
     // hint persistently.
     let (report, scrapers, status, config) = tokio::join!(
-        crate::query::fetch_json::<ReportSlim>(
+        crate::query::fetch_json_reporting::<ReportSlim>(
             client,
             base_url,
             "/api/export/report",
@@ -568,7 +577,7 @@ async fn fetch_snapshot(
         crate::query::fetch_json::<ConfigSlim>(client, base_url, "/api/config", FETCH_TIMEOUT),
     );
     match report {
-        Some(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
+        Ok(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
             green_summary: report.green_summary,
             warning_details: report.warning_details,
             warnings: report.warnings,
@@ -576,7 +585,7 @@ async fn fetch_snapshot(
             status,
             config,
         })),
-        None => FetchOutcome::Unreachable,
+        Err(reason) => FetchOutcome::Unreachable(Some(reason)),
     }
 }
 
@@ -780,6 +789,9 @@ fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
             " [STALE]",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
+        if let Some(reason) = stale_reason(state.last_error.as_deref()) {
+            spans.push(Span::styled(format!(" {reason}"), dim));
+        }
     }
     // Global reminder that mouse capture is on (copy-paste grabbed),
     // since it can be toggled from any tab even though only Trends resizes.
@@ -808,6 +820,21 @@ fn snapshot_or_waiting<'a>(
     }
     latest
 }
+
+/// Shorten a poll failure to what fits beside the STALE marker.
+///
+/// Without it a snapshot the daemon builds too large for this client is
+/// indistinguishable from a daemon that never answered, and the operator
+/// looks at the network for what is a configuration problem.
+fn stale_reason(last_error: Option<&str>) -> Option<String> {
+    let reason = last_error?;
+    let clean = sanitize_for_terminal(reason).into_owned();
+    Some(clean.chars().take(HEADER_REASON_MAX_CHARS).collect())
+}
+
+/// Header budget for the failure reason. The header is kept to one line
+/// on 80-column terminals, so a long reason is cut rather than wrapped.
+const HEADER_REASON_MAX_CHARS: usize = 96;
 
 /// Body of the Advisor tab: the daemon's settings-advisor hints
 /// (`warning_details`). Each entry is `[kind] message`, color-coded by
@@ -2275,12 +2302,34 @@ mod tests {
         ))));
         assert!(!state.stale);
         assert!(state.latest.is_some());
-        state.apply(FetchOutcome::Unreachable);
+        state.apply(FetchOutcome::Unreachable(None));
         assert!(state.stale, "stale flag set on failed poll");
         assert!(
             state.latest.is_some(),
             "last good snapshot must stay on screen"
         );
+    }
+
+    #[test]
+    fn oversized_snapshot_names_its_cause_beside_the_stale_marker() {
+        // A daemon whose export knobs outgrew this client answers fine; it
+        // is the body that cannot be read. Reported as a bare STALE, the
+        // operator investigates the network instead of the configuration.
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        state.apply(FetchOutcome::Unreachable(Some(
+            "/api/export/report returned more than the 8 MB this client reads: \
+             lower `[daemon] max_export_findings` or `max_retained_traces`"
+                .to_string(),
+        )));
+        assert!(state.stale);
+        let shown =
+            stale_reason(state.last_error.as_deref()).expect("reason must reach the header");
+        assert!(shown.contains("8 MB"), "{shown}");
+        assert!(shown.chars().count() <= HEADER_REASON_MAX_CHARS);
+
+        // A tick that fails without a nameable cause keeps the header bare.
+        state.apply(FetchOutcome::Unreachable(None));
+        assert_eq!(stale_reason(state.last_error.as_deref()), None);
     }
 
     #[test]

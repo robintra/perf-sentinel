@@ -69,6 +69,47 @@ fn warn_outside_comfort_zone<T>(
     }
 }
 
+/// Body limit the query clients read `/api/export/report` with, mirroring
+/// `http_client::MAX_BODY_BYTES`. Spelled out here because config
+/// validation compiles without the features that gate `http_client`, and
+/// `snapshot_read_limit_matches_the_client_cap` fails if the two drift.
+pub(super) const SNAPSHOT_READ_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+
+/// Rough serialized weight of one exported finding and one retained span
+/// tree, measured on a production daemon (~3.5 KB and ~20 KB). Orders of
+/// magnitude, not a contract: they exist to catch a configuration whose
+/// snapshot cannot be read back, not to predict a byte count.
+const APPROX_FINDING_BYTES: usize = 3_500;
+const APPROX_TRACE_BYTES: usize = 20_000;
+
+/// `Some(message)` when `max_export_findings` and `max_retained_traces`
+/// together project a snapshot past the body limit the query clients read
+/// it with.
+///
+/// The two knobs fill the same response body, but each is comfort-checked
+/// alone, so a pair sitting inside both zones (2000 findings, 400 traces)
+/// still projects ~15 MB. Nothing downstream reports that: `fetch_json`
+/// reduces the oversize read to `None`, and `query inspect` then renders
+/// its "no analysis summary" hint as though the daemon were empty.
+pub(super) fn snapshot_budget_warning(findings: usize, traces: usize) -> Option<String> {
+    let limit = SNAPSHOT_READ_LIMIT_BYTES;
+    let projected = findings
+        .saturating_mul(APPROX_FINDING_BYTES)
+        .saturating_add(traces.saturating_mul(APPROX_TRACE_BYTES));
+    if projected <= limit {
+        return None;
+    }
+    let mb = |b: usize| b / (1024 * 1024);
+    Some(format!(
+        "max_export_findings = {findings} and max_retained_traces = {traces} project a \
+         snapshot around {} MB, past the {} MB body limit `query inspect` and `query \
+         monitor` fetch /api/export/report with. Over it they show no data rather than \
+         an error. Lower either knob.",
+        mb(projected),
+        mb(limit),
+    ))
+}
+
 /// `true` if `s` contains any terminal control character: C0 (`< 0x20`),
 /// DEL (`0x7F`), or C1 (`0x80..=0x9F`). The C1 range carries the single-byte
 /// CSI (`U+009B`), ST (`U+009C`) and OSC (`U+009D`) introducers honoured by
@@ -1570,6 +1611,16 @@ impl Config {
                  whatever the daemon detected",
                 "the snapshot can outgrow the 8 MiB body limit the query clients fetch it with",
             );
+        }
+        // Checked on the pair, after each knob's own zone: both fill the
+        // same response body, and neither advisory above sees the sum.
+        if traces_store_served
+            && let Some(msg) = snapshot_budget_warning(
+                self.daemon.max_export_findings,
+                self.daemon.max_retained_traces,
+            )
+        {
+            tracing::warn!(field = "max_export_findings+max_retained_traces", "{msg}");
         }
         if self.daemon.max_retained_traces > 0 && !traces_store_served {
             tracing::warn!(
