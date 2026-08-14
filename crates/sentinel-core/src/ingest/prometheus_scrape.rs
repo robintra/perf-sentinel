@@ -176,12 +176,18 @@ pub(crate) fn sample_value(result: &serde_json::Value) -> f64 {
 /// matched on anything else: the statement text is often truncated by the
 /// exporter, so two distinct statements can share it and a wrong join is
 /// worse than a missing count.
+///
+/// Rows sharing an identity are summed, not overwritten: `postgres_exporter`
+/// labels the counter by `datname` and `user` as well as `queryid`, so one
+/// statement run against two databases arrives as two rows, and keeping the
+/// last one would report a fraction of its calls as the whole.
 pub(crate) fn counter_by_label(
     body: &[u8],
     label: &str,
 ) -> Result<std::collections::HashMap<String, u64>, String> {
     let results = instant_query_results(body)?;
-    let mut counts = std::collections::HashMap::with_capacity(results.len());
+    let mut counts: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::with_capacity(results.len());
     for result in &results {
         let Some(id) = result
             .get("metric")
@@ -192,7 +198,10 @@ pub(crate) fn counter_by_label(
         };
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let count = sample_value(result).max(0.0) as u64;
-        counts.insert(id.to_string(), count);
+        counts
+            .entry(id.to_string())
+            .and_modify(|total| *total = total.saturating_add(count))
+            .or_insert(count);
     }
     Ok(counts)
 }
@@ -211,6 +220,20 @@ mod tests {
             "pg_calls_total%20and%20on(queryid)%20topk(10%2C%20pg_seconds_total)"
         );
         assert!(!query.contains(' '), "a raw space would break the URL");
+    }
+
+    #[test]
+    fn counter_rows_sharing_an_identity_are_summed() {
+        // postgres_exporter labels the counter by datname and user too, so one
+        // queryid arrives once per database. Keeping the last row would report
+        // a fraction of the calls as the whole and inflate the mean with it.
+        let body = br#"{"data":{"result":[
+            {"metric":{"queryid":"42","datname":"app"},"value":[1,"7"]},
+            {"metric":{"queryid":"42","datname":"reporting"},"value":[1,"3"]},
+            {"metric":{"datname":"app"},"value":[1,"99"]}]}}"#;
+        let counts = counter_by_label(body, "queryid").expect("parse");
+        assert_eq!(counts.get("42").copied(), Some(10));
+        assert_eq!(counts.len(), 1, "a row without the label is dropped");
     }
 
     #[test]
