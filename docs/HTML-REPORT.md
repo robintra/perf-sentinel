@@ -72,8 +72,9 @@ stays strict (`default-src 'none'`), there is no
   collector publishes `COUNT_STAR`, `SUM_ROWS_SENT` and
   `SUM_ROWS_EXAMINED` as series of their own rather than labels, so one
   query each fetches them and joins on the digest identity;
-  `--mysql-stat-calls-metric <SERIES>` names the call counter, and an empty
-  value skips that query: the calls ranking then stays at zero and the mean
+  `--mysql-stat-calls-metric <SERIES>`, `--mysql-stat-rows-sent-metric
+  <SERIES>` and `--mysql-stat-rows-examined-metric <SERIES>` name them, and an
+  empty value skips that query: the calls ranking then stays at zero and the mean
   ranking repeats the total. That identity is `digest` plus the schema
   label, so `--mysql-stat-schema-label <LABEL>` names it when a recording
   rule does, which otherwise merges two schemas into one row.
