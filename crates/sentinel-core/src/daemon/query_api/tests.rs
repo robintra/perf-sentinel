@@ -1703,3 +1703,64 @@ impl QueryApiState {
         }
     }
 }
+
+#[test]
+fn snapshot_scope_names_the_truncation_and_both_counts() {
+    // A reader given 1000 of 46370 findings, with no count in the
+    // payload, takes the listed ones for the whole store.
+    let w = snapshot_scope_warnings(MAX_FINDINGS_LIMIT, 46_370);
+    assert_eq!(w.len(), 2);
+    assert!(
+        w.iter()
+            .all(|x| x.kind == crate::report::warnings::SNAPSHOT_SCOPE)
+    );
+    assert!(
+        w[0].message.contains("1000") && w[0].message.contains("46370"),
+        "{}",
+        w[0].message
+    );
+}
+
+#[test]
+fn snapshot_scope_omits_the_truncation_when_the_store_fits() {
+    // Nothing was dropped, so claiming a cap would be noise. The green
+    // caveat holds either way: that summary is always per-batch.
+    let w = snapshot_scope_warnings(12, 12);
+    assert_eq!(w.len(), 1);
+    assert!(w[0].message.contains("batch"), "{}", w[0].message);
+}
+
+#[tokio::test]
+async fn handle_export_report_states_what_the_snapshot_covers() {
+    // The green figures come from the event loop's latest batch, never
+    // from the findings listed beside them, and nothing else in the
+    // payload says so.
+    let state = make_state();
+    state.metrics.events_processed_total.inc_by(10.0);
+    state.metrics.traces_analyzed_total.inc_by(2.0);
+    let finding = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    state.findings_store.push_batch(&[finding], 1000).await;
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/export/report")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let report: Report = serde_json::from_slice(&body).unwrap();
+
+    let scope: Vec<&str> = report
+        .warning_details
+        .iter()
+        .filter(|w| w.kind == crate::report::warnings::SNAPSHOT_SCOPE)
+        .map(|w| w.message.as_str())
+        .collect();
+    assert_eq!(scope.len(), 1, "got: {scope:?}");
+    assert!(scope[0].contains("batch"), "{}", scope[0]);
+}

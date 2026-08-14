@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- `/api/export/report` states what its snapshot covers, in `warning_details` under the `snapshot_scope` kind. Two populations coexist in that payload and nothing said so: `findings` is capped at `MAX_FINDINGS_LIMIT`, the 1000 most recent, and `green_summary` is not an aggregate over them but the latest per-batch summary the event loop wrote. On a daemon retaining 46 000 findings the export carried 2% of the store, covering the last few minutes rather than the daemon's uptime, next to carbon totals describing a single batch, and a reader took the two for one picture of the whole deployment. The absolute green numbers (`total_io_ops`, `co2`, `energy_kwh`) are wrong by orders of magnitude read that way, while the ratios stay representative, so the fix names the reach rather than recomputing: the findings store keeps findings, not the events behind them, and `total_io_ops` counts operations no finding points at, so a summary rebuilt over the exported slice would be a different wrong number rather than the right one. The HTML dashboard already renders `warning_details` in a banner on every tab, so a snapshot fed to `perf-sentinel report` carries the caveat with it. The truncation line is omitted when the store fits under the cap, since claiming one would be noise. Batch output is unchanged and carries neither warning: there every number comes from the same pass over the input.
+
 ## [0.13.0] - 2026-08-14
 
 ### Fixed

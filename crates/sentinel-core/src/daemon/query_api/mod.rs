@@ -666,6 +666,55 @@ async fn export_embedded_traces(
         .await
 }
 
+/// Narrow a daemon-lifetime counter to `usize` for the export.
+///
+/// Guards 32-bit targets where a 5-billion-event counter would overflow.
+/// On 64-bit the fallback is unreachable in practice (2^63 events at
+/// 1 M/s = 290 000 years). When it does saturate, the log record is the
+/// operator's only signal: a `usize::MAX` counter in the dashboard is
+/// far more misleading than an observably large number.
+fn counter_as_usize(counter: u64, name: &'static str) -> usize {
+    usize::try_from(counter).unwrap_or_else(|_| {
+        tracing::warn!(
+            counter,
+            "{name} overflowed usize on this target, saturating in export"
+        );
+        usize::MAX
+    })
+}
+
+/// State what the snapshot actually covers.
+///
+/// Two facts a consumer cannot recover from the payload: the findings
+/// are capped at [`MAX_FINDINGS_LIMIT`], and the green figures are the
+/// event loop's latest per-batch [`GreenSummary`], not an aggregate over
+/// the findings listed beside them. On a busy daemon both describe a
+/// fraction of the store, so the carbon totals otherwise read as the
+/// daemon's lifetime. Batch output carries neither warning: there every
+/// number comes from the same pass.
+fn snapshot_scope_warnings(exported: usize, retained: usize) -> Vec<crate::report::Warning> {
+    use crate::report::warnings::SNAPSHOT_SCOPE;
+
+    let mut details = Vec::new();
+    if retained > exported {
+        details.push(crate::report::Warning::new(
+            SNAPSHOT_SCOPE,
+            format!(
+                "Findings capped at {exported} of {retained} retained: the most \
+                 recent ones, not the whole store"
+            ),
+        ));
+    }
+    details.push(crate::report::Warning::new(
+        SNAPSHOT_SCOPE,
+        format!(
+            "Green figures (io_waste_ratio, CO2, energy) describe the latest \
+             analyzed batch, not the {exported} findings listed"
+        ),
+    ));
+    details
+}
+
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
 /// `report::build_report(...)` and call it from both.
@@ -769,29 +818,14 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     let quality_gate =
         crate::quality_gate::evaluate(&findings, &green_summary, &state.thresholds, None);
 
-    // usize::try_from guards 32-bit targets where a 5-billion-event
-    // counter would overflow a usize. On 64-bit the fallback branch is
-    // unreachable in practice (2^63 events at 1 M/s = 290 000 years).
-    // When we do saturate on 32-bit, surface a warning: a usize::MAX
-    // counter in the dashboard is far more misleading than silent
-    // truncation to an observably large number would be, so the log
-    // record is the user's only signal that the field is saturated.
-    let events_usize = usize::try_from(events_processed).unwrap_or_else(|_| {
-        tracing::warn!(
-            counter = events_processed,
-            "events_processed overflowed usize on this target, saturating in export"
-        );
-        usize::MAX
-    });
-    let traces_usize = usize::try_from(traces_analyzed).unwrap_or_else(|_| {
-        tracing::warn!(
-            counter = traces_analyzed,
-            "traces_analyzed overflowed usize on this target, saturating in export"
-        );
-        usize::MAX
-    });
+    let events_usize = counter_as_usize(events_processed, "events_processed");
+    let traces_usize = counter_as_usize(traces_analyzed, "traces_analyzed");
 
-    let warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
+    let mut warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
+    warning_details.extend(snapshot_scope_warnings(
+        findings.len(),
+        state.findings_store.len().await,
+    ));
 
     let embedded_traces = export_embedded_traces(&state, &findings).await;
 
