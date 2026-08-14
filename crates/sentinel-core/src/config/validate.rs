@@ -1609,17 +1609,20 @@ impl Config {
         }
         if traces_store_served {
             // The floor is not comfort, it is correctness: at 0 the export
-            // carries no findings and `quality_gate` counts none, so the
-            // snapshot reports a passing gate whatever the daemon saw. The
-            // ceiling is the 8 MiB body limit `query inspect` and `query
+            // carries no findings, so the gate's three finding-count rules
+            // count none and pass whatever the daemon saw. The fourth rule,
+            // io_waste_ratio_max, reads green_summary, which no cap empties,
+            // so the verdict is not a blanket pass, only blind to findings.
+            // The ceiling is the 8 MiB body limit `query inspect` and `query
             // monitor` read the snapshot through, at a few KB per finding.
             warn_outside_comfort_zone(
                 "max_export_findings",
                 &self.daemon.max_export_findings,
                 &1,
                 &2_000,
-                "the export ships no findings and its quality gate counts none, so it passes \
-                 whatever the daemon detected",
+                "the export ships no findings, so the gate's finding-count rules count none and \
+                 pass whatever the daemon detected, while io_waste_ratio_max still reads the \
+                 batch summary and can still fail",
                 "the snapshot can outgrow the 8 MiB body limit the query clients fetch it with",
             );
         }

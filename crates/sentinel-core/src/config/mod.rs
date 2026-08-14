@@ -284,8 +284,10 @@ pub struct DaemonConfig {
     /// grows the response body and the HTML rendered from it by a few KB
     /// per finding, so it trades report weight for coverage. The cap also
     /// bounds what the exported `quality_gate` counts, so zero exports the
-    /// envelope alone and its gate passes whatever the daemon detected:
-    /// a probe polling that shape is reading a constant, not a verdict.
+    /// envelope alone and the gate's finding-count rules pass whatever the
+    /// daemon detected. `io_waste_ratio_max` reads `green_summary`, which
+    /// no cap empties, so the verdict still moves, it just stops reflecting
+    /// the findings: a probe polling that shape is reading half a verdict.
     pub max_export_findings: usize,
     /// Maximum number of traces whose masked spans are retained for
     /// `/api/export/report`, so an exported report still draws a span

@@ -4091,9 +4091,10 @@ fn rejects_max_export_findings_above_the_hard_ceiling() {
 #[test]
 fn accepts_zero_max_export_findings_for_an_envelope_only_snapshot() {
     // 0 exports the envelope with no findings. Accepted, not recommended:
-    // the exported gate counts findings from the same slice, so at 0 it
-    // passes whatever the daemon detected. `validate` logs an advisory
-    // saying so; only a liveness probe wants this shape.
+    // the exported gate counts findings from the same slice, so at 0 its
+    // three count rules pass whatever the daemon detected, while
+    // io_waste_ratio_max still reads the batch summary. `validate` logs an
+    // advisory saying so; only a liveness probe wants this shape.
     let result = load_from_str("[daemon]\nmax_export_findings = 0");
     assert!(result.is_ok(), "expected 0 to parse, got {result:?}");
 }
