@@ -210,8 +210,10 @@ pub(crate) fn sample_value(result: &serde_json::Value) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Separator for a composite identity key. A byte no `PromQL` label value
-/// can carry, so two label sets never collide into one key.
+/// Separator for a composite identity key. A `PromQL` label value is arbitrary
+/// UTF-8, so nothing forbids it outright, but no exporter puts a control
+/// character in a digest or a schema name and both sides of the join build the
+/// key the same way.
 const KEY_SEP: char = '\u{1}';
 
 /// Join label values into the key both sides of the call-count join use.
@@ -256,10 +258,14 @@ pub(crate) fn counter_by_labels(
             .and_modify(|total| *total = total.saturating_add(count))
             .or_insert(count);
     }
-    if counts.is_empty() && !results.is_empty() {
+    // Not gated on a non-empty result set: the query is intersected with the
+    // ranked statements, so a series name that does not exist comes back empty
+    // rather than label-less, and that is the case an operator needs told.
+    if counts.is_empty() {
         tracing::warn!(
             labels = ?labels,
-            "call-count series carries none of the join labels; counts stay at zero"
+            "call-count query yielded no usable row, either the series does not \
+             exist or it carries none of the join labels; counts stay at zero"
         );
     }
     Ok(counts)
