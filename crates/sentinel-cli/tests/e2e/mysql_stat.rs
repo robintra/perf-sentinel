@@ -178,9 +178,16 @@ fn cli_mysql_stat_without_any_source_exits_usage_error() {
 #[cfg(feature = "daemon")]
 #[test]
 fn cli_mysql_stat_series_flags_require_the_prometheus_endpoint() {
-    for flag in ["--metric", "--query-label", "--calls-metric"] {
+    // `--unit` carries a closed value set, so it needs a value clap accepts
+    // to reach the requires check at all.
+    for (flag, value) in [
+        ("--metric", "whatever"),
+        ("--query-label", "whatever"),
+        ("--calls-metric", "whatever"),
+        ("--unit", "seconds"),
+    ] {
         let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-            .args(["mysql-stat", "--input", "unused.csv", flag, "whatever"])
+            .args(["mysql-stat", "--input", "unused.csv", flag, value])
             .env("RUST_LOG", "error")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -241,7 +248,33 @@ fn cli_mysql_stat_help_lists_the_prometheus_flags() {
         "--metric",
         "--query-label",
         "--calls-metric",
+        "--unit",
     ] {
         assert!(help.contains(flag), "mysql-stat --help should list {flag}");
     }
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn cli_mysql_stat_rejects_an_unknown_unit() {
+    // Picoseconds are legal here and not on the PostgreSQL side, since
+    // Performance Schema is what counts them.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "mysql-stat",
+            "--prometheus",
+            "http://127.0.0.1:1",
+            "--unit",
+            "nanoseconds",
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(!output.status.success(), "an unknown unit must be rejected");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("seconds") && stderr.contains("picoseconds"),
+        "stderr should list the accepted units, got: {stderr}"
+    );
 }

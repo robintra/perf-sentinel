@@ -1364,6 +1364,11 @@ fn cli_report_series_flags_require_the_prometheus_endpoint() {
         ("--pg-stat-auth-header", "whatever", "--pg-stat-prometheus"),
         ("--pg-stat-calls-metric", "whatever", "--pg-stat-prometheus"),
         ("--pg-stat-unit", "milliseconds", "--pg-stat-prometheus"),
+        (
+            "--mysql-stat-unit",
+            "picoseconds",
+            "--mysql-stat-prometheus",
+        ),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
             .args([
