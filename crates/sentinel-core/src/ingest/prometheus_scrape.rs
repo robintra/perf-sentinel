@@ -243,6 +243,7 @@ pub(crate) fn identity_key(metric: &serde_json::Value, labels: &[&str]) -> Optio
 pub(crate) fn counter_by_labels(
     body: &[u8],
     labels: &[&str],
+    what: &str,
 ) -> Result<std::collections::HashMap<String, u64>, String> {
     let results = instant_query_results(body)?;
     let mut counts: std::collections::HashMap<String, u64> =
@@ -263,9 +264,10 @@ pub(crate) fn counter_by_labels(
     // rather than label-less, and that is the case an operator needs told.
     if counts.is_empty() {
         tracing::warn!(
+            counter = what,
             labels = ?labels,
-            "call-count query yielded no usable row, either the series does not \
-             exist or it carries none of the join labels; counts stay at zero"
+            "counter query yielded no usable row, either the series does not \
+             exist or it carries none of the join labels; the column stays at zero"
         );
     }
     Ok(counts)
@@ -306,7 +308,7 @@ mod tests {
             {"metric":{"queryid":"42","datname":"app"},"value":[1,"7"]},
             {"metric":{"queryid":"42","datname":"reporting"},"value":[1,"3"]},
             {"metric":{"datname":"app"},"value":[1,"99"]}]}}"#;
-        let counts = counter_by_labels(body, &["queryid"]).expect("parse");
+        let counts = counter_by_labels(body, &["queryid"], "calls").expect("parse");
         assert_eq!(counts.get("42").copied(), Some(10));
         assert_eq!(counts.len(), 1, "a row without the identifier is dropped");
     }
@@ -318,7 +320,7 @@ mod tests {
         let body = br#"{"data":{"result":[
             {"metric":{"digest":"a1","schema":"shop"},"value":[1,"7"]},
             {"metric":{"digest":"a1","schema":"crm"},"value":[1,"3"]}]}}"#;
-        let counts = counter_by_labels(body, &["digest", "schema"]).expect("parse");
+        let counts = counter_by_labels(body, &["digest", "schema"], "calls").expect("parse");
         assert_eq!(counts.len(), 2);
         let metric = serde_json::json!({"digest": "a1", "schema": "shop"});
         let key = identity_key(&metric, &["digest", "schema"]).expect("key");
@@ -330,7 +332,7 @@ mod tests {
         // An exporter omitting `schema` omits it on both series, so the two
         // sides still meet; only the identifier itself is mandatory.
         let body = br#"{"data":{"result":[{"metric":{"digest":"a1"},"value":[1,"4"]}]}}"#;
-        let counts = counter_by_labels(body, &["digest", "schema"]).expect("parse");
+        let counts = counter_by_labels(body, &["digest", "schema"], "calls").expect("parse");
         let metric = serde_json::json!({"digest": "a1"});
         let key = identity_key(&metric, &["digest", "schema"]).expect("key");
         assert_eq!(counts.get(&key).copied(), Some(4));

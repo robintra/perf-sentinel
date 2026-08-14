@@ -531,6 +531,17 @@ pub struct PrometheusMySqlStat {
     /// `digest`. `None` skips that query and leaves the counts at zero, which
     /// empties the ranking by calls and collapses the mean onto the total.
     pub calls_series: Option<String>,
+    /// Series holding `SUM_ROWS_SENT`, fetched and joined like `calls_series`.
+    /// `None` leaves `rows_sent` at zero.
+    pub rows_sent_series: Option<String>,
+    /// Series holding `SUM_ROWS_EXAMINED`, fetched and joined like
+    /// `calls_series`. `None` leaves `rows_examined` at zero, which empties the
+    /// ranking by rows examined.
+    pub rows_examined_series: Option<String>,
+    /// Label carrying the schema name. Part of the identity every query folds
+    /// on, so naming it wrong merges two schemas into one row with their
+    /// execution times summed.
+    pub schema_label: String,
     /// Unit of `series`. The collector built-in publishes seconds.
     pub unit: MySqlStatTimeUnit,
 }
@@ -541,7 +552,14 @@ impl Default for PrometheusMySqlStat {
         Self {
             series: "mysql_perf_schema_events_statements_seconds_total".to_string(),
             calls_series: Some("mysql_perf_schema_events_statements_total".to_string()),
+            rows_sent_series: Some(
+                "mysql_perf_schema_events_statements_rows_sent_total".to_string(),
+            ),
+            rows_examined_series: Some(
+                "mysql_perf_schema_events_statements_rows_examined_total".to_string(),
+            ),
             query_label: "digest_text".to_string(),
+            schema_label: "schema".to_string(),
             unit: MySqlStatTimeUnit::Seconds,
         }
     }
@@ -558,28 +576,29 @@ impl PrometheusMySqlStat {
             series: series.unwrap_or(d.series),
             query_label: query_label.unwrap_or(d.query_label),
             calls_series: d.calls_series,
+            rows_sent_series: d.rows_sent_series,
+            rows_examined_series: d.rows_examined_series,
+            schema_label: d.schema_label,
             unit: d.unit,
         }
     }
-}
 
-/// Identity of a Performance Schema digest row. `schema` is part of it because
-/// the report carries it, so both series fold on the same key and the call
-/// count describes the row it is attached to.
-#[cfg(any(feature = "daemon", feature = "tempo"))]
-const MYSQL_IDENTITY: &[&str] = &["digest", "schema"];
+    /// Identity every query folds on, and every counter joins on. `digest`
+    /// leads because it is the identifier: a row without it is dropped rather
+    /// than matched on the schema alone.
+    fn identity(&self) -> [&str; 2] {
+        ["digest", self.schema_label.as_str()]
+    }
+}
 
 /// Fetch Performance Schema digests from a Prometheus endpoint.
 ///
-/// Queries the Prometheus HTTP API for the series named by `opts`, converts
-/// the result to [`MySqlStatEntry`] structs, and normalizes SQL templates.
-///
-/// The exporter publishes `COUNT_STAR` as a series of its own rather than a
-/// label, so a second query fetches it and joins on `digest`. That query is
-/// skipped when [`PrometheusMySqlStat::calls_series`] is `None`, which leaves
-/// `calls` at `0` and the mean equal to the total rather than invented. A file
-/// export also carries rows sent and rows examined, which this scrape does not
-/// fetch, and stays the richer input.
+/// The exporter publishes `COUNT_STAR`, `SUM_ROWS_SENT` and
+/// `SUM_ROWS_EXAMINED` as series of their own rather than labels, so one query
+/// each fetches them and joins on the digest identity. A series set to `None`
+/// skips its query and leaves its column at `0` rather than inventing one,
+/// which for `calls` also collapses the mean onto the total. A file export
+/// stays the one input that needs no exporter collector enabled.
 ///
 /// # Errors
 ///
@@ -597,70 +616,137 @@ pub async fn fetch_from_prometheus(
 
     scrape::validate_endpoint(endpoint).map_err(MySqlStatError::PrometheusRequest)?;
     scrape::validate_series_name(&opts.series).map_err(MySqlStatError::PrometheusRequest)?;
-    // The call-counter series lands in the same query string, unencoded, so it
-    // needs the same guard: an operator typo carrying `&` or `#` would smuggle
-    // a second parameter into the URL rather than fail.
-    if let Some(series) = opts.calls_series.as_deref() {
+    // The counter series land in the same query string, unencoded, so they need
+    // the same guard: an operator typo carrying `&` or `#` would smuggle a
+    // second parameter into the URL rather than fail.
+    for series in [
+        opts.calls_series.as_deref(),
+        opts.rows_sent_series.as_deref(),
+        opts.rows_examined_series.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
         scrape::validate_series_name(series).map_err(MySqlStatError::PrometheusRequest)?;
     }
 
-    // The query label now lands in the `sum by (...)` clause, not only in the
-    // response it is read back from.
-    scrape::validate_label_name(&opts.query_label).map_err(MySqlStatError::PrometheusRequest)?;
+    // Both labels now land in the `sum by (...)` clause, not only in the
+    // response they are read back from.
+    for label in [&opts.query_label, &opts.schema_label] {
+        scrape::validate_label_name(label).map_err(MySqlStatError::PrometheusRequest)?;
+    }
 
     let query = scrape::build_topk_query(
         top_n,
         &opts.series,
-        &["digest", opts.query_label.as_str(), "schema"],
+        &[
+            "digest",
+            opts.query_label.as_str(),
+            opts.schema_label.as_str(),
+        ],
     );
     let body =
         scrape::fetch_instant_query(endpoint, &query, auth_header, "perf-sentinel/mysql-stat")
             .await
             .map_err(MySqlStatError::PrometheusRequest)?;
 
-    // Second query for COUNT_STAR. A failure is not fatal: the timings are
-    // already in hand, and a report ranked by time beats no report at all.
-    let calls_body = match opts.calls_series.as_deref() {
-        Some(series) => match scrape::fetch_instant_query(
+    // One query per counter the digest view carries as a series of its own.
+    // A failure is not fatal: the timings are already in hand, and a report
+    // ranked by time beats no report at all.
+    let identity = opts.identity();
+    let counters = ScrapedCounters {
+        calls: fetch_counter(
             endpoint,
-            &scrape::build_counter_query(series, MYSQL_IDENTITY, "digest", &query),
             auth_header,
-            "perf-sentinel/mysql-stat",
+            &query,
+            opts.calls_series.as_deref(),
+            &identity,
         )
-        .await
-        {
-            Ok(raw) => Some(raw),
-            Err(e) => {
-                tracing::warn!(
-                    series,
-                    error = %e,
-                    "call-count series unavailable; the calls ranking stays at zero \
-                     and the mean ranking repeats the total"
-                );
-                None
-            }
-        },
-        None => None,
+        .await,
+        rows_sent: fetch_counter(
+            endpoint,
+            auth_header,
+            &query,
+            opts.rows_sent_series.as_deref(),
+            &identity,
+        )
+        .await,
+        rows_examined: fetch_counter(
+            endpoint,
+            auth_header,
+            &query,
+            opts.rows_examined_series.as_deref(),
+            &identity,
+        )
+        .await,
     };
 
-    parse_prometheus_response(&body, calls_body.as_deref(), opts)
+    parse_prometheus_response(&body, &counters, opts)
+}
+
+/// The counter responses joined onto the ranked rows, each `None` when its
+/// series was not configured or the query failed.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[derive(Default)]
+struct ScrapedCounters {
+    calls: Option<bytes::Bytes>,
+    rows_sent: Option<bytes::Bytes>,
+    rows_examined: Option<bytes::Bytes>,
+}
+
+/// Fetch one counter series, intersected with the ranked statements. `None`
+/// on an unconfigured series or a failed query, which leaves its column at
+/// zero rather than failing a report the timings already carry.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+async fn fetch_counter(
+    endpoint: &str,
+    auth_header: Option<&str>,
+    ranked_query: &str,
+    series: Option<&str>,
+    identity: &[&str],
+) -> Option<bytes::Bytes> {
+    use crate::ingest::prometheus_scrape as scrape;
+
+    let series = series?;
+    let query = scrape::build_counter_query(series, identity, "digest", ranked_query);
+    match scrape::fetch_instant_query(endpoint, &query, auth_header, "perf-sentinel/mysql-stat")
+        .await
+    {
+        Ok(raw) => Some(raw),
+        Err(e) => {
+            tracing::warn!(
+                series,
+                error = %e,
+                "counter series unavailable, its column stays at zero"
+            );
+            None
+        }
+    }
 }
 
 /// Parse a Prometheus instant query response into `MySqlStatEntry` structs.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn parse_prometheus_response(
     body: &[u8],
-    calls_body: Option<&[u8]>,
+    counters: &ScrapedCounters,
     opts: &PrometheusMySqlStat,
 ) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
     use crate::ingest::prometheus_scrape as scrape;
 
-    // identity -> COUNT_STAR, empty when no second query was made.
-    let call_counts = match calls_body {
-        Some(raw) => scrape::counter_by_labels(raw, MYSQL_IDENTITY)
-            .map_err(MySqlStatError::PrometheusFormat)?,
-        None => std::collections::HashMap::new(),
+    // identity -> counter, empty when that query was skipped or failed.
+    let identity = opts.identity();
+    let index = |raw: Option<&bytes::Bytes>, series: &str| {
+        raw.map_or_else(
+            || Ok(std::collections::HashMap::new()),
+            |raw| {
+                scrape::counter_by_labels(raw, &identity, series)
+                    .map_err(MySqlStatError::PrometheusFormat)
+            },
+        )
     };
+    let call_counts = index(counters.calls.as_ref(), "calls")?;
+    let rows_sent = index(counters.rows_sent.as_ref(), "rows sent")?;
+    let rows_examined = index(counters.rows_examined.as_ref(), "rows examined")?;
 
     let results = scrape::instant_query_results(body).map_err(MySqlStatError::PrometheusFormat)?;
 
@@ -678,15 +764,21 @@ fn parse_prometheus_response(
             .to_string();
 
         let schema_name = metric
-            .get("schema")
+            .get(opts.schema_label.as_str())
             .and_then(|v| v.as_str())
             .map(str::to_string);
 
         let total_exec_time_ms = opts.unit.to_ms(scrape::sample_value(result));
         let normalized = normalize_sql(&query_text);
-        let calls = scrape::identity_key(metric, MYSQL_IDENTITY)
-            .and_then(|key| call_counts.get(&key).copied())
-            .unwrap_or(0);
+        // One key for every counter: all four queries folded on the same
+        // identity, so a row either matches in all of them or in none.
+        let key = scrape::identity_key(metric, &identity);
+        let counter = |index: &std::collections::HashMap<String, u64>| {
+            key.as_ref()
+                .and_then(|k| index.get(k).copied())
+                .unwrap_or(0)
+        };
+        let calls = counter(&call_counts);
         #[allow(clippy::cast_precision_loss)]
         let mean_exec_time_ms = if calls > 0 {
             total_exec_time_ms / (calls as f64)
@@ -701,8 +793,8 @@ fn parse_prometheus_response(
             calls,
             total_exec_time_ms,
             mean_exec_time_ms,
-            rows_sent: 0,
-            rows_examined: 0,
+            rows_sent: counter(&rows_sent),
+            rows_examined: counter(&rows_examined),
             seen_in_traces: false,
         });
     }
@@ -712,7 +804,18 @@ fn parse_prometheus_response(
 
 #[cfg(all(test, any(feature = "daemon", feature = "tempo")))]
 mod prometheus_tests {
-    use super::{MySqlStatTimeUnit, PrometheusMySqlStat, parse_prometheus_response};
+    use super::{
+        MySqlStatTimeUnit, PrometheusMySqlStat, ScrapedCounters, parse_prometheus_response,
+    };
+
+    /// Only the call counter came back, the shape every test but the row-join
+    /// one exercises.
+    fn calls_only(raw: &'static [u8]) -> ScrapedCounters {
+        ScrapedCounters {
+            calls: Some(bytes::Bytes::from_static(raw)),
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn the_time_unit_scales_the_sample() {
@@ -724,12 +827,66 @@ mod prometheus_tests {
             unit: MySqlStatTimeUnit::Picoseconds,
             ..Default::default()
         };
-        let entries = parse_prometheus_response(timings, None, &opts).expect("parse");
+        let entries =
+            parse_prometheus_response(timings, &ScrapedCounters::default(), &opts).expect("parse");
         assert!((entries[0].total_exec_time_ms - 4.5).abs() < 0.001);
 
         opts.unit = MySqlStatTimeUnit::Milliseconds;
-        let entries = parse_prometheus_response(timings, None, &opts).expect("parse");
+        let entries =
+            parse_prometheus_response(timings, &ScrapedCounters::default(), &opts).expect("parse");
         assert!((entries[0].total_exec_time_ms - 4_500_000_000.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn the_row_counters_join_like_the_call_counter() {
+        // The collector publishes rows sent and rows examined as series of
+        // their own too, so the ranking by rows examined has real data rather
+        // than an all-zero column.
+        let timings = br#"{"data":{"result":[
+            {"metric":{"digest_text":"SELECT 1","digest":"abc","schema":"shop"},"value":[1,"4.5"]}]}}"#;
+        let counters = ScrapedCounters {
+            calls: Some(bytes::Bytes::from_static(
+                br#"{"data":{"result":[{"metric":{"digest":"abc","schema":"shop"},"value":[1,"9"]}]}}"#,
+            )),
+            rows_sent: Some(bytes::Bytes::from_static(
+                br#"{"data":{"result":[{"metric":{"digest":"abc","schema":"shop"},"value":[1,"90"]}]}}"#,
+            )),
+            rows_examined: Some(bytes::Bytes::from_static(
+                br#"{"data":{"result":[{"metric":{"digest":"abc","schema":"shop"},"value":[1,"7000"]}]}}"#,
+            )),
+        };
+        let entries =
+            parse_prometheus_response(timings, &counters, &PrometheusMySqlStat::default())
+                .expect("parse");
+        assert_eq!(entries[0].calls, 9);
+        assert_eq!(entries[0].rows_sent, 90);
+        assert_eq!(entries[0].rows_examined, 7000);
+    }
+
+    #[test]
+    fn a_renamed_schema_label_keeps_the_rows_apart() {
+        // A recording rule emitting `db` instead of `schema` would otherwise
+        // fold two schemas into one row, with their execution times summed.
+        let timings = br#"{"data":{"result":[
+            {"metric":{"digest_text":"SELECT 1","digest":"abc","db":"shop"},"value":[1,"4.5"]},
+            {"metric":{"digest_text":"SELECT 1","digest":"abc","db":"crm"},"value":[1,"1.5"]}]}}"#;
+        let counters = ScrapedCounters {
+            calls: Some(bytes::Bytes::from_static(
+                br#"{"data":{"result":[
+                    {"metric":{"digest":"abc","db":"shop"},"value":[1,"9"]},
+                    {"metric":{"digest":"abc","db":"crm"},"value":[1,"3"]}]}}"#,
+            )),
+            ..Default::default()
+        };
+        let opts = PrometheusMySqlStat {
+            schema_label: "db".to_string(),
+            ..Default::default()
+        };
+        let entries = parse_prometheus_response(timings, &counters, &opts).expect("parse");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].schema_name.as_deref(), Some("shop"));
+        assert_eq!(entries[0].calls, 9, "each schema keeps its own count");
+        assert_eq!(entries[1].calls, 3);
     }
 
     #[test]
@@ -741,7 +898,7 @@ mod prometheus_tests {
         let calls = br#"{"data":{"result":[
             {"metric":{"digest":"abc"},"value":[1,"9"]}]}}"#;
         let entries =
-            parse_prometheus_response(timings, Some(calls), &PrometheusMySqlStat::default())
+            parse_prometheus_response(timings, &calls_only(calls), &PrometheusMySqlStat::default())
                 .expect("parse");
         assert_eq!(entries[0].calls, 9);
         assert!(
@@ -758,7 +915,7 @@ mod prometheus_tests {
         let calls = br#"{"data":{"result":[
             {"metric":{"digest":"zzz"},"value":[1,"9"]}]}}"#;
         let entries =
-            parse_prometheus_response(timings, Some(calls), &PrometheusMySqlStat::default())
+            parse_prometheus_response(timings, &calls_only(calls), &PrometheusMySqlStat::default())
                 .expect("parse");
         assert_eq!(entries[0].calls, 0, "no match means no invented count");
         assert!((entries[0].mean_exec_time_ms - 4500.0).abs() < 0.001);
@@ -786,9 +943,12 @@ mod prometheus_tests {
 
     #[test]
     fn seconds_become_milliseconds_and_the_schema_label_is_kept() {
-        let entries =
-            parse_prometheus_response(&body("digest_text"), None, &PrometheusMySqlStat::default())
-                .expect("well-formed response");
+        let entries = parse_prometheus_response(
+            &body("digest_text"),
+            &ScrapedCounters::default(),
+            &PrometheusMySqlStat::default(),
+        )
+        .expect("well-formed response");
         assert_eq!(1, entries.len());
         assert!((entries[0].total_exec_time_ms - 2500.0).abs() < f64::EPSILON);
         assert_eq!(Some("shop".to_string()), entries[0].schema_name);
@@ -800,8 +960,9 @@ mod prometheus_tests {
         // A recording rule or a hand-written exporter names its own label,
         // so the digest text is not always under `digest_text`.
         let opts = PrometheusMySqlStat::with_overrides(None, Some("statement".to_string()));
-        let entries = parse_prometheus_response(&body("statement"), None, &opts)
-            .expect("well-formed response");
+        let entries =
+            parse_prometheus_response(&body("statement"), &ScrapedCounters::default(), &opts)
+                .expect("well-formed response");
         assert_eq!("SELECT * FROM orders WHERE id = ?", entries[0].query);
     }
 
@@ -809,9 +970,12 @@ mod prometheus_tests {
     fn a_missing_label_falls_back_to_the_opaque_digest() {
         // `digest` still groups rows apart, where "unknown" would collapse
         // every statement into one.
-        let entries =
-            parse_prometheus_response(&body("other_label"), None, &PrometheusMySqlStat::default())
-                .expect("well-formed response");
+        let entries = parse_prometheus_response(
+            &body("other_label"),
+            &ScrapedCounters::default(),
+            &PrometheusMySqlStat::default(),
+        )
+        .expect("well-formed response");
         assert_eq!("a1b2", entries[0].query);
     }
 
@@ -820,9 +984,12 @@ mod prometheus_tests {
         // The series is cumulated seconds only. Reporting a fabricated mean
         // would be worse than repeating the total, which the file export
         // (COUNT_STAR) is there to refine.
-        let entries =
-            parse_prometheus_response(&body("digest_text"), None, &PrometheusMySqlStat::default())
-                .expect("well-formed response");
+        let entries = parse_prometheus_response(
+            &body("digest_text"),
+            &ScrapedCounters::default(),
+            &PrometheusMySqlStat::default(),
+        )
+        .expect("well-formed response");
         assert_eq!(0, entries[0].calls);
         assert!(
             (entries[0].mean_exec_time_ms - entries[0].total_exec_time_ms).abs() < f64::EPSILON
@@ -831,7 +998,14 @@ mod prometheus_tests {
 
     #[test]
     fn a_malformed_envelope_is_a_format_error() {
-        assert!(parse_prometheus_response(b"{}", None, &PrometheusMySqlStat::default()).is_err());
+        assert!(
+            parse_prometheus_response(
+                b"{}",
+                &ScrapedCounters::default(),
+                &PrometheusMySqlStat::default()
+            )
+            .is_err()
+        );
     }
 }
 
