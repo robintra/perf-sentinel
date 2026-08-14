@@ -152,8 +152,14 @@ pub fn enrich_with_signatures(findings: &mut [Finding]) {
 /// sensitive file elsewhere on the host. Both sides are canonicalized first,
 /// so a `..` segment in the target cannot walk back out.
 fn symlink_stays_in_its_directory(path: &Path) -> bool {
-    let Some(parent) = path.parent() else {
-        return false;
+    // A bare filename has an empty parent, which canonicalizes to nothing. Its
+    // directory is the CWD, and reading it as "no directory" would refuse the
+    // daemon's own default `.perf-sentinel-acknowledgments.toml` and every
+    // `--acknowledgments <name>` relative to where the command was run.
+    let parent = match path.parent() {
+        Some(p) if p.as_os_str().is_empty() => Path::new("."),
+        Some(p) => p,
+        None => return false,
     };
     let (Ok(dir), Ok(target)) = (parent.canonicalize(), path.canonicalize()) else {
         return false;
@@ -408,11 +414,13 @@ pub enum AcknowledgmentLoadError {
         message: String,
     },
 
-    #[error("Acknowledgments file is a symlink, refusing to follow")]
+    #[error(
+        "Acknowledgments file is a symlink resolving outside its own directory, refusing to follow"
+    )]
     SymlinkRefused,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod symlink_tests {
     use super::*;
     use std::path::PathBuf;
@@ -424,16 +432,22 @@ mod symlink_tests {
         let data = dir.join("..2026_08_14_09_00_00");
         std::fs::create_dir_all(&data).expect("create data dir");
         std::fs::write(data.join(name), body).expect("write payload");
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink("..2026_08_14_09_00_00", dir.join("..data")).ok();
-            std::os::unix::fs::symlink(Path::new("..data").join(name), dir.join(name))
-                .expect("link key");
-        }
+        std::os::unix::fs::symlink("..2026_08_14_09_00_00", dir.join("..data"))
+            .expect("link ..data");
+        std::os::unix::fs::symlink(Path::new("..data").join(name), dir.join(name))
+            .expect("link key");
         dir.join(name)
     }
 
-    #[cfg(unix)]
+    #[test]
+    fn a_bare_filename_resolves_against_the_current_directory() {
+        // `Path::parent` of a bare name is the empty path, which canonicalizes
+        // to nothing. Reading that as "no directory" would refuse the daemon's
+        // own CWD-relative default. `Cargo.toml` is the crate root's own file,
+        // so it is under the CWD by construction and needs no fixture.
+        assert!(symlink_stays_in_its_directory(Path::new("Cargo.toml")));
+    }
+
     #[test]
     fn a_configmap_projection_is_readable() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -446,7 +460,6 @@ mod symlink_tests {
         assert_eq!(file.acknowledged.len(), 1);
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_symlink_escaping_the_directory_is_still_refused() {
         let dir = tempfile::tempdir().expect("tempdir");
