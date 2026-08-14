@@ -282,6 +282,10 @@ async fn handle_findings(
         Some(s) => s.snapshot_active().await,
         None => Arc::new(HashMap::new()),
     };
+    // One snapshot for the whole pass, like `daemon_snapshot` above: a reload
+    // landing mid-filter must not leave the listing spanning two revisions of
+    // the file, and re-loading per finding would pay an atomic refcount for it.
+    let toml_snapshot = state.toml_acks.load();
     let now = Utc::now();
     let result: Vec<FindingResponse> = stored
         .into_iter()
@@ -300,7 +304,6 @@ async fn handle_findings(
             } else {
                 &s.finding.signature
             };
-            let toml_snapshot = state.toml_acks.load();
             let ack = lookup_ack(sig, &toml_snapshot, &daemon_snapshot, now);
             match (include_acked, ack) {
                 (false, Some(_)) => None,

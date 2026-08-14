@@ -557,16 +557,14 @@ fn apply_outcome(
 /// the same envelope shape the daemon's own `/api/findings` serves.
 async fn annotate(batch: &[PendingExport], acks: &AckSources) -> Vec<FindingResponse> {
     let daemon = acks.snapshot().await;
+    // One snapshot for the whole batch, so a reload mid-annotation cannot split
+    // an envelope across two revisions of the file.
+    let toml = acks.toml.load();
     let now = Utc::now();
     batch
         .iter()
         .map(|item| FindingResponse {
-            acknowledged_by: lookup_ack(
-                &item.finding.finding.signature,
-                &acks.toml.load(),
-                &daemon,
-                now,
-            ),
+            acknowledged_by: lookup_ack(&item.finding.finding.signature, &toml, &daemon, now),
             stored: item.finding.clone(),
         })
         .collect()
