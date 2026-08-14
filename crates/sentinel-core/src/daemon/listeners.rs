@@ -533,6 +533,12 @@ pub(super) fn spawn_ack_toml_reload(
     toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     shutdown: Arc<tokio::sync::Notify>,
 ) -> Option<tokio::task::JoinHandle<()>> {
+    // `enabled = false` means the daemon holds no acks at all, and
+    // `init_ack_resources` returns an empty map to say so. Polling anyway would
+    // put them back a minute later, behind the operator's back.
+    if !config.daemon.ack.enabled {
+        return None;
+    }
     // Nothing configured means the default path, which is a repo-relative
     // file the daemon does not own. Only poll what an operator pointed us at.
     config.daemon.ack.toml_path.as_ref()?;
