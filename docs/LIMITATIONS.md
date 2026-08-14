@@ -800,19 +800,18 @@ The `--prometheus` flag on `pg-stat` scrapes metrics exposed by `postgres_export
 
 The existing `--input` file path mode is unchanged and remains the recommended approach for CI pipelines.
 
-Both `pg-stat` and `mysql-stat` accept `--metric`, `--query-label` and `--calls-metric` to name the time series, the label carrying the statement text and the call-counter series, because an exporter running a hand-written query or a recording rule names its own. Both also take `--unit`: `seconds|milliseconds` on `pg-stat`, and `seconds|milliseconds|picoseconds` on `mysql-stat`, since Performance Schema counts `SUM_TIMER_WAIT` in picoseconds and a recording rule usually forwards that column untouched. Without a label match the ranking falls back to the opaque identifier (`queryid`, `digest`) rather than collapsing every row into one. Both scrapes aggregate a statement across the databases and users the exporter labels it with, so one statement is one ranked row; on MySQL the schema is part of that identity and stays visible, on PostgreSQL `datname` and `user` are folded away since the report does not carry them.
+Both `pg-stat` and `mysql-stat` accept `--metric`, `--query-label` and `--calls-metric` to name the time series, the label carrying the statement text and the call-counter series, because an exporter running a hand-written query or a recording rule names its own. `mysql-stat` adds `--schema-label`, since the schema is part of the identity its queries fold on. Both also take `--unit`: `seconds|milliseconds` on `pg-stat`, and `seconds|milliseconds|picoseconds` on `mysql-stat`, since Performance Schema counts `SUM_TIMER_WAIT` in picoseconds and a recording rule usually forwards that column untouched. Without a label match the ranking falls back to the opaque identifier (`queryid`, `digest`) rather than collapsing every row into one. Both scrapes aggregate a statement across the databases and users the exporter labels it with, so one statement is one ranked row; on MySQL the schema is part of that identity and stays visible, on PostgreSQL `datname` and `user` are folded away since the report does not carry them.
 
 ## Automated mysql-stat ingestion from Prometheus
 
 The `--prometheus` flag on `mysql-stat` scrapes `mysqld_exporter`'s `perf_schema.eventsstatements` collector, which is **off by default**: the exporter needs `--collect.perf_schema.eventsstatements`.
 
-That series carries cumulated execution time. `COUNT_STAR` is published as a series of its own, `mysql_perf_schema_events_statements_total`, so a second query fetches it and joins on `digest` (`--calls-metric` renames it, an empty value skips it). The row counters are not fetched, which shapes the rest of the report:
+That series carries cumulated execution time. The collector publishes `COUNT_STAR`, `SUM_ROWS_SENT` and `SUM_ROWS_EXAMINED` as series of their own, so one query each fetches them and joins on the digest identity, which is what fills the four rankings:
 
-- `rows_sent` and `rows_examined` are `0` for every entry, because the scrape queries neither. They are reported as zero rather than invented.
-- "top by rows_examined" therefore ranks on an all-zero column, so read it as a placeholder.
-- Without the call-count join (`--calls-metric ""`, or a series the exporter does not publish), `calls` stays at `0`, `mean_exec_time` repeats `total_exec_time`, and two more rankings lose their signal.
+- A counter series the exporter does not publish leaves its column at `0` rather than an invented figure, and logs a `WARN` naming it. Without the call count in particular, `mean_exec_time` repeats `total_exec_time` and two rankings lose their signal.
+- The identity is `digest` plus the schema label. A recording rule that renames `schema` would merge two schemas into one row with their times summed, so `--schema-label` names it.
 
-A `performance_schema` file export (`--input`) carries `SUM_ROWS_SENT` and `SUM_ROWS_EXAMINED` on top of `COUNT_STAR` and is the richer of the two inputs. Prefer it whenever the export is available; the Prometheus path is for fleets where only the exporter is reachable.
+A `performance_schema` file export (`--input`) needs no collector enabled on the exporter and carries `AVG_TIMER_WAIT` as measured rather than derived. Prefer it whenever the export is available; the Prometheus path is for fleets where only the exporter is reachable.
 
 ## Secrets and credentials
 

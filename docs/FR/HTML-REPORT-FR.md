@@ -72,17 +72,20 @@ aucun `fetch()` n'est émis vers un host quelconque.
   `--mysql-stat-metric <SERIE>` et `--mysql-stat-query-label <LABEL>`
   pointent le scrape vers ces noms. Sans label correspondant, l'onglet
   retombe sur `digest` et affiche des hachages opaques au lieu des
-  requêtes. L'exporteur publie `COUNT_STAR` comme une série à part et non
-  comme un label : elle est récupérée par une seconde requête et jointe
-  sur `digest`, `--mysql-stat-calls-metric <SERIE>` la nomme, et une
+  requêtes. Le collecteur publie `COUNT_STAR`, `SUM_ROWS_SENT` et
+  `SUM_ROWS_EXAMINED` comme des séries à part et non comme des labels :
+  une requête chacune les récupère et les joint sur l'identité du digest,
+  `--mysql-stat-calls-metric <SERIE>` nomme le compteur d'appels, et une
   valeur vide saute cette requête : le classement par appels reste alors à
-  zéro et le classement par moyenne répète le total.
+  zéro et le classement par moyenne répète le total. Cette identité est
+  `digest` plus le label de schéma, donc
+  `--mysql-stat-schema-label <LABEL>` le nomme quand une recording rule le
+  renomme, faute de quoi deux schémas fusionnent en une ligne.
   `--mysql-stat-unit seconds|milliseconds|picoseconds` déclare ce que
   compte la série de temps : Performance Schema compte `SUM_TIMER_WAIT` en
   picosecondes, le collecteur convertit en secondes, et une recording rule
-  transmet en général la colonne telle quelle. Un export fichier porte
-  encore les lignes envoyées et examinées, que la collecte ne récupère
-  pas, et reste donc la source la plus riche.
+  transmet en général la colonne telle quelle. Un export fichier n'exige
+  aucun collecteur activé sur l'exporteur, ce qui le recommande encore.
 
 ## Fonctions interactives
 

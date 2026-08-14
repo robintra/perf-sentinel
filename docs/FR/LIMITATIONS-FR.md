@@ -809,19 +809,18 @@ Le flag `--prometheus` de `pg-stat` scrape les métriques exposées par `postgre
 
 Le mode `--input` par fichier existant est inchangé et reste l'approche recommandée pour les pipelines CI.
 
-`pg-stat` et `mysql-stat` acceptent tous deux `--metric`, `--query-label` et `--calls-metric` pour nommer la série de temps, le label qui porte le texte de la requête et la série du compteur d'appels, car un exporteur qui exécute une requête écrite à la main ou une recording rule nomme les siens. Les deux prennent aussi `--unit` : `seconds|milliseconds` pour `pg-stat`, `seconds|milliseconds|picoseconds` pour `mysql-stat`, puisque Performance Schema compte `SUM_TIMER_WAIT` en picosecondes et qu'une recording rule transmet en général cette colonne telle quelle. Sans correspondance de label, le classement retombe sur l'identifiant opaque (`queryid`, `digest`) plutôt que de fondre toutes les lignes en une seule. Les deux collectes agrègent une requête sur les bases et les utilisateurs que l'exporteur lui attache, donc une requête occupe une ligne de classement : côté MySQL le schéma fait partie de cette identité et reste visible, côté PostgreSQL `datname` et `user` sont fondus puisque le rapport ne les porte pas.
+`pg-stat` et `mysql-stat` acceptent tous deux `--metric`, `--query-label` et `--calls-metric` pour nommer la série de temps, le label qui porte le texte de la requête et la série du compteur d'appels, car un exporteur qui exécute une requête écrite à la main ou une recording rule nomme les siens. `mysql-stat` ajoute `--schema-label`, puisque le schéma fait partie de l'identité sur laquelle ses requêtes agrègent. Les deux prennent aussi `--unit` : `seconds|milliseconds` pour `pg-stat`, `seconds|milliseconds|picoseconds` pour `mysql-stat`, puisque Performance Schema compte `SUM_TIMER_WAIT` en picosecondes et qu'une recording rule transmet en général cette colonne telle quelle. Sans correspondance de label, le classement retombe sur l'identifiant opaque (`queryid`, `digest`) plutôt que de fondre toutes les lignes en une seule. Les deux collectes agrègent une requête sur les bases et les utilisateurs que l'exporteur lui attache, donc une requête occupe une ligne de classement : côté MySQL le schéma fait partie de cette identité et reste visible, côté PostgreSQL `datname` et `user` sont fondus puisque le rapport ne les porte pas.
 
 ## Ingestion automatisée mysql-stat depuis Prometheus
 
 Le flag `--prometheus` de `mysql-stat` scrape le collecteur `perf_schema.eventsstatements` de `mysqld_exporter`, qui est **désactivé par défaut** : l'exporteur a besoin de `--collect.perf_schema.eventsstatements`.
 
-Cette série porte le temps d'exécution cumulé. `COUNT_STAR` est publié comme une série à part, `mysql_perf_schema_events_statements_total`, récupérée par une seconde requête et jointe sur `digest` (`--calls-metric` la renomme, une valeur vide la saute). Les compteurs de lignes ne sont pas récupérés, ce qui conditionne le reste du rapport :
+Cette série porte le temps d'exécution cumulé. Le collecteur publie `COUNT_STAR`, `SUM_ROWS_SENT` et `SUM_ROWS_EXAMINED` comme des séries à part, récupérées par une requête chacune et jointes sur l'identité du digest, ce qui alimente les quatre classements :
 
-- `rows_sent` et `rows_examined` valent `0` pour chaque entrée, car la collecte n'interroge ni l'un ni l'autre. Ils sont rapportés à zéro plutôt qu'inventés.
-- "top by rows_examined" classe donc sur une colonne entièrement nulle : lisez-le comme un espace réservé.
-- Sans la jointure du compteur d'appels (`--calls-metric ""`, ou une série que l'exporteur ne publie pas), `calls` reste à `0`, `mean_exec_time` répète `total_exec_time`, et deux classements de plus perdent leur signal.
+- Une série de compteur que l'exporteur ne publie pas laisse sa colonne à `0` plutôt qu'un chiffre inventé, et loggue un `WARN` qui la nomme. Sans le compteur d'appels en particulier, `mean_exec_time` répète `total_exec_time` et deux classements perdent leur signal.
+- L'identité est `digest` plus le label de schéma. Une recording rule qui renomme `schema` fondrait deux schémas en une ligne avec leurs temps sommés, d'où `--schema-label` pour le nommer.
 
-Un export fichier de `performance_schema` (`--input`) porte `SUM_ROWS_SENT` et `SUM_ROWS_EXAMINED` en plus de `COUNT_STAR` et reste la plus riche des deux entrées. Préférez-la dès que l'export est disponible ; le chemin Prometheus vise les parcs où seul l'exporteur est joignable.
+Un export fichier de `performance_schema` (`--input`) n'exige aucun collecteur activé sur l'exporteur et porte `AVG_TIMER_WAIT` mesuré plutôt que dérivé. Préférez-le dès que l'export est disponible ; le chemin Prometheus vise les parcs où seul l'exporteur est joignable.
 
 ## Secrets et credentials
 
