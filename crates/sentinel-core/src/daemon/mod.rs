@@ -19,6 +19,7 @@ mod json_socket;
 mod listeners;
 mod mem_pressure;
 mod sampling;
+mod task_guard;
 mod tls;
 
 use std::sync::Arc;
@@ -244,9 +245,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // acknowledgment annotation the query API adds to a polled one.
     let (toml_acks, ack_store) = init_ack_resources(&config).await?;
     // Re-reads the ack TOML in the background, so a team decision recorded in
-    // a mounted ConfigMap applies without restarting the pod.
-    let ack_reload_shutdown = std::sync::Arc::new(tokio::sync::Notify::new());
-    let ack_reload = spawn_ack_toml_reload(&config, toml_acks.clone(), ack_reload_shutdown.clone());
+    // a mounted ConfigMap applies without restarting the pod. Aborts on drop,
+    // like the memory watcher above.
+    let _ack_reload = spawn_ack_toml_reload(&config, toml_acks.clone());
     let hub_export = hub_export::HubExporter::spawn(
         &config.daemon.hub_export,
         metrics.clone(),
@@ -448,13 +449,6 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // that will not.
     if let Some(mut exporter) = hub_export {
         exporter.shutdown().await;
-    }
-
-    // Stop re-reading the ack file. Nothing is owed to anyone here, so a
-    // notify is enough: the task returns at its next select.
-    if let Some(handle) = ack_reload {
-        ack_reload_shutdown.notify_one();
-        let _ = handle.await;
     }
 
     if let Some(handle) = archive_handle {

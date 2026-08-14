@@ -12,8 +12,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::task::JoinHandle;
-
 use crate::report::metrics::MetricsState;
 
 /// cgroup v2 usage / limit / stat files, named constants so the exact
@@ -92,17 +90,6 @@ fn next_high_water(prev: bool, ratio: f64, high: f64, low: f64) -> bool {
     }
 }
 
-/// Aborts the watcher task on drop, so an early `?` return in the daemon
-/// startup path (listener bind failure, archive open failure) cannot
-/// leak a detached, forever-polling task.
-pub(super) struct WatcherGuard(JoinHandle<()>);
-
-impl Drop for WatcherGuard {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// Spawn the cgroup memory watcher when the guard is enabled, else `None`.
 /// Every [`POLL_INTERVAL`] the task reads the cgroup working-set ratio and
 /// updates `metrics.set_memory_high_water`. Warns once if the cgroup is
@@ -110,14 +97,17 @@ impl Drop for WatcherGuard {
 /// host learns the guard is inert. `high_pct` is the caller-validated
 /// percentage (`0` disables the guard; validation enforces
 /// `> HYSTERESIS_PCT` otherwise).
-pub(super) fn spawn_if_enabled(metrics: &Arc<MetricsState>, high_pct: u8) -> Option<WatcherGuard> {
+pub(super) fn spawn_if_enabled(
+    metrics: &Arc<MetricsState>,
+    high_pct: u8,
+) -> Option<super::task_guard::AbortOnDrop> {
     if high_pct == 0 {
         return None;
     }
     let metrics = Arc::clone(metrics);
     let high = f64::from(high_pct) / 100.0;
     let low = (f64::from(high_pct) - HYSTERESIS_PCT) / 100.0;
-    Some(WatcherGuard(tokio::spawn(async move {
+    Some(super::task_guard::AbortOnDrop(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(POLL_INTERVAL);
         let mut flag = false;
         let mut unreadable_warned = false;

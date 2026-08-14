@@ -528,11 +528,13 @@ const ACK_TOML_RELOAD_INTERVAL: Duration = Duration::from_mins(1);
 /// edit is not an answer. Errors are logged and the previous map is kept,
 /// because a half-written file must not silently un-acknowledge findings
 /// that the team decided to accept.
+///
+/// The returned guard aborts the task on drop: a re-read that never happens
+/// costs the next tick, not data.
 pub(super) fn spawn_ack_toml_reload(
     config: &Config,
     toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
-    shutdown: Arc<tokio::sync::Notify>,
-) -> Option<tokio::task::JoinHandle<()>> {
+) -> Option<crate::daemon::task_guard::AbortOnDrop> {
     // `enabled = false` means the daemon holds no acks at all, and
     // `init_ack_resources` returns an empty map to say so. Polling anyway would
     // put them back a minute later, behind the operator's back.
@@ -544,42 +546,41 @@ pub(super) fn spawn_ack_toml_reload(
     config.daemon.ack.toml_path.as_ref()?;
     let path = toml_ack_path(config);
     let config = config.clone();
-    Some(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(ACK_TOML_RELOAD_INTERVAL);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        ticker.tick().await; // the first tick fires immediately, skip it
-        loop {
-            tokio::select! {
-                () = shutdown.notified() => return,
-                _ = ticker.tick() => {}
-            }
-            // A vanished file is not an edit. `load_from_file` reports a
-            // missing path as an empty file, which is the right default at
-            // startup and would un-acknowledge everything here: an unmounted
-            // volume or a deleted ConfigMap must not decide for the team.
-            if !path.exists() {
-                tracing::warn!(
-                    path = %path.display(),
-                    "CI ack TOML has disappeared, keeping the previous acks"
-                );
-                continue;
-            }
-            match load_toml_acks(&config) {
-                Ok(next) => {
-                    let before = toml_acks.len();
-                    let after = next.len();
-                    toml_acks.store(next);
-                    if before != after {
-                        tracing::info!(before, after, "Reloaded CI ack TOML");
-                    }
+    Some(crate::daemon::task_guard::AbortOnDrop(tokio::spawn(
+        async move {
+            let mut ticker = tokio::time::interval(ACK_TOML_RELOAD_INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await; // the first tick fires immediately, skip it
+            loop {
+                ticker.tick().await;
+                // A vanished file is not an edit. `load_from_file` reports a
+                // missing path as an empty file, which is the right default at
+                // startup and would un-acknowledge everything here: an unmounted
+                // volume or a deleted ConfigMap must not decide for the team.
+                if !path.exists() {
+                    tracing::warn!(
+                        path = %path.display(),
+                        "CI ack TOML has disappeared, keeping the previous acks"
+                    );
+                    continue;
                 }
-                Err(e) => tracing::warn!(
-                    error = %e,
-                    "Failed to reload CI ack TOML, keeping the previous acks"
-                ),
+                match load_toml_acks(&config) {
+                    Ok(next) => {
+                        let before = toml_acks.len();
+                        let after = next.len();
+                        toml_acks.store(next);
+                        if before != after {
+                            tracing::info!(before, after, "Reloaded CI ack TOML");
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "Failed to reload CI ack TOML, keeping the previous acks"
+                    ),
+                }
             }
-        }
-    }))
+        },
+    )))
 }
 
 /// Spawn the OTLP HTTP listener, picking the TLS or plain variant based on
