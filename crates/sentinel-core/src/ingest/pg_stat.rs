@@ -430,6 +430,7 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 /// built-in query converts to seconds, a hand-written one usually forwards
 /// the column untouched, and reading one for the other is off by a thousand.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PgStatTimeUnit {
     /// `pg_stat_statements_seconds_total`, the exporter built-in.
