@@ -178,7 +178,7 @@ fn cli_mysql_stat_without_any_source_exits_usage_error() {
 #[cfg(feature = "daemon")]
 #[test]
 fn cli_mysql_stat_series_flags_require_the_prometheus_endpoint() {
-    for flag in ["--metric", "--query-label"] {
+    for flag in ["--metric", "--query-label", "--calls-metric"] {
         let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
             .args(["mysql-stat", "--input", "unused.csv", flag, "whatever"])
             .env("RUST_LOG", "error")
@@ -199,28 +199,31 @@ fn cli_mysql_stat_series_flags_require_the_prometheus_endpoint() {
 #[cfg(feature = "daemon")]
 #[test]
 fn cli_mysql_stat_rejects_a_series_name_that_escapes_the_query_string() {
-    // Rejected before any request leaves the process, so an unreachable
+    // Both series land unencoded in the same query string, so both need the
+    // guard. Rejected before any request leaves the process, so an unreachable
     // endpoint is fine here: reaching the network would itself be the bug.
-    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args([
-            "mysql-stat",
-            "--prometheus",
-            "http://127.0.0.1:1",
-            "--metric",
-            "mysql&admin=1",
-        ])
-        .env("RUST_LOG", "error")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("failed to execute perf-sentinel");
+    for flag in ["--metric", "--calls-metric"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+            .args([
+                "mysql-stat",
+                "--prometheus",
+                "http://127.0.0.1:1",
+                flag,
+                "mysql&admin=1",
+            ])
+            .env("RUST_LOG", "error")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to execute perf-sentinel");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("bare PromQL metric name"),
-        "stderr should name the grammar it violates, got: {stderr}"
-    );
+        assert!(!output.status.success(), "{flag} must be rejected");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("bare PromQL metric name"),
+            "stderr should name the grammar it violates, got: {stderr}"
+        );
+    }
 }
 
 #[cfg(feature = "daemon")]
@@ -232,7 +235,13 @@ fn cli_mysql_stat_help_lists_the_prometheus_flags() {
         .expect("failed to execute perf-sentinel");
 
     let help = String::from_utf8_lossy(&output.stdout);
-    for flag in ["--prometheus", "--auth-header", "--metric", "--query-label"] {
+    for flag in [
+        "--prometheus",
+        "--auth-header",
+        "--metric",
+        "--query-label",
+        "--calls-metric",
+    ] {
         assert!(help.contains(flag), "mysql-stat --help should list {flag}");
     }
 }
