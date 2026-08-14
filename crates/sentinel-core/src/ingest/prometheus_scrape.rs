@@ -152,6 +152,35 @@ pub(crate) fn sample_value(result: &serde_json::Value) -> f64 {
         .unwrap_or(0.0)
 }
 
+/// Index a counter series by an identity label.
+///
+/// Both scrapes need a call count that the exporter publishes as a series of
+/// its own rather than a label, keyed by `queryid` on `PostgreSQL` and by
+/// `digest` on `MySQL`. Rows without that label are dropped rather than
+/// matched on anything else: the statement text is often truncated by the
+/// exporter, so two distinct statements can share it and a wrong join is
+/// worse than a missing count.
+pub(crate) fn counter_by_label(
+    body: &[u8],
+    label: &str,
+) -> Result<std::collections::HashMap<String, u64>, String> {
+    let results = instant_query_results(body)?;
+    let mut counts = std::collections::HashMap::with_capacity(results.len());
+    for result in &results {
+        let Some(id) = result
+            .get("metric")
+            .and_then(|m| m.get(label))
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let count = sample_value(result).max(0.0) as u64;
+        counts.insert(id.to_string(), count);
+    }
+    Ok(counts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -69,9 +69,12 @@ stays strict (`default-src 'none'`), there is no
   `--mysql-stat-metric <SERIES>` and `--mysql-stat-query-label <LABEL>`
   point the scrape at those names. Without a matching label the tab falls
   back to `digest` and shows opaque hashes instead of statements. The
-  exporter publishes cumulated seconds and no call count, so the scrape
-  leaves `calls` at zero and the mean equal to the total: a file export
-  carries `COUNT_STAR` and is the richer of the two inputs.
+  exporter publishes `COUNT_STAR` as a series of its own rather than a
+  label, so it is fetched in a second query and joined on `digest`;
+  `--mysql-stat-calls-metric <SERIES>` names it, and an empty value skips
+  that query and accepts empty rankings by calls and by mean execution
+  time. A file export still carries rows sent and rows examined, which no
+  single exporter series provides, so it remains the richer input.
 
 ## Interactive features
 

@@ -697,6 +697,15 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "LABEL", requires = "mysql_stat_prometheus")]
         mysql_stat_query_label: Option<String>,
+        /// Series holding `COUNT_STAR` (default:
+        /// `mysql_perf_schema_events_statements_total`). Fetched in a second
+        /// query and joined on `digest`, because the exporter publishes the
+        /// call count as a series of its own rather than a label. Pass an
+        /// empty value to skip that query: the rankings by calls and by mean
+        /// execution time are then empty.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
+        mysql_stat_calls_metric: Option<String>,
         /// Override the number of top entries per `mysql_stat` ranking
         /// (default: 10). Only meaningful with --mysql-stat or
         /// --mysql-stat-prometheus.
@@ -1520,6 +1529,8 @@ async fn dispatch_command(command: Commands) {
             mysql_stat_metric,
             #[cfg(feature = "daemon")]
             mysql_stat_query_label,
+            #[cfg(feature = "daemon")]
+            mysql_stat_calls_metric,
             mysql_stat_top,
             acknowledgments,
             no_acknowledgments,
@@ -1550,11 +1561,17 @@ async fn dispatch_command(command: Commands) {
             // Same reasoning for the mysqld_exporter collector: a recording
             // rule renames the series, so neither name is ours to assume.
             #[cfg(feature = "daemon")]
-            let mysql_stat_prom =
+            let mut mysql_stat_prom =
                 sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(
                     mysql_stat_metric,
                     mysql_stat_query_label,
                 );
+            // An empty value opts out of the second query, for an exporter
+            // that publishes no call counter at all.
+            #[cfg(feature = "daemon")]
+            if let Some(series) = mysql_stat_calls_metric {
+                mysql_stat_prom.calls_series = (!series.is_empty()).then_some(series);
+            }
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),

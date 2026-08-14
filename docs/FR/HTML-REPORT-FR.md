@@ -72,10 +72,13 @@ aucun `fetch()` n'est émis vers un host quelconque.
   `--mysql-stat-metric <SERIE>` et `--mysql-stat-query-label <LABEL>`
   pointent le scrape vers ces noms. Sans label correspondant, l'onglet
   retombe sur `digest` et affiche des hachages opaques au lieu des
-  requêtes. L'exporteur publie des secondes cumulées et aucun compteur
-  d'appels, le scrape laisse donc `calls` à zéro et la moyenne égale au
-  total : un export fichier porte `COUNT_STAR` et reste la source la plus
-  riche des deux.
+  requêtes. L'exporteur publie `COUNT_STAR` comme une série à part et non
+  comme un label : elle est récupérée par une seconde requête et jointe
+  sur `digest`, `--mysql-stat-calls-metric <SERIE>` la nomme, et une
+  valeur vide saute cette requête en acceptant des classements vides par
+  appels et par temps moyen. Un export fichier porte encore les lignes
+  envoyées et examinées, qu'aucune série unique de l'exporteur ne
+  fournit, et reste donc la source la plus riche.
 
 ## Fonctions interactives
 

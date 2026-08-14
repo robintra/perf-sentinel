@@ -598,31 +598,6 @@ fn validate_prometheus_endpoint(endpoint: &str) -> Result<(), PgStatError> {
         .map_err(PgStatError::PrometheusRequest)
 }
 
-/// Index the call-count series by `queryid`.
-///
-/// Entries without a `queryid` are dropped rather than matched on anything
-/// else: the SQL text is often truncated by the exporter, so two distinct
-/// statements can share it and a wrong join is worse than a missing count.
-#[cfg(any(feature = "daemon", feature = "tempo"))]
-fn parse_call_counts(body: &[u8]) -> Result<std::collections::HashMap<String, u64>, PgStatError> {
-    let results = crate::ingest::prometheus_scrape::instant_query_results(body)
-        .map_err(PgStatError::PrometheusFormat)?;
-    let mut counts = std::collections::HashMap::with_capacity(results.len());
-    for result in &results {
-        let Some(id) = result
-            .get("metric")
-            .and_then(|m| m.get("queryid"))
-            .and_then(serde_json::Value::as_str)
-        else {
-            continue;
-        };
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let calls = crate::ingest::prometheus_scrape::sample_value(result).max(0.0) as u64;
-        counts.insert(id.to_string(), calls);
-    }
-    Ok(counts)
-}
-
 /// Parse a Prometheus instant query response into `PgStatEntry` structs.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn parse_prometheus_response(
@@ -632,7 +607,8 @@ fn parse_prometheus_response(
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
     // queryid -> calls, empty when no second query was made.
     let call_counts = match calls_body {
-        Some(raw) => parse_call_counts(raw)?,
+        Some(raw) => crate::ingest::prometheus_scrape::counter_by_label(raw, "queryid")
+            .map_err(PgStatError::PrometheusFormat)?,
         None => std::collections::HashMap::new(),
     };
     let json: serde_json::Value = serde_json::from_slice(body)
