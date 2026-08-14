@@ -712,6 +712,8 @@ fn parse_prometheus_response(
 
 #[cfg(all(test, any(feature = "daemon", feature = "tempo")))]
 mod prometheus_tests {
+    use super::{MySqlStatTimeUnit, PrometheusMySqlStat, parse_prometheus_response};
+
     #[test]
     fn the_time_unit_scales_the_sample() {
         // SUM_TIMER_WAIT forwarded untouched is picoseconds: read as seconds
