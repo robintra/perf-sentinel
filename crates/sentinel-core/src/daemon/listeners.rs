@@ -542,6 +542,7 @@ pub(super) fn spawn_ack_toml_reload(
     // Nothing configured means the default path, which is a repo-relative
     // file the daemon does not own. Only poll what an operator pointed us at.
     config.daemon.ack.toml_path.as_ref()?;
+    let path = toml_ack_path(config);
     let config = config.clone();
     Some(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(ACK_TOML_RELOAD_INTERVAL);
@@ -551,6 +552,17 @@ pub(super) fn spawn_ack_toml_reload(
             tokio::select! {
                 () = shutdown.notified() => return,
                 _ = ticker.tick() => {}
+            }
+            // A vanished file is not an edit. `load_from_file` reports a
+            // missing path as an empty file, which is the right default at
+            // startup and would un-acknowledge everything here: an unmounted
+            // volume or a deleted ConfigMap must not decide for the team.
+            if !path.exists() {
+                tracing::warn!(
+                    path = %path.display(),
+                    "CI ack TOML has disappeared, keeping the previous acks"
+                );
+                continue;
             }
             match load_toml_acks(&config) {
                 Ok(next) => {
