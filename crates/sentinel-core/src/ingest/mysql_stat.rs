@@ -553,6 +553,12 @@ pub async fn fetch_from_prometheus(
 
     scrape::validate_endpoint(endpoint).map_err(MySqlStatError::PrometheusRequest)?;
     scrape::validate_series_name(&opts.series).map_err(MySqlStatError::PrometheusRequest)?;
+    // The call-counter series lands in the same query string, unencoded, so it
+    // needs the same guard: an operator typo carrying `&` or `#` would smuggle
+    // a second parameter into the URL rather than fail.
+    if let Some(series) = opts.calls_series.as_deref() {
+        scrape::validate_series_name(series).map_err(MySqlStatError::PrometheusRequest)?;
+    }
 
     let query = scrape::build_topk_query(top_n, &opts.series);
     let body =
