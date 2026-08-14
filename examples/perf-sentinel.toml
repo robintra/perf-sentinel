@@ -199,8 +199,10 @@ max_payload_size = 16777216        # default 16777216 (16 MiB), bounds 1024..104
 # ack routes that read it.
 max_retained_findings = 10000      # default 10000, bounds 0..10000000
 # Findings carried by one /api/export/report snapshot. The store keeps far
-# more; this sizes the export. The exported quality gate counts only this
-# slice, so 0 ships the envelope alone and its verdict always passes.
+# more, this only sizes the export. The exported quality gate counts only this
+# slice, so at 0 it ships the envelope alone and its three finding-count
+# rules pass whatever the daemon detected. The fourth, io_waste_ratio_max,
+# reads green_summary, which no cap empties, so the verdict still moves.
 max_export_findings = 1000         # default 1000, bounds 0..100000
 # Traces whose masked spans are kept so `/api/export/report` still carries a
 # span tree. Costs memory in proportion to max_events_per_trace, hence the
