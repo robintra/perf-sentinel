@@ -4112,8 +4112,8 @@ fn snapshot_budget_is_quiet_inside_the_body_limit() {
 fn snapshot_budget_warns_when_both_knobs_stay_in_their_comfort_zones() {
     // The failure this exists for: 2000 is the top of max_export_findings'
     // comfort zone and 400 sits inside max_retained_traces' (10..=500), yet
-    // together they project ~15 MB, far past the 8 MiB the query clients
-    // read the snapshot with. Neither knob's own advisory sees the sum.
+    // together they project ~11 MB, past the 8 MiB the query clients read
+    // the snapshot with. Neither knob's own advisory sees the sum.
     let w = super::validate::snapshot_budget_warning(2_000, 400)
         .expect("in-comfort pair over the limit must warn");
     assert!(w.contains("max_export_findings"), "{w}");
@@ -4121,10 +4121,16 @@ fn snapshot_budget_warns_when_both_knobs_stay_in_their_comfort_zones() {
 }
 
 #[test]
-fn snapshot_budget_warns_on_retained_traces_alone() {
-    // 500 is the documented comfort ceiling for max_retained_traces, and
-    // at ~20 KB a tree it already blows the limit on its own.
-    assert!(super::validate::snapshot_budget_warning(1_000, 500).is_some());
+fn snapshot_budget_ignores_trace_bytes_the_export_never_ships() {
+    // `traces_store::snapshot_for` caps the span trees at half the body
+    // limit and skips the rest, so max_retained_traces alone cannot blow
+    // the budget however high it goes. Projected unclamped it did, and the
+    // advisory then told the operator to lower the one knob already bounded.
+    assert_eq!(super::validate::snapshot_budget_warning(1_000, 500), None);
+    assert_eq!(
+        super::validate::snapshot_budget_warning(1_000, 10_000),
+        None
+    );
 }
 
 #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
