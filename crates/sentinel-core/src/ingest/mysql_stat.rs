@@ -528,6 +528,12 @@ impl PrometheusMySqlStat {
     }
 }
 
+/// Identity of a Performance Schema digest row. `schema` is part of it because
+/// the report carries it, so both series fold on the same key and the call
+/// count describes the row it is attached to.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+const MYSQL_IDENTITY: &[&str] = &["digest", "schema"];
+
 /// Fetch Performance Schema digests from a Prometheus endpoint.
 ///
 /// Queries the Prometheus HTTP API for the series named by `opts`, converts
@@ -563,7 +569,15 @@ pub async fn fetch_from_prometheus(
         scrape::validate_series_name(series).map_err(MySqlStatError::PrometheusRequest)?;
     }
 
-    let query = scrape::build_topk_query(top_n, &opts.series);
+    // The query label now lands in the `sum by (...)` clause, not only in the
+    // response it is read back from.
+    scrape::validate_label_name(&opts.query_label).map_err(MySqlStatError::PrometheusRequest)?;
+
+    let query = scrape::build_topk_query(
+        top_n,
+        &opts.series,
+        &["digest", opts.query_label.as_str(), "schema"],
+    );
     let body =
         scrape::fetch_instant_query(endpoint, &query, auth_header, "perf-sentinel/mysql-stat")
             .await
@@ -574,7 +588,7 @@ pub async fn fetch_from_prometheus(
     let calls_body = match opts.calls_series.as_deref() {
         Some(series) => match scrape::fetch_instant_query(
             endpoint,
-            &scrape::build_counter_query(top_n, &opts.series, series, "digest"),
+            &scrape::build_counter_query(series, MYSQL_IDENTITY, "digest", &query),
             auth_header,
             "perf-sentinel/mysql-stat",
         )
@@ -606,11 +620,10 @@ fn parse_prometheus_response(
 ) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
     use crate::ingest::prometheus_scrape as scrape;
 
-    // digest -> COUNT_STAR, empty when no second query was made.
+    // identity -> COUNT_STAR, empty when no second query was made.
     let call_counts = match calls_body {
-        Some(raw) => {
-            scrape::counter_by_label(raw, "digest").map_err(MySqlStatError::PrometheusFormat)?
-        }
+        Some(raw) => scrape::counter_by_labels(raw, MYSQL_IDENTITY)
+            .map_err(MySqlStatError::PrometheusFormat)?,
         None => std::collections::HashMap::new(),
     };
 
@@ -636,10 +649,8 @@ fn parse_prometheus_response(
 
         let total_exec_time_ms = scrape::sample_value(result) * 1000.0;
         let normalized = normalize_sql(&query_text);
-        let calls = metric
-            .get("digest")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|d| call_counts.get(d).copied())
+        let calls = scrape::identity_key(metric, MYSQL_IDENTITY)
+            .and_then(|key| call_counts.get(&key).copied())
             .unwrap_or(0);
         #[allow(clippy::cast_precision_loss)]
         let mean_exec_time_ms = if calls > 0 {
