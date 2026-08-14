@@ -73,8 +73,12 @@ stays strict (`default-src 'none'`), there is no
   label, so it is fetched in a second query and joined on `digest`;
   `--mysql-stat-calls-metric <SERIES>` names it, and an empty value skips
   that query: the calls ranking then stays at zero and the mean ranking
-  repeats the total. A file export still carries rows sent and rows examined, which no
-  single exporter series provides, so it remains the richer input.
+  repeats the total. `--mysql-stat-unit seconds|milliseconds|picoseconds`
+  states what the time series counts: Performance Schema counts
+  `SUM_TIMER_WAIT` in picoseconds, the collector converts to seconds, and a
+  recording rule usually forwards the column untouched. A file export still
+  carries rows sent and rows examined, which no single exporter series
+  provides, so it remains the richer input.
 
 ## Interactive features
 
