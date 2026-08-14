@@ -424,6 +424,21 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 
 // ── Prometheus scrape path ─────────────────────────────────────────
 
+/// Unit of the ranked time series.
+///
+/// `pg_stat_statements` counts in milliseconds. The `postgres_exporter`
+/// built-in query converts to seconds, a hand-written one usually forwards
+/// the column untouched, and reading one for the other is off by a thousand.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PgStatTimeUnit {
+    /// `pg_stat_statements_seconds_total`, the exporter built-in.
+    #[default]
+    Seconds,
+    /// `total_exec_time` forwarded as is.
+    Milliseconds,
+}
+
 /// Which series and label carry `pg_stat_statements` on a given Prometheus.
 ///
 /// The defaults match the `postgres_exporter` built-in query. A deployment
@@ -442,6 +457,14 @@ pub struct PrometheusPgStat {
     /// Label carrying the SQL text. Falls back to `queryid` when absent, which
     /// leaves the report with opaque identifiers rather than statements.
     pub query_label: String,
+    /// Series holding the call counter. Every exporter publishes it as a
+    /// series of its own, never as a label, so it takes a second query joined
+    /// on `queryid`. `None` skips that query and leaves the counts at zero,
+    /// which empties the ranking by calls and collapses the mean onto the
+    /// total.
+    pub calls_series: Option<String>,
+    /// Unit of [`Self::series`].
+    pub unit: PgStatTimeUnit,
 }
 
 #[cfg(any(feature = "daemon", feature = "tempo"))]
@@ -450,6 +473,8 @@ impl Default for PrometheusPgStat {
         Self {
             series: "pg_stat_statements_seconds_total".to_string(),
             query_label: "query".to_string(),
+            calls_series: Some("pg_stat_statements_calls_total".to_string()),
+            unit: PgStatTimeUnit::Seconds,
         }
     }
 }
@@ -465,6 +490,8 @@ impl PrometheusPgStat {
         Self {
             series: series.unwrap_or(defaults.series),
             query_label: query_label.unwrap_or(defaults.query_label),
+            calls_series: defaults.calls_series,
+            unit: defaults.unit,
         }
     }
 }
@@ -527,7 +554,35 @@ pub async fn fetch_from_prometheus(
     .await
     .map_err(PgStatError::PrometheusRequest)?;
 
-    parse_prometheus_response(&body, opts)
+    // Second query for the call counter. A failure here is not fatal: the
+    // timings are already in hand, and a report ranked by time beats no
+    // report at all. The counts stay at zero and the CLI says so.
+    let calls_body = match opts.calls_series.as_deref() {
+        Some(series) => {
+            match crate::ingest::prometheus_scrape::fetch_instant_query(
+                endpoint,
+                series,
+                auth_header,
+                "perf-sentinel/pg-stat",
+            )
+            .await
+            {
+                Ok(raw) => Some(raw),
+                Err(e) => {
+                    tracing::warn!(
+                        series,
+                        error = %e,
+                        "call-count series unavailable; rankings by calls and by mean \
+                         execution time will be empty"
+                    );
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
+    parse_prometheus_response(&body, calls_body.as_deref(), opts)
 }
 
 /// Validate a user-supplied Prometheus endpoint string.
@@ -543,12 +598,43 @@ fn validate_prometheus_endpoint(endpoint: &str) -> Result<(), PgStatError> {
         .map_err(PgStatError::PrometheusRequest)
 }
 
+/// Index the call-count series by `queryid`.
+///
+/// Entries without a `queryid` are dropped rather than matched on anything
+/// else: the SQL text is often truncated by the exporter, so two distinct
+/// statements can share it and a wrong join is worse than a missing count.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+fn parse_call_counts(body: &[u8]) -> Result<std::collections::HashMap<String, u64>, PgStatError> {
+    let results = crate::ingest::prometheus_scrape::instant_query_results(body)
+        .map_err(PgStatError::PrometheusFormat)?;
+    let mut counts = std::collections::HashMap::with_capacity(results.len());
+    for result in &results {
+        let Some(id) = result
+            .get("metric")
+            .and_then(|m| m.get("queryid"))
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let calls = crate::ingest::prometheus_scrape::sample_value(result).max(0.0) as u64;
+        counts.insert(id.to_string(), calls);
+    }
+    Ok(counts)
+}
+
 /// Parse a Prometheus instant query response into `PgStatEntry` structs.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn parse_prometheus_response(
     body: &[u8],
+    calls_body: Option<&[u8]>,
     opts: &PrometheusPgStat,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
+    // queryid -> calls, empty when no second query was made.
+    let call_counts = match calls_body {
+        Some(raw) => parse_call_counts(raw)?,
+        None => std::collections::HashMap::new(),
+    };
     let json: serde_json::Value = serde_json::from_slice(body)
         .map_err(|e| PgStatError::PrometheusFormat(format!("invalid JSON: {e}")))?;
 
@@ -577,15 +663,20 @@ fn parse_prometheus_response(
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
-        let total_exec_time_ms = value * 1000.0; // seconds to ms
+        let total_exec_time_ms = match opts.unit {
+            PgStatTimeUnit::Seconds => value * 1000.0,
+            PgStatTimeUnit::Milliseconds => value,
+        };
 
         // Prometheus label values are always strings. `.as_str() + parse` is
         // the correct path; the previous `.as_u64().map(|_| "")` branch was
         // dead code that silently produced 0 for non-string values.
+        // A label named `calls` is not a thing any exporter publishes; the
+        // count comes from the joined series, keyed by queryid.
         let calls = metric
-            .get("calls")
+            .get("queryid")
             .and_then(serde_json::Value::as_str)
-            .and_then(|s| s.parse::<u64>().ok())
+            .and_then(|id| call_counts.get(id).copied())
             .unwrap_or(0);
 
         #[allow(clippy::cast_precision_loss)]
@@ -981,7 +1072,7 @@ mod tests {
             }
         }"#;
 
-        let entries = parse_prometheus_response(json, &PrometheusPgStat::default()).unwrap();
+        let entries = parse_prometheus_response(json, None, &PrometheusPgStat::default()).unwrap();
         assert_eq!(entries.len(), 2);
         assert!((entries[0].total_exec_time_ms - 4500.0).abs() < f64::EPSILON);
         assert!((entries[1].total_exec_time_ms - 1200.0).abs() < f64::EPSILON);
@@ -993,14 +1084,14 @@ mod tests {
     #[test]
     fn parse_prometheus_response_empty_result() {
         let json = br#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
-        let entries = parse_prometheus_response(json, &PrometheusPgStat::default()).unwrap();
+        let entries = parse_prometheus_response(json, None, &PrometheusPgStat::default()).unwrap();
         assert!(entries.is_empty());
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]
     #[test]
     fn parse_prometheus_response_invalid_json() {
-        let result = parse_prometheus_response(b"not json", &PrometheusPgStat::default());
+        let result = parse_prometheus_response(b"not json", None, &PrometheusPgStat::default());
         assert_matches!(result, Err(PgStatError::PrometheusFormat(_)));
     }
 
@@ -1039,6 +1130,65 @@ mod tests {
             matches!(result, Err(PgStatError::PrometheusRequest(msg)) if msg.contains("scheme")),
             "must reject non-http(s) schemes"
         );
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_time_unit_defaults_to_seconds() {
+        // The postgres_exporter built-in publishes seconds_total.
+        let body = br#"{"data":{"result":[
+            {"metric":{"query":"SELECT 1"},"value":[1,"4.5"]}]}}"#;
+        let entries =
+            parse_prometheus_response(body, None, &PrometheusPgStat::default()).expect("parse");
+        assert!((entries[0].total_exec_time_ms - 4500.0).abs() < 0.001);
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn prometheus_time_unit_can_be_milliseconds() {
+        // pg_stat_statements itself counts in milliseconds, and an exporter
+        // running its own query usually forwards that column as is. Reading
+        // it as seconds would inflate every figure a thousandfold.
+        let body = br#"{"data":{"result":[
+            {"metric":{"query":"SELECT 1"},"value":[1,"4500"]}]}}"#;
+        let opts = PrometheusPgStat {
+            unit: PgStatTimeUnit::Milliseconds,
+            ..PrometheusPgStat::default()
+        };
+        let entries = parse_prometheus_response(body, None, &opts).expect("parse");
+        assert!((entries[0].total_exec_time_ms - 4500.0).abs() < 0.001);
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn call_counts_join_on_queryid() {
+        // calls is a series of its own on every exporter, never a label, so
+        // the ranking by calls was silently empty before.
+        let timings = br#"{"data":{"result":[
+            {"metric":{"query":"SELECT 1","queryid":"42"},"value":[1,"4.5"]}]}}"#;
+        let calls = br#"{"data":{"result":[
+            {"metric":{"queryid":"42"},"value":[1,"9"]}]}}"#;
+        let entries = parse_prometheus_response(timings, Some(calls), &PrometheusPgStat::default())
+            .expect("parse");
+        assert_eq!(entries[0].calls, 9);
+        assert!(
+            (entries[0].mean_exec_time_ms - 500.0).abs() < 0.001,
+            "the mean must follow from the call count, got {}",
+            entries[0].mean_exec_time_ms
+        );
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn call_counts_leave_unmatched_entries_alone() {
+        let timings = br#"{"data":{"result":[
+            {"metric":{"query":"SELECT 1","queryid":"42"},"value":[1,"4.5"]}]}}"#;
+        let calls = br#"{"data":{"result":[
+            {"metric":{"queryid":"999"},"value":[1,"9"]}]}}"#;
+        let entries = parse_prometheus_response(timings, Some(calls), &PrometheusPgStat::default())
+            .expect("parse");
+        assert_eq!(entries[0].calls, 0, "no match means no invented count");
+        assert!((entries[0].mean_exec_time_ms - 4500.0).abs() < 0.001);
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]
@@ -1095,15 +1245,14 @@ mod tests {
     #[test]
     fn prometheus_query_label_is_overridable() {
         let body = br#"{"status":"success","data":{"resultType":"vector","result":[
-            {"metric":{"__name__":"x","query_sample":"SELECT 1 FROM t","calls":"7"},
+            {"metric":{"__name__":"x","query_sample":"SELECT 1 FROM t"},
              "value":[1,"2.5"]}]}}"#;
         let opts = PrometheusPgStat {
             query_label: "query_sample".to_string(),
             ..PrometheusPgStat::default()
         };
-        let entries = parse_prometheus_response(body, &opts).expect("parse");
+        let entries = parse_prometheus_response(body, None, &opts).expect("parse");
         assert_eq!(entries[0].query, "SELECT 1 FROM t");
-        assert_eq!(entries[0].calls, 7);
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]
@@ -1111,7 +1260,8 @@ mod tests {
     fn prometheus_query_label_still_falls_back_to_queryid() {
         let body = br#"{"status":"success","data":{"resultType":"vector","result":[
             {"metric":{"__name__":"x","queryid":"12345"},"value":[1,"1.0"]}]}}"#;
-        let entries = parse_prometheus_response(body, &PrometheusPgStat::default()).expect("parse");
+        let entries =
+            parse_prometheus_response(body, None, &PrometheusPgStat::default()).expect("parse");
         assert_eq!(entries[0].query, "12345");
     }
 

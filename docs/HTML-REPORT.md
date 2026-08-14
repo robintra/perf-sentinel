@@ -45,6 +45,15 @@ stays strict (`default-src 'none'`), there is no
   <LABEL>` point the scrape at those names. Without a matching label the
   tab falls back to `queryid` and shows opaque identifiers instead of
   statements, and the cross-navigation cannot match anything.
+  Two more knobs cover what a hand-written query changes beyond names.
+  `--pg-stat-calls-metric <SERIES>` names the call counter, fetched in a
+  second query and joined on `queryid`, because every exporter publishes
+  calls as a series of its own rather than a label; pass an empty value
+  to skip that query and accept empty rankings by calls and by mean
+  execution time. `--pg-stat-unit seconds|milliseconds` states what the
+  time series counts: `pg_stat_statements` itself counts milliseconds,
+  the exporter built-in converts to seconds, and reading one for the
+  other is off by a factor of a thousand.
 - `--mysql-stat <FILE>` embeds an `events_statements_summary_by_digest`
   CSV or JSON export (MySQL Performance Schema): the dashboard gains a
   `mysql_stat` tab with the same ranking sub-switcher (fourth ranking:

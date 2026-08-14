@@ -634,6 +634,24 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "LABEL", requires = "pg_stat_prometheus")]
         pg_stat_query_label: Option<String>,
+        /// Series holding the call counter (default:
+        /// `pg_stat_statements_calls_total`). Fetched in a second query and
+        /// joined on `queryid`, because every exporter publishes calls as a
+        /// series of its own rather than a label. Pass an empty value to skip
+        /// that query: the rankings by calls and by mean execution time are
+        /// then empty.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "pg_stat_prometheus")]
+        pg_stat_calls_metric: Option<String>,
+        /// Unit of the time series: `seconds` (default, the
+        /// `postgres_exporter` built-in) or `milliseconds`
+        /// (`pg_stat_statements` counts in milliseconds, and a hand-written
+        /// exporter query usually forwards that column untouched). Reading
+        /// one for the other is off by a factor of a thousand.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "UNIT", requires = "pg_stat_prometheus",
+              value_parser = ["seconds", "milliseconds"])]
+        pg_stat_unit: Option<String>,
         /// Path to a baseline report JSON, as produced by `analyze
         /// --format json`. When set, the dashboard shows a Diff tab
         /// comparing the current run against the baseline.
@@ -1486,6 +1504,10 @@ async fn dispatch_command(command: Commands) {
             #[cfg(feature = "daemon")]
             pg_stat_metric,
             #[cfg(feature = "daemon")]
+            pg_stat_calls_metric,
+            #[cfg(feature = "daemon")]
+            pg_stat_unit,
+            #[cfg(feature = "daemon")]
             pg_stat_query_label,
             before,
             pg_stat_top,
@@ -1510,10 +1532,21 @@ async fn dispatch_command(command: Commands) {
             // Defaults describe the postgres_exporter built-in query; an
             // exporter running its own SQL names its own columns.
             #[cfg(feature = "daemon")]
-            let pg_stat_prom = sentinel_core::ingest::pg_stat::PrometheusPgStat::with_overrides(
+            let mut pg_stat_prom = sentinel_core::ingest::pg_stat::PrometheusPgStat::with_overrides(
                 pg_stat_metric,
                 pg_stat_query_label,
             );
+            // An empty value means "do not run the second query", which is
+            // how an operator opts out of the join when their exporter has no
+            // call counter at all.
+            #[cfg(feature = "daemon")]
+            if let Some(series) = pg_stat_calls_metric {
+                pg_stat_prom.calls_series = (!series.is_empty()).then_some(series);
+            }
+            #[cfg(feature = "daemon")]
+            if pg_stat_unit.as_deref() == Some("milliseconds") {
+                pg_stat_prom.unit = sentinel_core::ingest::pg_stat::PgStatTimeUnit::Milliseconds;
+            }
             // Same reasoning for the mysqld_exporter collector: a recording
             // rule renames the series, so neither name is ours to assume.
             #[cfg(feature = "daemon")]
