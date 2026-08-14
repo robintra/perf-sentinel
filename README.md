@@ -485,7 +485,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings-dark.png">
-  <img alt="report dashboard: Findings with Warning + order-svc chips active" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
+  <img alt="report dashboard: Findings narrowed by the Warning severity and the Service menu" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
 </picture>
 
 <picture>
