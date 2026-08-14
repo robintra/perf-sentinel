@@ -543,6 +543,12 @@ pub async fn fetch_from_prometheus(
     // the request, through the guards `mysql-stat` shares.
     validate_prometheus_endpoint(endpoint)?;
     validate_series_name(&opts.series)?;
+    // The call-counter series lands in the same query string, unencoded, so it
+    // needs the same guard: an operator typo carrying `&` or `#` would smuggle
+    // a second parameter into the URL rather than fail.
+    if let Some(series) = opts.calls_series.as_deref() {
+        validate_series_name(series)?;
+    }
 
     let query = build_prometheus_query(top_n, opts);
     let body = crate::ingest::prometheus_scrape::fetch_instant_query(
