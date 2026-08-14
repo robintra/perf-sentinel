@@ -88,7 +88,7 @@ pub struct QueryApiState {
     /// unioned with `ack_store` at query time. TOML wins on conflict.
     /// The `expires_at` string is pre-parsed at startup into a
     /// [`ResolvedTomlAck`] so the hot query path does no chrono parse.
-    pub toml_acks: Arc<HashMap<String, ResolvedTomlAck>>,
+    pub toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     /// Optional API key for ack `POST` / `DELETE`. `None` means no auth
     /// (the documented loopback-only deployment), `Some(key)` enforces
     /// constant-time `X-API-Key` comparison.
@@ -300,7 +300,8 @@ async fn handle_findings(
             } else {
                 &s.finding.signature
             };
-            let ack = lookup_ack(sig, &state.toml_acks, &daemon_snapshot, now);
+            let toml_snapshot = state.toml_acks.load();
+            let ack = lookup_ack(sig, &toml_snapshot, &daemon_snapshot, now);
             match (include_acked, ack) {
                 (false, Some(_)) => None,
                 (false, None) => Some(FindingResponse {
@@ -849,7 +850,7 @@ async fn handle_ack(
     // be appended to JSONL but `lookup_ack` would silently surface the
     // TOML metadata in the response, leaving the operator confused
     // about which entry "took effect".
-    if let Some(t) = state.toml_acks.get(&signature)
+    if let Some(t) = state.toml_acks.load().get(&signature)
         && t.is_active(Utc::now())
     {
         state

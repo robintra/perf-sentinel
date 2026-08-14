@@ -5,6 +5,7 @@
 //! findings as NDJSON on stdout when traces expire.
 
 pub mod ack;
+pub mod ack_toml_state;
 pub mod archive;
 pub mod findings_store;
 pub mod health;
@@ -38,7 +39,7 @@ use event_loop::{
 use listeners::{
     init_ack_resources, setup_alumet_scraper, setup_cloud_scraper, setup_correlator,
     setup_emaps_scraper, setup_kepler_scraper, setup_redfish_scraper, setup_scaphandre_scraper,
-    spawn_listeners,
+    spawn_ack_toml_reload, spawn_listeners,
 };
 
 /// Bounded OTLP source context carried independently of normalized I/O events.
@@ -242,6 +243,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // Shared with the Hub exporter: a pushed envelope must carry the same
     // acknowledgment annotation the query API adds to a polled one.
     let (toml_acks, ack_store) = init_ack_resources(&config).await?;
+    // Re-reads the ack TOML in the background, so a team decision recorded in
+    // a mounted ConfigMap applies without restarting the pod.
+    let ack_reload_shutdown = std::sync::Arc::new(tokio::sync::Notify::new());
+    let ack_reload = spawn_ack_toml_reload(&config, toml_acks.clone(), ack_reload_shutdown.clone());
     let hub_export = hub_export::HubExporter::spawn(
         &config.daemon.hub_export,
         metrics.clone(),
@@ -443,6 +448,13 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // that will not.
     if let Some(mut exporter) = hub_export {
         exporter.shutdown().await;
+    }
+
+    // Stop re-reading the ack file. Nothing is owed to anyone here, so a
+    // notify is enough: the task returns at its next select.
+    if let Some(handle) = ack_reload {
+        ack_reload_shutdown.notify_one();
+        let _ = handle.await;
     }
 
     if let Some(handle) = archive_handle {

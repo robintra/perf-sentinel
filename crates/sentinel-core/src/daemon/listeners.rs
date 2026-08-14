@@ -69,7 +69,7 @@ pub(super) async fn spawn_listeners(
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
-    toml_acks: Arc<HashMap<String, query_api::ResolvedTomlAck>>,
+    toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     ack_store: Option<Arc<AckStore>>,
 ) -> Result<
     (
@@ -224,13 +224,16 @@ pub(super) async fn init_ack_resources(
     config: &Config,
 ) -> Result<
     (
-        Arc<HashMap<String, query_api::ResolvedTomlAck>>,
+        Arc<crate::daemon::ack_toml_state::AckTomlState>,
         Option<Arc<AckStore>>,
     ),
     DaemonError,
 > {
     if !config.daemon.ack.enabled {
-        return Ok((Arc::new(HashMap::new()), None));
+        return Ok((
+            Arc::new(crate::daemon::ack_toml_state::AckTomlState::default()),
+            None,
+        ));
     }
     let toml_acks = load_toml_acks(config)?;
     let store = match init_store(config).await {
@@ -248,7 +251,10 @@ pub(super) async fn init_ack_resources(
             None
         }
     };
-    Ok((Arc::new(toml_acks), store))
+    Ok((
+        Arc::new(crate::daemon::ack_toml_state::AckTomlState::new(toml_acks)),
+        store,
+    ))
 }
 
 fn load_toml_acks(
@@ -351,7 +357,7 @@ fn build_http_router(
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
-    toml_acks: Arc<HashMap<String, query_api::ResolvedTomlAck>>,
+    toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics.clone();
@@ -498,6 +504,57 @@ fn build_cors_layer(origins: &[String]) -> Option<tower_http::cors::CorsLayer> {
             // restart on the browser side.
             .max_age(Duration::from_mins(2)),
     )
+}
+
+/// How often the TOML ack file is re-read.
+///
+/// Matched to the `kubelet`'s `ConfigMap` sync period, which is the slowest link
+/// in the chain: polling faster would only re-read a file the platform has
+/// not refreshed yet.
+const ACK_TOML_RELOAD_INTERVAL: Duration = Duration::from_mins(1);
+
+/// Re-read the TOML acks in the background so an edit applies without a
+/// restart.
+///
+/// The file is the sanctioned way to record a team decision, and it is
+/// usually a mounted `ConfigMap`: asking for a pod restart to honour a text
+/// edit is not an answer. Errors are logged and the previous map is kept,
+/// because a half-written file must not silently un-acknowledge findings
+/// that the team decided to accept.
+pub(super) fn spawn_ack_toml_reload(
+    config: &Config,
+    toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
+    shutdown: Arc<tokio::sync::Notify>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    // Nothing configured means the default path, which is a repo-relative
+    // file the daemon does not own. Only poll what an operator pointed us at.
+    config.daemon.ack.toml_path.as_ref()?;
+    let config = config.clone();
+    Some(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(ACK_TOML_RELOAD_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker.tick().await; // the first tick fires immediately, skip it
+        loop {
+            tokio::select! {
+                () = shutdown.notified() => return,
+                _ = ticker.tick() => {}
+            }
+            match load_toml_acks(&config) {
+                Ok(next) => {
+                    let before = toml_acks.len();
+                    let after = next.len();
+                    toml_acks.store(next);
+                    if before != after {
+                        tracing::info!(before, after, "Reloaded CI ack TOML");
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "Failed to reload CI ack TOML, keeping the previous acks"
+                ),
+            }
+        }
+    }))
 }
 
 /// Spawn the OTLP HTTP listener, picking the TLS or plain variant based on

@@ -35,7 +35,7 @@ fn make_state_with_correlator(
         scoring_config: None,
         green_summary: Arc::new(tokio::sync::RwLock::new(GreenSummary::disabled(0))),
         ack_store: None,
-        toml_acks: Arc::new(HashMap::new()),
+        toml_acks: Arc::new(crate::daemon::ack_toml_state::AckTomlState::default()),
         ack_api_key: None,
         daemon_config: crate::config::DaemonConfig::default(),
         thresholds: crate::config::ThresholdsConfig::default(),
@@ -1246,7 +1246,7 @@ async fn make_state_with_acks(
 ) -> Arc<QueryApiState> {
     let mut state = (*make_state_with_correlator(None)).clone_for_test();
     state.ack_store = ack_store;
-    state.toml_acks = Arc::new(toml_acks);
+    state.toml_acks = Arc::new(crate::daemon::ack_toml_state::AckTomlState::new(toml_acks));
     state.ack_api_key = ack_api_key;
     Arc::new(state)
 }
