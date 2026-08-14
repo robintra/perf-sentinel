@@ -559,6 +559,15 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "SERIES", requires = "prometheus")]
         calls_metric: Option<String>,
+        /// Unit of the time series: `seconds` (default, the
+        /// `mysqld_exporter` built-in), `milliseconds`, or `picoseconds`
+        /// (Performance Schema counts `SUM_TIMER_WAIT` in picoseconds, and a
+        /// recording rule usually forwards that column untouched). Reading
+        /// picoseconds as seconds is off by a factor of 10^12.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "UNIT", requires = "prometheus",
+              value_parser = ["seconds", "milliseconds", "picoseconds"])]
+        unit: Option<String>,
         /// Number of top digests per ranking (default 10).
         #[arg(long, default_value = "10")]
         top_n: usize,
@@ -733,6 +742,15 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
         mysql_stat_calls_metric: Option<String>,
+        /// Unit of the time series: `seconds` (default, the
+        /// `mysqld_exporter` built-in), `milliseconds`, or `picoseconds`
+        /// (Performance Schema counts `SUM_TIMER_WAIT` in picoseconds, and a
+        /// recording rule usually forwards that column untouched). Reading
+        /// picoseconds as seconds is off by a factor of 10^12.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "UNIT", requires = "mysql_stat_prometheus",
+              value_parser = ["seconds", "milliseconds", "picoseconds"])]
+        mysql_stat_unit: Option<String>,
         /// Override the number of top entries per `mysql_stat` ranking
         /// (default: 10). Only meaningful with --mysql-stat or
         /// --mysql-stat-prometheus.
@@ -1476,13 +1494,16 @@ async fn dispatch_command(command: Commands) {
             query_label,
             #[cfg(feature = "daemon")]
             calls_metric,
+            #[cfg(feature = "daemon")]
+            unit,
             top_n,
             traces,
             config,
             format,
         } => {
             #[cfg(feature = "daemon")]
-            let opts = mysql_stat_prometheus_opts(metric, query_label, calls_metric);
+            let opts =
+                mysql_stat_prometheus_opts(metric, query_label, calls_metric, unit.as_deref());
             mysql_stat::dispatch_mysql_stat(
                 input.as_deref(),
                 #[cfg(feature = "daemon")]
@@ -1558,6 +1579,8 @@ async fn dispatch_command(command: Commands) {
             mysql_stat_query_label,
             #[cfg(feature = "daemon")]
             mysql_stat_calls_metric,
+            #[cfg(feature = "daemon")]
+            mysql_stat_unit,
             mysql_stat_top,
             acknowledgments,
             no_acknowledgments,
@@ -1579,6 +1602,7 @@ async fn dispatch_command(command: Commands) {
                 mysql_stat_metric,
                 mysql_stat_query_label,
                 mysql_stat_calls_metric,
+                mysql_stat_unit.as_deref(),
             );
             cmd_report(
                 input.as_deref(),
@@ -1774,11 +1798,17 @@ fn mysql_stat_prometheus_opts(
     metric: Option<String>,
     query_label: Option<String>,
     calls_metric: Option<String>,
+    unit: Option<&str>,
 ) -> sentinel_core::ingest::mysql_stat::PrometheusMySqlStat {
-    let mut opts =
-        sentinel_core::ingest::mysql_stat::PrometheusMySqlStat::with_overrides(metric, query_label);
+    use sentinel_core::ingest::mysql_stat::{MySqlStatTimeUnit, PrometheusMySqlStat};
+    let mut opts = PrometheusMySqlStat::with_overrides(metric, query_label);
     if let Some(series) = calls_metric {
         opts.calls_series = (!series.is_empty()).then_some(series);
+    }
+    match unit {
+        Some("milliseconds") => opts.unit = MySqlStatTimeUnit::Milliseconds,
+        Some("picoseconds") => opts.unit = MySqlStatTimeUnit::Picoseconds,
+        _ => {}
     }
     opts
 }

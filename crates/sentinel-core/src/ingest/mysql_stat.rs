@@ -474,6 +474,37 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
 
 // ── Prometheus scrape path ─────────────────────────────────────────
 
+/// Unit of the ranked time series.
+///
+/// Performance Schema counts `SUM_TIMER_WAIT` in picoseconds. The
+/// `mysqld_exporter` collector converts to seconds, a recording rule or a
+/// hand-written exporter usually forwards the column untouched, and reading
+/// one for the other is off by a factor of 10^12.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MySqlStatTimeUnit {
+    /// `mysql_perf_schema_events_statements_seconds_total`, the collector built-in.
+    #[default]
+    Seconds,
+    /// A millisecond column, as an exporter dividing `SUM_TIMER_WAIT` by 10^9 emits.
+    Milliseconds,
+    /// `SUM_TIMER_WAIT` forwarded as is.
+    Picoseconds,
+}
+
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+impl MySqlStatTimeUnit {
+    /// Convert a sample to milliseconds, the unit every entry carries.
+    fn to_ms(self, value: f64) -> f64 {
+        match self {
+            Self::Seconds => value * 1000.0,
+            Self::Milliseconds => value,
+            Self::Picoseconds => value / 1e9,
+        }
+    }
+}
+
 /// Which series and label carry the Performance Schema digests on a given
 /// Prometheus.
 ///
@@ -500,6 +531,8 @@ pub struct PrometheusMySqlStat {
     /// `digest`. `None` skips that query and leaves the counts at zero, which
     /// empties the ranking by calls and collapses the mean onto the total.
     pub calls_series: Option<String>,
+    /// Unit of `series`. The collector built-in publishes seconds.
+    pub unit: MySqlStatTimeUnit,
 }
 
 #[cfg(any(feature = "daemon", feature = "tempo"))]
@@ -509,6 +542,7 @@ impl Default for PrometheusMySqlStat {
             series: "mysql_perf_schema_events_statements_seconds_total".to_string(),
             calls_series: Some("mysql_perf_schema_events_statements_total".to_string()),
             query_label: "digest_text".to_string(),
+            unit: MySqlStatTimeUnit::Seconds,
         }
     }
 }
@@ -524,6 +558,7 @@ impl PrometheusMySqlStat {
             series: series.unwrap_or(d.series),
             query_label: query_label.unwrap_or(d.query_label),
             calls_series: d.calls_series,
+            unit: d.unit,
         }
     }
 }
@@ -647,7 +682,7 @@ fn parse_prometheus_response(
             .and_then(|v| v.as_str())
             .map(str::to_string);
 
-        let total_exec_time_ms = scrape::sample_value(result) * 1000.0;
+        let total_exec_time_ms = opts.unit.to_ms(scrape::sample_value(result));
         let normalized = normalize_sql(&query_text);
         let calls = scrape::identity_key(metric, MYSQL_IDENTITY)
             .and_then(|key| call_counts.get(&key).copied())
@@ -677,6 +712,24 @@ fn parse_prometheus_response(
 
 #[cfg(all(test, any(feature = "daemon", feature = "tempo")))]
 mod prometheus_tests {
+    #[test]
+    fn the_time_unit_scales_the_sample() {
+        // SUM_TIMER_WAIT forwarded untouched is picoseconds: read as seconds
+        // it would report 4.5e12 ms for a 4.5 ms statement.
+        let timings = br#"{"data":{"result":[
+            {"metric":{"digest_text":"SELECT 1","digest":"abc"},"value":[1,"4500000000"]}]}}"#;
+        let mut opts = PrometheusMySqlStat {
+            unit: MySqlStatTimeUnit::Picoseconds,
+            ..Default::default()
+        };
+        let entries = parse_prometheus_response(timings, None, &opts).expect("parse");
+        assert!((entries[0].total_exec_time_ms - 4.5).abs() < 0.001);
+
+        opts.unit = MySqlStatTimeUnit::Milliseconds;
+        let entries = parse_prometheus_response(timings, None, &opts).expect("parse");
+        assert!((entries[0].total_exec_time_ms - 4_500_000_000.0).abs() < 0.001);
+    }
+
     #[test]
     fn call_counts_join_on_digest() {
         // The exporter publishes COUNT_STAR as a series of its own, keyed by
@@ -709,7 +762,7 @@ mod prometheus_tests {
         assert!((entries[0].mean_exec_time_ms - 4500.0).abs() < 0.001);
     }
 
-    use super::{PrometheusMySqlStat, parse_prometheus_response};
+    use super::{MySqlStatTimeUnit, PrometheusMySqlStat, parse_prometheus_response};
 
     fn body(label: &str) -> Vec<u8> {
         format!(
