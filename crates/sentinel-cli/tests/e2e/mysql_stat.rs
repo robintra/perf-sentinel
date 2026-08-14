@@ -184,6 +184,8 @@ fn cli_mysql_stat_series_flags_require_the_prometheus_endpoint() {
         ("--metric", "whatever"),
         ("--query-label", "whatever"),
         ("--calls-metric", "whatever"),
+        ("--rows-sent-metric", "whatever"),
+        ("--rows-examined-metric", "whatever"),
         ("--schema-label", "whatever"),
         ("--unit", "seconds"),
     ] {
@@ -210,7 +212,12 @@ fn cli_mysql_stat_rejects_a_series_name_that_escapes_the_query_string() {
     // Both series land unencoded in the same query string, so both need the
     // guard. Rejected before any request leaves the process, so an unreachable
     // endpoint is fine here: reaching the network would itself be the bug.
-    for flag in ["--metric", "--calls-metric"] {
+    for flag in [
+        "--metric",
+        "--calls-metric",
+        "--rows-sent-metric",
+        "--rows-examined-metric",
+    ] {
         let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
             .args([
                 "mysql-stat",
@@ -249,6 +256,8 @@ fn cli_mysql_stat_help_lists_the_prometheus_flags() {
         "--metric",
         "--query-label",
         "--calls-metric",
+        "--rows-sent-metric",
+        "--rows-examined-metric",
         "--schema-label",
         "--unit",
     ] {

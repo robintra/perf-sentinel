@@ -565,6 +565,19 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "SERIES", requires = "prometheus")]
         calls_metric: Option<String>,
+        /// Series holding `SUM_ROWS_SENT` (default:
+        /// `mysql_perf_schema_events_statements_rows_sent_total`), fetched and
+        /// joined like the call counter. An empty value skips that query and
+        /// leaves the column at zero.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "prometheus")]
+        rows_sent_metric: Option<String>,
+        /// Series holding `SUM_ROWS_EXAMINED` (default:
+        /// `mysql_perf_schema_events_statements_rows_examined_total`). An empty
+        /// value skips that query, which empties the ranking by rows examined.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "prometheus")]
+        rows_examined_metric: Option<String>,
         /// Unit of the time series: `seconds` (default, the
         /// `mysqld_exporter` built-in), `milliseconds`, or `picoseconds`
         /// (Performance Schema counts `SUM_TIMER_WAIT` in picoseconds, and a
@@ -754,6 +767,19 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
         mysql_stat_calls_metric: Option<String>,
+        /// Series holding `SUM_ROWS_SENT` (default:
+        /// `mysql_perf_schema_events_statements_rows_sent_total`), fetched and
+        /// joined like the call counter. An empty value skips that query and
+        /// leaves the column at zero.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
+        mysql_stat_rows_sent_metric: Option<String>,
+        /// Series holding `SUM_ROWS_EXAMINED` (default:
+        /// `mysql_perf_schema_events_statements_rows_examined_total`). An empty
+        /// value skips that query, which empties the ranking by rows examined.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "SERIES", requires = "mysql_stat_prometheus")]
+        mysql_stat_rows_examined_metric: Option<String>,
         /// Unit of the time series: `seconds` (default, the
         /// `mysqld_exporter` built-in), `milliseconds`, or `picoseconds`
         /// (Performance Schema counts `SUM_TIMER_WAIT` in picoseconds, and a
@@ -1509,6 +1535,10 @@ async fn dispatch_command(command: Commands) {
             #[cfg(feature = "daemon")]
             calls_metric,
             #[cfg(feature = "daemon")]
+            rows_sent_metric,
+            #[cfg(feature = "daemon")]
+            rows_examined_metric,
+            #[cfg(feature = "daemon")]
             unit,
             top_n,
             traces,
@@ -1520,7 +1550,11 @@ async fn dispatch_command(command: Commands) {
                 metric,
                 query_label,
                 schema_label,
-                calls_metric,
+                MysqlCounterMetrics {
+                    calls: calls_metric,
+                    rows_sent: rows_sent_metric,
+                    rows_examined: rows_examined_metric,
+                },
                 unit.as_deref(),
             );
             mysql_stat::dispatch_mysql_stat(
@@ -1601,6 +1635,10 @@ async fn dispatch_command(command: Commands) {
             #[cfg(feature = "daemon")]
             mysql_stat_calls_metric,
             #[cfg(feature = "daemon")]
+            mysql_stat_rows_sent_metric,
+            #[cfg(feature = "daemon")]
+            mysql_stat_rows_examined_metric,
+            #[cfg(feature = "daemon")]
             mysql_stat_unit,
             mysql_stat_top,
             acknowledgments,
@@ -1623,7 +1661,11 @@ async fn dispatch_command(command: Commands) {
                 mysql_stat_metric,
                 mysql_stat_query_label,
                 mysql_stat_schema_label,
-                mysql_stat_calls_metric,
+                MysqlCounterMetrics {
+                    calls: mysql_stat_calls_metric,
+                    rows_sent: mysql_stat_rows_sent_metric,
+                    rows_examined: mysql_stat_rows_examined_metric,
+                },
                 mysql_stat_unit.as_deref(),
             );
             cmd_report(
@@ -1812,6 +1854,16 @@ fn pg_stat_prometheus_opts(
     opts
 }
 
+/// The three counter series `mysql-stat` joins, as an operator named them.
+/// Grouped so the two entry points pass one value rather than three in an
+/// order nothing checks.
+#[cfg(feature = "daemon")]
+struct MysqlCounterMetrics {
+    calls: Option<String>,
+    rows_sent: Option<String>,
+    rows_examined: Option<String>,
+}
+
 /// Same reasoning for the `mysqld_exporter` collector: a recording rule renames
 /// the series, so neither name is ours to assume, and an empty `calls_metric`
 /// opts out of the second query.
@@ -1820,7 +1872,7 @@ fn mysql_stat_prometheus_opts(
     metric: Option<String>,
     query_label: Option<String>,
     schema_label: Option<String>,
-    calls_metric: Option<String>,
+    counters: MysqlCounterMetrics,
     unit: Option<&str>,
 ) -> sentinel_core::ingest::mysql_stat::PrometheusMySqlStat {
     use sentinel_core::ingest::mysql_stat::{MySqlStatTimeUnit, PrometheusMySqlStat};
@@ -1828,8 +1880,17 @@ fn mysql_stat_prometheus_opts(
     if let Some(label) = schema_label {
         opts.schema_label = label;
     }
-    if let Some(series) = calls_metric {
-        opts.calls_series = (!series.is_empty()).then_some(series);
+    // An empty value means "do not run that query", the opt-out for an
+    // exporter that publishes no such counter.
+    let named = |series: Option<String>| series.map(|s| (!s.is_empty()).then_some(s));
+    if let Some(series) = named(counters.calls) {
+        opts.calls_series = series;
+    }
+    if let Some(series) = named(counters.rows_sent) {
+        opts.rows_sent_series = series;
+    }
+    if let Some(series) = named(counters.rows_examined) {
+        opts.rows_examined_series = series;
     }
     match unit {
         Some("milliseconds") => opts.unit = MySqlStatTimeUnit::Milliseconds,
