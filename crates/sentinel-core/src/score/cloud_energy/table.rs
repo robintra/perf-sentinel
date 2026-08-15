@@ -201,7 +201,7 @@ static PROVIDER_DEFAULTS: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock
     // them automatically. Operators wanting a different default should
     // set `default_instance_type`.
     let reference = |name: &str| *INSTANCE_POWER.get(name).expect("reference instance");
-    let mut m = HashMap::with_capacity(4);
+    let mut m = HashMap::with_capacity(5);
     m.insert("aws", reference("m5.large"));
     m.insert("gcp", reference("n2-standard-2"));
     m.insert("azure", reference("Standard_D2s_v6"));

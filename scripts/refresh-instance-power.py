@@ -307,7 +307,11 @@ def fetch_scaleway() -> "list[tuple[str, int, tuple[str, str], bool]]":
                 offer_id, vcpu, arch, gib_per_vcpu >= SCALEWAY_DRAM_GIB_PER_VCPU
             )
         seen += len(products)
-        if seen >= payload.get("total_count", 0):
+        # A missing `total_count` must not read as "done": defaulting it
+        # to 0 would stop after page 1 and silently ship a table missing
+        # every offer past it. Keep paging until a page comes back empty.
+        total = payload.get("total_count")
+        if total is not None and seen >= total:
             break
         page += 1
     if not offers:

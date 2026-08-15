@@ -2,7 +2,7 @@
 """Generate the instance-type reference doc from the embedded power table.
 
 The table is itself generated (`scripts/refresh-instance-power.py`), so the
-doc is generated too rather than transcribed: 356 rows copied by hand would
+doc is generated too rather than transcribed: 400+ rows copied by hand would
 drift the first time the table is refreshed. `instance_types_doc_matches_the_table`
 in `cloud_energy/table.rs` fails the build when the two disagree.
 
@@ -22,20 +22,22 @@ ROW = re.compile(r'^\s*\("([^"]+)",\s*([0-9.]+),\s*([0-9.]+)\)', re.M)
 VINTAGE = re.compile(r'SPECPOWER_VINTAGE: &str = "([^"]+)"')
 
 
-# Scaleway offer ids are upper-case and dash-separated, which the GCP
-# fallback below would swallow whole. Matched on the range prefix rather
-# than on the case, since a future range would otherwise land under the
-# wrong heading silently.
-SCALEWAY_RANGES = ("COMPUTE3-", "MEMORY3-", "STANDARD3-", "POP2-")
-
-
 def provider(name):
-    """Classify the naming schemes used by the embedded table."""
+    """Classify the naming schemes used by the embedded table.
+
+    Scaleway offer ids are the only all-upper-case, dash-separated ones
+    (`COMPUTE3-X2C-4G`, `POP2-HM-2C-16G`), which the GCP fallback at the
+    bottom would otherwise swallow whole. Matched on that shape rather
+    than on a list of range prefixes: the offer list is read live from
+    the Product Catalog by `refresh-instance-power.py`, so a new range
+    lands in the table without anyone editing this file, and a prefix
+    list would file it under GCP silently.
+    """
     if name.startswith("xeon-"):
         return "Bare metal"
     if name.startswith("Standard_"):
         return "Azure"
-    if name.startswith(SCALEWAY_RANGES):
+    if "-" in name and "." not in name and name == name.upper():
         return "Scaleway"
     if "." in name:
         return "AWS"

@@ -80,22 +80,12 @@ pub(crate) fn launch_unified_tui(
     // `report` is fully consumed below, so move the summary fields out
     // rather than clone them (the findings and correlations are moved into
     // the App separately, disjoint-field moves the borrow checker allows).
+    // Read before the disjoint-field moves below, which end the borrow.
+    let warnings = crate::render::effective_warnings(&report);
     let summary = tui::AnalyzeSummary {
         green_summary: report.green_summary,
         quality_gate: report.quality_gate,
         analysis: report.analysis,
-    };
-    // `warning_details` is the structured form; the plain `warnings`
-    // list is what pre-0.5.18 reports carry, so fall back to it exactly
-    // as the text report does.
-    let warnings = if report.warning_details.is_empty() {
-        report
-            .warnings
-            .iter()
-            .map(|m| sentinel_core::report::warnings::Warning::from_untrusted("warning", m))
-            .collect()
-    } else {
-        report.warning_details
     };
 
     let mut app = tui::App::new(report.findings, traces)

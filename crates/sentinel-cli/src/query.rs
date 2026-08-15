@@ -540,9 +540,12 @@ async fn run_inspect_action(
         .with_initial_sort(sort);
     let app = match report {
         // The daemon snapshot states what its findings slice covers, so
-        // the warnings ride along with the summary they qualify.
+        // the warnings ride along with the summary they qualify. A daemon
+        // older than `warning_details` only fills the plain `warnings`
+        // list, hence the shared fallback rather than the field alone.
         Some(report) => {
-            app.with_warnings(report.warning_details)
+            let warnings = crate::render::effective_warnings(&report);
+            app.with_warnings(warnings)
                 .with_summary(crate::tui::AnalyzeSummary {
                     green_summary: report.green_summary,
                     quality_gate: report.quality_gate,
