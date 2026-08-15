@@ -10,6 +10,20 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.14.0]
+
+### Changed
+
+- `appVersion` moves to `0.14.0`. OVHcloud, Scaleway and 3DS OUTSCALE regions
+  now carry a grid intensity and a PUE, so a daemon deployed on any of the
+  three scores its I/O instead of dropping it into the `unknown` bucket at
+  zero operational CO2. 65 Scaleway instance types also gain an embedded power
+  profile, and `[green.cloud]` accepts `provider = "scaleway"` alongside the
+  three hyperscalers. No chart-level template change. Operators on those
+  clouds should set `[green] default_region` to a key the table now knows,
+  and OUTSCALE deployments must use the `outscale-` prefixed keys, since
+  OUTSCALE reuses AWS region identifiers for different places.
+
 ## [0.13.1]
 
 ### Changed
