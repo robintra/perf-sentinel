@@ -35,7 +35,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await pause(page, 1200);
 
   // --- Findings exploration ---
-  // Severity filter: Warning chip narrows the list to 3 warnings.
+  // Severity filter: the Warning chip drops the infos, leaving 4 warnings.
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
   await pause(page, 1400);
   // Stack a service filter on top: order-svc leaves only the two N+1s. The
