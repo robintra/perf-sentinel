@@ -2048,6 +2048,44 @@ fn analyze_view_stays_silent_without_warnings() {
     assert!(!line_text(&app.build_analyze_lines()).contains("Warnings:"));
 }
 
+/// "Top offenders" ranks endpoints by intensity, a different question
+/// from which problem to open first. The dashboard has had both cards
+/// since 0.9.10, the terminal only ever had the first.
+#[test]
+fn analyze_view_ranks_the_worst_findings() {
+    let green_summary: GreenSummary = serde_json::from_str(
+        r#"{"total_io_ops":1,"avoidable_io_ops":0,"io_waste_ratio":0.0,"io_waste_ratio_band":"healthy","top_offenders":[]}"#,
+    )
+    .unwrap();
+    let quality_gate: QualityGate = serde_json::from_str(r#"{"passed":true,"rules":[]}"#).unwrap();
+    let analysis: Analysis =
+        serde_json::from_str(r#"{"duration_ms":12,"events_processed":1,"traces_analyzed":1}"#)
+            .unwrap();
+    let mut app = make_test_app().with_summary(AnalyzeSummary {
+        green_summary,
+        quality_gate,
+        analysis,
+    });
+    app.all_findings[1].severity = Severity::Critical;
+    let text = line_text(&app.build_analyze_lines());
+    assert!(
+        text.contains("Top findings by impact:"),
+        "section missing: {text}"
+    );
+    // The fixture's critical N+1 carries 5 avoidable ops, so it outranks
+    // the redundant read that carries none.
+    let n_plus_one = text.find("N+1 SQL").expect("n+1 row");
+    let redundant = text.find("Redundant SQL").expect("redundant row");
+    assert!(
+        n_plus_one < redundant,
+        "impact must decide between equals: {text}"
+    );
+    assert!(
+        text.contains("avoidable ops"),
+        "impact figure missing: {text}"
+    );
+}
+
 /// The sort key ordered the trace list while the findings inside a
 /// trace kept detector order, so a run opened worst-first still showed
 /// whichever finding the detector emitted first.
