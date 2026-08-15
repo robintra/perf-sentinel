@@ -539,11 +539,16 @@ async fn run_inspect_action(
         .with_correlations(correlations)
         .with_initial_sort(sort);
     let app = match report {
-        Some(report) => app.with_summary(crate::tui::AnalyzeSummary {
-            green_summary: report.green_summary,
-            quality_gate: report.quality_gate,
-            analysis: report.analysis,
-        }),
+        // The daemon snapshot states what its findings slice covers, so
+        // the warnings ride along with the summary they qualify.
+        Some(report) => {
+            app.with_warnings(report.warning_details)
+                .with_summary(crate::tui::AnalyzeSummary {
+                    green_summary: report.green_summary,
+                    quality_gate: report.quality_gate,
+                    analysis: report.analysis,
+                })
+        }
         None => app,
     };
     let mut app = app.with_daemon_handle(base_url.to_string(), api_key, acks_by_signature);

@@ -85,10 +85,23 @@ pub(crate) fn launch_unified_tui(
         quality_gate: report.quality_gate,
         analysis: report.analysis,
     };
+    // `warning_details` is the structured form; the plain `warnings`
+    // list is what pre-0.5.18 reports carry, so fall back to it exactly
+    // as the text report does.
+    let warnings = if report.warning_details.is_empty() {
+        report
+            .warnings
+            .iter()
+            .map(|m| sentinel_core::report::warnings::Warning::from_untrusted("warning", m))
+            .collect()
+    } else {
+        report.warning_details
+    };
 
     let mut app = tui::App::new(report.findings, traces)
         .with_initial_sort(initial_sort)
         .with_correlations(report.correlations)
+        .with_warnings(warnings)
         .with_summary(summary)
         .with_initial_view(initial_view);
     if let Some(tid) = focus_trace_id {
