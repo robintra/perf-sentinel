@@ -172,6 +172,8 @@ pub struct App {
     /// `query inspect` from `/api/correlations`.
     correlations: Vec<CrossTraceCorrelation>,
     pub selected_correlation: usize,
+    /// Report-level warnings, rendered at the top of the Analyze view.
+    warnings: Vec<sentinel_core::report::warnings::Warning>,
     /// Panel that brought the user into Detail. Read by `escape` to
     /// return to the source panel (Findings or Correlations).
     detail_origin: Panel,
@@ -266,6 +268,7 @@ impl App {
             cached_detail: None,
             pre_rendered_trees: HashMap::new(),
             correlations: Vec::new(),
+            warnings: Vec::new(),
             selected_correlation: 0,
             detail_origin: Panel::Findings,
             #[cfg(feature = "daemon")]
@@ -328,6 +331,19 @@ impl App {
     /// Correlations panel renders them as a navigable list.
     pub(crate) fn with_correlations(mut self, correlations: Vec<CrossTraceCorrelation>) -> Self {
         self.correlations = correlations;
+        self
+    }
+
+    /// Attach the report's own warnings, which say what the numbers
+    /// below them do not cover (dropped spans, an ignored config
+    /// section, a truncated snapshot). The text report and the
+    /// dashboard have always shown them; without this the TUI read as
+    /// a complete report when it was a partial one.
+    pub(crate) fn with_warnings(
+        mut self,
+        warnings: Vec<sentinel_core::report::warnings::Warning>,
+    ) -> Self {
+        self.warnings = warnings;
         self
     }
 
@@ -959,10 +975,38 @@ impl App {
     /// as widgets. All externally-sourced strings (endpoint, service) are
     /// sanitized for the terminal. Falls back to a hint when no summary
     /// was supplied (e.g. an older daemon without `/api/export/report`).
+    /// The report's warnings, first, so what the figures do not cover is
+    /// read before the figures. Same content and same order as the text
+    /// report and the dashboard banner.
+    fn push_warning_lines(&self, lines: &mut Vec<Line<'static>>) {
+        if self.warnings.is_empty() {
+            return;
+        }
+        lines.push(Line::from(Span::styled(
+            "Warnings:".to_string(),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for w in &self.warnings {
+            // Backticks live in the data so the HTML can render code
+            // chips; a terminal shows them as literal noise.
+            let plain = sentinel_core::text_safety::strip_code_ticks(&w.message);
+            lines.push(Line::from(Span::raw(format!(
+                "  [{}] {}",
+                sanitize_for_terminal(&w.kind),
+                sanitize_for_terminal(&plain),
+            ))));
+        }
+        lines.push(Line::from(""));
+    }
+
     fn build_analyze_lines(&self) -> Vec<Line<'static>> {
         let dim = dim_style();
         let Some(summary) = &self.summary else {
-            return vec![
+            let mut lines: Vec<Line<'static>> = Vec::new();
+            self.push_warning_lines(&mut lines);
+            lines.extend([
                 Line::from(Span::styled("Summary unavailable.".to_string(), dim)),
                 Line::from(Span::styled(
                     "No analysis summary was supplied (older daemon without /api/export/report?)."
@@ -974,12 +1018,14 @@ impl App {
                     "Press Enter to inspect traces and findings.".to_string(),
                     dim,
                 )),
-            ];
+            ]);
+            return lines;
         };
         let gs = &summary.green_summary;
         let (crit, warn, info) = self.severity_counts();
         let total = self.all_findings.len();
         let mut lines: Vec<Line<'static>> = Vec::new();
+        self.push_warning_lines(&mut lines);
 
         lines.push(Line::from(vec![
             Span::styled("Traces analyzed: ".to_string(), dim),

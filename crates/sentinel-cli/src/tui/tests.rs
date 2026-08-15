@@ -2017,6 +2017,37 @@ fn analyze_view_omits_ingest_line_without_a_tally() {
     assert!(!text.contains("Spans ingested"), "got: {text}");
 }
 
+/// Warnings say what the figures below them do not cover, so they lead
+/// the view. They must also survive the no-summary path, which is
+/// exactly the degraded case where knowing what is missing matters.
+#[test]
+fn analyze_view_leads_with_the_report_warnings() {
+    use sentinel_core::report::warnings::Warning;
+    let warnings = vec![Warning::new(
+        "snapshot_scope",
+        "findings are capped at `max_export_findings`",
+    )];
+
+    let app = make_test_app().with_warnings(warnings.clone());
+    let text = line_text(&app.build_analyze_lines());
+    assert!(text.contains("Warnings:"), "header missing: {text}");
+    assert!(text.contains("[snapshot_scope]"), "kind missing: {text}");
+    // Backticks are HTML chip markers, noise in a terminal.
+    assert!(
+        text.contains("max_export_findings") && !text.contains('`'),
+        "code ticks must be stripped: {text}"
+    );
+    let warn_at = text.find("Warnings:").expect("warnings");
+    let body_at = text.find("Summary unavailable").expect("summary hint");
+    assert!(warn_at < body_at, "warnings must come first: {text}");
+}
+
+#[test]
+fn analyze_view_stays_silent_without_warnings() {
+    let app = make_test_app();
+    assert!(!line_text(&app.build_analyze_lines()).contains("Warnings:"));
+}
+
 /// The sort key ordered the trace list while the findings inside a
 /// trace kept detector order, so a run opened worst-first still showed
 /// whichever finding the detector emitted first.
