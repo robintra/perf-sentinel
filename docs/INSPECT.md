@@ -5,18 +5,26 @@ findings, span trees and cross-trace correlations. It exposes three
 views as a single drill-down: **Analyze** (the summary dashboard),
 **Inspect** (the multi-panel browser) and **Explain** (one trace's
 full-screen span tree). Whichever entry point you use, you move between
-the three views without leaving the TUI.
+the three views without leaving the TUI. A fourth view, **Disclose**,
+stands apart: it previews a public-disclosure report rather than
+exploring findings, so it has no drill-down into the other three (see
+[REPORTING.md](REPORTING.md)).
 
 Entry points:
 
 - `perf-sentinel analyze --tui [--input <events.json>]`: opens on the
   Analyze view.
+- `perf-sentinel demo --tui`: same view on the embedded demo dataset,
+  no input file needed.
 - `perf-sentinel inspect --input <events.json>`: opens on the Inspect
   view, reads a raw events file or a pre-computed Report JSON.
 - `perf-sentinel explain --tui --trace-id <id> --input <events.json>`:
   opens on the Explain view, focused on that trace.
-- `perf-sentinel query --daemon <URL> inspect`: live mode, opens on
-  Inspect, reads findings and traces from a running daemon over HTTP.
+- `perf-sentinel query --daemon <URL> inspect [--sort <KEY>]`: live
+  mode, opens on Inspect, reads findings and traces from a running
+  daemon over HTTP. `--sort` takes the same keys as `analyze --sort`.
+- `perf-sentinel disclose --tui --input <archive>... --org-config <PATH>`:
+  opens the Disclose preview.
 
 In live mode (0.5.24+), the TUI also lets the operator acknowledge
 and revoke findings interactively from the terminal.
@@ -99,8 +107,21 @@ and Explain views.
 | `Esc`                 | Walk back up one step                             |
 | `m`                   | Toggle mouse mode to drag-resize panel borders    |
 | `r`                   | Reset panel sizes to their defaults (Inspect)     |
+| `s`                   | Cycle the sort: id, severity, impact (Inspect)    |
+| `f`                   | Cycle the severity filter (Inspect)               |
 | `a`                   | Acknowledge the selected finding (live mode)      |
 | `u`                   | Revoke the existing ack (live mode)               |
+
+`s` orders both lists at once, the traces and the findings inside the
+selected trace, on the same keys and directions as `analyze --sort` and
+the dashboard. `--sort` on `analyze --tui` and on `query inspect` opens
+directly in that order.
+
+`f` cycles the Findings panel through every severity, then critical,
+warning and info on their own. The panel title and the tab bar both name
+the active filter, and a trace whose findings are all filtered out keeps
+its row with an empty panel: the trace list answers what ran, not what
+matches.
 
 `m` toggles mouse capture (opt-in, so native terminal selection and
 copy-paste stay available while it is off). With it on, drag the border
@@ -232,9 +253,10 @@ the TOML file. For permanent acks, edit the file via PR review per
 `perf-sentinel query monitor` (since 0.8.8) is the operator-side
 counterpart to the developer's Inspect browser above. It runs against a
 live daemon, polls it on a fixed cadence (`--refresh` seconds, default
-5) and is read-only. `Tab` cycles the five tabs, `j`/`k` scroll, `q`
-quits. On the Trends tab, `m` toggles mouse mode to drag-resize the chart
-borders and `r` resets them, the same affordance as the Inspect browser.
+5) and is read-only. `Tab` cycles the five tabs and `BackTab` cycles
+back, `j`/`k` or the arrow keys scroll, `q` or `Esc` quits. On the
+Trends tab, `m` toggles mouse mode to drag-resize the chart borders and
+`r` resets them, the same affordance as the Inspect browser.
 The data each tab surfaces (config hints, source provenance,
 per-region intensities) is categorical and high-cardinality, which is
 exactly what the bounded-label rule keeps off Prometheus `/metrics`.

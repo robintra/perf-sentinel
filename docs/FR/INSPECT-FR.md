@@ -5,19 +5,28 @@ les arbres de spans et les corrélations cross-trace. Il expose trois
 vues sous forme de drill-down : **Analyze** (le tableau de bord de
 synthèse), **Inspect** (le navigateur multi-panneaux) et **Explain**
 (l'arbre de spans plein écran d'une trace). Quel que soit le point
-d'entrée, on circule entre les trois vues sans quitter le TUI.
+d'entrée, on circule entre les trois vues sans quitter le TUI. Une
+quatrième vue, **Disclose**, reste à part : elle prévisualise un
+rapport de divulgation publique au lieu d'explorer des findings, elle
+n'a donc pas de drill-down vers les trois autres (voir
+[REPORTING-FR.md](REPORTING-FR.md)).
 
 Points d'entrée :
 
 - `perf-sentinel analyze --tui [--input <events.json>]` : ouvre sur la
   vue Analyze.
+- `perf-sentinel demo --tui` : même vue sur le jeu de démonstration
+  embarqué, sans fichier d'entrée.
 - `perf-sentinel inspect --input <events.json>` : ouvre sur la vue
   Inspect, lit un fichier d'events brut ou un JSON Report pré-calculé.
 - `perf-sentinel explain --tui --trace-id <id> --input <events.json>` :
   ouvre sur la vue Explain, centrée sur cette trace.
-- `perf-sentinel query --daemon <URL> inspect` : mode live, ouvre sur
-  Inspect, lit les findings et les traces depuis un daemon en cours
-  d'exécution via HTTP.
+- `perf-sentinel query --daemon <URL> inspect [--sort <CLÉ>]` : mode
+  live, ouvre sur Inspect, lit les findings et les traces depuis un
+  daemon en cours d'exécution via HTTP. `--sort` prend les mêmes clés
+  que `analyze --sort`.
+- `perf-sentinel disclose --tui --input <archive>... --org-config <PATH>` :
+  ouvre l'aperçu Disclose.
 
 En mode live (0.5.24+), le TUI permet aussi à l'opérateur d'acknowledger
 et de révoquer des findings interactivement depuis le terminal.
@@ -100,8 +109,21 @@ scrollent les vues Analyze et Explain.
 | `Esc`                 | Remonte d'un cran                                      |
 | `m`                   | Bascule le mode souris pour glisser les bordures       |
 | `r`                   | Réinitialise les tailles des panneaux (Inspect)        |
+| `s`                   | Cycle le tri : id, sévérité, impact (Inspect)          |
+| `f`                   | Cycle le filtre de sévérité (Inspect)                  |
 | `a`                   | Acknowledger le finding sélectionné (mode live)        |
 | `u`                   | Révoquer l'ack existant (mode live)                    |
+
+`s` ordonne les deux listes à la fois, les traces et les findings de la
+trace sélectionnée, sur les mêmes clés et les mêmes directions que
+`analyze --sort` et le dashboard. `--sort` sur `analyze --tui` et sur
+`query inspect` ouvre directement dans cet ordre.
+
+`f` fait défiler le panneau Findings entre toutes les sévérités, puis
+critical, warning et info isolément. Le titre du panneau et la barre
+d'onglets nomment tous deux le filtre actif, et une trace dont tous les
+findings sont filtrés garde sa ligne avec un panneau vide : la liste des
+traces répond à ce qui a tourné, pas à ce qui correspond.
 
 `m` bascule la capture souris (optionnelle, le copier-coller natif du
 terminal reste donc disponible quand elle est coupée). Une fois activée,
@@ -238,7 +260,8 @@ fichier via revue PR comme décrit dans
 exploitation du navigateur Inspect du développeur ci-dessus. Il tourne
 contre un daemon vivant, le sonde à cadence fixe (`--refresh` secondes,
 défaut 5) et fonctionne en lecture seule. `Tab` cycle les cinq
-onglets, `j`/`k` défilent, `q` quitte. Sur l'onglet Trends, `m` bascule
+onglets et `BackTab` revient en arrière, `j`/`k` ou les flèches
+défilent, `q` ou `Échap` quitte. Sur l'onglet Trends, `m` bascule
 le mode souris pour glisser les bordures des graphes et `r` les
 réinitialise, la même indication visuelle que le navigateur Inspect. Les données de chaque onglet
 (hints de config, provenance des sources, intensités par région) sont
