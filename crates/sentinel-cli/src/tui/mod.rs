@@ -2828,6 +2828,41 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         ]),
     ];
 
+    push_finding_context_lines(&mut lines, finding);
+
+    if let Some(ref impact) = finding.green_impact {
+        lines.push(Line::from(vec![
+            Span::styled("Extra I/O: ", dim_style()),
+            Span::raw(format!("{} avoidable ops", impact.estimated_extra_io_ops)),
+        ]));
+    }
+    let key = crate::render::recurrence_key(finding);
+    if let Some(stats) = app.recurrence.get(&key).filter(|s| s.count > 1) {
+        let ops = if stats.total_ops > 0 {
+            format!(" \u{b7} ~{} avoidable ops in total", stats.total_ops)
+        } else {
+            String::new()
+        };
+        lines.push(Line::from(vec![
+            Span::styled("Recurrence: ", dim_style()),
+            Span::raw(format!("detected in {} traces{ops}", stats.count)),
+        ]));
+    }
+
+    push_span_tree_lines(&mut lines, app);
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .scroll((app.scroll_offset, 0));
+
+    f.render_widget(paragraph, area);
+}
+
+/// The fix, source location and per-finding statistics rows of the Detail
+/// panel. Split out of `draw_detail_panel` so neither half carries the
+/// whole panel's branching.
+fn push_finding_context_lines<'a>(lines: &mut Vec<Line<'a>>, finding: &'a Finding) {
     // Same sanitization as the CLI path (render.rs): the fix can come
     // from a --input JSON or a daemon, not only the embedded table.
     if let Some(ref fix) = finding.suggested_fix {
@@ -2883,76 +2918,49 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(finding.confidence.as_str()),
         ]));
     }
+}
 
-    if let Some(ref impact) = finding.green_impact {
-        lines.push(Line::from(vec![
-            Span::styled("Extra I/O: ", dim_style()),
-            Span::raw(format!("{} avoidable ops", impact.estimated_extra_io_ops)),
-        ]));
-    }
-    let key = crate::render::recurrence_key(finding);
-    if let Some(stats) = app.recurrence.get(&key).filter(|s| s.count > 1) {
-        let ops = if stats.total_ops > 0 {
-            format!(" \u{b7} ~{} avoidable ops in total", stats.total_ops)
-        } else {
-            String::new()
-        };
-        lines.push(Line::from(vec![
-            Span::styled("Recurrence: ", dim_style()),
-            Span::raw(format!("detected in {} traces{ops}", stats.count)),
-        ]));
-    }
+/// The Span tree section closing the Detail panel, either the cached tree
+/// or the hint naming the two commands that produce one.
+fn push_span_tree_lines(lines: &mut Vec<Line<'_>>, app: &App) {
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Span tree:",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
 
     // Span tree is pre-computed before draw, cached per trace.
     if let Some((ct, ref tree_text)) = app.cached_detail
         && ct == app.selected_trace
     {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Span tree:",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
         for tree_line in tree_text.lines() {
             lines.push(Line::from(tree_line.to_string()));
         }
-    } else {
-        // No span tree available: the input was a Report (no embedded
-        // spans) or a daemon trace that the explain endpoint did not
-        // return. Surface the two paths that produce a real tree so
-        // the user knows what to try next.
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Span tree:",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(Span::styled(
-            "Not available for this trace. A batch report carries no spans, and a daemon",
-            dim_style(),
-        )));
-        lines.push(Line::from(Span::styled(
-            "snapshot only keeps the traces its retention held.",
-            dim_style(),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  - perf-sentinel inspect --input <events>.json  (raw events)",
-            dim_style(),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  - perf-sentinel query inspect                  (live daemon)",
-            dim_style(),
-        )));
+        return;
     }
 
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: false })
-        .scroll((app.scroll_offset, 0));
-
-    f.render_widget(paragraph, area);
+    // No span tree available: the input was a Report (no embedded spans)
+    // or a daemon trace that the explain endpoint did not return. Surface
+    // the two paths that produce a real tree so the user knows what to
+    // try next.
+    lines.push(Line::from(Span::styled(
+        "Not available for this trace. A batch report carries no spans, and a daemon",
+        dim_style(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "snapshot only keeps the traces its retention held.",
+        dim_style(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  - perf-sentinel inspect --input <events>.json  (raw events)",
+        dim_style(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  - perf-sentinel query inspect                  (live daemon)",
+        dim_style(),
+    )));
 }
 
 #[cfg(feature = "daemon")]
