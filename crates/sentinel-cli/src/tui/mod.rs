@@ -424,6 +424,22 @@ impl App {
         if finding.suggested_fix.is_some() {
             count = count.saturating_add(1);
         }
+        // Timing only exists on the detectors that measure per-span
+        // durations, classification only inside the n+1 family, and the
+        // confidence row is silent on a batch run. The observation
+        // window is unconditional, hence not counted here but in the
+        // always-present rows below.
+        if crate::render::format_span_timing(&finding.pattern).is_some() {
+            count = count.saturating_add(1);
+        }
+        if crate::render::classification_label(finding).is_some() {
+            count = count.saturating_add(1);
+        }
+        if !finding.confidence.is_batch() {
+            count = count.saturating_add(1);
+        }
+        // The unconditional "Window:" row.
+        count = count.saturating_add(1);
         if finding.green_impact.is_some() {
             count = count.saturating_add(1);
         }
@@ -2594,6 +2610,34 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                 ]),
             );
         }
+    }
+
+    // The three below shipped on the dashboard in 0.11.0 and 0.5.4 and
+    // never reached the terminal. Same figures, same formatting.
+    if let Some(timing) = crate::render::format_span_timing(&finding.pattern) {
+        lines.push(Line::from(vec![
+            Span::styled("Timing:   ", dim_style()),
+            Span::raw(timing),
+        ]));
+    }
+    if let Some(label) = crate::render::classification_label(finding) {
+        lines.push(Line::from(vec![
+            Span::styled("Class:    ", dim_style()),
+            Span::raw(label),
+        ]));
+    }
+    lines.push(Line::from(vec![
+        Span::styled("Window:   ", dim_style()),
+        Span::raw(format!(
+            "{} -> {}",
+            finding.first_timestamp, finding.last_timestamp
+        )),
+    ]));
+    if !finding.confidence.is_batch() {
+        lines.push(Line::from(vec![
+            Span::styled("Confidence: ", dim_style()),
+            Span::raw(finding.confidence.as_str()),
+        ]));
     }
 
     if let Some(ref impact) = finding.green_impact {
