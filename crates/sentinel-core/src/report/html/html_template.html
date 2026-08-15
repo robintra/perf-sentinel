@@ -5499,6 +5499,7 @@
     ["g o", "Go to Overview"],
     ["g f", "Go to Findings"],
     ["g p", "Go to pg_stat (if available)"],
+    ["g m", "Go to mysql_stat (if available)"],
     ["g d", "Go to Diff (if available)"],
     ["g c", "Go to Correlations (if available)"],
     ["g r", "Go to Carbon (if available)"],
@@ -5671,7 +5672,7 @@
   // are a silent no-op (no feedback, no flash).
   var pendingGTimer = null;
   var G_MAPPING = {
-    o: "overview", f: "findings", p: "pgstat",
+    o: "overview", f: "findings", p: "pgstat", m: "mysqlstat",
     d: "diff", c: "correlations", r: "green", a: "acknowledgments"
   };
   function clearPendingG() {

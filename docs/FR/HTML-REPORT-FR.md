@@ -13,7 +13,7 @@ l'exploration post-mortem d'un ensemble de traces. Il fonctionne dans deux modes
   Le dashboard ajoute des boutons `Ack`/`Revoke` par finding, un
   indicateur de statut de connexion, un panel Acknowledgments, un
   toggle `Show acknowledged`, et un bouton refresh manuel. Les panels
-  statiques (Findings, Explain, pg_stat, mysql_stat, Diff, Correlations, GreenOps)
+  statiques (Findings, Explain, pg_stat, mysql_stat, Diff, Correlations, Carbon)
   conservent leur comportement statique, le mode live est purement
   additif.
 

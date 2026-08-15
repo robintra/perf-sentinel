@@ -13,7 +13,7 @@ post-mortem exploration of a trace set. It runs in two modes:
   dashboard adds per-finding `Ack`/`Revoke` buttons, a connection
   status indicator, an Acknowledgments panel, a `Show acknowledged`
   toggle, and a manual refresh button. The static panels (Findings,
-  Explain, pg_stat, mysql_stat, Diff, Correlations, GreenOps) keep the same
+  Explain, pg_stat, mysql_stat, Diff, Correlations, Carbon) keep the same
   static-mode behavior, the live mode is purely additive.
 
 ## Static mode
