@@ -138,6 +138,43 @@ FAMILIES = [
      azure("Standard_F{}s_v2", [2, 4, 8, 16, 32, 48, 64, 72]), []),
 ]
 
+# Scaleway publishes no coefficient CSV, but its Product Catalog names
+# the exact CPU of every offer, unauthenticated, so the offer list is
+# read live instead of being pinned by hand like the three above. The
+# derivation is the same: vCPU times the CCF coefficient for that CPU's
+# architecture. Only the mapping below is hand-maintained.
+SCALEWAY_CATALOG = (
+    "https://api.scaleway.com/product-catalog/v2alpha1/public-catalog/products"
+)
+
+# Exact CPU string from the catalog -> (CCF csv provider, architecture).
+# The AWS CSV is the reference for every Scaleway row: CCF publishes no
+# Scaleway file, and its AWS and GCP figures for one architecture differ
+# by about 6% on max watts, far inside the 2x bracket the estimate
+# carries. An unmapped CPU is skipped rather than guessed, so a new
+# Scaleway generation is absent until a line lands here.
+SCALEWAY_CPU_ARCH = {
+    "AMD EPYC 7281": ("aws", "EPYC 1st Gen"),
+    "AMD EPYC 7401P": ("aws", "EPYC 1st Gen"),
+    "AMD EPYC™ 7281 (2.1 GHz) or equivalent": ("aws", "EPYC 1st Gen"),
+    "AMD EPYC 7413 (2.65 GHz)": ("aws", "EPYC 3rd Gen"),
+    "AMD EPYC™ 7543 (2.8 GHz)": ("aws", "EPYC 3rd Gen"),
+    "AMD EPYC 9334 (2.7 GHz)": ("aws", "EPYC 4th Gen"),
+    "Intel Xeon Gold 6148 (2.4 GHz)": ("aws", "Skylake"),
+    "Intel Xeon Platinum 8452Y (2.0 GHz)": ("aws", "Sapphire Rapids"),
+    # AMD EPYC 9555P (Turin, EPYC 9005) is deliberately absent: the CCF
+    # EPYC 5th Gen row reads 3.68 idle / 8.96 max W/vCPU, five times the
+    # neighbouring generations, which is the upstream error the m8a rows
+    # already work around. Those offers ride the same SPECpower-direct
+    # figure as GCP c4d, in `MANUAL_INSTANCE_ROWS` (table.rs).
+}
+
+# 8 GiB per vCPU is where the AWS/GCP/Azure memory-optimized families
+# sit, and the premium was measured on that ratio, so the same threshold
+# decides per offer here rather than per family: Scaleway mixes ratios
+# inside one range (POP2 spans 2, 4 and 8 GiB/vCPU).
+SCALEWAY_DRAM_GIB_PER_VCPU = 8.0
+
 PROVIDER_BANNERS = {
     "t3 (Nitro, Cascade Lake, burstable)":
         "AWS instances (vCPU * per_vCPU_coefficient from CCF {date}\n"
@@ -231,6 +268,53 @@ def fetch_ccf(ref: str) -> "tuple[dict[tuple[str, str], tuple[float, float]], st
     return coefficients, sha, date
 
 
+def fetch_scaleway() -> "list[tuple[str, int, tuple[str, str], bool]]":
+    """Scaleway offers eligible for the SPECpower model, as
+    `(offer_id, vcpu, (csv provider, architecture), dram premium)`.
+
+    Four exclusions, each for a reason the model cannot paper over:
+    retired offers (nobody can start one), shared-vCPU offers (per-vCPU
+    attribution overstates a core the tenant does not own outright), GPU
+    offers (an H100 draws more than the whole CPU budget and the table
+    models no accelerator anywhere), and CPUs absent from the mapping.
+    """
+    offers: "dict[str, tuple[str, int, tuple[str, str], bool]]" = {}
+    page, seen = 1, 0
+    while True:
+        payload = http_json(f"{SCALEWAY_CATALOG}?page_size=1000&page={page}")
+        products = payload.get("products") or []
+        if not products:
+            break
+        for product in products:
+            props = product.get("properties") or {}
+            hardware, instance = props.get("hardware") or {}, props.get("instance") or {}
+            cpu = hardware.get("cpu") or {}
+            offer_id = instance.get("offer_id")
+            if (
+                product.get("product_category") != "Instance"
+                or not offer_id
+                or product.get("status") != "general_availability"
+                or cpu.get("shared")
+                or (hardware.get("gpu") or {}).get("count")
+            ):
+                continue
+            arch = SCALEWAY_CPU_ARCH.get(cpu.get("type") or "")
+            vcpu = (cpu.get("virtual") or {}).get("count")
+            if not arch or not vcpu:
+                continue
+            gib_per_vcpu = ((hardware.get("ram") or {}).get("size") or 0) / 1024**3 / vcpu
+            offers[offer_id] = (
+                offer_id, vcpu, arch, gib_per_vcpu >= SCALEWAY_DRAM_GIB_PER_VCPU
+            )
+        seen += len(products)
+        if seen >= payload.get("total_count", 0):
+            break
+        page += 1
+    if not offers:
+        raise ValueError("no eligible Scaleway offer parsed, catalog format changed?")
+    return sorted(offers.values())
+
+
 def parse_existing(text: str) -> "dict[str, tuple[float, float]]":
     return {
         name: (float(idle), float(mx))
@@ -238,7 +322,7 @@ def parse_existing(text: str) -> "dict[str, tuple[float, float]]":
     }
 
 
-def render(coefficients: dict, sha: str, date: str) -> str:
+def render(coefficients: dict, sha: str, date: str, scaleway: list) -> str:
     lines = []
     for label, provider, arch, dram, instances, notes in FAMILIES:
         if label in PROVIDER_BANNERS:
@@ -257,6 +341,22 @@ def render(coefficients: dict, sha: str, date: str) -> str:
             idle = round(vcpu * (idle_c + (DRAM_IDLE if dram else 0.0)), 1)
             mx = round(vcpu * (max_c + (DRAM_MAX if dram else 0.0)), 1)
             lines.append(f'    ("{name}", {idle}, {mx}),')
+
+    lines.append("    // " + "=" * 64)
+    lines.append("    // Scaleway instances (vCPU * per_vCPU_coefficient from the")
+    lines.append(f"    // CCF {date} coefficients-aws-use.csv, keyed by the exact CPU the")
+    lines.append("    // Product Catalog names per offer). Shared-vCPU, GPU and")
+    lines.append("    // retired offers are excluded, and the Turin ones live in")
+    lines.append("    // `MANUAL_INSTANCE_ROWS` (table.rs).")
+    lines.append("    // " + "=" * 64)
+    for offer_id, vcpu, (provider, arch), dram in scaleway:
+        if (provider, arch) not in coefficients:
+            raise ValueError(f"architecture '{arch}' missing from {provider} CSV (Scaleway {offer_id})")
+        idle_c, max_c = coefficients[(provider, arch)]
+        idle = round(vcpu * (idle_c + (DRAM_IDLE if dram else 0.0)), 1)
+        mx = round(vcpu * (max_c + (DRAM_MAX if dram else 0.0)), 1)
+        suffix = f"  // {arch}" + (" + DRAM premium" if dram else "")
+        lines.append(f'    ("{offer_id}", {idle}, {mx}),{suffix}')
     return (
         HEADER.replace("{repo}", CCF_REPO).replace("{sha}", sha).replace("{date}", date)
         + "\n".join(lines) + "\n];\n"
@@ -266,9 +366,10 @@ def render(coefficients: dict, sha: str, date: str) -> str:
 def main() -> None:
     ref = sys.argv[1] if len(sys.argv) > 1 else "main"
     coefficients, sha, date = fetch_ccf(ref)
+    scaleway = fetch_scaleway()
     old_text = TARGET.read_text(encoding="utf-8")
     old = parse_existing(old_text)
-    new_text = render(coefficients, sha, date)
+    new_text = render(coefficients, sha, date, scaleway)
     new = parse_existing(new_text)
 
     changed = 0

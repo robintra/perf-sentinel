@@ -422,7 +422,7 @@ Declares a **provisioned** broker cluster, with no agent and no metric. This is 
 [green.broker_static]
 nodes = 3                      # provisioned broker nodes, required
 instance_type = "m5.2xlarge"   # looked up in the embedded SPECpower table, required
-provider = "aws"               # optional: aws, gcp, azure or generic (default)
+provider = "aws"               # optional: aws, gcp, azure, scaleway or generic (default)
 region = "eu-west-3"           # optional, enables the gCO2 conversion
 ```
 
@@ -485,7 +485,7 @@ Cloud-native energy estimation via CPU utilization + SPECpower interpolation. Wh
 |-------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
 | `prometheus_endpoint`   | string  | *(none)* | Prometheus HTTP API base URL (e.g. `http://prometheus:9090` or `https://prometheus:9090`). TLS supported via hyper-rustls. Required. |
 | `scrape_interval_secs`  | integer | `15`     | Polling interval in seconds (range: 1-3600).                                                                                         |
-| `default_provider`      | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`.                                                                                 |
+| `default_provider`      | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`, `"scaleway"`. Scaleway instance types are derived from its Product Catalog, see [INSTANCE-TYPES.md](INSTANCE-TYPES.md). |
 | `default_instance_type` | string  | *(none)* | Fallback instance type for unmapped services.                                                                                        |
 | `cpu_metric`            | string  | *(none)* | Default PromQL metric/query for CPU utilization.                                                                                     |
 

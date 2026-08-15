@@ -442,4 +442,46 @@ pub(super) static GENERATED_INSTANCE_ROWS: &[(&str, f64, f64)] = &[
     ("Standard_F48s_v2", 30.7, 190.4),
     ("Standard_F64s_v2", 40.9, 253.9),
     ("Standard_F72s_v2", 46.0, 285.6),
+    // ================================================================
+    // Scaleway instances (vCPU * per_vCPU_coefficient from the
+    // CCF 2026-04-24 coefficients-aws-use.csv, keyed by the exact CPU the
+    // Product Catalog names per offer). Shared-vCPU, GPU and
+    // retired offers are excluded, and the Turin ones live in
+    // `MANUAL_INSTANCE_ROWS` (table.rs).
+    // ================================================================
+    ("POP2-12C-48G", 5.5, 23.5),       // EPYC 3rd Gen
+    ("POP2-16C-64G", 7.3, 31.3),       // EPYC 3rd Gen
+    ("POP2-16C-64G-WIN", 7.3, 31.3),   // EPYC 3rd Gen
+    ("POP2-24C-96G", 10.9, 47.0),      // EPYC 3rd Gen
+    ("POP2-2C-8G", 0.9, 3.9),          // EPYC 3rd Gen
+    ("POP2-2C-8G-WIN", 0.9, 3.9),      // EPYC 3rd Gen
+    ("POP2-32C-128G", 14.6, 62.6),     // EPYC 3rd Gen
+    ("POP2-32C-128G-WIN", 14.6, 62.6), // EPYC 3rd Gen
+    ("POP2-48C-192G", 21.9, 94.0),     // EPYC 3rd Gen
+    ("POP2-4C-16G", 1.8, 7.8),         // EPYC 3rd Gen
+    ("POP2-4C-16G-WIN", 1.8, 7.8),     // EPYC 3rd Gen
+    ("POP2-64C-256G", 29.2, 125.3),    // EPYC 3rd Gen
+    ("POP2-6C-24G", 2.7, 11.7),        // EPYC 3rd Gen
+    ("POP2-8C-32G", 3.6, 15.7),        // EPYC 3rd Gen
+    ("POP2-8C-32G-WIN", 3.6, 15.7),    // EPYC 3rd Gen
+    ("POP2-HC-12C-24G", 5.5, 23.5),    // EPYC 3rd Gen
+    ("POP2-HC-16C-32G", 7.3, 31.3),    // EPYC 3rd Gen
+    ("POP2-HC-24C-48G", 10.9, 47.0),   // EPYC 3rd Gen
+    ("POP2-HC-2C-4G", 0.9, 3.9),       // EPYC 3rd Gen
+    ("POP2-HC-32C-64G", 14.6, 62.6),   // EPYC 3rd Gen
+    ("POP2-HC-48C-96G", 21.9, 94.0),   // EPYC 3rd Gen
+    ("POP2-HC-4C-8G", 1.8, 7.8),       // EPYC 3rd Gen
+    ("POP2-HC-64C-128G", 29.2, 125.3), // EPYC 3rd Gen
+    ("POP2-HC-6C-12G", 2.7, 11.7),     // EPYC 3rd Gen
+    ("POP2-HC-8C-16G", 3.6, 15.7),     // EPYC 3rd Gen
+    ("POP2-HM-12C-96G", 7.4, 28.3),    // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-16C-128G", 9.8, 37.7),   // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-24C-192G", 14.8, 56.6),  // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-2C-16G", 1.2, 4.7),      // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-32C-256G", 19.7, 75.4),  // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-48C-384G", 29.5, 113.2), // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-4C-32G", 2.5, 9.4),      // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-64C-512G", 39.4, 150.9), // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-6C-48G", 3.7, 14.1),     // EPYC 3rd Gen + DRAM premium
+    ("POP2-HM-8C-64G", 4.9, 18.9),     // EPYC 3rd Gen + DRAM premium
 ];

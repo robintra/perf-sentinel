@@ -432,7 +432,7 @@ Déclare un cluster de brokers **provisionné**, sans agent ni métrique. C'est 
 [green.broker_static]
 nodes = 3                      # nœuds de broker provisionnés, requis
 instance_type = "m5.2xlarge"   # cherché dans la table SPECpower embarquée, requis
-provider = "aws"               # optionnel : aws, gcp, azure ou generic (défaut)
+provider = "aws"               # optionnel : aws, gcp, azure, scaleway ou generic (défaut)
 region = "eu-west-3"           # optionnel, active la conversion gCO2
 ```
 
@@ -495,7 +495,7 @@ Estimation d'énergie cloud-native via utilisation CPU% + interpolation SPECpowe
 |-------------------------|--------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | `prometheus_endpoint`   | chaîne | *(aucun)* | URL de base de l'API HTTP Prometheus (ex. `http://prometheus:9090` ou `https://prometheus:9090`). TLS supporté via hyper-rustls. Obligatoire. |
 | `scrape_interval_secs`  | entier | `15`      | Intervalle de polling en secondes (plage : 1-3600).                                                                                           |
-| `default_provider`      | chaîne | *(aucun)* | Fournisseur cloud par défaut : `"aws"`, `"gcp"`, `"azure"`.                                                                                   |
+| `default_provider`      | chaîne | *(aucun)* | Fournisseur cloud par défaut : `"aws"`, `"gcp"`, `"azure"`, `"scaleway"`. Les types d'instance Scaleway sont dérivés de son Product Catalog, voir [INSTANCE-TYPES-FR.md](INSTANCE-TYPES-FR.md). |
 | `default_instance_type` | chaîne | *(aucun)* | Type d'instance de fallback pour les services non mappés.                                                                                     |
 | `cpu_metric`            | chaîne | *(aucun)* | Métrique/requête PromQL par défaut pour l'utilisation CPU.                                                                                    |
 
