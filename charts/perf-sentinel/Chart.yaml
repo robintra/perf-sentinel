@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.13.1
-appVersion: "0.13.1"
+version: 0.14.0
+appVersion: "0.14.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,14 +37,14 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: added
-      description: "appVersion 0.13.1. The daemon config gains max_export_findings, which sizes the /api/export/report slice independently of the browsing cap on /api/findings, so a daemon retaining tens of thousands of findings can ship more than 1000 of them. Startup warns when it and max_retained_traces together project a snapshot past the 8 MiB body limit the query clients read it with."
+      description: "appVersion 0.14.0. OVHcloud, Scaleway and 3DS OUTSCALE regions carry grid intensity and PUE, so a workload on any of the three scores instead of contributing zero operational CO2 from the unknown bucket. 65 Scaleway instance types also gain an embedded power profile, derived from the exact CPU its Product Catalog names per offer, and [green.cloud] accepts provider = scaleway."
     - kind: changed
-      description: "The exported snapshot states its own scope in warning_details, so a reader cannot take the capped finding slice and the per-batch green figures for one population. The HTML dashboard groups the findings filters into one menu per family, each accepting several values."
+      description: "The interactive TUI catches up with the dashboard on exploring findings: per-span timing, classification, observation window and confidence on a finding, severity filtering, sorting inside a trace, the report warnings at the top of the Analyze view and a top-findings-by-impact ranking. The dashboard severity pills combine instead of replacing each other, with a Clear filters button in their place."
     - kind: fixed
-      description: "An oversized snapshot reports the read limit instead of reading as an unreachable daemon, and long SQL statements wrap in the pg_stat and mysql_stat tables instead of scrolling their card sideways."
+      description: "Both sides of a cross-trace correlation open their finding again and the pills carry their real severity, where the left side had been inert and every pill amber."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.13.1
+      image: ghcr.io/robintra/perf-sentinel:0.14.0
       platforms:
         - linux/amd64
         - linux/arm64
