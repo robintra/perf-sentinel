@@ -396,14 +396,17 @@ function injectDemoCorrelations(htmlPath: string) {
 // daemon would. Three pre-populated acks make the panel non-empty
 // from the first paint, which is what the stills capture.
 //
-// The three signatures match real findings in report_realistic.json
-// (idx 1, 3, 4 of the Findings list) so three of the five rows
-// render with the "Revoke" button (acked state) instead of "Ack".
-// This is what the "Show acknowledged" still captures, otherwise the
-// toggle would have no visual effect on the demo dataset. Idx 0
-// (POST /api/orders/7/checkout) is deliberately left un-acked so the
-// existing `02 explain trace tree` still finds a visible first row to
-// click without needing a `:visible` selector tweak.
+// The three signatures match real findings in report_realistic.json (the
+// order-svc n+1 on /api/orders/8/checkout, the payment-svc redundant read
+// on /api/payment/999, and the chat-svc slow_http), so three of the six
+// rows render with the "Revoke" button (acked state) instead of "Ack".
+// Named rather than numbered: the list is re-sorted at render, so a
+// position is not a stable way to point at a row. This is what the
+// "Show acknowledged" still captures, otherwise the toggle would have no
+// visual effect on the demo dataset. The order-svc n+1 on
+// /api/orders/7/checkout is deliberately left un-acked so the existing
+// `02 explain trace tree` still finds a visible first row to click
+// without needing a `:visible` selector tweak.
 function injectDemoAckMock(htmlPath: string) {
   // Anchor on the embedded report-data script tag (unique in the
   // template, see html_template.html line 407) and insert the mock
@@ -429,7 +432,7 @@ function injectDemoAckMock(htmlPath: string) {
     '      expires_at: "2026-05-09T09:14:22Z"',
     "    },",
     "    {",
-    '      signature: "slow_http:chat-svc:POST__api_chat_send:5e35a0e005ee19f3a02169ed764b106d",',
+    '      signature: "slow_http:chat-svc:POST__api_chat_send:bd3e45c20f28c3d821b86615f85b6c21",',
     '      by: "bob@example.com",',
     '      reason: "Notify endpoint pending move to gRPC, see ADR-0042",',
     '      at: "2026-05-04T16:02:11Z",',
