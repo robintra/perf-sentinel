@@ -11,7 +11,7 @@ async function loadDashboard(page: Page, hash = "") {
 
 // The service, type and grouping filters live inside one disclosure per family
 // and accept several values at once, so their state is a checkbox rather than a
-// pressed pill. Severity and "All" are still chips, in their own radiogroup.
+// pressed pill. Severity stays a row of chips, also multi-valued, with no "All".
 function filterBox(page: Page, key: string) {
   return page.locator(`#findings-filters input[type=checkbox][data-key="${key}"]`);
 }
@@ -492,8 +492,8 @@ test("25. a hash naming an absent service does not silently empty the list", asy
   await expect(page.locator("#findings-filters input[type=checkbox]:checked"),
     "an ignored value must leave no box ticked").toHaveCount(0);
   await expect(filterTrigger(page, "svc"), "and the menu must read as idle").toHaveText("Service");
-  const active = await page.locator("#findings-filters .ps-chip.active").getAttribute("data-key");
-  expect(active).toBe("all");
+  await expect(page.locator("#findings-filters .ps-chip.active"),
+    "an ignored value must leave no chip pressed").toHaveCount(0);
 
   // A real service from the data still applies.
   await loadDashboard(page, "#findings&service=order-svc");
@@ -517,6 +517,41 @@ test("25b. several values in one family are OR'd, and the families AND together"
   await loadDashboard(page, "#findings&type=n_plus_one_sql,redundant_sql&service=order-svc");
   const narrowed = await page.locator("#findings-list .ps-row").count();
   expect(narrowed, "a service on top narrows the same set").toBeLessThanOrEqual(twoTypes);
+});
+
+test("25c. severity chips stack instead of replacing each other", async ({ page }) => {
+  // They used to be a radiogroup, so a second click moved the selection rather
+  // than widening it, and "All" was the only way back.
+  const sevChip = (key: string) => page.locator(`#findings-filters .ps-chip[data-key="sev:${key}"]`);
+  const shownSeverities = async () =>
+    new Set(await page.locator("#findings-list .ps-row .ps-sev").evaluateAll(
+      (nodes) => nodes.map((n) => (n as HTMLElement).dataset.sev)));
+
+  // This fixture holds warnings and infos, no critical, so only two chips exist.
+  await loadDashboard(page, "#findings");
+  await expect(page.locator('#findings-filters .ps-chip[data-key="all"]'),
+    "the All chip is gone: no selection already means no restriction").toHaveCount(0);
+
+  await sevChip("warning").click();
+  await expect(sevChip("warning")).toHaveAttribute("aria-pressed", "true");
+  expect(await shownSeverities()).toEqual(new Set(["warn"]));
+
+  await sevChip("info").click();
+  expect(await shownSeverities(), "the second chip adds, it does not replace")
+    .toEqual(new Set(["warn", "info"]));
+  await expect(page).toHaveURL(/severity=warning,info/);
+
+  // The hash restores both, and re-clicking one drops only that one.
+  await loadDashboard(page, "#findings&severity=warning,info");
+  await expect(sevChip("warning")).toHaveAttribute("aria-pressed", "true");
+  await expect(sevChip("info")).toHaveAttribute("aria-pressed", "true");
+  await sevChip("warning").click();
+  expect(await shownSeverities()).toEqual(new Set(["info"]));
+
+  // A pre-multi-select link carrying one value still applies.
+  await loadDashboard(page, "#findings&severity=warning");
+  await expect(sevChip("warning")).toHaveAttribute("aria-pressed", "true");
+  expect(await shownSeverities()).toEqual(new Set(["warn"]));
 });
 
 test("26. type and effective grouping filters combine and expose ARIA state", async ({ page }) => {
@@ -705,10 +740,10 @@ test("28. the sort control does not masquerade as an applied filter", async ({ p
     "sort belongs to the toolbar, not to the filter row").toHaveCount(2);
   await expect(page.locator("#findings-filters [data-sort-key]")).toHaveCount(0);
   expect(await page.locator("#findings-filters .ps-chip.active").count(),
-    "with no filter applied only the All chip is active").toBe(1);
+    "with no filter applied no chip is active").toBe(0);
   await page.locator('[data-sort-key="impact"]').click();
   expect(await page.locator("#findings-filters .ps-chip.active").count(),
-    "switching the sort must not mark a filter as applied").toBe(1);
+    "switching the sort must not mark a filter as applied").toBe(0);
   expect(await page.locator('[data-sort-key="impact"].ps-sort-on').count(),
     "the active sort carries its own marker").toBe(1);
 });

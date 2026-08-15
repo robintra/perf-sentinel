@@ -117,8 +117,10 @@ Dark.
 
 ### Filtering findings
 
-The severity row is a single choice: `All`, then one pill per severity
-present, each carrying its count.
+The severity row holds one pill per severity present, each carrying its
+count. They combine: press `critical` and `warnings` to see both, press a
+pressed one again to drop it. None pressed shows every severity, so there
+is no `All` pill, and `Escape` clears the whole row at once.
 
 The three other families collapse into one menu each, in the order
 `Type`, `Service`, then the attribute the findings are grouped by. That

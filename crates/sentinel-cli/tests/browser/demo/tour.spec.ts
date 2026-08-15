@@ -44,9 +44,10 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await pause(page, 900);
   await page.locator('#findings-filters input[data-key="svc:order-svc"]').click();
   await pause(page, 1400);
+  // First Escape closes the menu, the second clears every filter at once.
   await page.keyboard.press("Escape");
-  // Reset with "All".
-  await page.locator('#findings-filters .ps-chip[data-key="all"]').click();
+  await pause(page, 400);
+  await page.keyboard.press("Escape");
   await pause(page, 900);
 
   // Click first finding row -> the detail pane updates with the trace tree.
