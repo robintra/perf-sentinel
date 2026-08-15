@@ -91,9 +91,18 @@ an estimate. Searched, as of August 2026:
   `Intel Core i7-4940MX`, a mobile part, across two sockets.
 - **Scaleway** publishes only `kg_co2_equivalent` and `m3_water_usage`,
   account-scoped, and states that instead of measuring instance power it
-  feeds a CPU-percentage proxy into a Boavizta consumption profile. Its
-  Product Catalog API does expose CPU sockets, cores and frequency per
-  SKU, which is a lead, but no wattage.
+  feeds a CPU-percentage proxy into a Boavizta consumption profile. But
+  its Product Catalog API, unauthenticated, does name the **exact CPU**
+  per offer (`AMD EPYC 7543`, `Intel Xeon Platinum 8452Y`, not a generic
+  family) alongside the vCPU count and whether they are shared: 132
+  offers in general availability, of which 79 are dedicated-vCPU on an
+  architecture whose CCF coefficient is already embedded here. Deriving
+  those the CCF way would add no new measurement, only the assumption
+  that a coefficient computed on hyperscaler fleets transfers, which is
+  the assumption CCF already makes between AWS and GCP. 42 more offers
+  run on shared vCPUs, where per-vCPU attribution overstates, and 23 sit
+  on architectures the CSVs do not cover (AmpereOne, Granite Rapids).
+  Not done, deliberately: it is a modeling decision, not a lookup.
 - **OUTSCALE** stops at (Region, service category): two regions, three
   categories, no instance type, no watt, no kWh.
 
@@ -151,9 +160,19 @@ inventée ne serait pas une estimation. Recherché, en août 2026 :
 - **Scaleway** ne publie que `kg_co2_equivalent` et `m3_water_usage`,
   limités au compte appelant, et déclare qu'au lieu de mesurer la
   puissance d'une instance il injecte un proxy de pourcentage CPU dans
-  un profil de consommation Boavizta. Son API Product Catalog expose
-  bien les sockets, cœurs et fréquence par SKU, ce qui est une piste,
-  mais aucune puissance.
+  un profil de consommation Boavizta. Mais son API Product Catalog, sans
+  authentification, nomme le **CPU exact** de chaque offre (`AMD EPYC
+  7543`, `Intel Xeon Platinum 8452Y`, et non une famille générique),
+  avec le nombre de vCPU et leur partage éventuel : 132 offres en
+  disponibilité générale, dont 79 à vCPU dédiés sur une architecture
+  dont le coefficient CCF est déjà embarqué ici. Les dériver à la
+  manière de CCF n'ajouterait aucune mesure, seulement l'hypothèse qu'un
+  coefficient calculé sur des flottes d'hyperscalers se transpose, ce
+  que CCF suppose déjà entre AWS et GCP. 42 autres offres tournent sur
+  vCPU partagés, où l'attribution par vCPU surestime, et 23 reposent sur
+  des architectures absentes des CSV (AmpereOne, Granite Rapids). Non
+  fait, délibérément : c'est une décision de modélisation, pas une
+  simple consultation.
 - **OUTSCALE** s'arrête au couple (Région, catégorie de service) : deux
   régions, trois catégories, aucun type d'instance, aucun watt, aucun
   kWh.
