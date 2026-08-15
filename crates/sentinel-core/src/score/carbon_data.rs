@@ -45,6 +45,45 @@ pub(super) static GENERATED_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     ("northeurope", 255.9, Provider::Azure), // Ireland
     ("francecentral", 41.5, Provider::Azure),
     ("uksouth", 217.4, Provider::Azure),
+    // OVHcloud regions
+    ("gra5", 41.5, Provider::Ovh),              // Gravelines
+    ("gra7", 41.5, Provider::Ovh),              // Gravelines
+    ("gra9", 41.5, Provider::Ovh),              // Gravelines
+    ("gra11", 41.5, Provider::Ovh),             // Gravelines
+    ("gra", 41.5, Provider::Ovh),               // Gravelines (S3 location)
+    ("sbg5", 41.5, Provider::Ovh),              // Strasbourg
+    ("sbg", 41.5, Provider::Ovh),               // Strasbourg (S3 location)
+    ("eu-west-rbx", 41.5, Provider::Ovh),       // Roubaix
+    ("rbx", 41.5, Provider::Ovh),               // Roubaix (S3 location)
+    ("eu-west-par", 41.5, Provider::Ovh),       // Paris, 3-AZ
+    ("eu-south-mil", 284.6, Provider::Ovh),     // Milan, 3-AZ
+    ("de1", 329.6, Provider::Ovh),              // Limburg
+    ("uk1", 217.4, Provider::Ovh),              // Erith
+    ("waw1", 590.8, Provider::Ovh),             // Warsaw
+    ("waw", 590.8, Provider::Ovh),              // Warsaw (S3 location)
+    ("sgp1", 497.1, Provider::Ovh),             // Singapore
+    ("sgp", 497.1, Provider::Ovh),              // Singapore (S3 location)
+    ("syd1", 524.6, Provider::Ovh),             // Sydney
+    ("ap-southeast-syd", 524.6, Provider::Ovh), // Sydney (S3 location)
+    ("ap-south-mum", 670.5, Provider::Ovh),     // Mumbai
+    // Scaleway regions
+    ("fr-par", 41.5, Provider::Scaleway),   // Paris
+    ("fr-par-1", 41.5, Provider::Scaleway), // Paris DC2
+    ("fr-par-2", 41.5, Provider::Scaleway), // Paris DC5
+    ("fr-par-3", 41.5, Provider::Scaleway), // Paris DC4
+    ("nl-ams", 253.6, Provider::Scaleway),  // Amsterdam
+    ("nl-ams-1", 253.6, Provider::Scaleway),
+    ("nl-ams-2", 253.6, Provider::Scaleway),
+    ("nl-ams-3", 253.6, Provider::Scaleway),
+    ("pl-waw", 590.8, Provider::Scaleway), // Warsaw
+    ("pl-waw-1", 590.8, Provider::Scaleway),
+    ("pl-waw-2", 590.8, Provider::Scaleway),
+    ("pl-waw-3", 590.8, Provider::Scaleway),
+    ("it-mil", 284.6, Provider::Scaleway), // Milan
+    // OUTSCALE regions (prefixed keys)
+    ("outscale-eu-west-2", 41.5, Provider::Outscale), // Paris (AWS eu-west-2 is London)
+    ("outscale-cloudgouv-eu-west-1", 41.5, Provider::Outscale), // SecNumCloud
+    ("outscale-ap-northeast-1", 477.4, Provider::Outscale), // Tokyo
     // Country / ISO codes (generic PUE)
     ("fr", 41.5, Provider::Generic),
     ("de", 329.6, Provider::Generic),

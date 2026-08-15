@@ -554,7 +554,7 @@ Des profils d'intensité carbone horaire UTC sont embarqués pour plus de 30 ré
 - **Amériques (EIA / IESO / ONS)** : US Ohio (`us-east-2`), US N. Californie (`us-west-1`), US Oregon (`us-west-2`), Canada Québec (`ca-central-1`), Brésil (`sa-east-1`).
 - **Asie-Pacifique (best-effort)** : Japon (`ap-northeast-1`), Singapour (`ap-southeast-1`), Inde (`ap-south-1`), Australie (`ap-southeast-2`).
 
-Les alias de codes pays (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) et synonymes fournisseurs cloud (`westeurope`, `northeurope`, `uksouth`, `francecentral`, etc.) sont supportés et résolvent vers le même profil.
+Les alias de codes pays (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) et synonymes fournisseurs cloud (`westeurope`, `northeurope`, `uksouth`, `francecentral`, `gra11`, `fr-par`, `waw1`, `nl-ams`, `bhs5`, `outscale-eu-west-2`, etc.) sont supportés et résolvent vers le même profil. Une région sans alias retombe sur la valeur annuelle plate, c'est pourquoi chaque clé ajoutée a besoin de sa propre ligne d'alias au lieu d'en hériter de son pays.
 
 Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure (et au mois quand disponible) pour chaque span basée sur son timestamp UTC. Les régions sans profil utilisent toujours la valeur annuelle plate. Les rapports sont tagués `model = "io_proxy_v3"` (mois x heure), `"io_proxy_v2"` (horaire annuel plat) ou `"io_proxy_v1"` (annuel) et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"`, `"hourly"` ou `"monthly_hourly"`).
 

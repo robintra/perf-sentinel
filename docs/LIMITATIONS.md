@@ -484,7 +484,7 @@ Embedded hourly UTC profiles are available for 30+ cloud regions across all majo
 - **Americas (EIA / IESO / ONS)**: US Ohio (`us-east-2`), US N. California (`us-west-1`), US Oregon (`us-west-2`), Canada Quebec (`ca-central-1`), Brazil (`sa-east-1`).
 - **Asia-Pacific (best-effort)**: Japan (`ap-northeast-1`), Singapore (`ap-southeast-1`), India (`ap-south-1`), Australia (`ap-southeast-2`).
 
-Country-code aliases (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) and cloud-provider synonyms (`westeurope`, `northeurope`, `uksouth`, `francecentral`, etc.) are supported and resolve to the same profile.
+Country-code aliases (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) and cloud-provider synonyms (`westeurope`, `northeurope`, `uksouth`, `francecentral`, `gra11`, `fr-par`, `waw1`, `nl-ams`, `bhs5`, `outscale-eu-west-2`, etc.) are supported and resolve to the same profile. A region with no alias falls back to the flat annual value, which is why every added key needs its own alias line rather than inheriting one from its country.
 
 When `[green] use_hourly_profiles = true` (the default), the scoring stage uses the hour-specific (and month-specific when available) intensity for each span based on the span's UTC timestamp. Regions without a profile always use the flat annual value. Reports are tagged with `model = "io_proxy_v3"` (monthly x hourly), `"io_proxy_v2"` (flat-year hourly) or `"io_proxy_v1"` (annual) and each per-region breakdown row carries an `intensity_source` field (`"annual"`, `"hourly"` or `"monthly_hourly"`).
 
