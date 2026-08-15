@@ -136,6 +136,13 @@ pub struct App {
     all_findings: Vec<Finding>,
     /// Per-trace finding indices into `all_findings`.
     findings_by_trace: Vec<Vec<usize>>,
+    /// `findings_by_trace` narrowed to `severity_filter`, the slice the
+    /// Findings panel actually walks. Derived, never the source: the
+    /// filter has to be reversible without re-reading the report.
+    visible_by_trace: Vec<Vec<usize>>,
+    /// Severity the Findings panel is narrowed to, `None` for all of
+    /// them. The dashboard puts the same three values on pills.
+    severity_filter: Option<Severity>,
     trace_ids: Vec<String>,
     trace_index: HashMap<String, usize>,
 
@@ -255,7 +262,9 @@ impl App {
             recurrence: build_recurrence(&findings),
             trace_sort: TraceSort::ById,
             all_findings: findings,
+            visible_by_trace: findings_by_trace.clone(),
             findings_by_trace,
+            severity_filter: None,
             trace_ids,
             trace_index,
             view: View::Inspect,
@@ -396,7 +405,7 @@ impl App {
 
     /// Finding indices for the currently selected trace.
     fn current_finding_indices(&self) -> &[usize] {
-        self.findings_by_trace
+        self.visible_by_trace
             .get(self.selected_trace)
             .map_or(&[], Vec::as_slice)
     }
@@ -529,6 +538,52 @@ impl App {
         self.reorder_traces();
     }
 
+    /// Cycle the Findings panel between every severity and each one on
+    /// its own, the same three values the dashboard puts on pills. A
+    /// trace whose findings are all filtered out stays in the list with
+    /// an empty panel rather than disappearing: the trace list answers
+    /// "what ran", not "what matches".
+    pub fn cycle_severity_filter(&mut self) {
+        self.severity_filter = match self.severity_filter {
+            None => Some(Severity::Critical),
+            Some(Severity::Critical) => Some(Severity::Warning),
+            Some(Severity::Warning) => Some(Severity::Info),
+            Some(Severity::Info) => None,
+        };
+        self.apply_finding_filter();
+    }
+
+    /// Label for the Findings panel title, so the narrowed list says so.
+    fn severity_filter_label(&self) -> &'static str {
+        match self.severity_filter {
+            None => "all",
+            Some(Severity::Critical) => "critical",
+            Some(Severity::Warning) => "warning",
+            Some(Severity::Info) => "info",
+        }
+    }
+
+    /// Rebuild the visible slices from the sorted source. Called on
+    /// every filter change and after any reorder, since the derived
+    /// vector would otherwise keep the previous order.
+    fn apply_finding_filter(&mut self) {
+        let findings = &self.all_findings;
+        let wanted = self.severity_filter.as_ref();
+        self.visible_by_trace = self
+            .findings_by_trace
+            .iter()
+            .map(|indices| {
+                indices
+                    .iter()
+                    .copied()
+                    .filter(|&i| wanted.is_none_or(|s| findings[i].severity == *s))
+                    .collect()
+            })
+            .collect();
+        self.selected_finding = 0;
+        self.scroll_offset = 0;
+    }
+
     /// Re-sort the trace list under the active mode. Severity and impact
     /// go through the shared comparator so this surface cannot drift from
     /// `analyze --sort` and the dashboard, with the trace id as a final
@@ -569,7 +624,7 @@ impl App {
                 for indices in &mut self.findings_by_trace {
                     indices.sort_unstable();
                 }
-                self.selected_finding = 0;
+                self.apply_finding_filter();
                 return;
             }
             TraceSort::Severity => crate::render::FindingsSort::Severity,
@@ -598,7 +653,7 @@ impl App {
             });
         }
         self.findings_by_trace = sorted;
-        self.selected_finding = 0;
+        self.apply_finding_filter();
     }
 
     /// Open the list in `mode` without cycling, for callers that were
@@ -677,6 +732,9 @@ impl App {
         // A stale offset would render the new trace's tree scrolled past
         // its own content, showing a blank panel.
         self.scroll_offset = 0;
+        // The visible slices index into the permuted source, so they are
+        // rebuilt here rather than left for the caller to remember.
+        self.apply_finding_filter();
     }
 
     pub fn move_up(&mut self) {
@@ -2041,6 +2099,7 @@ fn dispatch_panel_key(app: &mut App, code: KeyCode) -> KeyOutcome {
         KeyCode::Esc => app.escape(),
         KeyCode::Char('r') => app.reset_layout(),
         KeyCode::Char('s') => app.cycle_trace_sort(),
+        KeyCode::Char('f') => app.cycle_severity_filter(),
         #[cfg(feature = "daemon")]
         KeyCode::Char('a') => open_ack_modal_for_current(app, false),
         #[cfg(feature = "daemon")]
@@ -2153,7 +2212,11 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
     }
     if app.view == View::Inspect {
         spans.push(Span::styled(
-            format!("    s sort: {}", app.trace_sort.label()),
+            format!(
+                "    s sort: {}    f severity: {}",
+                app.trace_sort.label(),
+                app.severity_filter_label()
+            ),
             dim,
         ));
     }
@@ -2564,8 +2627,14 @@ fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // A narrowed list must say so, or an empty panel reads as a trace
+    // with no findings rather than as a filter hiding them.
+    let title = match app.severity_filter {
+        None => " Findings ".to_string(),
+        Some(_) => format!(" Findings [{}] ", app.severity_filter_label()),
+    };
     let block = Block::default()
-        .title(" Findings ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(panel_style(app, Panel::Findings));
 
