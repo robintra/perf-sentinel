@@ -37,9 +37,19 @@ inventée ne serait pas une estimation. Recherché, en août 2026 :
 - **Scaleway** ne publie que `kg_co2_equivalent` et `m3_water_usage`,
   limités au compte appelant, et déclare qu'au lieu de mesurer la
   puissance d'une instance il injecte un proxy de pourcentage CPU dans
-  un profil de consommation Boavizta. Son API Product Catalog expose
-  bien les sockets, cœurs et fréquence par SKU, ce qui est une piste,
-  mais aucune puissance.
+  un profil de consommation Boavizta. Mais son API Product Catalog, sans
+  authentification, nomme le **CPU exact** de chaque offre (`AMD EPYC
+  7543`, `Intel Xeon Platinum 8452Y`, et non une famille générique),
+  avec le nombre de vCPU et leur partage éventuel : 132 offres en
+  disponibilité générale, dont 79 à vCPU dédiés sur une architecture
+  dont le coefficient CCF est déjà embarqué ici. Les dériver à la
+  manière de CCF n'ajouterait aucune mesure, seulement l'hypothèse qu'un
+  coefficient calculé sur des flottes d'hyperscalers se transpose, ce
+  que CCF suppose déjà entre AWS et GCP. 42 autres offres tournent sur
+  vCPU partagés, où l'attribution par vCPU surestime, et 23 reposent sur
+  des architectures absentes des CSV (AmpereOne, Granite Rapids). Non
+  fait, délibérément : c'est une décision de modélisation, pas une
+  simple consultation.
 - **OUTSCALE** s'arrête au couple (Région, catégorie de service) : deux
   régions, trois catégories, aucun type d'instance, aucun watt, aucun
   kWh.
