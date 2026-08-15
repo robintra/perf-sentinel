@@ -72,6 +72,18 @@ fn seed_correlator_with_pair(
     }
 }
 
+/// The `snapshot_scope` warning messages an export carries, in order.
+/// Both export tests read the same field the same way, and the pair was
+/// the one duplication Qodana flagged in this file.
+fn snapshot_scope_messages(report: &Report) -> Vec<&str> {
+    report
+        .warning_details
+        .iter()
+        .filter(|w| w.kind == crate::report::warnings::SNAPSHOT_SCOPE)
+        .map(|w| w.message.as_str())
+        .collect()
+}
+
 #[tokio::test]
 async fn status_returns_200() {
     let app = query_api_router(make_state());
@@ -1755,12 +1767,7 @@ async fn handle_export_report_states_what_the_snapshot_covers() {
         .unwrap();
     let report: Report = serde_json::from_slice(&body).unwrap();
 
-    let scope: Vec<&str> = report
-        .warning_details
-        .iter()
-        .filter(|w| w.kind == crate::report::warnings::SNAPSHOT_SCOPE)
-        .map(|w| w.message.as_str())
-        .collect();
+    let scope = snapshot_scope_messages(&report);
     assert_eq!(scope.len(), 1, "got: {scope:?}");
     assert!(scope[0].contains("batch"), "{}", scope[0]);
 }
@@ -1799,12 +1806,7 @@ async fn export_findings_are_capped_by_max_export_findings() {
     // The store holds 10, the export carries 3, and says so.
     assert_eq!(state.findings_store.len().await, 10);
     assert_eq!(report.findings.len(), 3);
-    let scope: Vec<&str> = report
-        .warning_details
-        .iter()
-        .filter(|w| w.kind == crate::report::warnings::SNAPSHOT_SCOPE)
-        .map(|w| w.message.as_str())
-        .collect();
+    let scope = snapshot_scope_messages(&report);
     assert_eq!(scope.len(), 2, "truncation must be announced: {scope:?}");
     assert!(
         scope[0].contains('3') && scope[0].contains("10"),
