@@ -14,13 +14,13 @@ use crate::{
     DEFAULT_PG_STAT_TOP, limits, load_config, load_report_from_input, write_file_no_follow,
 };
 
+const DEMO_DATA: &str = include_str!("demo_data.json");
+
 pub(crate) fn cmd_demo(
     config_path: Option<&std::path::Path>,
     html: Option<&std::path::Path>,
     #[cfg(feature = "tui")] tui: bool,
 ) {
-    const DEMO_DATA: &str = include_str!("demo_data.json");
-
     let mut config = load_config(config_path);
     // Default to eu-west-3 for demo CO2 display if no region configured
     if config.green.default_region.is_none() {
@@ -34,7 +34,7 @@ pub(crate) fn cmd_demo(
     // Cross-trace correlations are a daemon-only signal; the batch pipeline
     // never produces them. Seed illustrative ones so the demo can show the
     // Correlations tab (HTML) and panel (TUI) without a running daemon.
-    report.correlations = demo_correlations();
+    report.correlations = demo_correlations(&report.findings);
 
     // The offline io_proxy model leaves per-region measured/estimated
     // provenance unset. Tag the demo regions the way Electricity Maps would:
@@ -139,78 +139,123 @@ fn demo_diff(
 /// Hand-built cross-trace correlations for the demo. Batch analysis never
 /// emits these (the correlator is daemon-only), so they are illustrative
 /// and coherent with the demo traces rather than computed.
-fn demo_correlations() -> Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> {
+///
+/// Each side names a `(type, service)` pair and borrows the rest from the
+/// finding it points at. Hardcoding the template and the grouping instead
+/// made the dashboard unable to resolve either side: the demo findings carry
+/// a grouping attribute, the endpoints did not, and the match is strict.
+///
+/// A pair whose sides name no finding is dropped rather than emitted with an
+/// empty template, which would put the same dead click zone back on the card.
+fn demo_correlations(
+    findings: &[sentinel_core::detect::Finding],
+) -> Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> {
     use sentinel_core::detect::FindingType;
     use sentinel_core::detect::correlate_cross::{CorrelationEndpoint, CrossTraceCorrelation};
 
-    let pair = |source: CorrelationEndpoint,
-                target: CorrelationEndpoint,
+    let pair = |source: Option<CorrelationEndpoint>,
+                target: Option<CorrelationEndpoint>,
                 co_occurrence_count: u32,
                 source_total_occurrences: u32,
                 median_lag_ms: f64,
-                sample_trace_id: &str| CrossTraceCorrelation {
-        confidence: f64::from(co_occurrence_count) / f64::from(source_total_occurrences),
-        source,
-        target,
-        co_occurrence_count,
-        source_total_occurrences,
-        median_lag_ms,
-        first_seen: "2025-07-10T14:00:00.000Z".to_string(),
-        last_seen: "2025-07-10T14:32:00.000Z".to_string(),
-        sample_trace_id: Some(sample_trace_id.to_string()),
+                sample_trace_id: &str|
+     -> Option<CrossTraceCorrelation> {
+        Some(CrossTraceCorrelation {
+            confidence: f64::from(co_occurrence_count) / f64::from(source_total_occurrences),
+            source: source?,
+            target: target?,
+            co_occurrence_count,
+            source_total_occurrences,
+            median_lag_ms,
+            first_seen: "2025-07-10T14:00:00.000Z".to_string(),
+            last_seen: "2025-07-10T14:32:00.000Z".to_string(),
+            sample_trace_id: Some(sample_trace_id.to_string()),
+        })
     };
-    let endpoint = |finding_type: FindingType, service: &str, template: &str| CorrelationEndpoint {
-        finding_type,
-        service: service.to_string(),
-        template: template.to_string(),
-        grouping_key: None,
-        grouping_value: None,
+    let endpoint = |finding_type: FindingType, service: &str| -> Option<CorrelationEndpoint> {
+        let matched = findings
+            .iter()
+            .find(|f| f.finding_type == finding_type && f.service == service)?;
+        let grouping = matched.effective_grouping();
+        Some(CorrelationEndpoint {
+            finding_type,
+            service: service.to_string(),
+            template: matched.pattern.template.clone(),
+            grouping_key: grouping.map(|g| g.key.to_string()),
+            grouping_value: grouping.map(|g| g.value.to_string()),
+        })
     };
 
-    vec![
+    [
         pair(
-            endpoint(
-                FindingType::NPlusOneSql,
-                "order-svc",
-                "SELECT * FROM order_item WHERE order_id = ?",
-            ),
-            endpoint(
-                FindingType::ChattyService,
-                "gateway",
-                "POST /api/orders/99/submit",
-            ),
+            endpoint(FindingType::NPlusOneSql, "order-svc"),
+            endpoint(FindingType::ChattyService, "gateway"),
             42,
             50,
             18.0,
             "trace-demo-chatty",
         ),
         pair(
-            endpoint(FindingType::PoolSaturation, "payment-svc", "payment-svc"),
-            endpoint(
-                FindingType::SerializedCalls,
-                "checkout-svc",
-                "POST /api/checkout/finalize",
-            ),
+            endpoint(FindingType::PoolSaturation, "payment-svc"),
+            endpoint(FindingType::SerializedCalls, "checkout-svc"),
             32,
             40,
             55.0,
             "trace-demo-serial",
         ),
         pair(
-            endpoint(
-                FindingType::NPlusOneHttp,
-                "inventory-svc",
-                "GET /api/products/{id}",
-            ),
-            endpoint(
-                FindingType::ExcessiveFanout,
-                "catalog-svc",
-                "GET /api/catalog/page",
-            ),
+            endpoint(FindingType::NPlusOneHttp, "inventory-svc"),
+            endpoint(FindingType::ExcessiveFanout, "catalog-svc"),
             27,
             33,
             9.0,
             "trace-demo-fanout",
         ),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The dashboard resolves each correlation side against the findings on
+    /// type, service, grouping and template, and leaves a side inert when it
+    /// finds nothing. An endpoint that matches no finding is therefore a dead
+    /// click zone, which is exactly what the hardcoded endpoints produced.
+    #[test]
+    fn every_demo_correlation_endpoint_resolves_to_a_finding() {
+        let (report, _, _) = load_report_from_input(DEMO_DATA.as_bytes(), &Config::default());
+        let correlations = demo_correlations(&report.findings);
+        assert_eq!(
+            correlations.len(),
+            3,
+            "the demo seeds three correlations and drops none for want of a finding"
+        );
+
+        for c in &correlations {
+            for (side, endpoint) in [("source", &c.source), ("target", &c.target)] {
+                let resolved = report.findings.iter().any(|f| {
+                    f.finding_type == endpoint.finding_type
+                        && f.service == endpoint.service
+                        && f.pattern.template == endpoint.template
+                        && f.grouping_identity()
+                            == endpoint
+                                .grouping_key
+                                .as_deref()
+                                .zip(endpoint.grouping_value.as_deref())
+                });
+                assert!(
+                    resolved,
+                    "{side} {:?} on {} matches no finding: template {:?}, grouping {:?}",
+                    endpoint.finding_type,
+                    endpoint.service,
+                    endpoint.template,
+                    endpoint.grouping_value
+                );
+            }
+        }
+    }
 }
