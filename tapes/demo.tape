@@ -20,11 +20,22 @@
 #   vhs tapes/demo-explain.tape   # generates explain/demo.gif + explain/tree.png
 #   rm -f tapes/demo-config-unused.gif
 #
-#   # Post-process the analyze GIF to cut size from ~14 MB to ~3 MB. The
-#   # raw VHS output has too many colors and too high a framerate for a
-#   # README asset; ffmpeg with a custom palette handles this cleanly.
+#   # Post-process the analyze GIF: ~30 MB raw down to ~11.5 MB. This is
+#   # a landing-page asset, so it keeps the full frame rate and a rich
+#   # palette; the settings below were each measured on this tape's own
+#   # output rather than copied from the other tapes, because this one
+#   # scrolls a full-screen report where nearly every frame differs.
+#   #   fps=20          the capture rate above. Asking for more only
+#   #                   duplicates frames; to actually go higher, raise
+#   #                   `Set Framerate` here and re-record.
+#   #   max_colors=64   SSIM against a 256-color encode is 0.9974, an
+#   #                   invisible difference that costs 4 MB.
+#   #   dither=none     dithering adds per-pixel noise on flat terminal
+#   #                   text, which costs size without looking better.
+#   # Frame dedup (mpdecimate) is not worth adding: the still stretches
+#   # already cost nothing, the size is in the scrolling frames.
 #   ffmpeg -y -i docs/img/analyze/demo.gif \
-#     -vf "fps=10,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+#     -vf "fps=20,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=none" \
 #     -loop 0 /tmp/demo-opt.gif
 #   mv /tmp/demo-opt.gif docs/img/analyze/demo.gif
 
