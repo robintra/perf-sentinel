@@ -1223,6 +1223,12 @@
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return parts.join(".");
   }
+  // "1 findings" reads as a bug in the report rather than as a count of
+  // one. Only the counters that can legitimately reach 1 go through
+  // this: the ones guarded by a `> 1` branch already cannot.
+  function plural(n, word) {
+    return fmtNum(n) + " " + word + (n === 1 ? "" : "s");
+  }
   function formatDurationUs(us) {
     if (!Number.isFinite(us)) return "-";
     var ms = us / 1000;
@@ -2089,7 +2095,7 @@
       : sev.critical > 0 ? "crit"
       : sev.warning > 0 ? "warn"
       : "info";
-    var findingsCard = metricCard("Findings", fmtNum(total), "across " + fmtNum(traces) + " traces");
+    var findingsCard = metricCard("Findings", fmtNum(total), "across " + plural(traces, "trace"));
     setAttr(findingsCard, "data-kpi", kpiTone);
     root.appendChild(wireKpiCard(findingsCard, "findings", "all"));
 
@@ -2239,8 +2245,8 @@
     var meta = el("div", "ps-hero-meta");
     [
       payload.input_label || "-",
-      fmtNum(analysis.traces_analyzed || 0) + " traces",
-      fmtNum(analysis.events_processed || 0) + " spans",
+      plural(analysis.traces_analyzed || 0, "trace"),
+      plural(analysis.events_processed || 0, "span"),
       "v" + (payload.version || "")
     ].forEach(function (m) { meta.appendChild(el("span", null, m)); });
     right.appendChild(meta);
@@ -2864,7 +2870,8 @@
   function syncShowMore(totalMatching) {
     var counter = document.getElementById("findings-count");
     if (counter) {
-      counter.textContent = totalMatching + " findings · " + visibleFindings.length + " shown";
+      counter.textContent =
+        plural(totalMatching, "finding") + " · " + visibleFindings.length + " shown";
     }
     var btn = document.getElementById("findings-show-more");
     if (!btn) return;
@@ -2896,7 +2903,7 @@
     if (agg && agg.ops > 0) {
       // Impact mode shows the sort criterion itself: the signature's
       // total avoidable ops, not this one detection's repeat count.
-      var metric = el("span", "ps-fin-right ps-fin-metric", "~" + fmtNum(agg.ops) + " ops");
+      var metric = el("span", "ps-fin-right ps-fin-metric", "~" + plural(agg.ops, "op"));
       metric.title = "detected in " + agg.count + (agg.count > 1 ? " traces" : " trace") +
         " · " + fmtNum(agg.ops) + " avoidable operations in total";
       topLine.appendChild(metric);

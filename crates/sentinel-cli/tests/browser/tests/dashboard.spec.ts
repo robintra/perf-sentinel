@@ -519,6 +519,20 @@ test("25b. several values in one family are OR'd, and the families AND together"
   expect(narrowed, "a service on top narrows the same set").toBeLessThanOrEqual(twoTypes);
 });
 
+/// A count of one read as "1 findings", which looks like a broken
+/// template rather than a number.
+test("25e. counters agree with their own noun at one", async ({ page }) => {
+  const counter = page.locator("#findings-count");
+  await loadDashboard(page, "#findings");
+  await expect(counter).toContainText(/^\d+ findings/, { timeout: 5000 });
+
+  // Narrow to a single row: severity and service together leave one.
+  await loadDashboard(page, "#findings&severity=warning&service=notify-svc");
+  const rows = await page.locator("#findings-list .ps-row").count();
+  expect(rows, "this fixture must narrow to exactly one row").toBe(1);
+  await expect(counter).toHaveText("1 finding · 1 shown");
+});
+
 test("25c. severity chips stack instead of replacing each other", async ({ page }) => {
   // They used to be a radiogroup, so a second click moved the selection rather
   // than widening it, and "All" was the only way back.
