@@ -17,6 +17,16 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 "mon-service" = { idle_watts = 45.0, max_watts = 120.0 }
 ```
 
+**Seules les familles AWS, GCP et Azure sont listées**, et
+`[green.cloud]` n'accepte que ces trois fournisseurs. Les puissances
+proviennent des CSV de coefficients Cloud Carbon Footprint, qui ne
+publient rien pour OVHcloud, Scaleway ou OUTSCALE, et il n'existe pas
+d'exporteur équivalent d'où lire une série d'utilisation CPU. Ces trois
+fournisseurs portent une intensité réseau et un PUE dans la table
+carbone, leurs régions sont donc scorées, mais une puissance inventée ne
+serait pas une estimation. Sur ce matériel, mesurez plutôt : Alumet ou
+Scaphandre lisent RAPL directement et priment sur toute valeur modélisée.
+
 D'où viennent ces chiffres, et pourquoi une famille correspond à un
 coefficient plutôt qu'à une machine mesurée :
 [`METHODOLOGY-FR.md`](./METHODOLOGY-FR.md) et
