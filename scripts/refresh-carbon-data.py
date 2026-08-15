@@ -66,6 +66,61 @@ SECTIONS: "list[tuple[str, str, list[tuple[str, str, str]]]]" = [
         ("francecentral", "FRA", ""),
         ("uksouth", "GBR", ""),
     ]),
+    # OVHcloud names the same datacenter three ways: the OpenStack Public
+    # Cloud region, the geographic zone code and the S3 location string.
+    # All three reach the table, lowercased, because which one lands in
+    # `cloud.region` depends on the SDK the caller instruments.
+    ("OVHcloud regions", "Ovh", [
+        ("gra5", "FRA", "Gravelines"),
+        ("gra7", "FRA", "Gravelines"),
+        ("gra9", "FRA", "Gravelines"),
+        ("gra11", "FRA", "Gravelines"),
+        ("gra", "FRA", "Gravelines (S3 location)"),
+        ("sbg5", "FRA", "Strasbourg"),
+        ("sbg", "FRA", "Strasbourg (S3 location)"),
+        ("eu-west-rbx", "FRA", "Roubaix"),
+        ("rbx", "FRA", "Roubaix (S3 location)"),
+        ("eu-west-par", "FRA", "Paris, 3-AZ"),
+        ("eu-south-mil", "ITA", "Milan, 3-AZ"),
+        ("de1", "DEU", "Limburg"),
+        ("uk1", "GBR", "Erith"),
+        ("waw1", "POL", "Warsaw"),
+        ("waw", "POL", "Warsaw (S3 location)"),
+        ("sgp1", "SGP", "Singapore"),
+        ("sgp", "SGP", "Singapore (S3 location)"),
+        ("syd1", "AUS", "Sydney"),
+        ("ap-southeast-syd", "AUS", "Sydney (S3 location)"),
+        ("ap-south-mum", "IND", "Mumbai"),
+    ]),
+    # Scaleway regions and their availability zones. The AZ carries the
+    # datacenter, the region is what most SDKs report.
+    ("Scaleway regions", "Scaleway", [
+        ("fr-par", "FRA", "Paris"),
+        ("fr-par-1", "FRA", "Paris DC2"),
+        ("fr-par-2", "FRA", "Paris DC5"),
+        ("fr-par-3", "FRA", "Paris DC4"),
+        ("nl-ams", "NLD", "Amsterdam"),
+        ("nl-ams-1", "NLD", ""),
+        ("nl-ams-2", "NLD", ""),
+        ("nl-ams-3", "NLD", ""),
+        ("pl-waw", "POL", "Warsaw"),
+        ("pl-waw-1", "POL", ""),
+        ("pl-waw-2", "POL", ""),
+        ("pl-waw-3", "POL", ""),
+        # it-mil is listed on the availability page; its AZ identifier is
+        # not confirmed by a primary source, so only the region is keyed.
+        ("it-mil", "ITA", "Milan"),
+    ]),
+    # 3DS OUTSCALE reuses AWS region identifiers for different places:
+    # its eu-west-2 is Paris where the AWS one is London. Keys are
+    # prefixed so the two never collide, which means an OUTSCALE
+    # deployment declares the prefixed key in `[green] default_region`
+    # or `[green.service_regions]`.
+    ("OUTSCALE regions (prefixed keys)", "Outscale", [
+        ("outscale-eu-west-2", "FRA", "Paris (AWS eu-west-2 is London)"),
+        ("outscale-cloudgouv-eu-west-1", "FRA", "SecNumCloud"),
+        ("outscale-ap-northeast-1", "JPN", "Tokyo"),
+    ]),
     ("Country / ISO codes (generic PUE)", "Generic", [
         ("fr", "FRA", ""), ("de", "DEU", ""), ("gb", "GBR", ""),
         ("uk", "GBR", ""), ("us", "USA", ""), ("ie", "IRL", ""),

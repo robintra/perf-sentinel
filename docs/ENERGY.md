@@ -13,7 +13,7 @@ The carbon figures follow the Software Carbon Intensity model (SCI, standardized
 - **Energy (E)** starts as an estimate and becomes a measurement as you plug in backends. With nothing configured, every operation costs a fixed `1e-7 kWh` (the proxy coefficient, model tag `io_proxy_v3`). Each backend below replaces that estimate with something closer to physical reality.
 - **Grid intensity (I)** converts kWh into gCO2 for the region where the code runs. It starts from embedded annual national averages, can be modulated by 24-hour profiles, and becomes a live value when the Electricity Maps API is configured. The region itself comes from the `cloud.region` span attribute, from `[green.service_regions]`, or from `[green] default_region`, in that order.
 - **Embodied carbon (M)** accounts for manufacturing the servers. It is a fixed per-request figure derived from public lifecycle assessments of rack servers (Boavizta and the Cloud Carbon Footprint methodology), configurable via `embodied_carbon_per_request_gco2`. Fixing an N+1 does not un-manufacture silicon, so the avoidable figures never include this term.
-- **PUE** multiplies the energy to account for datacenter overhead (cooling, power distribution): 1.09 for GCP, 1.15 for AWS, 1.17 for Azure, 1.5 for unknown infrastructure.
+- **PUE** multiplies the energy to account for datacenter overhead (cooling, power distribution): 1.09 for GCP, 1.15 for AWS, 1.17 for Azure, 1.24 for OVHcloud, 1.375 for Scaleway, 1.5 for OUTSCALE (which publishes none) and for unknown infrastructure.
 
 Every report states which model produced its numbers through the `energy_model` and `per_service_energy_model` tags, so a reader can always tell an estimate from a measurement.
 

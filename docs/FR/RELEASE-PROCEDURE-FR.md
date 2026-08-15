@@ -57,7 +57,7 @@ C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les donn
 - `crates/sentinel-core/src/score/cloud_energy/table_data.rs` : `SPECPOWER_VINTAGE`, estampillé avec la date du snapshot `ccf-coefficients` par `scripts/refresh-instance-power.py`. Les lignes manuelles (familles absentes des CSV CCF) restent dans `table.rs`.
 - `crates/sentinel-core/src/score/carbon_data.rs` : `CARBON_TABLE_VINTAGE` (`ember-<dernière année de données>`), estampillé par `scripts/refresh-carbon-data.py`. Les lignes subnationales (Amérique du Nord, Brésil BR-CS) restent manuelles dans `carbon.rs`.
 - `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement et renormalisés à la main quand un refresh scripté déplace une valeur annuelle au-delà de 5 pour cent. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
-- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, générique), rafraîchies quand un fournisseur publie un nouveau rapport de durabilité. Millésime exposé via `PUE_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, OVHcloud, Scaleway, générique ; OUTSCALE n'en publie aucun et suit la valeur générique), rafraîchies quand un fournisseur publie un nouveau rapport de durabilité. OVHcloud et Scaleway publient sur un cycle annuel, respectivement en indicateurs d'exercice et en rapport d'impact. Millésime exposé via `PUE_VINTAGE`.
 
 Afficher tous les millésimes en une commande :
 

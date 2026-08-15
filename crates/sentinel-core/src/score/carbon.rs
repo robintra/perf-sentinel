@@ -150,7 +150,8 @@ pub const GENERIC_PUE: f64 = 1.5;
 /// any provider's published sustainability report supersedes the value
 /// in the table.
 #[allow(dead_code)]
-pub(crate) const PUE_VINTAGE: &str = "2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25)";
+pub(crate) const PUE_VINTAGE: &str =
+    "2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)";
 
 /// Synthetic region label for events with no resolved region.
 pub const UNKNOWN_REGION: &str = "unknown";
@@ -622,6 +623,9 @@ pub(super) enum Provider {
     Aws,
     Gcp,
     Azure,
+    Ovh,
+    Scaleway,
+    Outscale,
     Generic,
 }
 
@@ -632,7 +636,15 @@ impl Provider {
             Self::Aws => 1.15,
             Self::Gcp => 1.09,
             Self::Azure => 1.17,
-            Self::Generic => GENERIC_PUE,
+            Self::Ovh => 1.24,
+            Self::Scaleway => 1.375,
+            // 3DS OUTSCALE publishes no PUE: it rents capacity rather than
+            // operating its own datacenters, so there is no fleet figure to
+            // cite. The variant exists to name the provider on its rows, not
+            // to carry a number we would have had to invent. Its partner
+            // Thesee advertises a design PUE of 1.2, which is neither a
+            // measured value nor OUTSCALE's own fleet.
+            Self::Outscale | Self::Generic => GENERIC_PUE,
         }
     }
 }
@@ -648,7 +660,8 @@ impl Provider {
 /// in `carbon_data.rs`.
 ///
 /// PUE values come from each provider's latest sustainability report
-/// (AWS 2024 global, GCP 2024 fleet, Azure FY25), 2026 refresh cycle.
+/// (AWS 2024 global, GCP 2024 fleet, Azure FY25, `OVHcloud` FY25 group
+/// average, Scaleway 2024 average), 2026 refresh cycle.
 static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),
@@ -664,6 +677,17 @@ static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
     // Azure regions
     ("eastus", 379.0, Provider::Azure),
     ("westus2", 89.0, Provider::Azure),
+    // OVHcloud regions on subnational grids. The Public Cloud identifier
+    // and the S3 location string name the same datacenter, so both keys
+    // carry the same zone value.
+    ("bhs5", 13.0, Provider::Ovh), // Beauharnois, Quebec (hydro zone)
+    ("bhs", 13.0, Provider::Ovh),
+    ("us-east-va-1", 379.0, Provider::Ovh), // Vint Hill, Virginia (PJM)
+    ("us-west-or-1", 89.0, Provider::Ovh),  // Hillsboro, Oregon
+    // OUTSCALE regions on subnational grids. Keys are prefixed because
+    // OUTSCALE reuses AWS region identifiers for different places.
+    ("outscale-us-east-2", 379.0, Provider::Outscale), // New Jersey, PJM zone as us-east-1
+    ("outscale-us-west-1", 200.0, Provider::Outscale), // San Jose, CAISO zone as us-west-1
     // Country / ISO codes (generic PUE)
     ("ca", 13.0, Provider::Generic),
     ("br", 96.0, Provider::Generic), // BR-CS zone, matches sa-east-1
@@ -1546,6 +1570,64 @@ mod tests {
         let (fr_intensity, _) = lookup_region("fr").expect("fr");
         assert!((intensity - fr_intensity).abs() < f64::EPSILON);
         assert!((pue - 1.09).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn lookup_known_ovh_region() {
+        let (fr_intensity, _) = lookup_region("fr").expect("fr");
+        // The three ways OVHcloud names one datacenter must agree.
+        for key in ["gra11", "gra", "eu-west-par"] {
+            let (intensity, pue) = lookup_region(key).unwrap_or_else(|| panic!("{key}"));
+            assert!((intensity - fr_intensity).abs() < f64::EPSILON, "{key}");
+            assert!((pue - 1.24).abs() < f64::EPSILON, "{key}");
+        }
+    }
+
+    #[test]
+    fn lookup_known_scaleway_region() {
+        let (intensity, pue) = lookup_region("fr-par-2").expect("fr-par-2");
+        let (fr_intensity, _) = lookup_region("fr").expect("fr");
+        assert!((intensity - fr_intensity).abs() < f64::EPSILON);
+        assert!((pue - 1.375).abs() < f64::EPSILON);
+    }
+
+    /// OUTSCALE reuses AWS region identifiers for different places, so its
+    /// keys are prefixed. Reading one for the other would put a Paris
+    /// workload on the London grid, a factor of five.
+    #[test]
+    fn outscale_keys_are_prefixed_and_never_shadow_aws() {
+        let (outscale, pue) = lookup_region("outscale-eu-west-2").expect("outscale-eu-west-2");
+        let (fr_intensity, _) = lookup_region("fr").expect("fr");
+        assert!(
+            (outscale - fr_intensity).abs() < f64::EPSILON,
+            "Paris, not London"
+        );
+        // No published PUE: the rows carry the generic figure on purpose.
+        assert!((pue - GENERIC_PUE).abs() < f64::EPSILON);
+
+        let (aws, _) = lookup_region("eu-west-2").expect("eu-west-2");
+        let (gb_intensity, _) = lookup_region("gb").expect("gb");
+        assert!(
+            (aws - gb_intensity).abs() < f64::EPSILON,
+            "AWS eu-west-2 stays London"
+        );
+        assert!(
+            (outscale - aws).abs() > f64::EPSILON,
+            "the two eu-west-2 must not resolve to the same grid"
+        );
+
+        // Every OUTSCALE row must carry the prefix, or it would collide.
+        for &(key, _, provider) in super::super::carbon_data::GENERATED_CARBON_ROWS
+            .iter()
+            .chain(MANUAL_CARBON_ROWS)
+        {
+            if provider == Provider::Outscale {
+                assert!(
+                    key.starts_with("outscale-"),
+                    "unprefixed OUTSCALE key: {key}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -623,12 +623,30 @@ pub(crate) static PROFILE_ALIASES: &[(&str, &str)] = &[
     ("fr", "eu-west-3"),
     ("francecentral", "eu-west-3"),
     ("europe-west9", "eu-west-3"),
+    ("gra5", "eu-west-3"),
+    ("gra7", "eu-west-3"),
+    ("gra9", "eu-west-3"),
+    ("gra11", "eu-west-3"),
+    ("gra", "eu-west-3"),
+    ("sbg5", "eu-west-3"),
+    ("sbg", "eu-west-3"),
+    ("eu-west-rbx", "eu-west-3"),
+    ("rbx", "eu-west-3"),
+    ("eu-west-par", "eu-west-3"),
+    ("fr-par", "eu-west-3"),
+    ("fr-par-1", "eu-west-3"),
+    ("fr-par-2", "eu-west-3"),
+    ("fr-par-3", "eu-west-3"),
+    ("outscale-eu-west-2", "eu-west-3"),
+    ("outscale-cloudgouv-eu-west-1", "eu-west-3"),
     // Germany
     ("de", "eu-central-1"),
+    ("de1", "eu-central-1"),
     // UK
     ("gb", "eu-west-2"),
     ("uk", "eu-west-2"),
     ("uksouth", "eu-west-2"),
+    ("uk1", "eu-west-2"),
     // Ireland
     ("ie", "eu-west-1"),
     ("northeurope", "eu-west-1"),
@@ -636,6 +654,10 @@ pub(crate) static PROFILE_ALIASES: &[(&str, &str)] = &[
     ("nl", "eu-west-4"),
     ("westeurope", "eu-west-4"),
     ("europe-west4", "eu-west-4"),
+    ("nl-ams", "eu-west-4"),
+    ("nl-ams-1", "eu-west-4"),
+    ("nl-ams-2", "eu-west-4"),
+    ("nl-ams-3", "eu-west-4"),
     // Sweden
     ("se", "eu-north-1"),
     // Belgium
@@ -645,30 +667,50 @@ pub(crate) static PROFILE_ALIASES: &[(&str, &str)] = &[
     // Italy
     ("it", "eu-south-1"),
     ("europe-west8", "eu-south-1"),
+    ("eu-south-mil", "eu-south-1"),
+    ("it-mil", "eu-south-1"),
     // Spain
     ("es", "europe-southwest1"),
     // Poland
     ("pl", "europe-central2"),
+    ("waw1", "europe-central2"),
+    ("waw", "europe-central2"),
+    ("pl-waw", "europe-central2"),
+    ("pl-waw-1", "europe-central2"),
+    ("pl-waw-2", "europe-central2"),
+    ("pl-waw-3", "europe-central2"),
     // Norway
     ("no", "europe-north2"),
-    // US-East (Virginia)
+    // US-East (Virginia). New Jersey sits in the same PJM zone.
     ("us", "us-east-1"),
     ("eastus", "us-east-1"),
     ("us-east1", "us-east-1"),
+    ("us-east-va-1", "us-east-1"),
+    ("outscale-us-east-2", "us-east-1"),
     // US-West (Oregon, Azure)
     ("westus2", "us-west-2"),
+    ("us-west-or-1", "us-west-2"),
     ("us-west1", "us-west-1"),
+    ("outscale-us-west-1", "us-west-1"),
     // Canada
     ("ca", "ca-central-1"),
+    ("bhs5", "ca-central-1"),
+    ("bhs", "ca-central-1"),
     // Australia
     ("au", "ap-southeast-2"),
+    ("syd1", "ap-southeast-2"),
+    ("ap-southeast-syd", "ap-southeast-2"),
     // Japan
     ("jp", "ap-northeast-1"),
     ("asia-northeast1", "ap-northeast-1"),
+    ("outscale-ap-northeast-1", "ap-northeast-1"),
     // Singapore
     ("sg", "ap-southeast-1"),
+    ("sgp1", "ap-southeast-1"),
+    ("sgp", "ap-southeast-1"),
     // India
     ("in", "ap-south-1"),
+    ("ap-south-mum", "ap-south-1"),
     // Brazil
     ("br", "sa-east-1"),
 ];

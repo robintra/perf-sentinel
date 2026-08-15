@@ -242,10 +242,15 @@ Les profils fournis par l'utilisateur ont priorité sur les profils embarqués p
 Les alias de code pays et les synonymes de fournisseurs cloud résolvent vers le même profil horaire. Par exemple, `"fr"`, `"francecentral"` et `"europe-west9"` mappent tous vers le profil `eu-west-3` (France). Mappings notables :
 
 - `"us"`, `"eastus"` → `us-east-1` (US-East, la région de déploiement US la plus courante)
-- `"westeurope"`, `"nl"` → `eu-west-4` (Pays-Bas)
+- `"westeurope"`, `"nl"`, `"nl-ams"` → `eu-west-4` (Pays-Bas)
 - `"northeurope"`, `"ie"` → `eu-west-1` (Irlande)
-- `"uksouth"`, `"gb"`, `"uk"` → `eu-west-2` (Royaume-Uni)
+- `"uksouth"`, `"gb"`, `"uk"`, `"uk1"` → `eu-west-2` (Royaume-Uni)
 - `"westus2"` → `us-west-2` (Oregon)
+- `"gra11"`, `"gra"`, `"sbg"`, `"fr-par"`, `"outscale-eu-west-2"` → `eu-west-3` (France)
+- `"waw1"`, `"pl-waw"` → `europe-central2` (Pologne)
+- `"bhs5"`, `"bhs"` → `ca-central-1` (Québec)
+
+**Clés OVHcloud, Scaleway et OUTSCALE.** OVHcloud nomme un même datacenter de trois façons selon l'API interrogée (`GRA11` pour la région OpenStack Public Cloud, `GRA` pour le code de zone, `gra` pour la chaîne de localisation S3), et les trois sont référencées. Les clés OUTSCALE portent un préfixe `outscale-` parce qu'OUTSCALE réutilise les identifiants de région d'AWS pour d'autres lieux : son `eu-west-2` est Paris là où celui d'AWS est Londres. Un déploiement OUTSCALE déclare donc `default_region = "outscale-eu-west-2"` et non l'identifiant nu, sinon il est scoré sur le réseau britannique.
 
 La table complète des alias se trouve dans `score/carbon_profiles.rs`. Si votre clé de région n'est pas aliasée, la valeur annuelle plate de la table carbone principale est utilisée.
 
