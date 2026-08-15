@@ -213,6 +213,57 @@ const fn intensity_source_label(source: IntensitySource) -> &'static str {
     }
 }
 
+/// Per-span timing statistics of a finding's pattern, as one line, or
+/// `None` when the detector populated none of the three (only n+1 and
+/// slow do). Shared with the TUI so the two terminal surfaces cannot
+/// drift from each other or from the dashboard, which formats the same
+/// three figures the same way: microseconds humanized, and the
+/// coefficient of variation as a percentage (`cv_x1000` is scaled by
+/// 1000, so 523 reads 52.3%).
+pub(crate) fn format_span_timing(pattern: &sentinel_core::detect::Pattern) -> Option<String> {
+    let mut parts = Vec::with_capacity(3);
+    if let Some(p50) = pattern.span_duration_us_p50 {
+        parts.push(format!("p50 {}", format_duration_us(p50)));
+    }
+    if let Some(p99) = pattern.span_duration_us_p99 {
+        parts.push(format!("p99 {}", format_duration_us(p99)));
+    }
+    if let Some(cv) = pattern.span_duration_cv_x1000 {
+        parts.push(format!("CV {:.1}%", f64::from(cv) / 10.0));
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// Microseconds as the dashboard humanizes them: µs under a
+/// millisecond, milliseconds under a second, seconds above.
+fn format_duration_us(us: u64) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    let us_f = us as f64;
+    if us < 1_000 {
+        format!("{us} µs")
+    } else if us < 1_000_000 {
+        format!("{:.1} ms", us_f / 1_000.0)
+    } else {
+        format!("{:.2} s", us_f / 1_000_000.0)
+    }
+}
+
+/// How a finding's type was decided, for the surfaces that show it.
+/// `None` outside the n+1 family, where the question does not arise.
+pub(crate) fn classification_label(
+    finding: &sentinel_core::detect::Finding,
+) -> Option<&'static str> {
+    if !finding.finding_type.as_str().starts_with("n_plus_one_") {
+        return None;
+    }
+    Some(match finding.classification_method {
+        Some(sentinel_core::detect::ClassificationMethod::SanitizerHeuristic) => {
+            "sanitizer heuristic"
+        }
+        _ => "direct",
+    })
+}
+
 /// Suffix appended to the per-region terminal line surfacing the
 /// `Electricity Maps` `isEstimated` / `estimationMethod` metadata.
 /// Empty when the region carries no estimation metadata (older JSON
@@ -705,6 +756,12 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         "    {dim}Hits:{reset}     {} occurrences, {} distinct params, {}ms window",
         finding.pattern.occurrences, finding.pattern.distinct_params, finding.pattern.window_ms
     );
+    if let Some(timing) = format_span_timing(&finding.pattern) {
+        println!("    {dim}Timing:{reset}   {timing}");
+    }
+    if let Some(label) = classification_label(finding) {
+        println!("    {dim}Class:{reset}    {label}");
+    }
     println!(
         "    {dim}Window:{reset}   {} -> {}",
         finding.first_timestamp, finding.last_timestamp
@@ -2141,6 +2198,52 @@ mod tests {
             intensity_source_label(IntensitySource::RealTime),
             "real_time"
         );
+    }
+
+    /// The dashboard humanizes the same three figures the same way, and
+    /// reads the coefficient of variation as a percentage of a value
+    /// stored scaled by 1000. Getting that scale wrong turns 52.3% into
+    /// 523%, which is why the unit conversion is pinned.
+    #[test]
+    fn span_timing_line_matches_the_dashboard_units() {
+        let mut pattern = sentinel_core::detect::Pattern {
+            template: String::new(),
+            occurrences: 3,
+            window_ms: 10,
+            distinct_params: 3,
+            span_duration_us_p50: Some(800),
+            span_duration_us_p99: Some(1_500),
+            span_duration_cv_x1000: Some(523),
+        };
+        assert_eq!(
+            format_span_timing(&pattern).as_deref(),
+            Some("p50 800 µs · p99 1.5 ms · CV 52.3%")
+        );
+
+        // Seconds once past a million microseconds.
+        pattern.span_duration_us_p99 = Some(2_500_000);
+        assert!(format_span_timing(&pattern).unwrap().contains("p99 2.50 s"));
+
+        // A detector that populates none of the three yields no line at
+        // all rather than an empty label.
+        pattern.span_duration_us_p50 = None;
+        pattern.span_duration_us_p99 = None;
+        pattern.span_duration_cv_x1000 = None;
+        assert_eq!(format_span_timing(&pattern), None);
+    }
+
+    #[test]
+    fn classification_label_only_applies_to_the_n_plus_one_family() {
+        use sentinel_core::detect::ClassificationMethod;
+        let mut finding = finding_with(Severity::Warning, FindingType::NPlusOneSql);
+        assert_eq!(classification_label(&finding), Some("direct"));
+        finding.classification_method = Some(ClassificationMethod::SanitizerHeuristic);
+        assert_eq!(classification_label(&finding), Some("sanitizer heuristic"));
+
+        // Outside the family the question does not arise, so nothing is
+        // printed rather than a misleading "direct".
+        let other = finding_with(Severity::Critical, FindingType::SlowSql);
+        assert_eq!(classification_label(&other), None);
     }
 
     #[test]

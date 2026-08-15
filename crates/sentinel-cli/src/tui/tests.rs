@@ -326,6 +326,49 @@ fn detail_enter_zooms_to_explain() {
     assert_eq!(app.view, View::Explain);
 }
 
+/// Timing statistics, classification, observation window and confidence
+/// shipped on the dashboard and never reached the terminal. They are
+/// read from the same fields, so the TUI must show them too.
+#[test]
+fn detail_panel_shows_timing_classification_window_and_confidence() {
+    let mut app = make_test_app();
+    app.all_findings[0].pattern.span_duration_us_p50 = Some(800);
+    app.all_findings[0].pattern.span_duration_us_p99 = Some(1_500);
+    app.all_findings[0].pattern.span_duration_cv_x1000 = Some(523);
+    app.all_findings[0].confidence = Confidence::DaemonProduction;
+    app.active_panel = Panel::Detail;
+
+    let text = buffer_text(&render_once(&mut app, 200, 60));
+    assert!(text.contains("p50 800"), "p50 missing: {text}");
+    assert!(
+        text.contains("CV 52.3%"),
+        "CV must read as a percentage: {text}"
+    );
+    // n+1 family, so the classification question applies.
+    assert!(text.contains("direct"), "classification missing: {text}");
+    assert!(
+        text.contains("2025-07-10T14:32:01.000Z"),
+        "window start missing"
+    );
+    assert!(
+        text.contains("daemon_production"),
+        "confidence missing: {text}"
+    );
+}
+
+/// A batch run carries the default confidence, which says nothing worth
+/// a line, exactly as the text report already decides.
+#[test]
+fn detail_panel_omits_confidence_on_a_batch_run() {
+    let mut app = make_test_app();
+    app.active_panel = Panel::Detail;
+    let text = buffer_text(&render_once(&mut app, 200, 60));
+    assert!(
+        !text.contains("Confidence"),
+        "batch confidence must stay silent: {text}"
+    );
+}
+
 #[test]
 fn explain_escape_returns_to_inspect_detail() {
     let mut app = make_test_app();
@@ -720,9 +763,11 @@ fn scroll_clamps_with_cached_span_tree() {
     app.active_panel = Panel::Detail;
 
     // Inject a synthetic cached tree: 5 lines for the current trace.
-    // 8 base meta lines + 1 green_impact (the test fixture sets it)
-    // + 2 (blank + "Span tree:" header) + 5 (tree lines) = 16 logical
-    // rows, so the clamp should plateau at 15.
+    // 8 base meta lines + 1 classification (the fixture is an n+1) +
+    // 1 window + 1 green_impact (the fixture sets it) + 2 (blank +
+    // "Span tree:" header) + 5 (tree lines) = 18 logical rows, so the
+    // clamp should plateau at 17. The fixture carries no per-span
+    // timing and a batch confidence, so neither of those rows counts.
     app.cached_detail = Some((
         app.selected_trace,
         "line1\nline2\nline3\nline4\nline5".to_string(),
@@ -730,8 +775,8 @@ fn scroll_clamps_with_cached_span_tree() {
 
     let expected_max = app.detail_panel_line_count().saturating_sub(1);
     assert_eq!(
-        expected_max, 15,
-        "base 8 + green_impact 1 + header 2 + tree 5 - 1 = 15"
+        expected_max, 17,
+        "base 8 + classification 1 + window 1 + green_impact 1 + header 2 + tree 5 - 1 = 17"
     );
 
     for _ in 0..100 {
