@@ -2055,8 +2055,15 @@
       clearSearchQuery();
       switchTab(tabKey);
       if (!chipKey) return;
-      var chip = document.querySelector('#findings-filters .ps-chip[data-key="' + chipKey + '"]');
-      if (chip && chip.getAttribute("aria-checked") !== "true") chip.click();
+      // Severity pills stack, so adding one to whatever was already pressed
+      // would open a wider list than the count on the card. Select exactly the
+      // card's own severity, and none at all for the all-findings card.
+      resetFilterState();
+      if (chipKey !== "all") toggleFilterValue("severities", chipKey.slice(4));
+      syncFilterChips();
+      resetShownCount();
+      renderFindingsList();
+      scheduleHashWrite();
     }
     card.addEventListener("click", activate);
     card.addEventListener("keydown", function (ev) {
@@ -2437,11 +2444,11 @@
   }
 
   // -------- filters --------
-  // Severity stays single-valued: its chips are a radiogroup and "All" is the
-  // reset. The other three accept several values at once, OR'd inside a group
-  // and AND'ed across groups. Arrays rather than Sets so the hash keeps a
-  // stable order between a copied link and the state it restores.
-  var filterState = { severity: null, services: [], types: [], groupings: [] };
+  // All four families accept several values at once, OR'd inside a family and
+  // AND'ed across families. No selection means no restriction, so no "All"
+  // chip is needed. Arrays rather than Sets so the hash keeps a stable order
+  // between a copied link and the state it restores.
+  var filterState = { severities: [], services: [], types: [], groupings: [] };
   var FILTER_GROUPS = [
     { prefix: "type", field: "types", label: "Type", aria: "Finding type" },
     { prefix: "svc", field: "services", label: "Service", aria: "Finding service" },
@@ -2485,34 +2492,31 @@
     var root = document.getElementById("findings-filters");
     root.textContent = "";
 
-    // Severity chips (All / Critical / Warning) behave as a single
-    // mutually-exclusive selector, so they go inside a radiogroup.
-    // Service chips are independent toggles: each one is pressable and
-    // can be cleared by re-clicking, but they don't form a group in
-    // the ARIA sense.
+    // Severity chips are independent toggles, like the service ones: each is
+    // pressable and cleared by re-clicking, and any combination of the three
+    // is valid. They share a labelled group so a screen reader announces what
+    // the row filters, not an unnamed run of buttons.
     var severityGroup = el("span", "ps-chip-group", null);
-    setAttr(severityGroup, "role", "radiogroup");
+    setAttr(severityGroup, "role", "group");
     setAttr(severityGroup, "aria-label", "Finding severity");
     root.appendChild(severityGroup);
 
-    function appendChip(parent, label, key, chipRole, stateAttr, sev) {
+    function appendChip(parent, label, key, sev) {
       var btn = el("button", "ps-chip", label);
       btn.type = "button";
-      setAttr(btn, "role", chipRole);
       setAttr(btn, "data-key", key);
-      setAttr(btn, stateAttr, "false");
+      setAttr(btn, "aria-pressed", "false");
       if (sev) setAttr(btn, "data-sev", sev);
       btn.addEventListener("click", function () { onFilterClick(key); });
       parent.appendChild(btn);
     }
 
     // Severity filters double as colored count pills (critical N / warnings
-    // N / info N). "All" is the implicit reset chip.
+    // N / info N). None pressed shows every severity.
     var counts = countBySeverity();
-    appendChip(severityGroup, "All", "all", "radio", "aria-checked");
-    if (counts.critical > 0) appendChip(severityGroup, "critical " + counts.critical, "sev:critical", "radio", "aria-checked", "crit");
-    if (counts.warning > 0) appendChip(severityGroup, "warnings " + counts.warning, "sev:warning", "radio", "aria-checked", "warn");
-    if (counts.info > 0) appendChip(severityGroup, "info " + counts.info, "sev:info", "radio", "aria-checked", "info");
+    if (counts.critical > 0) appendChip(severityGroup, "critical " + counts.critical, "sev:critical", "crit");
+    if (counts.warning > 0) appendChip(severityGroup, "warnings " + counts.warning, "sev:warning", "warn");
+    if (counts.info > 0) appendChip(severityGroup, "info " + counts.info, "sev:info", "info");
 
     var counter = el("span", "ps-findings-count");
     setAttr(counter, "id", "findings-count");
@@ -2643,11 +2647,8 @@
     });
   }
   function onFilterClick(key) {
-    if (key === "all") {
-      resetFilterState();
-    } else if (key.startsWith("sev:")) {
-      var sv = key.slice(4);
-      filterState.severity = filterState.severity === sv ? null : sv;
+    if (key.startsWith("sev:")) {
+      toggleFilterValue("severities", key.slice(4));
     } else {
       var at = key.indexOf(":");
       var group = at === -1 ? null : filterGroupByPrefix(key.slice(0, at));
@@ -2659,7 +2660,7 @@
     scheduleHashWrite();
   }
   function resetFilterState() {
-    filterState.severity = null;
+    filterState.severities = [];
     FILTER_GROUPS.forEach(function (group) { filterState[group.field] = []; });
   }
   /// Keep only the hash values that some finding still carries, so a shared
@@ -2678,15 +2679,11 @@
       if (chip.dataset.sortKey) return;
       // Menu triggers carry their own state, handled below.
       if (chip.classList.contains("ps-filter-trigger")) return;
-      var key = chip.dataset.key;
-      var active = false;
-      if (key === "all") active = !anyActive;
-      else if (key === "sev:" + filterState.severity) active = true;
+      var key = chip.dataset.key || "";
+      var active = key.startsWith("sev:") &&
+        filterState.severities.indexOf(key.slice(4)) !== -1;
       chip.classList.toggle("active", active);
-      // Severity chips and "All" are radio-role, so they report aria-checked.
-      var role = chip.getAttribute("role");
-      var stateAttr = role === "radio" ? "aria-checked" : "aria-pressed";
-      setAttr(chip, stateAttr, active ? "true" : "false");
+      setAttr(chip, "aria-pressed", active ? "true" : "false");
     });
     FILTER_GROUPS.forEach(syncFilterMenu);
   }
@@ -2773,7 +2770,7 @@
     // each band. The CSV export shares this order.
     // OR inside a group, AND between groups: an empty group filters nothing.
     return findings.filter(function (f) {
-      if (filterState.severity && f.severity !== filterState.severity) return false;
+      if (filterState.severities.length && filterState.severities.indexOf(f.severity) === -1) return false;
       if (filterState.services.length && filterState.services.indexOf(f.service) === -1) return false;
       if (filterState.types.length && filterState.types.indexOf(f.type || f.finding_type) === -1) return false;
       if (filterState.groupings.length && filterState.groupings.indexOf(findingGroupingIdentity(f)) === -1) return false;
@@ -5335,10 +5332,13 @@
   // token), not a key=value pair. Stored as a Set so existence checks
   // are O(1) regardless of how many keys land here in the future.
   var HASH_KEYS = new Set(["search", "ranking", "severity", "service", "type", "grouping"]);
-  // These three carry several values. Each value is percent-encoded on its own
+  // These four carry several values. Each value is percent-encoded on its own
   // before the comma join, so a comma inside a value (a grouping identity can
   // hold any attribute text) survives the round trip instead of splitting it.
-  var HASH_LIST_KEYS = new Set(["service", "type", "grouping"]);
+  // A link written before severity went multi-valued carries a single
+  // `severity=critical`, which reads back as a one-element list, so shared
+  // URLs keep working.
+  var HASH_LIST_KEYS = new Set(["severity", "service", "type", "grouping"]);
   function readHash() {
     var raw = (location.hash || "").replace(/^#/, "");
     if (!raw) return null;
@@ -5374,7 +5374,7 @@
     var term = globalSearchTerm();
     if (term) state.search = term;
     if (currentTab === "findings") {
-      if (filterState.severity) state.severity = filterState.severity;
+      if (filterState.severities.length) state.severity = filterState.severities.slice();
       if (filterState.services.length) state.service = filterState.services.slice();
       if (filterState.types.length) state.type = filterState.types.slice();
       if (filterState.groupings.length) state.grouping = filterState.groupings.slice();
@@ -5443,12 +5443,11 @@
     // filterState and re-render the findings list.
     if (state.tab === "findings") {
       resetFilterState();
-      if (state.severity === "critical" || state.severity === "warning" || state.severity === "info") {
-        filterState.severity = state.severity;
-      }
       // Only honor values an option actually exists for. A stale or hand-edited
       // hash naming an absent service would filter the list to nothing with no
-      // checked box to explain why.
+      // checked box to explain why. A severity with no finding has no chip
+      // either, so it goes through the same gate.
+      filterState.severities = keepKnownFilterValues(state.severity, function (f) { return f.severity; });
       filterState.services = keepKnownFilterValues(state.service, function (f) { return f.service; });
       filterState.types = keepKnownFilterValues(state.type, function (f) { return f.type || f.finding_type; });
       filterState.groupings = keepKnownFilterValues(state.grouping, findingGroupingIdentity);
@@ -5534,7 +5533,7 @@
   }
 
   function anyFilterChipActive() {
-    return !!filterState.severity || FILTER_GROUPS.some(function (group) {
+    return filterState.severities.length > 0 || FILTER_GROUPS.some(function (group) {
       return filterState[group.field].length > 0;
     });
   }

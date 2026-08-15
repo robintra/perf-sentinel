@@ -122,8 +122,11 @@ thème fait défiler System, Light et Dark.
 
 ### Filtrer les findings
 
-La rangée de sévérité est un choix unique : `All`, puis une pastille par
-sévérité présente, chacune portant son compte.
+La rangée de sévérité porte une pastille par sévérité présente, chacune
+avec son compte. Elles se combinent : activez `critical` et `warnings`
+pour voir les deux, recliquez une pastille active pour la retirer. Aucune
+pastille active affiche toutes les sévérités, il n'y a donc plus de
+pastille `All`, et `Échap` vide la rangée entière d'un coup.
 
 Les trois autres familles se replient chacune dans un menu, dans l'ordre
 `Type`, `Service`, puis l'attribut de regroupement. Ce dernier menu prend
