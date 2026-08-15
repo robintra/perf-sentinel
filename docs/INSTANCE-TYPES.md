@@ -17,6 +17,15 @@ approximated:
 "my-service" = { idle_watts = 45.0, max_watts = 120.0 }
 ```
 
+**Only AWS, GCP and Azure families are listed**, and `[green.cloud]`
+accepts only those three providers. The wattages come from the Cloud
+Carbon Footprint coefficient CSVs, which publish nothing for OVHcloud,
+Scaleway or OUTSCALE, and there is no equivalent exporter to read a CPU
+utilization series from either. Those three carry grid intensity and PUE
+in the carbon table, so their regions score, but a made-up wattage would
+not be an estimate. On that hardware, measure instead: Alumet or
+Scaphandre read RAPL directly and outrank every modeled figure.
+
 Where the numbers come from, and why a family maps to a coefficient
 rather than to a measured machine: [`METHODOLOGY.md`](./METHODOLOGY.md)
 and `docs/design/05-GREENOPS-AND-CARBON.md`. Configuring the scraper:

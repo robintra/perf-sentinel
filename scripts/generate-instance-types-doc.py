@@ -74,6 +74,15 @@ approximated:
 "my-service" = {{ idle_watts = 45.0, max_watts = 120.0 }}
 ```
 
+**Only AWS, GCP and Azure families are listed**, and `[green.cloud]`
+accepts only those three providers. The wattages come from the Cloud
+Carbon Footprint coefficient CSVs, which publish nothing for OVHcloud,
+Scaleway or OUTSCALE, and there is no equivalent exporter to read a CPU
+utilization series from either. Those three carry grid intensity and PUE
+in the carbon table, so their regions score, but a made-up wattage would
+not be an estimate. On that hardware, measure instead: Alumet or
+Scaphandre read RAPL directly and outrank every modeled figure.
+
 Where the numbers come from, and why a family maps to a coefficient
 rather than to a measured machine: [`METHODOLOGY.md`](./METHODOLOGY.md)
 and `docs/design/05-GREENOPS-AND-CARBON.md`. Configuring the scraper:
@@ -104,6 +113,16 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 [green.cloud.services]
 "mon-service" = {{ idle_watts = 45.0, max_watts = 120.0 }}
 ```
+
+**Seules les familles AWS, GCP et Azure sont listées**, et
+`[green.cloud]` n'accepte que ces trois fournisseurs. Les puissances
+proviennent des CSV de coefficients Cloud Carbon Footprint, qui ne
+publient rien pour OVHcloud, Scaleway ou OUTSCALE, et il n'existe pas
+d'exporteur équivalent d'où lire une série d'utilisation CPU. Ces trois
+fournisseurs portent une intensité réseau et un PUE dans la table
+carbone, leurs régions sont donc scorées, mais une puissance inventée ne
+serait pas une estimation. Sur ce matériel, mesurez plutôt : Alumet ou
+Scaphandre lisent RAPL directement et priment sur toute valeur modélisée.
 
 D'où viennent ces chiffres, et pourquoi une famille correspond à un
 coefficient plutôt qu'à une machine mesurée :
