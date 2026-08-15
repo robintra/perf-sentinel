@@ -1119,8 +1119,11 @@ impl App {
         for &(f, avoidable) in ranked.iter().take(Self::TOP_FINDINGS_ROWS) {
             lines.push(Line::from(vec![
                 Span::raw("  - ".to_string()),
+                // 9, not 8: `CRITICAL` is exactly 8 characters, so a
+                // width of 8 padded it to nothing and ran the label into
+                // the finding type.
                 Span::styled(
-                    format!("{:<8}", severity_label(&f.severity)),
+                    format!("{:<9}", severity_label(&f.severity)),
                     Style::default().fg(severity_color(&f.severity)),
                 ),
                 Span::raw(finding_type_label(&f.finding_type)),

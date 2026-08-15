@@ -2105,6 +2105,13 @@ fn analyze_view_ranks_the_worst_findings() {
         text.contains("avoidable ops"),
         "impact figure missing: {text}"
     );
+    // `CRITICAL` is exactly as wide as the severity column, so a padding
+    // off by one ran it into the type with no space between the two.
+    // Caught on a regenerated screenshot, not by the assertions above.
+    assert!(
+        !text.contains("CRITICALN+1"),
+        "the severity column must not run into the type: {text}"
+    );
 }
 
 /// The dashboard has filtered findings by severity since it shipped;
