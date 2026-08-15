@@ -2461,16 +2461,22 @@ fn load_diff_against_baseline(
     sentinel_core::diff::diff_runs(&baseline, current)
 }
 
+/// Reject a `--*-stat-top` flag passed without the source it ranks.
+///
+/// Exit 2 matches clap's own usage-error code: this is an unsupported flag
+/// combination clap's `requires` cannot express, not a runtime tooling
+/// failure. A usage error is a permanent invocation mistake and must
+/// always block, never fall into the `75` bucket a pipeline may tolerate.
+/// See `docs/CI.md` "Exit codes".
+fn require_stat_source_or_exit(top: Option<usize>, has_source: bool, requirement: &str) {
+    if top.is_some() && !has_source {
+        eprintln!("Error: {requirement}");
+        std::process::exit(2);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 // optional flags, each adds a dedicated ingestion path
-// Without the `daemon` feature the only `.await` (the Prometheus pg-stat
-// fetch) is compiled out, leaving an async fn with no await, and the
-// pg_stat `if let`/`else` collapses to a shape clippy reads as `Option::map`
-// even though the `else` carries the daemon-gated Prometheus branch.
-#[cfg_attr(
-    not(feature = "daemon"),
-    allow(clippy::unused_async, clippy::manual_map)
-)]
 async fn cmd_report(
     input: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
@@ -2517,102 +2523,63 @@ async fn cmd_report(
     }
     let input_label = input_label_for(input, stdin_mode);
 
-    // Clap's `requires` does not express an OR-of-flags, so validate
-    // the pg_stat source requirement post-parse.
+    // Clap's `requires` does not express an OR-of-flags, so validate the
+    // stat source requirements post-parse. Both are checked before any
+    // load below: a usage error must not cost a Prometheus scrape first.
     #[cfg(feature = "daemon")]
     let has_pg_stat_source = pg_stat_path.is_some() || pg_stat_prometheus.is_some();
     #[cfg(not(feature = "daemon"))]
     let has_pg_stat_source = pg_stat_path.is_some();
-    if pg_stat_top.is_some() && !has_pg_stat_source {
-        #[cfg(feature = "daemon")]
-        eprintln!("Error: --pg-stat-top requires --pg-stat or --pg-stat-prometheus");
-        #[cfg(not(feature = "daemon"))]
-        eprintln!("Error: --pg-stat-top requires --pg-stat");
-        // Exit 2, matching clap's own usage-error code: this is an
-        // unsupported flag combination clap's `requires` cannot express,
-        // not a runtime tooling failure. A usage error is a permanent
-        // invocation mistake and must always block, never fall into the
-        // `75` bucket a pipeline may tolerate. See docs/CI.md "Exit codes".
-        std::process::exit(2);
-    }
-    // Same OR-of-flags pairing for --mysql-stat-top, checked here rather
-    // than after the pg-stat branch below: a usage error must not cost a
-    // Prometheus scrape before it exits.
+    require_stat_source_or_exit(
+        pg_stat_top,
+        has_pg_stat_source,
+        if cfg!(feature = "daemon") {
+            "--pg-stat-top requires --pg-stat or --pg-stat-prometheus"
+        } else {
+            "--pg-stat-top requires --pg-stat"
+        },
+    );
     #[cfg(feature = "daemon")]
     let has_mysql_stat_source = mysql_stat_path.is_some() || mysql_stat_prometheus.is_some();
     #[cfg(not(feature = "daemon"))]
     let has_mysql_stat_source = mysql_stat_path.is_some();
-    if mysql_stat_top.is_some() && !has_mysql_stat_source {
-        #[cfg(feature = "daemon")]
-        eprintln!("Error: --mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus");
-        #[cfg(not(feature = "daemon"))]
-        eprintln!("Error: --mysql-stat-top requires --mysql-stat");
-        std::process::exit(2);
-    }
+    require_stat_source_or_exit(
+        mysql_stat_top,
+        has_mysql_stat_source,
+        if cfg!(feature = "daemon") {
+            "--mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus"
+        } else {
+            "--mysql-stat-top requires --mysql-stat"
+        },
+    );
+
     let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
-
-    // --pg-stat / --pg-stat-prometheus are mutually exclusive at the
-    // clap level (conflicts_with). The Prometheus branch is gated
-    // behind the daemon feature, mirroring the existing pg-stat
-    // subcommand surface.
-    let pg_stat = if let Some(path) = pg_stat_path {
-        Some(pg_stat::load_pg_stat_from_file(path, top_n))
-    } else {
+    let pg_stat = pg_stat::resolve_pg_stat_source(
+        pg_stat_path,
         #[cfg(feature = "daemon")]
-        {
-            match pg_stat_prometheus {
-                Some(url) => {
-                    let resolved_auth = pg_stat::resolve_pg_stat_auth_header(pg_stat_auth_header);
-                    Some(
-                        pg_stat::load_pg_stat_from_prometheus(
-                            url,
-                            &config,
-                            top_n,
-                            pg_stat_prom,
-                            resolved_auth.as_deref(),
-                        )
-                        .await,
-                    )
-                }
-                None => None,
-            }
-        }
-        #[cfg(not(feature = "daemon"))]
-        {
-            None
-        }
-    };
+        pg_stat_prometheus,
+        #[cfg(feature = "daemon")]
+        pg_stat_auth_header,
+        #[cfg(feature = "daemon")]
+        pg_stat_prom,
+        #[cfg(feature = "daemon")]
+        &config,
+        top_n,
+    )
+    .await;
 
-    // --mysql-stat and --mysql-stat-prometheus are mutually exclusive by
-    // clap `conflicts_with`, so at most one of the two branches runs.
     let mysql_top_n = mysql_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
-    let mysql_stat = if let Some(path) = mysql_stat_path {
-        Some(mysql_stat::load_mysql_stat_from_file(path, mysql_top_n))
-    } else {
+    let mysql_stat = mysql_stat::resolve_mysql_stat_source(
+        mysql_stat_path,
         #[cfg(feature = "daemon")]
-        {
-            match mysql_stat_prometheus {
-                Some(url) => {
-                    let resolved_auth =
-                        mysql_stat::resolve_mysql_stat_auth_header(mysql_stat_auth_header);
-                    Some(
-                        mysql_stat::load_mysql_stat_from_prometheus(
-                            url,
-                            mysql_top_n,
-                            mysql_stat_prom,
-                            resolved_auth.as_deref(),
-                        )
-                        .await,
-                    )
-                }
-                None => None,
-            }
-        }
-        #[cfg(not(feature = "daemon"))]
-        {
-            None
-        }
-    };
+        mysql_stat_prometheus,
+        #[cfg(feature = "daemon")]
+        mysql_stat_auth_header,
+        #[cfg(feature = "daemon")]
+        mysql_stat_prom,
+        mysql_top_n,
+    )
+    .await;
 
     let diff = before_path.map(|path| {
         load_diff_against_baseline(

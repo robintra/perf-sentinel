@@ -77,6 +77,36 @@ pub(crate) fn load_pg_stat_from_file(
     }
 }
 
+/// Pick the `pg_stat` source for a `report` run. `--pg-stat` and
+/// `--pg-stat-prometheus` are mutually exclusive at the clap level
+/// (`conflicts_with`), and the Prometheus branch is gated behind the
+/// daemon feature, mirroring the `pg-stat` subcommand surface.
+// The only `.await` is the daemon-gated Prometheus fetch, so the
+// no-default-features build sees an async fn with no await.
+#[cfg_attr(not(feature = "daemon"), allow(clippy::unused_async))]
+pub(crate) async fn resolve_pg_stat_source(
+    path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] prometheus: Option<&str>,
+    #[cfg(feature = "daemon")] auth_header: Option<String>,
+    #[cfg(feature = "daemon")] opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
+    #[cfg(feature = "daemon")] config: &Config,
+    top_n: usize,
+) -> Option<sentinel_core::ingest::pg_stat::PgStatReport> {
+    if let Some(path) = path {
+        return Some(load_pg_stat_from_file(path, top_n));
+    }
+    #[cfg(feature = "daemon")]
+    {
+        let url = prometheus?;
+        let resolved_auth = resolve_pg_stat_auth_header(auth_header);
+        Some(load_pg_stat_from_prometheus(url, config, top_n, opts, resolved_auth.as_deref()).await)
+    }
+    #[cfg(not(feature = "daemon"))]
+    {
+        None
+    }
+}
+
 /// Scrape a `postgres_exporter` endpoint one-shot and produce the
 /// ranking report. Exits `EXIT_TOOLING_ERROR` on transport/parse
 /// failure, `pg-stat` has no quality gate to breach.
