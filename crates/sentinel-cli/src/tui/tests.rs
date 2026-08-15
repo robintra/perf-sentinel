@@ -2086,6 +2086,88 @@ fn analyze_view_ranks_the_worst_findings() {
     );
 }
 
+/// The dashboard has filtered findings by severity since it shipped;
+/// the terminal browser never could.
+#[test]
+fn severity_filter_narrows_the_findings_panel() {
+    let mut app = make_test_app();
+    // Both findings on one trace: a critical and a warning.
+    app.all_findings[1].trace_id = "trace-1".to_string();
+    app.findings_by_trace[0] = vec![0, 1];
+    app.findings_by_trace[1] = vec![];
+    app.apply_finding_filter();
+    assert_eq!(app.finding_count(), 2, "unfiltered shows both");
+    assert_eq!(app.severity_filter_label(), "all");
+
+    app.cycle_severity_filter();
+    assert_eq!(app.severity_filter_label(), "critical");
+    assert_eq!(app.finding_count(), 1);
+    assert_eq!(
+        app.current_finding().map(|f| f.severity.clone()),
+        Some(Severity::Critical)
+    );
+
+    app.cycle_severity_filter();
+    assert_eq!(app.severity_filter_label(), "warning");
+    assert_eq!(app.finding_count(), 1);
+
+    // Info matches nothing here: the panel empties rather than falling
+    // back to the unfiltered list.
+    app.cycle_severity_filter();
+    assert_eq!(app.severity_filter_label(), "info");
+    assert_eq!(app.finding_count(), 0);
+    assert!(app.current_finding().is_none());
+
+    app.cycle_severity_filter();
+    assert_eq!(app.severity_filter_label(), "all", "the cycle closes");
+    assert_eq!(app.finding_count(), 2);
+}
+
+/// The visible slices index into the sorted source, so a reorder while
+/// a filter is on must rebuild them, not leave the previous order.
+#[test]
+fn severity_filter_survives_a_reorder() {
+    let mut app = make_test_app();
+    app.all_findings[1].trace_id = "trace-1".to_string();
+    app.findings_by_trace[0] = vec![0, 1];
+    app.findings_by_trace[1] = vec![];
+    app.apply_finding_filter();
+
+    app.cycle_severity_filter();
+    assert_eq!(app.severity_filter_label(), "critical");
+    app.cycle_trace_sort();
+    assert_eq!(app.severity_filter_label(), "critical", "the filter holds");
+    assert_eq!(
+        app.finding_count(),
+        1,
+        "and still narrows after the reorder"
+    );
+}
+
+/// A narrowed panel must say so on screen, not only in the state.
+#[test]
+fn severity_filter_shows_in_the_chrome() {
+    let mut app = make_test_app();
+    app.active_panel = Panel::Findings;
+    let plain = buffer_text(&render_once(&mut app, 200, 40));
+    assert!(plain.contains("Findings"), "panel title missing");
+    assert!(
+        !plain.contains("Findings ["),
+        "no filter, no marker: {plain}"
+    );
+
+    app.cycle_severity_filter();
+    let filtered = buffer_text(&render_once(&mut app, 200, 40));
+    assert!(
+        filtered.contains("Findings [critical]"),
+        "title must name the filter"
+    );
+    assert!(
+        filtered.contains("f severity: critical"),
+        "tab bar must name it too"
+    );
+}
+
 /// The sort key ordered the trace list while the findings inside a
 /// trace kept detector order, so a run opened worst-first still showed
 /// whichever finding the detector emitted first.
