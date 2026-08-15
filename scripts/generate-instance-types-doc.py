@@ -77,11 +77,28 @@ approximated:
 **Only AWS, GCP and Azure families are listed**, and `[green.cloud]`
 accepts only those three providers. The wattages come from the Cloud
 Carbon Footprint coefficient CSVs, which publish nothing for OVHcloud,
-Scaleway or OUTSCALE, and there is no equivalent exporter to read a CPU
-utilization series from either. Those three carry grid intensity and PUE
-in the carbon table, so their regions score, but a made-up wattage would
-not be an estimate. On that hardware, measure instead: Alumet or
-Scaphandre read RAPL directly and outrank every modeled figure.
+Scaleway or OUTSCALE. Those three carry grid intensity and PUE in the
+carbon table, so their regions score, but no published figure supports a
+per-instance power profile for them, and a made-up wattage would not be
+an estimate. Searched, as of August 2026:
+
+- **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi)) is
+  the only third-party base that reaches instance granularity, with 50
+  OVHcloud sizes and 69 Scaleway ones. Its files carry **no power
+  column** at all, and for OVHcloud the CPU those wattages would be
+  derived from is Boavizta's own assumption, flagged `CPU not verified`
+  on all 12 archetype rows. One credits a rack server with an
+  `Intel Core i7-4940MX`, a mobile part, across two sockets.
+- **Scaleway** publishes only `kg_co2_equivalent` and `m3_water_usage`,
+  account-scoped, and states that instead of measuring instance power it
+  feeds a CPU-percentage proxy into a Boavizta consumption profile. Its
+  Product Catalog API does expose CPU sockets, cores and frequency per
+  SKU, which is a lead, but no wattage.
+- **OUTSCALE** stops at (Region, service category): two regions, three
+  categories, no instance type, no watt, no kWh.
+
+On that hardware, measure instead: Alumet or Scaphandre read RAPL
+directly and outrank every modeled figure.
 
 Where the numbers come from, and why a family maps to a coefficient
 rather than to a measured machine: [`METHODOLOGY.md`](./METHODOLOGY.md)
@@ -117,12 +134,32 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 **Seules les familles AWS, GCP et Azure sont listées**, et
 `[green.cloud]` n'accepte que ces trois fournisseurs. Les puissances
 proviennent des CSV de coefficients Cloud Carbon Footprint, qui ne
-publient rien pour OVHcloud, Scaleway ou OUTSCALE, et il n'existe pas
-d'exporteur équivalent d'où lire une série d'utilisation CPU. Ces trois
+publient rien pour OVHcloud, Scaleway ou OUTSCALE. Ces trois
 fournisseurs portent une intensité réseau et un PUE dans la table
-carbone, leurs régions sont donc scorées, mais une puissance inventée ne
-serait pas une estimation. Sur ce matériel, mesurez plutôt : Alumet ou
-Scaphandre lisent RAPL directement et priment sur toute valeur modélisée.
+carbone, leurs régions sont donc scorées, mais aucun chiffre publié ne
+soutient un profil de puissance par instance pour eux, et une puissance
+inventée ne serait pas une estimation. Recherché, en août 2026 :
+
+- **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi))
+  est la seule base tierce à descendre au type d'instance, avec 50
+  tailles OVHcloud et 69 Scaleway. Ses fichiers ne portent **aucune
+  colonne de puissance**, et pour OVHcloud le CPU dont ces puissances
+  seraient dérivées est une hypothèse de Boavizta lui-même, marquée
+  `CPU not verified` sur les 12 lignes d'archétype. L'une crédite un
+  serveur rack d'un `Intel Core i7-4940MX`, une puce mobile, sur deux
+  sockets.
+- **Scaleway** ne publie que `kg_co2_equivalent` et `m3_water_usage`,
+  limités au compte appelant, et déclare qu'au lieu de mesurer la
+  puissance d'une instance il injecte un proxy de pourcentage CPU dans
+  un profil de consommation Boavizta. Son API Product Catalog expose
+  bien les sockets, cœurs et fréquence par SKU, ce qui est une piste,
+  mais aucune puissance.
+- **OUTSCALE** s'arrête au couple (Région, catégorie de service) : deux
+  régions, trois catégories, aucun type d'instance, aucun watt, aucun
+  kWh.
+
+Sur ce matériel, mesurez plutôt : Alumet ou Scaphandre lisent RAPL
+directement et priment sur toute valeur modélisée.
 
 D'où viennent ces chiffres, et pourquoi une famille correspond à un
 coefficient plutôt qu'à une machine mesurée :

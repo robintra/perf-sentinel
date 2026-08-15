@@ -20,10 +20,27 @@ approximated:
 **Only AWS, GCP and Azure families are listed**, and `[green.cloud]`
 accepts only those three providers. The wattages come from the Cloud
 Carbon Footprint coefficient CSVs, which publish nothing for OVHcloud,
-Scaleway or OUTSCALE, and there is no equivalent exporter to read a CPU
-utilization series from either. Those three carry grid intensity and PUE
-in the carbon table, so their regions score, but a made-up wattage would
-not be an estimate. On that hardware, measure instead: Alumet or
+Scaleway or OUTSCALE. Those three carry grid intensity and PUE in the
+carbon table, so their regions score, but no published figure supports a
+per-instance power profile for them, and a made-up wattage would not be
+an estimate. Searched, as of August 2026:
+
+- **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi)) is
+  the only third-party base that reaches instance granularity, with 50
+  OVHcloud sizes and 69 Scaleway ones. Its files carry **no power
+  column** at all, and for OVHcloud the CPU those wattages would be
+  derived from is Boavizta's own assumption, flagged `CPU not verified`
+  on all 12 archetype rows. One credits a rack server with an
+  `Intel Core i7-4940MX`, a mobile part, across two sockets.
+- **Scaleway** publishes only `kg_co2_equivalent` and `m3_water_usage`,
+  account-scoped, and states that instead of measuring instance power it
+  feeds a CPU-percentage proxy into a Boavizta consumption profile. Its
+  Product Catalog API does expose CPU sockets, cores and frequency per
+  SKU, which is a lead, but no wattage.
+- **OUTSCALE** stops at (Region, service category): two regions, three
+  categories, no instance type, no watt, no kWh.
+
+On that hardware, measure instead: Alumet or
 Scaphandre read RAPL directly and outrank every modeled figure.
 
 Where the numbers come from, and why a family maps to a coefficient
