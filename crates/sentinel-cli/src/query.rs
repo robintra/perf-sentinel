@@ -79,7 +79,7 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
             render_explain_response(&body, format);
         }
         #[cfg(feature = "tui")]
-        QueryAction::Inspect { api_key_file } => {
+        QueryAction::Inspect { api_key_file, sort } => {
             let api_key = match crate::ack::resolve_api_key(api_key_file.as_deref()) {
                 Ok(v) => v,
                 Err(e) => {
@@ -94,7 +94,7 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
             let limit = crate::ack::FINDINGS_FETCH_LIMIT;
             let path = format!("/api/findings?limit={limit}&include_acked=true");
             let body = fetch(&path).await;
-            run_inspect_action(&body, &client, &trimmed, timeout, api_key).await;
+            run_inspect_action(&body, &client, &trimmed, timeout, api_key, sort).await;
         }
         #[cfg(feature = "tui")]
         QueryAction::Monitor { refresh } => {
@@ -489,6 +489,7 @@ async fn run_inspect_action(
     base_url: &str,
     timeout: std::time::Duration,
     api_key: Option<String>,
+    sort: Option<crate::render::FindingsSort>,
 ) {
     let responses: Vec<sentinel_core::daemon::query_api::FindingResponse> =
         serde_json::from_slice(body).unwrap_or_default();
@@ -535,7 +536,8 @@ async fn run_inspect_action(
         .collect();
     let app = crate::tui::App::new(findings, traces)
         .with_pre_rendered_trees(pre_rendered_trees)
-        .with_correlations(correlations);
+        .with_correlations(correlations)
+        .with_initial_sort(sort);
     let app = match report {
         Some(report) => app.with_summary(crate::tui::AnalyzeSummary {
             green_summary: report.green_summary,

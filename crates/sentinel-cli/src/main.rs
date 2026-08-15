@@ -1096,6 +1096,12 @@ enum QueryAction {
         /// `[daemon.ack] api_key`.
         #[arg(long, value_name = "PATH")]
         api_key_file: Option<PathBuf>,
+        /// Open the trace and finding lists in this order: severity
+        /// (worst first) or impact (highest aggregate avoidable I/O
+        /// first). Same keys as `analyze --sort`, and `s` cycles them
+        /// in the TUI. Omit to open on trace id order.
+        #[arg(long, value_enum, value_name = "KEY")]
+        sort: Option<render::FindingsSort>,
     },
     /// Live operator monitor: the daemon's settings-advisor hints and
     /// the effective energy/carbon mix (source per service, grid

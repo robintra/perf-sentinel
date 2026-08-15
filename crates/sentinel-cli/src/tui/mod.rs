@@ -523,6 +523,7 @@ impl App {
             TraceSort::ById => {
                 order.sort_by(|&a, &b| self.trace_ids[a].cmp(&self.trace_ids[b]));
                 self.apply_trace_order(&order);
+                self.reorder_findings();
                 return;
             }
             TraceSort::Severity => crate::render::FindingsSort::Severity,
@@ -537,6 +538,51 @@ impl App {
             .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
         });
         self.apply_trace_order(&order);
+        self.reorder_findings();
+    }
+
+    /// Rank the findings inside each trace under the active mode, on the
+    /// same comparator as the trace list and the dashboard. Without this
+    /// the key ordered the outer list while the inner one kept detector
+    /// order, so a trace ranked worst-first opened on whichever finding
+    /// the detector happened to emit first. `ById` restores the report's
+    /// own order, which is the index order in `all_findings`.
+    fn reorder_findings(&mut self) {
+        let mode = match self.trace_sort {
+            TraceSort::ById => {
+                for indices in &mut self.findings_by_trace {
+                    indices.sort_unstable();
+                }
+                self.selected_finding = 0;
+                return;
+            }
+            TraceSort::Severity => crate::render::FindingsSort::Severity,
+            TraceSort::Impact => crate::render::FindingsSort::Impact,
+        };
+        // Impact ranks on the signature's aggregate avoidable ops, the
+        // same figure `sort_findings` and the dashboard rank on, not on
+        // this one detection's own count.
+        let findings = &self.all_findings;
+        let recurrence = &self.recurrence;
+        let ops = |i: usize| -> u64 {
+            let key = crate::render::recurrence_key(&findings[i]);
+            recurrence.get(&key).map_or(0, |s| s.total_ops) as u64
+        };
+        let mut sorted = std::mem::take(&mut self.findings_by_trace);
+        for indices in &mut sorted {
+            indices.sort_by(|&a, &b| {
+                crate::render::compare_severity_impact(
+                    mode,
+                    (&findings[a].severity, ops(a)),
+                    (&findings[b].severity, ops(b)),
+                )
+                // Index order as the final tie-break keeps the list
+                // stable between two renders of the same data.
+                .then(a.cmp(&b))
+            });
+        }
+        self.findings_by_trace = sorted;
+        self.selected_finding = 0;
     }
 
     /// Open the list in `mode` without cycling, for callers that were
