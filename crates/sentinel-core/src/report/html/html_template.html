@@ -300,8 +300,6 @@
   .ps-mini-pill { padding: 4px 10px; border-radius: 20px; font-size: 11.5px; }
   .ps-mini-link { font-family: var(--font-ui); font-weight: 600; font-size: 11.5px; color: var(--btn-fg); background: var(--surface-2); border: 1px solid var(--btn-bd); border-radius: 999px; padding: 5px 11px; cursor: pointer; align-self: flex-start; }
   .ps-mini-link:hover { color: var(--brand-2); background: var(--accent-bg); border-color: var(--brand); }
-  /* Underline the link label but not the trailing arrow. */
-  .ps-link-txt { text-decoration: underline; }
   .ps-mini-row { display: flex; flex-direction: column; gap: 5px; }
   .ps-mini-row-head { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; }
   .ps-bar-track { height: 6px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
@@ -2280,9 +2278,7 @@
     var leftCard = el("div", "ps-card");
     var head = el("div", "ps-overview-card-head");
     head.appendChild(el("span", "ps-overview-card-title", "Top findings by impact"));
-    var viewAll = el("button", "ps-overview-link");
-    viewAll.appendChild(el("span", "ps-link-txt", "view all"));
-    viewAll.appendChild(document.createTextNode(" →"));
+    var viewAll = el("button", "ps-overview-link", "view all →");
     viewAll.type = "button";
     viewAll.addEventListener("click", function () { switchTab("findings"); });
     head.appendChild(viewAll);
@@ -2404,9 +2400,7 @@
     pills.appendChild(pRes);
     pills.appendChild(pChg);
     card.appendChild(pills);
-    var link = el("button", "ps-mini-link");
-    link.appendChild(el("span", "ps-link-txt", "open diff"));
-    link.appendChild(document.createTextNode(" →"));
+    var link = el("button", "ps-mini-link", "open diff →");
     link.type = "button";
     link.addEventListener("click", function () { switchTab("diff"); });
     card.appendChild(link);
