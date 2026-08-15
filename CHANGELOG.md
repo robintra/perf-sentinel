@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- Both sides of a cross-trace correlation open their finding again in the demo dashboard, and the pills carry their real severity. Each card is split in two click zones, resolved against the findings on type, service, grouping and template, and the demo built its endpoints by hand with no grouping at all while every demo finding carries one. Since the match tightened to require agreement on both sides, nothing resolved: the left zone was rendered with no cursor, no hover and no handler, the right one survived only through its sample-trace fallback, all six pills fell back to the default amber whatever the finding's severity, and the cards stopped sorting by severity because every card ranked the same. The endpoints now borrow the template and the grouping from the finding they name, so they follow whatever grouping attribute the run is configured with instead of restating one, and a test asserts every side resolves. The browser fixture had the mirror image of the defect, endpoints naming a grouping its findings did not carry, and it tagged only one of its two trace sets: the correlation test asserted a live zone somewhere on the panel rather than on each card, which is how a panel with every left half dead still passed. A side that genuinely resolves nothing, on a report whose findings were truncated out of the embedded payload, now says so on hover rather than looking clickable and doing nothing.
+
 ## [0.13.1] - 2026-08-14
 
 ### Added

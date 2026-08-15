@@ -4420,42 +4420,45 @@
   // timing is `median_lag_ms` and `co_occurrence_count`.
   // A correlation carries no severity of its own: borrow the matched
   // real finding's per side (warn when unmatched, cards always were).
-  function endpointSeverity(endpoint) {
-    var real = findRealFindingForCorrelation(endpoint || {});
-    return real ? real.severity : null;
-  }
-  // Sort key: the worst side of the pair.
-  function correlationSeverity(c) {
-    var a = SEV_RANK[endpointSeverity(c.source)] ?? 3;
-    var b = SEV_RANK[endpointSeverity(c.target)] ?? 3;
-    var worst = Math.min(a, b);
-    return Object.keys(SEV_RANK).find(function (k) { return SEV_RANK[k] === worst; }) || null;
+  function severityRankOfMatch(real) {
+    return (real && SEV_RANK[real.severity]) ?? 3;
   }
   function corrTag(endpoint, sev) {
     var tag = el("span", "ps-corr-tag", typeLabel((endpoint || {}).finding_type || "cross-trace").toUpperCase());
     setAttr(tag, "data-sev", sev === "critical" ? "crit" : sev === "info" ? "info" : "warn");
     return tag;
   }
+  var UNRESOLVED_SIDE_HINT = "No matching finding in this report";
   function renderCorrelationsPanel() {
     if (!hasCorrelations) return;
     var list = document.getElementById("correlations-list");
     list.textContent = "";
-    // Decorate once: correlationSeverity scans the findings array, and a
-    // comparator would re-run it O(n log n) times.
+    // Resolve both sides once: each lookup scans the findings array, and the
+    // sort key (the worst side of the pair) needs the same two matches the
+    // click zones do.
     var ordered = correlations
-      .map(function (c) { return { c: c, rank: SEV_RANK[correlationSeverity(c)] ?? 3 }; })
+      .map(function (c) {
+        var srcReal = findRealFindingForCorrelation(c.source || {});
+        var tgtReal = findRealFindingForCorrelation(c.target || {});
+        return {
+          c: c,
+          srcReal: srcReal,
+          tgtReal: tgtReal,
+          rank: Math.min(severityRankOfMatch(srcReal), severityRankOfMatch(tgtReal))
+        };
+      })
       .sort(function (a, b) {
         return a.rank !== b.rank ? a.rank - b.rank : (b.c.confidence || 0) - (a.c.confidence || 0);
-      })
-      .map(function (entry) { return entry.c; });
-    ordered.forEach(function (c) {
+      });
+    ordered.forEach(function (entry) {
+      var c = entry.c;
       var src = c.source || {};
       var tgt = c.target || {};
       // Each side of the causal pair is its own click zone: source opens
       // the triggering finding, target the triggered one. A side with no
       // matching finding in this report stays inert.
       var card = el("div", "ps-corr-card ps-correlation-row");
-      var srcReal = findRealFindingForCorrelation(src);
+      var srcReal = entry.srcReal;
       var srcZone = el("span", "ps-corr-side");
       srcZone.appendChild(corrTag(src, srcReal ? srcReal.severity : null));
       srcZone.appendChild(el("span", "ps-corr-path", correlationEndpointLabel(src)));
@@ -4463,10 +4466,13 @@
         srcZone.classList.add("ps-corr-side-link");
         setAttr(srcZone, "role", "button");
         srcZone.addEventListener("click", function () { gotoFinding(srcReal); });
+      } else {
+        // An inert zone looks exactly like a live one, so say why it is dead.
+        srcZone.title = UNRESOLVED_SIDE_HINT;
       }
       card.appendChild(srcZone);
       card.appendChild(el("span", "ps-corr-path", "→"));
-      var tgtReal = findRealFindingForCorrelation(tgt);
+      var tgtReal = entry.tgtReal;
       var tgtZone = el("span", "ps-corr-side");
       tgtZone.appendChild(corrTag(tgt, tgtReal ? tgtReal.severity : null));
       tgtZone.appendChild(el("span", "ps-corr-path", correlationEndpointLabel(tgt)));
@@ -4477,6 +4483,8 @@
           if (tgtReal) gotoFinding(tgtReal);
           else openExternalFindingDetail(syntheticFindingFromCorrelation(c));
         });
+      } else {
+        tgtZone.title = UNRESOLVED_SIDE_HINT;
       }
       card.appendChild(tgtZone);
       var conf = Math.round((c.confidence || 0) * 100);

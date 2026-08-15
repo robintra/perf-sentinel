@@ -112,9 +112,11 @@ const DEMO_CORRELATIONS = [
   },
   {
     source: {
+      // Same finding as correlation 1's target, so the same template: a stale
+      // one only resolved through the "type+service is unambiguous" fallback.
       finding_type: "slow_http",
       service: "chat-svc",
-      template: "POST /api/notify"
+      template: "POST notification-svc/api/notify"
     },
     target: {
       finding_type: "n_plus_one_sql",
@@ -234,17 +236,27 @@ function renderFixtures() {
 // Keep both raw namespace dimensions in the browser fixture. order-svc
 // carries both values (Kubernetes wins for filtering), payment-svc carries
 // only service.namespace (the fallback), and chat-svc carries neither.
+// Both fixtures tag the same way: DEMO_CORRELATIONS names these identities on
+// its endpoints, and the dashboard resolves a correlation side only when the
+// finding's grouping matches, so an untagged demo fixture kills every click
+// zone.
+function tagGrouping(ev: Record<string, unknown>) {
+  if (ev.service === "order-svc") {
+    ev.grouping = [
+      { key: "k8s.namespace.name", value: "prod-eu" },
+      { key: "service.namespace", value: "commerce" },
+    ];
+  } else if (ev.service === "payment-svc") {
+    ev.grouping = [{ key: "service.namespace", value: "finance" }];
+  }
+}
+
 function writeNamespacedEvents(source: string, dest: string) {
   const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
   for (const ev of events) {
-    if (ev.service === "order-svc") {
-      ev.grouping = [
-        { key: "k8s.namespace.name", value: "prod-eu" },
-        { key: "service.namespace", value: "commerce" },
-      ];
-      if (ev.span_id === "o1-n1-1") ev.timestamp = "2026-04-20T10:00:00.01Z";
-    } else if (ev.service === "payment-svc") {
-      ev.grouping = [{ key: "service.namespace", value: "finance" }];
+    tagGrouping(ev);
+    if (ev.service === "order-svc" && ev.span_id === "o1-n1-1") {
+      ev.timestamp = "2026-04-20T10:00:00.01Z";
     }
   }
   events.push({
@@ -320,6 +332,7 @@ function writeManyFindingsEvents(source: string, dest: string) {
 function writeDemoEvents(source: string, dest: string) {
   const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
   for (const ev of events) {
+    tagGrouping(ev);
     if (typeof ev.cloud_region === "string" && ev.cloud_region.length > 0) {
       continue;
     }

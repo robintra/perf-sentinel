@@ -468,6 +468,10 @@ test("24. each side of a correlation opens its own finding", async ({ page }) =>
   const zoneCount = await zones.count();
   expect(zoneCount, "the demo fixture must carry clickable correlation sides")
     .toBeGreaterThan(0);
+  // Per card, not in aggregate: a source side that resolves nothing is rendered
+  // inert and silent, which is how every left half went dead unnoticed.
+  const cards = await page.locator("#correlations-list .ps-corr-card").count();
+  expect(zoneCount, "both sides of every card must be live").toBe(cards * 2);
   await zones.first().click();
   const h2 = page.locator("#explain-detail-head .ps-detail-h2");
   await expect(h2).toBeVisible();

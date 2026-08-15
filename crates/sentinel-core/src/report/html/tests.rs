@@ -313,8 +313,9 @@ fn correlation_cards_land_on_and_announce_the_real_findings() {
         // Click resolves the matching real finding before the synthetic.
         "findRealFindingForCorrelation",
         // Both sides tagged with the borrowed severity, worst side sorts.
-        "endpointSeverity",
-        "correlationSeverity",
+        "severityRankOfMatch",
+        // A side that resolves nothing says so instead of looking clickable.
+        "UNRESOLVED_SIDE_HINT",
     ] {
         assert!(
             html.contains(needle),
