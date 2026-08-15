@@ -216,8 +216,8 @@ pub(super) fn validate_broker_static(
         "aws" | "gcp" | "azure" | "scaleway" | "generic"
     ) {
         return Err(format!(
-            "[green.broker_static] provider must be 'aws', 'gcp', 'azure' or \
-             'generic', got '{}'",
+            "[green.broker_static] provider must be 'aws', 'gcp', 'azure', \
+             'scaleway' or 'generic', got '{}'",
             cfg.provider
         ));
     }
@@ -1326,7 +1326,8 @@ impl Config {
             && !matches!(p.as_str(), "aws" | "gcp" | "azure" | "scaleway")
         {
             return Err(format!(
-                "[green.cloud] default_provider must be 'aws', 'gcp', or 'azure', got '{p}'"
+                "[green.cloud] default_provider must be 'aws', 'gcp', 'azure' or \
+                 'scaleway', got '{p}'"
             ));
         }
         if let Some(ref it) = cfg.default_instance_type
@@ -1450,7 +1451,7 @@ impl Config {
         {
             return Err(format!(
                 "[green.cloud.services.{service}] provider must be 'aws', 'gcp', \
-                 or 'azure', got '{p}'"
+                 'azure' or 'scaleway', got '{p}'"
             ));
         }
         if has_control_char(instance_type) {

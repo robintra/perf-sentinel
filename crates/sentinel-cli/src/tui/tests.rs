@@ -2048,6 +2048,27 @@ fn analyze_view_stays_silent_without_warnings() {
     assert!(!line_text(&app.build_analyze_lines()).contains("Warnings:"));
 }
 
+/// The Analyze scroll clamp reads a cached line count. Warnings are part
+/// of that body, including on the degraded no-summary path that never
+/// calls `with_summary`, so a count left at 0 would pin the view to the
+/// first row and hide every warning past the viewport.
+#[test]
+fn warnings_extend_the_analyze_scroll_clamp_without_a_summary() {
+    use sentinel_core::report::warnings::Warning;
+    let warnings: Vec<Warning> = (0..40)
+        .map(|i| Warning::new("snapshot_scope", format!("warning number {i}")))
+        .collect();
+
+    let app = make_test_app().with_warnings(warnings);
+    let rendered = app.build_analyze_lines().len();
+    assert!(rendered > 40, "the body carries every warning: {rendered}");
+    assert_eq!(
+        usize::from(app.analyze_content_line_count()),
+        rendered,
+        "the clamp must follow the body, not stay at the no-summary 0"
+    );
+}
+
 /// "Top offenders" ranks endpoints by intensity, a different question
 /// from which problem to open first. The dashboard has had both cards
 /// since 0.9.10, the terminal only ever had the first.

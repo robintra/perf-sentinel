@@ -216,10 +216,11 @@ const fn intensity_source_label(source: IntensitySource) -> &'static str {
 /// Per-span timing statistics of a finding's pattern, as one line, or
 /// `None` when the detector populated none of the three (only n+1 and
 /// slow do). Shared with the TUI so the two terminal surfaces cannot
-/// drift from each other or from the dashboard, which formats the same
-/// three figures the same way: microseconds humanized, and the
-/// coefficient of variation as a percentage (`cv_x1000` is scaled by
-/// 1000, so 523 reads 52.3%).
+/// drift from each other. Same three figures as the dashboard, and the
+/// coefficient of variation reads identically there (`cv_x1000` is
+/// scaled by 1000, so 523 reads 52.3%); the durations do not, the
+/// dashboard's `formatDurationUs` always prints milliseconds while the
+/// terminal follows `explain`'s µs/ms/s scale.
 pub(crate) fn format_span_timing(pattern: &sentinel_core::detect::Pattern) -> Option<String> {
     let mut parts = Vec::with_capacity(3);
     if let Some(p50) = pattern.span_duration_us_p50 {
@@ -234,8 +235,10 @@ pub(crate) fn format_span_timing(pattern: &sentinel_core::detect::Pattern) -> Op
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// Microseconds as the dashboard humanizes them: µs under a
-/// millisecond, milliseconds under a second, seconds above.
+/// Microseconds on the terminal scale, the one `explain`'s span tree
+/// already uses: µs under a millisecond, milliseconds under a second,
+/// seconds above. Deliberately not the dashboard's `formatDurationUs`,
+/// which prints milliseconds at every magnitude (`0.80 ms`, `2500 ms`).
 fn format_duration_us(us: u64) -> String {
     #[allow(clippy::cast_precision_loss)]
     let us_f = us as f64;
@@ -379,6 +382,25 @@ pub(crate) fn format_colored_report_with_acks(
     // informational. Only `cmd_demo` renders with the "demo" title.
     print_quality_gate(&report.quality_gate, force_color, title == "demo");
     print_acknowledged_summary(report, force_color, show_acknowledged);
+}
+
+/// The report's warnings in structured form, whichever field carries
+/// them: `warning_details` (0.5.19+) when non-empty, otherwise the
+/// legacy `warnings: Vec<String>` a pre-0.5.19 report or daemon sends.
+/// One helper so every surface applies the same fallback, instead of
+/// each caller remembering the older field exists. Only the TUI surfaces
+/// need it as data, the text report formats the two forms in place.
+#[cfg(feature = "tui")]
+pub(crate) fn effective_warnings(report: &Report) -> Vec<sentinel_core::report::warnings::Warning> {
+    if report.warning_details.is_empty() {
+        report
+            .warnings
+            .iter()
+            .map(|m| sentinel_core::report::warnings::Warning::from_untrusted("warning", m))
+            .collect()
+    } else {
+        report.warning_details.clone()
+    }
 }
 
 /// Surface snapshot warnings before the findings list. Prefers the
@@ -2200,12 +2222,12 @@ mod tests {
         );
     }
 
-    /// The dashboard humanizes the same three figures the same way, and
-    /// reads the coefficient of variation as a percentage of a value
-    /// stored scaled by 1000. Getting that scale wrong turns 52.3% into
-    /// 523%, which is why the unit conversion is pinned.
+    /// The coefficient of variation is a percentage of a value stored
+    /// scaled by 1000, the same reading the dashboard makes. Getting that
+    /// scale wrong turns 52.3% into 523%, which is why the unit
+    /// conversion is pinned, alongside the terminal duration scale.
     #[test]
-    fn span_timing_line_matches_the_dashboard_units() {
+    fn span_timing_line_uses_the_terminal_scale_and_the_dashboard_cv() {
         let mut pattern = sentinel_core::detect::Pattern {
             template: String::new(),
             occurrences: 3,

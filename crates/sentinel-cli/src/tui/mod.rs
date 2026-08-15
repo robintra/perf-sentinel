@@ -151,15 +151,20 @@ pub struct App {
     pub view: View,
     /// Summary backing the Analyze view. `None` renders a degraded hint.
     summary: Option<AnalyzeSummary>,
-    /// Rendered line count of the Analyze body, precomputed once in
-    /// `with_summary` (the summary is immutable for the App's lifetime) so
-    /// the per-keypress scroll clamp does not rebuild the line vector.
+    /// Rendered line count of the Analyze body, precomputed by every
+    /// builder that feeds it (the body is immutable afterwards) so the
+    /// per-keypress scroll clamp does not rebuild the line vector.
     analyze_line_count: u16,
 
     /// Per-signature recurrence tallies over `all_findings`, computed
     /// once: the detail panel prints them and the impact sort ranks by
     /// them.
     recurrence: HashMap<String, crate::render::RecurrenceStats>,
+    /// Aggregate avoidable ops of each finding's signature, indexed like
+    /// `all_findings`. Resolved once: `recurrence_key` allocates a
+    /// `String`, and the impact sorts would otherwise rebuild it twice
+    /// per comparison, on every reorder and every Analyze redraw.
+    avoidable_ops: Vec<u64>,
     /// Active order of the trace list.
     pub trace_sort: TraceSort,
     pub selected_trace: usize,
@@ -257,9 +262,20 @@ impl App {
             }
         }
 
+        let recurrence = build_recurrence(&findings);
+        let avoidable_ops: Vec<u64> = findings
+            .iter()
+            .map(|f| {
+                recurrence
+                    .get(&crate::render::recurrence_key(f))
+                    .map_or(0, |s| s.total_ops) as u64
+            })
+            .collect();
+
         Self {
             traces,
-            recurrence: build_recurrence(&findings),
+            recurrence,
+            avoidable_ops,
             trace_sort: TraceSort::ById,
             all_findings: findings,
             visible_by_trace: findings_by_trace.clone(),
@@ -353,7 +369,21 @@ impl App {
         warnings: Vec<sentinel_core::report::warnings::Warning>,
     ) -> Self {
         self.warnings = warnings;
+        // Warnings are part of the Analyze body, so the cached line count
+        // has to follow them. Without this the degraded no-summary path
+        // (which never calls `with_summary`) keeps a count of 0 and the
+        // view cannot be scrolled to the warnings past the viewport, and
+        // the builder order would silently decide whether they count.
+        self.refresh_analyze_line_count();
         self
+    }
+
+    /// Recompute the cached Analyze line count from the current body.
+    /// Called by every builder that feeds that body, so the scroll clamp
+    /// never trails the content regardless of the call order.
+    fn refresh_analyze_line_count(&mut self) {
+        self.analyze_line_count =
+            u16::try_from(self.build_analyze_lines().len()).unwrap_or(u16::MAX);
     }
 
     /// Attach the summary backing the Analyze view (`GreenOps` waste, top
@@ -362,8 +392,7 @@ impl App {
         self.summary = Some(summary);
         // Build the body once to cache its line count; the summary and
         // findings are immutable afterwards, so the count never changes.
-        self.analyze_line_count =
-            u16::try_from(self.build_analyze_lines().len()).unwrap_or(u16::MAX);
+        self.refresh_analyze_line_count();
         self
     }
 
@@ -594,7 +623,6 @@ impl App {
             TraceSort::ById => {
                 order.sort_by(|&a, &b| self.trace_ids[a].cmp(&self.trace_ids[b]));
                 self.apply_trace_order(&order);
-                self.reorder_findings();
                 return;
             }
             TraceSort::Severity => crate::render::FindingsSort::Severity,
@@ -609,7 +637,6 @@ impl App {
             .then_with(|| self.trace_ids[a].cmp(&self.trace_ids[b]))
         });
         self.apply_trace_order(&order);
-        self.reorder_findings();
     }
 
     /// Rank the findings inside each trace under the active mode, on the
@@ -634,18 +661,14 @@ impl App {
         // same figure `sort_findings` and the dashboard rank on, not on
         // this one detection's own count.
         let findings = &self.all_findings;
-        let recurrence = &self.recurrence;
-        let ops = |i: usize| -> u64 {
-            let key = crate::render::recurrence_key(&findings[i]);
-            recurrence.get(&key).map_or(0, |s| s.total_ops) as u64
-        };
+        let ops = &self.avoidable_ops;
         let mut sorted = std::mem::take(&mut self.findings_by_trace);
         for indices in &mut sorted {
             indices.sort_by(|&a, &b| {
                 crate::render::compare_severity_impact(
                     mode,
-                    (&findings[a].severity, ops(a)),
-                    (&findings[b].severity, ops(b)),
+                    (&findings[a].severity, ops[a]),
+                    (&findings[b].severity, ops[b]),
                 )
                 // Index order as the final tie-break keeps the list
                 // stable between two renders of the same data.
@@ -732,9 +755,11 @@ impl App {
         // A stale offset would render the new trace's tree scrolled past
         // its own content, showing a blank panel.
         self.scroll_offset = 0;
-        // The visible slices index into the permuted source, so they are
-        // rebuilt here rather than left for the caller to remember.
-        self.apply_finding_filter();
+        // The inner lists follow the same mode as the outer one, and the
+        // visible slices index into the permuted source, so both are
+        // rebuilt here (`reorder_findings` ends on `apply_finding_filter`)
+        // rather than left for the caller to remember.
+        self.reorder_findings();
     }
 
     pub fn move_up(&mut self) {
@@ -995,9 +1020,9 @@ impl App {
     }
 
     /// Logical line count of the Analyze view body, used to clamp the
-    /// scroll offset. Returns the value cached by `with_summary` so the
-    /// per-keypress clamp does not rebuild the line vector (the degraded
-    /// no-summary hint is short and never needs scrolling, hence 0).
+    /// scroll offset. Returns the value cached by the builders that feed
+    /// the body (`with_summary`, `with_warnings`) so the per-keypress
+    /// clamp does not rebuild the line vector.
     fn analyze_content_line_count(&self) -> u16 {
         self.analyze_line_count
     }
@@ -1063,32 +1088,35 @@ impl App {
     /// same cut the dashboard's Overview card makes.
     const TOP_FINDINGS_ROWS: usize = 5;
 
-    /// The worst findings across every trace, ranked severity-first then
-    /// by the signature's aggregate avoidable I/O. "Top offenders" above
-    /// ranks endpoints by intensity, which answers a different question:
-    /// where the waste is, not which problem to open first.
+    /// The worst findings across every trace, ranked by the signature's
+    /// aggregate avoidable I/O with severity as the tie-break, the
+    /// `FindingsSort::Impact` contract the dashboard's Overview card and
+    /// `analyze --sort impact` already share. "Top offenders" above ranks
+    /// endpoints by intensity, which answers a different question: where
+    /// the waste is, not which problem to open first.
     fn push_top_findings_lines(&self, lines: &mut Vec<Line<'static>>, dim: Style) {
         if self.all_findings.is_empty() {
             return;
         }
-        let ops = |f: &Finding| -> u64 {
-            let key = crate::render::recurrence_key(f);
-            self.recurrence.get(&key).map_or(0, |s| s.total_ops) as u64
-        };
-        let mut ranked: Vec<&Finding> = self.all_findings.iter().collect();
+        // Rank on the precomputed ops, so a redraw does not rebuild a
+        // `recurrence_key` string twice per comparison.
+        let mut ranked: Vec<(&Finding, u64)> = self
+            .all_findings
+            .iter()
+            .zip(self.avoidable_ops.iter().copied())
+            .collect();
         ranked.sort_by(|a, b| {
             crate::render::compare_severity_impact(
                 crate::render::FindingsSort::Impact,
-                (&a.severity, ops(a)),
-                (&b.severity, ops(b)),
+                (&a.0.severity, a.1),
+                (&b.0.severity, b.1),
             )
         });
         lines.push(Line::from(Span::styled(
             "Top findings by impact:".to_string(),
             Style::default().add_modifier(Modifier::BOLD),
         )));
-        for f in ranked.iter().take(Self::TOP_FINDINGS_ROWS) {
-            let avoidable = ops(f);
+        for &(f, avoidable) in ranked.iter().take(Self::TOP_FINDINGS_ROWS) {
             lines.push(Line::from(vec![
                 Span::raw("  - ".to_string()),
                 Span::styled(

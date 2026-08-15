@@ -1575,7 +1575,10 @@ mod tests {
     #[test]
     fn lookup_known_ovh_region() {
         let (fr_intensity, _) = lookup_region("fr").expect("fr");
-        // The three ways OVHcloud names one datacenter must agree.
+        // Every French OVHcloud key, whichever API named it: the Public
+        // Cloud region (`gra11`), the S3 location string (`gra`, which
+        // the zone code `GRA` also lowercases to) and the 3-AZ region
+        // (`eu-west-par`, a different site on the same grid).
         for key in ["gra11", "gra", "eu-west-par"] {
             let (intensity, pue) = lookup_region(key).unwrap_or_else(|| panic!("{key}"));
             assert!((intensity - fr_intensity).abs() < f64::EPSILON, "{key}");
