@@ -120,7 +120,9 @@ Dark.
 The severity row holds one pill per severity present, each carrying its
 count. They combine: press `critical` and `warnings` to see both, press a
 pressed one again to drop it. None pressed shows every severity, so there
-is no `All` pill, and `Escape` clears the whole row at once.
+is no `All` pill. `Clear filters`, at the end of the row, empties every
+family at once and only shows up once something is filtered. `Escape`
+does the same from the keyboard.
 
 The three other families collapse into one menu each, in the order
 `Type`, `Service`, then the attribute the findings are grouped by. That

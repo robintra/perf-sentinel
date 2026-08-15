@@ -126,7 +126,9 @@ La rangée de sévérité porte une pastille par sévérité présente, chacune
 avec son compte. Elles se combinent : activez `critical` et `warnings`
 pour voir les deux, recliquez une pastille active pour la retirer. Aucune
 pastille active affiche toutes les sévérités, il n'y a donc plus de
-pastille `All`, et `Échap` vide la rangée entière d'un coup.
+pastille `All`. `Clear filters`, en bout de rangée, vide toutes les
+familles d'un coup et n'apparaît qu'une fois quelque chose de filtré.
+`Échap` fait la même chose au clavier.
 
 Les trois autres familles se replient chacune dans un menu, dans l'ordre
 `Type`, `Service`, puis l'attribut de regroupement. Ce dernier menu prend

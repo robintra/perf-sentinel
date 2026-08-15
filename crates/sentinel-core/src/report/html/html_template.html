@@ -318,6 +318,10 @@
   .ps-chip[data-sev="warn"] { color: var(--warn-fg); background: var(--warn-bg); border-color: transparent; }
   .ps-chip[data-sev="info"] { color: var(--info-fg); background: var(--info-bg); border-color: transparent; }
   .ps-chip[data-sev].active { box-shadow: inset 0 0 0 1px currentColor; }
+  /* An action, not a filter: no fill and no border, so it never reads as one
+     more pill waiting to be pressed. */
+  .ps-chip.ps-filter-clear { background: none; border-color: transparent; color: var(--text-3); text-decoration: underline; text-underline-offset: 2px; }
+  .ps-chip.ps-filter-clear:hover { background: var(--accent-bg); color: var(--text); }
   .ps-findings-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 6px; }
 
   /* One disclosure per filter family. The trigger is a .ps-chip so a collapsed
@@ -2596,6 +2600,19 @@
       };
     }));
 
+    // Last in the row, and only once something is filtered: Escape clears the
+    // lot, but a pointer user had to un-press every pill and untick every box
+    // one by one since the "All" chip went away.
+    var clear = el("button", "ps-chip ps-filter-clear", "Clear filters");
+    clear.type = "button";
+    setAttr(clear, "id", "findings-clear");
+    clear.hidden = true;
+    clear.addEventListener("click", function () {
+      clearFilterChips();
+      scheduleHashWrite();
+    });
+    root.appendChild(clear);
+
     syncFilterChips();
     syncSortChips();
   }
@@ -2679,6 +2696,12 @@
       if (chip.dataset.sortKey) return;
       // Menu triggers carry their own state, handled below.
       if (chip.classList.contains("ps-filter-trigger")) return;
+      // The clear button acts on the state rather than holding any: it is not
+      // a toggle, so it must not report a pressed state.
+      if (chip.classList.contains("ps-filter-clear")) {
+        chip.hidden = !anyActive;
+        return;
+      }
       var key = chip.dataset.key || "";
       var active = key.startsWith("sev:") &&
         filterState.severities.indexOf(key.slice(4)) !== -1;

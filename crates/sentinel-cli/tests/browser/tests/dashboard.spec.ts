@@ -554,6 +554,26 @@ test("25c. severity chips stack instead of replacing each other", async ({ page 
   expect(await shownSeverities()).toEqual(new Set(["warn"]));
 });
 
+test("25d. the clear button empties every family in one click", async ({ page }) => {
+  // Escape does this too, but with no "All" chip a pointer user was left
+  // un-pressing each pill and unticking each box one by one.
+  const clear = page.locator("#findings-clear");
+  await loadDashboard(page, "#findings");
+  await expect(clear, "nothing to clear, so no button").toBeHidden();
+  await expect(clear, "an action, not a toggle").not.toHaveAttribute("aria-pressed", /.*/);
+
+  // Two families at once: a severity pill and a service box.
+  await loadDashboard(page, "#findings&severity=warning&service=order-svc");
+  await expect(clear).toBeVisible();
+  await clear.click();
+
+  await expect(clear, "it hides itself once the row is empty").toBeHidden();
+  await expect(page.locator("#findings-filters .ps-chip[aria-pressed=true]")).toHaveCount(0);
+  await expect(page.locator("#findings-filters input[type=checkbox]:checked")).toHaveCount(0);
+  await expect(filterTrigger(page, "svc"), "the menu reads as idle again").toHaveText("Service");
+  await expect(page, "and the URL follows").toHaveURL(/#findings$/);
+});
+
 test("26. type and effective grouping filters combine and expose ARIA state", async ({ page }) => {
   await loadDashboard(page, `#findings&grouping=${encodeURIComponent(K8S_PROD_EU)}&type=n_plus_one_sql`);
 
