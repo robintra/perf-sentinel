@@ -34,6 +34,34 @@ pub(crate) fn load_mysql_stat_from_file(
     }
 }
 
+/// Pick the `mysql_stat` source for a `report` run. `--mysql-stat` and
+/// `--mysql-stat-prometheus` are mutually exclusive at the clap level
+/// (`conflicts_with`). Mirrors `resolve_pg_stat_source`.
+// The only `.await` is the daemon-gated Prometheus fetch, so the
+// no-default-features build sees an async fn with no await.
+#[cfg_attr(not(feature = "daemon"), allow(clippy::unused_async))]
+pub(crate) async fn resolve_mysql_stat_source(
+    path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] prometheus: Option<&str>,
+    #[cfg(feature = "daemon")] auth_header: Option<String>,
+    #[cfg(feature = "daemon")] opts: &sentinel_core::ingest::mysql_stat::PrometheusMySqlStat,
+    top_n: usize,
+) -> Option<sentinel_core::ingest::mysql_stat::MySqlStatReport> {
+    if let Some(path) = path {
+        return Some(load_mysql_stat_from_file(path, top_n));
+    }
+    #[cfg(feature = "daemon")]
+    {
+        let url = prometheus?;
+        let resolved_auth = resolve_mysql_stat_auth_header(auth_header);
+        Some(load_mysql_stat_from_prometheus(url, top_n, opts, resolved_auth.as_deref()).await)
+    }
+    #[cfg(not(feature = "daemon"))]
+    {
+        None
+    }
+}
+
 /// Scrape a `mysqld_exporter` endpoint one-shot and produce the ranking
 /// report the HTML dashboard embeds. Exits `EXIT_TOOLING_ERROR` on
 /// transport or parse failure, `mysql-stat` has no quality gate to breach.
