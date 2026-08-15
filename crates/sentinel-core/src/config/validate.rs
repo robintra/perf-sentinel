@@ -211,7 +211,10 @@ pub(super) fn validate_broker_static(
     // Same allow-list as [green.cloud.services]: an unrecognised provider
     // would silently resolve to the generic on-prem watts, a very
     // different number from the AWS default, under a typo.
-    if !matches!(cfg.provider.as_str(), "aws" | "gcp" | "azure" | "generic") {
+    if !matches!(
+        cfg.provider.as_str(),
+        "aws" | "gcp" | "azure" | "scaleway" | "generic"
+    ) {
         return Err(format!(
             "[green.broker_static] provider must be 'aws', 'gcp', 'azure' or \
              'generic', got '{}'",
@@ -1320,7 +1323,7 @@ impl Config {
             ));
         }
         if let Some(ref p) = cfg.default_provider
-            && !matches!(p.as_str(), "aws" | "gcp" | "azure")
+            && !matches!(p.as_str(), "aws" | "gcp" | "azure" | "scaleway")
         {
             return Err(format!(
                 "[green.cloud] default_provider must be 'aws', 'gcp', or 'azure', got '{p}'"
@@ -1443,7 +1446,7 @@ impl Config {
         instance_type: &str,
     ) -> Result<(), String> {
         if let Some(p) = provider
-            && !matches!(p, "aws" | "gcp" | "azure")
+            && !matches!(p, "aws" | "gcp" | "azure" | "scaleway")
         {
             return Err(format!(
                 "[green.cloud.services.{service}] provider must be 'aws', 'gcp', \

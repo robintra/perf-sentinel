@@ -92,6 +92,43 @@ static MANUAL_INSTANCE_ROWS: &[(&str, f64, f64)] = &[
     ("t2a-standard-8", 5.4, 14.0),
     ("t2a-standard-16", 10.7, 28.0),
     ("t2a-standard-32", 21.4, 56.0),
+    // --- COMPUTE3 / MEMORY3 / STANDARD3 (Scaleway, AMD Turin, EPYC 9555P) ---
+    // Same silicon generation as GCP c4d, so the same SPECpower direct
+    // compute (0.32/1.91 W/vCPU) rather than the CCF EPYC 5th Gen row,
+    // which reads 3.68/8.96 and is the upstream error the m8a family
+    // already works around. The rest of the Scaleway catalog is
+    // generated, its CPUs being architectures the CSVs do publish.
+    // MEMORY3 carries 8 GiB per vCPU, hence the DRAM premium.
+    ("COMPUTE3-X2C-4G", 0.6, 3.8),
+    ("COMPUTE3-X4C-8G", 1.3, 7.6),
+    ("COMPUTE3-X6C-12G", 1.9, 11.5),
+    ("COMPUTE3-X8C-16G", 2.6, 15.3),
+    ("COMPUTE3-X12C-24G", 3.8, 22.9),
+    ("COMPUTE3-X16C-32G", 5.1, 30.6),
+    ("COMPUTE3-X24C-48G", 7.7, 45.8),
+    ("COMPUTE3-X32C-64G", 10.2, 61.1),
+    ("COMPUTE3-X48C-96G", 15.4, 91.7),
+    ("COMPUTE3-X64C-128G", 20.5, 122.2),
+    ("COMPUTE3-X96C-192G", 30.7, 183.4),
+    ("STANDARD3-X2C-8G", 0.6, 3.8),
+    ("STANDARD3-X4C-16G", 1.3, 7.6),
+    ("STANDARD3-X6C-24G", 1.9, 11.5),
+    ("STANDARD3-X8C-32G", 2.6, 15.3),
+    ("STANDARD3-X12C-48G", 3.8, 22.9),
+    ("STANDARD3-X16C-64G", 5.1, 30.6),
+    ("STANDARD3-X24C-96G", 7.7, 45.8),
+    ("STANDARD3-X32C-128G", 10.2, 61.1),
+    ("STANDARD3-X48C-192G", 15.4, 91.7),
+    ("STANDARD3-X64C-256G", 20.5, 122.2),
+    ("MEMORY3-X2C-16G", 1.0, 4.6),
+    ("MEMORY3-X4C-32G", 1.9, 9.2),
+    ("MEMORY3-X6C-48G", 2.9, 13.9),
+    ("MEMORY3-X8C-64G", 3.8, 18.5),
+    ("MEMORY3-X12C-96G", 5.8, 27.7),
+    ("MEMORY3-X16C-128G", 7.7, 37.0),
+    ("MEMORY3-X24C-192G", 11.5, 55.4),
+    ("MEMORY3-X32C-256G", 15.4, 73.9),
+    ("MEMORY3-X48C-384G", 23.0, 110.9),
     // --- Standard_D v6 (Azure, Emerald Rapids, Xeon Platinum 8573C) ---
     // Not in CCF Azure CSV 2026-04-24. Kept on SPECpower direct
     // compute (2024 Q1-Q2, n=18 Platinum 8592+/8581V, 0.55/3.20 W/vCPU).
@@ -168,6 +205,7 @@ static PROVIDER_DEFAULTS: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock
     m.insert("aws", reference("m5.large"));
     m.insert("gcp", reference("n2-standard-2"));
     m.insert("azure", reference("Standard_D2s_v6"));
+    m.insert("scaleway", reference("STANDARD3-X2C-8G"));
     m.insert("generic", (3.0, 20.0)); // Conservative on-prem server estimate
     m
 });
@@ -349,6 +387,45 @@ mod tests {
             az_max > aws_max * 0.5 && az_max < aws_max * 2.0,
             "Azure Cascade Lake max {az_max} out of 2x band vs AWS {aws_max}"
         );
+    }
+
+    /// Scaleway rows are derived from the catalog's exact CPU rather
+    /// than from a published wattage, so the invariants that hold them
+    /// honest are pinned here: the same silicon must land on the same
+    /// per-vCPU figure as the provider whose coefficient it borrows, and
+    /// the excluded categories must stay out.
+    #[test]
+    fn scaleway_rows_agree_with_the_architecture_they_borrow() {
+        // Turin rides the GCP c4d SPECpower compute, same EPYC 9005
+        // generation, so 2 vCPU must price identically on both.
+        assert_eq!(
+            lookup_instance_power("COMPUTE3-X2C-4G", "scaleway"),
+            lookup_instance_power("c4d-standard-2", "gcp"),
+            "Turin rows must match the c4d reference they are derived from"
+        );
+        // POP2 is EPYC 3rd Gen (Milan) from the AWS CSV, the same
+        // coefficient m6a rides: 2 vCPU against m6a.large's 2 vCPU.
+        assert_eq!(
+            lookup_instance_power("POP2-2C-8G", "scaleway"),
+            lookup_instance_power("m6a.large", "aws"),
+            "POP2 must match the Milan coefficient it borrows"
+        );
+        // The memory-optimized range carries the DRAM premium, so it
+        // must draw strictly more than the compute range at equal vCPU.
+        let (mem_idle, mem_max) = lookup_instance_power("MEMORY3-X2C-16G", "scaleway");
+        let (cpu_idle, cpu_max) = lookup_instance_power("COMPUTE3-X2C-4G", "scaleway");
+        assert!(
+            mem_idle > cpu_idle && mem_max > cpu_max,
+            "MEMORY3 carries 8 GiB/vCPU, so it must exceed COMPUTE3: {mem_idle}/{mem_max} vs {cpu_idle}/{cpu_max}"
+        );
+        // Shared-vCPU, GPU and unmapped-architecture ranges stay out:
+        // each would need an assumption the model does not make.
+        for excluded in ["DEV1-S", "PLAY2-PICO", "H100-1-80G", "STANDARD2-X2C-8G"] {
+            assert!(
+                !is_known_instance_type(excluded),
+                "{excluded} must stay out of the table"
+            );
+        }
     }
 
     #[test]

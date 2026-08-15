@@ -22,12 +22,21 @@ ROW = re.compile(r'^\s*\("([^"]+)",\s*([0-9.]+),\s*([0-9.]+)\)', re.M)
 VINTAGE = re.compile(r'SPECPOWER_VINTAGE: &str = "([^"]+)"')
 
 
+# Scaleway offer ids are upper-case and dash-separated, which the GCP
+# fallback below would swallow whole. Matched on the range prefix rather
+# than on the case, since a future range would otherwise land under the
+# wrong heading silently.
+SCALEWAY_RANGES = ("COMPUTE3-", "MEMORY3-", "STANDARD3-", "POP2-")
+
+
 def provider(name):
     """Classify the naming schemes used by the embedded table."""
     if name.startswith("xeon-"):
         return "Bare metal"
     if name.startswith("Standard_"):
         return "Azure"
+    if name.startswith(SCALEWAY_RANGES):
+        return "Scaleway"
     if "." in name:
         return "AWS"
     return "GCP"
@@ -52,7 +61,7 @@ def table(rows, headers):
 
 
 def render(rows, vintage, lang):
-    providers = ("AWS", "GCP", "Azure", "Bare metal")
+    providers = ("AWS", "GCP", "Azure", "Scaleway", "Bare metal")
     by_provider = {p: [r for r in rows if provider(r[0]) == p] for p in providers}
     if lang == "en":
         head = f"""# Instance types with an embedded power profile
@@ -74,37 +83,38 @@ approximated:
 "my-service" = {{ idle_watts = 45.0, max_watts = 120.0 }}
 ```
 
-**Only AWS, GCP and Azure families are listed**, and `[green.cloud]`
-accepts only those three providers. The wattages come from the Cloud
-Carbon Footprint coefficient CSVs, which publish nothing for OVHcloud,
-Scaleway or OUTSCALE. Those three carry grid intensity and PUE in the
-carbon table, so their regions score, but no published figure supports a
-per-instance power profile for them, and a made-up wattage would not be
-an estimate. Searched, as of August 2026:
+**Scaleway rows are derived, not published.** Cloud Carbon Footprint
+publishes coefficients for AWS, GCP and Azure only. Scaleway publishes
+no wattage either, but its Product Catalog API names the **exact CPU** of
+every offer without authentication (`AMD EPYC 7543`, not a generic
+family), so each offer is priced by the CCF coefficient for that CPU's
+architecture, the same vCPU-times-coefficient arithmetic as the three
+above. What that adds is one assumption, the same CCF already makes
+between AWS and GCP: that a coefficient computed on hyperscaler fleets
+transfers to comparable silicon elsewhere. Three groups of offers are
+excluded rather than approximated:
+
+- **shared-vCPU ranges** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`), where
+  attributing a whole vCPU to one tenant overstates what it draws;
+- **GPU offers** (`H100`, `L4`, `L40S`, `RENDER`), because the table
+  models no accelerator for any provider, and an H100 alone outweighs
+  the entire CPU budget;
+- **AmpereOne and Granite Rapids ranges** (`STANDARD2`, `B300`), absent
+  from the CCF CSVs.
+
+**OVHcloud and OUTSCALE are still absent**, and not for want of looking.
+Searched, as of August 2026:
 
 - **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi)) is
   the only third-party base that reaches instance granularity, with 50
-  OVHcloud sizes and 69 Scaleway ones. Its files carry **no power
-  column** at all, and for OVHcloud the CPU those wattages would be
-  derived from is Boavizta's own assumption, flagged `CPU not verified`
-  on all 12 archetype rows. One credits a rack server with an
-  `Intel Core i7-4940MX`, a mobile part, across two sockets.
-- **Scaleway** publishes only `kg_co2_equivalent` and `m3_water_usage`,
-  account-scoped, and states that instead of measuring instance power it
-  feeds a CPU-percentage proxy into a Boavizta consumption profile. But
-  its Product Catalog API, unauthenticated, does name the **exact CPU**
-  per offer (`AMD EPYC 7543`, `Intel Xeon Platinum 8452Y`, not a generic
-  family) alongside the vCPU count and whether they are shared: 132
-  offers in general availability, of which 79 are dedicated-vCPU on an
-  architecture whose CCF coefficient is already embedded here. Deriving
-  those the CCF way would add no new measurement, only the assumption
-  that a coefficient computed on hyperscaler fleets transfers, which is
-  the assumption CCF already makes between AWS and GCP. 42 more offers
-  run on shared vCPUs, where per-vCPU attribution overstates, and 23 sit
-  on architectures the CSVs do not cover (AmpereOne, Granite Rapids).
-  Not done, deliberately: it is a modeling decision, not a lookup.
+  OVHcloud sizes. Its files carry **no power column** at all, and the
+  CPU a wattage would be derived from is Boavizta's own assumption,
+  flagged `CPU not verified` on all 12 OVHcloud archetype rows. One
+  credits a rack server with an `Intel Core i7-4940MX`, a mobile part,
+  across two sockets. OVHcloud itself documents no CPU per range.
 - **OUTSCALE** stops at (Region, service category): two regions, three
-  categories, no instance type, no watt, no kWh.
+  categories, no instance type, no watt, no kWh, and zero occurrences in
+  Boavizta.
 
 On that hardware, measure instead: Alumet or Scaphandre read RAPL
 directly and outrank every modeled figure.
@@ -140,42 +150,40 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 "mon-service" = {{ idle_watts = 45.0, max_watts = 120.0 }}
 ```
 
-**Seules les familles AWS, GCP et Azure sont listées**, et
-`[green.cloud]` n'accepte que ces trois fournisseurs. Les puissances
-proviennent des CSV de coefficients Cloud Carbon Footprint, qui ne
-publient rien pour OVHcloud, Scaleway ou OUTSCALE. Ces trois
-fournisseurs portent une intensité réseau et un PUE dans la table
-carbone, leurs régions sont donc scorées, mais aucun chiffre publié ne
-soutient un profil de puissance par instance pour eux, et une puissance
-inventée ne serait pas une estimation. Recherché, en août 2026 :
+**Les lignes Scaleway sont dérivées, pas publiées.** Cloud Carbon
+Footprint ne publie des coefficients que pour AWS, GCP et Azure.
+Scaleway ne publie pas non plus de puissance, mais son API Product
+Catalog nomme le **CPU exact** de chaque offre sans authentification
+(`AMD EPYC 7543`, et non une famille générique) : chaque offre est donc
+valorisée par le coefficient CCF de l'architecture de ce CPU, selon la
+même arithmétique vCPU fois coefficient que les trois autres. Cela
+ajoute une seule hypothèse, celle que CCF pose déjà entre AWS et GCP :
+qu'un coefficient calculé sur des flottes d'hyperscalers se transpose à
+du silicium comparable ailleurs. Trois groupes d'offres sont exclus
+plutôt qu'approchés :
+
+- les **gammes à vCPU partagés** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`),
+  où attribuer un vCPU entier à un locataire surestime ce qu'il tire ;
+- les **offres GPU** (`H100`, `L4`, `L40S`, `RENDER`), parce que la
+  table ne modélise aucun accélérateur chez aucun fournisseur, et
+  qu'une H100 pèse à elle seule plus que tout le budget CPU ;
+- les **gammes AmpereOne et Granite Rapids** (`STANDARD2`, `B300`),
+  absentes des CSV de CCF.
+
+**OVHcloud et OUTSCALE restent absents**, et ce n'est pas faute d'avoir
+cherché. Recherché, en août 2026 :
 
 - **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi))
   est la seule base tierce à descendre au type d'instance, avec 50
-  tailles OVHcloud et 69 Scaleway. Ses fichiers ne portent **aucune
-  colonne de puissance**, et pour OVHcloud le CPU dont ces puissances
-  seraient dérivées est une hypothèse de Boavizta lui-même, marquée
-  `CPU not verified` sur les 12 lignes d'archétype. L'une crédite un
-  serveur rack d'un `Intel Core i7-4940MX`, une puce mobile, sur deux
-  sockets.
-- **Scaleway** ne publie que `kg_co2_equivalent` et `m3_water_usage`,
-  limités au compte appelant, et déclare qu'au lieu de mesurer la
-  puissance d'une instance il injecte un proxy de pourcentage CPU dans
-  un profil de consommation Boavizta. Mais son API Product Catalog, sans
-  authentification, nomme le **CPU exact** de chaque offre (`AMD EPYC
-  7543`, `Intel Xeon Platinum 8452Y`, et non une famille générique),
-  avec le nombre de vCPU et leur partage éventuel : 132 offres en
-  disponibilité générale, dont 79 à vCPU dédiés sur une architecture
-  dont le coefficient CCF est déjà embarqué ici. Les dériver à la
-  manière de CCF n'ajouterait aucune mesure, seulement l'hypothèse qu'un
-  coefficient calculé sur des flottes d'hyperscalers se transpose, ce
-  que CCF suppose déjà entre AWS et GCP. 42 autres offres tournent sur
-  vCPU partagés, où l'attribution par vCPU surestime, et 23 reposent sur
-  des architectures absentes des CSV (AmpereOne, Granite Rapids). Non
-  fait, délibérément : c'est une décision de modélisation, pas une
-  simple consultation.
+  tailles OVHcloud. Ses fichiers ne portent **aucune colonne de
+  puissance**, et le CPU dont une puissance serait dérivée est une
+  hypothèse de Boavizta lui-même, marquée `CPU not verified` sur les 12
+  lignes d'archétype OVHcloud. L'une crédite un serveur rack d'un
+  `Intel Core i7-4940MX`, une puce mobile, sur deux sockets. OVHcloud
+  lui-même ne documente aucun CPU par gamme.
 - **OUTSCALE** s'arrête au couple (Région, catégorie de service) : deux
   régions, trois catégories, aucun type d'instance, aucun watt, aucun
-  kWh.
+  kWh, et zéro occurrence chez Boavizta.
 
 Sur ce matériel, mesurez plutôt : Alumet ou Scaphandre lisent RAPL
 directement et priment sur toute valeur modélisée.
