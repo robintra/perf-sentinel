@@ -2017,6 +2017,43 @@ fn analyze_view_omits_ingest_line_without_a_tally() {
     assert!(!text.contains("Spans ingested"), "got: {text}");
 }
 
+/// The sort key ordered the trace list while the findings inside a
+/// trace kept detector order, so a run opened worst-first still showed
+/// whichever finding the detector emitted first.
+#[test]
+fn sorting_also_ranks_the_findings_inside_a_trace() {
+    let mut app = make_test_app();
+    // Put both findings on one trace: an info first, then the critical,
+    // so detector order and severity order disagree.
+    app.all_findings[0].severity = Severity::Info;
+    app.all_findings[1].severity = Severity::Critical;
+    app.all_findings[1].trace_id = "trace-1".to_string();
+    app.findings_by_trace[0] = vec![0, 1];
+    app.findings_by_trace[1] = vec![];
+
+    app.cycle_trace_sort();
+    assert_eq!(app.trace_sort, TraceSort::Severity);
+    assert_eq!(
+        app.findings_by_trace[0],
+        vec![1, 0],
+        "worst severity first inside the trace"
+    );
+    assert_eq!(
+        app.selected_finding, 0,
+        "cursor resets onto the new first row"
+    );
+
+    // Back to id order, which is the report's own order.
+    app.cycle_trace_sort();
+    app.cycle_trace_sort();
+    assert_eq!(app.trace_sort, TraceSort::ById);
+    assert_eq!(
+        app.findings_by_trace[0],
+        vec![0, 1],
+        "report order restored"
+    );
+}
+
 #[test]
 fn cycle_trace_sort_ranks_by_severity_then_impact_then_back() {
     // make_test_app: trace-1 carries the critical N+1 (5 avoidable ops),
