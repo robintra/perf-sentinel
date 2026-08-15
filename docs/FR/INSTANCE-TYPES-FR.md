@@ -20,11 +20,31 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 **Seules les familles AWS, GCP et Azure sont listées**, et
 `[green.cloud]` n'accepte que ces trois fournisseurs. Les puissances
 proviennent des CSV de coefficients Cloud Carbon Footprint, qui ne
-publient rien pour OVHcloud, Scaleway ou OUTSCALE, et il n'existe pas
-d'exporteur équivalent d'où lire une série d'utilisation CPU. Ces trois
+publient rien pour OVHcloud, Scaleway ou OUTSCALE. Ces trois
 fournisseurs portent une intensité réseau et un PUE dans la table
-carbone, leurs régions sont donc scorées, mais une puissance inventée ne
-serait pas une estimation. Sur ce matériel, mesurez plutôt : Alumet ou
+carbone, leurs régions sont donc scorées, mais aucun chiffre publié ne
+soutient un profil de puissance par instance pour eux, et une puissance
+inventée ne serait pas une estimation. Recherché, en août 2026 :
+
+- **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi))
+  est la seule base tierce à descendre au type d'instance, avec 50
+  tailles OVHcloud et 69 Scaleway. Ses fichiers ne portent **aucune
+  colonne de puissance**, et pour OVHcloud le CPU dont ces puissances
+  seraient dérivées est une hypothèse de Boavizta lui-même, marquée
+  `CPU not verified` sur les 12 lignes d'archétype. L'une crédite un
+  serveur rack d'un `Intel Core i7-4940MX`, une puce mobile, sur deux
+  sockets.
+- **Scaleway** ne publie que `kg_co2_equivalent` et `m3_water_usage`,
+  limités au compte appelant, et déclare qu'au lieu de mesurer la
+  puissance d'une instance il injecte un proxy de pourcentage CPU dans
+  un profil de consommation Boavizta. Son API Product Catalog expose
+  bien les sockets, cœurs et fréquence par SKU, ce qui est une piste,
+  mais aucune puissance.
+- **OUTSCALE** s'arrête au couple (Région, catégorie de service) : deux
+  régions, trois catégories, aucun type d'instance, aucun watt, aucun
+  kWh.
+
+Sur ce matériel, mesurez plutôt : Alumet ou
 Scaphandre lisent RAPL directement et priment sur toute valeur modélisée.
 
 D'où viennent ces chiffres, et pourquoi une famille correspond à un
