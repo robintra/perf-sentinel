@@ -1001,6 +1001,57 @@ impl App {
         lines.push(Line::from(""));
     }
 
+    /// Number of rows in the Analyze view's "Top findings" section, the
+    /// same cut the dashboard's Overview card makes.
+    const TOP_FINDINGS_ROWS: usize = 5;
+
+    /// The worst findings across every trace, ranked severity-first then
+    /// by the signature's aggregate avoidable I/O. "Top offenders" above
+    /// ranks endpoints by intensity, which answers a different question:
+    /// where the waste is, not which problem to open first.
+    fn push_top_findings_lines(&self, lines: &mut Vec<Line<'static>>, dim: Style) {
+        if self.all_findings.is_empty() {
+            return;
+        }
+        let ops = |f: &Finding| -> u64 {
+            let key = crate::render::recurrence_key(f);
+            self.recurrence.get(&key).map_or(0, |s| s.total_ops) as u64
+        };
+        let mut ranked: Vec<&Finding> = self.all_findings.iter().collect();
+        ranked.sort_by(|a, b| {
+            crate::render::compare_severity_impact(
+                crate::render::FindingsSort::Impact,
+                (&a.severity, ops(a)),
+                (&b.severity, ops(b)),
+            )
+        });
+        lines.push(Line::from(Span::styled(
+            "Top findings by impact:".to_string(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        for f in ranked.iter().take(Self::TOP_FINDINGS_ROWS) {
+            let avoidable = ops(f);
+            lines.push(Line::from(vec![
+                Span::raw("  - ".to_string()),
+                Span::styled(
+                    format!("{:<8}", severity_label(&f.severity)),
+                    Style::default().fg(severity_color(&f.severity)),
+                ),
+                Span::raw(finding_type_label(&f.finding_type)),
+                Span::styled(
+                    format!(
+                        "  {} \u{b7} {}",
+                        sanitize_for_terminal(&f.service),
+                        sanitize_for_terminal(&f.source_endpoint)
+                    ),
+                    dim,
+                ),
+                Span::styled(format!("  ~{avoidable} avoidable ops"), dim),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
     fn build_analyze_lines(&self) -> Vec<Line<'static>> {
         let dim = dim_style();
         let Some(summary) = &self.summary else {
@@ -1150,6 +1201,7 @@ impl App {
             lines.push(Line::from(""));
         }
 
+        self.push_top_findings_lines(&mut lines, dim);
         push_quality_gate_lines(&mut lines, &summary.quality_gate, dim);
 
         // Mandatory uncertainty disclaimer whenever CO2 estimates are shown,
