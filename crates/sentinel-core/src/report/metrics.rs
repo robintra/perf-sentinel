@@ -67,6 +67,46 @@ impl OtlpRejectReason {
     }
 }
 
+/// Reason a per-window report archive entry was dropped instead of
+/// written, the `reason` label of
+/// `perf_sentinel_archive_windows_dropped_total`. The archive chain
+/// (`daemon/archive.rs`) stays contiguous across a drop, so this counter
+/// and the paired warn log are the only witnesses of the loss.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveDropReason {
+    /// The bounded writer channel was full (writer behind on disk I/O
+    /// or sustained window pressure).
+    ChannelFull,
+    /// The writer task has already exited, the channel is closed.
+    WriterExited,
+    /// Serializing the window envelope failed.
+    SerializeError,
+    /// Writing the line to the archive file failed.
+    WriteError,
+}
+
+impl ArchiveDropReason {
+    /// Every variant in declaration order. Fixed-size array so adding a
+    /// variant without bumping the count is a compile-time error,
+    /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
+    pub const ALL: [Self; 4] = [
+        Self::ChannelFull,
+        Self::WriterExited,
+        Self::SerializeError,
+        Self::WriteError,
+    ];
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ChannelFull => "channel_full",
+            Self::WriterExited => "writer_exited",
+            Self::SerializeError => "serialize_error",
+            Self::WriteError => "write_error",
+        }
+    }
+}
+
 /// Reason an OTLP span was skipped by conversion instead of becoming a
 /// `SpanEvent`.
 ///
@@ -398,6 +438,12 @@ pub struct MetricsState {
     /// Traces dropped by the shed batches counted in
     /// [`Self::analysis_shed_batches_total`].
     pub analysis_shed_traces_total: IntCounter,
+    /// Per-window report archive entries dropped instead of written,
+    /// labeled by [`ArchiveDropReason`]. The archive hash chain stays
+    /// contiguous across a drop, so a nonzero rate here is the only
+    /// scrape-visible witness that the disclosure archive is incomplete.
+    /// Stays at 0 without the daemon feature.
+    pub archive_windows_dropped_total: IntCounterVec,
     /// Cross-trace correlator pairs evicted by the `max_tracked_pairs`
     /// cap. A sustained rate means the correlation topology exceeds the
     /// cap and lowest-count pairs are silently recycled, so
@@ -929,6 +975,19 @@ impl MetricsState {
             let _ = otlp_rejected_total.with_label_values(&[reason.as_str()]);
         }
 
+        let archive_windows_dropped_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_archive_windows_dropped_total",
+            "Per-window report archive entries dropped instead of written, by reason",
+            &["reason"],
+        );
+        // Pre-warm so every reason emits a 0 line before the first drop.
+        // Drops are rare, so no cached children: the label lookup is paid
+        // per drop, like `ack_operations_failed_total`.
+        for reason in &ArchiveDropReason::ALL {
+            let _ = archive_windows_dropped_total.with_label_values(&[reason.as_str()]);
+        }
+
         let otlp_spans_received_total = IntCounter::new(
             "perf_sentinel_otlp_spans_received_total",
             "Total OTLP spans received, before I/O filtering",
@@ -1138,6 +1197,7 @@ impl MetricsState {
             analysis_queue_depth,
             analysis_shed_batches_total,
             analysis_shed_traces_total,
+            archive_windows_dropped_total,
             correlator_pairs_evicted_total,
             service_io_ops_total,
             service_io_ops_overflow_total,
@@ -1220,6 +1280,18 @@ impl MetricsState {
     pub fn record_shed(&self, trace_count: usize) {
         self.analysis_shed_batches_total.inc();
         self.analysis_shed_traces_total.inc_by(trace_count as u64);
+    }
+
+    /// Count a per-window report archive entry dropped instead of
+    /// written, so archive loss is scrape-visible instead of log-only.
+    /// Called by `daemon::archive` at every drop site. Drops are rare,
+    /// so the label lookup is paid per call instead of caching children.
+    #[cfg(feature = "daemon")]
+    #[inline]
+    pub fn record_archive_drop(&self, reason: ArchiveDropReason) {
+        self.archive_windows_dropped_total
+            .with_label_values(&[reason.as_str()])
+            .inc();
     }
 
     /// Set the memory-pressure admission flag read by the ingest
@@ -2678,6 +2750,30 @@ mod tests {
             (AckFailureReason::InternalError, "internal_error"),
         ] {
             assert_eq!(variant.as_str(), label);
+        }
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn record_archive_drop_increments_correct_label() {
+        let state = MetricsState::new();
+        state.record_archive_drop(ArchiveDropReason::ChannelFull);
+        state.record_archive_drop(ArchiveDropReason::ChannelFull);
+        state.record_archive_drop(ArchiveDropReason::WriteError);
+        for (reason, expected) in [
+            (ArchiveDropReason::ChannelFull, 2),
+            (ArchiveDropReason::WriterExited, 0),
+            (ArchiveDropReason::SerializeError, 0),
+            (ArchiveDropReason::WriteError, 1),
+        ] {
+            assert_eq!(
+                state
+                    .archive_windows_dropped_total
+                    .with_label_values(&[reason.as_str()])
+                    .get(),
+                expected,
+                "unexpected count for {reason:?}"
+            );
         }
     }
 

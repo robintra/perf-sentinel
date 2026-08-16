@@ -1161,7 +1161,7 @@ async fn process_traces(
             ts: chrono::Utc::now(),
             report,
         };
-        super::archive::try_send(archive_tx, archive);
+        super::archive::try_send(archive_tx, archive, ctx.metrics);
     }
 }
 
