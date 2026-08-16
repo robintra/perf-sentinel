@@ -13,7 +13,9 @@ use tokio::task::JoinHandle;
 
 use crate::config::DaemonArchiveConfig;
 use crate::report::Report;
+use crate::report::metrics::{ArchiveDropReason, MetricsState};
 use crate::report::periodic::hasher::{ARCHIVE_CHAIN_SEED, archive_chain_hash};
+use std::sync::Arc;
 
 const CHANNEL_CAPACITY: usize = 256;
 
@@ -42,20 +44,28 @@ pub struct ArchiveHandle {
     pub join: JoinHandle<()>,
 }
 
-/// Try to push a window to the writer without blocking. Returns `false`
-/// and logs a warning when the channel is full or closed. Free function
-/// so the analysis worker can call it on a cloned `Sender` without
-/// holding the `ArchiveHandle` (whose `join` stays with `daemon::run`).
-pub fn try_send(tx: &Sender<OwnedArchive>, archive: OwnedArchive) -> bool {
+/// Try to push a window to the writer without blocking. A full or
+/// closed channel drops the window, counted on
+/// `perf_sentinel_archive_windows_dropped_total` and logged. Free
+/// function so the analysis worker can call it on a cloned `Sender`
+/// without holding the `ArchiveHandle` (whose `join` stays with
+/// `daemon::run`).
+pub fn try_send(tx: &Sender<OwnedArchive>, archive: OwnedArchive, metrics: &MetricsState) {
     match tx.try_send(archive) {
-        Ok(()) => true,
+        Ok(()) => {}
         Err(TrySendError::Full(_)) => {
-            tracing::warn!("archive channel full, dropping window");
-            false
+            metrics.record_archive_drop(ArchiveDropReason::ChannelFull);
+            tracing::warn!(
+                "archive channel full, dropping window (see \
+                 perf_sentinel_archive_windows_dropped_total)"
+            );
         }
         Err(TrySendError::Closed(_)) => {
-            tracing::warn!("archive writer task has exited, dropping window");
-            false
+            metrics.record_archive_drop(ArchiveDropReason::WriterExited);
+            tracing::warn!(
+                "archive writer task has exited, dropping window (see \
+                 perf_sentinel_archive_windows_dropped_total)"
+            );
         }
     }
 }
@@ -67,7 +77,10 @@ pub fn try_send(tx: &Sender<OwnedArchive>, archive: OwnedArchive) -> bool {
 /// [`ArchiveError::Open`] on open failure, [`ArchiveError::SymlinkRefused`]
 /// when the configured path is a symlink (operator must point to a real
 /// file the daemon owns).
-pub fn spawn(cfg: &DaemonArchiveConfig) -> Result<ArchiveHandle, ArchiveError> {
+pub fn spawn(
+    cfg: &DaemonArchiveConfig,
+    metrics: Arc<MetricsState>,
+) -> Result<ArchiveHandle, ArchiveError> {
     let path = PathBuf::from(&cfg.path);
     refuse_symlink(&path)?;
     let mut file = open_append(&path)?;
@@ -80,7 +93,7 @@ pub fn spawn(cfg: &DaemonArchiveConfig) -> Result<ArchiveHandle, ArchiveError> {
     let max_files = cfg.max_files;
     let (tx, rx) = mpsc::channel::<OwnedArchive>(CHANNEL_CAPACITY);
     let join = tokio::spawn(async move {
-        run_writer(rx, path, file, bytes_written, cap_bytes, max_files).await;
+        run_writer(rx, path, file, bytes_written, cap_bytes, max_files, metrics).await;
     });
     Ok(ArchiveHandle { tx, join })
 }
@@ -138,6 +151,7 @@ async fn run_writer(
     initial_bytes: u64,
     cap_bytes: u64,
     max_files: u32,
+    metrics: Arc<MetricsState>,
 ) {
     let mut file = initial_file;
     let mut bytes_written = initial_bytes;
@@ -146,6 +160,7 @@ async fn run_writer(
         let line = match serialize_envelope(&archive, &prev, seq) {
             Ok(line) => line,
             Err(err) => {
+                metrics.record_archive_drop(ArchiveDropReason::SerializeError);
                 tracing::warn!(error = %err, "archive serialization failed, dropping window");
                 continue;
             }
@@ -154,6 +169,7 @@ async fn run_writer(
             // A failed write can still have landed part of the line, so the
             // file is cut back to the last complete window. Leaving the
             // fragment there would publish an I/O error as tampering.
+            metrics.record_archive_drop(ArchiveDropReason::WriteError);
             tracing::warn!(error = %err, "archive write failed, dropping line");
             if let Err(err) = file.set_len(bytes_written) {
                 tracing::warn!(error = %err, "archive truncation after a failed write failed");
@@ -370,6 +386,17 @@ mod tests {
         }
     }
 
+    fn test_metrics() -> Arc<MetricsState> {
+        Arc::new(MetricsState::new())
+    }
+
+    fn dropped(metrics: &MetricsState, reason: ArchiveDropReason) -> u64 {
+        metrics
+            .archive_windows_dropped_total
+            .with_label_values(&[reason.as_str()])
+            .get()
+    }
+
     fn sample_archive() -> OwnedArchive {
         OwnedArchive {
             ts: Utc::now(),
@@ -380,7 +407,7 @@ mod tests {
     #[tokio::test]
     async fn writer_appends_lines() {
         let dir = TempDir::new().unwrap();
-        let handle = spawn(&cfg(&dir, 100, 12)).unwrap();
+        let handle = spawn(&cfg(&dir, 100, 12), test_metrics()).unwrap();
         handle.tx.send(sample_archive()).await.unwrap();
         handle.tx.send(sample_archive()).await.unwrap();
         drop(handle.tx);
@@ -401,12 +428,12 @@ mod tests {
         // The writer opens in append mode, so without reading the last hash
         // back every daemon restart would look like tampering to disclose.
         let dir = TempDir::new().unwrap();
-        let first = spawn(&cfg(&dir, 100, 12)).unwrap();
+        let first = spawn(&cfg(&dir, 100, 12), test_metrics()).unwrap();
         first.tx.send(sample_archive()).await.unwrap();
         drop(first.tx);
         first.join.await.unwrap();
 
-        let second = spawn(&cfg(&dir, 100, 12)).unwrap();
+        let second = spawn(&cfg(&dir, 100, 12), test_metrics()).unwrap();
         second.tx.send(sample_archive()).await.unwrap();
         drop(second.tx);
         second.join.await.unwrap();
@@ -449,7 +476,7 @@ mod tests {
         let first = serialize_envelope(&sample_archive(), ARCHIVE_CHAIN_SEED, 0).unwrap();
         std::fs::write(&path, format!("{first}\n{{\"partial\"")).unwrap();
 
-        let handle = spawn(&cfg(&dir, 100, 12)).unwrap();
+        let handle = spawn(&cfg(&dir, 100, 12), test_metrics()).unwrap();
         handle.tx.send(sample_archive()).await.unwrap();
         drop(handle.tx);
         handle.join.await.unwrap();
@@ -467,7 +494,7 @@ mod tests {
     #[tokio::test]
     async fn writer_rotates_at_size_cap_and_preserves_history() {
         let dir = TempDir::new().unwrap();
-        let handle = spawn(&cfg(&dir, 1, 4)).unwrap();
+        let handle = spawn(&cfg(&dir, 1, 4), test_metrics()).unwrap();
         for _ in 0..30 {
             // Each report serialises to a few hundred bytes; force rotation
             // by pushing enough envelopes to cross the 1 MB cap.
@@ -513,7 +540,7 @@ mod tests {
         let decoy = dir.path().join("archive-evil.ndjson");
         File::create(&decoy).unwrap();
 
-        let handle = spawn(&cfg(&dir, 1, 2)).unwrap();
+        let handle = spawn(&cfg(&dir, 1, 2), test_metrics()).unwrap();
         for _ in 0..15 {
             let mut archive = sample_archive();
             archive.report.warnings = vec!["x".repeat(80_000)];
@@ -556,13 +583,37 @@ mod tests {
         let link = dir.path().join("archive.ndjson");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        let err = spawn(&DaemonArchiveConfig {
-            path: link.display().to_string(),
-            max_size_mb: 1,
-            max_files: 4,
-        })
+        let err = spawn(
+            &DaemonArchiveConfig {
+                path: link.display().to_string(),
+                max_size_mb: 1,
+                max_files: 4,
+            },
+            test_metrics(),
+        )
         .unwrap_err();
         assert_matches!(err, ArchiveError::SymlinkRefused { .. });
+    }
+
+    #[tokio::test]
+    async fn try_send_counts_full_and_closed_drops() {
+        let metrics = test_metrics();
+        let (tx, rx) = mpsc::channel::<OwnedArchive>(1);
+        try_send(&tx, sample_archive(), &metrics);
+        assert_eq!(dropped(&metrics, ArchiveDropReason::ChannelFull), 0);
+        try_send(&tx, sample_archive(), &metrics);
+        assert_eq!(
+            dropped(&metrics, ArchiveDropReason::ChannelFull),
+            1,
+            "a full channel must count the dropped window"
+        );
+        drop(rx);
+        try_send(&tx, sample_archive(), &metrics);
+        assert_eq!(
+            dropped(&metrics, ArchiveDropReason::WriterExited),
+            1,
+            "a closed channel must count the dropped window"
+        );
     }
 
     #[test]

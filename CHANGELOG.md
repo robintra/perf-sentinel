@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `perf_sentinel_archive_windows_dropped_total` counts the per-window disclosure archive entries dropped instead of written, by `reason` (`channel_full`, `writer_exited`, `serialize_error`, `write_error`). The drop-on-full policy is deliberate, a stalled filesystem must never block the analysis path, but until now every loss was a warn log and nothing else: the archive hash chain only advances on a successful write, so a dropped window leaves no hole in `seq` and `disclose verify-hash` cannot see the gap after the fact. This counter is the scrape-visible witness, pre-warmed to zero for all four reasons so a healthy archive and a missing metric stay distinguishable. Alert on `rate(...) > 0` and read a nonzero rate as "the archive under-reports the period".
+
 ## [0.14.0] - 2026-08-15
 
 ### Added

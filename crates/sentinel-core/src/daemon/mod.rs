@@ -305,12 +305,12 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let emaps = setup_emaps_scraper(&config);
 
     let archive_handle = match &config.daemon.archive {
-        Some(cfg) => Some(
-            archive::spawn(cfg).map_err(|source| DaemonError::ArchiveOpen {
+        Some(cfg) => Some(archive::spawn(cfg, metrics.clone()).map_err(|source| {
+            DaemonError::ArchiveOpen {
                 path: cfg.path.clone(),
                 source,
-            })?,
-        ),
+            }
+        })?),
         None => None,
     };
 
