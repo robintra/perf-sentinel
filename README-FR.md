@@ -394,7 +394,7 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 - **Pas une plateforme de comptabilité carbone réglementaire standalone.** Un reporting CSRD ou GHG Protocol Scope 2/3 standalone exige une vérification tiers-partie et des scopes non-IT qu'il ne couvre pas. Périmètre exact, couplages (Watershed, Sweep, Greenly, Persefoni) et cas RGESN : voir [GreenOps](#greenops--score-dintensité-io-directionnel).
 - **Pas un substitut à la mesure énergétique.** Le modèle I/O-vers-énergie est certes une mesure, mais approximative. Pour une puissance mesurée plus précise, brancher Alumet (RAPL x86, en tête de la chaîne de précédence), Scaphandre (RAPL x86), Kepler (eBPF, compatible ARM) ou Redfish (puissance murale BMC bare-metal), les quatre sont supportés en entrée, ou utiliser les APIs énergie du fournisseur cloud. Pour ce qu'une attribution purement logicielle peut et ne peut pas couvrir sur un serveur typique, voir [docs/FR/LIMITATIONS-FR.md § Ce que couvre une attribution purement logicielle](docs/FR/LIMITATIONS-FR.md#ce-que-couvre-une-attribution-purement-logicielle).
 - **Pas zéro-config.** La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n'émet pas de traces, perf-sentinel n'a rien à analyser.
-- **Pas un plugin IDE.** Pour du feedback in-IDE en JVM/.NET au fil de la frappe, [Digma](https://digma.ai/) offre une expérience JetBrains bien intégrée.
+- **Pas un plugin IDE.** perf-sentinel lui-même tourne en CI et en daemon, pas dans l'éditeur. Un plugin JetBrains développé par le projet est en cours : il lit les findings d'un daemon en marche et navigue vers le code qu'ils désignent, et il sera annoncé ici une fois publié.
 
 ## Acquittement de findings connus
 
