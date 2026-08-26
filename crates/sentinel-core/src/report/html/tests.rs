@@ -1209,6 +1209,7 @@ fn synthetic_pg_stat() -> PgStatReport {
             entries,
         }],
         trace_match: None,
+        trace_coverage: None,
     }
 }
 

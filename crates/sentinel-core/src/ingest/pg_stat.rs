@@ -61,6 +61,10 @@ pub struct PgStatReport {
     /// unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_match: Option<TraceMatchSummary>,
+    /// Empirical coverage from a second, earlier snapshot (`--baseline`).
+    /// `None` without one. Additive, absent from the JSON when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_coverage: Option<TraceCoverage>,
 }
 
 /// Detected input format.
@@ -231,6 +235,7 @@ pub fn rank_pg_stat(entries: &[PgStatEntry], top_n: usize) -> PgStatReport {
         top_n,
         rankings: vec![by_total_time, by_calls, by_mean_time, by_io_blocks],
         trace_match: None,
+        trace_coverage: None,
     }
 }
 
@@ -299,6 +304,95 @@ impl TraceMatchSummary {
             self.matched_calls as f64 / self.total_calls as f64 * 100.0
         }
     }
+}
+
+/// Empirical tracing coverage from two `pg_stat_statements` snapshots
+/// framing the trace capture window.
+///
+/// `executed_calls` sums the per-template call delta between the two
+/// snapshots over the templates the traces observed; `traced_calls`
+/// sums the span counts the traces captured on those same templates.
+/// Their ratio approximates the fraction of database activity the
+/// tracing pipeline sees. A template whose counter went backwards
+/// between the snapshots (a statistics reset) is excluded from both
+/// sums and counted in `reset_templates`: with a non-zero count the
+/// window is unreliable and the ratio should be read with suspicion.
+/// A ratio above 100% means the snapshots do not frame the trace
+/// window.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TraceCoverage {
+    /// Call deltas summed over the traced templates.
+    pub executed_calls: u64,
+    /// Traced span counts summed over the same templates.
+    pub traced_calls: u64,
+    /// Templates present in both the traces and the current snapshot.
+    pub matched_templates: usize,
+    /// Templates skipped because their counter went backwards.
+    pub reset_templates: usize,
+}
+
+impl TraceCoverage {
+    /// Traced share of executed calls in percent. `None` when no call
+    /// was executed on the traced templates, a ratio would be
+    /// meaningless there.
+    #[must_use]
+    pub fn coverage_percent(&self) -> Option<f64> {
+        if self.executed_calls == 0 {
+            return None;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        Some(self.traced_calls as f64 / self.executed_calls as f64 * 100.0)
+    }
+}
+
+/// Compare the call deltas between two snapshots to the traced span
+/// counts on the same templates (see [`crate::pipeline::trace_sql_template_counts`]).
+///
+/// A template absent from the baseline counts with its full current
+/// tally: it first ran inside the window. A template absent from the
+/// current snapshot is ignored, `pg_stat_statements` evicted it and its
+/// delta is unknowable.
+#[must_use]
+pub fn trace_coverage(
+    current: &[PgStatEntry],
+    baseline: &[PgStatEntry],
+    trace_counts: &std::collections::HashMap<String, u64>,
+) -> TraceCoverage {
+    let mut current_by: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
+    for entry in current {
+        let slot = current_by
+            .entry(entry.normalized_template.as_str())
+            .or_insert(0);
+        *slot = slot.saturating_add(entry.calls);
+    }
+    let mut baseline_by: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
+    for entry in baseline {
+        let slot = baseline_by
+            .entry(entry.normalized_template.as_str())
+            .or_insert(0);
+        *slot = slot.saturating_add(entry.calls);
+    }
+
+    let mut coverage = TraceCoverage {
+        executed_calls: 0,
+        traced_calls: 0,
+        matched_templates: 0,
+        reset_templates: 0,
+    };
+    for (template, &traced) in trace_counts {
+        let Some(&now) = current_by.get(template.as_str()) else {
+            continue;
+        };
+        let before = baseline_by.get(template.as_str()).copied().unwrap_or(0);
+        if now < before {
+            coverage.reset_templates += 1;
+            continue;
+        }
+        coverage.matched_templates += 1;
+        coverage.executed_calls = coverage.executed_calls.saturating_add(now - before);
+        coverage.traced_calls = coverage.traced_calls.saturating_add(traced);
+    }
+    coverage
 }
 
 /// Tally the matched share over the entries' `seen_in_traces` flags.
@@ -1112,6 +1206,79 @@ mod tests {
         let summary = trace_match_summary(&[]);
         assert_eq!(summary.total_templates, 0);
         assert!((summary.calls_share_percent() - 0.0).abs() < f64::EPSILON);
+    }
+
+    // -- Empirical coverage from two snapshots --
+
+    fn coverage_entry(template: &str, calls: u64) -> PgStatEntry {
+        PgStatEntry {
+            query: template.to_string(),
+            normalized_template: template.to_string(),
+            calls,
+            total_exec_time_ms: 0.0,
+            mean_exec_time_ms: 0.0,
+            rows: 0,
+            shared_blks_hit: 0,
+            shared_blks_read: 0,
+            seen_in_traces: false,
+        }
+    }
+
+    #[test]
+    fn trace_coverage_compares_call_deltas_to_traced_counts() {
+        let current = vec![
+            coverage_entry("SELECT a FROM t WHERE id = ?", 1_000),
+            coverage_entry("SELECT b FROM t WHERE id = ?", 500),
+        ];
+        let baseline = vec![coverage_entry("SELECT a FROM t WHERE id = ?", 900)];
+        let trace_counts: std::collections::HashMap<String, u64> = [
+            ("SELECT a FROM t WHERE id = ?".to_string(), 50),
+            // Absent from the baseline: first ran inside the window, so
+            // its full current tally counts as executed.
+            ("SELECT b FROM t WHERE id = ?".to_string(), 500),
+        ]
+        .into_iter()
+        .collect();
+
+        let cov = trace_coverage(&current, &baseline, &trace_counts);
+        assert_eq!(cov.matched_templates, 2);
+        assert_eq!(cov.executed_calls, 100 + 500);
+        assert_eq!(cov.traced_calls, 50 + 500);
+        assert_eq!(cov.reset_templates, 0);
+        let pct = cov.coverage_percent().expect("executed calls > 0");
+        assert!((pct - (550.0 / 600.0 * 100.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn trace_coverage_skips_reset_counters() {
+        // Counter went backwards: statistics were reset between the two
+        // snapshots, the delta is unknowable and must not pollute the sums.
+        let current = vec![coverage_entry("SELECT a FROM t WHERE id = ?", 10)];
+        let baseline = vec![coverage_entry("SELECT a FROM t WHERE id = ?", 900)];
+        let trace_counts: std::collections::HashMap<String, u64> =
+            [("SELECT a FROM t WHERE id = ?".to_string(), 5)]
+                .into_iter()
+                .collect();
+
+        let cov = trace_coverage(&current, &baseline, &trace_counts);
+        assert_eq!(cov.reset_templates, 1);
+        assert_eq!(cov.matched_templates, 0);
+        assert_eq!(cov.executed_calls, 0);
+        assert!(cov.coverage_percent().is_none());
+    }
+
+    #[test]
+    fn trace_coverage_ignores_templates_evicted_from_the_current_snapshot() {
+        let current = vec![];
+        let baseline = vec![coverage_entry("SELECT a FROM t WHERE id = ?", 900)];
+        let trace_counts: std::collections::HashMap<String, u64> =
+            [("SELECT a FROM t WHERE id = ?".to_string(), 5)]
+                .into_iter()
+                .collect();
+
+        let cov = trace_coverage(&current, &baseline, &trace_counts);
+        assert_eq!(cov.matched_templates, 0);
+        assert_eq!(cov.reset_templates, 0);
     }
 
     // -- CSV row parsing edge cases --

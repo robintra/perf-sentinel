@@ -514,6 +514,12 @@ enum Commands {
         /// Optional: path to a trace file for cross-referencing with trace findings.
         #[arg(long)]
         traces: Option<PathBuf>,
+        /// Earlier `pg_stat_statements` export captured when the trace
+        /// window opened. With --traces, compares the call delta between
+        /// the two snapshots to the traced span counts on the same
+        /// templates and reports an empirical tracing coverage.
+        #[arg(long, requires = "traces")]
+        baseline: Option<PathBuf>,
         /// Path to a .perf-sentinel.toml config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -1517,6 +1523,7 @@ async fn dispatch_command(command: Commands) {
             unit,
             top_n,
             traces,
+            baseline,
             config,
             format,
         } => {
@@ -1530,6 +1537,7 @@ async fn dispatch_command(command: Commands) {
                 &pg_stat_prometheus_opts(metric, query_label, calls_metric, unit.as_deref()),
                 top_n,
                 traces.as_deref(),
+                baseline.as_deref(),
                 config.as_deref(),
                 format,
             )
