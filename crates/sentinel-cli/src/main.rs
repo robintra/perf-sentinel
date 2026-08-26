@@ -2561,6 +2561,13 @@ async fn cmd_report(
         },
     );
 
+    // Trace-side template counts for the pg_stat / mysql_stat
+    // cross-reference: the report's own traces are already analyzed, so
+    // the dashboard panels get the same trace-matched share as the
+    // standalone subcommands.
+    let trace_sql_counts = (has_pg_stat_source || has_mysql_stat_source)
+        .then(|| pipeline::trace_sql_template_counts(&traces));
+
     let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
     let pg_stat = pg_stat::resolve_pg_stat_source(
         pg_stat_path,
@@ -2573,6 +2580,7 @@ async fn cmd_report(
         #[cfg(feature = "daemon")]
         &config,
         top_n,
+        trace_sql_counts.as_ref(),
     )
     .await;
 
@@ -2586,6 +2594,7 @@ async fn cmd_report(
         #[cfg(feature = "daemon")]
         mysql_stat_prom,
         mysql_top_n,
+        trace_sql_counts.as_ref(),
     )
     .await;
 

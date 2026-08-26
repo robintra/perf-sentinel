@@ -250,13 +250,13 @@ pub fn cross_reference(entries: &mut [MySqlStatEntry], findings: &[Finding]) {
 
 /// Cross-reference entries against every normalized SQL template observed
 /// in the traces, whether or not a detector fired on it (see
-/// [`crate::pipeline::trace_sql_templates`]). Same canonicalization as
-/// [`cross_reference`], which stays as the findings-only fallback.
+/// [`crate::pipeline::trace_sql_template_counts`]). Same canonicalization
+/// as [`cross_reference`], which stays as the findings-only fallback.
 pub fn cross_reference_templates<S: std::hash::BuildHasher>(
     entries: &mut [MySqlStatEntry],
-    templates: &std::collections::HashSet<String, S>,
+    trace_counts: &std::collections::HashMap<String, u64, S>,
 ) {
-    mark_matching(entries, templates.iter().map(String::as_str));
+    mark_matching(entries, trace_counts.keys().map(String::as_str));
 }
 
 fn mark_matching<'a>(entries: &mut [MySqlStatEntry], templates: impl Iterator<Item = &'a str>) {
@@ -277,20 +277,7 @@ fn mark_matching<'a>(entries: &mut [MySqlStatEntry], templates: impl Iterator<It
 pub fn trace_match_summary(
     entries: &[MySqlStatEntry],
 ) -> crate::ingest::pg_stat::TraceMatchSummary {
-    let mut summary = crate::ingest::pg_stat::TraceMatchSummary {
-        matched_templates: 0,
-        total_templates: entries.len(),
-        matched_calls: 0,
-        total_calls: 0,
-    };
-    for entry in entries {
-        summary.total_calls = summary.total_calls.saturating_add(entry.calls);
-        if entry.seen_in_traces {
-            summary.matched_templates += 1;
-            summary.matched_calls = summary.matched_calls.saturating_add(entry.calls);
-        }
-    }
-    summary
+    crate::ingest::pg_stat::tally_matches(entries.iter().map(|e| (e.seen_in_traces, e.calls)))
 }
 
 /// Punctuation and operator tokens `MySQL` digest text surrounds with
@@ -1367,11 +1354,13 @@ mod tests {
             "{CSV_HEADER}\ncrm,\"SELECT `c` . `name` FROM `customers` `c` WHERE `c` . `id` = ?\",10,1000000000,100000000,10,10"
         );
         let mut entries = parse_mysql_stat(csv.as_bytes(), 1_048_576).unwrap();
-        let templates: std::collections::HashSet<String> =
-            ["SELECT c.name FROM customers c WHERE c.id = ?".to_string()]
-                .into_iter()
-                .collect();
-        cross_reference_templates(&mut entries, &templates);
+        let counts: std::collections::HashMap<String, u64> = [(
+            "SELECT c.name FROM customers c WHERE c.id = ?".to_string(),
+            3,
+        )]
+        .into_iter()
+        .collect();
+        cross_reference_templates(&mut entries, &counts);
         assert!(
             entries[0].seen_in_traces,
             "spaced backticked digest must match the plain trace template"
