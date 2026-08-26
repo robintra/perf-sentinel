@@ -161,7 +161,11 @@ async fn run_writer(
             Ok(line) => line,
             Err(err) => {
                 metrics.record_archive_drop(ArchiveDropReason::SerializeError);
-                tracing::warn!(error = %err, "archive serialization failed, dropping window");
+                tracing::warn!(
+                    error = %err,
+                    "archive serialization failed, dropping window (see \
+                     perf_sentinel_archive_windows_dropped_total)"
+                );
                 continue;
             }
         };
@@ -170,13 +174,21 @@ async fn run_writer(
             // file is cut back to the last complete window. Leaving the
             // fragment there would publish an I/O error as tampering.
             metrics.record_archive_drop(ArchiveDropReason::WriteError);
-            tracing::warn!(error = %err, "archive write failed, dropping line");
+            tracing::warn!(
+                error = %err,
+                "archive write failed, dropping line (see \
+                 perf_sentinel_archive_windows_dropped_total)"
+            );
             if let Err(err) = file.set_len(bytes_written) {
                 tracing::warn!(error = %err, "archive truncation after a failed write failed");
                 // The fragment stays: seal it and resync the count, or a
-                // later truncation would cut into a complete window.
+                // later truncation would cut into a complete window. The
+                // resync must read the fd, not the path: a rename under the
+                // writer would map a path stat to 0 and a later set_len(0)
+                // would destroy the archive. On a stat error, keep the old
+                // count: it marks the last complete window.
                 let _ = terminate_incomplete_line(&mut file);
-                bytes_written = metadata_len(&path);
+                bytes_written = file.metadata().map_or(bytes_written, |m| m.len());
             }
             continue;
         }
