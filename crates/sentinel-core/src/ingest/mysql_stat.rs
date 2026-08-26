@@ -252,9 +252,9 @@ pub fn cross_reference(entries: &mut [MySqlStatEntry], findings: &[Finding]) {
 /// in the traces, whether or not a detector fired on it (see
 /// [`crate::pipeline::trace_sql_templates`]). Same canonicalization as
 /// [`cross_reference`], which stays as the findings-only fallback.
-pub fn cross_reference_templates(
+pub fn cross_reference_templates<S: std::hash::BuildHasher>(
     entries: &mut [MySqlStatEntry],
-    templates: &std::collections::HashSet<String>,
+    templates: &std::collections::HashSet<String, S>,
 ) {
     mark_matching(entries, templates.iter().map(String::as_str));
 }
@@ -270,7 +270,7 @@ fn mark_matching<'a>(entries: &mut [MySqlStatEntry], templates: impl Iterator<It
 }
 
 /// Tally the matched share over the entries' `seen_in_traces` flags,
-/// weighted by `calls`. Same caveat as the pg_stat variant: digest
+/// weighted by `calls`. Same caveat as the `pg_stat` variant: digest
 /// counters are cumulative since the last reset, this is a matched
 /// share, not a sampling ratio.
 #[must_use]

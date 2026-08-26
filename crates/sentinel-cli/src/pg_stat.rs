@@ -238,7 +238,7 @@ fn run_pg_stat_pipeline(
             Ok(events) => {
                 let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
                 let counts = pipeline::trace_sql_template_counts(&analyzed_traces);
-                let templates = counts.keys().cloned().collect();
+                let templates: std::collections::HashSet<String> = counts.keys().cloned().collect();
                 pg_stat::cross_reference_templates(&mut entries, &templates);
                 trace_counts = Some(counts);
             }
