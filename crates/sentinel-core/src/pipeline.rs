@@ -195,12 +195,26 @@ fn daemon_only_green_backend_warning(
 /// healthy query.
 #[must_use]
 pub fn trace_sql_templates(traces: &[correlate::Trace]) -> std::collections::HashSet<String> {
-    traces
+    trace_sql_template_counts(traces).into_keys().collect()
+}
+
+/// Span count per normalized SQL template across the traces. The
+/// trace-side half of the empirical coverage comparison against two
+/// `pg_stat_statements` snapshots.
+#[must_use]
+pub fn trace_sql_template_counts(
+    traces: &[correlate::Trace],
+) -> std::collections::HashMap<String, u64> {
+    let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    for span in traces
         .iter()
         .flat_map(|t| &t.spans)
         .filter(|s| s.event.event_type == crate::event::EventType::Sql)
-        .map(|s| s.template.to_string())
-        .collect()
+    {
+        let slot = counts.entry(span.template.to_string()).or_insert(0);
+        *slot = slot.saturating_add(1);
+    }
+    counts
 }
 
 /// Detect a CI environment. GitHub Actions, GitLab, Travis and most runners

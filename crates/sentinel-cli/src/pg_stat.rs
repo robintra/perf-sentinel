@@ -23,6 +23,7 @@ pub(crate) async fn dispatch_pg_stat(
     #[cfg(feature = "daemon")] opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     top_n: usize,
     traces: Option<&std::path::Path>,
+    baseline: Option<&std::path::Path>,
     config: Option<&std::path::Path>,
     format: PgStatOutputFormat,
 ) {
@@ -45,11 +46,11 @@ pub(crate) async fn dispatch_pg_stat(
             );
             std::process::exit(crate::EXIT_TOOLING_ERROR);
         });
-        cmd_pg_stat_from_entries(entries, top_n, traces, config, format);
+        cmd_pg_stat_from_entries(entries, top_n, traces, baseline, config, format);
         return;
     }
     let path = crate::require_input_path(input);
-    cmd_pg_stat(path, top_n, traces, config, format);
+    cmd_pg_stat(path, top_n, traces, baseline, config, format);
 }
 
 /// Ingest a `pg_stat_statements` CSV or JSON file and produce the
@@ -175,6 +176,7 @@ fn cmd_pg_stat(
     input: &std::path::Path,
     top_n: usize,
     traces: Option<&std::path::Path>,
+    baseline: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
     format: PgStatOutputFormat,
 ) {
@@ -193,7 +195,7 @@ fn cmd_pg_stat(
             }
         };
 
-    run_pg_stat_pipeline(entries, top_n, traces, &config, format);
+    run_pg_stat_pipeline(entries, top_n, traces, baseline, &config, format);
 }
 
 /// Variant of `cmd_pg_stat` that takes already-parsed entries (from Prometheus scrape).
@@ -202,11 +204,12 @@ fn cmd_pg_stat_from_entries(
     entries: Vec<sentinel_core::ingest::pg_stat::PgStatEntry>,
     top_n: usize,
     traces: Option<&std::path::Path>,
+    baseline: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
     format: PgStatOutputFormat,
 ) {
     let config = load_config(config_path);
-    run_pg_stat_pipeline(entries, top_n, traces, &config, format);
+    run_pg_stat_pipeline(entries, top_n, traces, baseline, &config, format);
 }
 
 /// Shared pipeline for the two `pg-stat` entry points (file input and
@@ -217,6 +220,7 @@ fn run_pg_stat_pipeline(
     mut entries: Vec<sentinel_core::ingest::pg_stat::PgStatEntry>,
     top_n: usize,
     traces: Option<&std::path::Path>,
+    baseline: Option<&std::path::Path>,
     config: &Config,
     format: PgStatOutputFormat,
 ) {
@@ -225,7 +229,7 @@ fn run_pg_stat_pipeline(
     // Cross-reference with the traced SQL templates if --traces is
     // provided: every span counts, not only the ones that produced a
     // finding, so a healthy traced query still gets its marker.
-    let mut cross_referenced = false;
+    let mut trace_counts: Option<std::collections::HashMap<String, u64>> = None;
     if let Some(traces_path) = traces {
         let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
         let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
@@ -233,9 +237,10 @@ fn run_pg_stat_pipeline(
         match ingest.ingest(&traces_raw) {
             Ok(events) => {
                 let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
-                let templates = pipeline::trace_sql_templates(&analyzed_traces);
+                let counts = pipeline::trace_sql_template_counts(&analyzed_traces);
+                let templates = counts.keys().cloned().collect();
                 pg_stat::cross_reference_templates(&mut entries, &templates);
-                cross_referenced = true;
+                trace_counts = Some(counts);
             }
             Err(e) => {
                 eprintln!(
@@ -247,8 +252,9 @@ fn run_pg_stat_pipeline(
     }
 
     let mut report = pg_stat::rank_pg_stat(&entries, top_n);
-    if cross_referenced {
+    if let Some(counts) = &trace_counts {
         report.trace_match = Some(pg_stat::trace_match_summary(&entries));
+        report.trace_coverage = load_trace_coverage(&entries, baseline, counts);
     }
 
     match format {
@@ -262,6 +268,36 @@ fn run_pg_stat_pipeline(
             );
         }
         PgStatOutputFormat::Text => print_pg_stat_report(&report),
+    }
+}
+
+/// Parse the `--baseline` snapshot and compute the empirical coverage.
+/// A parse failure warns and returns `None`: the ranking is still worth
+/// printing without the coverage figure.
+fn load_trace_coverage(
+    entries: &[sentinel_core::ingest::pg_stat::PgStatEntry],
+    baseline: Option<&std::path::Path>,
+    trace_counts: &std::collections::HashMap<String, u64>,
+) -> Option<sentinel_core::ingest::pg_stat::TraceCoverage> {
+    let baseline_path = baseline?;
+    let raw = read_file_capped(
+        baseline_path,
+        u64::try_from(limits::MAX_BATCH_INPUT_BYTES).unwrap_or(u64::MAX),
+    );
+    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, limits::MAX_BATCH_INPUT_BYTES) {
+        Ok(baseline_entries) => Some(sentinel_core::ingest::pg_stat::trace_coverage(
+            entries,
+            &baseline_entries,
+            trace_counts,
+        )),
+        Err(e) => {
+            eprintln!(
+                "Warning: failed to parse --baseline {}: {}",
+                baseline_path.display(),
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
+            None
+        }
     }
 }
 
@@ -288,6 +324,27 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
             tm.total_templates,
             tm.calls_share_percent()
         );
+    }
+    if let Some(cov) = &report.trace_coverage {
+        match cov.coverage_percent() {
+            Some(pct) => println!(
+                "{dim}Empirical coverage:{reset} {} of {} executed calls traced ({:.1}%) \
+                 across {} template(s)",
+                cov.traced_calls, cov.executed_calls, pct, cov.matched_templates
+            ),
+            None => println!(
+                "{dim}Empirical coverage:{reset} no call executed on the traced \
+                 templates between the two snapshots"
+            ),
+        }
+        if cov.reset_templates > 0 {
+            println!(
+                "{yellow}Warning:{reset} {} template(s) skipped, their counters went \
+                 backwards between the snapshots (statistics reset), the coverage \
+                 figure is unreliable",
+                cov.reset_templates
+            );
+        }
     }
     println!();
 
