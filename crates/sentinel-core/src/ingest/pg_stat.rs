@@ -251,22 +251,23 @@ pub fn cross_reference(entries: &mut [PgStatEntry], findings: &[Finding]) {
         .map(|f| f.pattern.template.as_str())
         .collect();
 
-    for entry in entries {
-        if templates.contains(entry.normalized_template.as_str()) {
-            entry.seen_in_traces = true;
-        }
-    }
+    mark_matching(entries, |template| templates.contains(template));
 }
 
 /// Cross-reference entries against every normalized SQL template observed
 /// in the traces, whether or not a detector fired on it (see
-/// [`crate::pipeline::trace_sql_templates`]).
+/// [`crate::pipeline::trace_sql_template_counts`]).
 pub fn cross_reference_templates<S: std::hash::BuildHasher>(
     entries: &mut [PgStatEntry],
-    templates: &std::collections::HashSet<String, S>,
+    trace_counts: &std::collections::HashMap<String, u64, S>,
 ) {
+    mark_matching(entries, |template| trace_counts.contains_key(template));
+}
+
+/// Shared marking loop behind both cross-reference spellings.
+fn mark_matching(entries: &mut [PgStatEntry], seen: impl Fn(&str) -> bool) {
     for entry in entries {
-        if templates.contains(entry.normalized_template.as_str()) {
+        if seen(&entry.normalized_template) {
             entry.seen_in_traces = true;
         }
     }
@@ -276,10 +277,11 @@ pub fn cross_reference_templates<S: std::hash::BuildHasher>(
 /// and weighted by `calls`. Meaningful only after one of the
 /// cross-reference passes ran.
 ///
-/// Deliberately not named "coverage": `pg_stat_statements` counters are
-/// cumulative since the last stats reset while the traces cover one
-/// capture window, so the calls-weighted share understates tracing on a
-/// long-lived database rather than measuring a sampling ratio.
+/// Deliberately not named "coverage": database statement counters
+/// (`pg_stat_statements`, `performance_schema` digests) are cumulative
+/// since their last reset while the traces cover one capture window, so
+/// the calls-weighted share understates tracing on a long-lived database
+/// rather than measuring a sampling ratio.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TraceMatchSummary {
     /// Entries marked `seen_in_traces`.
@@ -310,7 +312,7 @@ impl TraceMatchSummary {
 /// framing the trace capture window.
 ///
 /// `executed_calls` sums the per-template call delta between the two
-/// snapshots over the templates the traces observed; `traced_calls`
+/// snapshots over the templates the traces observed, and `traced_calls`
 /// sums the span counts the traces captured on those same templates.
 /// Their ratio approximates the fraction of database activity the
 /// tracing pipeline sees. A template whose counter went backwards
@@ -398,17 +400,24 @@ pub fn trace_coverage<S: std::hash::BuildHasher>(
 /// Tally the matched share over the entries' `seen_in_traces` flags.
 #[must_use]
 pub fn trace_match_summary(entries: &[PgStatEntry]) -> TraceMatchSummary {
+    tally_matches(entries.iter().map(|e| (e.seen_in_traces, e.calls)))
+}
+
+/// Shared tally behind the pg and `MySQL` summaries: one `(matched,
+/// calls)` pair per statement.
+pub(crate) fn tally_matches(rows: impl Iterator<Item = (bool, u64)>) -> TraceMatchSummary {
     let mut summary = TraceMatchSummary {
         matched_templates: 0,
-        total_templates: entries.len(),
+        total_templates: 0,
         matched_calls: 0,
         total_calls: 0,
     };
-    for entry in entries {
-        summary.total_calls = summary.total_calls.saturating_add(entry.calls);
-        if entry.seen_in_traces {
+    for (matched, calls) in rows {
+        summary.total_templates += 1;
+        summary.total_calls = summary.total_calls.saturating_add(calls);
+        if matched {
             summary.matched_templates += 1;
-            summary.matched_calls = summary.matched_calls.saturating_add(entry.calls);
+            summary.matched_calls = summary.matched_calls.saturating_add(calls);
         }
     }
     summary
@@ -1179,11 +1188,11 @@ mod tests {
     #[test]
     fn cross_reference_templates_marks_a_traced_statement_without_finding() {
         let mut entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
-        let templates: std::collections::HashSet<String> =
-            ["SELECT * FROM order_item WHERE order_id = ?".to_string()]
+        let counts: std::collections::HashMap<String, u64> =
+            [("SELECT * FROM order_item WHERE order_id = ?".to_string(), 3)]
                 .into_iter()
                 .collect();
-        cross_reference_templates(&mut entries, &templates);
+        cross_reference_templates(&mut entries, &counts);
         assert!(entries[0].seen_in_traces);
         assert!(!entries[1].seen_in_traces);
     }

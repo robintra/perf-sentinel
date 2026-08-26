@@ -60,13 +60,14 @@ pub(crate) async fn dispatch_pg_stat(
 pub(crate) fn load_pg_stat_from_file(
     path: &std::path::Path,
     top_n: usize,
+    trace_counts: Option<&std::collections::HashMap<String, u64>>,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let raw_pg = read_file_capped(
         path,
         u64::try_from(limits::MAX_BATCH_INPUT_BYTES).unwrap_or(u64::MAX),
     );
     match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, limits::MAX_BATCH_INPUT_BYTES) {
-        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
+        Ok(mut entries) => rank_with_trace_match(&mut entries, top_n, trace_counts),
         Err(e) => {
             eprintln!(
                 "Error parsing --pg-stat {}: {}",
@@ -85,6 +86,7 @@ pub(crate) fn load_pg_stat_from_file(
 // The only `.await` is the daemon-gated Prometheus fetch, so the
 // no-default-features build sees an async fn with no await.
 #[cfg_attr(not(feature = "daemon"), allow(clippy::unused_async))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_pg_stat_source(
     path: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] prometheus: Option<&str>,
@@ -92,20 +94,50 @@ pub(crate) async fn resolve_pg_stat_source(
     #[cfg(feature = "daemon")] opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     #[cfg(feature = "daemon")] config: &Config,
     top_n: usize,
+    trace_counts: Option<&std::collections::HashMap<String, u64>>,
 ) -> Option<sentinel_core::ingest::pg_stat::PgStatReport> {
     if let Some(path) = path {
-        return Some(load_pg_stat_from_file(path, top_n));
+        return Some(load_pg_stat_from_file(path, top_n, trace_counts));
     }
     #[cfg(feature = "daemon")]
     {
         let url = prometheus?;
         let resolved_auth = resolve_pg_stat_auth_header(auth_header);
-        Some(load_pg_stat_from_prometheus(url, config, top_n, opts, resolved_auth.as_deref()).await)
+        Some(
+            load_pg_stat_from_prometheus(
+                url,
+                config,
+                top_n,
+                opts,
+                resolved_auth.as_deref(),
+                trace_counts,
+            )
+            .await,
+        )
     }
     #[cfg(not(feature = "daemon"))]
     {
         None
     }
+}
+
+/// Cross-reference (when trace counts are at hand), rank, and stamp the
+/// matched share, so the `report` dashboard and the standalone runner
+/// share one wiring.
+pub(crate) fn rank_with_trace_match(
+    entries: &mut [sentinel_core::ingest::pg_stat::PgStatEntry],
+    top_n: usize,
+    trace_counts: Option<&std::collections::HashMap<String, u64>>,
+) -> sentinel_core::ingest::pg_stat::PgStatReport {
+    use sentinel_core::ingest::pg_stat;
+    if let Some(counts) = trace_counts {
+        pg_stat::cross_reference_templates(entries, counts);
+    }
+    let mut report = pg_stat::rank_pg_stat(entries, top_n);
+    if trace_counts.is_some() {
+        report.trace_match = Some(pg_stat::trace_match_summary(entries));
+    }
+    report
 }
 
 /// Scrape a `postgres_exporter` endpoint one-shot and produce the
@@ -118,6 +150,7 @@ pub(crate) async fn load_pg_stat_from_prometheus(
     top_n: usize,
     opts: &sentinel_core::ingest::pg_stat::PrometheusPgStat,
     auth_header: Option<&str>,
+    trace_counts: Option<&std::collections::HashMap<String, u64>>,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let scrape_budget = top_n.max(crate::PROMETHEUS_SCRAPE_FLOOR);
     match sentinel_core::ingest::pg_stat::fetch_from_prometheus(
@@ -128,7 +161,7 @@ pub(crate) async fn load_pg_stat_from_prometheus(
     )
     .await
     {
-        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
+        Ok(mut entries) => rank_with_trace_match(&mut entries, top_n, trace_counts),
         Err(e) => {
             eprintln!(
                 "Error scraping --pg-stat-prometheus {url}: {}",
@@ -229,26 +262,12 @@ fn run_pg_stat_pipeline(
     // Cross-reference with the traced SQL templates if --traces is
     // provided: every span counts, not only the ones that produced a
     // finding, so a healthy traced query still gets its marker.
-    let mut trace_counts: Option<std::collections::HashMap<String, u64>> = None;
-    if let Some(traces_path) = traces {
-        let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
-        let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
-            .with_grouping_attributes(crate::grouping_keys(config));
-        match ingest.ingest(&traces_raw) {
-            Ok(events) => {
-                let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
-                let counts = pipeline::trace_sql_template_counts(&analyzed_traces);
-                let templates: std::collections::HashSet<String> = counts.keys().cloned().collect();
-                pg_stat::cross_reference_templates(&mut entries, &templates);
-                trace_counts = Some(counts);
-            }
-            Err(e) => {
-                eprintln!(
-                    "Warning: failed to ingest trace file for cross-reference: {}",
-                    sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
-                );
-            }
-        }
+    let trace_counts = traces.and_then(|path| trace_counts_for_cross_reference(path, config));
+    if traces.is_some() && trace_counts.is_none() && baseline.is_some() {
+        eprintln!("Warning: --baseline ignored, the trace cross-reference failed");
+    }
+    if let Some(counts) = &trace_counts {
+        pg_stat::cross_reference_templates(&mut entries, counts);
     }
 
     let mut report = pg_stat::rank_pg_stat(&entries, top_n);
@@ -268,6 +287,31 @@ fn run_pg_stat_pipeline(
             );
         }
         PgStatOutputFormat::Text => print_pg_stat_report(&report),
+    }
+}
+
+/// Ingest a trace file and tally its SQL templates for the `pg-stat` /
+/// `mysql-stat` cross-reference. `None` (after a warning) when the file
+/// does not ingest: the ranking still prints without markers.
+pub(crate) fn trace_counts_for_cross_reference(
+    traces_path: &std::path::Path,
+    config: &Config,
+) -> Option<std::collections::HashMap<String, u64>> {
+    let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
+    let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
+        .with_grouping_attributes(crate::grouping_keys(config));
+    match ingest.ingest(&traces_raw) {
+        Ok(events) => {
+            let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
+            Some(pipeline::trace_sql_template_counts(&analyzed_traces))
+        }
+        Err(e) => {
+            eprintln!(
+                "Warning: failed to ingest trace file for cross-reference: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
+            None
+        }
     }
 }
 

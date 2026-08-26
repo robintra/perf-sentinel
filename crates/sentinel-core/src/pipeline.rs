@@ -188,19 +188,11 @@ fn daemon_only_green_backend_warning(
     ))
 }
 
-/// Every normalized SQL template observed in the traces, whether or not
-/// a detector fired on it. Feeds the `pg_stat` / `mysql_stat`
-/// cross-reference: matching against findings alone leaves a traced but
-/// finding-free statement unmarked, which understates tracing on every
-/// healthy query.
-#[must_use]
-pub fn trace_sql_templates(traces: &[correlate::Trace]) -> std::collections::HashSet<String> {
-    trace_sql_template_counts(traces).into_keys().collect()
-}
-
-/// Span count per normalized SQL template across the traces. The
-/// trace-side half of the empirical coverage comparison against two
-/// `pg_stat_statements` snapshots.
+/// Span count per normalized SQL template observed in the traces,
+/// whether or not a detector fired on it. Feeds the `pg_stat` /
+/// `mysql_stat` cross-reference (matching against findings alone leaves
+/// a traced but finding-free statement unmarked) and the trace-side half
+/// of the two-snapshot empirical coverage comparison.
 #[must_use]
 pub fn trace_sql_template_counts(
     traces: &[correlate::Trace],
@@ -250,23 +242,31 @@ mod tests {
         assert!(report.quality_gate.passed);
     }
 
-    /// Every traced SQL template lands in the set, whether or not a
-    /// detector fired: one clean SELECT below every threshold must
-    /// still be collected.
+    /// Every traced SQL template lands in the tally, whether or not a
+    /// detector fired: two clean SELECTs below every threshold must
+    /// still be counted, per template.
     #[test]
-    fn trace_sql_templates_collects_finding_free_statements() {
+    fn trace_sql_template_counts_tallies_finding_free_statements() {
         use crate::test_helpers::make_sql_event;
-        let events = vec![make_sql_event(
-            "trace-1",
-            "span-1",
-            "SELECT * FROM users WHERE id = 1",
-            "2025-07-10T14:32:01.000Z",
-        )];
+        let events = vec![
+            make_sql_event(
+                "trace-1",
+                "span-1",
+                "SELECT * FROM users WHERE id = 1",
+                "2025-07-10T14:32:01.000Z",
+            ),
+            make_sql_event(
+                "trace-1",
+                "span-2",
+                "SELECT * FROM users WHERE id = 2",
+                "2025-07-10T14:32:05.000Z",
+            ),
+        ];
         let config = Config::default();
         let (report, traces) = analyze_with_traces(events, &config, None);
-        assert!(report.findings.is_empty(), "one clean query, no finding");
-        let templates = trace_sql_templates(&traces);
-        assert!(templates.contains("SELECT * FROM users WHERE id = ?"));
+        assert!(report.findings.is_empty(), "clean queries, no finding");
+        let counts = trace_sql_template_counts(&traces);
+        assert_eq!(counts.get("SELECT * FROM users WHERE id = ?"), Some(&2));
     }
 
     #[test]
