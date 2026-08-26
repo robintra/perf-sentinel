@@ -1365,6 +1365,8 @@ pub(crate) fn build_report(
         windows_unchained: aggregate.chain_unchained,
         breaks: aggregate.chain_breaks,
         breaks_outside_period: aggregate.chain_breaks_outside,
+        windows_dropped: aggregate.windows_dropped,
+        drop_counter_resets: aggregate.drop_counter_resets,
     };
     let embodied_per_request = embodied_total.and_then(|total| {
         let requests = aggregate.aggregate.total_requests;

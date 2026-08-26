@@ -1,4 +1,4 @@
-//! Wire schema (v1.6) for the periodic disclosure report.
+//! Wire schema (v1.7) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
 //!
@@ -35,6 +35,15 @@
 //! Additive via `serde(default)` plus `skip_serializing_if`, so
 //! re-hashing a v1.4 report still yields its original `content_hash`.
 //!
+//! v1.7 adds two `SourceChain` fields derived from the cumulative `drops`
+//! counter each archive line carries since v1.7: `windows_dropped` (windows
+//! the daemon produced but could not archive over the period) and
+//! `drop_counter_resets` (times the counter went backwards, one per daemon
+//! restart, after which the period's delta restarts from the new value).
+//! Absent on archives written before the counter existed. Same
+//! `serde(default)` + `skip_serializing_if` rule, so re-hashing a v1.6
+//! report still yields its original `content_hash`.
+//!
 //! v1.6 adds three `CalibrationInputs` fields that make the carbon
 //! parameters visible: `carbon_methodologies` (the SCI tags observed, which
 //! say whether transport is in the numerator) and the `M` term as a period
@@ -49,7 +58,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.6";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.7";
 
 /// Scope fields the operator declares by hand in the org config. These are
 /// unaudited inputs: the binary cannot verify the size of the portfolio they
@@ -747,6 +756,18 @@ pub struct SourceChain {
     /// instead of being folded into a verdict they do not concern.
     #[serde(default)]
     pub breaks_outside_period: u64,
+    /// Windows the daemon produced but could not archive over the
+    /// period, derived from the cumulative `drops` counter on the
+    /// archive lines. Says nothing about windows never produced (daemon
+    /// down): `temporal_coverage` bounds those. `None` when no archived
+    /// line carried the counter (pre-v1.7 archives). v1.7.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_dropped: Option<u64>,
+    /// Times the drop counter went backwards inside the period, one per
+    /// daemon restart. Each reset makes `windows_dropped` a lower bound
+    /// for the gap it spans. `None` with `windows_dropped`. v1.7.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop_counter_resets: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1404,6 +1425,29 @@ mod tests {
         assert!(!s.contains("cross_period_log"));
         let back: Integrity = serde_json::from_str(&s).unwrap();
         assert!(back.cross_period_log.is_none());
+    }
+
+    /// A v1.6 report deserializes with `None` drop figures and must
+    /// serialize them away, so re-hashing it on a v1.7 binary keeps its
+    /// `content_hash`.
+    #[test]
+    fn absent_drop_figures_omitted_from_source_chain_serialization() {
+        let chain = SourceChain {
+            windows_verified: 3,
+            ..SourceChain::default()
+        };
+        let s = serde_json::to_string(&chain).unwrap();
+        assert!(!s.contains("windows_dropped"));
+        assert!(!s.contains("drop_counter_resets"));
+
+        let populated = SourceChain {
+            windows_dropped: Some(4),
+            drop_counter_resets: Some(1),
+            ..SourceChain::default()
+        };
+        let json = serde_json::to_value(&populated).unwrap();
+        assert_eq!(json["windows_dropped"], 4);
+        assert_eq!(json["drop_counter_resets"], 1);
     }
 
     #[test]

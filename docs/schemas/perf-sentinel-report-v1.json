@@ -27,7 +27,8 @@
         "perf-sentinel-report/v1.3",
         "perf-sentinel-report/v1.4",
         "perf-sentinel-report/v1.5",
-        "perf-sentinel-report/v1.6"
+        "perf-sentinel-report/v1.6",
+        "perf-sentinel-report/v1.7"
       ]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
@@ -705,6 +706,16 @@
               "type": "integer",
               "minimum": 0,
               "description": "Breaks found in the same archive files but outside the period. A rolling archive can span several periods, and this report only answers for its own, so a window edited two years ago is reported here rather than folded into breaks. Keeps windows_verified and breaks reconcilable with the windows the period actually aggregated (v1.6+)."
+            },
+            "windows_dropped": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Windows the daemon produced but could not archive over the period, derived from the cumulative drops counter each archive line carries since v1.7. Says nothing about windows never produced (daemon down): aggregate.temporal_coverage bounds those. Omitted when no archived line carried the counter (pre-v1.7 archives)."
+            },
+            "drop_counter_resets": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Times the drops counter went backwards inside the period, one per daemon restart. Each reset makes windows_dropped a lower bound for the gap it spans. Omitted with windows_dropped (v1.7+)."
             }
           }
         },

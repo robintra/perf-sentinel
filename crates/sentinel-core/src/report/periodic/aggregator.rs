@@ -93,6 +93,13 @@ pub struct AggregateInputs {
     /// archive can cover several periods, and this report only answers
     /// for its own, so they are counted apart rather than folded in.
     pub chain_breaks_outside: u64,
+    /// Windows the daemon produced but could not archive, derived from
+    /// the cumulative `drops` counter on the archive lines. `None` when
+    /// no line carried the counter (pre-v1.7 archives).
+    pub windows_dropped: Option<u64>,
+    /// Times the drop counter went backwards (daemon restarts). Each
+    /// makes `windows_dropped` a lower bound over the gap it spans.
+    pub drop_counter_resets: Option<u64>,
     /// Coefficient sets observed over the period, as `key=value` strings.
     pub scoring_coefficients: BTreeSet<String>,
     /// SCI methodology tags observed. Current windows use the `+transport`
@@ -361,6 +368,12 @@ struct Builder {
     chain_unchained: u64,
     chain_breaks: u64,
     chain_breaks_outside: u64,
+    /// Sum of in-period deltas of the cumulative `drops` counter, and
+    /// whether any line carried it at all (pre-v1.7 archives carry none,
+    /// and `0` must stay distinguishable from "not measured").
+    windows_dropped: u64,
+    drop_counter_resets: u64,
+    drops_observed: bool,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
     /// Distinct coefficient sets observed, as `"key=value"` strings. A
@@ -478,6 +491,7 @@ impl Builder {
         let mut warned_break = false;
         let mut chain_started = false;
         let mut previous_in_scope = false;
+        let mut last_drops: Option<u64> = None;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -500,6 +514,13 @@ impl Builder {
             // one rolling archive can span several periods, and a 2024
             // edit must not be published as this quarter's break.
             let in_scope = line_in_period(parsed.as_ref(), period);
+            if let Some(drops) = parsed
+                .as_ref()
+                .and_then(|v| v.get("drops"))
+                .and_then(serde_json::Value::as_u64)
+            {
+                self.fold_drops(drops, &mut last_drops, in_scope);
+            }
             let next_seq = |expected: &Option<(String, u64)>| {
                 parsed_seq
                     .unwrap_or_else(|| expected.as_ref().map_or(0, |(_, seq)| *seq))
@@ -550,6 +571,33 @@ impl Builder {
             }
         }
         Ok(())
+    }
+
+    /// Fold one line's cumulative `drops` counter. The delta between two
+    /// consecutive carrying lines is the loss between them, attributed to
+    /// the later line's period. A decrease is a daemon restart: the count
+    /// restarts from the new value (its drops happened after the restart)
+    /// and the reset is surfaced so the figure reads as a lower bound.
+    /// The first carrying line of a file sets the baseline without
+    /// contributing: the counter is daemon-lifetime, not file-lifetime,
+    /// so its absolute value says nothing about this file.
+    fn fold_drops(&mut self, drops: u64, last: &mut Option<u64>, in_scope: bool) {
+        self.drops_observed = true;
+        match *last {
+            Some(prev) if drops < prev => {
+                if in_scope {
+                    self.drop_counter_resets += 1;
+                    self.windows_dropped = self.windows_dropped.saturating_add(drops);
+                }
+            }
+            Some(prev) => {
+                if in_scope {
+                    self.windows_dropped = self.windows_dropped.saturating_add(drops - prev);
+                }
+            }
+            None => {}
+        }
+        *last = Some(drops);
     }
 
     fn count_break(&mut self, in_scope: bool) {
@@ -1081,6 +1129,8 @@ impl Builder {
             runtime_windows: self.runtime_windows,
             fallback_windows: self.fallback_windows,
             calibration_applied: self.calibration_applied,
+            windows_dropped: self.drops_observed.then_some(self.windows_dropped),
+            drop_counter_resets: self.drops_observed.then_some(self.drop_counter_resets),
             chain_verified: self.chain_verified,
             chain_unchained: self.chain_unchained,
             chain_breaks: self.chain_breaks,
@@ -1618,6 +1668,30 @@ mod tests {
         (dir, path)
     }
 
+    /// Chained archive whose lines carry the cumulative `drops` counter,
+    /// the shape the daemon writes since v1.7.
+    fn write_chained_archive_with_drops(
+        lines: &[(DateTime<Utc>, Report, u64)],
+    ) -> (TempDir, PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("archive.ndjson");
+        let mut file = File::create(&path).unwrap();
+        let mut prev = super::super::hasher::ARCHIVE_CHAIN_SEED.to_string();
+        for (seq, (ts, report, drops)) in lines.iter().enumerate() {
+            let body = serde_json::json!({
+                "ts": ts, "report": report, "prev": prev, "seq": seq as u64, "drops": drops,
+            });
+            let hash = super::super::hasher::archive_chain_hash(&body).unwrap();
+            let mut line = body;
+            line.as_object_mut()
+                .unwrap()
+                .insert("hash".to_string(), serde_json::Value::String(hash.clone()));
+            writeln!(file, "{}", serde_json::to_string(&line).unwrap()).unwrap();
+            prev = hash;
+        }
+        (dir, path)
+    }
+
     fn q1_2026() -> Period {
         Period {
             from_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
@@ -1629,6 +1703,39 @@ mod tests {
 
     fn plain_window() -> Report {
         make_report(10, 100, 10, &[("svc-a", "/api", 100)], vec![])
+    }
+
+    /// The deltas of the cumulative counter are the period's losses. The
+    /// first carrying line only sets the baseline (the counter is
+    /// daemon-lifetime, its absolute value says nothing about this
+    /// file), and a decrease is a daemon restart: counted as a reset,
+    /// the delta restarts from the new value.
+    #[test]
+    fn drop_counter_deltas_become_windows_dropped() {
+        let ts = |m, d| Utc.with_ymd_and_hms(2026, m, d, 0, 0, 0).unwrap();
+        let windows = [
+            (ts(1, 10), plain_window(), 2),
+            (ts(1, 20), plain_window(), 5),
+            (ts(2, 10), plain_window(), 5),
+            (ts(2, 20), plain_window(), 1),
+        ];
+        let (_dir, path) = write_chained_archive_with_drops(&windows);
+        let inputs = aggregate_from_paths(std::slice::from_ref(&path), &q1_2026(), false).unwrap();
+        // Baseline 2, then +3, +0, reset (1 < 5) restarting at 1.
+        assert_eq!(inputs.windows_dropped, Some(4));
+        assert_eq!(inputs.drop_counter_resets, Some(1));
+        assert_eq!(inputs.chain_verified, 4, "drops are covered by the hash");
+    }
+
+    /// A pre-v1.7 archive carries no counter: "not measured" must stay
+    /// distinguishable from "zero drops".
+    #[test]
+    fn archives_without_the_counter_yield_no_drop_figures() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_archive(&[(ts1, plain_window())]);
+        let inputs = aggregate_from_paths(std::slice::from_ref(&path), &q1_2026(), false).unwrap();
+        assert_eq!(inputs.windows_dropped, None);
+        assert_eq!(inputs.drop_counter_resets, None);
     }
 
     #[test]

@@ -407,6 +407,20 @@ sans que rien ne le montre. Une rupture n'arrête pas le rapport, elle
 est publiée comme un compteur, si bien qu'une archive tronquée donne
 encore une divulgation partielle honnête.
 
+Depuis la v1.7, chaque ligne d'archive porte aussi le compteur cumulatif
+de pertes du daemon, et le même bloc publie `windows_dropped`, les
+fenêtres que le daemon a produites mais n'a pas pu archiver sur la
+période, plus `drop_counter_resets`, le nombre de fois où le compteur a
+reculé (une par redémarrage du daemon, chacune faisant du chiffre une
+borne basse sur l'intervalle qu'elle couvre). C'est le jumeau signé de
+la métrique `perf_sentinel_archive_windows_dropped_total` : le scrape
+voit les pertes en direct, le rapport en rend compte après coup. Cela ne
+dit rien des fenêtres jamais produites, un daemon à l'arrêt ne laisse
+aucun compteur à lire, ce que borne `aggregate.temporal_coverage`. Les
+deux champs sont omis sur les archives écrites avant l'existence du
+compteur, pour qu'une archive ancienne ne se lise jamais comme zéro
+perte.
+
 Une édition que la chaîne ne voit pas est une coupe nette de la fin
 d'une archive : ce qui reste est une chaîne plus courte qui se vérifie
 selon ses propres termes, et aucun champ interne au fichier ne peut la
