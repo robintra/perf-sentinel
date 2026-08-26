@@ -183,8 +183,8 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
     crate::detect::sort_findings(&mut new_findings);
     crate::detect::sort_findings(&mut resolved_findings);
     // Pair template mutations out of the two sorted lists. Sorting first
-    // keeps the pairing deterministic; `Vec::retain` preserves the order
-    // of whatever stays.
+    // keeps the pairing deterministic, and `Vec::retain` preserves the
+    // order of whatever stays.
     let mutated_findings = pair_mutations(&mut resolved_findings, &mut new_findings, with_grouping);
     // Severity changes: regressions (worse-after) first, then
     // improvements. Within each group, sort by the same finding-order

@@ -1357,7 +1357,10 @@ fn write_resolved_findings_section(
 /// Template mutations: the same detector on the same service and
 /// endpoint whose normalized template changed between the two runs.
 /// Printed as a before/after template pair so a reader can judge the
-/// pairing at a glance; counted neither as new nor as resolved.
+/// pairing at a glance, counted neither as new nor as resolved. A pair
+/// whose severity worsened is colored red and shows the transition: the
+/// escalation never reaches `severity_changes`, so this line is its only
+/// witness.
 fn write_mutated_findings_section(
     writer: &mut dyn std::io::Write,
     mutated: &[sentinel_core::diff::MutatedFinding],
@@ -1369,6 +1372,7 @@ fn write_mutated_findings_section(
     let AnsiColors {
         bold,
         yellow,
+        red,
         dim,
         reset,
         ..
@@ -1379,10 +1383,21 @@ fn write_mutated_findings_section(
         mutated.len()
     )?;
     for pair in mutated {
+        // Severity derives Ord with declaration order: worse = lower.
+        let worsened = pair.after.severity < pair.before.severity;
+        let marker_color = if worsened { red } else { yellow };
+        let severity = if pair.after.severity == pair.before.severity {
+            severity_label(&pair.after.severity).to_string()
+        } else {
+            format!(
+                "{}\u{2192}{}",
+                severity_label(&pair.before.severity),
+                severity_label(&pair.after.severity)
+            )
+        };
         writeln!(
             writer,
-            "  {yellow}~{reset} [{}] {} on {} ({})",
-            severity_label(&pair.after.severity),
+            "  {marker_color}~{reset} [{severity}] {} on {} ({})",
             pair.after.finding_type.display_label(),
             pair.after.source_endpoint,
             pair.after.service,
