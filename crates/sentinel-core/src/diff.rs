@@ -11,6 +11,12 @@
 //! `(finding_type, service, source_endpoint, pattern.template)`. The
 //! template is already normalized at detection time so direct equality
 //! suffices, no re-normalization at diff time.
+//!
+//! A template mutation (schema change, renamed column, host move) shifts
+//! that identity, which used to surface as one resolved plus one new
+//! finding. A second pass pairs those leftovers when the match is
+//! unambiguous and reports them as `mutated_findings` instead, so a
+//! refactor does not read as a regression.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -83,6 +89,23 @@ pub struct DiffReport {
     /// drop them. Additive, absent when empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warning_details: Vec<Warning>,
+    /// Resolved/new pairs that differ only by their normalized template:
+    /// the same detector on the same service and endpoint, before and
+    /// after a template mutation. Counted neither as new nor as resolved,
+    /// so a schema refactor does not fail a CI gate fed by
+    /// `new_findings`. Additive, absent when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mutated_findings: Vec<MutatedFinding>,
+}
+
+/// A finding whose normalized template changed between the two runs
+/// while its detector, service, endpoint, and grouping stayed the same.
+#[derive(Debug, Clone, Serialize)]
+pub struct MutatedFinding {
+    /// The finding as it appeared in the `before` run (old template).
+    pub before: Finding,
+    /// The finding as it appears in the `after` run (new template).
+    pub after: Finding,
 }
 
 /// A finding whose worst severity changed between the two runs.
@@ -159,6 +182,10 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
     // is identical between the two outputs.
     crate::detect::sort_findings(&mut new_findings);
     crate::detect::sort_findings(&mut resolved_findings);
+    // Pair template mutations out of the two sorted lists. Sorting first
+    // keeps the pairing deterministic; `Vec::retain` preserves the order
+    // of whatever stays.
+    let mutated_findings = pair_mutations(&mut resolved_findings, &mut new_findings, with_grouping);
     // Severity changes: regressions (worse-after) first, then
     // improvements. Within each group, sort by the same finding-order
     // rule as the regular output for predictability.
@@ -180,7 +207,124 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
         severity_changes,
         endpoint_metric_deltas,
         warning_details: after.warning_details.clone(),
+        mutated_findings,
     }
+}
+
+/// `IdentityKey` without the template: what stays stable when a template
+/// mutates. Two leftovers sharing it are mutation candidates.
+type ReducedKey = (FindingType, String, Option<(String, String)>, String);
+
+fn reduced_key_of(finding: &Finding, with_grouping: bool) -> ReducedKey {
+    let (finding_type, service, grouping, endpoint, _) = identity_of(finding, with_grouping);
+    (finding_type, service, grouping, endpoint)
+}
+
+/// Pair resolved/new leftovers that differ only by template.
+///
+/// Conservative by design: a pair is emitted only when it is unambiguous,
+/// either a single candidate on each side of the reduced key, or exactly
+/// one candidate per side sharing the same `code_location` anchor.
+/// Anything ambiguous stays reported as resolved plus new. Never guesses:
+/// an identity is also the acknowledgment boundary, and a wrong merge
+/// would hide a genuinely new problem.
+fn pair_mutations(
+    resolved: &mut Vec<Finding>,
+    new: &mut Vec<Finding>,
+    with_grouping: bool,
+) -> Vec<MutatedFinding> {
+    let mut resolved_by_key: BTreeMap<ReducedKey, Vec<usize>> = BTreeMap::new();
+    for (idx, finding) in resolved.iter().enumerate() {
+        resolved_by_key
+            .entry(reduced_key_of(finding, with_grouping))
+            .or_default()
+            .push(idx);
+    }
+    let mut new_by_key: BTreeMap<ReducedKey, Vec<usize>> = BTreeMap::new();
+    for (idx, finding) in new.iter().enumerate() {
+        new_by_key
+            .entry(reduced_key_of(finding, with_grouping))
+            .or_default()
+            .push(idx);
+    }
+
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (key, resolved_idxs) in &resolved_by_key {
+        if let Some(new_idxs) = new_by_key.get(key) {
+            pairs.extend(pairs_for_key(resolved_idxs, new_idxs, resolved, new));
+        }
+    }
+
+    let mut mutated: Vec<MutatedFinding> = pairs
+        .iter()
+        .map(|&(r, n)| MutatedFinding {
+            before: resolved[r].clone(),
+            after: new[n].clone(),
+        })
+        .collect();
+    remove_indices(resolved, pairs.iter().map(|&(r, _)| r).collect());
+    remove_indices(new, pairs.iter().map(|&(_, n)| n).collect());
+    // Same ordering rule as the finding lists, keyed on the after side.
+    mutated.sort_by(|a, b| {
+        a.after
+            .finding_type
+            .cmp(&b.after.finding_type)
+            .then_with(|| a.after.service.cmp(&b.after.service))
+            .then_with(|| a.after.source_endpoint.cmp(&b.after.source_endpoint))
+            .then_with(|| a.after.pattern.template.cmp(&b.after.pattern.template))
+    });
+    mutated
+}
+
+/// Unambiguous pairs within one reduced key. One candidate per side pairs
+/// directly. With several, the `code_location` anchor (filepath plus
+/// function) arbitrates: an anchor carrying exactly one finding on each
+/// side pairs them, every other combination stays unpaired.
+fn pairs_for_key(
+    resolved_idxs: &[usize],
+    new_idxs: &[usize],
+    resolved: &[Finding],
+    new: &[Finding],
+) -> Vec<(usize, usize)> {
+    if let (&[r], &[n]) = (resolved_idxs, new_idxs) {
+        return vec![(r, n)];
+    }
+    let mut by_anchor: BTreeMap<(String, String), (Vec<usize>, Vec<usize>)> = BTreeMap::new();
+    for &r in resolved_idxs {
+        if let Some(anchor) = code_anchor(&resolved[r]) {
+            by_anchor.entry(anchor).or_default().0.push(r);
+        }
+    }
+    for &n in new_idxs {
+        if let Some(anchor) = code_anchor(&new[n]) {
+            by_anchor.entry(anchor).or_default().1.push(n);
+        }
+    }
+    by_anchor
+        .into_values()
+        .filter_map(|(r, n)| match (r.as_slice(), n.as_slice()) {
+            (&[r], &[n]) => Some((r, n)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The stable code anchor of a finding, when its instrumentation emitted
+/// one: `(filepath, function)` from the OTel `code.*` span attributes.
+fn code_anchor(finding: &Finding) -> Option<(String, String)> {
+    let location = finding.code_location.as_ref()?;
+    Some((location.filepath.clone()?, location.function.clone()?))
+}
+
+/// Drop the findings at the given indices, preserving the order of the
+/// rest.
+fn remove_indices(list: &mut Vec<Finding>, remove: BTreeSet<usize>) {
+    let mut idx = 0;
+    list.retain(|_| {
+        let keep = !remove.contains(&idx);
+        idx += 1;
+        keep
+    });
 }
 
 /// Build an identity-keyed map of findings, collapsing duplicates by
@@ -819,6 +963,178 @@ mod tests {
             sarif.runs[0].results.len(),
             diff.new_findings.len(),
             "SARIF results count must match new_findings count"
+        );
+    }
+
+    fn anchored(mut f: Finding, filepath: &str, function: &str) -> Finding {
+        f.code_location = Some(crate::event::CodeLocation {
+            function: Some(function.to_string()),
+            filepath: Some(filepath.to_string()),
+            lineno: Some(42),
+            namespace: None,
+        });
+        f
+    }
+
+    #[test]
+    fn template_mutation_pairs_instead_of_resolved_plus_new() {
+        let before = make_report(
+            vec![finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "order-svc",
+                "GET /api/orders",
+                "SELECT * FROM orders WHERE id = ?",
+            )],
+            vec![],
+        );
+        let after = make_report(
+            vec![finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "order-svc",
+                "GET /api/orders",
+                "SELECT * FROM orders WHERE id = ? AND tenant = ?",
+            )],
+            vec![],
+        );
+        let report = diff_runs(&before, &after);
+
+        assert!(report.new_findings.is_empty());
+        assert!(report.resolved_findings.is_empty());
+        assert_eq!(report.mutated_findings.len(), 1);
+        let pair = &report.mutated_findings[0];
+        assert_eq!(
+            pair.before.pattern.template,
+            "SELECT * FROM orders WHERE id = ?"
+        );
+        assert_eq!(
+            pair.after.pattern.template,
+            "SELECT * FROM orders WHERE id = ? AND tenant = ?"
+        );
+    }
+
+    #[test]
+    fn ambiguous_mutation_stays_resolved_plus_new() {
+        let mk = |template: &str| {
+            finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "order-svc",
+                "GET /api/orders",
+                template,
+            )
+        };
+        let before = make_report(
+            vec![
+                mk("SELECT a FROM t WHERE id = ?"),
+                mk("SELECT b FROM t WHERE id = ?"),
+            ],
+            vec![],
+        );
+        let after = make_report(
+            vec![
+                mk("SELECT c FROM t WHERE id = ?"),
+                mk("SELECT d FROM t WHERE id = ?"),
+            ],
+            vec![],
+        );
+        let report = diff_runs(&before, &after);
+
+        assert!(report.mutated_findings.is_empty());
+        assert_eq!(report.resolved_findings.len(), 2);
+        assert_eq!(report.new_findings.len(), 2);
+    }
+
+    #[test]
+    fn code_anchor_arbitrates_ambiguous_mutations() {
+        let mk = |template: &str| {
+            finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "order-svc",
+                "GET /api/orders",
+                template,
+            )
+        };
+        let before = make_report(
+            vec![
+                anchored(
+                    mk("SELECT a FROM t WHERE id = ?"),
+                    "src/orders.py",
+                    "list_orders",
+                ),
+                anchored(
+                    mk("SELECT b FROM t WHERE id = ?"),
+                    "src/items.py",
+                    "list_items",
+                ),
+            ],
+            vec![],
+        );
+        let after = make_report(
+            vec![
+                anchored(
+                    mk("SELECT a2 FROM t WHERE id = ?"),
+                    "src/orders.py",
+                    "list_orders",
+                ),
+                anchored(
+                    mk("SELECT b2 FROM t WHERE id = ?"),
+                    "src/items.py",
+                    "list_items",
+                ),
+            ],
+            vec![],
+        );
+        let report = diff_runs(&before, &after);
+
+        assert!(report.new_findings.is_empty());
+        assert!(report.resolved_findings.is_empty());
+        assert_eq!(report.mutated_findings.len(), 2);
+        for pair in &report.mutated_findings {
+            assert_eq!(pair.before.code_location, pair.after.code_location);
+        }
+    }
+
+    #[test]
+    fn different_endpoint_is_not_a_mutation() {
+        let before = make_report(
+            vec![finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "order-svc",
+                "GET /api/orders",
+                "SELECT a FROM t WHERE id = ?",
+            )],
+            vec![],
+        );
+        let after = make_report(
+            vec![finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "order-svc",
+                "GET /api/items",
+                "SELECT b FROM t WHERE id = ?",
+            )],
+            vec![],
+        );
+        let report = diff_runs(&before, &after);
+
+        assert!(report.mutated_findings.is_empty());
+        assert_eq!(report.resolved_findings.len(), 1);
+        assert_eq!(report.new_findings.len(), 1);
+    }
+
+    #[test]
+    fn mutated_findings_absent_from_json_when_empty() {
+        let before = make_report(vec![], vec![]);
+        let after = make_report(vec![], vec![]);
+        let report = diff_runs(&before, &after);
+        let json = serde_json::to_value(&report).expect("serialize");
+        assert!(
+            json.get("mutated_findings").is_none(),
+            "empty mutated_findings must not appear, existing consumers parse the old shape"
         );
     }
 }
