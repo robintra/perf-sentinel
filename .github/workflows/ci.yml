@@ -146,7 +146,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --message-format=json > clippy-report.json || true
 
       - name: Install clippy-sarif and sarif-fmt
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -155,7 +155,7 @@ jobs:
         run: cat clippy-report.json | clippy-sarif | tee clippy.sarif | sarif-fmt
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           sarif_file: clippy.sarif
           category: clippy
@@ -167,7 +167,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
         with:
           tool: cargo-llvm-cov
 
