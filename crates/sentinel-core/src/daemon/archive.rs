@@ -157,7 +157,7 @@ async fn run_writer(
     let mut bytes_written = initial_bytes;
     let (mut prev, mut seq) = resume_chain(&path);
     while let Some(archive) = rx.recv().await {
-        let line = match serialize_envelope(&archive, &prev, seq) {
+        let line = match serialize_envelope(&archive, &prev, seq, metrics.archive_drops_total()) {
             Ok(line) => line,
             Err(err) => {
                 metrics.record_archive_drop(ArchiveDropReason::SerializeError);
@@ -222,16 +222,25 @@ async fn run_writer(
 /// is a shorter self-consistent chain, and only an anchor kept outside the
 /// file can see it. It detects tampering after the fact, not an insincere
 /// writer: whoever owns the daemon can rewrite the whole chain.
+///
+/// `drops` is the daemon-lifetime cumulative drop count at write time
+/// (see `MetricsState::archive_drops_total`). Two consecutive lines
+/// whose `drops` differ bracket the loss between them, which is how the
+/// disclosure aggregator counts the windows a period lost without a
+/// Prometheus scrape. Cumulative rather than per-line: a burst of drops
+/// with no subsequent write still shows on the next line that does land.
 fn serialize_envelope(
     archive: &OwnedArchive,
     prev: &str,
     seq: u64,
+    drops: u64,
 ) -> Result<String, serde_json::Error> {
     let body = serde_json::json!({
         "ts": archive.ts,
         "report": &archive.report,
         "prev": prev,
         "seq": seq,
+        "drops": drops,
     });
     let hash = archive_chain_hash(&body)?;
     let mut line = body;
@@ -485,7 +494,7 @@ mod tests {
     async fn restart_separates_a_crash_truncated_line_from_the_next_window() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("archive.ndjson");
-        let first = serialize_envelope(&sample_archive(), ARCHIVE_CHAIN_SEED, 0).unwrap();
+        let first = serialize_envelope(&sample_archive(), ARCHIVE_CHAIN_SEED, 0, 0).unwrap();
         std::fs::write(&path, format!("{first}\n{{\"partial\"")).unwrap();
 
         let handle = spawn(&cfg(&dir, 100, 12), test_metrics()).unwrap();
@@ -501,6 +510,41 @@ mod tests {
         let resumed: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(resumed["prev"], first["hash"]);
         assert_eq!(resumed["seq"], 1);
+    }
+
+    /// Every line carries the daemon-lifetime cumulative drop count so
+    /// the disclosure aggregator can derive per-period losses from the
+    /// archive alone. A drop recorded before a write shows on that
+    /// write's line.
+    #[tokio::test]
+    async fn lines_carry_the_cumulative_drop_count() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("archive.ndjson");
+        let metrics = test_metrics();
+        let handle = spawn(&cfg(&dir, 100, 12), Arc::clone(&metrics)).unwrap();
+        handle.tx.send(sample_archive()).await.unwrap();
+        // Wait for the first line to land before recording the drop, so
+        // the two lines bracket it deterministically (the writer reads
+        // the counter when it dequeues, not when the producer sends).
+        for _ in 0..500 {
+            if std::fs::read_to_string(&path).map_or(0, |c| c.lines().count()) == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        metrics.record_archive_drop(crate::report::metrics::ArchiveDropReason::ChannelFull);
+        handle.tx.send(sample_archive()).await.unwrap();
+        drop(handle.tx);
+        handle.join.await.unwrap();
+
+        let contents = std::fs::read_to_string(path).unwrap();
+        let lines: Vec<serde_json::Value> = contents
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["drops"], 0);
+        assert_eq!(lines[1]["drops"], 1);
     }
 
     #[tokio::test]

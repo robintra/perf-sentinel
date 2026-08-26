@@ -1294,6 +1294,22 @@ impl MetricsState {
             .inc();
     }
 
+    /// Cumulative archive drops across every reason. Stamped into each
+    /// archive line so the disclosure aggregator can derive the losses
+    /// of a period from the archive alone, without a Prometheus scrape.
+    #[cfg(feature = "daemon")]
+    #[must_use]
+    pub fn archive_drops_total(&self) -> u64 {
+        ArchiveDropReason::ALL
+            .iter()
+            .map(|reason| {
+                self.archive_windows_dropped_total
+                    .with_label_values(&[reason.as_str()])
+                    .get()
+            })
+            .sum()
+    }
+
     /// Set the memory-pressure admission flag read by the ingest
     /// listeners, and its gauge twin for alerting. Called by the cgroup
     /// watcher (`daemon::mem_pressure`) each poll.
