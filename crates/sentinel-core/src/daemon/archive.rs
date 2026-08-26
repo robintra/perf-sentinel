@@ -526,12 +526,15 @@ mod tests {
         // Wait for the first line to land before recording the drop, so
         // the two lines bracket it deterministically (the writer reads
         // the counter when it dequeues, not when the producer sends).
-        for _ in 0..500 {
+        let mut first_line_landed = false;
+        for _ in 0..2_000 {
             if std::fs::read_to_string(&path).map_or(0, |c| c.lines().count()) == 1 {
+                first_line_landed = true;
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
+        assert!(first_line_landed, "first archive line never landed");
         metrics.record_archive_drop(crate::report::metrics::ArchiveDropReason::ChannelFull);
         handle.tx.send(sample_archive()).await.unwrap();
         drop(handle.tx);

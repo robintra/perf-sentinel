@@ -2818,6 +2818,19 @@ mod tests {
         }
     }
 
+    /// The stamped archive value must be the sum over every reason, not
+    /// one label's count.
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn archive_drops_total_sums_across_reasons() {
+        let state = MetricsState::new();
+        assert_eq!(state.archive_drops_total(), 0);
+        state.record_archive_drop(ArchiveDropReason::ChannelFull);
+        state.record_archive_drop(ArchiveDropReason::WriteError);
+        state.record_archive_drop(ArchiveDropReason::SerializeError);
+        assert_eq!(state.archive_drops_total(), 3);
+    }
+
     #[cfg(feature = "daemon")]
     #[test]
     fn record_ack_success_increments_correct_label() {
