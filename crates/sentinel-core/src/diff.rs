@@ -262,8 +262,8 @@ fn pair_mutations(
             after: new[n].clone(),
         })
         .collect();
-    remove_indices(resolved, pairs.iter().map(|&(r, _)| r).collect());
-    remove_indices(new, pairs.iter().map(|&(_, n)| n).collect());
+    remove_indices(resolved, &pairs.iter().map(|&(r, _)| r).collect());
+    remove_indices(new, &pairs.iter().map(|&(_, n)| n).collect());
     // Same ordering rule as the finding lists, keyed on the after side.
     mutated.sort_by(|a, b| {
         a.after
@@ -310,7 +310,7 @@ fn pairs_for_key(
 }
 
 /// The stable code anchor of a finding, when its instrumentation emitted
-/// one: `(filepath, function)` from the OTel `code.*` span attributes.
+/// one: `(filepath, function)` from the `OTel` `code.*` span attributes.
 fn code_anchor(finding: &Finding) -> Option<(String, String)> {
     let location = finding.code_location.as_ref()?;
     Some((location.filepath.clone()?, location.function.clone()?))
@@ -318,7 +318,7 @@ fn code_anchor(finding: &Finding) -> Option<(String, String)> {
 
 /// Drop the findings at the given indices, preserving the order of the
 /// rest.
-fn remove_indices(list: &mut Vec<Finding>, remove: BTreeSet<usize>) {
+fn remove_indices(list: &mut Vec<Finding>, remove: &BTreeSet<usize>) {
     let mut idx = 0;
     list.retain(|_| {
         let keep = !remove.contains(&idx);

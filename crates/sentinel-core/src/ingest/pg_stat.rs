@@ -261,9 +261,9 @@ pub fn cross_reference(entries: &mut [PgStatEntry], findings: &[Finding]) {
 /// Cross-reference entries against every normalized SQL template observed
 /// in the traces, whether or not a detector fired on it (see
 /// [`crate::pipeline::trace_sql_templates`]).
-pub fn cross_reference_templates(
+pub fn cross_reference_templates<S: std::hash::BuildHasher>(
     entries: &mut [PgStatEntry],
-    templates: &std::collections::HashSet<String>,
+    templates: &std::collections::HashSet<String, S>,
 ) {
     for entry in entries {
         if templates.contains(entry.normalized_template.as_str()) {
@@ -353,10 +353,10 @@ impl TraceCoverage {
 /// current snapshot is ignored, `pg_stat_statements` evicted it and its
 /// delta is unknowable.
 #[must_use]
-pub fn trace_coverage(
+pub fn trace_coverage<S: std::hash::BuildHasher>(
     current: &[PgStatEntry],
     baseline: &[PgStatEntry],
-    trace_counts: &std::collections::HashMap<String, u64>,
+    trace_counts: &std::collections::HashMap<String, u64, S>,
 ) -> TraceCoverage {
     let mut current_by: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
     for entry in current {

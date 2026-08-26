@@ -584,18 +584,14 @@ impl Builder {
     fn fold_drops(&mut self, drops: u64, last: &mut Option<u64>, in_scope: bool) {
         self.drops_observed = true;
         match *last {
-            Some(prev) if drops < prev => {
-                if in_scope {
-                    self.drop_counter_resets += 1;
-                    self.windows_dropped = self.windows_dropped.saturating_add(drops);
-                }
+            Some(prev) if drops < prev && in_scope => {
+                self.drop_counter_resets += 1;
+                self.windows_dropped = self.windows_dropped.saturating_add(drops);
             }
-            Some(prev) => {
-                if in_scope {
-                    self.windows_dropped = self.windows_dropped.saturating_add(drops - prev);
-                }
+            Some(prev) if drops >= prev && in_scope => {
+                self.windows_dropped = self.windows_dropped.saturating_add(drops - prev);
             }
-            None => {}
+            Some(_) | None => {}
         }
         *last = Some(drops);
     }
