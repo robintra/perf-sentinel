@@ -314,11 +314,7 @@ pub fn apply_to_report(
         let original = std::mem::take(&mut report.findings);
         let mut kept = Vec::with_capacity(original.len());
         for finding in original {
-            let sig: Cow<'_, str> = if finding.signature.is_empty() {
-                Cow::Owned(compute_signature(&finding))
-            } else {
-                Cow::Borrowed(finding.signature.as_str())
-            };
+            let sig = signature_cow(&finding);
             if let Some((ack_sig, ack)) = active.get_key_value(sig.as_ref()) {
                 matched.insert(ack_sig);
                 report.acknowledged_findings.push(AcknowledgedFinding {
@@ -345,21 +341,15 @@ pub fn apply_to_report(
                 .iter()
                 .map(|e| (e.service.as_str(), e.endpoint.as_str()))
                 .collect();
-            let kept_signatures: Vec<Cow<'_, str>> = report
+            let kept_signatures: Vec<(Cow<'_, str>, &Finding)> = report
                 .findings
                 .iter()
-                .map(|f| {
-                    if f.signature.is_empty() {
-                        Cow::Owned(compute_signature(f))
-                    } else {
-                        Cow::Borrowed(f.signature.as_str())
-                    }
-                })
+                .map(|f| (signature_cow(f), f))
                 .collect();
             let new_warnings: Vec<Warning> = unmatched
                 .iter()
                 .map(|ack| {
-                    let successor = drifted_successor(&ack.signature, &kept_signatures);
+                    let successor = drifted_successor(ack, &kept_signatures);
                     Warning::from_untrusted(
                         warnings::UNMATCHED_ACKNOWLEDGMENT,
                         &unmatched_message(ack, &observed, successor),
@@ -383,17 +373,31 @@ pub fn apply_to_report(
 /// the signature of a template drift rather than a fix. `None` with zero
 /// or several candidates, naming one among several would be a guess.
 ///
+/// The prefix is not injective: service and endpoint may contain `:`,
+/// so two distinct pairs can collide on it. When the ack names its
+/// `service` / `source_endpoint`, the candidate's structured fields are
+/// checked too, which removes the collision. An ack without the fields
+/// keeps the small residual risk and the message stays a hint.
+///
 /// Never transfers the ack itself: a signature is a suppression
 /// boundary, and carrying an ack across a template change could silence
 /// a genuinely new problem. The operator re-acknowledges deliberately.
-fn drifted_successor<'a>(ack_signature: &str, kept: &'a [Cow<'a, str>]) -> Option<&'a str> {
-    let (ack_prefix, ack_hash) = ack_signature.rsplit_once(':')?;
+fn drifted_successor<'a>(
+    ack: &Acknowledgment,
+    kept: &'a [(Cow<'a, str>, &'a Finding)],
+) -> Option<&'a str> {
+    let (ack_prefix, ack_hash) = ack.signature.rsplit_once(':')?;
     let mut found: Option<&str> = None;
-    for sig in kept {
+    for (sig, finding) in kept {
         let Some((prefix, hash)) = sig.rsplit_once(':') else {
             continue;
         };
-        if prefix == ack_prefix && hash != ack_hash {
+        let fields_match = ack.service.as_ref().is_none_or(|s| s == &finding.service)
+            && ack
+                .source_endpoint
+                .as_ref()
+                .is_none_or(|e| e == &finding.source_endpoint);
+        if prefix == ack_prefix && hash != ack_hash && fields_match {
             if found.is_some() {
                 return None;
             }
@@ -401,6 +405,16 @@ fn drifted_successor<'a>(ack_signature: &str, kept: &'a [Cow<'a, str>]) -> Optio
         }
     }
     found
+}
+
+/// A finding's stored signature, computed on the fly when the report
+/// predates enrichment.
+fn signature_cow(finding: &Finding) -> Cow<'_, str> {
+    if finding.signature.is_empty() {
+        Cow::Owned(compute_signature(finding))
+    } else {
+        Cow::Borrowed(finding.signature.as_str())
+    }
 }
 
 /// Message for an active ack that suppressed nothing. When exactly one
@@ -1146,6 +1160,53 @@ expires_at = "not-a-date"
         assert!(
             !warning.message.contains("drifted"),
             "two candidates must not be guessed between, got: {}",
+            warning.message
+        );
+    }
+
+    /// The signature prefix is not injective when service or endpoint
+    /// contains a colon. An ack carrying its structured fields must not
+    /// name a prefix-colliding but unrelated finding as its successor.
+    #[test]
+    fn drift_hint_rejects_a_prefix_collision_when_fields_are_present() {
+        // service "svc:extra" + endpoint "foo" collides with
+        // service "svc" + endpoint "extra:foo" on the raw prefix.
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.service = "svc".to_string();
+        finding.source_endpoint = "extra:foo".to_string();
+        let mut findings = vec![finding];
+        enrich_with_signatures(&mut findings);
+        let (prefix, _) = findings[0]
+            .signature
+            .rsplit_once(':')
+            .map(|(p, h)| (p.to_string(), h))
+            .expect("4-segment signature");
+        let acked_old = format!("{prefix}:{}", "0".repeat(32));
+
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![Acknowledgment {
+                service: Some("svc:extra".to_string()),
+                source_endpoint: Some("foo".to_string()),
+                ..ack(&acked_old, None)
+            }],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .expect("unmatched warning");
+        assert!(
+            !warning.message.contains("drifted"),
+            "a prefix collision must not be sold as a drift, got: {}",
             warning.message
         );
     }
