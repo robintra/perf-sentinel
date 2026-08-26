@@ -1237,6 +1237,7 @@ fn write_diff_text(
 
     let new_count = diff.new_findings.len();
     let resolved_count = diff.resolved_findings.len();
+    let mutated_count = diff.mutated_findings.len();
     let changed_count = diff.severity_changes.len();
     let regression_count = diff
         .severity_changes
@@ -1251,6 +1252,7 @@ fn write_diff_text(
         writer,
         "  {red}{new_count} new{reset}, \
          {green}{resolved_count} resolved{reset}, \
+         {yellow}{mutated_count} mutated{reset}, \
          {yellow}{changed_count} severity changed{reset} ({regression_count} regression(s)), \
          {endpoint_change_count} endpoint count change(s)"
     )?;
@@ -1274,10 +1276,16 @@ fn write_diff_text(
 
     write_new_findings_section(writer, &diff.new_findings, colors)?;
     write_resolved_findings_section(writer, &diff.resolved_findings, colors)?;
+    write_mutated_findings_section(writer, &diff.mutated_findings, colors)?;
     write_severity_changes_section(writer, &diff.severity_changes, colors)?;
     write_endpoint_deltas_section(writer, &diff.endpoint_metric_deltas, colors)?;
 
-    if new_count == 0 && resolved_count == 0 && changed_count == 0 && endpoint_change_count == 0 {
+    if new_count == 0
+        && resolved_count == 0
+        && mutated_count == 0
+        && changed_count == 0
+        && endpoint_change_count == 0
+    {
         writeln!(
             writer,
             "{green}No differences detected between the two trace sets.{reset}"
@@ -1342,6 +1350,53 @@ fn write_resolved_findings_section(
             f.service,
         )?;
         write_finding_block(writer, f, colors)?;
+    }
+    writeln!(writer)
+}
+
+/// Template mutations: the same detector on the same service and
+/// endpoint whose normalized template changed between the two runs.
+/// Printed as a before/after template pair so a reader can judge the
+/// pairing at a glance; counted neither as new nor as resolved.
+fn write_mutated_findings_section(
+    writer: &mut dyn std::io::Write,
+    mutated: &[sentinel_core::diff::MutatedFinding],
+    colors: AnsiColors,
+) -> std::io::Result<()> {
+    if mutated.is_empty() {
+        return Ok(());
+    }
+    let AnsiColors {
+        bold,
+        yellow,
+        dim,
+        reset,
+        ..
+    } = colors;
+    writeln!(
+        writer,
+        "{bold}{yellow}Mutated findings ({}):{reset}",
+        mutated.len()
+    )?;
+    for pair in mutated {
+        writeln!(
+            writer,
+            "  {yellow}~{reset} [{}] {} on {} ({})",
+            severity_label(&pair.after.severity),
+            pair.after.finding_type.display_label(),
+            pair.after.source_endpoint,
+            pair.after.service,
+        )?;
+        writeln!(
+            writer,
+            "    {dim}Before:{reset} {}",
+            sanitize_for_terminal(&pair.before.pattern.template)
+        )?;
+        writeln!(
+            writer,
+            "    {dim}After:{reset}  {}",
+            sanitize_for_terminal(&pair.after.pattern.template)
+        )?;
     }
     writeln!(writer)
 }
@@ -1716,6 +1771,7 @@ mod tests {
             severity_changes: vec![],
             endpoint_metric_deltas: vec![],
             warning_details: vec![],
+            mutated_findings: vec![],
         }
     }
 
@@ -1792,6 +1848,7 @@ mod tests {
             severity_changes: vec![],
             endpoint_metric_deltas: vec![],
             warning_details: vec![],
+            mutated_findings: vec![],
         }
     }
 
@@ -1998,6 +2055,7 @@ mod tests {
             severity_changes: vec![],
             endpoint_metric_deltas: vec![],
             warning_details: vec![],
+            mutated_findings: vec![],
         };
         let out = render_text(&diff);
         assert!(
@@ -2015,6 +2073,34 @@ mod tests {
         assert!(
             out.contains("Fix [java_jpa]:"),
             "resolved finding must carry Fix line, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn mutated_findings_render_a_before_after_pair() {
+        let before = sample_finding();
+        let mut after = sample_finding();
+        after.pattern.template =
+            "SELECT * FROM order_item WHERE order_id = ? AND tenant = ?".to_string();
+        let mut diff = empty_diff();
+        diff.mutated_findings = vec![sentinel_core::diff::MutatedFinding { before, after }];
+
+        let out = render_text(&diff);
+        assert!(
+            out.contains("Mutated findings (1):"),
+            "missing mutated header, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before: SELECT * FROM order_item WHERE order_id = ?"),
+            "missing before template, got:\n{out}"
+        );
+        assert!(
+            out.contains("After:  SELECT * FROM order_item WHERE order_id = ? AND tenant = ?"),
+            "missing after template, got:\n{out}"
+        );
+        assert!(
+            !out.contains("No differences detected"),
+            "a mutation alone must not read as a clean diff, got:\n{out}"
         );
     }
 
