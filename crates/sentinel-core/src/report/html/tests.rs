@@ -1208,6 +1208,7 @@ fn synthetic_pg_stat() -> PgStatReport {
             label: "top by total_exec_time".into(),
             entries,
         }],
+        trace_match: None,
     }
 }
 
@@ -1244,6 +1245,7 @@ fn synthetic_mysql_stat() -> MySqlStatReport {
             label: "top by total_exec_time".into(),
             entries,
         }],
+        trace_match: None,
     }
 }
 

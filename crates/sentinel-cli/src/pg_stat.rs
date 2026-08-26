@@ -222,15 +222,20 @@ fn run_pg_stat_pipeline(
 ) {
     use sentinel_core::ingest::pg_stat;
 
-    // Cross-reference with trace findings if --traces is provided.
+    // Cross-reference with the traced SQL templates if --traces is
+    // provided: every span counts, not only the ones that produced a
+    // finding, so a healthy traced query still gets its marker.
+    let mut cross_referenced = false;
     if let Some(traces_path) = traces {
         let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
         let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
             .with_grouping_attributes(crate::grouping_keys(config));
         match ingest.ingest(&traces_raw) {
             Ok(events) => {
-                let report = pipeline::analyze(events, config);
-                pg_stat::cross_reference(&mut entries, &report.findings);
+                let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
+                let templates = pipeline::trace_sql_templates(&analyzed_traces);
+                pg_stat::cross_reference_templates(&mut entries, &templates);
+                cross_referenced = true;
             }
             Err(e) => {
                 eprintln!(
@@ -241,7 +246,10 @@ fn run_pg_stat_pipeline(
         }
     }
 
-    let report = pg_stat::rank_pg_stat(&entries, top_n);
+    let mut report = pg_stat::rank_pg_stat(&entries, top_n);
+    if cross_referenced {
+        report.trace_match = Some(pg_stat::trace_match_summary(&entries));
+    }
 
     match format {
         PgStatOutputFormat::Json => {
@@ -271,6 +279,16 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
     println!();
     println!("{bold}{cyan}=== pg_stat_statements analysis ==={reset}");
     println!("{dim}Total entries: {}{reset}", report.total_entries);
+    if let Some(tm) = &report.trace_match {
+        // "Matched share", not "coverage": pg_stat counters are cumulative
+        // since the last stats reset while the traces cover one window.
+        println!(
+            "{dim}Trace-matched:{reset} {}/{} templates, {:.1}% of calls",
+            tm.matched_templates,
+            tm.total_templates,
+            tm.calls_share_percent()
+        );
+    }
     println!();
 
     for ranking in &report.rankings {

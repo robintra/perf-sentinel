@@ -188,6 +188,21 @@ fn daemon_only_green_backend_warning(
     ))
 }
 
+/// Every normalized SQL template observed in the traces, whether or not
+/// a detector fired on it. Feeds the `pg_stat` / `mysql_stat`
+/// cross-reference: matching against findings alone leaves a traced but
+/// finding-free statement unmarked, which understates tracing on every
+/// healthy query.
+#[must_use]
+pub fn trace_sql_templates(traces: &[correlate::Trace]) -> std::collections::HashSet<String> {
+    traces
+        .iter()
+        .flat_map(|t| &t.spans)
+        .filter(|s| s.event.event_type == crate::event::EventType::Sql)
+        .map(|s| s.template.to_string())
+        .collect()
+}
+
 /// Detect a CI environment. GitHub Actions, GitLab, Travis and most runners
 /// export a truthy `CI` env var. `CI=false` and `CI=0` count as "not CI" so
 /// an operator can force a local context. Jenkins does not set `CI` (it
@@ -219,6 +234,25 @@ mod tests {
         assert_eq!(report.analysis.events_processed, 0);
         assert_eq!(report.analysis.traces_analyzed, 0);
         assert!(report.quality_gate.passed);
+    }
+
+    /// Every traced SQL template lands in the set, whether or not a
+    /// detector fired: one clean SELECT below every threshold must
+    /// still be collected.
+    #[test]
+    fn trace_sql_templates_collects_finding_free_statements() {
+        use crate::test_helpers::make_sql_event;
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT * FROM users WHERE id = 1",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        let config = Config::default();
+        let (report, traces) = analyze_with_traces(events, &config, None);
+        assert!(report.findings.is_empty(), "one clean query, no finding");
+        let templates = trace_sql_templates(&traces);
+        assert!(templates.contains("SELECT * FROM users WHERE id = ?"));
     }
 
     #[test]

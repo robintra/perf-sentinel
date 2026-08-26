@@ -56,6 +56,11 @@ pub struct PgStatReport {
     /// `pg_stat` sub-switcher) rely on this ordering not changing. New
     /// rankings are appended, existing indices are never reassigned.
     pub rankings: Vec<PgStatRanking>,
+    /// Matched share from the trace cross-reference. `None` when no
+    /// trace set was provided. Additive, absent from the JSON when
+    /// unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_match: Option<TraceMatchSummary>,
 }
 
 /// Detected input format.
@@ -225,12 +230,16 @@ pub fn rank_pg_stat(entries: &[PgStatEntry], top_n: usize) -> PgStatReport {
         total_entries,
         top_n,
         rankings: vec![by_total_time, by_calls, by_mean_time, by_io_blocks],
+        trace_match: None,
     }
 }
 
 /// Cross-reference `pg_stat_statements` entries with trace-based findings.
 ///
-/// Marks entries whose `normalized_template` matches any finding's pattern template.
+/// Marks entries whose `normalized_template` matches any finding's pattern
+/// template. Fallback for callers that only hold a `Report`: a template
+/// traced without producing a finding stays unmarked here. Prefer
+/// [`cross_reference_templates`] with the full trace-side template set.
 pub fn cross_reference(entries: &mut [PgStatEntry], findings: &[Finding]) {
     let templates: std::collections::HashSet<&str> = findings
         .iter()
@@ -242,6 +251,73 @@ pub fn cross_reference(entries: &mut [PgStatEntry], findings: &[Finding]) {
             entry.seen_in_traces = true;
         }
     }
+}
+
+/// Cross-reference entries against every normalized SQL template observed
+/// in the traces, whether or not a detector fired on it (see
+/// [`crate::pipeline::trace_sql_templates`]).
+pub fn cross_reference_templates(
+    entries: &mut [PgStatEntry],
+    templates: &std::collections::HashSet<String>,
+) {
+    for entry in entries {
+        if templates.contains(entry.normalized_template.as_str()) {
+            entry.seen_in_traces = true;
+        }
+    }
+}
+
+/// Share of statements the trace cross-reference matched, template-wise
+/// and weighted by `calls`. Meaningful only after one of the
+/// cross-reference passes ran.
+///
+/// Deliberately not named "coverage": `pg_stat_statements` counters are
+/// cumulative since the last stats reset while the traces cover one
+/// capture window, so the calls-weighted share understates tracing on a
+/// long-lived database rather than measuring a sampling ratio.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TraceMatchSummary {
+    /// Entries marked `seen_in_traces`.
+    pub matched_templates: usize,
+    /// All parsed entries.
+    pub total_templates: usize,
+    /// Sum of `calls` over matched entries.
+    pub matched_calls: u64,
+    /// Sum of `calls` over all entries.
+    pub total_calls: u64,
+}
+
+impl TraceMatchSummary {
+    /// Matched share of total calls in percent, `0.0` on an empty input.
+    #[must_use]
+    pub fn calls_share_percent(&self) -> f64 {
+        if self.total_calls == 0 {
+            return 0.0;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.matched_calls as f64 / self.total_calls as f64 * 100.0
+        }
+    }
+}
+
+/// Tally the matched share over the entries' `seen_in_traces` flags.
+#[must_use]
+pub fn trace_match_summary(entries: &[PgStatEntry]) -> TraceMatchSummary {
+    let mut summary = TraceMatchSummary {
+        matched_templates: 0,
+        total_templates: entries.len(),
+        matched_calls: 0,
+        total_calls: 0,
+    };
+    for entry in entries {
+        summary.total_calls = summary.total_calls.saturating_add(entry.calls);
+        if entry.seen_in_traces {
+            summary.matched_templates += 1;
+            summary.matched_calls = summary.matched_calls.saturating_add(entry.calls);
+        }
+    }
+    summary
 }
 
 // ---------------------------------------------------------------------------
@@ -1001,6 +1077,41 @@ mod tests {
         let mut entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
         cross_reference(&mut entries, &[]);
         assert!(entries.iter().all(|e| !e.seen_in_traces));
+    }
+
+    /// The template set comes from the spans, so a traced statement gets
+    /// its marker even when no detector fired on it. The findings-based
+    /// fallback cannot do that.
+    #[test]
+    fn cross_reference_templates_marks_a_traced_statement_without_finding() {
+        let mut entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
+        let templates: std::collections::HashSet<String> =
+            ["SELECT * FROM order_item WHERE order_id = ?".to_string()]
+                .into_iter()
+                .collect();
+        cross_reference_templates(&mut entries, &templates);
+        assert!(entries[0].seen_in_traces);
+        assert!(!entries[1].seen_in_traces);
+    }
+
+    #[test]
+    fn trace_match_summary_weights_by_calls() {
+        let mut entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
+        entries[0].seen_in_traces = true;
+        let summary = trace_match_summary(&entries);
+        assert_eq!(summary.matched_templates, 1);
+        assert_eq!(summary.total_templates, entries.len());
+        assert_eq!(summary.matched_calls, entries[0].calls);
+        let expected_total: u64 = entries.iter().map(|e| e.calls).sum();
+        assert_eq!(summary.total_calls, expected_total);
+        assert!(summary.calls_share_percent() > 0.0);
+    }
+
+    #[test]
+    fn trace_match_summary_empty_input_is_zero_percent() {
+        let summary = trace_match_summary(&[]);
+        assert_eq!(summary.total_templates, 0);
+        assert!((summary.calls_share_percent() - 0.0).abs() < f64::EPSILON);
     }
 
     // -- CSV row parsing edge cases --
