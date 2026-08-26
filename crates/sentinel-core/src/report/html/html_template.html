@@ -852,6 +852,7 @@
         <button type="button" class="ps-copy-link-btn" id="pgstat-copy-link" data-copy-link-tab="pgstat">Copy link</button>
       </div>
     </div>
+    <div class="ps-empty" id="pgstat-trace-match" style="display: none;"></div>
     <div class="ps-card">
       <table class="ps-table" id="pgstat-table">
         <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
@@ -870,6 +871,7 @@
         <button type="button" class="ps-copy-link-btn" id="mysqlstat-copy-link" data-copy-link-tab="mysqlstat">Copy link</button>
       </div>
     </div>
+    <div class="ps-empty" id="mysqlstat-trace-match" style="display: none;"></div>
     <div class="ps-card">
       <table class="ps-table" id="mysqlstat-table">
         <thead><tr><th>Template</th><th style="width: 90px;">Schema</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th><th style="width: 110px;">Rows examined</th></tr></thead>
@@ -4012,6 +4014,20 @@
     }
     renderPgStatRankings();
     renderPgStatTable();
+    renderTraceMatchLine("pgstat-trace-match", pgStat && pgStat.trace_match);
+  }
+
+  // Matched share from the trace cross-reference. Worded "trace-matched",
+  // not "coverage": the database counters are cumulative since the last
+  // stats reset while the traces cover one capture window.
+  function renderTraceMatchLine(id, tm) {
+    var host = document.getElementById(id);
+    if (!host || !tm || !tm.total_templates) return;
+    var pct = tm.total_calls > 0 ? (tm.matched_calls / tm.total_calls) * 100 : 0;
+    host.textContent =
+      "Trace-matched: " + tm.matched_templates + "/" + tm.total_templates +
+      " templates, " + pct.toFixed(1) + "% of calls";
+    host.style.display = "";
   }
 
   // Show or hide the "Rank by" label along with its chip row. The label is a
@@ -4180,6 +4196,7 @@
     }
     renderMysqlStatRankings();
     renderMysqlStatTable();
+    renderTraceMatchLine("mysqlstat-trace-match", mysqlStat && mysqlStat.trace_match);
   }
 
   function renderMysqlStatRankings() {
