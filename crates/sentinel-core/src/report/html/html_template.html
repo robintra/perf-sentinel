@@ -899,6 +899,13 @@
       </div>
     </div>
     <div class="ps-card ps-diff-section">
+      <div class="ps-diff-section-header" id="diff-mut-header">Mutated findings (0)</div>
+      <table class="ps-table" id="diff-mut-table" style="display: none;">
+        <thead><tr><th>Type</th><th>Endpoint</th><th>Severity</th><th>Before template</th><th>After template</th></tr></thead>
+        <tbody id="diff-mut-body"></tbody>
+      </table>
+    </div>
+    <div class="ps-card ps-diff-section">
       <div class="ps-diff-section-header" id="diff-sev-header">Severity changes (0)</div>
       <table class="ps-table" id="diff-sev-table" style="display: none;">
         <thead><tr><th>Type</th><th>Endpoint</th><th>Before</th><th>After</th></tr></thead>
@@ -2397,15 +2404,21 @@
     var pills = el("div", "ps-mini-pills");
     var nNew = (diffData.new_findings || []).length;
     var nResolved = (diffData.resolved_findings || []).length;
+    var nMutated = (diffData.mutated_findings || []).length;
     var nChanged = (diffData.severity_changes || []).length;
     var pNew = el("span", "ps-mini-pill", "+" + nNew + " new");
     setAttr(pNew, "data-sev", "crit");
     var pRes = el("span", "ps-mini-pill", "−" + nResolved + " resolved");
     setAttr(pRes, "data-sev", "ok");
     var pChg = el("span", "ps-mini-pill", nChanged + " changed");
+    var pMut = nMutated ? el("span", "ps-mini-pill", "~" + nMutated + " mutated") : null;
     setAttr(pChg, "data-sev", "warn");
     pills.appendChild(pNew);
     pills.appendChild(pRes);
+    if (pMut) {
+      setAttr(pMut, "data-sev", "warn");
+      pills.appendChild(pMut);
+    }
     pills.appendChild(pChg);
     card.appendChild(pills);
     var link = el("button", "ps-mini-link", "open diff →");
@@ -4274,8 +4287,45 @@
       if (fresh.length) setAttr(section, "data-sev", fresh[0].severity);
       else section.removeAttribute("data-sev");
     }
+    renderDiffMutTable(diffData.mutated_findings || []);
     renderDiffSevTable(diffData.severity_changes || []);
     renderDiffEndpTable(diffData.endpoint_metric_deltas || []);
+  }
+  // Template mutations: the same detector, service and endpoint whose
+  // template changed. Counted neither as new nor as resolved, so this
+  // table is their only trace on the dashboard; a pair whose severity
+  // worsened shows both pills.
+  function renderDiffMutTable(items) {
+    var hdr = document.getElementById("diff-mut-header");
+    var tbl = document.getElementById("diff-mut-table");
+    var body = document.getElementById("diff-mut-body");
+    hdr.textContent = "Mutated findings (" + items.length + ")";
+    hdr.classList.toggle("empty", items.length === 0);
+    body.textContent = "";
+    if (items.length === 0) {
+      tbl.style.display = "none";
+      return;
+    }
+    tbl.style.display = "";
+    items.forEach(function (m) {
+      var before = m.before || {};
+      var after = m.after || {};
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, typeLabel(after.type || after.finding_type)));
+      var epTd = el("td");
+      highlightEndpoint(epTd, (after.service || "-") + " \u00b7 " + (after.source_endpoint || "-"));
+      tr.appendChild(epTd);
+      var sevTd = el("td");
+      sevTd.appendChild(sevPill(before.severity));
+      if (before.severity !== after.severity) {
+        sevTd.appendChild(document.createTextNode(" \u2192 "));
+        sevTd.appendChild(sevPill(after.severity));
+      }
+      tr.appendChild(sevTd);
+      tr.appendChild(el("td", "ps-pg-template", (before.pattern || {}).template || "-"));
+      tr.appendChild(el("td", "ps-pg-template", (after.pattern || {}).template || "-"));
+      body.appendChild(tr);
+    });
   }
   var DIFF_SECTIONS = [
     {
