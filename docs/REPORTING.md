@@ -398,6 +398,19 @@ nothing to show for it. A break does not stop the report, it is
 published as a count, so a truncated archive still yields an honest
 partial disclosure.
 
+Since v1.7 each archive line also carries the daemon's cumulative drop
+counter, and the same block publishes `windows_dropped`, the windows the
+daemon produced but could not archive over the period, plus
+`drop_counter_resets`, how many times the counter went backwards (one
+per daemon restart, each making the figure a lower bound over the gap it
+spans). This is the signed twin of the
+`perf_sentinel_archive_windows_dropped_total` metric: the scrape sees
+losses live, the report accounts for them after the fact. It says
+nothing about windows never produced, a stopped daemon leaves no counter
+to read, which `aggregate.temporal_coverage` bounds instead. Both fields
+are omitted on archives written before the counter existed, so an old
+archive never reads as zero drops.
+
 One edit the chain does not see is a clean cut of an archive's tail:
 what remains is a shorter chain that verifies on its own terms, and no
 field inside the file can contradict it. Detecting that needs a record

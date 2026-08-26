@@ -270,9 +270,24 @@ mod tests {
                 windows_unchained: 0,
                 breaks: 3,
                 breaks_outside_period: 1,
+                windows_dropped: None,
+                drop_counter_resets: None,
             });
         let with_chain = compute_content_hash(&r).unwrap();
         assert_ne!(with_chain, with_tag, "the source chain must be covered");
+
+        // The v1.7 drop figures are inside the same signed object.
+        r.integrity.trace_integrity_chain =
+            serde_json::json!(crate::report::periodic::schema::SourceChain {
+                windows_verified: 2160,
+                windows_unchained: 0,
+                breaks: 3,
+                breaks_outside_period: 1,
+                windows_dropped: Some(4),
+                drop_counter_resets: Some(1),
+            });
+        let with_drops = compute_content_hash(&r).unwrap();
+        assert_ne!(with_drops, with_chain, "the drop figures must be covered");
 
         r.integrity.trace_integrity_chain = Value::Null;
         assert_eq!(
