@@ -86,9 +86,10 @@ pub enum ArchiveDropReason {
 }
 
 impl ArchiveDropReason {
-    /// Every variant in declaration order. Fixed-size array so adding a
-    /// variant without bumping the count is a compile-time error,
-    /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
+    /// Every variant in declaration order, driving the pre-warm loop in
+    /// `MetricsState::new`. Nothing forces a new variant into this array
+    /// (`as_str`'s exhaustive match is the compile-time reminder that it
+    /// exists), so keep it in sync or the new reason skips pre-warming.
     pub const ALL: [Self; 4] = [
         Self::ChannelFull,
         Self::WriterExited,
@@ -1284,8 +1285,7 @@ impl MetricsState {
 
     /// Count a per-window report archive entry dropped instead of
     /// written, so archive loss is scrape-visible instead of log-only.
-    /// Called by `daemon::archive` at every drop site. Drops are rare,
-    /// so the label lookup is paid per call instead of caching children.
+    /// Called by `daemon::archive` at every drop site.
     #[cfg(feature = "daemon")]
     #[inline]
     pub fn record_archive_drop(&self, reason: ArchiveDropReason) {
@@ -2750,6 +2750,31 @@ mod tests {
             (AckFailureReason::InternalError, "internal_error"),
         ] {
             assert_eq!(variant.as_str(), label);
+        }
+    }
+
+    #[test]
+    fn archive_drops_start_at_zero_for_all_reasons() {
+        let state = MetricsState::new();
+        // Iterate the exhaustive `ALL` so a new variant is covered
+        // without editing this test.
+        for reason in ArchiveDropReason::ALL {
+            let count = state
+                .archive_windows_dropped_total
+                .with_label_values(&[reason.as_str()])
+                .get();
+            assert_eq!(count, 0, "reason {} should start at 0", reason.as_str());
+        }
+        let output = state.render();
+        for reason in ArchiveDropReason::ALL {
+            assert!(
+                output.contains(&format!(
+                    "perf_sentinel_archive_windows_dropped_total{{reason=\"{}\"}} 0",
+                    reason.as_str()
+                )),
+                "pre-warmed line for reason {} should appear in /metrics, got: {output}",
+                reason.as_str()
+            );
         }
     }
 
