@@ -749,7 +749,7 @@
     },
     {
       "title": "Runtime headroom and shedding",
-      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU.",
+      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches and dropped archive windows per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist, and when the archive channel is full whole disclosure windows are dropped even though their findings were served live. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU; any sustained archive drops mean the disclosure archive under-reports the period.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -781,6 +781,11 @@
           "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total{job=~\"$job\"}[$__rate_interval]))",
           "refId": "D",
           "legendFormat": "shed_batches/s {{instance}}"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_archive_windows_dropped_total{job=~\"$job\"}[$__rate_interval]))",
+          "refId": "E",
+          "legendFormat": "archive_drops/s"
         }
       ],
       "fieldConfig": {
@@ -843,6 +848,41 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "archive_drops/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "batches/s"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
                 }
               }
             ]
