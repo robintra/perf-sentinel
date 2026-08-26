@@ -374,6 +374,11 @@ struct Builder {
     windows_dropped: u64,
     drop_counter_resets: u64,
     drops_observed: bool,
+    /// Previous cumulative `drops` value, carried ACROSS files: rotated
+    /// archives sort chronologically before the active file, and the
+    /// counter is daemon-lifetime, so a per-file baseline would lose the
+    /// delta at every rotation boundary.
+    last_drops: Option<u64>,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
     /// Distinct coefficient sets observed, as `"key=value"` strings. A
@@ -491,7 +496,6 @@ impl Builder {
         let mut warned_break = false;
         let mut chain_started = false;
         let mut previous_in_scope = false;
-        let mut last_drops: Option<u64> = None;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -519,7 +523,7 @@ impl Builder {
                 .and_then(|v| v.get("drops"))
                 .and_then(serde_json::Value::as_u64)
             {
-                self.fold_drops(drops, &mut last_drops, in_scope);
+                self.fold_drops(drops, in_scope);
             }
             let next_seq = |expected: &Option<(String, u64)>| {
                 parsed_seq
@@ -578,22 +582,30 @@ impl Builder {
     /// the later line's period. A decrease is a daemon restart: the count
     /// restarts from the new value (its drops happened after the restart)
     /// and the reset is surfaced so the figure reads as a lower bound.
-    /// The first carrying line of a file sets the baseline without
-    /// contributing: the counter is daemon-lifetime, not file-lifetime,
-    /// so its absolute value says nothing about this file.
-    fn fold_drops(&mut self, drops: u64, last: &mut Option<u64>, in_scope: bool) {
-        self.drops_observed = true;
-        match *last {
-            Some(prev) if drops < prev && in_scope => {
+    /// The very first carrying line of the run sets the baseline without
+    /// contributing: pruned rotations may hide arbitrary history behind
+    /// its absolute value. The baseline then persists across files, so a
+    /// rotation boundary keeps its delta.
+    ///
+    /// `drops_observed` moves only on in-period lines: an out-of-period
+    /// carrying line must not turn "not measured" into "measured zero".
+    fn fold_drops(&mut self, drops: u64, in_scope: bool) {
+        if in_scope {
+            self.drops_observed = true;
+        }
+        match self.last_drops {
+            Some(prev) if in_scope && drops < prev => {
                 self.drop_counter_resets += 1;
                 self.windows_dropped = self.windows_dropped.saturating_add(drops);
             }
-            Some(prev) if drops >= prev && in_scope => {
-                self.windows_dropped = self.windows_dropped.saturating_add(drops - prev);
+            Some(prev) if in_scope => {
+                self.windows_dropped = self
+                    .windows_dropped
+                    .saturating_add(drops.saturating_sub(prev));
             }
-            Some(_) | None => {}
+            _ => {}
         }
-        *last = Some(drops);
+        self.last_drops = Some(drops);
     }
 
     fn count_break(&mut self, in_scope: bool) {
@@ -1670,7 +1682,16 @@ mod tests {
         lines: &[(DateTime<Utc>, Report, u64)],
     ) -> (TempDir, PathBuf) {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("archive.ndjson");
+        let path = write_drops_file(dir.path(), "archive.ndjson", lines);
+        (dir, path)
+    }
+
+    fn write_drops_file(
+        dir: &std::path::Path,
+        name: &str,
+        lines: &[(DateTime<Utc>, Report, u64)],
+    ) -> PathBuf {
+        let path = dir.join(name);
         let mut file = File::create(&path).unwrap();
         let mut prev = super::super::hasher::ARCHIVE_CHAIN_SEED.to_string();
         for (seq, (ts, report, drops)) in lines.iter().enumerate() {
@@ -1685,7 +1706,7 @@ mod tests {
             writeln!(file, "{}", serde_json::to_string(&line).unwrap()).unwrap();
             prev = hash;
         }
-        (dir, path)
+        path
     }
 
     fn q1_2026() -> Period {
@@ -1721,6 +1742,54 @@ mod tests {
         assert_eq!(inputs.windows_dropped, Some(4));
         assert_eq!(inputs.drop_counter_resets, Some(1));
         assert_eq!(inputs.chain_verified, 4, "drops are covered by the hash");
+    }
+
+    /// The counter is daemon-lifetime and rotated files sort before the
+    /// active one, so the delta across a rotation boundary must be kept.
+    #[test]
+    fn drop_deltas_survive_a_rotation_boundary() {
+        let ts = |m, d| Utc.with_ymd_and_hms(2026, m, d, 0, 0, 0).unwrap();
+        let dir = TempDir::new().unwrap();
+        // Rotation naming: the stamped file sorts before the active one.
+        let rotated = write_drops_file(
+            dir.path(),
+            "archive-20260110T000000000Z.ndjson",
+            &[(ts(1, 10), plain_window(), 5)],
+        );
+        let active = write_drops_file(
+            dir.path(),
+            "archive.ndjson",
+            &[(ts(2, 10), plain_window(), 8)],
+        );
+        let inputs = aggregate_from_paths(&[rotated, active], &q1_2026(), false).unwrap();
+        assert_eq!(inputs.windows_dropped, Some(3));
+        assert_eq!(inputs.drop_counter_resets, Some(0));
+    }
+
+    /// An out-of-period carrying line must not turn "not measured" into
+    /// "measured zero" for a period whose own windows carry no counter.
+    #[test]
+    fn out_of_period_counter_lines_do_not_claim_zero_drops() {
+        let outside = Utc.with_ymd_and_hms(2025, 6, 15, 0, 0, 0).unwrap();
+        let inside = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let dir = TempDir::new().unwrap();
+        // The period's own window predates the counter; only an
+        // out-of-period line carries one.
+        let carrying = write_drops_file(
+            dir.path(),
+            "archive-20250615T000000000Z.ndjson",
+            &[(outside, plain_window(), 7)],
+        );
+        let plain = {
+            let path = dir.path().join("archive.ndjson");
+            let mut file = File::create(&path).unwrap();
+            let envelope = serde_json::json!({ "ts": inside, "report": plain_window() });
+            writeln!(file, "{}", serde_json::to_string(&envelope).unwrap()).unwrap();
+            path
+        };
+        let inputs = aggregate_from_paths(&[carrying, plain], &q1_2026(), false).unwrap();
+        assert_eq!(inputs.windows_dropped, None);
+        assert_eq!(inputs.drop_counter_resets, None);
     }
 
     /// A pre-v1.7 archive carries no counter: "not measured" must stay
