@@ -345,12 +345,24 @@ pub fn apply_to_report(
                 .iter()
                 .map(|e| (e.service.as_str(), e.endpoint.as_str()))
                 .collect();
+            let kept_signatures: Vec<Cow<'_, str>> = report
+                .findings
+                .iter()
+                .map(|f| {
+                    if f.signature.is_empty() {
+                        Cow::Owned(compute_signature(f))
+                    } else {
+                        Cow::Borrowed(f.signature.as_str())
+                    }
+                })
+                .collect();
             let new_warnings: Vec<Warning> = unmatched
                 .iter()
                 .map(|ack| {
+                    let successor = drifted_successor(&ack.signature, &kept_signatures);
                     Warning::from_untrusted(
                         warnings::UNMATCHED_ACKNOWLEDGMENT,
-                        &unmatched_message(ack, &observed),
+                        &unmatched_message(ack, &observed, successor),
                     )
                 })
                 .collect();
@@ -366,15 +378,55 @@ pub fn apply_to_report(
     );
 }
 
-/// Message for an active ack that suppressed nothing. When the entry
-/// names its service and endpoint, the run's per-endpoint I/O ops say
-/// whether that endpoint did I/O, which splits "fixed" from "scenario
-/// did not run". The counts only hold endpoints that emitted I/O spans,
-/// so absence stays ambiguous (not exercised, or a fix that removed the
-/// I/O outright) and the message says so. Entries without the fields
-/// keep the indeterminate double reading.
-fn unmatched_message(ack: &Acknowledgment, observed: &HashSet<(&str, &str)>) -> String {
+/// The lone kept finding whose signature shares the ack's
+/// `<type>:<service>:<endpoint>` prefix with a different template hash:
+/// the signature of a template drift rather than a fix. `None` with zero
+/// or several candidates, naming one among several would be a guess.
+///
+/// Never transfers the ack itself: a signature is a suppression
+/// boundary, and carrying an ack across a template change could silence
+/// a genuinely new problem. The operator re-acknowledges deliberately.
+fn drifted_successor<'a>(ack_signature: &str, kept: &'a [Cow<'a, str>]) -> Option<&'a str> {
+    let (ack_prefix, ack_hash) = ack_signature.rsplit_once(':')?;
+    let mut found: Option<&str> = None;
+    for sig in kept {
+        let Some((prefix, hash)) = sig.rsplit_once(':') else {
+            continue;
+        };
+        if prefix == ack_prefix && hash != ack_hash {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(sig.as_ref());
+        }
+    }
+    found
+}
+
+/// Message for an active ack that suppressed nothing. When exactly one
+/// current finding shares the ack's detector, service, and endpoint with
+/// a different template hash, the template drifted and the message names
+/// the successor signature. Otherwise, when the entry names its service
+/// and endpoint, the run's per-endpoint I/O ops say whether that
+/// endpoint did I/O, which splits "fixed" from "scenario did not run".
+/// The counts only hold endpoints that emitted I/O spans, so absence
+/// stays ambiguous (not exercised, or a fix that removed the I/O
+/// outright) and the message says so. Entries without the fields keep
+/// the indeterminate double reading.
+fn unmatched_message(
+    ack: &Acknowledgment,
+    observed: &HashSet<(&str, &str)>,
+    successor: Option<&str>,
+) -> String {
     let sig = &ack.signature;
+    if let Some(successor) = successor {
+        return format!(
+            "acknowledgment {sig} matched no finding in this run, but \
+             {successor} fired with the same detector, service, and \
+             endpoint: the template drifted (schema or query change), \
+             re-acknowledge the new signature if the reason still holds"
+        );
+    }
     match (&ack.service, &ack.source_endpoint) {
         (Some(service), Some(endpoint)) => {
             if observed.contains(&(service.as_str(), endpoint.as_str())) {
@@ -1017,6 +1069,84 @@ expires_at = "not-a-date"
             messages[1].contains("bbbb-not-run") && messages[1].contains("proves nothing"),
             "absent endpoint must prove nothing, got: {}",
             messages[1]
+        );
+    }
+
+    /// A template mutation shifts the signature's hash suffix while the
+    /// detector, service, and endpoint stay put. With exactly one such
+    /// finding, the warning names it instead of claiming "looks fixed".
+    #[test]
+    fn apply_to_report_unmatched_ack_names_the_drifted_successor() {
+        let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
+        enrich_with_signatures(&mut findings);
+        let successor_sig = findings[0].signature.clone();
+        let (prefix, _) = successor_sig.rsplit_once(':').expect("4-segment signature");
+        let acked_old = format!("{prefix}:{}", "0".repeat(32));
+
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![ack(&acked_old, None)],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .expect("unmatched warning");
+        assert!(
+            warning.message.contains(&successor_sig) && warning.message.contains("drifted"),
+            "warning must name the successor signature, got: {}",
+            warning.message
+        );
+        assert_eq!(report.findings.len(), 1, "the successor stays unsuppressed");
+    }
+
+    /// Two findings sharing the ack's prefix would make naming either one
+    /// a guess, so the message stays generic.
+    #[test]
+    fn apply_to_report_two_drift_candidates_keep_the_generic_message() {
+        let mut second = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        second.pattern.template = "SELECT * FROM t WHERE id = ? AND tenant = ?".to_string();
+        let mut findings = vec![
+            make_finding(FindingType::NPlusOneSql, Severity::Warning),
+            second,
+        ];
+        enrich_with_signatures(&mut findings);
+        let (prefix, _) = findings[0]
+            .signature
+            .rsplit_once(':')
+            .map(|(p, h)| (p.to_string(), h))
+            .expect("4-segment signature");
+        let acked_old = format!("{prefix}:{}", "0".repeat(32));
+
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![ack(&acked_old, None)],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .expect("unmatched warning");
+        assert!(
+            !warning.message.contains("drifted"),
+            "two candidates must not be guessed between, got: {}",
+            warning.message
         );
     }
 
