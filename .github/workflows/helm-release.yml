@@ -118,7 +118,16 @@ jobs:
         run: |
           mkdir -p out
           helm package charts/perf-sentinel/ -d out/
-          name=$(ls out/ | head -n1)
+          # A glob, not `ls | head -1`: shellcheck flags parsing `ls`, and
+          # taking the first entry would silently pick the wrong tarball if
+          # `out/` ever held more than one. Assert the assumption instead.
+          shopt -s nullglob
+          tarballs=(out/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "expected exactly one chart tarball in out/, found ${#tarballs[@]}" >&2
+            exit 1
+          fi
+          name=$(basename "${tarballs[0]}")
           digest=$(sha256sum "out/${name}" | awk '{print $1}')
           echo "tarball_name=${name}"     >> "$GITHUB_OUTPUT"
           echo "tarball_digest=${digest}" >> "$GITHUB_OUTPUT"

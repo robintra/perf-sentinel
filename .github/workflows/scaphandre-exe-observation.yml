@@ -189,8 +189,19 @@ jobs:
           done
 
           # 3 .NET services, dotnet-a/b/c.dll under each project's publish dir.
+          # nullglob so a pattern that matches nothing yields an empty array
+          # rather than the literal pattern, which would pass the count check
+          # below and fail later with a confusing "file not found".
+          shopt -s nullglob
           for name in dotnet-a dotnet-b dotnet-c; do
-            dll=$(ls "/tmp/${name}"/bin/Release/net*/"${name}.dll" | head -1)
+            # A glob array, not `ls | head -1`: same shellcheck rule, and the
+            # publish directory is named after whatever TFM the SDK picked.
+            dlls=(/tmp/"${name}"/bin/Release/net*/"${name}.dll")
+            if [ "${#dlls[@]}" -ne 1 ]; then
+              echo "expected exactly one ${name}.dll, found ${#dlls[@]}" >&2
+              exit 1
+            fi
+            dll="${dlls[0]}"
             dotnet "${dll}" &
             echo $! > "/tmp/${name}.pid"
           done
