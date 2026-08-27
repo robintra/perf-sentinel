@@ -106,6 +106,33 @@ fn cli_tempo_absolute_window_conflicts_with_lookback() {
 }
 
 #[test]
+fn cli_tempo_absolute_window_conflicts_with_trace_id() {
+    // A trace ID resolves to exactly one trace, so a window would be read
+    // and silently dropped rather than applied.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "tempo",
+            "--endpoint",
+            "http://127.0.0.1:1",
+            "--trace-id",
+            "abc123def456",
+            "--from",
+            "2026-08-20T15:00:00Z",
+            "--to",
+            "2026-08-20T16:00:00Z",
+        ])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot be used with"),
+        "stderr should name the conflict, got: {stderr}"
+    );
+}
+
+#[test]
 fn cli_tempo_from_requires_to() {
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args([
@@ -183,5 +210,10 @@ fn cli_tempo_absolute_window_reaches_the_fetch() {
     assert!(
         stderr.contains("Error fetching traces from Tempo"),
         "an absolute window must reach the fetch, got: {stderr}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "a fetch/network failure must exit EXIT_TOOLING_ERROR (75), not 1"
     );
 }

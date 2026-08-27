@@ -364,11 +364,13 @@ enum Commands {
         #[arg(long, default_value = "1h")]
         lookback: String,
         /// Start of an absolute search window, ISO 8601 UTC
-        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with --lookback.
-        #[arg(long, requires = "to", conflicts_with = "lookback")]
+        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with
+        /// --lookback and --trace-id.
+        #[arg(long, requires = "to", conflicts_with_all = ["lookback", "trace_id"])]
         from: Option<String>,
         /// End of an absolute search window, ISO 8601 UTC. Requires --from.
-        #[arg(long, requires = "from", conflicts_with = "lookback")]
+        /// A trace ID resolves to exactly one trace, so no window applies to it.
+        #[arg(long, requires = "from", conflicts_with_all = ["lookback", "trace_id"])]
         to: Option<String>,
         /// Maximum number of traces to fetch.
         #[arg(long, default_value = "100")]
@@ -420,11 +422,13 @@ enum Commands {
         #[arg(long, default_value = "1h")]
         lookback: String,
         /// Start of an absolute search window, ISO 8601 UTC
-        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with --lookback.
-        #[arg(long, requires = "to", conflicts_with = "lookback")]
+        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with
+        /// --lookback and --trace-id.
+        #[arg(long, requires = "to", conflicts_with_all = ["lookback", "trace_id"])]
         from: Option<String>,
         /// End of an absolute search window, ISO 8601 UTC. Requires --from.
-        #[arg(long, requires = "from", conflicts_with = "lookback")]
+        /// A trace ID resolves to exactly one trace, so no window applies to it.
+        #[arg(long, requires = "from", conflicts_with_all = ["lookback", "trace_id"])]
         to: Option<String>,
         /// Maximum number of traces to fetch (1..=10000).
         #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(1..=10_000))]
@@ -1886,9 +1890,12 @@ fn resolve_search_window_or_exit(
     let parsed = match (from, to) {
         (Some(from), Some(to)) => SearchWindow::from_iso8601(from, to)
             .map_err(|e| format!("Error parsing --from/--to: {e}")),
-        _ => lookback::parse(lookback)
+        (None, None) => lookback::parse(lookback)
             .map(SearchWindow::Lookback)
             .map_err(|e| format!("Error parsing lookback: {e}")),
+        // clap's `requires` makes a half pair unreachable, but falling back to
+        // the lookback here would silently ignore a flag the operator did pass.
+        _ => Err("Error: --from and --to must be given together".to_string()),
     };
 
     parsed.unwrap_or_else(|e| {
