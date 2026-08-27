@@ -535,7 +535,7 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
         assert!(first_line_landed, "first archive line never landed");
-        metrics.record_archive_drop(crate::report::metrics::ArchiveDropReason::ChannelFull);
+        metrics.record_archive_drop(ArchiveDropReason::ChannelFull);
         handle.tx.send(sample_archive()).await.unwrap();
         drop(handle.tx);
         handle.join.await.unwrap();

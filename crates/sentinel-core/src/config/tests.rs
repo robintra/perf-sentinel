@@ -2070,12 +2070,12 @@ fn unresolved_env_ack_key_fails_validation() {
 
 // --- convert_electricity_maps_section branches ---
 
-use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};
 // Local imports used by all the electricity_maps tests below.
 // `HashMap` and `Duration` are already in scope via `use super::*;`
 // at the top of this module, but Qodana flags the fully-qualified
 // forms as unnecessary; using the short names reads cleaner anyway.
 use crate::score::electricity_maps::ElectricityMapsConfig;
+use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};
 
 #[test]
 fn electricity_maps_empty_api_key_returns_none() {
@@ -4105,8 +4105,8 @@ fn accepts_zero_max_export_findings_for_an_envelope_only_snapshot() {
 fn snapshot_budget_is_quiet_inside_the_body_limit() {
     // The shipped defaults, and the values a report-oriented daemon ends
     // up with, must not nag.
-    assert_eq!(super::validate::snapshot_budget_warning(1_000, 50), None);
-    assert_eq!(super::validate::snapshot_budget_warning(1_000, 150), None);
+    assert_eq!(validate::snapshot_budget_warning(1_000, 50), None);
+    assert_eq!(validate::snapshot_budget_warning(1_000, 150), None);
 }
 
 #[test]
@@ -4115,7 +4115,7 @@ fn snapshot_budget_warns_when_both_knobs_stay_in_their_comfort_zones() {
     // comfort zone and 400 sits inside max_retained_traces' (10..=500), yet
     // together they project ~11 MB, past the 8 MiB the query clients read
     // the snapshot with. Neither knob's own advisory sees the sum.
-    let w = super::validate::snapshot_budget_warning(2_000, 400)
+    let w = validate::snapshot_budget_warning(2_000, 400)
         .expect("in-comfort pair over the limit must warn");
     assert!(w.contains("max_export_findings"), "{w}");
     assert!(w.contains("max_retained_traces"), "{w}");
@@ -4127,11 +4127,8 @@ fn snapshot_budget_ignores_trace_bytes_the_export_never_ships() {
     // limit and skips the rest, so max_retained_traces alone cannot blow
     // the budget however high it goes. Projected unclamped it did, and the
     // advisory then told the operator to lower the one knob already bounded.
-    assert_eq!(super::validate::snapshot_budget_warning(1_000, 500), None);
-    assert_eq!(
-        super::validate::snapshot_budget_warning(1_000, 10_000),
-        None
-    );
+    assert_eq!(validate::snapshot_budget_warning(1_000, 500), None);
+    assert_eq!(validate::snapshot_budget_warning(1_000, 10_000), None);
 }
 
 #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
@@ -4141,7 +4138,7 @@ fn snapshot_read_limit_matches_the_client_cap() {
     // so the budget advisory carries its own copy of the limit. If the
     // real cap moves, the advisory must move with it.
     assert_eq!(
-        super::validate::SNAPSHOT_READ_LIMIT_BYTES,
+        validate::SNAPSHOT_READ_LIMIT_BYTES,
         crate::http_client::MAX_BODY_BYTES
     );
 }
@@ -4154,7 +4151,7 @@ fn embedded_traces_budget_matches_the_export() {
     // the budget drifts as silently as the read limit would, so it is pinned
     // to the export's own constant the same way.
     assert_eq!(
-        super::validate::EMBEDDED_TRACES_BUDGET_BYTES,
+        validate::EMBEDDED_TRACES_BUDGET_BYTES,
         crate::daemon::query_api::EMBEDDED_TRACES_BYTE_BUDGET
     );
 }

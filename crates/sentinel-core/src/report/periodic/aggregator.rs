@@ -1726,11 +1726,7 @@ mod tests {
         (dir, path)
     }
 
-    fn write_drops_file(
-        dir: &std::path::Path,
-        name: &str,
-        lines: &[(DateTime<Utc>, Report, u64)],
-    ) -> PathBuf {
+    fn write_drops_file(dir: &Path, name: &str, lines: &[(DateTime<Utc>, Report, u64)]) -> PathBuf {
         let path = dir.join(name);
         let mut file = File::create(&path).unwrap();
         let mut prev = super::super::hasher::ARCHIVE_CHAIN_SEED.to_string();

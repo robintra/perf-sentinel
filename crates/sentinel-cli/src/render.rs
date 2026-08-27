@@ -2329,7 +2329,7 @@ mod tests {
     /// conversion is pinned, alongside the terminal duration scale.
     #[test]
     fn span_timing_line_uses_the_terminal_scale_and_the_dashboard_cv() {
-        let mut pattern = sentinel_core::detect::Pattern {
+        let mut pattern = Pattern {
             template: String::new(),
             occurrences: 3,
             window_ms: 10,
