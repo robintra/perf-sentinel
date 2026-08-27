@@ -3,9 +3,6 @@
 //! Also hosts the `pg_stat` loaders shared with the `report` subcommand.
 
 use sentinel_core::config::Config;
-use sentinel_core::ingest::IngestSource;
-use sentinel_core::ingest::json::JsonIngest;
-use sentinel_core::pipeline;
 
 use crate::{PgStatOutputFormat, limits, load_config, read_events, read_file_capped};
 
@@ -257,22 +254,19 @@ fn run_pg_stat_pipeline(
     config: &Config,
     format: PgStatOutputFormat,
 ) {
-    use sentinel_core::ingest::pg_stat;
-
     // Cross-reference with the traced SQL templates if --traces is
     // provided: every span counts, not only the ones that produced a
     // finding, so a healthy traced query still gets its marker.
-    let trace_counts = traces.and_then(|path| trace_counts_for_cross_reference(path, config));
-    if traces.is_some() && trace_counts.is_none() && baseline.is_some() {
+    // `--baseline` is `requires = "traces"` at the clap level, so a
+    // baseline with no counts means the trace ingest is what failed.
+    let trace_counts =
+        traces.and_then(|path| crate::trace_counts_for_cross_reference(path, config));
+    if trace_counts.is_none() && baseline.is_some() {
         eprintln!("Warning: --baseline ignored, the trace cross-reference failed");
     }
-    if let Some(counts) = &trace_counts {
-        pg_stat::cross_reference_templates(&mut entries, counts);
-    }
 
-    let mut report = pg_stat::rank_pg_stat(&entries, top_n);
+    let mut report = rank_with_trace_match(&mut entries, top_n, trace_counts.as_ref());
     if let Some(counts) = &trace_counts {
-        report.trace_match = Some(pg_stat::trace_match_summary(&entries));
         report.trace_coverage = load_trace_coverage(&entries, baseline, counts);
     }
 
@@ -287,31 +281,6 @@ fn run_pg_stat_pipeline(
             );
         }
         PgStatOutputFormat::Text => print_pg_stat_report(&report),
-    }
-}
-
-/// Ingest a trace file and tally its SQL templates for the `pg-stat` /
-/// `mysql-stat` cross-reference. `None` (after a warning) when the file
-/// does not ingest: the ranking still prints without markers.
-pub(crate) fn trace_counts_for_cross_reference(
-    traces_path: &std::path::Path,
-    config: &Config,
-) -> Option<std::collections::HashMap<String, u64>> {
-    let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
-    let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
-        .with_grouping_attributes(crate::grouping_keys(config));
-    match ingest.ingest(&traces_raw) {
-        Ok(events) => {
-            let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
-            Some(pipeline::trace_sql_template_counts(&analyzed_traces))
-        }
-        Err(e) => {
-            eprintln!(
-                "Warning: failed to ingest trace file for cross-reference: {}",
-                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
-            );
-            None
-        }
     }
 }
 

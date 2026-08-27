@@ -47,6 +47,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use render::emit_report_and_gate;
 use sentinel_core::config::Config;
+use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
 use sentinel_core::pipeline;
 use std::io::Read;
@@ -2366,6 +2367,31 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
 /// shapes than `analyze` and has no quality-gate concept, so every
 /// failure branch (including empty input and scalar roots, each with a
 /// distinct message) exits with `EXIT_TOOLING_ERROR`, never `1`.
+/// Ingest a trace file and tally its SQL templates for the `pg-stat` /
+/// `mysql-stat` cross-reference. `None` (after a warning) when the file
+/// does not ingest: the ranking still prints without markers.
+fn trace_counts_for_cross_reference(
+    traces_path: &std::path::Path,
+    config: &Config,
+) -> Option<std::collections::HashMap<String, u64>> {
+    let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
+    let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
+        .with_grouping_attributes(crate::grouping_keys(config));
+    match ingest.ingest(&traces_raw) {
+        Ok(events) => {
+            let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);
+            Some(pipeline::trace_sql_template_counts(&analyzed_traces))
+        }
+        Err(e) => {
+            eprintln!(
+                "Warning: failed to ingest trace file for cross-reference: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&e.to_string())
+            );
+            None
+        }
+    }
+}
+
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,
@@ -2564,8 +2590,10 @@ async fn cmd_report(
     // Trace-side template counts for the pg_stat / mysql_stat
     // cross-reference: the report's own traces are already analyzed, so
     // the dashboard panels get the same trace-matched share as the
-    // standalone subcommands.
-    let trace_sql_counts = (has_pg_stat_source || has_mysql_stat_source)
+    // standalone subcommands. A precomputed Report input carries no
+    // traces, and claiming "0 of N matched" there would read as a
+    // tracing gap rather than as the absence of any trace to match.
+    let trace_sql_counts = (!traces.is_empty() && (has_pg_stat_source || has_mysql_stat_source))
         .then(|| pipeline::trace_sql_template_counts(&traces));
 
     let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
