@@ -221,7 +221,7 @@ fn run_mysql_stat_pipeline(
     // Every traced SQL template counts, not only the ones that produced
     // a finding, so a healthy traced query still gets its marker.
     let trace_counts =
-        traces.and_then(|path| crate::pg_stat::trace_counts_for_cross_reference(path, config));
+        traces.and_then(|path| crate::trace_counts_for_cross_reference(path, config));
     let report = rank_with_trace_match(&mut entries, top_n, trace_counts.as_ref());
 
     match format {
