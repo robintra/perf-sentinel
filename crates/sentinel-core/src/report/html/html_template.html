@@ -5322,7 +5322,7 @@
     var header = [
       "section", "severity", "type", "service", "endpoint", "template",
       "occurrences", "before_severity", "after_severity",
-      "before_io_ops", "after_io_ops", "delta"
+      "before_io_ops", "after_io_ops", "delta", "before_template"
     ];
     var rows = [];
     (diffData.new_findings || []).forEach(function (f) {
@@ -5332,7 +5332,7 @@
         "new", f.severity || "", f.type || f.finding_type || "",
         f.service || "", f.source_endpoint || "", p.template || "",
         p.occurrences ?? "",
-        "", "", "", "", ""
+        "", "", "", "", "", ""
       ]);
     });
     (diffData.resolved_findings || []).forEach(function (f) {
@@ -5342,13 +5342,28 @@
         "resolved", f.severity || "", f.type || f.finding_type || "",
         f.service || "", f.source_endpoint || "", p.template || "",
         p.occurrences ?? "",
-        "", "", "", "", ""
+        "", "", "", "", "", ""
       ]);
     });
     // The DOM search filters only the two findings lists (see
-    // SEARCHABLE_TABS.diff), so these two tables stay unfiltered on screen and
+    // SEARCHABLE_TABS.diff), so these tables stay unfiltered on screen and
     // the export must not drop their rows either, or it would omit rows the
     // user can see.
+    // A mutation is counted neither as new nor as resolved, so without this
+    // section it would vanish from the export the way it used to vanish
+    // from the panel. before_severity/after_severity carry the pair.
+    (diffData.mutated_findings || []).forEach(function (m) {
+      var before = m.before || {};
+      var after = m.after || {};
+      rows.push([
+        "mutated", after.severity || "", after.type || after.finding_type || "",
+        after.service || "", after.source_endpoint || "",
+        (after.pattern || {}).template || "",
+        (after.pattern || {}).occurrences ?? "",
+        before.severity || "", after.severity || "", "", "", "",
+        (before.pattern || {}).template || ""
+      ]);
+    });
     (diffData.severity_changes || []).forEach(function (c) {
       var f = c.finding || {};
       var p = f.pattern || {};
@@ -5357,7 +5372,7 @@
         f.service || "", f.source_endpoint || "", p.template || "",
         p.occurrences ?? "",
         c.before_severity || "", c.after_severity || "",
-        "", "", ""
+        "", "", "", ""
       ]);
     });
     (diffData.endpoint_metric_deltas || []).forEach(function (d) {
@@ -5367,7 +5382,7 @@
         "", "", "",
         d.before_io_ops ?? "",
         d.after_io_ops ?? "",
-        d.delta ?? ""
+        d.delta ?? "", ""
       ]);
     });
     downloadCsv("diff", buildCsv(header, rows));
