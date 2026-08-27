@@ -44,6 +44,14 @@ jobs:
       - name: Rerun failed jobs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Same reason as the token above: the workflow name reaches this
+          # step as data, not as script text. Everything else here is
+          # numeric, but routing them all the same way keeps the rule
+          # obvious to the next reader.
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "::notice::Auto-rerunning failed ${{ github.event.workflow_run.name }} run ${{ github.event.workflow_run.id }} (attempt ${{ github.event.workflow_run.run_attempt }})"
-          gh run rerun ${{ github.event.workflow_run.id }} --failed --repo ${{ github.repository }}
+          echo "::notice::Auto-rerunning failed ${RUN_NAME} run ${RUN_ID} (attempt ${RUN_ATTEMPT})"
+          gh run rerun "${RUN_ID}" --failed --repo "${REPO}"

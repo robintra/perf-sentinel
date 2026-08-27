@@ -145,9 +145,16 @@ jobs:
           crane version
 
       - name: Log in to GHCR
+        env:
+          # Through the environment, never spliced into the script. A `${{ }}`
+          # expansion is substituted into the shell source before it runs, so
+          # a value carrying shell metacharacters would be executed rather
+          # than passed. `github.actor` is attacker-influenceable.
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
         run: |
-          echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          echo "${{ github.token }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${GHCR_USER}" --password-stdin
+          echo "${GHCR_TOKEN}" | crane auth login ghcr.io -u "${GHCR_USER}" --password-stdin
 
       - name: Push chart
         id: push
