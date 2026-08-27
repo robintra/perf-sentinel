@@ -114,6 +114,33 @@
         "io_intensity_band": "moderate"
       },
       "confidence": "ci_batch"
+    },
+    {
+      "type": "n_plus_one_http",
+      "severity": "warning",
+      "trace_id": "trace-order-09",
+      "service": "order-svc",
+      "source_endpoint": "GET /api/orders/9/summary",
+      "pattern": {
+        "template": "GET payment-svc/api/payment/{id}",
+        "occurrences": 6,
+        "window_ms": 120,
+        "distinct_params": 6
+      },
+      "suggestion": "Batch the 6 calls into one bulk endpoint",
+      "first_timestamp": "2026-04-20T10:00:01.000Z",
+      "last_timestamp": "2026-04-20T10:00:01.120Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 5,
+        "io_intensity_score": 6.0,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "filepath": "com/example/order/OrderSummaryService.java",
+        "lineno": 74,
+        "namespace": "org.springframework.web.client.RestClient"
+      }
     }
   ],
   "green_summary": {
