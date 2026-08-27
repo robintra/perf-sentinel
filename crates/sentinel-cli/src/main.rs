@@ -2352,21 +2352,6 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
     report
 }
 
-/// Dispatch the `--input` payload by JSON shape: a top-level array goes
-/// through the normalize/correlate/detect/score pipeline (native event
-/// streams, Zipkin v2), a top-level object is first tried as a
-/// pre-computed `Report` (daemon snapshot, baseline file) and falls
-/// back to `JsonIngest`, which auto-detects OTLP/JSON and Jaeger.
-/// Report-first guarantees a daemon snapshot is never misrouted to the
-/// Jaeger ingest even when its payload contains a `"data"` literal in
-/// the first 4 KB, at the cost of one extra Report parse on OTLP/Jaeger
-/// inputs (rare through this CLI); an OTLP request can never parse as a
-/// Report (its required fields are absent). The depth cap is enforced
-/// before the Report parse so an over-deep Report does not silently
-/// fall through to the ingest fallback. `report` accepts a wider set of
-/// shapes than `analyze` and has no quality-gate concept, so every
-/// failure branch (including empty input and scalar roots, each with a
-/// distinct message) exits with `EXIT_TOOLING_ERROR`, never `1`.
 /// Ingest a trace file and tally its SQL templates for the `pg-stat` /
 /// `mysql-stat` cross-reference. `None` (after a warning) when the file
 /// does not ingest: the ranking still prints without markers.
@@ -2392,6 +2377,21 @@ fn trace_counts_for_cross_reference(
     }
 }
 
+/// Dispatch the `--input` payload by JSON shape: a top-level array goes
+/// through the normalize/correlate/detect/score pipeline (native event
+/// streams, Zipkin v2), a top-level object is first tried as a
+/// pre-computed `Report` (daemon snapshot, baseline file) and falls
+/// back to `JsonIngest`, which auto-detects OTLP/JSON and Jaeger.
+/// Report-first guarantees a daemon snapshot is never misrouted to the
+/// Jaeger ingest even when its payload contains a `"data"` literal in
+/// the first 4 KB, at the cost of one extra Report parse on OTLP/Jaeger
+/// inputs (rare through this CLI); an OTLP request can never parse as a
+/// Report (its required fields are absent). The depth cap is enforced
+/// before the Report parse so an over-deep Report does not silently
+/// fall through to the ingest fallback. `report` accepts a wider set of
+/// shapes than `analyze` and has no quality-gate concept, so every
+/// failure branch (including empty input and scalar roots, each with a
+/// distinct message) exits with `EXIT_TOOLING_ERROR`, never `1`.
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,

@@ -5351,12 +5351,13 @@
     // user can see.
     // A mutation is counted neither as new nor as resolved, so without this
     // section it would vanish from the export the way it used to vanish
-    // from the panel. before_severity/after_severity carry the pair.
+    // from the panel. The severity column stays empty as it does for a
+    // severity_change row, and before_severity/after_severity carry the pair.
     (diffData.mutated_findings || []).forEach(function (m) {
       var before = m.before || {};
       var after = m.after || {};
       rows.push([
-        "mutated", after.severity || "", after.type || after.finding_type || "",
+        "mutated", "", after.type || after.finding_type || "",
         after.service || "", after.source_endpoint || "",
         (after.pattern || {}).template || "",
         (after.pattern || {}).occurrences ?? "",

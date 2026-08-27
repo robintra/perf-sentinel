@@ -608,7 +608,11 @@ impl Builder {
             }
             _ => {}
         }
-        self.last_drops.insert(family.to_string(), drops);
+        if let Some(slot) = self.last_drops.get_mut(family) {
+            *slot = drops;
+        } else {
+            self.last_drops.insert(family.to_string(), drops);
+        }
     }
 
     fn count_break(&mut self, in_scope: bool) {
@@ -1780,6 +1784,52 @@ mod tests {
         assert_eq!(inputs.chain_verified, 4, "drops are covered by the hash");
     }
 
+    /// The family key drives the drop baseline, and its shape is
+    /// coupled to `daemon::archive::rotate`'s `{stem}-%Y%m%dT%H%M%S%fZ`.
+    #[test]
+    fn archive_family_groups_rotations_and_separates_hosts() {
+        let key = |p: &str| archive_family(Path::new(p));
+        // A rotation and its active file share a family.
+        assert_eq!(
+            key("/var/log/archive-20260110T000000000000000Z.ndjson"),
+            key("/var/log/archive.ndjson")
+        );
+        // Two hosts with the same basename do not.
+        assert_ne!(
+            key("/hosts/a/archive.ndjson"),
+            key("/hosts/b/archive.ndjson")
+        );
+        // A hyphen that is not a stamp stays part of the family name.
+        assert_ne!(key("/var/log/host-a.ndjson"), key("/var/log/host-b.ndjson"));
+        assert_eq!(key("/var/log/host-a.ndjson"), key("/var/log/host-a.ndjson"));
+        // A bare filename has no parent and must still yield a key.
+        assert!(!key("archive.ndjson").is_empty());
+    }
+
+    #[test]
+    fn rotation_stamps_are_told_apart_from_ordinary_suffixes() {
+        assert!(is_rotation_stamp("20260110T000000000000000Z"));
+        assert!(
+            !is_rotation_stamp("20260110T000000000000000"),
+            "no trailing Z"
+        );
+        assert!(!is_rotation_stamp("2026Z"), "no T separator");
+        assert!(
+            !is_rotation_stamp("2026011T000000Z"),
+            "date is not 8 digits"
+        );
+        assert!(
+            !is_rotation_stamp("2026011aT000000Z"),
+            "date is not all digits"
+        );
+        assert!(!is_rotation_stamp("20260110TZ"), "empty time");
+        assert!(
+            !is_rotation_stamp("20260110T00000aZ"),
+            "time is not all digits"
+        );
+        assert!(!is_rotation_stamp("a"), "an ordinary suffix");
+    }
+
     /// The counter is daemon-lifetime and rotated files sort before the
     /// active one, so the delta across a rotation boundary must be kept.
     #[test]
@@ -1789,7 +1839,7 @@ mod tests {
         // Rotation naming: the stamped file sorts before the active one.
         let rotated = write_drops_file(
             dir.path(),
-            "archive-20260110T000000000Z.ndjson",
+            "archive-20260110T000000000000000Z.ndjson",
             &[(ts(1, 10), plain_window(), 5)],
         );
         let active = write_drops_file(
@@ -1845,7 +1895,7 @@ mod tests {
         // out-of-period line carries one.
         let carrying = write_drops_file(
             dir.path(),
-            "archive-20250615T000000000Z.ndjson",
+            "archive-20250615T000000000000000Z.ndjson",
             &[(outside, plain_window(), 7)],
         );
         let plain = {
