@@ -366,6 +366,66 @@ fn cli_report_accepts_pg_stat_flag() {
     assert!(!entries.is_empty(), "pg_stat rankings must carry entries");
 }
 
+/// A trace input populates the trace-matched share on the pg_stat
+/// panel, and a pre-computed Report input carries no traces at all, so
+/// the share must be absent rather than a "0 of N" that reads as a
+/// tracing gap.
+#[test]
+fn cli_report_stamps_trace_match_only_when_traces_were_analyzed() {
+    let traces = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let pg_stat_fixture = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let render = |input: &str, out: &std::path::Path| {
+        let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+            .args([
+                "report",
+                "--input",
+                input,
+                "--pg-stat",
+                &pg_stat_fixture,
+                "--output",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .expect("spawn");
+        assert!(
+            output.status.success(),
+            "report failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        extract_payload_json_from_html(&fs::read_to_string(out).expect("read html"))
+    };
+
+    let from_traces = render(&traces, &dir.path().join("traces.html"));
+    assert!(
+        from_traces["pg_stat"]["trace_match"].is_object(),
+        "a trace input must carry the matched share"
+    );
+
+    // Feed the analysis back in: `analyze --format json` is a Report,
+    // which `report` accepts and which carries no traces.
+    let analyzed = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &traces, "--format", "json"])
+        .output()
+        .expect("spawn analyze");
+    let report_path = dir.path().join("precomputed.json");
+    fs::write(&report_path, &analyzed.stdout).expect("write report");
+
+    let from_report = render(report_path.to_str().unwrap(), &dir.path().join("pre.html"));
+    assert!(
+        from_report["pg_stat"]["trace_match"].is_null(),
+        "a pre-computed report has no traces, so it must claim no matched share, got {}",
+        from_report["pg_stat"]["trace_match"]
+    );
+}
+
 #[test]
 fn cli_report_accepts_mysql_stat_flag() {
     let fixture = format!(
