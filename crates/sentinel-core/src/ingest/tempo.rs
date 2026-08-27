@@ -229,7 +229,9 @@ async fn fetch_json(
 ///
 /// # Errors
 ///
-/// Returns `TempoError` on HTTP errors, timeouts, or JSON parse failures.
+/// Returns `TempoError::InvalidWindow` before any request is issued when
+/// the window is empty or inverted, then `TempoError` on HTTP errors,
+/// timeouts, or JSON parse failures.
 pub async fn search_traces(
     client: &HttpClient,
     endpoint: &str,
@@ -474,7 +476,12 @@ async fn ingest_from_tempo_impl(
         TempoError::InvalidEndpoint("either --trace-id or --service is required".to_string())
     })?;
 
-    tracing::info!(service = svc, max_traces, "Searching Tempo for traces");
+    tracing::info!(
+        service = svc,
+        ?window,
+        max_traces,
+        "Searching Tempo for traces"
+    );
 
     let trace_ids = search_traces(
         &client,

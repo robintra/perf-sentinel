@@ -185,7 +185,9 @@ async fn fetch_json(
 ///
 /// # Errors
 ///
-/// Returns `JaegerQueryError` on HTTP errors, timeouts, or JSON parse failures.
+/// Returns `JaegerQueryError::InvalidWindow` before any request is issued
+/// when the window is empty or inverted, then `JaegerQueryError` on HTTP
+/// errors, timeouts, or JSON parse failures.
 pub async fn search_and_fetch_traces(
     client: &HttpClient,
     endpoint: &str,
@@ -389,7 +391,12 @@ async fn ingest_from_jaeger_query_impl(
         JaegerQueryError::MissingArgument("either --trace-id or --service is required".to_string())
     })?;
 
-    tracing::info!(service = svc, max_traces, "Querying Jaeger API for traces");
+    tracing::info!(
+        service = svc,
+        ?window,
+        max_traces,
+        "Querying Jaeger API for traces"
+    );
 
     search_and_fetch_traces_with_grouping(
         &client,
