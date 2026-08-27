@@ -2361,7 +2361,7 @@ fn trace_counts_for_cross_reference(
 ) -> Option<std::collections::HashMap<String, u64>> {
     let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
     let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES)
-        .with_grouping_attributes(crate::grouping_keys(config));
+        .with_grouping_attributes(grouping_keys(config));
     match ingest.ingest(&traces_raw) {
         Ok(events) => {
             let (_, analyzed_traces) = pipeline::analyze_with_traces(events, config, None);

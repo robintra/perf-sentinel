@@ -1074,7 +1074,7 @@ impl App {
         for w in &self.warnings {
             // Backticks live in the data so the HTML can render code
             // chips; a terminal shows them as literal noise.
-            let plain = sentinel_core::text_safety::strip_code_ticks(&w.message);
+            let plain = strip_code_ticks(&w.message);
             lines.push(Line::from(Span::raw(format!(
                 "  [{}] {}",
                 sanitize_for_terminal(&w.kind),
