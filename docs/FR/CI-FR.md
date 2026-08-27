@@ -167,8 +167,12 @@ vrai dépassement puisse faire rougir une PR :
   explicitement avec le code `75` (`EX_TEMPFAIL`,
   [sysexits.h](https://man.openbsd.org/sysexits)) au lieu de
   propager le code de sortie brut de l'outil qui a échoué.
-  `allow_failure: exit_codes: [75]` sur la règle merge request
-  exclut uniquement ce code précis du blocage de la merge. La
+  `allow_failure: exit_codes: [75]`, porté par le job, exclut
+  uniquement ce code précis du blocage d'une merge request. Il est
+  sur le job et non dans la règle merge request parce que
+  `rules:allow_failure` n'accepte qu'un booléen : le lint CI de
+  GitLab rejette le fichier entier si une règle porte la forme
+  mapping. La
   vérification du checksum et la conversion `jq` vers Code Quality
   sont volontairement exclues de cette convention exit-75 : un
   mauvais checksum signifie une release altérée, et un échec `jq`
