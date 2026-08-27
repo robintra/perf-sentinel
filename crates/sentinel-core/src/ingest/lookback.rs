@@ -94,7 +94,7 @@ pub fn parse(s: &str) -> Result<Duration, LookbackError> {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum WindowError {
-    #[error("window end {end} is not after start {start}")]
+    #[error("window end {end} is not after start {start}, in epoch milliseconds")]
     NotOrdered { start: u64, end: u64 },
 
     #[error("invalid ISO 8601 UTC timestamp '{value}': {reason}")]
@@ -114,8 +114,13 @@ pub enum SearchWindow {
     /// caller queues the request before sending it.
     Lookback(Duration),
 
-    /// Fixed bounds in Unix epoch seconds, immune to that drift.
-    Absolute { start_secs: u64, end_secs: u64 },
+    /// Fixed bounds in Unix epoch milliseconds, immune to that drift.
+    ///
+    /// Milliseconds rather than seconds because that is what ISO 8601
+    /// carries and what the Jaeger query API accepts, once scaled to its
+    /// own microseconds. Storing seconds here would discard precision one
+    /// of the two backends can actually use.
+    Absolute { start_ms: u64, end_ms: u64 },
 }
 
 impl SearchWindow {
@@ -124,10 +129,6 @@ impl SearchWindow {
     ///
     /// Parsing lives here rather than in the caller because `crate::time`
     /// is the single source of truth for calendar arithmetic.
-    ///
-    /// Both bounds are truncated to whole seconds, the unit Tempo's search
-    /// API takes, so a sub-second window collapses to nothing and is
-    /// rejected as [`WindowError::NotOrdered`] rather than silently widened.
     ///
     /// # Errors
     ///
@@ -144,14 +145,18 @@ impl SearchWindow {
             })
         };
         let window = Self::Absolute {
-            start_secs: parse(from)? / 1000,
-            end_secs: parse(to)? / 1000,
+            start_ms: parse(from)?,
+            end_ms: parse(to)?,
         };
         window.resolve()?;
         Ok(window)
     }
 
-    /// Absolute bounds in Unix epoch seconds, as `(start, end)`.
+    /// Absolute bounds in Unix epoch milliseconds, as `(start, end)`.
+    ///
+    /// Each backend scales from here to the unit its own API takes, which
+    /// is why this returns the finest unit either of them accepts rather
+    /// than the coarsest they share.
     ///
     /// # Errors
     ///
@@ -161,16 +166,19 @@ impl SearchWindow {
     pub fn resolve(self) -> Result<(u64, u64), WindowError> {
         let (start, end) = match self {
             Self::Lookback(d) => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                (now.saturating_sub(d.as_secs()), now)
+                let now = u64::try_from(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis(),
+                )
+                .unwrap_or(u64::MAX);
+                (
+                    now.saturating_sub(d.as_millis().try_into().unwrap_or(u64::MAX)),
+                    now,
+                )
             }
-            Self::Absolute {
-                start_secs,
-                end_secs,
-            } => (start_secs, end_secs),
+            Self::Absolute { start_ms, end_ms } => (start_ms, end_ms),
         };
 
         if end <= start {
@@ -250,10 +258,20 @@ mod tests {
     #[test]
     fn absolute_window_resolves_to_its_own_bounds() {
         let w = SearchWindow::Absolute {
-            start_secs: 1_787_838_000,
-            end_secs: 1_787_839_200,
+            start_ms: 1_787_838_000_000,
+            end_ms: 1_787_839_200_500,
         };
-        assert_eq!(w.resolve().unwrap(), (1_787_838_000, 1_787_839_200));
+        assert_eq!(w.resolve().unwrap(), (1_787_838_000_000, 1_787_839_200_500));
+    }
+
+    /// Sub-second bounds used to collapse to the same second and be
+    /// rejected. The Jaeger query API takes microseconds, so they survive.
+    #[test]
+    fn a_sub_second_window_survives() {
+        let w = SearchWindow::from_iso8601("2026-08-27T14:00:00.100Z", "2026-08-27T14:00:00.900Z")
+            .expect("a sub-second window must build");
+        let (start, end) = w.resolve().expect("resolve");
+        assert_eq!(end - start, 800);
     }
 
     #[test]
@@ -261,14 +279,14 @@ mod tests {
         let (start, end) = SearchWindow::Lookback(Duration::from_hours(2))
             .resolve()
             .unwrap();
-        assert_eq!(end - start, 7200);
+        assert_eq!(end - start, 7_200_000);
     }
 
     #[test]
     fn rejects_inverted_and_empty_windows() {
         let inverted = SearchWindow::Absolute {
-            start_secs: 2_000,
-            end_secs: 1_000,
+            start_ms: 2_000,
+            end_ms: 1_000,
         };
         assert_matches!(
             inverted.resolve(),
@@ -279,8 +297,8 @@ mod tests {
         );
 
         let empty = SearchWindow::Absolute {
-            start_secs: 1_000,
-            end_secs: 1_000,
+            start_ms: 1_000,
+            end_ms: 1_000,
         };
         assert_matches!(empty.resolve(), Err(WindowError::NotOrdered { .. }));
     }
@@ -290,7 +308,7 @@ mod tests {
         let w = SearchWindow::from_iso8601("2026-08-27T14:00:00Z", "2026-08-27T15:00:00Z")
             .expect("a well-formed ordered pair must build");
         let (start, end) = w.resolve().expect("resolve");
-        assert_eq!(end - start, 3600);
+        assert_eq!(end - start, 3_600_000);
     }
 
     #[test]

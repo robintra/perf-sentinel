@@ -211,21 +211,16 @@ async fn search_and_fetch_traces_with_grouping(
     grouping_attributes: Option<&[Arc<str>]>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     let encoded_service = percent_encode_query_value(service);
-    // Resolve in both cases so a zero or inverted window fails here rather
-    // than coming back from the backend as an empty result set. Only the
-    // absolute form needs the bounds on the wire: this API has its own
-    // relative parameter, and keeping it leaves every request that predates
-    // absolute windows byte-identical.
-    let (start_secs, end_secs) = window.resolve()?;
-    let range = match window {
-        SearchWindow::Lookback(d) => format!("lookback={}s", d.as_secs()),
-        SearchWindow::Absolute { .. } => format!(
-            "start={}&end={}",
-            start_secs.saturating_mul(1_000_000),
-            end_secs.saturating_mul(1_000_000)
-        ),
-    };
-    let uri_str = format!("{endpoint}/api/traces?service={encoded_service}&{range}&limit={limit}");
+    // Both window kinds send explicit bounds, in the microseconds this API
+    // counts in. `lookback` is deliberately not sent: Victoria Traces reads
+    // it only on its service-graph endpoint, never on this search, so a
+    // relative window used to be dropped and the query ran from the epoch.
+    let (start_ms, end_ms) = window.resolve()?;
+    let uri_str = format!(
+        "{endpoint}/api/traces?service={encoded_service}&start={}&end={}&limit={limit}",
+        start_ms.saturating_mul(1000),
+        end_ms.saturating_mul(1000)
+    );
     let uri: hyper::Uri = uri_str
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
@@ -508,10 +503,11 @@ mod tests {
         server.await.expect("server join");
     }
 
-    /// The relative form predates absolute windows and is the one every
-    /// existing deployment exercises, so it must stay byte-identical.
+    /// Victoria Traces reads `lookback` only on its service-graph endpoint,
+    /// never on this search, so sending it left the query running from the
+    /// Unix epoch. A relative window must send bounds like any other.
     #[tokio::test]
-    async fn a_lookback_window_keeps_the_relative_wire_form() {
+    async fn a_lookback_window_also_sends_explicit_bounds() {
         let (endpoint, mut captured, server) =
             spawn_capture_server(http_200_json(SAMPLE_TRACE)).await;
         let client = http_client::build_client();
@@ -526,8 +522,9 @@ mod tests {
         .await;
         let request = captured.recv().await.expect("captured request");
         let request = String::from_utf8_lossy(&request);
-        assert!(request.contains("lookback=60s"), "got: {request}");
-        assert!(!request.contains("start="), "got: {request}");
+        assert!(request.contains("start="), "got: {request}");
+        assert!(request.contains("end="), "got: {request}");
+        assert!(!request.contains("lookback="), "got: {request}");
         server.await.expect("server join");
     }
 
@@ -542,8 +539,8 @@ mod tests {
             &endpoint,
             "order-svc",
             SearchWindow::Absolute {
-                start_secs: 1_787_838_000,
-                end_secs: 1_787_839_200,
+                start_ms: 1_787_838_000_000,
+                end_ms: 1_787_839_200_500,
             },
             10,
             None,
@@ -552,7 +549,9 @@ mod tests {
         let request = captured.recv().await.expect("captured request");
         let request = String::from_utf8_lossy(&request);
         assert!(request.contains("start=1787838000000000"), "got: {request}");
-        assert!(request.contains("end=1787839200000000"), "got: {request}");
+        // The trailing 500 ms survives as microseconds: this API counts finer
+        // than Tempo, and the window is not rounded down to it.
+        assert!(request.contains("end=1787839200500000"), "got: {request}");
         assert!(!request.contains("lookback="), "got: {request}");
         server.await.expect("server join");
     }

@@ -240,9 +240,13 @@ pub async fn search_traces(
     limit: usize,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<String>, TempoError> {
-    // Tempo's search takes explicit bounds either way, so both window
-    // kinds collapse to the same query here.
-    let (start, end) = window.resolve()?;
+    // Tempo's search takes explicit bounds either way, so both window kinds
+    // collapse to the same query here. It counts in whole seconds, so the
+    // millisecond bounds round outwards: a window is never silently narrower
+    // than what was asked for.
+    let (start_ms, end_ms) = window.resolve()?;
+    let start = start_ms / 1000;
+    let end = end_ms.div_ceil(1000);
 
     let encoded_service = percent_encode_query_value(service);
     let uri_str = format!(
@@ -1453,8 +1457,8 @@ mod tests {
             &endpoint,
             "order-svc",
             SearchWindow::Absolute {
-                start_secs: 1_787_838_000,
-                end_secs: 1_787_839_200,
+                start_ms: 1_787_838_000_000,
+                end_ms: 1_787_839_200_000,
             },
             10,
             None,
