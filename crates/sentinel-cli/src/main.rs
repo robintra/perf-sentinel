@@ -360,9 +360,16 @@ enum Commands {
         /// Search traces by service name.
         #[arg(long)]
         service: Option<String>,
-        /// Lookback window for search (e.g. `1h`, `30m`, `24h`).
+        /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
         #[arg(long, default_value = "1h")]
         lookback: String,
+        /// Start of an absolute search window, ISO 8601 UTC
+        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with --lookback.
+        #[arg(long, requires = "to", conflicts_with = "lookback")]
+        from: Option<String>,
+        /// End of an absolute search window, ISO 8601 UTC. Requires --from.
+        #[arg(long, requires = "from", conflicts_with = "lookback")]
+        to: Option<String>,
         /// Maximum number of traces to fetch.
         #[arg(long, default_value = "100")]
         max_traces: usize,
@@ -409,9 +416,16 @@ enum Commands {
         /// Search traces by service name.
         #[arg(long)]
         service: Option<String>,
-        /// Lookback window for search (e.g. `1h`, `30m`, `24h`).
+        /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
         #[arg(long, default_value = "1h")]
         lookback: String,
+        /// Start of an absolute search window, ISO 8601 UTC
+        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with --lookback.
+        #[arg(long, requires = "to", conflicts_with = "lookback")]
+        from: Option<String>,
+        /// End of an absolute search window, ISO 8601 UTC. Requires --from.
+        #[arg(long, requires = "from", conflicts_with = "lookback")]
+        to: Option<String>,
         /// Maximum number of traces to fetch (1..=10000).
         #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         max_traces: u32,
@@ -1196,12 +1210,20 @@ mod help_examples {
   perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123def456
 
   # Search recent traces for a service
-  perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h";
+  perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h
+
+  # Re-read the exact window an incident happened in
+  perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc \\
+    --from 2026-08-20T15:00:00Z --to 2026-08-20T16:00:00Z";
 
     #[cfg(feature = "jaeger-query")]
     pub const JAEGER_QUERY: &str = "Examples:
   # Pull recent traces for a service and analyze them
-  perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc";
+  perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc
+
+  # Re-read the exact window an incident happened in
+  perf-sentinel jaeger-query --endpoint http://victoria:10428 --service order-svc \\
+    --from 2026-08-20T15:00:00Z --to 2026-08-20T16:00:00Z";
 
     pub const CALIBRATE: &str = "Examples:
   # Fit energy coefficients from measured power
@@ -1442,6 +1464,8 @@ async fn dispatch_command(command: Commands) {
             trace_id,
             service,
             lookback,
+            from,
+            to,
             max_traces,
             auth_header,
             auth_header_env,
@@ -1458,6 +1482,8 @@ async fn dispatch_command(command: Commands) {
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
+                from.as_deref(),
+                to.as_deref(),
                 max_traces,
                 resolved_auth.as_deref(),
                 config.as_deref(),
@@ -1475,6 +1501,8 @@ async fn dispatch_command(command: Commands) {
             trace_id,
             service,
             lookback,
+            from,
+            to,
             max_traces,
             auth_header,
             auth_header_env,
@@ -1491,6 +1519,8 @@ async fn dispatch_command(command: Commands) {
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
+                from.as_deref(),
+                to.as_deref(),
                 max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
@@ -1837,6 +1867,34 @@ fn resolve_auth_header(
         };
     }
     Ok(None)
+}
+
+/// Build the search window for `tempo` and `jaeger-query` from their flags.
+///
+/// clap already enforces that `--from` and `--to` arrive as a pair and that
+/// neither joins `--lookback`, so only parsing is left. Absolute bounds are
+/// preferred when present because they do not drift between the moment a
+/// caller decides on a window and the moment the request is issued.
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
+fn resolve_search_window_or_exit(
+    lookback: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> sentinel_core::ingest::lookback::SearchWindow {
+    use sentinel_core::ingest::lookback::{self, SearchWindow};
+
+    let parsed = match (from, to) {
+        (Some(from), Some(to)) => SearchWindow::from_iso8601(from, to)
+            .map_err(|e| format!("Error parsing --from/--to: {e}")),
+        _ => lookback::parse(lookback)
+            .map(SearchWindow::Lookback)
+            .map_err(|e| format!("Error parsing lookback: {e}")),
+    };
+
+    parsed.unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(EXIT_TOOLING_ERROR);
+    })
 }
 
 /// Resolve the auth header or exit on error. Used by Tempo and

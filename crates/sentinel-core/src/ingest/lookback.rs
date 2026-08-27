@@ -1,9 +1,10 @@
-//! Shared lookback-duration parser for HTTP trace ingestion modules.
+//! Shared search-window types for HTTP trace ingestion modules.
 //!
 //! Both `tempo` and `jaeger_query` subcommands accept a `--lookback`
-//! string like `"1h"`, `"30m"`, `"2h30m"` to bound their search window.
-//! The parsing logic lives here once, each module wraps it with its
-//! own error type.
+//! string like `"1h"`, `"30m"`, `"2h30m"` to bound their search window,
+//! or a `--from`/`--to` pair for an absolute one. The parsing logic and
+//! the window type live here once, each module wraps them with its own
+//! error type.
 
 use std::time::Duration;
 
@@ -24,10 +25,10 @@ pub enum LookbackError {
     Overflow,
 }
 
-/// Parse a human-readable duration string like `"1h"`, `"30m"`, `"24h"`, `"2h30m"`.
+/// Parse a human-readable duration string like `"1h"`, `"30m"`, `"7d"`, `"2h30m"`.
 ///
-/// Accepts the unit suffixes `h`, `m`, `s` and composes them by summing
-/// the contributions (so `"2h30m"` equals 2h + 30m = 9000s). All
+/// Accepts the unit suffixes `d`, `h`, `m`, `s` and composes them by
+/// summing the contributions (so `"2h30m"` equals 2h + 30m = 9000s). All
 /// arithmetic is checked, so pathological inputs like `"999999999h"`
 /// surface as `LookbackError::Overflow` instead of wrapping silently
 /// in release builds.
@@ -59,12 +60,13 @@ pub fn parse(s: &str) -> Result<Duration, LookbackError> {
                 .map_err(|_| LookbackError::Invalid(format!("invalid number: {num_buf}")))?;
             num_buf.clear();
             let multiplier: u64 = match ch {
+                'd' => 86_400,
                 'h' => 3600,
                 'm' => 60,
                 's' => 1,
                 _ => {
                     return Err(LookbackError::Invalid(format!(
-                        "unknown unit '{ch}', expected h/m/s"
+                        "unknown unit '{ch}', expected d/h/m/s"
                     )));
                 }
             };
@@ -77,7 +79,7 @@ pub fn parse(s: &str) -> Result<Duration, LookbackError> {
 
     if !num_buf.is_empty() {
         return Err(LookbackError::Invalid(format!(
-            "number '{num_buf}' without a unit suffix (h/m/s)"
+            "number '{num_buf}' without a unit suffix (d/h/m/s)"
         )));
     }
 
@@ -86,6 +88,92 @@ pub fn parse(s: &str) -> Result<Duration, LookbackError> {
     }
 
     Ok(Duration::from_secs(total_secs))
+}
+
+/// Errors from building or resolving a search window.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WindowError {
+    #[error("window end {end} is not after start {start}")]
+    NotOrdered { start: u64, end: u64 },
+
+    #[error("invalid ISO 8601 UTC timestamp '{value}': {reason}")]
+    InvalidTimestamp { value: String, reason: String },
+}
+
+/// How a trace search is bounded in time.
+///
+/// The two arms are not interchangeable on the wire. Tempo takes explicit
+/// bounds either way, but the Jaeger query API has its own relative
+/// parameter, and keeping [`Self::Lookback`] mapped onto it leaves every
+/// request that existed before absolute windows byte-identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SearchWindow {
+    /// Relative to the moment the request is issued, so it drifts if the
+    /// caller queues the request before sending it.
+    Lookback(Duration),
+
+    /// Fixed bounds in Unix epoch seconds, immune to that drift.
+    Absolute { start_secs: u64, end_secs: u64 },
+}
+
+impl SearchWindow {
+    /// Build an absolute window from two ISO 8601 UTC timestamps, such as
+    /// `2026-08-20T15:59:00Z`.
+    ///
+    /// Parsing lives here rather than in the caller because `crate::time`
+    /// is the single source of truth for calendar arithmetic.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WindowError::InvalidTimestamp`] when either side does not
+    /// parse, and [`WindowError::NotOrdered`] when the pair is empty or
+    /// inverted, so a bad window fails at the flag rather than at the API.
+    pub fn from_iso8601(from: &str, to: &str) -> Result<Self, WindowError> {
+        let parse = |value: &str| {
+            crate::time::parse_iso8601_utc_to_ms(value).map_err(|reason| {
+                WindowError::InvalidTimestamp {
+                    value: value.to_string(),
+                    reason,
+                }
+            })
+        };
+        let window = Self::Absolute {
+            start_secs: parse(from)? / 1000,
+            end_secs: parse(to)? / 1000,
+        };
+        window.resolve()?;
+        Ok(window)
+    }
+
+    /// Absolute bounds in Unix epoch seconds, as `(start, end)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WindowError::NotOrdered`] when the window is empty or
+    /// inverted. A backend answers such a window with an empty result
+    /// set rather than an error, which reads as "nothing happened".
+    pub fn resolve(self) -> Result<(u64, u64), WindowError> {
+        let (start, end) = match self {
+            Self::Lookback(d) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                (now.saturating_sub(d.as_secs()), now)
+            }
+            Self::Absolute {
+                start_secs,
+                end_secs,
+            } => (start_secs, end_secs),
+        };
+
+        if end <= start {
+            return Err(WindowError::NotOrdered { start, end });
+        }
+        Ok((start, end))
+    }
 }
 
 #[cfg(test)]
@@ -110,8 +198,15 @@ mod tests {
     }
 
     #[test]
+    fn days() {
+        assert_eq!(parse("1d").unwrap(), Duration::from_hours(24));
+        assert_eq!(parse("180d").unwrap(), Duration::from_hours(180 * 24));
+    }
+
+    #[test]
     fn combined() {
         assert_eq!(parse("2h30m").unwrap(), Duration::from_mins(150));
+        assert_eq!(parse("1d12h").unwrap(), Duration::from_hours(36));
     }
 
     #[test]
@@ -127,7 +222,8 @@ mod tests {
 
     #[test]
     fn rejects_unknown_unit() {
-        assert_matches!(parse("5d"), Err(LookbackError::Invalid(_)));
+        assert_matches!(parse("5w"), Err(LookbackError::Invalid(_)));
+        assert_matches!(parse("5y"), Err(LookbackError::Invalid(_)));
     }
 
     #[test]
@@ -145,5 +241,76 @@ mod tests {
         // Two components each fitting in u64 but whose sum does not.
         let huge = format!("{0}h{0}h", u64::MAX / 3600);
         assert_matches!(parse(&huge), Err(LookbackError::Overflow));
+    }
+
+    #[test]
+    fn absolute_window_resolves_to_its_own_bounds() {
+        let w = SearchWindow::Absolute {
+            start_secs: 1_787_838_000,
+            end_secs: 1_787_839_200,
+        };
+        assert_eq!(w.resolve().unwrap(), (1_787_838_000, 1_787_839_200));
+    }
+
+    #[test]
+    fn lookback_window_ends_now_and_spans_the_duration() {
+        let (start, end) = SearchWindow::Lookback(Duration::from_hours(2))
+            .resolve()
+            .unwrap();
+        assert_eq!(end - start, 7200);
+    }
+
+    #[test]
+    fn rejects_inverted_and_empty_windows() {
+        let inverted = SearchWindow::Absolute {
+            start_secs: 2_000,
+            end_secs: 1_000,
+        };
+        assert_matches!(
+            inverted.resolve(),
+            Err(WindowError::NotOrdered {
+                start: 2_000,
+                end: 1_000
+            })
+        );
+
+        let empty = SearchWindow::Absolute {
+            start_secs: 1_000,
+            end_secs: 1_000,
+        };
+        assert_matches!(empty.resolve(), Err(WindowError::NotOrdered { .. }));
+    }
+
+    #[test]
+    fn builds_an_absolute_window_from_iso8601() {
+        let w = SearchWindow::from_iso8601("2026-08-27T14:00:00Z", "2026-08-27T15:00:00Z")
+            .expect("a well-formed ordered pair must build");
+        let (start, end) = w.resolve().expect("resolve");
+        assert_eq!(end - start, 3600);
+    }
+
+    #[test]
+    fn rejects_a_malformed_timestamp() {
+        assert_matches!(
+            SearchWindow::from_iso8601("yesterday", "2026-08-27T15:00:00Z"),
+            Err(WindowError::InvalidTimestamp { .. })
+        );
+    }
+
+    #[test]
+    fn rejects_an_end_before_the_start_at_build_time() {
+        assert_matches!(
+            SearchWindow::from_iso8601("2026-08-27T15:00:00Z", "2026-08-27T14:00:00Z"),
+            Err(WindowError::NotOrdered { .. })
+        );
+    }
+
+    #[test]
+    fn rejects_a_zero_lookback() {
+        // The parser refuses "0h", but a caller can build the variant directly.
+        assert_matches!(
+            SearchWindow::Lookback(Duration::ZERO).resolve(),
+            Err(WindowError::NotOrdered { .. })
+        );
     }
 }

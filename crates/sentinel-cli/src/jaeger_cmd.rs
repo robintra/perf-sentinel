@@ -15,6 +15,8 @@ pub(crate) async fn cmd_jaeger_query(
     trace_id: Option<&str>,
     service: Option<&str>,
     lookback: &str,
+    from: Option<&str>,
+    to: Option<&str>,
     max_traces: usize,
     auth_header: Option<&str>,
     config_path: Option<&std::path::Path>,
@@ -33,13 +35,7 @@ pub(crate) async fn cmd_jaeger_query(
         std::process::exit(crate::EXIT_TOOLING_ERROR);
     }
 
-    let lookback_duration = match sentinel_core::ingest::jaeger_query::parse_lookback(lookback) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("Error parsing lookback: {e}");
-            std::process::exit(crate::EXIT_TOOLING_ERROR);
-        }
-    };
+    let window = crate::resolve_search_window_or_exit(lookback, from, to);
 
     let config = load_config(config_path);
 
@@ -47,7 +43,7 @@ pub(crate) async fn cmd_jaeger_query(
         endpoint,
         service,
         trace_id,
-        lookback_duration,
+        window,
         max_traces,
         auth_header,
         grouping_keys(&config),

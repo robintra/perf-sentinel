@@ -24,7 +24,7 @@ use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
 use crate::ingest::auth_header::AuthHeader;
 use crate::ingest::jaeger::{JaegerExport, convert_jaeger_export};
-use crate::ingest::lookback::LookbackError;
+use crate::ingest::lookback::{SearchWindow, WindowError};
 use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
 
 // ---------------------------------------------------------------
@@ -46,8 +46,8 @@ pub enum JaegerQueryError {
     #[error("missing required argument: {0}")]
     MissingArgument(String),
 
-    #[error("invalid lookback duration: {0}")]
-    InvalidLookback(#[from] LookbackError),
+    #[error("invalid search window: {0}")]
+    InvalidWindow(#[from] WindowError),
 
     #[error("invalid auth header: {0}")]
     InvalidAuthHeader(String),
@@ -72,19 +72,6 @@ pub enum JaegerQueryError {
 
     #[error("no traces found for the given search criteria")]
     NoTracesFound,
-}
-
-// ---------------------------------------------------------------
-// Lookback parser (thin wrapper around shared helper)
-// ---------------------------------------------------------------
-
-/// Parse a human-readable lookback duration string like `"1h"`, `"30m"`.
-///
-/// # Errors
-///
-/// Returns `JaegerQueryError::InvalidLookback` for malformed inputs.
-pub fn parse_lookback(s: &str) -> Result<Duration, JaegerQueryError> {
-    crate::ingest::lookback::parse(s).map_err(Into::into)
 }
 
 // ---------------------------------------------------------------
@@ -203,11 +190,11 @@ pub async fn search_and_fetch_traces(
     client: &HttpClient,
     endpoint: &str,
     service: &str,
-    lookback: Duration,
+    window: SearchWindow,
     limit: usize,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
-    search_and_fetch_traces_with_grouping(client, endpoint, service, lookback, limit, auth, None)
+    search_and_fetch_traces_with_grouping(client, endpoint, service, window, limit, auth, None)
         .await
 }
 
@@ -216,16 +203,27 @@ async fn search_and_fetch_traces_with_grouping(
     client: &HttpClient,
     endpoint: &str,
     service: &str,
-    lookback: Duration,
+    window: SearchWindow,
     limit: usize,
     auth: Option<&AuthHeader>,
     grouping_attributes: Option<&[Arc<str>]>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     let encoded_service = percent_encode_query_value(service);
-    let lookback_secs = lookback.as_secs();
-    let uri_str = format!(
-        "{endpoint}/api/traces?service={encoded_service}&lookback={lookback_secs}s&limit={limit}"
-    );
+    // Resolve in both cases so a zero or inverted window fails here rather
+    // than coming back from the backend as an empty result set. Only the
+    // absolute form needs the bounds on the wire: this API has its own
+    // relative parameter, and keeping it leaves every request that predates
+    // absolute windows byte-identical.
+    let (start_secs, end_secs) = window.resolve()?;
+    let range = match window {
+        SearchWindow::Lookback(d) => format!("lookback={}s", d.as_secs()),
+        SearchWindow::Absolute { .. } => format!(
+            "start={}&end={}",
+            start_secs.saturating_mul(1_000_000),
+            end_secs.saturating_mul(1_000_000)
+        ),
+    };
+    let uri_str = format!("{endpoint}/api/traces?service={encoded_service}&{range}&limit={limit}");
     let uri: hyper::Uri = uri_str
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
@@ -298,7 +296,7 @@ pub async fn ingest_from_jaeger_query(
     endpoint: &str,
     service: Option<&str>,
     trace_id: Option<&str>,
-    lookback: Duration,
+    window: SearchWindow,
     max_traces: usize,
     auth_header: Option<&str>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
@@ -306,7 +304,7 @@ pub async fn ingest_from_jaeger_query(
         endpoint,
         service,
         trace_id,
-        lookback,
+        window,
         max_traces,
         auth_header,
         None,
@@ -323,7 +321,7 @@ pub async fn ingest_from_jaeger_query_with_grouping(
     endpoint: &str,
     service: Option<&str>,
     trace_id: Option<&str>,
-    lookback: Duration,
+    window: SearchWindow,
     max_traces: usize,
     auth_header: Option<&str>,
     grouping_attributes: Vec<Arc<str>>,
@@ -332,7 +330,7 @@ pub async fn ingest_from_jaeger_query_with_grouping(
         endpoint,
         service,
         trace_id,
-        lookback,
+        window,
         max_traces,
         auth_header,
         Some(grouping_attributes.into()),
@@ -345,7 +343,7 @@ async fn ingest_from_jaeger_query_impl(
     endpoint: &str,
     service: Option<&str>,
     trace_id: Option<&str>,
-    lookback: Duration,
+    window: SearchWindow,
     max_traces: usize,
     auth_header: Option<&str>,
     grouping_attributes: Option<Arc<[Arc<str>]>>,
@@ -391,18 +389,13 @@ async fn ingest_from_jaeger_query_impl(
         JaegerQueryError::MissingArgument("either --trace-id or --service is required".to_string())
     })?;
 
-    tracing::info!(
-        service = svc,
-        lookback_secs = lookback.as_secs(),
-        max_traces,
-        "Querying Jaeger API for traces"
-    );
+    tracing::info!(service = svc, max_traces, "Querying Jaeger API for traces");
 
     search_and_fetch_traces_with_grouping(
         &client,
         endpoint,
         svc,
-        lookback,
+        window,
         max_traces,
         parsed_auth.as_ref(),
         grouping_attributes.as_deref(),
@@ -441,7 +434,9 @@ fn validate_trace_id(trace_id: &str) -> Result<(), JaegerQueryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{http_200_text, http_status, spawn_one_shot_server};
+    use crate::test_helpers::{
+        http_200_text, http_status, spawn_capture_server, spawn_one_shot_server,
+    };
     use core::assert_matches;
 
     fn http_200_json(body: &str) -> Vec<u8> {
@@ -469,16 +464,6 @@ mod tests {
         }]
     }"#;
 
-    #[test]
-    fn parse_lookback_wraps_shared_helper() {
-        assert_eq!(
-            parse_lookback("1h").expect("parse"),
-            Duration::from_hours(1)
-        );
-        let err = parse_lookback("").expect_err("empty must fail");
-        assert_matches!(err, JaegerQueryError::InvalidLookback(_));
-    }
-
     #[tokio::test]
     async fn search_traces_returns_span_events() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
@@ -487,7 +472,7 @@ mod tests {
             &client,
             &endpoint,
             "order-svc",
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -506,7 +491,7 @@ mod tests {
             &client,
             &endpoint,
             "order-svc",
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -516,14 +501,69 @@ mod tests {
         server.await.expect("server join");
     }
 
+    /// The relative form predates absolute windows and is the one every
+    /// existing deployment exercises, so it must stay byte-identical.
+    #[tokio::test]
+    async fn a_lookback_window_keeps_the_relative_wire_form() {
+        let (endpoint, mut captured, server) =
+            spawn_capture_server(http_200_json(SAMPLE_TRACE)).await;
+        let client = http_client::build_client();
+        let _ = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "order-svc",
+            SearchWindow::Lookback(Duration::from_mins(1)),
+            10,
+            None,
+        )
+        .await;
+        let request = captured.recv().await.expect("captured request");
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.contains("lookback=60s"), "got: {request}");
+        assert!(!request.contains("start="), "got: {request}");
+        server.await.expect("server join");
+    }
+
+    /// The Jaeger query API takes microseconds, not the seconds Tempo takes.
+    #[tokio::test]
+    async fn an_absolute_window_sends_microsecond_bounds() {
+        let (endpoint, mut captured, server) =
+            spawn_capture_server(http_200_json(SAMPLE_TRACE)).await;
+        let client = http_client::build_client();
+        let _ = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "order-svc",
+            SearchWindow::Absolute {
+                start_secs: 1_787_838_000,
+                end_secs: 1_787_839_200,
+            },
+            10,
+            None,
+        )
+        .await;
+        let request = captured.recv().await.expect("captured request");
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.contains("start=1787838000000000"), "got: {request}");
+        assert!(request.contains("end=1787839200000000"), "got: {request}");
+        assert!(!request.contains("lookback="), "got: {request}");
+        server.await.expect("server join");
+    }
+
     #[tokio::test]
     async fn search_http_500_surfaces_http_status() {
         let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
         let client = http_client::build_client();
-        let err =
-            search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10, None)
-                .await
-                .expect_err("500 must surface HttpStatus");
+        let err = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "svc",
+            SearchWindow::Lookback(Duration::from_mins(1)),
+            10,
+            None,
+        )
+        .await
+        .expect_err("500 must surface HttpStatus");
         assert_matches!(err, JaegerQueryError::HttpStatus { status: 500, .. });
         server.await.expect("server join");
     }
@@ -532,10 +572,16 @@ mod tests {
     async fn search_malformed_json_surfaces_json_parse() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json("not json")).await;
         let client = http_client::build_client();
-        let err =
-            search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10, None)
-                .await
-                .expect_err("malformed JSON must surface JsonParse");
+        let err = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "svc",
+            SearchWindow::Lookback(Duration::from_mins(1)),
+            10,
+            None,
+        )
+        .await
+        .expect_err("malformed JSON must surface JsonParse");
         assert_matches!(err, JaegerQueryError::JsonParse(_));
         server.await.expect("server join");
     }
@@ -621,7 +667,7 @@ mod tests {
             "ftp://jaeger.local",
             Some("svc"),
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -636,7 +682,7 @@ mod tests {
             "http://user:pass@jaeger.local",
             None,
             Some("abc"),
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -654,7 +700,7 @@ mod tests {
             "http://jaeger.local",
             None,
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -670,7 +716,7 @@ mod tests {
             &endpoint,
             Some("order-svc"),
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             5,
             None,
         )
@@ -686,7 +732,7 @@ mod tests {
             "http://jaeger.local",
             Some("svc"),
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             Some("NoColonHere"),
         )
@@ -707,7 +753,7 @@ mod tests {
             &endpoint,
             Some("order-svc"),
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             5,
             Some("Authorization: Bearer topsecret"),
         )
