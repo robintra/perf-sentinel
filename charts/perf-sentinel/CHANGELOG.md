@@ -10,6 +10,32 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.15.0]
+
+### Changed
+
+- `appVersion` moves to `0.15.0`. The daemon now counts the per-window
+  disclosure archive entries it drops instead of writing, by reason
+  (`channel_full`, `writer_exited`, `serialize_error`, `write_error`), on
+  `perf_sentinel_archive_windows_dropped_total`, and stamps the running total
+  into each archived line so `disclose` can fold it into the period's
+  `windows_dropped`. The counter pre-warms to zero for all four reasons, so a
+  healthy archive and a missing metric stay distinguishable. No chart-level
+  template change, but operators scraping the daemon should alert on
+  `rate(perf_sentinel_archive_windows_dropped_total[5m]) > 0`: the archive hash
+  chain only advances on a successful write, so a dropped window leaves the
+  chain continuous and `disclose verify-hash` cannot see the gap after the
+  fact.
+
+### Fixed
+
+- A log rotation that happens while the daemon is writing can no longer
+  truncate the disclosure archive to nothing. The writer resynced its byte
+  count by stat-ing the archive path, which a rename maps to a file that does
+  not exist yet and therefore to zero bytes; it reads the count from the open
+  descriptor now. Deployments that rotate the archive with an external tool,
+  rather than letting the daemon reach its own cap, were the exposed ones.
+
 ## [0.14.0]
 
 ### Changed
