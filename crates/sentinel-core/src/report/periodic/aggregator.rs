@@ -410,6 +410,20 @@ struct Builder {
 type ChainAnchor = Option<(String, u64)>;
 
 /// One line's worth of chain state, threaded through [`Builder::walk_chain_line`].
+/// One archive line handed to [`Builder::fold_window`]. Grouped like
+/// [`ChainStep`]: the mutable `warned_fallback` has to travel with the
+/// read-only per-line context, and seven loose arguments would sit on
+/// clippy's ceiling.
+struct WindowStep<'a> {
+    parsed: Option<serde_json::Value>,
+    trimmed: &'a str,
+    period: &'a Period,
+    strict: bool,
+    path: &'a Path,
+    line_no: usize,
+    warned_fallback: &'a mut bool,
+}
+
 struct ChainStep<'a> {
     parsed: Option<&'a mut serde_json::Value>,
     expected: &'a mut ChainAnchor,
@@ -546,35 +560,54 @@ impl Builder {
             if parsed.is_some() {
                 previous_in_scope = in_scope;
             }
-            let typed = parsed.map_or_else(
-                || serde_json::from_str::<ArchivedReport>(trimmed),
-                serde_json::from_value::<ArchivedReport>,
-            );
-            match typed {
-                Ok(envelope) => {
-                    if !in_period(envelope.ts, period) {
-                        continue;
-                    }
-                    let used_fallback = self.process_window(envelope, strict)?;
-                    if used_fallback && !warned_fallback {
-                        warned_fallback = true;
-                        tracing::warn!(
-                            path = %path.display(),
-                            "archive predates per-service carbon attribution; \
-                             falling back to I/O share proxy for this file",
-                        );
-                    }
-                }
-                Err(err) => {
-                    self.malformed_lines_skipped += 1;
-                    tracing::warn!(
-                        path = %path.display(),
-                        line = line_no + 1,
-                        error = %err,
-                        "skipping malformed archive line",
-                    );
-                }
+            self.fold_window(WindowStep {
+                parsed,
+                trimmed,
+                period,
+                strict,
+                path,
+                line_no,
+                warned_fallback: &mut warned_fallback,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Fold one archive line into the period, or count it as malformed.
+    /// Split out of `process_file` for the same reason `walk_chain_line`
+    /// is: the loop sits on the cognitive-complexity gate, and this branch
+    /// carried the largest share of it.
+    fn fold_window(&mut self, step: WindowStep<'_>) -> Result<(), AggregationError> {
+        // Reuse the value the chain walk already parsed when there is one,
+        // instead of parsing the same line a second time.
+        let typed = step.parsed.map_or_else(
+            || serde_json::from_str::<ArchivedReport>(step.trimmed),
+            serde_json::from_value::<ArchivedReport>,
+        );
+        let envelope = match typed {
+            Ok(envelope) => envelope,
+            Err(err) => {
+                self.malformed_lines_skipped += 1;
+                tracing::warn!(
+                    path = %step.path.display(),
+                    line = step.line_no + 1,
+                    error = %err,
+                    "skipping malformed archive line",
+                );
+                return Ok(());
             }
+        };
+        if !in_period(envelope.ts, step.period) {
+            return Ok(());
+        }
+        let used_fallback = self.process_window(envelope, step.strict)?;
+        if used_fallback && !*step.warned_fallback {
+            *step.warned_fallback = true;
+            tracing::warn!(
+                path = %step.path.display(),
+                "archive predates per-service carbon attribution; \
+                 falling back to I/O share proxy for this file",
+            );
         }
         Ok(())
     }
