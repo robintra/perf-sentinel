@@ -1,7 +1,7 @@
 //! Shared search-window types for HTTP trace ingestion modules.
 //!
 //! Both `tempo` and `jaeger_query` subcommands accept a `--lookback`
-//! string like `"1h"`, `"30m"`, `"2h30m"` to bound their search window,
+//! string like `"1h"`, `"30m"`, `"7d"`, `"2h30m"` to bound their search window,
 //! or a `--from`/`--to` pair for an absolute one. The parsing logic and
 //! the window type live here once, each module wraps them with its own
 //! error type.
@@ -124,6 +124,10 @@ impl SearchWindow {
     ///
     /// Parsing lives here rather than in the caller because `crate::time`
     /// is the single source of truth for calendar arithmetic.
+    ///
+    /// Both bounds are truncated to whole seconds, the unit Tempo's search
+    /// API takes, so a sub-second window collapses to nothing and is
+    /// rejected as [`WindowError::NotOrdered`] rather than silently widened.
     ///
     /// # Errors
     ///
