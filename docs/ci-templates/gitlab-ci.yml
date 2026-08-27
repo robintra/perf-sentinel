@@ -155,16 +155,22 @@ perf-sentinel:
   # main would only keep the default branch red, demotivate the
   # team, and eventually push them to disable this job.
   #
-  # `allow_failure.exit_codes: [75]` (GitLab >= 15.0) lets the MR rule
-  # distinguish the two ways this job can fail: a tooling exit (75, see
-  # before_script/script above) doesn't block the merge, any other
-  # nonzero exit (the --ci gate's own exit code on a real breach) still
-  # does. Without this, a broken binary download would block a merge
-  # request exactly like a genuine regression.
+  # `allow_failure.exit_codes` distinguishes the two ways this job can
+  # fail: a tooling exit (75, see before_script/script above) doesn't
+  # block the merge, any other nonzero exit (the --ci gate's own exit
+  # code on a real breach) still does. Without it, a broken binary
+  # download would block a merge request exactly like a genuine
+  # regression.
+  #
+  # It sits on the job, not in a rule: `rules:allow_failure` accepts a
+  # boolean only, and GitLab's CI lint rejects the whole file with
+  # "rules:rule allow failure should be a boolean value" when a rule
+  # carries the mapping form. The default-branch rule then overrides it
+  # with `true`, which is the one place everything should pass through.
+  allow_failure:
+    exit_codes: [75]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      allow_failure:
-        exit_codes: [75]
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       allow_failure: true
 
