@@ -13,6 +13,9 @@ flowchart TD
     new_f["New<br/><i>a first observation<br/>on a new endpoint</i>"]
     nothing["Nothing to report"]
 
+    pair{"Leftovers pairing on<br/><i>type, service, endpoint,<br/>grouping</i>, differing only<br/>by template?"}
+    mutated["Mutated<br/><i>one finding whose query<br/>changed shape, counted<br/>neither new nor resolved</i>"]
+
     key --> in_base
     in_base -- "yes" --> in_run_yes
     in_base -- "no" --> in_run_no
@@ -20,6 +23,10 @@ flowchart TD
     in_run_yes -- "no" --> resolved
     in_run_no -- "yes" --> new_f
     in_run_no -- "no" --> nothing
+    resolved --> pair
+    new_f --> pair
+    pair -- "exactly one candidate<br/>per side, or one per<br/>code_location anchor" --> mutated
+    pair -- "ambiguous" --> keep["Stay Resolved + New<br/><i>never guessed: an identity<br/>is the ack boundary</i>"]
 
     trap["A renamed, dropped or skipped<br/>scenario lands in Resolved with<br/>no code change behind it.<br/>The gate is the proof"]
     resolved -.-> trap
@@ -33,3 +40,5 @@ flowchart TD
     style nothing fill:#3b3b3b,stroke:#9ca3af
     style trap fill:#4a3b2d,stroke:#fbbf24
     style acked fill:#3b2d4a,stroke:#a78bfa
+    style mutated fill:#2d3f4a,stroke:#38bdf8
+    style keep fill:#3b3b3b,stroke:#9ca3af
