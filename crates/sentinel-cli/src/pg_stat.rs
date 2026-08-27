@@ -329,13 +329,22 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
     println!("{bold}{cyan}=== pg_stat_statements analysis ==={reset}");
     println!("{dim}Total entries: {}{reset}", report.total_entries);
     if let Some(tm) = &report.trace_match {
-        // "Matched share", not "coverage": pg_stat counters are cumulative
-        // since the last stats reset while the traces cover one window.
+        // Spelled out rather than labelled: the share of statements and the
+        // share of calls are different figures, and a reader who meets
+        // "trace-matched" cold has nothing to anchor either to. Still never
+        // "coverage", hence the second line: pg_stat counters are cumulative
+        // since the last stats reset while the traces cover one window, so
+        // this understates tracing instead of measuring a sampling rate.
         println!(
-            "{dim}Trace-matched:{reset} {}/{} templates, {:.1}% of calls",
+            "{dim}Also seen in the traces: {} of {} statement(s) here, \
+             accounting for {:.1}% of the calls the database counted.{reset}",
             tm.matched_templates,
             tm.total_templates,
             tm.calls_share_percent()
+        );
+        println!(
+            "{dim}A floor, not a sampling rate: the database counts since its \
+             last statistics reset, the traces cover one capture window.{reset}"
         );
     }
     if let Some(cov) = &report.trace_coverage {

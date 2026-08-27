@@ -465,6 +465,8 @@
      not read as a code chip sitting next to a real config section. */
   .ps-warn-kind { font-family: var(--font-ui); font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.45; margin-right: 9px; }
   .ps-empty { padding: 30px; text-align: center; color: var(--text-2); font-size: 13px; background: var(--surface); border: 1px solid transparent; border-radius: var(--r); }
+  /* The caveat under the trace-match figure. Smaller and dimmer so it reads as a qualifier, not as a second finding. */
+  .ps-trace-match-note { margin-top: 6px; font-size: 11.5px; color: var(--text-3); }
   .ps-drill { background: var(--info-bg); border: 0; border-radius: 10px; padding: 10px 12px; font-size: 11.5px; color: var(--info-fg); }
   .ps-drill-label { font-size: 11.5px; color: var(--info-fg); margin-bottom: 4px; opacity: .8; }
   .ps-drill-clear { color: var(--info-fg); text-decoration: underline; cursor: pointer; margin-left: 8px; }
@@ -524,6 +526,12 @@
   /* When a section has no table below it, match the bottom padding to the top
      so the grey card is symmetric around the header text. */
   .ps-diff-section-header.empty { padding-bottom: 15px; }
+  /* The empty state is a sibling of .ps-list, which insets its rows by 10px.
+     Without the same inset the box runs edge to edge and the two columns stop
+     lining up. --surface-2 rather than the .ps-empty default: on the light
+     theme --surface is #f7f7f7, which reads as a grey slab dropped into the
+     tinted column instead of a card like the rows opposite it. */
+  .ps-diff-section .ps-empty { margin: 0 10px 10px; padding: 26px 18px; background: var(--surface-2); border-radius: 10px; }
   .ps-diff-section-header.red { color: var(--crit-fg); }
   .ps-diff-section-header.green { color: var(--ok-fg); }
   /* Regression left, progress right: the tint guides the eye before the
@@ -4020,16 +4028,31 @@
     renderTraceMatchLine("pgstat-trace-match", pgStat && pgStat.trace_match);
   }
 
-  // Matched share from the trace cross-reference. Worded "trace-matched",
-  // not "coverage": the database counters are cumulative since the last
-  // stats reset while the traces cover one capture window.
+  // Matched share from the trace cross-reference. Spelled out rather than
+  // labelled "trace-matched": the two figures compare different things, and
+  // the share of calls is not the share of statements. Never called
+  // "coverage" either, hence the second line: the database counters are
+  // cumulative since the last stats reset while the traces cover one capture
+  // window, so this understates tracing instead of measuring a sampling rate.
   function renderTraceMatchLine(id, tm) {
     var host = document.getElementById(id);
     if (!host || !tm || !tm.total_templates) return;
     var pct = tm.total_calls > 0 ? (tm.matched_calls / tm.total_calls) * 100 : 0;
-    host.textContent =
-      "Trace-matched: " + tm.matched_templates + "/" + tm.total_templates +
-      " templates, " + pct.toFixed(1) + "% of calls";
+    var noun = tm.total_templates === 1 ? " statement" : " statements";
+    var verb = tm.matched_templates === 1 ? " also appears" : " also appear";
+    host.textContent = "";
+    var fact = document.createElement("div");
+    fact.textContent =
+      tm.matched_templates + " of " + tm.total_templates + noun +
+      " in this export" + verb + " in the traces, accounting for " +
+      pct.toFixed(1) + "% of the calls the database counted.";
+    var caveat = document.createElement("div");
+    caveat.className = "ps-trace-match-note";
+    caveat.textContent =
+      "A floor, not a sampling rate: the database counts since its last " +
+      "statistics reset, the traces cover one capture window.";
+    host.appendChild(fact);
+    host.appendChild(caveat);
     host.style.display = "";
   }
 
