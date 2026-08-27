@@ -14,7 +14,7 @@ use std::time::Duration;
 use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
 use crate::ingest::auth_header::AuthHeader;
-use crate::ingest::lookback::LookbackError;
+use crate::ingest::lookback::{SearchWindow, WindowError};
 use crate::ingest::otlp::convert_otlp_request_counted_with_grouping;
 use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
 
@@ -34,8 +34,8 @@ pub enum TempoError {
     #[error("invalid Tempo endpoint: {0}")]
     InvalidEndpoint(String),
 
-    #[error("invalid lookback duration: {0}")]
-    InvalidLookback(#[from] LookbackError),
+    #[error("invalid search window: {0}")]
+    InvalidWindow(#[from] WindowError),
 
     #[error("invalid auth header: {0}")]
     InvalidAuthHeader(String),
@@ -77,23 +77,6 @@ pub enum TempoError {
 
     #[error("Tempo fetch was interrupted by Ctrl-C before any trace completed")]
     Interrupted,
-}
-
-// ---------------------------------------------------------------
-// Lookback duration parser (thin wrapper around shared helper)
-// ---------------------------------------------------------------
-
-/// Parse a human-readable duration string like `"1h"`, `"30m"`, `"24h"`, `"2h30m"`.
-///
-/// Delegates to `crate::ingest::lookback::parse` and wraps the error
-/// in `TempoError::InvalidLookback` via `#[from]`, preserving the
-/// underlying `LookbackError` variant as the error source.
-///
-/// # Errors
-///
-/// Returns `TempoError::InvalidLookback` for malformed inputs.
-pub fn parse_lookback(s: &str) -> Result<Duration, TempoError> {
-    crate::ingest::lookback::parse(s).map_err(Into::into)
 }
 
 // ---------------------------------------------------------------
@@ -242,7 +225,7 @@ async fn fetch_json(
 // Core API functions
 // ---------------------------------------------------------------
 
-/// Search Tempo for trace IDs matching a service name within a lookback window.
+/// Search Tempo for trace IDs matching a service name within a search window.
 ///
 /// # Errors
 ///
@@ -251,15 +234,13 @@ pub async fn search_traces(
     client: &HttpClient,
     endpoint: &str,
     service: &str,
-    lookback: Duration,
+    window: SearchWindow,
     limit: usize,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<String>, TempoError> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let end = now.as_secs();
-    let start = end.saturating_sub(lookback.as_secs());
+    // Tempo's search takes explicit bounds either way, so both window
+    // kinds collapse to the same query here.
+    let (start, end) = window.resolve()?;
 
     let encoded_service = percent_encode_query_value(service);
     let uri_str = format!(
@@ -400,7 +381,7 @@ pub async fn ingest_from_tempo(
     endpoint: &str,
     service: Option<&str>,
     trace_id: Option<&str>,
-    lookback: Duration,
+    window: SearchWindow,
     max_traces: usize,
     auth_header: Option<&str>,
 ) -> Result<Vec<SpanEvent>, TempoError> {
@@ -408,7 +389,7 @@ pub async fn ingest_from_tempo(
         endpoint,
         service,
         trace_id,
-        lookback,
+        window,
         max_traces,
         auth_header,
         None,
@@ -425,7 +406,7 @@ pub async fn ingest_from_tempo_with_grouping(
     endpoint: &str,
     service: Option<&str>,
     trace_id: Option<&str>,
-    lookback: Duration,
+    window: SearchWindow,
     max_traces: usize,
     auth_header: Option<&str>,
     grouping_attributes: Vec<Arc<str>>,
@@ -434,7 +415,7 @@ pub async fn ingest_from_tempo_with_grouping(
         endpoint,
         service,
         trace_id,
-        lookback,
+        window,
         max_traces,
         auth_header,
         Some(grouping_attributes.into()),
@@ -447,7 +428,7 @@ async fn ingest_from_tempo_impl(
     endpoint: &str,
     service: Option<&str>,
     trace_id: Option<&str>,
-    lookback: Duration,
+    window: SearchWindow,
     max_traces: usize,
     auth_header: Option<&str>,
     grouping_attributes: Option<Arc<[Arc<str>]>>,
@@ -493,18 +474,13 @@ async fn ingest_from_tempo_impl(
         TempoError::InvalidEndpoint("either --trace-id or --service is required".to_string())
     })?;
 
-    tracing::info!(
-        service = svc,
-        lookback_secs = lookback.as_secs(),
-        max_traces,
-        "Searching Tempo for traces"
-    );
+    tracing::info!(service = svc, max_traces, "Searching Tempo for traces");
 
     let trace_ids = search_traces(
         &client,
         endpoint,
         svc,
-        lookback,
+        window,
         max_traces,
         parsed_auth.as_ref(),
     )
@@ -722,15 +698,6 @@ mod tests {
     }
     use core::assert_matches;
 
-    // --- Lookback parser (delegation sanity check) ---
-
-    #[test]
-    fn parse_lookback_wraps_shared_helper() {
-        assert_eq!(parse_lookback("1h").unwrap(), Duration::from_hours(1));
-        let err = parse_lookback("").expect_err("empty must fail");
-        assert_matches!(err, TempoError::InvalidLookback(_));
-    }
-
     // --- Search response parsing ---
 
     #[test]
@@ -780,7 +747,9 @@ mod tests {
     // tests. The mock serves one response per accepted connection,
     // which matches the one-shot nature of each Tempo API call.
 
-    use crate::test_helpers::{http_200_bytes, http_200_text, http_status, spawn_one_shot_server};
+    use crate::test_helpers::{
+        http_200_bytes, http_200_text, http_status, spawn_capture_server, spawn_one_shot_server,
+    };
 
     /// Wrap the shared `http_200_text` with the JSON content type.
     fn http_200_json(body: &str) -> Vec<u8> {
@@ -800,7 +769,7 @@ mod tests {
             "ftp://tempo.local",
             Some("foo-svc"),
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -818,7 +787,7 @@ mod tests {
             "http://user:pass@tempo.local",
             None,
             Some("abc"),
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -837,7 +806,7 @@ mod tests {
             "http://tempo.local",
             None,
             None,
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -870,7 +839,7 @@ mod tests {
             "http://127.0.0.1:1/api/traces?owner=foo%40example.com",
             None,
             Some("abc123"),
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -1005,7 +974,7 @@ mod tests {
             &client,
             &endpoint,
             "foo-svc",
-            Duration::from_mins(5),
+            SearchWindow::Lookback(Duration::from_mins(5)),
             10,
             None,
         )
@@ -1024,7 +993,7 @@ mod tests {
             &client,
             &endpoint,
             "foo-svc",
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -1042,7 +1011,7 @@ mod tests {
             &client,
             &endpoint,
             "foo-svc",
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -1060,7 +1029,7 @@ mod tests {
             &client,
             &endpoint,
             "foo-svc",
-            Duration::from_mins(1),
+            SearchWindow::Lookback(Duration::from_mins(1)),
             10,
             None,
         )
@@ -1129,7 +1098,7 @@ mod tests {
             &endpoint,
             Some("foo-svc"),
             None,
-            Duration::from_mins(5),
+            SearchWindow::Lookback(Duration::from_mins(5)),
             5,
             Some("Authorization: Bearer topsecret"),
         )
@@ -1189,7 +1158,7 @@ mod tests {
             &endpoint,
             Some("foo-svc"),
             None,
-            Duration::from_mins(5),
+            SearchWindow::Lookback(Duration::from_mins(5)),
             5,
             None,
         )
@@ -1330,7 +1299,7 @@ mod tests {
             &endpoint,
             None,
             Some("33ad5d1d22faaf57f938f4a7083791c"),
-            Duration::from_hours(1),
+            SearchWindow::Lookback(Duration::from_hours(1)),
             10,
             None,
         )
@@ -1452,7 +1421,7 @@ mod tests {
             &endpoint,
             Some("foo-svc"),
             None,
-            Duration::from_mins(5),
+            SearchWindow::Lookback(Duration::from_mins(5)),
             10,
             None,
         )
@@ -1463,5 +1432,31 @@ mod tests {
             "expected NoTracesFound, got {err:?}"
         );
         server.await.unwrap();
+    }
+
+    /// Tempo takes seconds on both sides, so an absolute window must reach
+    /// the wire untouched rather than being re-derived from the clock.
+    #[tokio::test]
+    async fn an_absolute_window_reaches_the_wire_unchanged() {
+        let (endpoint, mut captured, server) =
+            spawn_capture_server(http_200_text("application/json", r#"{"traces":[]}"#)).await;
+        let client = http_client::build_client();
+        let _ = search_traces(
+            &client,
+            &endpoint,
+            "order-svc",
+            SearchWindow::Absolute {
+                start_secs: 1_787_838_000,
+                end_secs: 1_787_839_200,
+            },
+            10,
+            None,
+        )
+        .await;
+        let request = captured.recv().await.expect("captured request");
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.contains("start=1787838000"), "got: {request}");
+        assert!(request.contains("end=1787839200"), "got: {request}");
+        server.await.expect("server join");
     }
 }
