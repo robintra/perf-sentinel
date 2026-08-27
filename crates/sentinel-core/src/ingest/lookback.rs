@@ -103,15 +103,20 @@ pub enum WindowError {
 
 /// How a trace search is bounded in time.
 ///
-/// The two arms are not interchangeable on the wire. Tempo takes explicit
-/// bounds either way, but the Jaeger query API has its own relative
-/// parameter, and keeping [`Self::Lookback`] mapped onto it leaves every
-/// request that existed before absolute windows byte-identical.
+/// The two arms differ in what the caller asks for, never in what reaches
+/// the wire: both resolve to explicit bounds, and neither backend is ever
+/// sent a relative parameter. Victoria Traces reads `lookback` only on its
+/// service-graph endpoint, so a relative window expressed that way was
+/// dropped and the search ran from the Unix epoch. Do not reintroduce it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SearchWindow {
     /// Relative to the moment the request is issued, so it drifts if the
     /// caller queues the request before sending it.
+    ///
+    /// A duration longer than the current epoch offset floors the start at
+    /// zero rather than failing, so `--lookback 99999d` searches from 1970
+    /// to now. Nothing caps it here.
     Lookback(Duration),
 
     /// Fixed bounds in Unix epoch milliseconds, immune to that drift.
@@ -166,13 +171,17 @@ impl SearchWindow {
     pub fn resolve(self) -> Result<(u64, u64), WindowError> {
         let (start, end) = match self {
             Self::Lookback(d) => {
+                // Zero rather than u64::MAX on an unrepresentable clock: the
+                // far end would be an ordered far-future window that passes
+                // validation and reaches the backend, zero surfaces as
+                // NotOrdered instead.
                 let now = u64::try_from(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_millis(),
                 )
-                .unwrap_or(u64::MAX);
+                .unwrap_or(0);
                 (
                     now.saturating_sub(d.as_millis().try_into().unwrap_or(u64::MAX)),
                     now,

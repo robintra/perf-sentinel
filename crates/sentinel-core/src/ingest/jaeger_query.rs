@@ -216,10 +216,10 @@ async fn search_and_fetch_traces_with_grouping(
     // it only on its service-graph endpoint, never on this search, so a
     // relative window used to be dropped and the query ran from the epoch.
     let (start_ms, end_ms) = window.resolve()?;
+    let start_us = start_ms.saturating_mul(1000);
+    let end_us = end_ms.saturating_mul(1000);
     let uri_str = format!(
-        "{endpoint}/api/traces?service={encoded_service}&start={}&end={}&limit={limit}",
-        start_ms.saturating_mul(1000),
-        end_ms.saturating_mul(1000)
+        "{endpoint}/api/traces?service={encoded_service}&start={start_us}&end={end_us}&limit={limit}"
     );
     let uri: hyper::Uri = uri_str
         .parse()
@@ -522,8 +522,8 @@ mod tests {
         .await;
         let request = captured.recv().await.expect("captured request");
         let request = String::from_utf8_lossy(&request);
-        assert!(request.contains("start="), "got: {request}");
-        assert!(request.contains("end="), "got: {request}");
+        assert!(request.contains("&start="), "got: {request}");
+        assert!(request.contains("&end="), "got: {request}");
         assert!(!request.contains("lookback="), "got: {request}");
         server.await.expect("server join");
     }
@@ -548,10 +548,15 @@ mod tests {
         .await;
         let request = captured.recv().await.expect("captured request");
         let request = String::from_utf8_lossy(&request);
-        assert!(request.contains("start=1787838000000000"), "got: {request}");
+        // Delimited on both sides so an extra factor of a thousand cannot
+        // slip past a prefix match.
+        assert!(
+            request.contains("&start=1787838000000000&"),
+            "got: {request}"
+        );
         // The trailing 500 ms survives as microseconds: this API counts finer
         // than Tempo, and the window is not rounded down to it.
-        assert!(request.contains("end=1787839200500000"), "got: {request}");
+        assert!(request.contains("&end=1787839200500000&"), "got: {request}");
         assert!(!request.contains("lookback="), "got: {request}");
         server.await.expect("server join");
     }

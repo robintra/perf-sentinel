@@ -1445,10 +1445,12 @@ mod tests {
         server.await.unwrap();
     }
 
-    /// Tempo takes seconds on both sides, so an absolute window must reach
-    /// the wire untouched rather than being re-derived from the clock.
+    /// Tempo counts in whole seconds, so the millisecond bounds round
+    /// outwards: the start down, the end up. Both bounds here carry a
+    /// millisecond remainder, otherwise `div_ceil` and a plain division
+    /// would be indistinguishable and the rule would go untested.
     #[tokio::test]
-    async fn an_absolute_window_reaches_the_wire_unchanged() {
+    async fn an_absolute_window_rounds_outwards_to_whole_seconds() {
         let (endpoint, mut captured, server) =
             spawn_capture_server(http_200_text("application/json", r#"{"traces":[]}"#)).await;
         let client = http_client::build_client();
@@ -1457,8 +1459,8 @@ mod tests {
             &endpoint,
             "order-svc",
             SearchWindow::Absolute {
-                start_ms: 1_787_838_000_000,
-                end_ms: 1_787_839_200_000,
+                start_ms: 1_787_838_000_600,
+                end_ms: 1_787_839_200_400,
             },
             10,
             None,
@@ -1466,8 +1468,11 @@ mod tests {
         .await;
         let request = captured.recv().await.expect("captured request");
         let request = String::from_utf8_lossy(&request);
-        assert!(request.contains("start=1787838000"), "got: {request}");
-        assert!(request.contains("end=1787839200"), "got: {request}");
+        // Delimited on both sides: an undelimited prefix would also match a
+        // value carrying an extra factor of a thousand, which is the one
+        // mistake these bounds are here to catch.
+        assert!(request.contains("&start=1787838000&"), "got: {request}");
+        assert!(request.contains("&end=1787839201&"), "got: {request}");
         server.await.expect("server join");
     }
 }
