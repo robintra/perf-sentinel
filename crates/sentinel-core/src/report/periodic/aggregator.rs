@@ -374,11 +374,12 @@ struct Builder {
     windows_dropped: u64,
     drop_counter_resets: u64,
     drops_observed: bool,
-    /// Previous cumulative `drops` value, carried ACROSS files: rotated
-    /// archives sort chronologically before the active file, and the
-    /// counter is daemon-lifetime, so a per-file baseline would lose the
-    /// delta at every rotation boundary.
-    last_drops: Option<u64>,
+    /// Previous cumulative `drops` value per archive family, keyed by
+    /// the family stem. The counter is daemon-lifetime, so the baseline
+    /// must survive a rotation, and it must NOT cross into an unrelated
+    /// archive: `disclose` takes a list of paths, and diffing one host's
+    /// counter against another's would invent resets.
+    last_drops: BTreeMap<String, u64>,
     /// SCI methodology tags observed, bounded by `MAX_ENERGY_MODELS`.
     carbon_methodologies: BTreeSet<String>,
     /// Distinct coefficient sets observed, as `"key=value"` strings. A
@@ -496,6 +497,7 @@ impl Builder {
         let mut warned_break = false;
         let mut chain_started = false;
         let mut previous_in_scope = false;
+        let family = archive_family(path);
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -523,7 +525,7 @@ impl Builder {
                 .and_then(|v| v.get("drops"))
                 .and_then(serde_json::Value::as_u64)
             {
-                self.fold_drops(drops, in_scope);
+                self.fold_drops(&family, drops, in_scope);
             }
             let next_seq = |expected: &Option<(String, u64)>| {
                 parsed_seq
@@ -582,18 +584,19 @@ impl Builder {
     /// the later line's period. A decrease is a daemon restart: the count
     /// restarts from the new value (its drops happened after the restart)
     /// and the reset is surfaced so the figure reads as a lower bound.
-    /// The very first carrying line of the run sets the baseline without
-    /// contributing: pruned rotations may hide arbitrary history behind
-    /// its absolute value. The baseline then persists across files, so a
-    /// rotation boundary keeps its delta.
+    /// The first carrying line of an archive family sets that family's
+    /// baseline without contributing: pruned rotations may hide arbitrary
+    /// history behind its absolute value. The baseline then persists
+    /// across that family's rotations, so a rotation boundary keeps its
+    /// delta, and never leaks into another family's counter.
     ///
     /// `drops_observed` moves only on in-period lines: an out-of-period
     /// carrying line must not turn "not measured" into "measured zero".
-    fn fold_drops(&mut self, drops: u64, in_scope: bool) {
+    fn fold_drops(&mut self, family: &str, drops: u64, in_scope: bool) {
         if in_scope {
             self.drops_observed = true;
         }
-        match self.last_drops {
+        match self.last_drops.get(family).copied() {
             Some(prev) if in_scope && drops < prev => {
                 self.drop_counter_resets += 1;
                 self.windows_dropped = self.windows_dropped.saturating_add(drops);
@@ -605,7 +608,7 @@ impl Builder {
             }
             _ => {}
         }
-        self.last_drops = Some(drops);
+        self.last_drops.insert(family.to_string(), drops);
     }
 
     fn count_break(&mut self, in_scope: bool) {
@@ -1464,6 +1467,39 @@ fn largest_gap_days(observed: &BTreeSet<NaiveDate>, period: &Period) -> u32 {
     max.max(span(prev, period.to_date))
 }
 
+/// The archive family a file belongs to: its directory plus its stem
+/// with the rotation stamp stripped, so `archive.ndjson` and
+/// `archive-20260110T000000000Z.ndjson` in one directory share a key
+/// while two hosts' `archive.ndjson` do not. The daemon writes the
+/// stamp as `{stem}-%Y%m%dT%H%M%S%fZ` (see `daemon::archive::rotate`).
+fn archive_family(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+    let base = match stem.rsplit_once('-') {
+        Some((head, stamp)) if is_rotation_stamp(stamp) && !head.is_empty() => head,
+        _ => stem.as_str(),
+    };
+    format!(
+        "{}\u{1}{base}",
+        path.parent().unwrap_or(Path::new("")).display()
+    )
+}
+
+/// `%Y%m%dT%H%M%S%fZ`: eight digits, `T`, digits, `Z`.
+fn is_rotation_stamp(candidate: &str) -> bool {
+    let Some(body) = candidate.strip_suffix('Z') else {
+        return false;
+    };
+    let Some((date, time)) = body.split_once('T') else {
+        return false;
+    };
+    date.len() == 8
+        && date.bytes().all(|b| b.is_ascii_digit())
+        && !time.is_empty()
+        && time.bytes().all(|b| b.is_ascii_digit())
+}
+
 fn resolve_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AggregationError> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
@@ -1761,9 +1797,41 @@ mod tests {
             "archive.ndjson",
             &[(ts(2, 10), plain_window(), 8)],
         );
-        let inputs = aggregate_from_paths(&[rotated, active], &q1_2026(), false).unwrap();
+        // Reversed on purpose: `resolve_files` sorts, and that sort is
+        // what makes the cross-rotation delta correct.
+        let inputs = aggregate_from_paths(&[active, rotated], &q1_2026(), false).unwrap();
         assert_eq!(inputs.windows_dropped, Some(3));
         assert_eq!(inputs.drop_counter_resets, Some(0));
+    }
+
+    /// `disclose` takes a list of archives. Two hosts' counters are
+    /// independent, so a lower start in the second must not read as a
+    /// reset of the first.
+    #[test]
+    fn drop_counters_do_not_leak_between_archive_families() {
+        let ts = |m, d| Utc.with_ymd_and_hms(2026, m, d, 0, 0, 0).unwrap();
+        let dir = TempDir::new().unwrap();
+        let host_a = write_drops_file(
+            dir.path(),
+            "host-a.ndjson",
+            &[
+                (ts(1, 10), plain_window(), 4),
+                (ts(1, 11), plain_window(), 9),
+            ],
+        );
+        // Sorts after host-a and starts lower: a shared baseline would
+        // call this a restart and add 5 more drops.
+        let host_b = write_drops_file(
+            dir.path(),
+            "host-b.ndjson",
+            &[
+                (ts(2, 10), plain_window(), 5),
+                (ts(2, 11), plain_window(), 6),
+            ],
+        );
+        let inputs = aggregate_from_paths(&[host_a, host_b], &q1_2026(), false).unwrap();
+        assert_eq!(inputs.windows_dropped, Some(6), "5 within a, 1 within b");
+        assert_eq!(inputs.drop_counter_resets, Some(0), "no host restarted");
     }
 
     /// An out-of-period carrying line must not turn "not measured" into
