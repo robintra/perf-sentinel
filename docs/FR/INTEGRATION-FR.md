@@ -702,7 +702,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### Prérequis
 
-- Le backend doit exposer l'API HTTP de requête Jaeger (`/api/traces?service=...&lookback=...&limit=...` et `/api/traces/<id>`). Jaeger upstream (toutes les versions récentes) et Victoria Traces sont compatibles nativement.
+- Le backend doit exposer l'API HTTP de requête Jaeger (`/api/traces?service=...&lookback=...&limit=...` et `/api/traces/<id>`). Jaeger upstream (toutes les versions récentes) et Victoria Traces sont compatibles nativement. Une fenêtre absolue envoie `start` et `end` en microsecondes à la place de `lookback`, donc un backend qui n'implémente que le paramètre relatif répondra à `--from`/`--to` avec sa propre fenêtre par défaut.
 - Le flag `--endpoint` pointe vers l'URL de base de l'API de requête (typiquement port 16686 pour Jaeger, port 10428 pour Victoria Traces).
 - Les traces sont récupérées en JSON, parsées par le même chemin `{"data": [...]}` que l'ingestion Jaeger file-mode, puis passent dans le pipeline d'analyse standard. La sortie est identique à `perf-sentinel analyze`.
 - `--lookback` accepte le même format `1h / 30m / 7d / 2h30m` que le subcommand `tempo`.

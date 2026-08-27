@@ -550,6 +550,6 @@ Une réserve mérite d'être connue avant de réutiliser ceci hors du daemon : s
 
 `ingest/lookback.rs` et `ingest/url_enc.rs` existent parce que `tempo` et `jaeger_query` avaient besoin des deux mêmes choses et commençaient chacun à faire pousser les siennes. Les deux gardent leur type d'erreur au site d'appel et ne partagent que la logique.
 
-Le parseur de lookback accepte les suffixes `h`, `m`, `s` et somme les formes composées (`2h30m` vaut 9000 s), avec de l'arithmétique vérifiée partout pour que `999999999h` remonte en erreur de débordement au lieu de boucler en release.
+Le parseur de lookback accepte les suffixes `d`, `h`, `m`, `s` et somme les formes composées (`2h30m` vaut 9000 s), avec de l'arithmétique vérifiée partout pour que `999999999h` remonte en erreur de débordement au lieu de boucler en release.
 
 Les helpers d'URL écrivent à la main un encodeur pour-cent minimal plutôt que de tirer `percent-encoding` pour douze lignes. Le validateur d'endpoint est volontairement étroit : il rejette un schéma autre que `http(s)` et les identifiants **dans l'autorité**, et accepte délibérément un `@` littéral dans le chemin ou la query, pour que `/api/traces?owner=foo%40example.com` fonctionne.

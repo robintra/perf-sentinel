@@ -590,6 +590,6 @@ One caveat is worth knowing before reusing this outside the daemon: on Unix, reg
 
 `ingest/lookback.rs` and `ingest/url_enc.rs` exist because `tempo` and `jaeger_query` each needed the same two things and had started to grow their own. Both keep their own error types at the call site and share only the logic.
 
-The lookback parser accepts `h`, `m`, `s` suffixes and sums composed forms (`2h30m` is 9000 s), with checked arithmetic throughout so `999999999h` surfaces as an overflow error instead of wrapping in release builds.
+The lookback parser accepts `d`, `h`, `m`, `s` suffixes and sums composed forms (`2h30m` is 9000 s), with checked arithmetic throughout so `999999999h` surfaces as an overflow error instead of wrapping in release builds.
 
 The URL helpers hand-roll a minimal percent-encoder rather than pull in `percent-encoding` for twelve lines. The endpoint validator is intentionally narrow: it rejects a non-`http(s)` scheme and userinfo **in the authority**, and deliberately still accepts a literal `@` in the path or query, so `/api/traces?owner=foo%40example.com` works.
