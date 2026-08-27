@@ -115,8 +115,10 @@ v0.13.1	aa834b8	2026-08-14	PASS
 # release-candidate knob rather than a fix: DAEMON_IMAGE for
 # chart-disclose-persistence, UPSTREAM_PATH for template-gitlab-ci, both because
 # a locally bumped chart and template name a release that is not published yet.
-# Validated together: product 3d5a4ae7 (the revision the image was built
-# from; the later commits are CHANGELOG and version strings only),
+# Validated together: product 3d5a4ae7, which is the chore(release) commit and
+# the revision the daemon image was built from. The commits after it touch no
+# Rust: the GitLab CI template fix this run surfaced, its CHANGELOG and docs,
+# the regenerated dashboard captures, and this ledger line.
 # PerfSentinelHub b438f61, JetBrains plugin cc80099. Daemon image
 # perf-sentinel:0.15.0-3d5a4ae7, confirmed answering version 0.15.0 on
 # /api/status before the run.
