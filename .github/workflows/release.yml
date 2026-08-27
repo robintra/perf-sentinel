@@ -72,10 +72,12 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
-          cache-key: ${{ matrix.target }}
-          # This action defaults cache-on-failure to true, the standalone
-          # rust-cache step it replaces defaulted to false. Keep the old value.
-          cache-on-failure: false
+          # No cache on the release path. A cache entry written by any other
+          # branch can be restored here, and this job produces the binaries
+          # that get published, signed and attested: a poisoned cache would
+          # reach users. The cost is a cold build per target, which is the
+          # right trade for the one workflow whose output is shipped.
+          cache: false
 
       # musl-tools provides musl-gcc, needed by ring's build.rs to produce the
       # statically linked musl binaries. Both Linux targets build natively on a

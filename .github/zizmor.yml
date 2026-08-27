@@ -1,0 +1,17 @@
+# Findings this repository accepts, with the reasoning that earned the exception.
+# Same convention as PerfSentinelHub's .github/zizmor.yml: an entry here is a
+# reviewed decision, not a way to quiet the scanner.
+
+rules:
+  # `auto-rerun.yml` exists to rerun the jobs of a run that has already
+  # finished, which `workflow_run` is the only trigger that reports. zizmor
+  # flags it because a `workflow_run` job runs in the base repository with its
+  # token, so a compromised triggering workflow could reach it. Two things bound
+  # that here: the trigger names three workflows of this repository only, and
+  # the job's whole body is one `gh run rerun` on an id that arrives through the
+  # environment rather than spliced into the script (fixed alongside this entry).
+  # It grants no write beyond `actions: write`, and it publishes nothing.
+  # Removing the finding would mean removing the feature. Reviewed 2026-08-27.
+  dangerous-triggers:
+    ignore:
+      - auto-rerun.yml
