@@ -2385,8 +2385,8 @@ fn trace_counts_for_cross_reference(
 /// Report-first guarantees a daemon snapshot is never misrouted to the
 /// Jaeger ingest even when its payload contains a `"data"` literal in
 /// the first 4 KB, at the cost of one extra Report parse on OTLP/Jaeger
-/// inputs (rare through this CLI); an OTLP request can never parse as a
-/// Report (its required fields are absent). The depth cap is enforced
+/// inputs (rare through this CLI), and an OTLP request can never parse
+/// as a Report (its required fields are absent). The depth cap is enforced
 /// before the Report parse so an over-deep Report does not silently
 /// fall through to the ingest fallback. `report` accepts a wider set of
 /// shapes than `analyze` and has no quality-gate concept, so every
