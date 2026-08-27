@@ -102,3 +102,22 @@ v0.12.0	7425309	2026-08-13	PASS
 # the entry below is a real PASS on the seven scoped targets, product revision 4f40cf8d.
 # The note above still holds for v0.13.0: append-only means it keeps no attestation.
 v0.13.1	aa834b8	2026-08-14	PASS
+#
+# v0.14.0 has no line: the gate stayed paused while the Hub was being finished,
+# as the v0.13.0 note says. Append-only means it keeps no attestation.
+#
+# v0.15.0 PASS covers 38 of the 79 scenarios, not the whole suite. Scope is what
+# this cycle touched: the 0.15.0 surface and schema v1.7, the six new hub-*
+# ecosystem scenarios (the first to involve the Hub and the IDE plugin at all),
+# every scenario whose assertions were corrected here, and what the version bump
+# moved. The untouched families (limit-*, multistack, energy backends,
+# resilience) were not re-run. Two scenarios needed a documented
+# release-candidate knob rather than a fix: DAEMON_IMAGE for
+# chart-disclose-persistence, UPSTREAM_PATH for template-gitlab-ci, both because
+# a locally bumped chart and template name a release that is not published yet.
+# Validated together: product 3d5a4ae7 (the revision the image was built
+# from; the later commits are CHANGELOG and version strings only),
+# PerfSentinelHub b438f61, JetBrains plugin cc80099. Daemon image
+# perf-sentinel:0.15.0-3d5a4ae7, confirmed answering version 0.15.0 on
+# /api/status before the run.
+v0.15.0	3dc681b	2026-08-27	PASS
