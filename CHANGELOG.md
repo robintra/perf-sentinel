@@ -19,6 +19,8 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 - Two colors in the HTML dashboard resolved to nothing. A grouping pill referenced a `--surface-1` token that does not exist, so its background fell back to transparent and the pill lost the contrast that separated it from the row, and the API-key modal's 401 hint referenced `--color-text-warning`, leaving the one line that explains why the modal opened rendered in the inherited body color instead of the warning color. Both now use the tokens the rest of the sheet uses, `--surface-2` and `--warn-fg`.
 
+- The GitLab CI template is valid GitLab CI again. It put `allow_failure: {exit_codes: [75]}` inside a `rules:` entry, where GitLab accepts a boolean and nothing else, so its lint rejected the whole file with "jobs:perf-sentinel:rules:rule allow failure should be a boolean value" and a pipeline built from the template never started. The keyword belongs on the job, which is where it now sits; the default-branch rule still overrides it with `true`. The behaviour the template documents is unchanged: a tooling exit (75) does not block a merge request, the gate's own nonzero exit still does. Copied verbatim from the docs, the previous form had been unusable since it shipped.
+
 ### Security
 
 - **`h2` bumped to 0.4.19 against RUSTSEC-2026-0258.** `h2` reaches perf-sentinel transitively through `hyper`, which every outbound HTTP path uses (the shared TLS client behind the scrapers, Tempo and Jaeger ingest, and `query`) and which the daemon's own listeners sit on. Patch-level bump, semver-compatible, `cargo audit` green. The fuzz workspace's lock file carries the same bump.
