@@ -415,10 +415,21 @@ fn cli_report_stamps_trace_match_only_when_traces_were_analyzed() {
         .args(["analyze", "--input", &traces, "--format", "json"])
         .output()
         .expect("spawn analyze");
+    assert!(
+        analyzed.status.success(),
+        "analyze failed, the precomputed input would be empty: {}",
+        String::from_utf8_lossy(&analyzed.stderr)
+    );
     let report_path = dir.path().join("precomputed.json");
     fs::write(&report_path, &analyzed.stdout).expect("write report");
 
     let from_report = render(report_path.to_str().unwrap(), &dir.path().join("pre.html"));
+    // The panel must still be there: indexing a missing pg_stat would
+    // also yield null and make the assertion below vacuous.
+    assert!(
+        from_report["pg_stat"].is_object(),
+        "the pg_stat panel must survive a pre-computed input"
+    );
     assert!(
         from_report["pg_stat"]["trace_match"].is_null(),
         "a pre-computed report has no traces, so it must claim no matched share, got {}",

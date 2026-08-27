@@ -596,22 +596,22 @@ impl Builder {
         if in_scope {
             self.drops_observed = true;
         }
-        match self.last_drops.get(family).copied() {
-            Some(prev) if in_scope && drops < prev => {
-                self.drop_counter_resets += 1;
-                self.windows_dropped = self.windows_dropped.saturating_add(drops);
-            }
-            Some(prev) if in_scope => {
-                self.windows_dropped = self
-                    .windows_dropped
-                    .saturating_add(drops.saturating_sub(prev));
-            }
-            _ => {}
-        }
-        if let Some(slot) = self.last_drops.get_mut(family) {
-            *slot = drops;
-        } else {
+        let Some(slot) = self.last_drops.get_mut(family) else {
+            // First carrying line of this family: baseline only.
             self.last_drops.insert(family.to_string(), drops);
+            return;
+        };
+        let prev = std::mem::replace(slot, drops);
+        if !in_scope {
+            return;
+        }
+        if drops < prev {
+            self.drop_counter_resets += 1;
+            self.windows_dropped = self.windows_dropped.saturating_add(drops);
+        } else {
+            self.windows_dropped = self
+                .windows_dropped
+                .saturating_add(drops.saturating_sub(prev));
         }
     }
 
@@ -1801,7 +1801,11 @@ mod tests {
         );
         // A hyphen that is not a stamp stays part of the family name.
         assert_ne!(key("/var/log/host-a.ndjson"), key("/var/log/host-b.ndjson"));
-        assert_eq!(key("/var/log/host-a.ndjson"), key("/var/log/host-a.ndjson"));
+        // A rotation of a hyphenated stem still joins its own family.
+        assert_eq!(
+            key("/var/log/host-a-20260110T000000000000000Z.ndjson"),
+            key("/var/log/host-a.ndjson")
+        );
         // A bare filename has no parent and must still yield a key.
         assert!(!key("archive.ndjson").is_empty());
     }
