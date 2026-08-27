@@ -2,6 +2,21 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `tempo` and `jaeger-query` accept an absolute search window, `--from` and `--to` in ISO 8601 UTC, as an alternative to the relative `--lookback`. The two forms are mutually exclusive and the pair must be given together, both enforced by the argument parser. A relative window is resolved at the moment the request is issued, which is fine interactively and useless the moment a caller queues the request before sending it, or wants to re-read the exact hour an incident happened in three days ago. Both flags parse through `crate::time`, the single source of civil-calendar arithmetic, and an empty or inverted window is refused at the flag rather than at the backend, which would answer it with an empty result set that reads as "nothing happened".
+- The lookback parser accepts a `d` suffix, so `7d` and `180d` are valid alongside `1h`, `30m` and `2h30m`. It previously rejected them with `unknown unit 'd', expected h/m/s`, which made a multi-day window expressible only in hours.
+
+### Removed
+
+- **Breaking, `perf-sentinel-core` only.** `tempo::parse_lookback` and `jaeger_query::parse_lookback`, along with the `InvalidLookback` variant on `TempoError` and `JaegerQueryError` that only those two functions could produce. They were one-line wrappers whose sole purpose was to restate `lookback::parse` in a module-local error type, and nothing calls them now that a caller builds a `SearchWindow` instead of passing a duration. `ingest::lookback::parse` is public and unchanged, so the parsing itself stays available, at one place instead of three.
+
+### Changed
+
+- **Breaking, `perf-sentinel-core` only.** `ingest_from_tempo`, `ingest_from_tempo_with_grouping`, `search_traces`, `ingest_from_jaeger_query`, `ingest_from_jaeger_query_with_grouping` and `search_and_fetch_traces` take a `SearchWindow` where they took a `Duration`. Callers passing a lookback wrap it: `SearchWindow::Lookback(duration)`. The new type carries the relative and absolute forms as two arms because the two backends do not accept the same thing: Tempo takes explicit bounds either way, so both arms collapse to the query it already built, while the Jaeger query API has its own relative parameter and keeps it for `Lookback`, leaving every request that predates absolute windows byte-identical on the wire. Only an absolute window sends the microsecond bounds that API expects. The CLI surface is unaffected.
+
 ## [0.15.0] - 2026-08-27
 
 ### Added
