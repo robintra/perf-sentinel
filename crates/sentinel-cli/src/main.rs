@@ -1889,7 +1889,7 @@ fn resolve_search_window_or_exit(
 
     let parsed = match (from, to) {
         (Some(from), Some(to)) => SearchWindow::from_iso8601(from, to)
-            .map_err(|e| format!("Error parsing --from/--to: {e}")),
+            .map_err(|e| format!("Error parsing --from {from} --to {to}: {e}")),
         (None, None) => lookback::parse(lookback)
             .map(SearchWindow::Lookback)
             .map_err(|e| format!("Error parsing lookback: {e}")),

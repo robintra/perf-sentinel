@@ -175,8 +175,8 @@ fn cli_jaeger_query_inverted_absolute_window_exits_tooling_error() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("--from/--to"),
-        "stderr should name the window flags, got: {stderr}"
+        stderr.contains("--from 2026-08-20T16:00:00Z --to 2026-08-20T15:00:00Z"),
+        "stderr should echo the window the operator typed, got: {stderr}"
     );
     assert_eq!(
         output.status.code(),
