@@ -604,12 +604,13 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 - The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&lookback=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box.
 - The `--endpoint` flag points to the query API base URL (typically port 16686 for Jaeger, port 10428 for Victoria Traces).
 - Traces are fetched as JSON, parsed through the same `{"data": [...]}` path as the file-mode Jaeger ingestion, then run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
-- `--lookback` accepts the same `1h / 30m / 2h30m` format as the `tempo` subcommand.
+- `--lookback` accepts the same `1h / 30m / 7d / 2h30m` format as the `tempo` subcommand.
+- `--from` and `--to` replace `--lookback` with an absolute window in ISO 8601 UTC (`2026-08-20T15:00:00Z`). They must be given together and cannot be combined with `--lookback`. Use them to re-read the exact window an incident happened in: a lookback is resolved when the request is issued, so it moves every time you run it.
 - `--max-traces` maps to the backend's `limit` query parameter, which caps the number of traces returned per search.
 
 ### Caveats
 
-- Backend search lookback is bounded by the backend's retention (Jaeger defaults to 48h, Victoria Traces is configurable). A `--lookback` larger than retention silently trims to the retained window.
+- Backend search is bounded by the backend's retention (Jaeger defaults to 48h, Victoria Traces is configurable). A `--lookback` or a `--from`/`--to` window larger than retention silently trims to the retained window. perf-sentinel does not know a backend's retention, so it cannot warn you before the request.
 - A `limit=N` search returns up to N full traces in a single response body. perf-sentinel caps the response at 256 MiB, which covers typical production workloads but might need adjusting if you routinely search hundreds of large traces at once. Lower `--max-traces` if you hit the body limit. `--max-traces` is itself bounded to 10 000 by the CLI.
 - **Auth header via `--auth-header`.** Pass a single curl-style header line (`"Name: Value"`) to attach it to every backend request. Handles Bearer tokens, Basic Auth, or custom API-key headers. The parsed value is marked `sensitive` so it never shows in logs. See `docs/LIMITATIONS.md` for the full usage notes (one header max per invocation, value visible in `ps`). Since 0.5.27, picking the flag form emits a `WARN`-level event at startup nudging operators toward `--auth-header-env <NAME>` (same pattern as `pg-stat`), the env-var form keeps the value out of the process argument list and the shell history.
 - **`--endpoint` is trusted input.** The validator rejects non-http schemes and credential-embedded URLs, but it accepts loopback, RFC 1918, and link-local targets. In CI contexts where the endpoint value could come from an external PR, sanitize it upstream before invoking the subcommand.
