@@ -358,17 +358,14 @@
   .ps-scoring-chip-neutral { background: var(--surface-2); color: var(--text-2); }
   .ps-scoring-chip-warning { background: var(--warn-bg); color: var(--warn-fg); }
   .ps-scoring-chip-accent { background: var(--accent-bg); color: var(--brand-text); }
-  .ps-fin-main { min-width: 0; }
   .ps-fin-type { font-weight: 600; font-size: 12.5px; color: var(--text); }
   .ps-fin-service { color: var(--text-3); font-weight: 400; font-size: 12px; font-family: var(--font-mono); }
   /* The endpoint ellipsizes, the grouping never does: it is what tells two
      deployments of one service apart. */
   .ps-fin-sub:has(.ps-fin-grouping) { display: flex; align-items: baseline; gap: 7px; }
   .ps-fin-sub > .ps-fin-endpoint-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ps-fin-grouping { flex: 0 0 auto; padding: 1px 6px; border-radius: 4px; background: var(--surface-1); border: 1px solid var(--border-2); font-size: 10.5px; color: var(--text-2); }
-  .ps-fin-detail { font-size: 12px; color: var(--text-2); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-fin-grouping { flex: 0 0 auto; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border-2); font-size: 10.5px; color: var(--text-2); }
   .ps-fin-right { font-size: 12px; color: var(--text-2); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
-  .ps-fin-right-sub { color: var(--text-3); font-size: 11.5px; }
   .ps-fin-topline { display: flex; align-items: center; gap: 8px; }
   .ps-fin-metric { margin-left: auto; }
   .ps-fin-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -451,8 +448,6 @@
   .ps-pgstat-xref { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 12px; background: var(--surface-2); border: 0; border-radius: 10px; font-family: var(--font-mono); font-size: 12px; }
   .ps-pgstat-xref-stat { color: var(--text-3); white-space: nowrap; }
   .ps-fix-prose { font-size: 12.5px; color: var(--text); line-height: 1.55; background: var(--surface-2); border-radius: 8px; padding: 10px 13px; }
-  .ps-fix-code { font-family: var(--font-mono); font-size: 12px; color: var(--text); background: var(--surface-2); border: 0; border-radius: 6px; padding: 9px 11px; overflow: auto; white-space: pre; }
-  .ps-fix-alt { display: block; font-size: 12px; color: var(--text); line-height: 1.55; padding-top: 9px; border-top: 1px solid color-mix(in srgb, var(--fix-fg) 25%, transparent); }
   /* No border-bottom: the generic link underline already draws one line. */
   .ps-fix-link { align-self: flex-start; font-family: var(--font-mono); font-size: 11px; color: var(--fix-fg); }
   .ps-source-link { color: var(--brand-text); text-decoration: underline; }
@@ -460,7 +455,6 @@
   /* prose inline-code chip emitted by proseHl (white cartridge WITH thin border) */
   .ps-code-inline { font-family: var(--font-mono); font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 5px; padding: 1px 6px; color: var(--text); }
   /* syntax-highlight token weight (color set inline by the highlighter via data-hl) */
-  .ps-hl-kw { font-weight: 600; }
 
   /* -------- banner / empty / drill -------- */
   .ps-banner { background: var(--info-bg); border: 0; border-radius: 10px; padding: 8px 12px; font-size: 11.5px; color: var(--info-fg); }
@@ -474,7 +468,6 @@
   .ps-empty { padding: 30px; text-align: center; color: var(--text-2); font-size: 13px; background: var(--surface); border: 1px solid transparent; border-radius: var(--r); }
   .ps-drill { background: var(--info-bg); border: 0; border-radius: 10px; padding: 10px 12px; font-size: 11.5px; color: var(--info-fg); }
   .ps-drill-label { font-size: 11.5px; color: var(--info-fg); margin-bottom: 4px; opacity: .8; }
-  .ps-drill-link { color: var(--info-fg); }
   .ps-drill-clear { color: var(--info-fg); text-decoration: underline; cursor: pointer; margin-left: 8px; }
 
   /* -------- tables -------- */
@@ -550,8 +543,6 @@
   :root[data-theme="dark"] .ps-diff-section-new[data-sev="warning"] { background-color: color-mix(in srgb, var(--warn-bg) 72%, #000); }
   :root[data-theme="dark"] .ps-diff-section-new[data-sev="info"] { background-color: color-mix(in srgb, var(--info-bg) 72%, #000); }
   :root[data-theme="dark"] .ps-diff-section-resolved { background-color: color-mix(in srgb, var(--ok-bg) 72%, #000); }
-  .ps-quality-gate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
-  .ps-section-title { font-size: 14px; font-weight: 600; margin: 0; color: var(--text); }
   .ps-panel-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }
   /* The auto margin, not space-between: the other tabs' toolbars have their
      buttons as direct children and space-between would scatter them. */
@@ -652,7 +643,7 @@
   :root[data-density="compact"] [data-nav] { padding: 7px 10px; font-size: 12.5px; border-radius: 8px; }
   :root[data-density="compact"] .ps-metric { padding: 12px 14px; gap: 5px; }
   :root[data-density="compact"] .ps-metric-value { font-size: 22px; }
-  :root[data-density="compact"] .ps-list, :root[data-density="compact"] .ps-quality-gate { padding: 7px; gap: 6px; }
+  :root[data-density="compact"] .ps-list { padding: 7px; gap: 6px; }
   :root[data-density="compact"] .ps-row { padding: 9px 12px; border-radius: 8px; }
   /* Show-more follows the row inset of each density. */
   :root[data-density="compact"] .ps-show-more { margin: 0 7px 7px; width: calc(100% - 14px); }
@@ -989,7 +980,7 @@
 <dialog id="auth-modal" class="ps-modal" aria-labelledby="auth-modal-title">
   <button type="button" class="ps-modal-close" id="auth-modal-close" aria-label="Close">x</button>
   <h2 id="auth-modal-title">Daemon authentication required</h2>
-  <p id="auth-modal-hint" style="margin: 0 0 8px 0; font-size: 11px; color: var(--color-text-warning);">The daemon rejected the request with 401. Enter the API key to retry. The key is held in browser memory only for this tab session and cleared when the tab closes.</p>
+  <p id="auth-modal-hint" style="margin: 0 0 8px 0; font-size: 11px; color: var(--warn-fg);">The daemon rejected the request with 401. Enter the API key to retry. The key is held in browser memory only for this tab session and cleared when the tab closes.</p>
   <form id="auth-modal-form">
     <label for="auth-modal-key">API key</label>
     <input type="password" id="auth-modal-key" autocomplete="off" />
@@ -1392,7 +1383,7 @@
   // Derived from HTTP_METHODS so the dispatch gate cannot drift from the set.
   var HTTP_DISPATCH_RE = new RegExp("^\\s*(" + Object.keys(HTTP_METHODS).join("|") + ")\\s+/", "i");
   function endpointHlFragment(frag, src) {
-    var re = /(\s+)|(\{[^}]*\})|(\d+)|([A-Za-z][A-Za-z0-9_-]*)|(\S)/g;
+    var re = /(\s+)|(\{[^}]*})|(\d+)|([A-Za-z][A-Za-z0-9_-]*)|(\S)/g;
     var m;
     while ((m = re.exec(src))) {
       var color = null, bold = false, v = m[0];
