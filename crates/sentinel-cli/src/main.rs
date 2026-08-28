@@ -143,6 +143,19 @@ struct AbsoluteWindow {
     to: Option<String>,
 }
 
+/// The `--sort` flag the two backend-query subcommands share.
+///
+/// Flattened into both rather than written twice, like [`AbsoluteWindow`]:
+/// same flag, same help, and one definition cannot drift.
+#[derive(Args, Clone, Debug)]
+struct SortArg {
+    /// Order the findings: impact (highest aggregate avoidable I/O per
+    /// signature first) or severity (worst first). Applies to every
+    /// format, so `--format json --sort impact` comes out ranked.
+    #[arg(long, value_enum, value_name = "KEY")]
+    sort: Option<render::FindingsSort>,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Analyze trace files in batch mode. Reads from stdin if no --input is given.
@@ -406,11 +419,8 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
-        /// Order the findings: impact (highest aggregate avoidable I/O per
-        /// signature first) or severity (worst first). Applies to every
-        /// format, so `--format json --sort impact` comes out ranked.
-        #[arg(long, value_enum, value_name = "KEY")]
-        sort: Option<render::FindingsSort>,
+        #[command(flatten)]
+        sort: SortArg,
         /// Output format: text (colored, default), json, sarif.
         #[arg(long, value_enum)]
         format: Option<OutputFormat>,
@@ -468,11 +478,8 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
-        /// Order the findings: impact (highest aggregate avoidable I/O per
-        /// signature first) or severity (worst first). Applies to every
-        /// format, so `--format json --sort impact` comes out ranked.
-        #[arg(long, value_enum, value_name = "KEY")]
-        sort: Option<render::FindingsSort>,
+        #[command(flatten)]
+        sort: SortArg,
         /// Output format: text (colored, default), json, sarif.
         #[arg(long, value_enum)]
         format: Option<OutputFormat>,
@@ -1525,7 +1532,7 @@ async fn dispatch_command(command: Commands) {
                 max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
-                sort,
+                sort.sort,
                 format,
                 ci,
                 acknowledgments.as_deref(),
@@ -1563,7 +1570,7 @@ async fn dispatch_command(command: Commands) {
                 max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
-                sort,
+                sort.sort,
                 format,
                 ci,
                 acknowledgments.as_deref(),
