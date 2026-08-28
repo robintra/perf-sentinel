@@ -2498,14 +2498,26 @@
   function severityRankOf(f) {
     return SEV_RANK[f.severity] ?? 3;
   }
+  // Aggregate ops per finding, memoized: recurrenceOf rebuilds its key
+  // string per call, and the comparator would pay that twice per
+  // comparison, O(n log n) times, instead of once per finding.
+  var opsCache = new WeakMap();
+  function opsOf(f) {
+    var v = opsCache.get(f);
+    if (v === undefined) {
+      v = recurrenceOf(f).ops || 0;
+      opsCache.set(f, v);
+    }
+    return v;
+  }
   function compareFindings(a, b) {
     var primary, tie;
     if (sortState.key === "impact") {
-      primary = recurrenceOf(b).ops - recurrenceOf(a).ops;
+      primary = opsOf(b) - opsOf(a);
       tie = severityRankOf(a) - severityRankOf(b);
     } else {
       primary = severityRankOf(a) - severityRankOf(b);
-      tie = recurrenceOf(b).ops - recurrenceOf(a).ops;
+      tie = opsOf(b) - opsOf(a);
     }
     if (sortState.dir === "asc") primary = -primary;
     // Array.prototype.sort is stable, canonical order breaks the rest.

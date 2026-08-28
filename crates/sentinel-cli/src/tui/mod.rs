@@ -92,6 +92,15 @@ pub enum TraceSort {
     Impact,
 }
 
+impl From<crate::render::FindingsSort> for TraceSort {
+    fn from(mode: crate::render::FindingsSort) -> Self {
+        match mode {
+            crate::render::FindingsSort::Severity => Self::Severity,
+            crate::render::FindingsSort::Impact => Self::Impact,
+        }
+    }
+}
+
 impl TraceSort {
     /// Impact leads, it is what the list opens on and the question a
     /// reader arrives with. Id order stays reachable, one key away.
@@ -278,9 +287,10 @@ impl App {
             traces,
             recurrence,
             avoidable_ops,
-            // Opens on impact: the costliest problems first, matching the
-            // dashboard and the trees the HTML sink chose to embed.
-            trace_sort: TraceSort::Impact,
+            // Opens on the named default (impact): the costliest problems
+            // first, matching the dashboard and the embedded trees. Derived
+            // rather than written, so the two surfaces cannot drift.
+            trace_sort: crate::render::FindingsSort::default().into(),
             all_findings: findings,
             visible_by_trace: findings_by_trace.clone(),
             findings_by_trace,
@@ -692,10 +702,7 @@ impl App {
     /// given an explicit `--sort`.
     pub fn with_initial_sort(mut self, mode: Option<crate::render::FindingsSort>) -> Self {
         if let Some(mode) = mode {
-            let target = match mode {
-                crate::render::FindingsSort::Severity => TraceSort::Severity,
-                crate::render::FindingsSort::Impact => TraceSort::Impact,
-            };
+            let target = TraceSort::from(mode);
             // The constructor already ordered the list for its own default,
             // so asking for that same order must not sort it twice.
             if target != self.trace_sort {

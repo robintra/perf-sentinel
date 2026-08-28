@@ -674,16 +674,34 @@ pub(crate) fn compare_severity_impact(
 /// Stable sort, so the canonical detector order survives inside ties.
 pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mode: FindingsSort) {
     let index = build_recurrence_index(findings);
-    let agg = |f: &sentinel_core::detect::Finding| {
-        index.get(&recurrence_key(f)).map_or(0, |s| s.total_ops)
-    };
-    findings.sort_by(|a, b| {
+    // Decorate first: `recurrence_key` allocates its `String` per call, so
+    // resolving it inside the comparator would pay two allocations per
+    // comparison, O(n log n) of them, instead of one per finding.
+    let ops: Vec<u64> = findings
+        .iter()
+        .map(|f| index.get(&recurrence_key(f)).map_or(0, |s| s.total_ops) as u64)
+        .collect();
+    let mut order: Vec<usize> = (0..findings.len()).collect();
+    order.sort_by(|&a, &b| {
         compare_severity_impact(
             mode,
-            (&a.severity, agg(a) as u64),
-            (&b.severity, agg(b) as u64),
+            (&findings[a].severity, ops[a]),
+            (&findings[b].severity, ops[b]),
         )
     });
+    apply_permutation(findings, order);
+}
+
+/// Reorder `items` in place to `order`, one swap chase per cycle. Avoids
+/// cloning the findings, which carry owned strings and span metadata.
+fn apply_permutation<T>(items: &mut [T], mut order: Vec<usize>) {
+    for i in 0..order.len() {
+        while order[i] != i {
+            let target = order[i];
+            items.swap(i, target);
+            order.swap(i, target);
+        }
+    }
 }
 
 /// One-line severity breakdown printed under the `Found N finding(s):`
