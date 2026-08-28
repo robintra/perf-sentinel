@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.15.0
-appVersion: "0.15.0"
+version: 0.16.0
+appVersion: "0.16.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,14 +37,12 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: added
-      description: "appVersion 0.15.0. The daemon counts the per-window disclosure archive entries it drops instead of writing, by reason, and stamps the running total into each archived line, so disclose can report windows_dropped and drop_counter_resets for the period. The hash chain only advances on a successful write, so a dropped window used to leave no hole for verify-hash to find."
-    - kind: changed
-      description: "diff pairs a template mutation as one mutated finding instead of one resolved plus one new, so a schema refactor no longer fails a gate fed by new_findings. pg-stat and mysql-stat cross-reference against every SQL template the traces carried rather than only the ones that produced a finding, and pg-stat --baseline estimates tracing coverage from two snapshots framing the window."
+      description: "appVersion 0.16.0. tempo and jaeger-query accept an absolute search window, --from and --to in ISO 8601 UTC, for re-reading the exact window an incident happened in rather than one that drifts with the clock. The lookback parser also accepts a d suffix."
     - kind: fixed
-      description: "A rotation while the daemon is writing can no longer truncate the disclosure archive to nothing: the byte count resyncs from the open descriptor rather than the path, which a rename maps to a file that does not exist yet."
+      description: "jaeger-query --service no longer searches from the Unix epoch. It sent the window as lookback, which Victoria Traces reads only on its service-graph endpoint and never on /api/traces, so the parameter was dropped and every relative query returned whatever the store held over all of history. Both window forms now send explicit start and end."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.15.0
+      image: ghcr.io/robintra/perf-sentinel:0.16.0
       platforms:
         - linux/amd64
         - linux/arm64

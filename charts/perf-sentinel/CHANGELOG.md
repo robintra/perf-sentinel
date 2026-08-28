@@ -10,6 +10,23 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.16.0]
+
+### Fixed
+
+- `appVersion` moves to `0.16.0`. `jaeger-query --service` no longer searches
+  from the Unix epoch against Victoria Traces. It sent the window as
+  `lookback`, which that backend reads only on its service-graph endpoint and
+  never on `/api/traces`, so the parameter was dropped and the search ran
+  unbounded. Both window forms now send explicit `start` and `end`. The chart
+  itself is unchanged: this is an application fix carried by the new
+  `appVersion`.
+
+### Added
+
+- `tempo` and `jaeger-query` accept `--from` and `--to`, an absolute search
+  window in ISO 8601 UTC, alongside the relative `--lookback`.
+
 ## [0.15.0]
 
 ### Changed

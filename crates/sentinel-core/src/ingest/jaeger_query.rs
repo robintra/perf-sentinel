@@ -758,7 +758,7 @@ mod tests {
     #[tokio::test]
     async fn search_sends_auth_header_on_wire() {
         let response = http_200_json(SAMPLE_TRACE);
-        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+        let (endpoint, mut rx, server) = spawn_capture_server(response).await;
 
         let events = ingest_from_jaeger_query(
             &endpoint,
