@@ -2,8 +2,9 @@
 #
 # Showcases `perf-sentinel inspect --input <Report.json>` (Phase 8.2
 # Report-shape auto-detection extended to the inspect subcommand). The
-# tape feeds the binary a pre-computed Report carrying findings and
-# cross-trace correlations (which the daemon would normally produce),
+# tape feeds the binary a pre-computed Report carrying findings,
+# cross-trace correlations and the masked span trees of its findings'
+# traces (all three of which the daemon's own export produces),
 # then drills into the Detail panel to surface the "span tree not
 # available" hint that points the viewer at the two paths that DO
 # carry raw spans (`inspect --input <events>.json`, `query inspect`
@@ -39,7 +40,7 @@ Type `export PATH=$PWD/target/release:$PATH`
 Enter
 Type `mkdir -p /tmp/demo-inspect-report-dir`
 Enter
-Type `cp tests/fixtures/report_with_correlations.json /tmp/demo-inspect-report-dir/snapshot.json`
+Type `cp tests/fixtures/report_with_embedded_traces.json /tmp/demo-inspect-report-dir/snapshot.json`
 Enter
 Type `cd /tmp/demo-inspect-report-dir && clear`
 Enter

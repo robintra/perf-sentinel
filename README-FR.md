@@ -435,21 +435,19 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 ![header trace-level explain avec warning de service bavard](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/trace-level.png)
 
-**Mode inspect** (`perf-sentinel inspect`). Le header du panneau findings colore chaque finding selon sa sévérité, les cinq images ci-dessous parcourent la fixture démo à travers les trois niveaux de sévérité plus une vue du panneau détail avec sa fonction de scroll :
+**Mode inspect** (`perf-sentinel inspect`). Le header du panneau findings colore chaque finding selon sa sévérité, les quatre images ci-dessous parcourent la fixture démo à travers les trois niveaux de sévérité, dont une vue du panneau détail avec sa fonction de scroll :
 
-![TUI inspect, vue initiale : service bavard warning (jaune)](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
+![TUI inspect, vue initiale : la trace au plus fort impact d'abord, N+1 SQL critical (rouge), 10 occurrences et suggestion de batch](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
 
 ![TUI inspect, panneau détail actif : haut de l'arbre de spans fanout excessif](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail.png)
 
 ![TUI inspect, panneau détail scrollé : moitié basse de l'arbre fanout](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail-scrolled.png)
 
-![TUI inspect, N+1 SQL critical (rouge) : 10 occurrences, suggestion de batch](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/critical.png)
-
 ![TUI inspect, HTTP redondant info (cyan) : 3 validations de token identiques](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
 `inspect --input` accepte aussi un Report JSON pré-calculé (par exemple un snapshot daemon issu de `/api/export/report`, ou `tempo`/`jaeger-query --format json`). Les panels Findings et Correlations s'allument complètement, et le panel Detail dessine les arbres de spans masqués que le rapport porte, ne remplaçant par un indice que les traces dont l'entrée ne tient pas les spans :
 
-![TUI inspect, mode Report : 4 panels avec corrélations cross-trace et message Detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+![TUI inspect, mode Report : 4 panels avec corrélations cross-trace et l'arbre de spans que le rapport porte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
 
 **Moniteur opérateur live** (`perf-sentinel query --daemon <URL> monitor`). Lecture seule, adossé au daemon, quatre onglets cyclés par Tab. Les données qu'il expose (hints de config, provenance des sources, intensités par région) sont catégorielles et à haute cardinalité, exactement ce que la règle des labels bornés garde hors du `/metrics` Prometheus :
 
