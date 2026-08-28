@@ -66,9 +66,10 @@ Analyze  --Enter-->  Inspect  --Enter-->  Explain
   écran et scrollable. `Esc` revient au panneau Detail d'Inspect.
 
 Une barre d'onglets en haut met en évidence la vue active. Les arbres de
-spans nécessitent des spans bruts (`inspect --input <events>.json` ou
-`query inspect`). Un Report pré-calculé n'en porte pas, donc Explain
-affiche un indice à la place.
+spans se dessinent depuis des spans bruts (`inspect --input <events>.json`
+ou `query inspect`) ou depuis les arbres masqués qu'un Report porte (un
+instantané daemon, ou `tempo`/`jaeger-query --format json`). Une trace
+dont l'entrée ne tient pas les spans affiche un indice à la place.
 
 ![Vue Analyze : le tableau de bord de synthèse GreenOps sous la barre d'onglets](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/analyze.png)
 

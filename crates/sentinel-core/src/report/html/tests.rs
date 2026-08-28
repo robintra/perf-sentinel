@@ -117,6 +117,7 @@ fn opts(label: &str, cap: Option<usize>) -> RenderOptions {
     RenderOptions {
         input_label: label.into(),
         max_traces_embedded: cap,
+        initial_sort: None,
         pg_stat: None,
         mysql_stat: None,
         diff: None,

@@ -64,9 +64,11 @@ Analyze  --Enter-->  Inspect  --Enter-->  Explain
 - **Explain**: the selected trace's annotated span tree, full screen
   and scrollable. `Esc` returns to the Inspect Detail panel.
 
-A tab bar at the top highlights the active view. Span trees need raw
-spans (`inspect --input <events>.json` or `query inspect`). A
-pre-computed Report carries none, so Explain shows a hint instead.
+A tab bar at the top highlights the active view. Span trees draw from
+raw spans (`inspect --input <events>.json` or `query inspect`) or from
+the masked trees a Report carries (a daemon snapshot, or
+`tempo`/`jaeger-query --format json`). A trace whose spans the input
+does not hold shows a hint instead.
 
 ![Analyze view: the GreenOps summary dashboard under the view tab bar](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/analyze.png)
 

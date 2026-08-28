@@ -127,6 +127,7 @@ fn cli_report_help_mentions_all_flags() {
     assert!(help.contains("--input"), "help mentions --input");
     assert!(help.contains("--output"), "help mentions --output");
     assert!(help.contains("--config"), "help mentions --config");
+    assert!(help.contains("--sort"), "help mentions --sort");
     assert!(
         help.contains("--max-traces-embedded"),
         "help mentions --max-traces-embedded"
@@ -247,13 +248,15 @@ fn cli_report_logs_trim_notice_when_capped() {
     assert!(output.status.success());
 
     let stderr = String::from_utf8_lossy(&output.stderr);
+    // The operator set the cap, so the notice names it as theirs instead
+    // of prescribing the very flag that caused the trim.
     assert!(
-        stderr.contains("trimmed for file size"),
-        "expected trim notice in stderr, got:\n{stderr}"
+        stderr.contains("past the --max-traces-embedded cap"),
+        "expected the explicit-cap notice in stderr, got:\n{stderr}"
     );
     assert!(
-        stderr.contains("--max-traces-embedded"),
-        "expected hint about --max-traces-embedded in stderr, got:\n{stderr}"
+        !stderr.contains("trimmed for file size"),
+        "the size-budget wording must not show on an explicit cap, got:\n{stderr}"
     );
 }
 

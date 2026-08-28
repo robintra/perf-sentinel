@@ -692,11 +692,16 @@ impl App {
     /// given an explicit `--sort`.
     pub fn with_initial_sort(mut self, mode: Option<crate::render::FindingsSort>) -> Self {
         if let Some(mode) = mode {
-            self.trace_sort = match mode {
+            let target = match mode {
                 crate::render::FindingsSort::Severity => TraceSort::Severity,
                 crate::render::FindingsSort::Impact => TraceSort::Impact,
             };
-            self.reorder_traces();
+            // The constructor already ordered the list for its own default,
+            // so asking for that same order must not sort it twice.
+            if target != self.trace_sort {
+                self.trace_sort = target;
+                self.reorder_traces();
+            }
         }
         self
     }

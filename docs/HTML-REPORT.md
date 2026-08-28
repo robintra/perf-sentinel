@@ -23,9 +23,13 @@ perf-sentinel report --input traces.json --output report.html
 open report.html
 ```
 
-That is the artifact every CI job can produce. Without `--daemon-url`,
-the generated HTML is fully static and deterministic for the same
-input. CSP (Content-Security-Policy, the browser header that
+That is the artifact every CI job can produce. `--sort <KEY>` takes
+`impact` (the default) or `severity`, the same keys as `analyze --sort`:
+it orders the findings list the page opens on, and with
+`--max-traces-embedded <N>` it decides which span trees survive the cap,
+since the sink keeps the trees the top findings point at. Without
+`--daemon-url`, the generated HTML is fully static and deterministic for
+the same input. CSP (Content-Security-Policy, the browser header that
 declares which scripts and resources the page is allowed to load)
 stays strict (`default-src 'none'`), there is no
 `fetch()` call against any host.

@@ -119,25 +119,60 @@ impl EmbeddedSpan {
     }
 }
 
+/// Safety ceiling on the serialized spans [`embed_finding_traces`] adds
+/// to a report. Not a size target, the HTML sink owns that at render
+/// time: this exists because `report --input` and `inspect --input`
+/// refuse files past their own read cap, so a producer writing without
+/// any bound could emit JSON its designated consumers cannot open.
+/// Well below that read cap, far above any realistic query window.
+const EMBED_SAFETY_BUDGET_BYTES: usize = 512 * 1024 * 1024;
+
 /// Carry masked spans for the traces the report's findings point at.
 ///
 /// For the backend-query subcommands, whose JSON is rendered later by
-/// `report --input` and so travels without its input. No byte budget here:
-/// the HTML sink applies one at render time, where the page size is known,
-/// and a second budget upstream would make its `--max-traces-embedded` hint
-/// point at traces the JSON never carried. Sorted by trace id because
-/// `correlate` returns `HashMap` order and `--format json` must stay stable.
+/// `report --input` and so travels without its input. The HTML sink
+/// applies the real size target at render time, this only refuses to
+/// write a file the readers would refuse to open. When the ceiling
+/// bites, the traces kept are the ones the first findings point at, the
+/// same rule the sink uses, and the drop is logged rather than silent.
+/// Sorted by trace id because `correlate` returns `HashMap` order and
+/// `--format json` must stay stable.
 pub fn embed_finding_traces(report: &mut super::Report, traces: &[Trace]) {
-    let wanted: std::collections::HashSet<&str> = report
-        .findings
+    embed_finding_traces_with_budget(report, traces, EMBED_SAFETY_BUDGET_BYTES);
+}
+
+fn embed_finding_traces_with_budget(report: &mut super::Report, traces: &[Trace], budget: usize) {
+    let mut rank_by_trace: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::new();
+    for (i, f) in report.findings.iter().enumerate() {
+        rank_by_trace.entry(f.trace_id.as_str()).or_insert(i);
+    }
+    let mut ranked: Vec<(usize, &Trace)> = traces
         .iter()
-        .map(|f| f.trace_id.as_str())
+        .filter_map(|t| rank_by_trace.get(t.trace_id.as_str()).map(|r| (*r, t)))
         .collect();
-    let mut embedded: Vec<EmbeddedTrace> = traces
-        .iter()
-        .filter(|t| wanted.contains(t.trace_id.as_str()))
-        .map(EmbeddedTrace::from_trace)
+    ranked.sort_by_key(|(rank, _)| *rank);
+
+    let total = ranked.len();
+    let mut spent = 0usize;
+    let mut embedded: Vec<EmbeddedTrace> = ranked
+        .into_iter()
+        .map(|(_, t)| EmbeddedTrace::from_trace(t))
+        .take_while(|t| {
+            let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
+            spent = spent.saturating_add(size);
+            spent <= budget
+        })
         .collect();
+    if embedded.len() < total {
+        tracing::warn!(
+            kept = embedded.len(),
+            total,
+            budget_bytes = budget,
+            "embedded span trees hit the safety ceiling, the traces of the \
+             lowest-ranked findings travel without one"
+        );
+    }
     embedded.sort_by(|a, b| a.trace_id.cmp(&b.trace_id));
     report.embedded_traces = embedded;
 }
@@ -258,6 +293,46 @@ mod tests {
             .map(|t| t.trace_id.as_str())
             .collect();
         assert_eq!(ids, ["a", "b"]);
+    }
+
+    #[test]
+    fn the_safety_ceiling_keeps_the_top_findings_traces_and_drops_the_tail() {
+        use crate::detect::{FindingType, Severity};
+        use crate::test_helpers::{empty_report, make_finding};
+
+        let mut report = empty_report();
+        for id in ["big", "small"] {
+            let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Critical);
+            finding.trace_id = id.to_string();
+            report.findings.push(finding);
+        }
+        let traces: Vec<Trace> = [("big", 40), ("small", 1)]
+            .iter()
+            .map(|(id, n)| Trace {
+                trace_id: (*id).to_string(),
+                spans: (0..*n)
+                    .map(|i| event(&format!("s{i}"), "raw", "tpl"))
+                    .collect(),
+            })
+            .collect();
+        let one_big = serde_json::to_string(&EmbeddedTrace::from_trace(&traces[0]))
+            .expect("serializes")
+            .len();
+
+        // Budget fits the first finding's trace and nothing more: the tail
+        // is dropped, never the head, whatever their relative sizes.
+        embed_finding_traces_with_budget(&mut report, &traces, one_big);
+
+        let ids: Vec<&str> = report
+            .embedded_traces
+            .iter()
+            .map(|t| t.trace_id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            ["big"],
+            "the first finding's trace survives the ceiling"
+        );
     }
 
     #[test]

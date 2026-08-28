@@ -33,18 +33,32 @@ use crate::OutputFormat;
 /// `acknowledged_findings` via a zero-copy `mem::take`+restore around
 /// the emit call, avoiding a deep clone of the whole report on large
 /// baselines.
+/// The sink a `format` flag resolves to: `--ci` defaults to JSON so a
+/// pipeline reads structured output, everything else to text.
+pub(crate) fn effective_format(format: Option<OutputFormat>, ci: bool) -> OutputFormat {
+    format.unwrap_or(if ci {
+        OutputFormat::Json
+    } else {
+        OutputFormat::Text
+    })
+}
+
 pub(crate) fn emit_report_and_gate(
     report: &mut Report,
     format: Option<OutputFormat>,
     ci: bool,
     label: &str,
+    sort: Option<FindingsSort>,
     show_acknowledged: bool,
 ) {
-    let effective_format = format.unwrap_or(if ci {
-        OutputFormat::Json
-    } else {
-        OutputFormat::Text
-    });
+    let effective_format = effective_format(format, ci);
+    // One seam for every subcommand that ends here: applied after the
+    // caller's ack pass (a masked finding must not weigh in the
+    // aggregate) and before any sink, so `--format json --sort impact`
+    // comes out ranked.
+    if let Some(mode) = sort {
+        sort_findings(&mut report.findings, mode);
+    }
 
     // Capture the write outcome instead of exiting on it inline: the gate
     // check below must be able to override a write failure.
@@ -628,11 +642,13 @@ fn print_repeat_stub(
 /// Sort order for the findings list, the CLI mirror of the dashboard's
 /// sort control. Both orders are descending with the other axis as the
 /// tie-break, matching the dashboard's defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub(crate) enum FindingsSort {
     /// Highest aggregate avoidable I/O per signature first (the sum over
     /// every detection sharing it), worst severity among equals. Listed
-    /// first because it is what the dashboard and the TUI open on.
+    /// first because it is what the dashboard and the TUI open on, and
+    /// the default `report` renders with when no `--sort` is given.
+    #[default]
     Impact,
     /// Worst unitary severity first, highest aggregate impact among equals.
     Severity,

@@ -115,6 +115,11 @@ pub struct RenderOptions {
     /// Explicit cap on embedded traces. When `None`, the sink trims to
     /// fit [`DEFAULT_SIZE_TARGET_BYTES`] using the top-waste fallback.
     pub max_traces_embedded: Option<usize>,
+    /// The key the caller ranked `report.findings` by, when it ranked
+    /// them at all. The dashboard opens its own sort on it, so the list
+    /// the reader lands on is the list whose top trees were embedded.
+    /// `"severity"` or `"impact"`, anything else falls back to impact.
+    pub initial_sort: Option<String>,
     /// Optional `pg_stat_statements` report embedded alongside the
     /// analysis. When `Some`, the HTML dashboard exposes a `pg_stat` tab
     /// plus the Explain-to-`pg_stat` cross-navigation for matching SQL
@@ -213,12 +218,8 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
     }
     let sanitized_label = sanitize_input_label(&options.input_label);
     let (report_embed, trimmed_findings) = slim_report_for_embed(report, options);
-    // Trace ranking reads the un-slimmed `top_offenders` so the ordering
-    // is accurate even past the embed cap; the payload serializes the
-    // slim report.
     let mut payload = build_payload_with_label(
         &report_embed,
-        &report.green_summary.top_offenders,
         traces,
         options,
         &sanitized_label,
@@ -284,6 +285,8 @@ struct Payload<'a> {
     trimmed_traces: Option<TrimSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     trimmed_findings: Option<TrimSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_sort: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pg_stat: Option<&'a PgStatReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -729,16 +732,14 @@ impl CulpritIndex {
 
 fn build_payload_with_label<'a>(
     report: &'a Report,
-    full_top_offenders: &[crate::report::TopOffender],
     traces: &'a [Trace],
     options: &'a RenderOptions,
     input_label: &'a str,
     trimmed_findings: Option<TrimSummary>,
 ) -> Payload<'a> {
     // Candidate set from the embedded findings (so every embedded trace
-    // has its finding shown), ranked by the full offender list (so the
-    // ordering does not degrade past the embed cap).
-    let ordered = order_candidates_by_iis(&report.findings, full_top_offenders, traces);
+    // has its finding shown), ranked by the findings list itself.
+    let ordered = order_candidates_by_findings(&report.findings, traces);
     let total = ordered.len();
 
     // One detection pass over the candidate set, reused for the size
@@ -792,6 +793,7 @@ fn build_payload_with_label<'a>(
         culprit_spans,
         trimmed_traces: trimmed,
         trimmed_findings,
+        initial_sort: options.initial_sort.as_deref(),
         pg_stat: options.pg_stat.as_ref(),
         mysql_stat: options.mysql_stat.as_ref(),
         diff: options.diff.as_ref(),
@@ -802,42 +804,28 @@ fn build_payload_with_label<'a>(
     }
 }
 
-/// Filter traces to those referenced by a finding and sort by
-/// per-trace IIS (highest first). Lower `top_offenders` index means
-/// higher IIS. Traces whose `(service, endpoint)` pairs are absent from
-/// `top_offenders` rank as `usize::MAX` and sort last.
-fn order_candidates_by_iis<'a>(
+/// Filter traces to those referenced by a finding and rank each by the
+/// first finding that references it, so the trees kept are the ones the
+/// top rows point at whatever order the caller ranked findings in. The
+/// same rule as [`select_report_carried_traces`]: both render paths must
+/// keep the same trees for the same report, or the page's own claim that
+/// trees follow the ranking is only true on one of them. The previous
+/// per-endpoint IIS ranking also degenerated to input order whenever
+/// `[green]` was disabled, since `top_offenders` was empty then.
+fn order_candidates_by_findings<'a>(
     findings: &[crate::detect::Finding],
-    top_offenders: &[crate::report::TopOffender],
     traces: &'a [Trace],
 ) -> Vec<&'a Trace> {
-    let finding_trace_ids: HashSet<&str> = findings.iter().map(|f| f.trace_id.as_str()).collect();
-
-    let mut rank: HashMap<(&str, &str), usize> = HashMap::new();
-    for (i, off) in top_offenders.iter().enumerate() {
-        rank.insert((off.service.as_str(), off.endpoint.as_str()), i);
+    let mut rank_by_trace: HashMap<&str, usize> = HashMap::new();
+    for (i, f) in findings.iter().enumerate() {
+        rank_by_trace.entry(f.trace_id.as_str()).or_insert(i);
     }
-
     let mut scored: Vec<(usize, &'a Trace)> = traces
         .iter()
-        .filter(|t| finding_trace_ids.contains(t.trace_id.as_str()))
-        .map(|t| (trace_rank(t, &rank), t))
+        .filter_map(|t| rank_by_trace.get(t.trace_id.as_str()).map(|r| (*r, t)))
         .collect();
-    scored.sort_by_key(|(score, _)| *score);
+    scored.sort_by_key(|(rank, _)| *rank);
     scored.into_iter().map(|(_, t)| t).collect()
-}
-
-fn trace_rank(trace: &Trace, rank: &HashMap<(&str, &str), usize>) -> usize {
-    trace
-        .spans
-        .iter()
-        .map(|s| {
-            rank.get(&(s.event.service.as_ref(), s.event.source.endpoint.as_str()))
-                .copied()
-                .unwrap_or(usize::MAX)
-        })
-        .min()
-        .unwrap_or(usize::MAX)
 }
 
 /// Findings share of the JSON budget when the sink targets a file size.
@@ -1123,6 +1111,7 @@ fn trim_to_size_target<'a>(
         culprit_spans: BTreeMap::new(),
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
         trimmed_findings,
+        initial_sort: options.initial_sort.as_deref(),
         pg_stat: options.pg_stat.as_ref(),
         mysql_stat: options.mysql_stat.as_ref(),
         diff: options.diff.as_ref(),
