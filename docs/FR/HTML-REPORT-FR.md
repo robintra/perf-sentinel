@@ -28,7 +28,7 @@ C'est l'artefact que toute pipeline CI peut produire. `--sort <CLE>`
 prend `impact` (le défaut) ou `severity`, mêmes clés que
 `analyze --sort` : il ordonne la liste de findings sur laquelle la page
 s'ouvre, et avec `--max-traces-embedded <N>` il décide quels arbres de
-spans survivent au cap, le sink gardant les arbres des findings de
+spans survivent au cap, le générateur gardant les arbres des findings de
 tête. Sans `--daemon-url`, le HTML généré est entièrement statique et
 déterministe pour la même entrée. La CSP (Content-Security-Policy,
 l'en-tête navigateur qui déclare quels scripts et ressources la page a
@@ -131,7 +131,7 @@ La liste s'ouvre sur `impact` décroissant, la somme des opérations d'I/O
 plus coûteux vient donc en tête. `severity` est à un clic et classe la pire
 détection unitaire. Chaque clé départage avec l'autre, et recliquer la clé
 active inverse le sens. Cet ordre décide aussi quels arbres de spans le
-rapport embarque quand `--max-traces-embedded` les plafonne, le sink gardant
+rapport embarque quand `--max-traces-embedded` les plafonne, le générateur gardant
 les arbres des findings de tête.
 
 ### Filtrer les findings

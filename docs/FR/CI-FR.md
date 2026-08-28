@@ -359,7 +359,7 @@ workflows.
 soit son contenu, les polices et logos embarqués qui rendent le fichier
 autonome étant portés même par un rapport sans rien à montrer. Il
 grossit ensuite avec le nombre de findings, jusqu'au plafond de 5 Mio
-où le sink commence à élaguer. Dimensionnez un quota sur ce plafond,
+où le générateur commence à élaguer. Dimensionnez un quota sur ce plafond,
 pas sur le plancher. Avec
 la rétention gérée par le workflow de cleanup, la branche gh-pages ne
 porte que les rapports des PRs ouvertes plus l'unique
