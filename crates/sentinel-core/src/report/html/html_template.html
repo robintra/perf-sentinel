@@ -2489,9 +2489,12 @@
   // single worst detection, "impact" ranks the signature's aggregate
   // avoidable ops, so a frequent info problem can outrank a rare
   // critical one.
-  // Impact by default: a reader opening a report wants what costs the most
-  // first, and the sink kept the span trees of exactly these top rows.
-  var sortState = { key: "impact", dir: "desc" };
+  // The producer's own ranking when it declared one, impact otherwise: a
+  // reader opening a report wants what costs the most first, and the sink
+  // kept the span trees of exactly the top rows of THAT order, so opening
+  // on any other key would strand the first rows without their trees.
+  var DEFAULT_SORT_KEY = payload.initial_sort === "severity" ? "severity" : "impact";
+  var sortState = { key: DEFAULT_SORT_KEY, dir: "desc" };
   function severityRankOf(f) {
     return SEV_RANK[f.severity] ?? 3;
   }
@@ -3190,8 +3193,7 @@
         // the wrong one is what this whole message exists to avoid.
         proseInto(notEmbedded, "Trace not embedded: " + payload.trimmed_traces.kept +
           " of " + payload.trimmed_traces.total + " span trees are in this report, kept for the " +
-          "findings ranked highest. Rerun on the trace id above to read this one, a single-trace " +
-          "run always carries its tree.");
+          "findings ranked highest. Rerun on the trace id above to read this one on its own.");
       } else if (embeddedTraces.length === 0) {
         proseInto(notEmbedded, "No span tree in this report: the Report JSON it was rendered from carried no spans. A daemon snapshot carries only what the daemon still holds, and a saved baseline carries none at all. If a daemon has this trace, the id above reads it: `perf-sentinel query --daemon <URL> explain <trace_id>`.");
       } else if (isDaemonProducedRun()) {
@@ -6029,11 +6031,9 @@
     // otherwise be copied still carrying the stale one.
     if (location.hash) {
       href = href.replace(/([&#])fsort=[^&]*/g, "$1").replace(/[&#]$/, "");
-      // The default is omitted from a shared link, so this has to name the
-      // default: left on "severity" it would drop the fsort from a link
-      // copied while sorting by severity, and the recipient would open on
-      // impact instead.
-      if (sortState.key !== "impact" || sortState.dir !== "desc") {
+      // The default is omitted from a shared link, so this has to test the
+      // same default the page opens on, wherever it came from.
+      if (sortState.key !== DEFAULT_SORT_KEY || sortState.dir !== "desc") {
         href += "&fsort=" + encodeURIComponent(sortState.key + "." + sortState.dir);
       }
     }

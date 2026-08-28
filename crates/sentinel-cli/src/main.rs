@@ -182,8 +182,8 @@ enum Commands {
         show_acknowledged: bool,
         /// Order the findings: impact (highest aggregate avoidable I/O per
         /// signature first) or severity (worst first). Omit to keep the
-        /// canonical detector order in the printed report, `--tui` opens
-        /// on impact either way.
+        /// canonical detector order in the printed report. `--tui` opens
+        /// on this key when given, and on impact otherwise.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
         /// Launch the interactive TUI instead of printing the report.
@@ -344,10 +344,11 @@ enum Commands {
     ///
     /// `--input` accepts either a raw events JSON (auto-detected:
     /// native, Jaeger or Zipkin) or a pre-computed Report JSON
-    /// (e.g. a daemon snapshot from `/api/export/report`). With a
-    /// Report input the Findings and Correlations panels light up
-    /// fully. The Detail panel falls back to per-trace stubs because
-    /// Reports do not carry raw spans.
+    /// (e.g. a daemon snapshot from `/api/export/report`, or
+    /// `tempo`/`jaeger-query --format json`). With a Report input the
+    /// Findings and Correlations panels light up fully, and the Detail
+    /// panel draws the masked span trees the report carries, stubbing
+    /// only a trace whose spans it does not.
     #[cfg(feature = "tui")]
     Inspect {
         /// Path to a JSON trace file or a pre-computed Report JSON.
@@ -389,10 +390,10 @@ enum Commands {
         #[arg(
             long,
             default_value = "100",
-            value_parser = clap::value_parser!(u64)
-                .range(1..=sentinel_core::ingest::tempo::MAX_SEARCH_TRACES as u64)
+            value_parser = clap::value_parser!(u32)
+                .range(1..=sentinel_core::ingest::MAX_SEARCH_TRACES as i64)
         )]
-        max_traces: u64,
+        max_traces: u32,
         /// Optional auth header in curl format to attach to every Tempo request.
         /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
         #[arg(long, conflicts_with = "auth_header_env")]
@@ -446,8 +447,14 @@ enum Commands {
         lookback: String,
         #[command(flatten)]
         window: AbsoluteWindow,
-        /// Maximum number of traces to fetch (1..=10000).
-        #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(1..=10_000))]
+        /// Maximum number of traces to fetch (1..=10000). The same
+        /// ceiling as `tempo`, and this client's rather than Jaeger's.
+        #[arg(
+            long,
+            default_value = "100",
+            value_parser = clap::value_parser!(u32)
+                .range(1..=sentinel_core::ingest::MAX_SEARCH_TRACES as i64)
+        )]
         max_traces: u32,
         /// Optional auth header in curl format to attach to every backend request.
         /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
@@ -1515,8 +1522,6 @@ async fn dispatch_command(command: Commands) {
                 &lookback,
                 window.from.as_deref(),
                 window.to.as_deref(),
-                // Bounded to MAX_SEARCH_TRACES by the parser, so the cast
-                // cannot truncate on any target this builds for.
                 max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
@@ -2333,7 +2338,7 @@ fn cmd_analyze(
     // input buffer through the whole pipeline doubles peak RSS.
     drop(raw);
 
-    let mut report = pipeline::analyze_with_traces(events, &config, ingest_stats).0;
+    let (mut report, traces) = pipeline::analyze_with_traces(events, &config, ingest_stats);
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
@@ -2341,11 +2346,14 @@ fn cmd_analyze(
         no_acknowledgments,
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
-    // After the acks so a masked finding does not weigh in the aggregate.
-    if let Some(mode) = sort {
-        render::sort_findings(&mut report.findings, mode);
+    // JSON travels without its input, so carry the findings' masked spans
+    // the way tempo and jaeger-query do. Only that sink serializes them,
+    // the text and SARIF paths would clone spans nobody reads. After the
+    // acks, so a suppressed finding does not drag its tree along.
+    if matches!(render::effective_format(format, ci), OutputFormat::Json) {
+        sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
     }
-    emit_report_and_gate(&mut report, format, ci, "report", show_acknowledged);
+    emit_report_and_gate(&mut report, format, ci, "report", sort, show_acknowledged);
 }
 
 fn cmd_diff(
@@ -2661,10 +2669,7 @@ async fn cmd_report(
     // dashboard opens on: leaving the two out of step would embed the
     // trees of one ranking and show the other, so the top row would open
     // without a tree for no reason a reader could see.
-    render::sort_findings(
-        &mut report.findings,
-        sort.unwrap_or(render::FindingsSort::Impact),
-    );
+    render::sort_findings(&mut report.findings, sort.unwrap_or_default());
     let input_label = input_label_for(input, stdin_mode);
 
     // Clap's `requires` does not express an OR-of-flags, so validate the
@@ -2751,6 +2756,15 @@ async fn cmd_report(
     let mut options = sentinel_core::report::html::RenderOptions::default();
     options.input_label = input_label;
     options.max_traces_embedded = max_traces_embedded;
+    // The dashboard opens on the same key the embed followed, or the top
+    // rows of the list the reader lands on would be missing their trees.
+    options.initial_sort = Some(
+        match sort.unwrap_or_default() {
+            render::FindingsSort::Impact => "impact",
+            render::FindingsSort::Severity => "severity",
+        }
+        .to_string(),
+    );
     options.pg_stat = pg_stat;
     options.mysql_stat = mysql_stat;
     options.diff = diff;
@@ -2767,10 +2781,19 @@ async fn cmd_report(
     info!("HTML report written to {}", output.display());
     if stats.kept < stats.total {
         let trimmed = stats.total - stats.kept;
-        info!(
-            "Embedded {} of {} traces in the dashboard ({} trimmed for file size). Use --max-traces-embedded <higher> to keep more.",
-            stats.kept, stats.total, trimmed
-        );
+        // Name the cap that actually cut: prescribing the flag to the
+        // operator who just set it reads as the sink overriding them.
+        if max_traces_embedded.is_some() {
+            info!(
+                "Embedded {} of {} traces in the dashboard ({} past the --max-traces-embedded cap).",
+                stats.kept, stats.total, trimmed
+            );
+        } else {
+            info!(
+                "Embedded {} of {} traces in the dashboard ({} trimmed for file size). Use --max-traces-embedded <higher> to keep more.",
+                stats.kept, stats.total, trimmed
+            );
+        }
     }
 }
 

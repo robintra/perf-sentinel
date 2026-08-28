@@ -73,12 +73,21 @@ pub(crate) async fn cmd_jaeger_query(
     );
     // This JSON is rendered later by `report --input`, which sees no raw
     // traces, so carry the masked spans the way the daemon export does.
-    // After the acks, so a suppressed finding does not drag its tree along.
-    sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
-    // After the acks so a masked finding does not weigh in the aggregate,
-    // and before the sinks so `--format json` comes out ranked too.
-    if let Some(mode) = sort {
-        crate::render::sort_findings(&mut report.findings, mode);
+    // Only the JSON sink serializes them, the text and SARIF paths would
+    // clone spans nobody reads. After the acks, so a suppressed finding
+    // does not drag its tree along.
+    if matches!(
+        crate::render::effective_format(format, ci),
+        crate::OutputFormat::Json
+    ) {
+        sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
     }
-    emit_report_and_gate(&mut report, format, ci, "jaeger-query", show_acknowledged);
+    emit_report_and_gate(
+        &mut report,
+        format,
+        ci,
+        "jaeger-query",
+        sort,
+        show_acknowledged,
+    );
 }
