@@ -693,8 +693,9 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --trace-id abc123def45
 # Analyser la dernière heure de traces pour order-svc
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --lookback 1h
 
-# Même recette contre Victoria Traces (API-compatible)
-perf-sentinel jaeger-query --endpoint http://victoria-traces:10428 --service order-svc --lookback 1h
+# Même recette contre Victoria Traces, qui sert l'API de requête Jaeger sous
+# /select/jaeger et non à la racine, donc le préfixe va dans --endpoint
+perf-sentinel jaeger-query --endpoint http://victoria-traces:10428/select/jaeger --service order-svc --lookback 1h
 
 # Mode CI avec quality gate
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --lookback 30m --ci
@@ -703,7 +704,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 ### Prérequis
 
 - Le backend doit exposer l'API HTTP de requête Jaeger (`/api/traces?service=...&start=...&end=...&limit=...` et `/api/traces/<id>`). Jaeger upstream (toutes les versions récentes) et Victoria Traces sont compatibles nativement. `start` et `end` sont les bornes que perf-sentinel envoie réellement, en microsecondes, pour une fenêtre relative comme pour une fenêtre absolue. `lookback` n'est jamais envoyé : Victoria Traces ne le lit que sur son endpoint de graphe de services, jamais sur cette recherche, donc une requête qui le portait partait sans borne depuis l'epoch Unix.
-- Le flag `--endpoint` pointe vers l'URL de base de l'API de requête (typiquement port 16686 pour Jaeger, port 10428 pour Victoria Traces).
+- Le flag `--endpoint` pointe vers l'URL de base de l'API de requête, la partie à laquelle la CLI ajoute `/api/traces`. Jaeger upstream la sert à la racine sur le port 16686, Victoria Traces la sert sous `/select/jaeger` sur le port 10428, ce dernier a donc besoin de ce préfixe dans le flag.
 - Les traces sont récupérées en JSON, parsées par le même chemin `{"data": [...]}` que l'ingestion Jaeger file-mode, puis passent dans le pipeline d'analyse standard. La sortie est identique à `perf-sentinel analyze`.
 - `--lookback` accepte le même format `1h / 30m / 7d / 2h30m` que le subcommand `tempo`.
 - `--from` et `--to` remplacent `--lookback` par une fenêtre absolue en ISO 8601 UTC (`2026-08-20T15:00:00Z`). Les deux vont ensemble et ne se combinent pas avec `--lookback`. Ils servent à relire la fenêtre exacte d'un incident : une lookback est résolue au moment où la requête part, elle se décale donc à chaque exécution.
