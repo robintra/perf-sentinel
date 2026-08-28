@@ -33,31 +33,31 @@ use crate::OutputFormat;
 /// `acknowledged_findings` via a zero-copy `mem::take`+restore around
 /// the emit call, avoiding a deep clone of the whole report on large
 /// baselines.
-/// The sink a `format` flag resolves to: `--ci` defaults to JSON so a
-/// pipeline reads structured output, everything else to text.
-pub(crate) fn effective_format(format: Option<OutputFormat>, ci: bool) -> OutputFormat {
-    format.unwrap_or(if ci {
-        OutputFormat::Json
-    } else {
-        OutputFormat::Text
-    })
-}
-
 pub(crate) fn emit_report_and_gate(
     report: &mut Report,
     format: Option<OutputFormat>,
     ci: bool,
     label: &str,
     sort: Option<FindingsSort>,
+    embed_traces: Option<Vec<sentinel_core::correlate::Trace>>,
     show_acknowledged: bool,
 ) {
     let effective_format = effective_format(format, ci);
-    // One seam for every subcommand that ends here: applied after the
-    // caller's ack pass (a masked finding must not weigh in the
+    // One seam for every subcommand that ends here: the sort is applied
+    // after the caller's ack pass (a masked finding must not weigh in the
     // aggregate) and before any sink, so `--format json --sort impact`
-    // comes out ranked.
+    // comes out ranked. The embed comes AFTER the sort, because its byte
+    // budget keeps the traces of the first findings: budget-trimmed before
+    // sorting, it would keep the detector-order head and strand the top
+    // rows of the sorted list. Only the JSON sink serializes the trees,
+    // the text and SARIF paths never pay the clones.
     if let Some(mode) = sort {
         sort_findings(&mut report.findings, mode);
+    }
+    if let Some(traces) = embed_traces
+        && matches!(effective_format, OutputFormat::Json)
+    {
+        sentinel_core::report::embedded::embed_finding_traces(report, &traces);
     }
 
     // Capture the write outcome instead of exiting on it inline: the gate
@@ -96,6 +96,16 @@ pub(crate) fn emit_report_and_gate(
             std::process::exit(code);
         }
     }
+}
+
+/// The sink a `format` flag resolves to: `--ci` defaults to JSON so a
+/// pipeline reads structured output, everything else to text.
+pub(crate) fn effective_format(format: Option<OutputFormat>, ci: bool) -> OutputFormat {
+    format.unwrap_or(if ci {
+        OutputFormat::Json
+    } else {
+        OutputFormat::Text
+    })
 }
 
 /// Decide the process exit code after a report emit under the CI gate.
@@ -689,17 +699,28 @@ pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mod
             (&findings[b].severity, ops[b]),
         )
     });
-    apply_permutation(findings, order);
+    apply_permutation(findings, &order);
 }
 
-/// Reorder `items` in place to `order`, one swap chase per cycle. Avoids
-/// cloning the findings, which carry owned strings and span metadata.
-fn apply_permutation<T>(items: &mut [T], mut order: Vec<usize>) {
-    for i in 0..order.len() {
-        while order[i] != i {
-            let target = order[i];
+/// Reorder `items` in place so that position `i` receives `items[order[i]]`,
+/// one swap chase per cycle. Avoids cloning the findings, which carry owned
+/// strings and span metadata.
+///
+/// `order` is the source convention a sorted index vector produces. The
+/// cycle-chase below walks the destination convention, so invert first:
+/// applied unconverted it performs the inverse permutation, which misorders
+/// every cycle of length three or more while leaving swaps intact, exactly
+/// the shape a two-element test cannot catch.
+fn apply_permutation<T>(items: &mut [T], order: &[usize]) {
+    let mut destination = vec![0usize; order.len()];
+    for (position, &source) in order.iter().enumerate() {
+        destination[source] = position;
+    }
+    for i in 0..destination.len() {
+        while destination[i] != i {
+            let target = destination[i];
             items.swap(i, target);
-            order.swap(i, target);
+            destination.swap(i, target);
         }
     }
 }
@@ -1779,8 +1800,41 @@ mod tests {
             Severity::Info,
             "5x5 = 25 aggregate ops must outrank the critical's 5"
         );
+        // The FULL order, not just the head: the sort permutation here is a
+        // six-element rotation, and applying its inverse also puts an Info
+        // first, which is how the head-only assert once passed over a broken
+        // apply_permutation. The critical must land last, exactly.
+        assert!(
+            findings[..5].iter().all(|f| f.severity == Severity::Info),
+            "all five infos precede the critical"
+        );
+        assert_eq!(findings[5].severity, Severity::Critical);
         sort_findings(&mut findings, FindingsSort::Severity);
         assert_eq!(findings[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn sort_applies_the_permutation_not_its_inverse() {
+        // Three distinct impacts whose sort permutation is a 3-cycle: the
+        // inverse of a 3-cycle is the other 3-cycle, so this ordering is
+        // exactly what a convention mix-up in apply_permutation breaks.
+        let mut findings: Vec<Finding> = [(1u64, "a"), (3, "b"), (2, "c")]
+            .iter()
+            .map(|(ops, sig)| {
+                let mut f = sample_finding();
+                f.signature = (*sig).to_string();
+                f.severity = Severity::Info;
+                f.green_impact = Some(GreenImpact {
+                    estimated_extra_io_ops: *ops as usize,
+                    io_intensity_score: 1.0,
+                    io_intensity_band: InterpretationLevel::for_iis(1.0),
+                });
+                f
+            })
+            .collect();
+        sort_findings(&mut findings, FindingsSort::Impact);
+        let order: Vec<&str> = findings.iter().map(|f| f.signature.as_str()).collect();
+        assert_eq!(order, ["b", "c", "a"], "descending by aggregate ops");
     }
 
     use super::*;
