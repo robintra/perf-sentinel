@@ -585,7 +585,7 @@ calibration_file = ".perf-sentinel-calibration.toml"
 
 #### `perf-sentinel tempo` (pas de section de config)
 
-La sous-commande `tempo` s'exécute en **mode batch** (pas daemon), récupère les traces depuis l'API HTTP d'un Grafana Tempo et les passe dans le pipeline d'analyse standard. Ses réglages propres sont des flags CLI uniquement, il n'existe pas de section `[tempo]` : `--endpoint` est obligatoire, `--max-traces` vaut `100` par défaut, aux côtés de `--trace-id`, `--service`, `--lookback` et `--auth-header`. Lancez `perf-sentinel tempo --help` pour la liste à jour. Une table `[tempo]` écrite dans le fichier de config fait échouer le chargement depuis la 0.12.0, comme toute table racine inconnue. Le fichier `--config` s'applique quand même pour le reste, les seuils et la détection en particulier, puisque les traces récupérées passent par le même pipeline.
+La sous-commande `tempo` s'exécute en **mode batch** (pas daemon), récupère les traces depuis l'API HTTP d'un Grafana Tempo et les passe dans le pipeline d'analyse standard. Ses réglages propres sont des flags CLI uniquement, il n'existe pas de section `[tempo]` : `--endpoint` est obligatoire, `--max-traces` vaut `100` par défaut et est borné à 1..=10000 (le plafond de lecture du client, pas celui de Tempo), aux côtés de `--trace-id`, `--service`, `--lookback`, `--from`/`--to`, `--sort` et `--auth-header`. Lancez `perf-sentinel tempo --help` pour la liste à jour. Une table `[tempo]` écrite dans le fichier de config fait échouer le chargement depuis la 0.12.0, comme toute table racine inconnue. Le fichier `--config` s'applique quand même pour le reste, les seuils et la détection en particulier, puisque les traces récupérées passent par le même pipeline.
 
 ### `[daemon]`
 
