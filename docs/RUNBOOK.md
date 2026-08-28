@@ -134,8 +134,9 @@ Step 4 feeds the historical trace through the same `normalize → correlate → 
 # Explain a specific trace
 perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123def456
 
-# Sweep a service over a window when you don't have a trace_id yet
-perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h
+# Sweep a service over a window when you don't have a trace_id yet,
+# costliest findings first
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h --sort impact
 
 # Post-mortem artifact for a ticket or PR
 perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123 --format json > incident.json

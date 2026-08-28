@@ -216,9 +216,9 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 <details>
 <summary><b>Output formats</b></summary>
 
-- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `diff`, `pg-stat`, `mysql-stat`, `query`, `explain`, `ack`.
-- **`json`**: structured report. Available on `analyze`, `diff`, `pg-stat`, `mysql-stat`, `query`, `explain`, `ack`. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
-- **`sarif`** (SARIF v2.1.0): GitHub/GitLab code scanning with inline PR annotations via `physicalLocations`. Available on `analyze` and `diff`. See [docs/SARIF.md](docs/SARIF.md).
+- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `tempo`, `jaeger-query`, `diff`, `pg-stat`, `mysql-stat`, `query`, `explain`, `ack`.
+- **`json`**: structured report. Available on `analyze`, `tempo`, `jaeger-query`, `diff`, `pg-stat`, `mysql-stat`, `query`, `explain`, `ack`. On `tempo` and `jaeger-query` the JSON also carries the findings' masked span trees, so a later `report --input` draws them. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
+- **`sarif`** (SARIF v2.1.0): GitHub/GitLab code scanning with inline PR annotations via `physicalLocations`. Available on `analyze`, `tempo`, `jaeger-query` and `diff`. See [docs/SARIF.md](docs/SARIF.md).
 - **HTML dashboard**: single-file offline report from `perf-sentinel report`, click-through trace trees, dark/light theme, CSV export from Findings / pg_stat / mysql_stat / Diff / Correlations tabs. See [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
 - **Interactive TUI**: three keyboard-driven views in one drill-down (Analyze, Inspect, Explain) from `perf-sentinel analyze --tui`, `inspect`, or `explain --tui` (or `query inspect` for live daemon data). See [docs/INSPECT.md](docs/INSPECT.md).
 - **Live daemon**: NDJSON findings on stdout, Prometheus `/metrics` with Grafana Exemplars, `/health` probe, HTTP query API. See [docs/METRICS.md](docs/METRICS.md) and [docs/QUERY-API.md](docs/QUERY-API.md).
@@ -447,7 +447,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 ![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
-`inspect --input` also auto-detects a pre-computed Report JSON (e.g. a daemon snapshot from `/api/export/report`). Findings and Correlations panels light up fully, the Detail panel surfaces a span-tree-unavailable hint that points at the two paths which do carry raw spans:
+`inspect --input` also auto-detects a pre-computed Report JSON (e.g. a daemon snapshot from `/api/export/report`, or `tempo`/`jaeger-query --format json`). Findings and Correlations panels light up fully, and the Detail panel draws the masked span trees the report carries, stubbing only a trace whose spans the input does not hold:
 
 ![inspect TUI, Report-mode input: 4 panels with cross-trace correlations and the span-tree hint](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
 

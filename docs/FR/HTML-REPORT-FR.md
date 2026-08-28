@@ -24,8 +24,12 @@ perf-sentinel report --input traces.json --output report.html
 open report.html
 ```
 
-C'est l'artefact que toute pipeline CI peut produire. Sans
-`--daemon-url`, le HTML généré est entièrement statique et
+C'est l'artefact que toute pipeline CI peut produire. `--sort <CLE>`
+prend `impact` (le défaut) ou `severity`, mêmes clés que
+`analyze --sort` : il ordonne la liste de findings sur laquelle la page
+s'ouvre, et avec `--max-traces-embedded <N>` il décide quels arbres de
+spans survivent au cap, le sink gardant les arbres des findings de
+tête. Sans `--daemon-url`, le HTML généré est entièrement statique et
 déterministe pour la même entrée. La CSP (Content-Security-Policy,
 l'en-tête navigateur qui déclare quels scripts et ressources la page a
 le droit de charger) reste stricte (`default-src 'none'`),

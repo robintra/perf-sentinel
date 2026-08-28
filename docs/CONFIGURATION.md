@@ -576,7 +576,7 @@ calibration_file = ".perf-sentinel-calibration.toml"
 
 #### `perf-sentinel tempo` (no config section)
 
-The `tempo` subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. Its own settings are CLI flags only, there is no `[tempo]` section: `--endpoint` is required, `--max-traces` defaults to `100`, alongside `--trace-id`, `--service`, `--lookback` and `--auth-header`. Run `perf-sentinel tempo --help` for the current list. A `[tempo]` table written into the config file fails the load since 0.12.0, as any unknown top-level table does. The `--config` file still applies for everything else, thresholds and detection in particular, since the fetched traces go through the same pipeline.
+The `tempo` subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. Its own settings are CLI flags only, there is no `[tempo]` section: `--endpoint` is required, `--max-traces` defaults to `100` and is bounded to 1..=10000 (the client's own read ceiling, not Tempo's), alongside `--trace-id`, `--service`, `--lookback`, `--from`/`--to`, `--sort` and `--auth-header`. Run `perf-sentinel tempo --help` for the current list. A `[tempo]` table written into the config file fails the load since 0.12.0, as any unknown top-level table does. The `--config` file still applies for everything else, thresholds and detection in particular, since the fetched traces go through the same pipeline.
 
 ### `[daemon]`
 
