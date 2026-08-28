@@ -382,9 +382,16 @@ enum Commands {
         lookback: String,
         #[command(flatten)]
         window: AbsoluteWindow,
-        /// Maximum number of traces to fetch.
-        #[arg(long, default_value = "100")]
-        max_traces: usize,
+        /// Maximum number of traces to fetch (1..=10000). The ceiling is
+        /// this client's, not Tempo's: it is the largest search response
+        /// the ingest is sized to read back.
+        #[arg(
+            long,
+            default_value = "100",
+            value_parser = clap::value_parser!(u64)
+                .range(1..=sentinel_core::ingest::tempo::MAX_SEARCH_TRACES as u64)
+        )]
+        max_traces: u64,
         /// Optional auth header in curl format to attach to every Tempo request.
         /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
         #[arg(long, conflicts_with = "auth_header_env")]
@@ -1501,7 +1508,9 @@ async fn dispatch_command(command: Commands) {
                 &lookback,
                 window.from.as_deref(),
                 window.to.as_deref(),
-                max_traces,
+                // Bounded to MAX_SEARCH_TRACES by the parser, so the cast
+                // cannot truncate on any target this builds for.
+                max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
                 sort,

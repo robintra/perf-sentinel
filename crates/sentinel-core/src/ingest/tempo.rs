@@ -52,6 +52,15 @@ pub enum TempoError {
     #[error("failed to read response body: {0}")]
     BodyRead(String),
 
+    /// Kept apart from [`TempoError::BodyRead`] because it is the one body
+    /// failure an operator can act on, and because the limit is ours: the
+    /// generic wording sent people looking at Tempo or at the network.
+    #[error(
+        "response body exceeded the {0} byte cap perf-sentinel applies to it, \
+         which is a limit of this client and not of the backend, lower --max-traces"
+    )]
+    BodyTooLarge(usize),
+
     #[error("failed to decode protobuf response: {0}")]
     ProtobufDecode(String),
 
@@ -99,11 +108,20 @@ struct TraceMeta {
 // HTTP helpers
 // ---------------------------------------------------------------
 
-/// Maximum body size for search responses (1 MiB).
+/// Maximum body size for search responses (16 MiB).
 ///
-/// Search responses only return trace-ID summaries, not span payloads,
-/// so 1 MiB is generous even for a `limit=500` query.
-const MAX_SEARCH_BODY_BYTES: usize = 1024 * 1024;
+/// Search responses carry trace-ID summaries, not span payloads, but a
+/// summary is not just the id: Tempo returns the root service and name,
+/// a duration and a span set, which measures around 210 bytes per trace.
+/// Sized for `MAX_SEARCH_TRACES` of those with room to spare, because the
+/// cap has to cover the largest search the flag accepts. The previous
+/// 1 MiB was sized for `limit=500` and applied to every value, so a
+/// legitimate `--max-traces 5000` failed on a limit of our own making.
+const MAX_SEARCH_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+/// Upper bound on `--max-traces`, matching `jaeger-query`. Not a backend
+/// limit: it is the largest search this client is sized to read back.
+pub const MAX_SEARCH_TRACES: usize = 10_000;
 
 /// Maximum body size for a full trace fetch (64 MiB).
 ///
@@ -175,10 +193,24 @@ async fn fetch_raw(
     let limited = http_body_util::Limited::new(resp.into_body(), max_bytes);
     let body = http_body_util::BodyExt::collect(limited)
         .await
-        .map_err(|e| TempoError::BodyRead(e.to_string()))?
+        .map_err(|e| classify_body_error(&*e, max_bytes))?
         .to_bytes();
 
     Ok(body)
+}
+
+/// Tell a body that outgrew its cap apart from a transfer that broke for
+/// any other reason. `Limited` boxes the overrun as a `LengthLimitError`,
+/// so `Display` alone cannot separate the two.
+fn classify_body_error(e: &(dyn std::error::Error + 'static), limit: usize) -> TempoError {
+    let mut source = Some(e);
+    while let Some(err) = source {
+        if err.is::<http_body_util::LengthLimitError>() {
+            return TempoError::BodyTooLarge(limit);
+        }
+        source = err.source();
+    }
+    TempoError::BodyRead(format!("{e}"))
 }
 
 /// Fetch raw bytes from a Tempo endpoint (OTLP protobuf). 404 maps to
@@ -325,6 +357,7 @@ fn classify_fetch_error(error: &TempoError) -> &'static str {
         TempoError::HttpStatus { .. } => "http_status",
         TempoError::ProtobufDecode(_) => "protobuf_decode",
         TempoError::BodyRead(_) => "body_read",
+        TempoError::BodyTooLarge(_) => "body_too_large",
         TempoError::JsonParse(_) => "json_parse",
         _ => "other",
     }
@@ -695,6 +728,40 @@ async fn drain_fetch_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn an_overrun_body_names_the_cap_and_anything_else_stays_generic() {
+        // Through the real path: LengthLimitError is non-exhaustive and
+        // cannot be built, only provoked.
+        let body = http_body_util::Full::new(bytes::Bytes::from(vec![0u8; 100]));
+        let limited = http_body_util::Limited::new(body, 4096.min(10));
+        let error = http_body_util::BodyExt::collect(limited)
+            .await
+            .err()
+            .expect("a 100 byte body over a 10 byte cap must fail");
+        let overrun = classify_body_error(&*error, 4096);
+        assert!(matches!(overrun, TempoError::BodyTooLarge(4096)));
+        // The wording is the point: the previous message sent operators
+        // looking at Tempo for a limit this client imposes.
+        let text = overrun.to_string();
+        assert!(text.contains("4096"), "{text}");
+        assert!(text.contains("not of the backend"), "{text}");
+        assert!(text.contains("--max-traces"), "{text}");
+
+        let other = classify_body_error(&std::io::Error::other("socket closed"), 4096);
+        assert!(matches!(other, TempoError::BodyRead(_)));
+    }
+
+    #[test]
+    fn the_search_cap_covers_the_largest_search_the_flag_accepts() {
+        // Measured on realistic Tempo summaries (root service, name,
+        // duration, span set): about 212 bytes per trace.
+        const BYTES_PER_SUMMARY: usize = 212;
+        assert!(
+            MAX_SEARCH_TRACES * BYTES_PER_SUMMARY < MAX_SEARCH_BODY_BYTES,
+            "the cap must read back a search of MAX_SEARCH_TRACES"
+        );
+    }
 
     /// String `KeyValue`, the shape every OTLP fixture in this module needs.
     fn kv(key: &str, value: &str) -> opentelemetry_proto::tonic::common::v1::KeyValue {
