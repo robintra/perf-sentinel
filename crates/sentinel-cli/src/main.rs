@@ -43,7 +43,7 @@ mod tui_launch;
 mod tui_resize;
 mod verify_hash;
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use render::emit_report_and_gate;
 use sentinel_core::config::Config;
@@ -124,6 +124,23 @@ enum MySqlStatOutputFormat {
     Text,
     /// Structured JSON report.
     Json,
+}
+
+/// The absolute search window `tempo` and `jaeger-query` share.
+///
+/// Flattened into both rather than written twice: they are the same two flags,
+/// and `conflicts_with_all` resolves against the parent command's own args.
+#[derive(Args, Clone, Debug)]
+struct AbsoluteWindow {
+    /// Start of an absolute search window, ISO 8601 UTC
+    /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with
+    /// --lookback and --trace-id.
+    #[arg(long, requires = "to", conflicts_with_all = ["lookback", "trace_id"])]
+    from: Option<String>,
+    /// End of an absolute search window, ISO 8601 UTC. Requires --from.
+    /// A trace ID resolves to exactly one trace, so no window applies to it.
+    #[arg(long, requires = "from", conflicts_with_all = ["lookback", "trace_id"])]
+    to: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -363,15 +380,8 @@ enum Commands {
         /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
         #[arg(long, default_value = "1h")]
         lookback: String,
-        /// Start of an absolute search window, ISO 8601 UTC
-        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with
-        /// --lookback and --trace-id.
-        #[arg(long, requires = "to", conflicts_with_all = ["lookback", "trace_id"])]
-        from: Option<String>,
-        /// End of an absolute search window, ISO 8601 UTC. Requires --from.
-        /// A trace ID resolves to exactly one trace, so no window applies to it.
-        #[arg(long, requires = "from", conflicts_with_all = ["lookback", "trace_id"])]
-        to: Option<String>,
+        #[command(flatten)]
+        window: AbsoluteWindow,
         /// Maximum number of traces to fetch.
         #[arg(long, default_value = "100")]
         max_traces: usize,
@@ -421,15 +431,8 @@ enum Commands {
         /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
         #[arg(long, default_value = "1h")]
         lookback: String,
-        /// Start of an absolute search window, ISO 8601 UTC
-        /// (e.g. `2026-08-20T15:59:00Z`). Requires --to, conflicts with
-        /// --lookback and --trace-id.
-        #[arg(long, requires = "to", conflicts_with_all = ["lookback", "trace_id"])]
-        from: Option<String>,
-        /// End of an absolute search window, ISO 8601 UTC. Requires --from.
-        /// A trace ID resolves to exactly one trace, so no window applies to it.
-        #[arg(long, requires = "from", conflicts_with_all = ["lookback", "trace_id"])]
-        to: Option<String>,
+        #[command(flatten)]
+        window: AbsoluteWindow,
         /// Maximum number of traces to fetch (1..=10000).
         #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         max_traces: u32,
@@ -1468,8 +1471,7 @@ async fn dispatch_command(command: Commands) {
             trace_id,
             service,
             lookback,
-            from,
-            to,
+            window,
             max_traces,
             auth_header,
             auth_header_env,
@@ -1486,8 +1488,8 @@ async fn dispatch_command(command: Commands) {
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
-                from.as_deref(),
-                to.as_deref(),
+                window.from.as_deref(),
+                window.to.as_deref(),
                 max_traces,
                 resolved_auth.as_deref(),
                 config.as_deref(),
@@ -1505,8 +1507,7 @@ async fn dispatch_command(command: Commands) {
             trace_id,
             service,
             lookback,
-            from,
-            to,
+            window,
             max_traces,
             auth_header,
             auth_header_env,
@@ -1523,8 +1524,8 @@ async fn dispatch_command(command: Commands) {
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
-                from.as_deref(),
-                to.as_deref(),
+                window.from.as_deref(),
+                window.to.as_deref(),
                 max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
