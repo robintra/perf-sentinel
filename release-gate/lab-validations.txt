@@ -123,3 +123,18 @@ v0.13.1	aa834b8	2026-08-14	PASS
 # perf-sentinel:0.15.0-3d5a4ae7, confirmed answering version 0.15.0 on
 # /api/status before the run.
 v0.15.0	3dc681b	2026-08-27	PASS
+
+# Scoped run: the change touches only the tempo and jaeger-query ingest paths,
+# so only the scenarios invoking them ran. batch-tempo-scrape PASS,
+# multiformat-input PASS (live Jaeger upstream), batch-victoria-scrape PASS,
+# added this run to cover the Jaeger query API against a live Victoria Traces.
+# Its middle leg asks for a window ending an hour before the traffic and
+# requires an empty result: sending the window as `lookback` ran the search from
+# the epoch and returned the same traces, so a findings-only check passes on the
+# bug. It also fails on the published image, which rejects --from/--to.
+# limit-multi-source left red: it skipped its tempo leg (empty Tempo) and fails
+# on filtered{not_io}, the daemon OTLP classifier this release does not touch.
+# Not proven pre-existing, the scoped daemon used the local image either way.
+# Validated: product c10b035e on feature/0.16.0, image perf-sentinel:0.15.0-c10b035e.
+# Cargo.toml is bumped after this gate, so the SHA identifies the content.
+v0.16.0	dad0e7c	2026-08-28	PASS
