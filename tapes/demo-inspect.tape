@@ -25,16 +25,22 @@
 #   8: slow-http      (WARNING)
 #   9: slow-sql       (WARNING)
 #
-# The screenshots land on finding types that cover all three severity
-# levels plus a rich detail-panel view with scrolling:
-#   - main.png           : position 0 (chatty, WARNING)
-#   - detail.png         : position 1 (fanout) with detail panel active
-#                          via Tab Tab, scroll_offset = 0 (top of tree)
+# The screenshots still cover all three severity levels plus a rich
+# detail-panel view with scrolling. Positions below are in the impact
+# ranking the list now opens on, not the trace-id order it used to:
+#   - main.png           : position 0, the costliest trace
+#                          (N+1 SQL, CRITICAL red)
+#   - detail.png         : position 6 (fanout, WARNING yellow) with the
+#                          detail panel active via Tab Tab,
+#                          scroll_offset = 0 (top of tree)
 #   - detail-scrolled.png: same trace, after `Down` × 15 in the detail
 #                          panel - viewport has scrolled through the
 #                          fanout span tree to reveal its bottom half
-#   - critical.png       : position 3 (N+1 SQL, CRITICAL red)
-#   - info.png           : position 5 (redundant HTTP, INFO cyan)
+#   - info.png           : position 3 (redundant HTTP, INFO cyan)
+#
+# There is no separate CRITICAL frame: impact ordering opens the list on
+# the one critical finding the demo fixture holds, so main.png already is
+# that frame. Capturing it twice produced two byte-identical files.
 #
 # Install vhs: https://github.com/charmbracelet/vhs
 # Install ffmpeg: https://ffmpeg.org/download.html
@@ -116,9 +122,6 @@ Sleep 4s
 # clears `cached_detail` just as `move_down` does, so the scrolled state
 # does not leak into the next trace's view. The findings panel header
 # flips to cyan INFO as the viewer watches the color shift.
-#
-# No separate CRITICAL frame: impact ordering opens the list on the one
-# critical finding the demo fixture holds, so main.png already is it.
 Tab
 Sleep 1s
 Tab
