@@ -711,6 +711,12 @@ enum Commands {
         /// unset, the sink trims to target a ~5 MB HTML file size.
         #[arg(long, value_name = "N")]
         max_traces_embedded: Option<usize>,
+        /// Order the findings: severity (worst first) or impact (highest
+        /// aggregate avoidable I/O per signature first). This also decides
+        /// which span trees survive `--max-traces-embedded`, since the sink
+        /// keeps the trees the top findings point at.
+        #[arg(long, value_enum, value_name = "KEY")]
+        sort: Option<render::FindingsSort>,
         /// Path to a `pg_stat_statements` CSV or JSON export. When set,
         /// the dashboard shows a `pg_stat` tab and enables the
         /// Explain-to-`pg_stat` cross-navigation for matching SQL templates.
@@ -1688,6 +1694,7 @@ async fn dispatch_command(command: Commands) {
             config,
             output,
             max_traces_embedded,
+            sort,
             pg_stat,
             #[cfg(feature = "daemon")]
             pg_stat_prometheus,
@@ -1755,6 +1762,7 @@ async fn dispatch_command(command: Commands) {
                 config.as_deref(),
                 &output,
                 max_traces_embedded,
+                sort,
                 pg_stat.as_deref(),
                 #[cfg(feature = "daemon")]
                 pg_stat_prometheus.as_deref(),
@@ -2605,6 +2613,7 @@ async fn cmd_report(
     config_path: Option<&std::path::Path>,
     output: &std::path::Path,
     max_traces_embedded: Option<usize>,
+    sort: Option<render::FindingsSort>,
     pg_stat_path: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
     #[cfg(feature = "daemon")] pg_stat_auth_header: Option<String>,
@@ -2643,6 +2652,12 @@ async fn cmd_report(
     // greps the embedded JSON for ack metadata stays gated on the flag.
     if !show_acknowledged {
         report.acknowledged_findings.clear();
+    }
+    // After the acks so a masked finding does not weigh in the aggregate,
+    // and before the sink so `--max-traces-embedded` keeps the trees the
+    // top findings point at rather than the ones the producer wrote first.
+    if let Some(mode) = sort {
+        render::sort_findings(&mut report.findings, mode);
     }
     let input_label = input_label_for(input, stdin_mode);
 

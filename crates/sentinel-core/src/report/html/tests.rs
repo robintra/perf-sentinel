@@ -1622,7 +1622,7 @@ fn detail_pane_no_trace_states_present() {
     // message surfaced as a toast so clicking it does not navigate away
     // from the Diff tab and wipe the user's active diff filter.
     assert!(
-        TEMPLATE.contains(" span trees fit this report's size budget. "),
+        TEMPLATE.contains(" span trees are in this report, kept for the "),
         "trimmed-traces message missing"
     );
     assert!(
@@ -2718,10 +2718,21 @@ fn report_carried_traces_of_hidden_findings_do_not_ship() {
 
 #[test]
 fn report_carried_traces_honor_the_explicit_cap() {
-    let findings: Vec<Finding> = (0..3)
-        .map(|i| finding(&format!("t{i}"), "svc", "/ep", "select 1"))
-        .collect();
+    // Findings deliberately out of alphabetical order, and the one at the
+    // top is the mildest: a selection keyed on severity would keep t2, and
+    // one keyed on position in embedded_traces would keep t2 as well. Only
+    // ranking by the findings list keeps t0, which is what makes
+    // `report --sort impact` decide the embed rather than only the reading
+    // order. Asserting the surviving id is the point, the counts alone
+    // pass under every one of those rules.
+    let mut first = finding("t0", "svc", "/ep", "select 1");
+    first.severity = Severity::Info;
+    let mut last = finding("t2", "svc", "/ep", "select 3");
+    last.severity = Severity::Critical;
+    let findings = vec![first, finding("t1", "svc", "/ep", "select 2"), last];
+
     let mut report = minimal_report(findings);
+    // As `embed_finding_traces` writes them: sorted by trace id.
     report.embedded_traces = (0..3)
         .map(|i| {
             EmbeddedTrace::from_trace(&Trace {
@@ -2734,7 +2745,12 @@ fn report_carried_traces_honor_the_explicit_cap() {
     let (html, stats) = render(&report, &[], &opts("snapshot.json", Some(1)));
     let payload: serde_json::Value =
         serde_json::from_str(&extract_payload_json(&html)).expect("payload parses");
-    assert_eq!(payload["embedded_traces"].as_array().unwrap().len(), 1);
+    let kept = payload["embedded_traces"].as_array().unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        kept[0]["trace_id"], "t0",
+        "the top finding's tree must survive"
+    );
     assert_eq!(stats.kept, 1);
     assert_eq!(stats.total, 3);
     assert_eq!(payload["trimmed_traces"]["kept"], 1);
