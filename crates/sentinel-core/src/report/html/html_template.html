@@ -3184,8 +3184,9 @@
       if (payload.trimmed_traces) {
         proseInto(notEmbedded, "Trace not embedded: " + payload.trimmed_traces.kept +
           " of " + payload.trimmed_traces.total + " span trees fit this report's size budget. " +
-          "A narrower run keeps them all, and from a shell a higher `--max-traces-embedded` " +
-          "keeps them here, in a heavier file.");
+          "Rerun on the trace id above to read this one, a single-trace run always carries its " +
+          "tree. From a shell, a higher `--max-traces-embedded` keeps them all here, in a " +
+          "heavier file.");
       } else if (embeddedTraces.length === 0) {
         proseInto(notEmbedded, "No span tree in this report: the Report JSON it was rendered from carried no spans. A daemon snapshot carries only what the daemon still holds, and a saved baseline carries none at all. If a daemon has this trace, the id above reads it: `perf-sentinel query --daemon <URL> explain <trace_id>`.");
       } else if (isDaemonProducedRun()) {
@@ -4836,7 +4837,7 @@
     }
     if (t) {
       parts.push("Showing " + t.kept + " of " + t.total +
-        " span trees (trimmed for file size). A narrower run keeps them all.");
+        " span trees (trimmed for file size). Rerun on a trace id to read one of the others.");
     }
     var b = document.getElementById("trim-banner");
     b.style.display = "";
