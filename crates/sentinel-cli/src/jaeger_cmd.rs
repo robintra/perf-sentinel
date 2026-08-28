@@ -20,6 +20,7 @@ pub(crate) async fn cmd_jaeger_query(
     max_traces: usize,
     auth_header: Option<&str>,
     config_path: Option<&std::path::Path>,
+    sort: Option<crate::render::FindingsSort>,
     format: Option<OutputFormat>,
     ci: bool,
     acknowledgments_path: Option<&std::path::Path>,
@@ -74,5 +75,10 @@ pub(crate) async fn cmd_jaeger_query(
     // traces, so carry the masked spans the way the daemon export does.
     // After the acks, so a suppressed finding does not drag its tree along.
     sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
+    // After the acks so a masked finding does not weigh in the aggregate,
+    // and before the sinks so `--format json` comes out ranked too.
+    if let Some(mode) = sort {
+        crate::render::sort_findings(&mut report.findings, mode);
+    }
     emit_report_and_gate(&mut report, format, ci, "jaeger-query", show_acknowledged);
 }

@@ -397,6 +397,11 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
+        /// Order the findings: severity (worst first) or impact (highest
+        /// aggregate avoidable I/O per signature first). Applies to every
+        /// format, so `--format json --sort impact` comes out ranked.
+        #[arg(long, value_enum, value_name = "KEY")]
+        sort: Option<render::FindingsSort>,
         /// Output format: text (colored, default), json, sarif.
         #[arg(long, value_enum)]
         format: Option<OutputFormat>,
@@ -448,6 +453,11 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
+        /// Order the findings: severity (worst first) or impact (highest
+        /// aggregate avoidable I/O per signature first). Applies to every
+        /// format, so `--format json --sort impact` comes out ranked.
+        #[arg(long, value_enum, value_name = "KEY")]
+        sort: Option<render::FindingsSort>,
         /// Output format: text (colored, default), json, sarif.
         #[arg(long, value_enum)]
         format: Option<OutputFormat>,
@@ -1476,6 +1486,7 @@ async fn dispatch_command(command: Commands) {
             auth_header,
             auth_header_env,
             config,
+            sort,
             format,
             ci,
             acknowledgments,
@@ -1493,6 +1504,7 @@ async fn dispatch_command(command: Commands) {
                 max_traces,
                 resolved_auth.as_deref(),
                 config.as_deref(),
+                sort,
                 format,
                 ci,
                 acknowledgments.as_deref(),
@@ -1512,6 +1524,7 @@ async fn dispatch_command(command: Commands) {
             auth_header,
             auth_header_env,
             config,
+            sort,
             format,
             ci,
             acknowledgments,
@@ -1529,6 +1542,7 @@ async fn dispatch_command(command: Commands) {
                 max_traces as usize,
                 resolved_auth.as_deref(),
                 config.as_deref(),
+                sort,
                 format,
                 ci,
                 acknowledgments.as_deref(),
