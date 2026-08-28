@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Added
+
+- `--sort` on `tempo` and `jaeger-query`, the same `severity` and `impact` keys `analyze` already takes. It applies before the sinks, so `--format json --sort impact` comes out ranked by aggregate avoidable I/O per signature and a caller sweeping a wide window no longer has to re-sort the array themselves. Measured on a mixed corpus: without it the array opens on `n_plus_one_sql` at 5 avoidable ops, with it on `n_plus_one_http` at 39.
+
 ### Fixed
 
 - `tempo` and `jaeger-query` now carry the masked spans of their findings' traces in `--format json`, so a report rendered from that JSON draws the Explain tab's span tree instead of announcing it has none. The spans were already correlated and then discarded: both subcommands called `pipeline::analyze`, which is `analyze_with_traces(...).0`. The effect was sharpest in trace-ID mode, where an operator fetches exactly one trace by its identifier and got back a report that refused to draw that trace. The field is `skip_serializing_if = "Vec::is_empty"` and only traces a finding points at are carried, so a clean run grows by zero bytes and archived baselines stay byte-identical. `inspect --input` gains the same trees, it already rebuilt them from this field for daemon snapshots.
