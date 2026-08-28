@@ -116,8 +116,8 @@ pub(crate) fn cmd_inspect(
     // Auto-detect events array vs pre-computed Report object, same shape
     // contract as `report --input`. A Report payload (e.g. a daemon
     // snapshot dumped via /api/export/report) lights up the Findings and
-    // Correlations panels. The Detail panel falls back to a per-trace
-    // stub with no spans because Reports don't carry raw spans.
+    // Correlations panels. The Detail panel draws the masked trees the
+    // report carries, and stubs a trace whose spans it does not.
     let (mut report, traces, origin) = load_report_from_input(&raw, &config);
     apply_acknowledgments_or_exit(
         &mut report,

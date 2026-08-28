@@ -84,9 +84,11 @@ pub struct Report {
     pub correlations: Vec<CrossTraceCorrelation>,
     /// Masked spans for the findings' traces, so a report that travels
     /// without its input still draws a span tree. Populated by the
-    /// daemon's `/api/export/report`, empty in batch output, where the
-    /// HTML sink reads the traces it was handed directly. Additive via
-    /// `skip_serializing_if`, so archived reports stay byte-identical.
+    /// daemon's `/api/export/report` and by the backend-query subcommands
+    /// (`tempo`, `jaeger-query`), whose JSON is rendered later without its
+    /// input. Empty on file-input batch runs, where the HTML sink reads the
+    /// traces it was handed directly. Additive via `skip_serializing_if`,
+    /// so archived reports stay byte-identical.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embedded_traces: Vec<EmbeddedTrace>,
     /// Snapshot- or analysis-level warnings surfaced to consumers. The

@@ -119,6 +119,29 @@ impl EmbeddedSpan {
     }
 }
 
+/// Carry masked spans for the traces the report's findings point at.
+///
+/// For the backend-query subcommands, whose JSON is rendered later by
+/// `report --input` and so travels without its input. No byte budget here:
+/// the HTML sink applies one at render time, where the page size is known,
+/// and a second budget upstream would make its `--max-traces-embedded` hint
+/// point at traces the JSON never carried. Sorted by trace id because
+/// `correlate` returns `HashMap` order and `--format json` must stay stable.
+pub fn embed_finding_traces(report: &mut super::Report, traces: &[Trace]) {
+    let wanted: std::collections::HashSet<&str> = report
+        .findings
+        .iter()
+        .map(|f| f.trace_id.as_str())
+        .collect();
+    let mut embedded: Vec<EmbeddedTrace> = traces
+        .iter()
+        .filter(|t| wanted.contains(t.trace_id.as_str()))
+        .map(EmbeddedTrace::from_trace)
+        .collect();
+    embedded.sort_by(|a, b| a.trace_id.cmp(&b.trace_id));
+    report.embedded_traces = embedded;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +229,35 @@ mod tests {
         let back: EmbeddedSpan = serde_json::from_value(value).unwrap();
 
         assert!(back.timestamp.is_empty());
+    }
+
+    #[test]
+    fn only_the_traces_findings_point_at_are_embedded_and_they_are_sorted() {
+        use crate::detect::{FindingType, Severity};
+        use crate::test_helpers::{empty_report, make_finding};
+
+        let mut report = empty_report();
+        for id in ["b", "a"] {
+            let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Critical);
+            finding.trace_id = id.to_string();
+            report.findings.push(finding);
+        }
+        let traces: Vec<Trace> = ["c", "b", "a"]
+            .iter()
+            .map(|id| Trace {
+                trace_id: (*id).to_string(),
+                spans: vec![event("s1", "raw", "tpl")],
+            })
+            .collect();
+
+        embed_finding_traces(&mut report, &traces);
+
+        let ids: Vec<&str> = report
+            .embedded_traces
+            .iter()
+            .map(|t| t.trace_id.as_str())
+            .collect();
+        assert_eq!(ids, ["a", "b"]);
     }
 
     #[test]

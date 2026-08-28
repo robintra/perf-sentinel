@@ -62,7 +62,7 @@ pub(crate) async fn cmd_jaeger_query(
         "Ingested events from Jaeger query API, running analysis"
     );
 
-    let mut report = pipeline::analyze(events, &config);
+    let (mut report, traces) = pipeline::analyze_with_traces(events, &config, None);
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
@@ -70,5 +70,9 @@ pub(crate) async fn cmd_jaeger_query(
         no_acknowledgments,
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
+    // This JSON is rendered later by `report --input`, which sees no raw
+    // traces, so carry the masked spans the way the daemon export does.
+    // After the acks, so a suppressed finding does not drag its tree along.
+    sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
     emit_report_and_gate(&mut report, format, ci, "jaeger-query", show_acknowledged);
 }
