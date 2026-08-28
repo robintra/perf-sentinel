@@ -592,8 +592,9 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --trace-id abc123def45
 # Analyze the last hour of traces for order-svc
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --lookback 1h
 
-# Same recipe against Victoria Traces (API-compatible)
-perf-sentinel jaeger-query --endpoint http://victoria-traces:10428 --service order-svc --lookback 1h
+# Same recipe against Victoria Traces, which serves the Jaeger query API
+# under /select/jaeger rather than at the root, so the prefix goes in --endpoint
+perf-sentinel jaeger-query --endpoint http://victoria-traces:10428/select/jaeger --service order-svc --lookback 1h
 
 # CI mode with quality gate
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --lookback 30m --ci
@@ -602,7 +603,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 ### Requirements
 
 - The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box. `start` and `end` are the bounds perf-sentinel actually sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it ran unbounded from the Unix epoch.
-- The `--endpoint` flag points to the query API base URL (typically port 16686 for Jaeger, port 10428 for Victoria Traces).
+- The `--endpoint` flag points to the query API base URL, the part the CLI appends `/api/traces` to. Jaeger upstream serves it at the root on port 16686, Victoria Traces serves it under `/select/jaeger` on port 10428, so the latter needs that prefix in the flag.
 - Traces are fetched as JSON, parsed through the same `{"data": [...]}` path as the file-mode Jaeger ingestion, then run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
 - `--lookback` accepts the same `1h / 30m / 7d / 2h30m` format as the `tempo` subcommand.
 - `--from` and `--to` replace `--lookback` with an absolute window in ISO 8601 UTC (`2026-08-20T15:00:00Z`). They must be given together and cannot be combined with `--lookback`. Use them to re-read the exact window an incident happened in: a lookback is resolved when the request is issued, so it moves every time you run it.
