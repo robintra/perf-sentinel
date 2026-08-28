@@ -109,7 +109,7 @@ scrollent les vues Analyze et Explain.
 | `Esc`                 | Remonte d'un cran                                      |
 | `m`                   | Bascule le mode souris pour glisser les bordures       |
 | `r`                   | Réinitialise les tailles des panneaux (Inspect)        |
-| `s`                   | Cycle le tri : id, sévérité, impact (Inspect)          |
+| `s`                   | Cycle le tri : impact, sévérité, id (Inspect)          |
 | `f`                   | Cycle le filtre de sévérité (Inspect)                  |
 | `a`                   | Acknowledger le finding sélectionné (mode live)        |
 | `u`                   | Révoquer l'ack existant (mode live)                    |

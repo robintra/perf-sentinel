@@ -93,11 +93,13 @@ pub enum TraceSort {
 }
 
 impl TraceSort {
+    /// Impact leads, it is what the list opens on and the question a
+    /// reader arrives with. Id order stays reachable, one key away.
     fn next(self) -> Self {
         match self {
-            Self::ById => Self::Severity,
-            Self::Severity => Self::Impact,
-            Self::Impact => Self::ById,
+            Self::Impact => Self::Severity,
+            Self::Severity => Self::ById,
+            Self::ById => Self::Impact,
         }
     }
 
@@ -272,11 +274,13 @@ impl App {
             })
             .collect();
 
-        Self {
+        let mut app = Self {
             traces,
             recurrence,
             avoidable_ops,
-            trace_sort: TraceSort::ById,
+            // Opens on impact: the costliest problems first, matching the
+            // dashboard and the trees the HTML sink chose to embed.
+            trace_sort: TraceSort::Impact,
             all_findings: findings,
             visible_by_trace: findings_by_trace.clone(),
             findings_by_trace,
@@ -311,7 +315,11 @@ impl App {
             drag: None,
             hover: None,
             inspect_area: std::cell::Cell::new(Rect::default()),
-        }
+        };
+        // The state above says impact, so the list has to be in it before
+        // the first paint: the field alone would leave the header lying.
+        app.reorder_traces();
+        app
     }
 
     /// Attach the `disclose --tui` preview state. The caller pairs this with
@@ -560,8 +568,9 @@ impl App {
     }
 
     /// Move selection up in the active panel.
-    /// Cycle the Inspect trace order: id, then worst-severity-first,
-    /// then aggregate-impact-first, the other axis breaking ties.
+    /// Cycle the Inspect trace order: aggregate-impact-first, which is
+    /// what it opens on, then worst-severity-first, then id, the other
+    /// axis breaking ties.
     pub fn cycle_trace_sort(&mut self) {
         self.trace_sort = self.trace_sort.next();
         self.reorder_traces();

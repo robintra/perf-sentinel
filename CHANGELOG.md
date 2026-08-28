@@ -8,6 +8,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 - `--sort` on `tempo` and `jaeger-query`, the same `severity` and `impact` keys `analyze` already takes. It applies before the sinks, so `--format json --sort impact` comes out ranked by aggregate avoidable I/O per signature and a caller sweeping a wide window no longer has to re-sort the array themselves. Measured on a mixed corpus: without it the array opens on `n_plus_one_sql` at 5 avoidable ops, with it on `n_plus_one_http` at 39.
 
+### Changed
+
+- The dashboard and the TUI open on impact rather than on their previous defaults, and the impact control comes before the severity one in both. A reader arriving on a report is asking what costs the most, and the answer now leads. The dashboard was severity-first, the TUI opened on trace id order, which is alphabetical and carries nothing on a backend that mints random ids. `s` still cycles the TUI through all three, starting from impact.
+- `report` sorts by impact when no `--sort` is given, so the trees it embeds under `--max-traces-embedded` belong to the rows the dashboard puts on top. Left out of step, a report would have opened on its highest-impact finding and shown it without a span tree.
+- The permalink from the dashboard's copy-link button omits the sort only when it is the default, and that test now names impact. Left on severity it would have dropped the parameter from a link copied while sorting by severity, and the recipient would have opened on impact instead.
+
 ### Fixed
 
 - The span trees a report keeps under `--max-traces-embedded` are now the ones the top findings point at. On a report rendered from a pre-computed Report JSON, which is every daemon snapshot and every `tempo`/`jaeger-query --format json`, the sink ranked traces by worst referencing severity and broke ties on their position in `embedded_traces`. That array arrives sorted by trace id, so within a severity band the surviving trees were the last ids alphabetically, which on a backend that mints random ids is arbitrary. They are now ranked by the first finding that references them, so the caller's own order decides the embed. The documented IIS ordering was never reachable on this path, only on a render fed raw traces.

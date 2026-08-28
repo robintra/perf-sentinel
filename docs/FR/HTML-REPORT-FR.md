@@ -120,6 +120,16 @@ par écran, et le choix persiste dans le navigateur. Survoler le bouton
 prévisualise le mode vers lequel il va basculer. À côté, le bouton de
 thème fait défiler System, Light et Dark.
 
+### Trier les findings
+
+La liste s'ouvre sur `impact` décroissant, la somme des opérations d'I/O
+évitables de toutes les détections partageant une signature, le problème le
+plus coûteux vient donc en tête. `severity` est à un clic et classe la pire
+détection unitaire. Chaque clé départage avec l'autre, et recliquer la clé
+active inverse le sens. Cet ordre décide aussi quels arbres de spans le
+rapport embarque quand `--max-traces-embedded` les plafonne, le sink gardant
+les arbres des findings de tête.
+
 ### Filtrer les findings
 
 La rangée de sévérité porte une pastille par sévérité présente, chacune

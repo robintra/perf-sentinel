@@ -2489,7 +2489,9 @@
   // single worst detection, "impact" ranks the signature's aggregate
   // avoidable ops, so a frequent info problem can outrank a rare
   // critical one.
-  var sortState = { key: "severity", dir: "desc" };
+  // Impact by default: a reader opening a report wants what costs the most
+  // first, and the sink kept the span trees of exactly these top rows.
+  var sortState = { key: "impact", dir: "desc" };
   function severityRankOf(f) {
     return SEV_RANK[f.severity] ?? 3;
   }
@@ -2640,7 +2642,8 @@
     setAttr(host, "role", "group");
     setAttr(host, "aria-label", "Sort findings");
     host.appendChild(el("span", "ps-sort-label", "sort"));
-    ["severity", "impact"].forEach(function (key) {
+    // Impact first, it is the default and the one that answers "what do I fix".
+    ["impact", "severity"].forEach(function (key) {
       var btn = el("button", "ps-chip");
       btn.type = "button";
       setAttr(btn, "data-sort-key", key);
@@ -2802,7 +2805,7 @@
   // every row, so they filter in the DOM (see applySearchFilter).
   function applyFilters() {
     var term = globalSearchTerm();
-    // Sorted by the active sortState (severity-worst-first by default)
+    // Sorted by the active sortState (impact-first by default)
     // and stable, so the report's own type/trace order survives inside
     // each band. The CSV export shares this order.
     // OR inside a group, AND between groups: an empty group filters nothing.
@@ -6026,7 +6029,11 @@
     // otherwise be copied still carrying the stale one.
     if (location.hash) {
       href = href.replace(/([&#])fsort=[^&]*/g, "$1").replace(/[&#]$/, "");
-      if (sortState.key !== "severity" || sortState.dir !== "desc") {
+      // The default is omitted from a shared link, so this has to name the
+      // default: left on "severity" it would drop the fsort from a link
+      // copied while sorting by severity, and the recipient would open on
+      // impact instead.
+      if (sortState.key !== "impact" || sortState.dir !== "desc") {
         href += "&fsort=" + encodeURIComponent(sortState.key + "." + sortState.dir);
       }
     }

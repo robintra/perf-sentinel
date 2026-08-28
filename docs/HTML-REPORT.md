@@ -115,6 +115,16 @@ choice persists in the browser. Hovering the button previews the mode it
 will switch to. Beside it, the theme button cycles System, Light and
 Dark.
 
+### Sorting findings
+
+The list opens on `impact` descending, the aggregate avoidable I/O of every
+detection sharing a signature, so the costliest problem leads. `severity`
+is one click away and ranks the single worst detection instead. Each key
+uses the other as its tie-break, and clicking the active one flips the
+direction. The order also decides which span trees the report carries when
+`--max-traces-embedded` caps them, since the sink keeps the trees the top
+findings point at.
+
 ### Filtering findings
 
 The severity row holds one pill per severity present, each carrying its

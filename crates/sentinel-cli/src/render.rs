@@ -630,11 +630,12 @@ fn print_repeat_stub(
 /// tie-break, matching the dashboard's defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum FindingsSort {
+    /// Highest aggregate avoidable I/O per signature first (the sum over
+    /// every detection sharing it), worst severity among equals. Listed
+    /// first because it is what the dashboard and the TUI open on.
+    Impact,
     /// Worst unitary severity first, highest aggregate impact among equals.
     Severity,
-    /// Highest aggregate avoidable I/O per signature first (the sum over
-    /// every detection sharing it), worst severity among equals.
-    Impact,
 }
 
 /// The one place the sort contract lives, so the surfaces the CHANGELOG
