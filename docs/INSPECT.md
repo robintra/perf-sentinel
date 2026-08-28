@@ -107,7 +107,7 @@ and Explain views.
 | `Esc`                 | Walk back up one step                             |
 | `m`                   | Toggle mouse mode to drag-resize panel borders    |
 | `r`                   | Reset panel sizes to their defaults (Inspect)     |
-| `s`                   | Cycle the sort: id, severity, impact (Inspect)    |
+| `s`                   | Cycle the sort: impact, severity, id (Inspect)    |
 | `f`                   | Cycle the severity filter (Inspect)               |
 | `a`                   | Acknowledge the selected finding (live mode)      |
 | `u`                   | Revoke the existing ack (live mode)               |

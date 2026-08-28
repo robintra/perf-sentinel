@@ -2222,8 +2222,7 @@ fn sorting_also_ranks_the_findings_inside_a_trace() {
         "cursor resets onto the new first row"
     );
 
-    // Back to id order, which is the report's own order.
-    app.cycle_trace_sort();
+    // One more key reaches id order, which is the report's own order.
     app.cycle_trace_sort();
     assert_eq!(app.trace_sort, TraceSort::ById);
     assert_eq!(
@@ -2234,11 +2233,16 @@ fn sorting_also_ranks_the_findings_inside_a_trace() {
 }
 
 #[test]
-fn cycle_trace_sort_ranks_by_severity_then_impact_then_back() {
+fn the_list_opens_on_impact_and_cycles_to_severity_then_id() {
     // make_test_app: trace-1 carries the critical N+1 (5 avoidable ops),
     // trace-2 the warning redundant with no green impact.
     let mut app = make_test_app();
-    assert_eq!(app.trace_sort, TraceSort::ById);
+    // Opening state, not a cycled one: a reader arrives on the costliest.
+    assert_eq!(app.trace_sort, TraceSort::Impact);
+    assert_eq!(
+        app.trace_ids[0], "trace-1",
+        "5 aggregate ops outrank a zero-impact trace"
+    );
 
     app.cycle_trace_sort();
     assert_eq!(app.trace_sort, TraceSort::Severity);
@@ -2247,13 +2251,6 @@ fn cycle_trace_sort_ranks_by_severity_then_impact_then_back() {
         "worst severity first: the critical trace leads"
     );
     assert_eq!(app.selected_trace, 0, "cursor resets on reorder");
-
-    app.cycle_trace_sort();
-    assert_eq!(app.trace_sort, TraceSort::Impact);
-    assert_eq!(
-        app.trace_ids[0], "trace-1",
-        "5 aggregate ops outrank a zero-impact trace"
-    );
 
     app.cycle_trace_sort();
     assert_eq!(app.trace_sort, TraceSort::ById);

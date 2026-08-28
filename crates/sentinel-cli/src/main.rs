@@ -180,9 +180,10 @@ enum Commands {
         /// Include acknowledged findings in the output, alongside ack metadata.
         #[arg(long)]
         show_acknowledged: bool,
-        /// Order the findings: severity (worst first) or impact (highest
-        /// aggregate avoidable I/O per signature first). Omit to keep the
-        /// canonical detector order.
+        /// Order the findings: impact (highest aggregate avoidable I/O per
+        /// signature first) or severity (worst first). Omit to keep the
+        /// canonical detector order in the printed report, `--tui` opens
+        /// on impact either way.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
         /// Launch the interactive TUI instead of printing the report.
@@ -404,8 +405,8 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
-        /// Order the findings: severity (worst first) or impact (highest
-        /// aggregate avoidable I/O per signature first). Applies to every
+        /// Order the findings: impact (highest aggregate avoidable I/O per
+        /// signature first) or severity (worst first). Applies to every
         /// format, so `--format json --sort impact` comes out ranked.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
@@ -460,8 +461,8 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
-        /// Order the findings: severity (worst first) or impact (highest
-        /// aggregate avoidable I/O per signature first). Applies to every
+        /// Order the findings: impact (highest aggregate avoidable I/O per
+        /// signature first) or severity (worst first). Applies to every
         /// format, so `--format json --sort impact` comes out ranked.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
@@ -711,10 +712,10 @@ enum Commands {
         /// unset, the sink trims to target a ~5 MB HTML file size.
         #[arg(long, value_name = "N")]
         max_traces_embedded: Option<usize>,
-        /// Order the findings: severity (worst first) or impact (highest
-        /// aggregate avoidable I/O per signature first). This also decides
-        /// which span trees survive `--max-traces-embedded`, since the sink
-        /// keeps the trees the top findings point at.
+        /// Order the findings: impact (highest aggregate avoidable I/O per
+        /// signature first, the default) or severity (worst first). This
+        /// also decides which span trees survive `--max-traces-embedded`,
+        /// since the sink keeps the trees the top findings point at.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
         /// Path to a `pg_stat_statements` CSV or JSON export. When set,
@@ -1147,10 +1148,10 @@ enum QueryAction {
         /// `[daemon.ack] api_key`.
         #[arg(long, value_name = "PATH")]
         api_key_file: Option<PathBuf>,
-        /// Open the trace and finding lists in this order: severity
-        /// (worst first) or impact (highest aggregate avoidable I/O
-        /// first). Same keys as `analyze --sort`, and `s` cycles them
-        /// in the TUI. Omit to open on trace id order.
+        /// Open the trace and finding lists in this order: impact
+        /// (highest aggregate avoidable I/O first) or severity (worst
+        /// first). Same keys as `analyze --sort`. Omit to open on
+        /// impact, and `s` cycles through both plus trace id order.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
     },
@@ -2656,9 +2657,14 @@ async fn cmd_report(
     // After the acks so a masked finding does not weigh in the aggregate,
     // and before the sink so `--max-traces-embedded` keeps the trees the
     // top findings point at rather than the ones the producer wrote first.
-    if let Some(mode) = sort {
-        render::sort_findings(&mut report.findings, mode);
-    }
+    // Impact when the caller said nothing, because that is what the
+    // dashboard opens on: leaving the two out of step would embed the
+    // trees of one ranking and show the other, so the top row would open
+    // without a tree for no reason a reader could see.
+    render::sort_findings(
+        &mut report.findings,
+        sort.unwrap_or(render::FindingsSort::Impact),
+    );
     let input_label = input_label_for(input, stdin_mode);
 
     // Clap's `requires` does not express an OR-of-flags, so validate the
