@@ -816,10 +816,7 @@ fn order_candidates_by_findings<'a>(
     findings: &[crate::detect::Finding],
     traces: &'a [Trace],
 ) -> Vec<&'a Trace> {
-    let mut rank_by_trace: HashMap<&str, usize> = HashMap::new();
-    for (i, f) in findings.iter().enumerate() {
-        rank_by_trace.entry(f.trace_id.as_str()).or_insert(i);
-    }
+    let rank_by_trace = crate::report::embedded::first_reference_rank(findings);
     let mut scored: Vec<(usize, &'a Trace)> = traces
         .iter()
         .filter_map(|t| rank_by_trace.get(t.trace_id.as_str()).map(|r| (*r, t)))
@@ -1008,14 +1005,10 @@ fn select_report_carried_traces(
     report: &Report,
     options: &RenderOptions,
 ) -> (Vec<EmbeddedTrace>, Option<TrimSummary>) {
-    // Where each visible trace first appears in the findings list. Ranking
-    // on that rather than on severity is what makes the caller's own order
-    // decide the embed: `report.embedded_traces` arrives sorted by trace id,
-    // which carries no information on a backend that mints random ids.
-    let mut rank_by_trace: HashMap<&str, usize> = HashMap::new();
-    for (i, f) in report_embed.findings.iter().enumerate() {
-        rank_by_trace.entry(f.trace_id.as_str()).or_insert(i);
-    }
+    // The shared selection rule: the caller's own findings order decides
+    // the embed, `report.embedded_traces` arrives sorted by trace id, which
+    // carries no information on a backend that mints random ids.
+    let rank_by_trace = crate::report::embedded::first_reference_rank(&report_embed.findings);
     let mut ranked: Vec<(usize, &EmbeddedTrace)> = report
         .embedded_traces
         .iter()

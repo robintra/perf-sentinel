@@ -555,8 +555,9 @@ fn applies_max_traces_embedded_cap_via_top_waste_fallback() {
             trace_id: tid.clone(),
             spans: vec![span(&tid, "s", None, &svc, &ep, &tpl)],
         });
-        // Feed top_offenders so every trace has a rank (no
-        // usize::MAX ties that would leave ordering unspecified).
+        // top_offenders no longer drives the trace ranking (the findings
+        // list does), kept populated so the GreenOps panel under test
+        // stays realistic.
         offenders.push(TopOffender {
             endpoint: ep.clone(),
             service: svc.clone(),

@@ -245,7 +245,14 @@ async fn search_and_fetch_traces_with_grouping(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(client, uri, auth, false, "lower --max-traces").await?;
+    let body = fetch_json(
+        client,
+        uri,
+        auth,
+        false,
+        crate::ingest::SEARCH_OVERRUN_REMEDY,
+    )
+    .await?;
 
     // `serde_json::from_slice` operates directly on `&[u8]`, avoiding
     // the `Bytes -> Vec<u8> -> String` round trip that would double
@@ -294,14 +301,7 @@ async fn fetch_trace_with_grouping(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(
-        client,
-        uri,
-        auth,
-        true,
-        "this single trace is larger than the response cap, --max-traces cannot shrink it",
-    )
-    .await?;
+    let body = fetch_json(client, uri, auth, true, crate::ingest::TRACE_OVERRUN_REMEDY).await?;
 
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
