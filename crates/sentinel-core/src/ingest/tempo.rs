@@ -54,12 +54,14 @@ pub enum TempoError {
 
     /// Kept apart from [`TempoError::BodyRead`] because it is the one body
     /// failure an operator can act on, and because the limit is ours: the
-    /// generic wording sent people looking at Tempo or at the network.
+    /// generic wording sent people looking at Tempo or at the network. The
+    /// remedy travels with the failing path, a search overrun shrinks with
+    /// `--max-traces` while a single trace past the per-trace cap cannot.
     #[error(
-        "response body exceeded the {0} byte cap perf-sentinel applies to it, \
-         which is a limit of this client and not of the backend, lower --max-traces"
+        "response body exceeded the {limit} byte cap perf-sentinel applies to it, \
+         which is a limit of this client and not of the backend, {remedy}"
     )]
-    BodyTooLarge(usize),
+    BodyTooLarge { limit: usize, remedy: &'static str },
 
     #[error("failed to decode protobuf response: {0}")]
     ProtobufDecode(String),
@@ -119,15 +121,12 @@ struct TraceMeta {
 /// legitimate `--max-traces 5000` failed on a limit of our own making.
 const MAX_SEARCH_BODY_BYTES: usize = 16 * 1024 * 1024;
 
-/// Upper bound on `--max-traces`, matching `jaeger-query`. Not a backend
-/// limit: it is the largest search this client is sized to read back.
-pub const MAX_SEARCH_TRACES: usize = 10_000;
-
-/// The cap has to read back the largest search the flag accepts. Measured
-/// on realistic Tempo summaries (root service, name, duration, span set):
-/// about 212 bytes per trace. Checked at compile time so raising the flag's
-/// ceiling without raising the cap cannot build.
-const _: () = assert!(MAX_SEARCH_TRACES * 212 < MAX_SEARCH_BODY_BYTES);
+/// The cap has to read back the largest search the flag accepts, with a
+/// wide margin. Measured on realistic Tempo summaries (root service,
+/// name, duration, span set): about 212 bytes per trace. A floor, not a
+/// fit: the guarantee is that a `--max-traces` at the ceiling cannot die
+/// on this cap, and only a raise well past the ceiling stops building.
+const _: () = assert!(crate::ingest::MAX_SEARCH_TRACES * 212 < MAX_SEARCH_BODY_BYTES);
 
 /// Maximum body size for a full trace fetch (64 MiB).
 ///
@@ -153,6 +152,7 @@ const FETCH_CONCURRENCY: usize = 16;
 /// Builds the request, applies the timeout, checks the HTTP status, and
 /// reads the limited body. When `map_404` is true, 404 responses return
 /// `TempoError::TraceNotFound` instead of the generic `HttpStatus`.
+#[allow(clippy::too_many_arguments)]
 async fn fetch_raw(
     client: &HttpClient,
     uri: hyper::Uri,
@@ -161,6 +161,7 @@ async fn fetch_raw(
     map_404: bool,
     timeout: Duration,
     auth: Option<&AuthHeader>,
+    overrun_remedy: &'static str,
 ) -> Result<bytes::Bytes, TempoError> {
     let mut builder = hyper::Request::builder()
         .method(hyper::Method::GET)
@@ -199,7 +200,7 @@ async fn fetch_raw(
     let limited = http_body_util::Limited::new(resp.into_body(), max_bytes);
     let body = http_body_util::BodyExt::collect(limited)
         .await
-        .map_err(|e| classify_body_error(&*e, max_bytes))?
+        .map_err(|e| classify_body_error(&*e, max_bytes, overrun_remedy))?
         .to_bytes();
 
     Ok(body)
@@ -208,13 +209,13 @@ async fn fetch_raw(
 /// Tell a body that outgrew its cap apart from a transfer that broke for
 /// any other reason. `Limited` boxes the overrun as a `LengthLimitError`,
 /// so `Display` alone cannot separate the two.
-fn classify_body_error(e: &(dyn std::error::Error + 'static), limit: usize) -> TempoError {
-    let mut source = Some(e);
-    while let Some(err) = source {
-        if err.is::<http_body_util::LengthLimitError>() {
-            return TempoError::BodyTooLarge(limit);
-        }
-        source = err.source();
+fn classify_body_error(
+    e: &(dyn std::error::Error + 'static),
+    limit: usize,
+    remedy: &'static str,
+) -> TempoError {
+    if http_client::is_body_limit_error(e) {
+        return TempoError::BodyTooLarge { limit, remedy };
     }
     TempoError::BodyRead(format!("{e}"))
 }
@@ -235,6 +236,7 @@ async fn fetch_bytes(
         true,
         FETCH_TRACE_TIMEOUT,
         auth,
+        "this single trace is larger than the per-trace cap, --max-traces cannot shrink it",
     )
     .await
 }
@@ -254,6 +256,7 @@ async fn fetch_json(
         false,
         SEARCH_TIMEOUT,
         auth,
+        "lower --max-traces",
     )
     .await?;
     String::from_utf8(body.to_vec()).map_err(|e| TempoError::BodyRead(e.to_string()))
@@ -363,7 +366,7 @@ fn classify_fetch_error(error: &TempoError) -> &'static str {
         TempoError::HttpStatus { .. } => "http_status",
         TempoError::ProtobufDecode(_) => "protobuf_decode",
         TempoError::BodyRead(_) => "body_read",
-        TempoError::BodyTooLarge(_) => "body_too_large",
+        TempoError::BodyTooLarge { .. } => "body_too_large",
         TempoError::JsonParse(_) => "json_parse",
         _ => "other",
     }
@@ -744,16 +747,28 @@ mod tests {
         let error = http_body_util::BodyExt::collect(limited)
             .await
             .expect_err("a 100 byte body over a 10 byte cap must fail");
-        let overrun = classify_body_error(&*error, 4096);
-        assert!(matches!(overrun, TempoError::BodyTooLarge(4096)));
+        let overrun = classify_body_error(&*error, 4096, "lower --max-traces");
+        assert!(matches!(
+            overrun,
+            TempoError::BodyTooLarge { limit: 4096, .. }
+        ));
         // The wording is the point: the previous message sent operators
-        // looking at Tempo for a limit this client imposes.
+        // looking at Tempo for a limit this client imposes, and the search
+        // remedy must not leak onto a single-trace fetch where the flag
+        // cannot shrink anything.
         let text = overrun.to_string();
         assert!(text.contains("4096"), "{text}");
         assert!(text.contains("not of the backend"), "{text}");
-        assert!(text.contains("--max-traces"), "{text}");
+        assert!(text.contains("lower --max-traces"), "{text}");
+        let trace_text = classify_body_error(
+            &*error,
+            4096,
+            "this single trace is larger than the per-trace cap, --max-traces cannot shrink it",
+        )
+        .to_string();
+        assert!(trace_text.contains("cannot shrink it"), "{trace_text}");
 
-        let other = classify_body_error(&std::io::Error::other("socket closed"), 4096);
+        let other = classify_body_error(&std::io::Error::other("socket closed"), 4096, "unused");
         assert!(matches!(other, TempoError::BodyRead(_)));
     }
 
@@ -1414,6 +1429,13 @@ mod tests {
         assert_eq!(
             classify_fetch_error(&TempoError::JsonParse("j".into())),
             "json_parse"
+        );
+        assert_eq!(
+            classify_fetch_error(&TempoError::BodyTooLarge {
+                limit: 1,
+                remedy: "r"
+            }),
+            "body_too_large"
         );
         // Variants that should never reach the per-trace classifier in
         // practice (they surface earlier in the pipeline) fall through to

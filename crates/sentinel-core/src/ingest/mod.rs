@@ -21,6 +21,12 @@ pub mod zipkin;
 
 use crate::event::SpanEvent;
 
+/// Upper bound on `--max-traces` for the backend-query subcommands,
+/// tempo and jaeger-query alike. Not a backend limit: it is the largest
+/// search either client is sized to read back, and it lives here, off
+/// every feature gate, so both clap declarations name the same number.
+pub const MAX_SEARCH_TRACES: usize = 10_000;
+
 /// Give route templates the canonical path shape used by findings.
 ///
 /// Some instrumentations emit `http.route` without its leading slash. Keep

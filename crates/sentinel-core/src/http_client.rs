@@ -144,14 +144,25 @@ pub enum FetchError {
 /// body error, so the two are indistinguishable through `Display` alone,
 /// and collapsing them loses the only one an operator can fix.
 fn classify_body_error(e: &(dyn std::error::Error + 'static)) -> FetchError {
+    if is_body_limit_error(e) {
+        return FetchError::BodyTooLarge(MAX_BODY_BYTES);
+    }
+    FetchError::BodyRead(format!("{e}"))
+}
+
+/// Walk the source chain for the `LengthLimitError` a `Limited` body
+/// boxes on overrun. The one walker for every ingest client, so a new
+/// caller cannot re-collapse the only body failure an operator can fix
+/// into its generic read error.
+pub(crate) fn is_body_limit_error(e: &(dyn std::error::Error + 'static)) -> bool {
     let mut source = Some(e);
     while let Some(err) = source {
         if err.is::<http_body_util::LengthLimitError>() {
-            return FetchError::BodyTooLarge(MAX_BODY_BYTES);
+            return true;
         }
         source = err.source();
     }
-    FetchError::BodyRead(format!("{e}"))
+    false
 }
 
 /// Perform a `GET` request with a timeout and body size cap.
