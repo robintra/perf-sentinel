@@ -435,21 +435,19 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 ![explain trace-level header with chatty service warning](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/trace-level.png)
 
-**Inspect mode** (`perf-sentinel inspect`). The findings panel header colors findings by severity, below are five frames walking the demo fixture across the three severity levels plus a detail-panel view with its scroll feature:
+**Inspect mode** (`perf-sentinel inspect`). The findings panel header colors findings by severity, below are four frames walking the demo fixture across the three severity levels, including a detail-panel view with its scroll feature:
 
-![inspect TUI, initial view: chatty service warning (yellow)](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
+![inspect TUI, initial view: the highest-impact trace first, N+1 SQL critical (red) with 10 occurrences and a batch suggestion](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
 
 ![inspect TUI, detail panel active: top of the excessive fanout span tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail.png)
 
 ![inspect TUI, detail panel scrolled down: bottom half of the fanout tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail-scrolled.png)
 
-![inspect TUI, N+1 SQL critical (red): 10 occurrences, batch suggestion](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/critical.png)
-
 ![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
 `inspect --input` also auto-detects a pre-computed Report JSON (e.g. a daemon snapshot from `/api/export/report`, or `tempo`/`jaeger-query --format json`). Findings and Correlations panels light up fully, and the Detail panel draws the masked span trees the report carries, stubbing only a trace whose spans the input does not hold:
 
-![inspect TUI, Report-mode input: 4 panels with cross-trace correlations and the span-tree hint](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+![inspect TUI, Report-mode input: 4 panels with cross-trace correlations and the span tree the report carries](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
 
 **Live operator monitor** (`perf-sentinel query --daemon <URL> monitor`). Read-only, daemon-backed, four Tab-cycled tabs. The data it surfaces (config hints, source provenance, per-region intensities) is categorical and high-cardinality, exactly what the bounded-label rule keeps off Prometheus `/metrics`:
 

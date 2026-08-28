@@ -1,5 +1,5 @@
 # VHS script, generates docs/img/inspect/demo.gif and five still frames
-# (main.png, detail.png, detail-scrolled.png, critical.png, info.png).
+# (main.png, detail.png, detail-scrolled.png, info.png).
 #
 # Showcases the `perf-sentinel inspect` TUI mode, a 4-panel interactive
 # explorer for traces, findings, finding details and cross-trace
@@ -86,11 +86,11 @@ Sleep 3s
 Screenshot docs/img/inspect/main.png
 Sleep 4s
 
-# Step down to the fanout trace (position 1) and drill into the detail
-# panel via Tab Tab. Detail panel shows the full 22-span tree of the
-# `POST /api/checkout/confirm` trace, the most visually rich span tree
-# in the demo fixture.
-Down
+# The list opens on the highest-impact trace, so the walk down is now a
+# walk down the impact ranking. Six steps reach the fanout trace, whose
+# full 22-span tree of `POST /api/checkout/confirm` is the most visually
+# rich in the demo fixture, then Tab Tab drills into the detail panel.
+Down@600ms 6
 Sleep 4s
 Tab
 Sleep 3s
@@ -111,28 +111,19 @@ Sleep 4s
 
 # Rewind back to the traces panel. Two Tabs because the cycle is now
 # Detail → Correlations → Traces (the Correlations panel was added in
-# the 4-panel layout). Then walk down to the CRITICAL trace (N+1 SQL
-# ×10 at position 3). `move_down` on Traces automatically resets
-# `scroll_offset` and clears `cached_detail`, so the scrolled state
-# does not leak into the next trace's view. The findings panel
-# header flips from yellow WARNING to red CRITICAL as the viewer
-# watches the color shift.
+# the 4-panel layout). Then walk back up three places to the INFO trace
+# (redundant HTTP). `move_up` on Traces resets `scroll_offset` and
+# clears `cached_detail` just as `move_down` does, so the scrolled state
+# does not leak into the next trace's view. The findings panel header
+# flips to cyan INFO as the viewer watches the color shift.
+#
+# No separate CRITICAL frame: impact ordering opens the list on the one
+# critical finding the demo fixture holds, so main.png already is it.
 Tab
 Sleep 1s
 Tab
 Sleep 3s
-Down
-Sleep 4s
-Down
-Sleep 4s
-Screenshot docs/img/inspect/critical.png
-Sleep 4s
-
-# Keep walking down to the INFO trace (redundant HTTP at position 5).
-# Findings panel header flips to cyan INFO.
-Down
-Sleep 4s
-Down
+Up@600ms 3
 Sleep 4s
 Screenshot docs/img/inspect/info.png
 Sleep 4s
