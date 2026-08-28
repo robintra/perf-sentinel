@@ -217,3 +217,39 @@ fn cli_tempo_absolute_window_reaches_the_fetch() {
         "a fetch/network failure must exit EXIT_TOOLING_ERROR (75), not 1"
     );
 }
+
+#[test]
+fn cli_tempo_rejects_max_traces_past_the_shared_ceiling() {
+    // Parse-time, no server involved: the bound is the client's, shared
+    // with jaeger-query, and must refuse before any request is issued.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "tempo",
+            "--endpoint",
+            "http://127.0.0.1:1",
+            "--service",
+            "svc",
+            "--max-traces",
+            "999999",
+        ])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert_eq!(output.status.code(), Some(2), "clap usage error");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("1..=10000"),
+        "the refusal names the range, got: {stderr}"
+    );
+}
+
+#[test]
+fn cli_tempo_help_mentions_sort() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["tempo", "--help"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--sort"), "help mentions --sort");
+}

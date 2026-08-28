@@ -64,6 +64,16 @@ pub enum JaegerQueryError {
     #[error("failed to read response body: {0}")]
     BodyRead(String),
 
+    /// Kept apart from [`JaegerQueryError::BodyRead`] because it is the
+    /// one body failure an operator can act on, and because the limit is
+    /// ours: the generic wording sent people looking at Jaeger or at the
+    /// network. Same shape as the Tempo twin.
+    #[error(
+        "response body exceeded the {limit} byte cap perf-sentinel applies to it, \
+         which is a limit of this client and not of the backend, {remedy}"
+    )]
+    BodyTooLarge { limit: usize, remedy: &'static str },
+
     #[error("failed to parse JSON response: {0}")]
     JsonParse(String),
 
@@ -117,6 +127,7 @@ async fn fetch_json(
     uri: hyper::Uri,
     auth: Option<&AuthHeader>,
     map_404: bool,
+    overrun_remedy: &'static str,
 ) -> Result<bytes::Bytes, JaegerQueryError> {
     let run = async {
         let mut builder = hyper::Request::builder()
@@ -152,7 +163,16 @@ async fn fetch_json(
         let limited = http_body_util::Limited::new(resp.into_body(), MAX_RESPONSE_BYTES);
         let body = http_body_util::BodyExt::collect(limited)
             .await
-            .map_err(|e| JaegerQueryError::BodyRead(e.to_string()))?
+            .map_err(|e| {
+                if http_client::is_body_limit_error(&*e) {
+                    JaegerQueryError::BodyTooLarge {
+                        limit: MAX_RESPONSE_BYTES,
+                        remedy: overrun_remedy,
+                    }
+                } else {
+                    JaegerQueryError::BodyRead(e.to_string())
+                }
+            })?
             .to_bytes();
 
         if body.len() >= RESPONSE_BYTES_LOG_THRESHOLD {
@@ -225,7 +245,7 @@ async fn search_and_fetch_traces_with_grouping(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(client, uri, auth, false).await?;
+    let body = fetch_json(client, uri, auth, false, "lower --max-traces").await?;
 
     // `serde_json::from_slice` operates directly on `&[u8]`, avoiding
     // the `Bytes -> Vec<u8> -> String` round trip that would double
@@ -274,7 +294,14 @@ async fn fetch_trace_with_grouping(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(client, uri, auth, true).await?;
+    let body = fetch_json(
+        client,
+        uri,
+        auth,
+        true,
+        "this single trace is larger than the response cap, --max-traces cannot shrink it",
+    )
+    .await?;
 
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
