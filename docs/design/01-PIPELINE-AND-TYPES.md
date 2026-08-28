@@ -49,7 +49,7 @@ pub fn sort_findings(findings: &mut [Finding]) {
 }
 ```
 
-This function is defined in `detect/mod.rs` and reused by `pipeline::analyze()` and `cmd_inspect` to guarantee consistent ordering everywhere. It requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
+This function is defined in `detect/mod.rs` and gives every sink the same deterministic baseline order. Presentation layers sort on top of it rather than replacing it: `--sort` on `analyze`, `report`, `tempo` and `jaeger-query`, the dashboard's `initial_sort`, and the TUI's impact-first opening all reorder a list whose ties this canonical order already settled. It requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
 
 Top offenders are similarly sorted (IIS descending, alphabetical tiebreaker) to ensure the same report for the same input.
 

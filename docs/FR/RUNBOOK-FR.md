@@ -134,8 +134,9 @@ L'étape 4 fait passer la trace historique par le même pipeline `normalize → 
 # Expliquer une trace identifiée
 perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123def456
 
-# Balayer un service sur une fenêtre quand le trace_id n'est pas encore connu
-perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h
+# Balayer un service sur une fenêtre quand le trace_id n'est pas encore
+# connu, findings les plus coûteux d'abord
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h --sort impact
 
 # Artefact post-mortem pour un ticket ou une PR
 perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123 --format json > incident.json
