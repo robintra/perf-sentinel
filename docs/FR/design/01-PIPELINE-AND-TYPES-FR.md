@@ -49,7 +49,7 @@ pub fn sort_findings(findings: &mut [Finding]) {
 }
 ```
 
-Cette fonction est définie dans `detect/mod.rs` et donne à chaque sink le même ordre de base déterministe. Les couches de présentation trient par-dessus plutôt que de le remplacer : `--sort` sur `analyze`, `report`, `tempo` et `jaeger-query`, l'`initial_sort` du dashboard et l'ouverture par impact du TUI réordonnent une liste dont cet ordre canonique a déjà départagé les égalités. Cela nécessite que `FindingType` et `Severity` implémentent `Ord`. Le `Ord` dérivé utilise l'ordre de déclaration des variantes, donnant un tri stable : `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
+Cette fonction est définie dans `detect/mod.rs` et donne à chaque générateur le même ordre de base déterministe. Les couches de présentation trient par-dessus plutôt que de le remplacer : `--sort` sur `analyze`, `report`, `tempo` et `jaeger-query`, l'`initial_sort` du dashboard et l'ouverture par impact du TUI réordonnent une liste dont cet ordre canonique a déjà départagé les égalités. Cela nécessite que `FindingType` et `Severity` implémentent `Ord`. Le `Ord` dérivé utilise l'ordre de déclaration des variantes, donnant un tri stable : `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
 
 Les top offenders sont triés de manière similaire (IIS décroissant, ordre alphabétique en cas d'égalité) pour garantir le même rapport pour la même entrée.
 
