@@ -130,6 +130,7 @@
   .ps-tipbox-below::before { left: var(--tip-caret-x, 20px); top: -5px; transform: rotate(45deg); border-bottom: 0; border-top: 1px solid var(--border-2); }
   .ps-tipbox .ps-code-inline { font-size: 10.5px; white-space: nowrap; }
   .ps-metric-sub .ps-code-inline { font-size: 10px; white-space: nowrap; }
+  .ps-detail-empty .ps-code-inline { white-space: nowrap; }
   /* The run-context line (batch/CI, daemon staging/prod) and the version
      line show in every mode. The dot only pulses in live/daemon mode. */
   .ps-sidebar-foot { display: flex; height: 62px; padding: 0 16px; border-top: 1px solid var(--border); flex-direction: column; justify-content: center; gap: 6px; }
@@ -3181,14 +3182,14 @@
       // carries the id and its copy button.
       notEmbedded.style.display = "";
       if (payload.trimmed_traces) {
-        notEmbedded.textContent = "Trace not embedded: " + payload.trimmed_traces.kept +
+        proseInto(notEmbedded, "Trace not embedded: " + payload.trimmed_traces.kept +
           " of " + payload.trimmed_traces.total + " span trees fit this report's size budget. " +
-          "A narrower run keeps them all, and from a shell --max-traces-embedded <higher> " +
-          "keeps them here, in a heavier file.";
+          "A narrower run keeps them all, and from a shell a higher `--max-traces-embedded` " +
+          "keeps them here, in a heavier file.");
       } else if (embeddedTraces.length === 0) {
-        notEmbedded.textContent = "No span tree in this report: the Report JSON it was rendered from carried no spans. A daemon snapshot carries only what the daemon still holds, and a saved baseline carries none at all. If a daemon has this trace, the id above reads it: perf-sentinel query --daemon <URL> explain <trace_id>.";
+        proseInto(notEmbedded, "No span tree in this report: the Report JSON it was rendered from carried no spans. A daemon snapshot carries only what the daemon still holds, and a saved baseline carries none at all. If a daemon has this trace, the id above reads it: `perf-sentinel query --daemon <URL> explain <trace_id>`.");
       } else if (isDaemonProducedRun()) {
-        notEmbedded.textContent = "Trace not in this snapshot: it aged out of the daemon's trace retention ([daemon] max_retained_traces) or was dropped by the export size cap. Recent findings keep their trees; for this one, use the trace_id above against the live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
+        proseInto(notEmbedded, "Trace not in this snapshot: it aged out of the daemon's trace retention (`[daemon] max_retained_traces`) or was dropped by the export size cap. Recent findings keep their trees, for this one use the trace_id above against the live daemon: `perf-sentinel query --daemon <URL> explain <trace_id>`.");
       } else {
         notEmbedded.textContent = "Trace not embedded in this report.";
       }
