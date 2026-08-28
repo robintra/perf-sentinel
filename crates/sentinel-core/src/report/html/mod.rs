@@ -1005,9 +1005,11 @@ fn embed_trace_ref(t: &Trace) -> EmbeddedTraceRef<'_> {
 
 /// Traces a snapshot-style report carries itself, filtered to the
 /// findings the payload shows (an acknowledged finding's tree must not
-/// ship) and ranked like the page ranks findings: worst referencing
-/// severity first, newest flush as the tie-break, so the trees kept are
-/// the ones the top rows point at. Bounded by the explicit
+/// ship) and ranked by the first finding that references each one, so the
+/// trees kept are the ones the top rows point at whatever order the caller
+/// ranked findings in. `report --sort impact` therefore decides which
+/// trees survive the cap, not only how the list reads. Bounded by the
+/// explicit
 /// `--max-traces-embedded` cap when set, otherwise by what the size
 /// target leaves after the rest of the payload, measured rather than
 /// assumed so the findings' own budget share cannot overlap it. A trace
@@ -1018,37 +1020,28 @@ fn select_report_carried_traces(
     report: &Report,
     options: &RenderOptions,
 ) -> (Vec<EmbeddedTrace>, Option<TrimSummary>) {
-    // Worst severity referencing each visible trace. Severity orders
-    // Critical < Warning < Info, so worst = min.
-    let mut severity_by_trace: HashMap<&str, crate::detect::Severity> = HashMap::new();
-    for f in &report_embed.findings {
-        severity_by_trace
-            .entry(f.trace_id.as_str())
-            .and_modify(|s| {
-                if f.severity < *s {
-                    s.clone_from(&f.severity);
-                }
-            })
-            .or_insert_with(|| f.severity.clone());
+    // Where each visible trace first appears in the findings list. Ranking
+    // on that rather than on severity is what makes the caller's own order
+    // decide the embed: `report.embedded_traces` arrives sorted by trace id,
+    // which carries no information on a backend that mints random ids.
+    let mut rank_by_trace: HashMap<&str, usize> = HashMap::new();
+    for (i, f) in report_embed.findings.iter().enumerate() {
+        rank_by_trace.entry(f.trace_id.as_str()).or_insert(i);
     }
-    let mut ranked: Vec<(crate::detect::Severity, usize, &EmbeddedTrace)> = report
+    let mut ranked: Vec<(usize, &EmbeddedTrace)> = report
         .embedded_traces
         .iter()
-        .enumerate()
-        .filter_map(|(pos, t)| {
-            severity_by_trace
-                .get(t.trace_id.as_str())
-                .map(|sev| (sev.clone(), pos, t))
-        })
+        .filter_map(|t| rank_by_trace.get(t.trace_id.as_str()).map(|r| (*r, t)))
         .collect();
     let total = ranked.len();
-    ranked.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+    // Ranks are unique per trace, so this order is total, no tie-break.
+    ranked.sort_by_key(|(rank, _)| *rank);
 
     let kept: Vec<EmbeddedTrace> = if let Some(cap) = options.max_traces_embedded {
         ranked
             .into_iter()
             .take(cap)
-            .map(|(_, _, t)| t.clone())
+            .map(|(_, t)| t.clone())
             .collect()
     } else {
         let json_budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len());
@@ -1057,7 +1050,7 @@ fn select_report_carried_traces(
         let mut spent = 0usize;
         ranked
             .into_iter()
-            .filter(|(_, _, t)| {
+            .filter(|(_, t)| {
                 let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
                 if spent.saturating_add(size) > budget {
                     return false;
@@ -1065,7 +1058,7 @@ fn select_report_carried_traces(
                 spent += size;
                 true
             })
-            .map(|(_, _, t)| t.clone())
+            .map(|(_, t)| t.clone())
             .collect()
     };
     let trimmed = (kept.len() < total).then_some(TrimSummary {

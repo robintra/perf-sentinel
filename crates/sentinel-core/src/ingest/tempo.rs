@@ -123,6 +123,12 @@ const MAX_SEARCH_BODY_BYTES: usize = 16 * 1024 * 1024;
 /// limit: it is the largest search this client is sized to read back.
 pub const MAX_SEARCH_TRACES: usize = 10_000;
 
+/// The cap has to read back the largest search the flag accepts. Measured
+/// on realistic Tempo summaries (root service, name, duration, span set):
+/// about 212 bytes per trace. Checked at compile time so raising the flag's
+/// ceiling without raising the cap cannot build.
+const _: () = assert!(MAX_SEARCH_TRACES * 212 < MAX_SEARCH_BODY_BYTES);
+
 /// Maximum body size for a full trace fetch (64 MiB).
 ///
 /// Tempo traces can legitimately carry hundreds or thousands of spans
@@ -734,11 +740,10 @@ mod tests {
         // Through the real path: LengthLimitError is non-exhaustive and
         // cannot be built, only provoked.
         let body = http_body_util::Full::new(bytes::Bytes::from(vec![0u8; 100]));
-        let limited = http_body_util::Limited::new(body, 4096.min(10));
+        let limited = http_body_util::Limited::new(body, 10);
         let error = http_body_util::BodyExt::collect(limited)
             .await
-            .err()
-            .expect("a 100 byte body over a 10 byte cap must fail");
+            .expect_err("a 100 byte body over a 10 byte cap must fail");
         let overrun = classify_body_error(&*error, 4096);
         assert!(matches!(overrun, TempoError::BodyTooLarge(4096)));
         // The wording is the point: the previous message sent operators
@@ -750,17 +755,6 @@ mod tests {
 
         let other = classify_body_error(&std::io::Error::other("socket closed"), 4096);
         assert!(matches!(other, TempoError::BodyRead(_)));
-    }
-
-    #[test]
-    fn the_search_cap_covers_the_largest_search_the_flag_accepts() {
-        // Measured on realistic Tempo summaries (root service, name,
-        // duration, span set): about 212 bytes per trace.
-        const BYTES_PER_SUMMARY: usize = 212;
-        assert!(
-            MAX_SEARCH_TRACES * BYTES_PER_SUMMARY < MAX_SEARCH_BODY_BYTES,
-            "the cap must read back a search of MAX_SEARCH_TRACES"
-        );
     }
 
     /// String `KeyValue`, the shape every OTLP fixture in this module needs.
