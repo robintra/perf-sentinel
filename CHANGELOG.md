@@ -2,6 +2,13 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `tempo` and `jaeger-query` now carry the masked spans of their findings' traces in `--format json`, so a report rendered from that JSON draws the Explain tab's span tree instead of announcing it has none. The spans were already correlated and then discarded: both subcommands called `pipeline::analyze`, which is `analyze_with_traces(...).0`. The effect was sharpest in trace-ID mode, where an operator fetches exactly one trace by its identifier and got back a report that refused to draw that trace. The field is `skip_serializing_if = "Vec::is_empty"` and only traces a finding points at are carried, so a clean run grows by zero bytes and archived baselines stay byte-identical. `inspect --input` gains the same trees, it already rebuilt them from this field for daemon snapshots.
+- The dashboard's "no span tree" message no longer claims a Report JSON carries findings but not spans, which the daemon's own `/api/export/report` has always contradicted, and no longer guesses which of two origins produced the report. It also states the daemon remedy as a condition rather than an instruction, since the reader's topology may not have one.
+
 ## [0.16.0] - 2026-08-28
 
 ### Added

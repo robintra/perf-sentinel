@@ -3183,7 +3183,7 @@
       if (payload.trimmed_traces) {
         notEmbedded.textContent = "Trace not embedded (trimmed to fit the size budget). Rerun with --max-traces-embedded <higher> to include it.";
       } else if (embeddedTraces.length === 0) {
-        notEmbedded.textContent = "No span tree in this report: it was built from a Report JSON (a daemon snapshot or a saved baseline), which carries findings but not spans. Use the trace_id above against a live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
+        notEmbedded.textContent = "No span tree in this report: the Report JSON it was rendered from carried no spans. A daemon snapshot carries only what the daemon still holds, and a saved baseline carries none at all. If a daemon has this trace, the id above reads it: perf-sentinel query --daemon <URL> explain <trace_id>.";
       } else if (isDaemonProducedRun()) {
         notEmbedded.textContent = "Trace not in this snapshot: it aged out of the daemon's trace retention ([daemon] max_retained_traces) or was dropped by the export size cap. Recent findings keep their trees; for this one, use the trace_id above against the live daemon: perf-sentinel query --daemon <URL> explain <trace_id>.";
       } else {
