@@ -236,7 +236,7 @@ async fn fetch_bytes(
         true,
         FETCH_TRACE_TIMEOUT,
         auth,
-        "this single trace is larger than the per-trace cap, --max-traces cannot shrink it",
+        crate::ingest::TRACE_OVERRUN_REMEDY,
     )
     .await
 }
@@ -256,7 +256,7 @@ async fn fetch_json(
         false,
         SEARCH_TIMEOUT,
         auth,
-        "lower --max-traces",
+        crate::ingest::SEARCH_OVERRUN_REMEDY,
     )
     .await?;
     String::from_utf8(body.to_vec()).map_err(|e| TempoError::BodyRead(e.to_string()))
@@ -760,12 +760,8 @@ mod tests {
         assert!(text.contains("4096"), "{text}");
         assert!(text.contains("not of the backend"), "{text}");
         assert!(text.contains("lower --max-traces"), "{text}");
-        let trace_text = classify_body_error(
-            &*error,
-            4096,
-            "this single trace is larger than the per-trace cap, --max-traces cannot shrink it",
-        )
-        .to_string();
+        let trace_text =
+            classify_body_error(&*error, 4096, crate::ingest::TRACE_OVERRUN_REMEDY).to_string();
         assert!(trace_text.contains("cannot shrink it"), "{trace_text}");
 
         let other = classify_body_error(&std::io::Error::other("socket closed"), 4096, "unused");

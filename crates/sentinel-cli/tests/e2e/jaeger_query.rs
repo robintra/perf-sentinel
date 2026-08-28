@@ -184,3 +184,39 @@ fn cli_jaeger_query_inverted_absolute_window_exits_tooling_error() {
         "an inverted window must exit EXIT_TOOLING_ERROR (75), not 1"
     );
 }
+
+#[test]
+fn cli_jaeger_query_rejects_max_traces_past_the_shared_ceiling() {
+    // Parse-time twin of the tempo test: the two subcommands read the
+    // same constant and must refuse the same way.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "jaeger-query",
+            "--endpoint",
+            "http://127.0.0.1:1",
+            "--service",
+            "svc",
+            "--max-traces",
+            "999999",
+        ])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert_eq!(output.status.code(), Some(2), "clap usage error");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("1..=10000"),
+        "the refusal names the range, got: {stderr}"
+    );
+}
+
+#[test]
+fn cli_jaeger_query_help_mentions_sort() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["jaeger-query", "--help"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--sort"), "help mentions --sort");
+}

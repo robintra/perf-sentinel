@@ -71,16 +71,16 @@ pub(crate) async fn cmd_tempo(
         no_acknowledgments,
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
-    // This JSON is rendered later by `report --input`, which sees no raw
-    // traces, so carry the masked spans the way the daemon export does.
-    // Only the JSON sink serializes them, the text and SARIF paths would
-    // clone spans nobody reads. After the acks, so a suppressed finding
-    // does not drag its tree along.
-    if matches!(
-        crate::render::effective_format(format, ci),
-        crate::OutputFormat::Json
-    ) {
-        sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
-    }
-    emit_report_and_gate(&mut report, format, ci, "tempo", sort, show_acknowledged);
+    // The seam embeds the findings' masked spans into the JSON sink, so
+    // this JSON still draws span trees when `report --input` renders it
+    // later without its input, the way the daemon export does.
+    emit_report_and_gate(
+        &mut report,
+        format,
+        ci,
+        "tempo",
+        sort,
+        Some(traces),
+        show_acknowledged,
+    );
 }

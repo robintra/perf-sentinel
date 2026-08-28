@@ -121,11 +121,42 @@ impl EmbeddedSpan {
 
 /// Safety ceiling on the serialized spans [`embed_finding_traces`] adds
 /// to a report. Not a size target, the HTML sink owns that at render
-/// time: this exists because `report --input` and `inspect --input`
-/// refuse files past their own read cap, so a producer writing without
-/// any bound could emit JSON its designated consumers cannot open.
-/// Well below that read cap, far above any realistic query window.
-const EMBED_SAFETY_BUDGET_BYTES: usize = 512 * 1024 * 1024;
+/// time: this exists because every downstream reader bounds what it
+/// accepts, and the tightest known consumer caps the whole JSON at
+/// 256 MiB when it reads it off the producer's stdout. Sized under that
+/// with room for the findings themselves, and far above any realistic
+/// query window.
+const EMBED_SAFETY_BUDGET_BYTES: usize = 192 * 1024 * 1024;
+
+/// Rank each trace id by the first finding that references it. The one
+/// definition of the selection rule: the embed budget below and both of
+/// the HTML sink's selection paths order candidate traces with it, so
+/// the trees kept are always the ones the top findings point at.
+pub(crate) fn first_reference_rank(
+    findings: &[crate::detect::Finding],
+) -> std::collections::HashMap<&str, usize> {
+    let mut rank: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, f) in findings.iter().enumerate() {
+        rank.entry(f.trace_id.as_str()).or_insert(i);
+    }
+    rank
+}
+
+/// `io::Write` sink that counts bytes. Measuring a trace by serializing
+/// into it costs the serialization but not the throwaway `String` the
+/// obvious `to_string` would allocate per trace.
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 /// Carry masked spans for the traces the report's findings point at.
 ///
@@ -142,11 +173,7 @@ pub fn embed_finding_traces(report: &mut super::Report, traces: &[Trace]) {
 }
 
 fn embed_finding_traces_with_budget(report: &mut super::Report, traces: &[Trace], budget: usize) {
-    let mut rank_by_trace: std::collections::HashMap<&str, usize> =
-        std::collections::HashMap::new();
-    for (i, f) in report.findings.iter().enumerate() {
-        rank_by_trace.entry(f.trace_id.as_str()).or_insert(i);
-    }
+    let rank_by_trace = first_reference_rank(&report.findings);
     let mut ranked: Vec<(usize, &Trace)> = traces
         .iter()
         .filter_map(|t| rank_by_trace.get(t.trace_id.as_str()).map(|r| (*r, t)))
@@ -159,7 +186,8 @@ fn embed_finding_traces_with_budget(report: &mut super::Report, traces: &[Trace]
         .into_iter()
         .map(|(_, t)| EmbeddedTrace::from_trace(t))
         .take_while(|t| {
-            let size = serde_json::to_string(t).map_or(usize::MAX, |s| s.len());
+            let mut counter = ByteCounter(0);
+            let size = serde_json::to_writer(&mut counter, t).map_or(usize::MAX, |()| counter.0);
             spent = spent.saturating_add(size);
             spent <= budget
         })

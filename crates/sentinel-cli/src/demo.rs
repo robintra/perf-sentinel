@@ -46,6 +46,11 @@ pub(crate) fn cmd_demo(
         // so cross-crate struct literals do not compile.
         let mut options = sentinel_core::report::html::RenderOptions::default();
         options.input_label = "demo dataset".to_string();
+        // Same pairing as cmd_report: the page opens on impact, so the
+        // findings are ranked that way before the render picks which
+        // trees to embed, or the demo's first row could open treeless.
+        crate::render::sort_findings(&mut report.findings, crate::render::FindingsSort::default());
+        options.initial_sort = Some("impact".to_string());
         // Showcase the pg_stat, mysql_stat and Diff tabs from embedded demo
         // fixtures so the dashboard is fully populated without external inputs.
         let trace_sql_counts = sentinel_core::pipeline::trace_sql_template_counts(&traces);

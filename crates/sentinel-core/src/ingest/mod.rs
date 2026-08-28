@@ -27,6 +27,12 @@ use crate::event::SpanEvent;
 /// every feature gate, so both clap declarations name the same number.
 pub const MAX_SEARCH_TRACES: usize = 10_000;
 
+/// Overrun remedies for [`MAX_SEARCH_TRACES`]-bounded clients, written
+/// once: the search body shrinks with the flag, a single trace does not.
+pub(crate) const SEARCH_OVERRUN_REMEDY: &str = "lower --max-traces";
+pub(crate) const TRACE_OVERRUN_REMEDY: &str =
+    "this single trace is larger than the cap, --max-traces cannot shrink it";
+
 /// Give route templates the canonical path shape used by findings.
 ///
 /// Some instrumentations emit `http.route` without its leading slash. Keep

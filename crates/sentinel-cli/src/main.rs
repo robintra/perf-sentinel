@@ -2345,7 +2345,7 @@ fn cmd_analyze(
     // input buffer through the whole pipeline doubles peak RSS.
     drop(raw);
 
-    let (mut report, traces) = pipeline::analyze_with_traces(events, &config, ingest_stats);
+    let mut report = pipeline::analyze_with_traces(events, &config, ingest_stats).0;
     apply_acknowledgments_or_exit(
         &mut report,
         &config,
@@ -2353,14 +2353,20 @@ fn cmd_analyze(
         no_acknowledgments,
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
-    // JSON travels without its input, so carry the findings' masked spans
-    // the way tempo and jaeger-query do. Only that sink serializes them,
-    // the text and SARIF paths would clone spans nobody reads. After the
-    // acks, so a suppressed finding does not drag its tree along.
-    if matches!(render::effective_format(format, ci), OutputFormat::Json) {
-        sentinel_core::report::embedded::embed_finding_traces(&mut report, &traces);
-    }
-    emit_report_and_gate(&mut report, format, ci, "report", sort, show_acknowledged);
+    // No embed here, unlike tempo and jaeger-query: their JSON is the only
+    // carrier of the spans they fetched, while analyze reads a local file
+    // the user still holds, and `report --input <that file>` draws the
+    // trees from it directly. Embedding would also fatten every `--ci`
+    // pipeline's stdout on a version bump, for output nothing reads.
+    emit_report_and_gate(
+        &mut report,
+        format,
+        ci,
+        "report",
+        sort,
+        None,
+        show_acknowledged,
+    );
 }
 
 fn cmd_diff(
@@ -2622,6 +2628,46 @@ fn require_stat_source_or_exit(top: Option<usize>, has_source: bool, requirement
     }
 }
 
+/// Post-parse validation of the `pg_stat` and `mysql_stat` source flags,
+/// split out of `cmd_report` to keep it under the Sonar complexity gate.
+/// Returns which of the two stat families has a source at all.
+fn validate_stat_sources_or_exit(
+    pg_stat_top: Option<usize>,
+    pg_stat_path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
+    mysql_stat_top: Option<usize>,
+    mysql_stat_path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] mysql_stat_prometheus: Option<&str>,
+) -> (bool, bool) {
+    #[cfg(feature = "daemon")]
+    let has_pg_stat_source = pg_stat_path.is_some() || pg_stat_prometheus.is_some();
+    #[cfg(not(feature = "daemon"))]
+    let has_pg_stat_source = pg_stat_path.is_some();
+    require_stat_source_or_exit(
+        pg_stat_top,
+        has_pg_stat_source,
+        if cfg!(feature = "daemon") {
+            "--pg-stat-top requires --pg-stat or --pg-stat-prometheus"
+        } else {
+            "--pg-stat-top requires --pg-stat"
+        },
+    );
+    #[cfg(feature = "daemon")]
+    let has_mysql_stat_source = mysql_stat_path.is_some() || mysql_stat_prometheus.is_some();
+    #[cfg(not(feature = "daemon"))]
+    let has_mysql_stat_source = mysql_stat_path.is_some();
+    require_stat_source_or_exit(
+        mysql_stat_top,
+        has_mysql_stat_source,
+        if cfg!(feature = "daemon") {
+            "--mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus"
+        } else {
+            "--mysql-stat-top requires --mysql-stat"
+        },
+    );
+    (has_pg_stat_source, has_mysql_stat_source)
+}
+
 #[allow(clippy::too_many_arguments)]
 // optional flags, each adds a dedicated ingestion path
 async fn cmd_report(
@@ -2682,31 +2728,15 @@ async fn cmd_report(
     // Clap's `requires` does not express an OR-of-flags, so validate the
     // stat source requirements post-parse. Both are checked before any
     // load below: a usage error must not cost a Prometheus scrape first.
-    #[cfg(feature = "daemon")]
-    let has_pg_stat_source = pg_stat_path.is_some() || pg_stat_prometheus.is_some();
-    #[cfg(not(feature = "daemon"))]
-    let has_pg_stat_source = pg_stat_path.is_some();
-    require_stat_source_or_exit(
+    let (has_pg_stat_source, has_mysql_stat_source) = validate_stat_sources_or_exit(
         pg_stat_top,
-        has_pg_stat_source,
-        if cfg!(feature = "daemon") {
-            "--pg-stat-top requires --pg-stat or --pg-stat-prometheus"
-        } else {
-            "--pg-stat-top requires --pg-stat"
-        },
-    );
-    #[cfg(feature = "daemon")]
-    let has_mysql_stat_source = mysql_stat_path.is_some() || mysql_stat_prometheus.is_some();
-    #[cfg(not(feature = "daemon"))]
-    let has_mysql_stat_source = mysql_stat_path.is_some();
-    require_stat_source_or_exit(
+        pg_stat_path,
+        #[cfg(feature = "daemon")]
+        pg_stat_prometheus,
         mysql_stat_top,
-        has_mysql_stat_source,
-        if cfg!(feature = "daemon") {
-            "--mysql-stat-top requires --mysql-stat or --mysql-stat-prometheus"
-        } else {
-            "--mysql-stat-top requires --mysql-stat"
-        },
+        mysql_stat_path,
+        #[cfg(feature = "daemon")]
+        mysql_stat_prometheus,
     );
 
     // Trace-side template counts for the pg_stat / mysql_stat
@@ -2786,21 +2816,27 @@ async fn cmd_report(
         std::process::exit(EXIT_TOOLING_ERROR);
     }
     info!("HTML report written to {}", output.display());
-    if stats.kept < stats.total {
-        let trimmed = stats.total - stats.kept;
-        // Name the cap that actually cut: prescribing the flag to the
-        // operator who just set it reads as the sink overriding them.
-        if max_traces_embedded.is_some() {
-            info!(
-                "Embedded {} of {} traces in the dashboard ({} past the --max-traces-embedded cap).",
-                stats.kept, stats.total, trimmed
-            );
-        } else {
-            info!(
-                "Embedded {} of {} traces in the dashboard ({} trimmed for file size). Use --max-traces-embedded <higher> to keep more.",
-                stats.kept, stats.total, trimmed
-            );
-        }
+    log_embed_trim(&stats, max_traces_embedded.is_some());
+}
+
+/// Stderr notice when the render kept fewer trees than the report holds.
+/// Names the cap that actually cut: prescribing the flag to the operator
+/// who just set it reads as the sink overriding them.
+fn log_embed_trim(stats: &sentinel_core::report::html::RenderStats, explicit_cap: bool) {
+    if stats.kept >= stats.total {
+        return;
+    }
+    let trimmed = stats.total - stats.kept;
+    if explicit_cap {
+        info!(
+            "Embedded {} of {} traces in the dashboard ({} past the --max-traces-embedded cap).",
+            stats.kept, stats.total, trimmed
+        );
+    } else {
+        info!(
+            "Embedded {} of {} traces in the dashboard ({} trimmed for file size). Use --max-traces-embedded <higher> to keep more.",
+            stats.kept, stats.total, trimmed
+        );
     }
 }
 
