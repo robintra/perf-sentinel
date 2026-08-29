@@ -198,6 +198,36 @@ async fn fetch_json(
 // Core API functions
 // ---------------------------------------------------------------
 
+/// What every request to one backend shares, as opposed to what is being
+/// asked of it. Grouped because threading these positionally put `limit` and
+/// `max_bytes` in the same signature, two `usize` a call site could swap with
+/// no type error and no test to see it.
+struct Backend<'a> {
+    client: &'a HttpClient,
+    endpoint: &'a str,
+    auth: Option<&'a AuthHeader>,
+    max_bytes: usize,
+    grouping_attributes: Option<&'a [Arc<str>]>,
+}
+
+impl<'a> Backend<'a> {
+    /// The shape the public entry points use: the declared cap, no grouping.
+    fn new(client: &'a HttpClient, endpoint: &'a str, auth: Option<&'a AuthHeader>) -> Self {
+        Self {
+            client,
+            endpoint,
+            auth,
+            max_bytes: MAX_RESPONSE_BYTES,
+            grouping_attributes: None,
+        }
+    }
+
+    fn with_grouping(mut self, grouping_attributes: Option<&'a [Arc<str>]>) -> Self {
+        self.grouping_attributes = grouping_attributes;
+        self
+    }
+}
+
 /// Search a Jaeger query backend for traces matching a service name
 /// within a lookback window, then return the full `SpanEvent` list.
 ///
@@ -220,30 +250,22 @@ pub async fn search_and_fetch_traces(
     limit: usize,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
-    search_and_fetch_traces_with_grouping(
-        client,
-        endpoint,
+    search_and_fetch_traces_on(
+        &Backend::new(client, endpoint, auth),
         service,
         window,
         limit,
-        auth,
-        MAX_RESPONSE_BYTES,
-        None,
     )
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn search_and_fetch_traces_with_grouping(
-    client: &HttpClient,
-    endpoint: &str,
+async fn search_and_fetch_traces_on(
+    backend: &Backend<'_>,
     service: &str,
     window: SearchWindow,
     limit: usize,
-    auth: Option<&AuthHeader>,
-    max_bytes: usize,
-    grouping_attributes: Option<&[Arc<str>]>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    let endpoint = backend.endpoint;
     let encoded_service = percent_encode_query_value(service);
     // Both window kinds send explicit bounds, in the microseconds this API
     // counts in. `lookback` is deliberately not sent: Victoria Traces reads
@@ -260,10 +282,10 @@ async fn search_and_fetch_traces_with_grouping(
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
     let body = fetch_json(
-        client,
+        backend.client,
         uri,
-        max_bytes,
-        auth,
+        backend.max_bytes,
+        backend.auth,
         false,
         crate::ingest::SEARCH_OVERRUN_REMEDY,
     )
@@ -279,7 +301,7 @@ async fn search_and_fetch_traces_with_grouping(
         return Err(JaegerQueryError::NoTracesFound);
     }
 
-    let events = convert_jaeger_export(&export, grouping_attributes);
+    let events = convert_jaeger_export(&export, backend.grouping_attributes);
     tracing::info!(
         traces = export.data.len(),
         events = events.len(),
@@ -299,29 +321,26 @@ pub async fn fetch_trace(
     trace_id: &str,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
-    fetch_trace_with_grouping(client, endpoint, trace_id, auth, MAX_RESPONSE_BYTES, None).await
+    fetch_trace_on(&Backend::new(client, endpoint, auth), trace_id).await
 }
 
-async fn fetch_trace_with_grouping(
-    client: &HttpClient,
-    endpoint: &str,
+async fn fetch_trace_on(
+    backend: &Backend<'_>,
     trace_id: &str,
-    auth: Option<&AuthHeader>,
-    max_bytes: usize,
-    grouping_attributes: Option<&[Arc<str>]>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     validate_trace_id(trace_id)?;
 
+    let endpoint = backend.endpoint;
     let uri_str = format!("{endpoint}/api/traces/{trace_id}");
     let uri: hyper::Uri = uri_str
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
     let body = fetch_json(
-        client,
+        backend.client,
         uri,
-        max_bytes,
-        auth,
+        backend.max_bytes,
+        backend.auth,
         true,
         crate::ingest::TRACE_OVERRUN_REMEDY,
     )
@@ -330,7 +349,7 @@ async fn fetch_trace_with_grouping(
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
 
-    Ok(convert_jaeger_export(&export, grouping_attributes))
+    Ok(convert_jaeger_export(&export, backend.grouping_attributes))
 }
 
 /// Ingest traces from a Jaeger query API backend: either a single
@@ -386,7 +405,6 @@ pub async fn ingest_from_jaeger_query_with_grouping(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn ingest_from_jaeger_query_impl(
     endpoint: &str,
     service: Option<&str>,
@@ -417,21 +435,15 @@ async fn ingest_from_jaeger_query_impl(
     }
 
     let client = http_client::build_client();
+    let backend = Backend::new(&client, endpoint, parsed_auth.as_ref())
+        .with_grouping(grouping_attributes.as_deref());
 
     if let Some(tid) = trace_id {
         tracing::info!(
             trace_id = tid,
             "Fetching single trace from Jaeger query API"
         );
-        return fetch_trace_with_grouping(
-            &client,
-            endpoint,
-            tid,
-            parsed_auth.as_ref(),
-            MAX_RESPONSE_BYTES,
-            grouping_attributes.as_deref(),
-        )
-        .await;
+        return fetch_trace_on(&backend, tid).await;
     }
 
     let svc = service.ok_or_else(|| {
@@ -445,17 +457,7 @@ async fn ingest_from_jaeger_query_impl(
         "Querying Jaeger API for traces"
     );
 
-    search_and_fetch_traces_with_grouping(
-        &client,
-        endpoint,
-        svc,
-        window,
-        max_traces,
-        parsed_auth.as_ref(),
-        MAX_RESPONSE_BYTES,
-        grouping_attributes.as_deref(),
-    )
-    .await
+    search_and_fetch_traces_on(&backend, svc, window, max_traces).await
 }
 
 /// Check that a trace ID is a non-empty hex string of at most
@@ -672,16 +674,10 @@ mod tests {
         let client = http_client::build_client();
         let grouping = [Arc::from("tenant.id")];
 
-        let events = fetch_trace_with_grouping(
-            &client,
-            &endpoint,
-            "abc123",
-            None,
-            MAX_RESPONSE_BYTES,
-            Some(&grouping),
-        )
-        .await
-        .expect("fetch must succeed");
+        let backend = Backend::new(&client, &endpoint, None).with_grouping(Some(&grouping));
+        let events = fetch_trace_on(&backend, "abc123")
+            .await
+            .expect("fetch must succeed");
         assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
         assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
         server.await.expect("server join");
@@ -865,16 +861,16 @@ mod tests {
             after_const.starts_with("256 * 1024 * 1024;"),
             "the response cap moved, which the docs and the overrun remedy both state"
         );
-        // One declaration and four bindings, all outside the test module.
-        // Counting them fails when a call site starts passing something else,
-        // which no injected-cap test can see.
+        // The declaration and the single place production binds it, which is
+        // Backend::new. Two mentions, and every request path goes through it,
+        // so a path that started carrying its own cap shows up here.
         let production = source
             .split_once("#[cfg(test)]")
             .map_or(source, |(before, _)| before);
         assert_eq!(
             production.matches("MAX_RESPONSE_BYTES").count(),
-            5,
-            "a call site stopped passing MAX_RESPONSE_BYTES, or a new one appeared"
+            2,
+            "production stopped binding MAX_RESPONSE_BYTES in exactly one place"
         );
     }
 
@@ -883,15 +879,17 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
         let client = http_client::build_client();
 
-        let err = search_and_fetch_traces_with_grouping(
-            &client,
-            &endpoint,
+        // Only the cap is moved off the production shape: a 64 byte body is
+        // reachable from a test where the real 256 MiB is not.
+        let backend = Backend {
+            max_bytes: 64,
+            ..Backend::new(&client, &endpoint, None)
+        };
+        let err = search_and_fetch_traces_on(
+            &backend,
             "order-svc",
             SearchWindow::Lookback(Duration::from_mins(1)),
             10,
-            None,
-            64,
-            None,
         )
         .await
         .expect_err("a body over a 64 byte cap must fail");
@@ -912,7 +910,11 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
         let client = http_client::build_client();
 
-        let err = fetch_trace_with_grouping(&client, &endpoint, "abc123", None, 64, None)
+        let backend = Backend {
+            max_bytes: 64,
+            ..Backend::new(&client, &endpoint, None)
+        };
+        let err = fetch_trace_on(&backend, "abc123")
             .await
             .expect_err("a body over a 64 byte cap must fail");
         match err {
