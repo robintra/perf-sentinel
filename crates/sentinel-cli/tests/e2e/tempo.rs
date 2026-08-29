@@ -45,7 +45,9 @@ fn push_varint_field(out: &mut Vec<u8>, field: u32, value: u64) {
     push_varint(out, value);
 }
 
-/// `SpanKind` as OTLP numbers them. Fidelity rather than coverage: a span
+/// `SpanKind` as `opentelemetry_proto::tonic::trace::v1::span::SpanKind`
+/// numbers them, checked against that enum the way every field number in this
+/// encoder was checked against its message. Fidelity rather than coverage: a span
 /// carrying `db.system` is kept whatever its kind, so marking these correctly
 /// changes no assertion today. It stops the stub from serving UNSPECIFIED
 /// spans no backend sends, and it is what a reader copying this shape needs.
