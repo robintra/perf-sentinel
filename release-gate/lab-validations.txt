@@ -138,3 +138,4 @@ v0.15.0	3dc681b	2026-08-27	PASS
 # Validated: product c10b035e on feature/0.16.0, image perf-sentinel:0.15.0-c10b035e.
 # Cargo.toml is bumped after this gate, so the SHA identifies the content.
 v0.16.0	dad0e7c	2026-08-28	PASS
+v0.17.0	d7f5889	2026-08-29	PASS
