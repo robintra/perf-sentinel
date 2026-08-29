@@ -25,7 +25,11 @@
   :root[data-theme="dark"] {
     --bg: #141a17; --surface: #1c241f; --surface-2: #252e28; --surface-3: #2d3730;
     --border: #2b352e; --border-2: #3b473f;
-    --text: #e8ede9; --text-2: #a3b5ab; --text-3: #7d8c83;
+    /* --text-3 #95a199 is the AA-contrast floor on the dark surfaces, do not
+       darken it back to #7d8c83, which fell to 3.97 on --surface-2 and 3.50 on
+       --surface-3. The light theme's floor below was set first, this is its
+       other half. */
+    --text: #e8ede9; --text-2: #a3b5ab; --text-3: #95a199;
     --brand: #0ba671; --brand-2: #2fd49a; --brand-text: #3ecf9d; --accent-bg: rgba(11,166,113,.13);
     --crit-fg: #ffa79e; --crit-bg: #3a1f1c; --crit-bd: #573029;
     --warn-fg: #f2c08a; --warn-bg: #392a19; --warn-bd: #53381f;
