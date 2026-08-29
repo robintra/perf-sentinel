@@ -851,6 +851,33 @@ mod tests {
     // the parse or read error a truncated body would look like, and
     // that each path binds its own remedy.
 
+    /// The two tests below inject a small cap, which is the only way to reach
+    /// the overrun branch without serving 256 MiB. That leaves the binding
+    /// itself unasserted, so this pins it: every call site that is not a test
+    /// passes `MAX_RESPONSE_BYTES`, and the constant is the documented one.
+    #[test]
+    fn every_production_call_site_binds_the_declared_response_cap() {
+        let source = include_str!("jaeger_query.rs");
+        let (_, after_const) = source
+            .split_once("const MAX_RESPONSE_BYTES: usize = ")
+            .expect("the cap is declared");
+        assert!(
+            after_const.starts_with("256 * 1024 * 1024;"),
+            "the response cap moved, which the docs and the overrun remedy both state"
+        );
+        // One declaration and four bindings, all outside the test module.
+        // Counting them fails when a call site starts passing something else,
+        // which no injected-cap test can see.
+        let production = source
+            .split_once("#[cfg(test)]")
+            .map_or(source, |(before, _)| before);
+        assert_eq!(
+            production.matches("MAX_RESPONSE_BYTES").count(),
+            5,
+            "a call site stopped passing MAX_RESPONSE_BYTES, or a new one appeared"
+        );
+    }
+
     #[tokio::test]
     async fn a_search_body_over_the_cap_carries_the_search_remedy() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;

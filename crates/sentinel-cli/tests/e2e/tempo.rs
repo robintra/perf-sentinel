@@ -39,6 +39,19 @@ fn push_fixed64(out: &mut Vec<u8>, field: u32, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
+/// Append a varint protobuf field (wire type 0), which is how an enum travels.
+fn push_varint_field(out: &mut Vec<u8>, field: u32, value: u64) {
+    push_varint(out, u64::from(field) << 3);
+    push_varint(out, value);
+}
+
+/// `SpanKind` as OTLP numbers them. Fidelity rather than coverage: a span
+/// carrying `db.system` is kept whatever its kind, so marking these correctly
+/// changes no assertion today. It stops the stub from serving UNSPECIFIED
+/// spans no backend sends, and it is what a reader copying this shape needs.
+const SPAN_KIND_SERVER: u64 = 2;
+const SPAN_KIND_CLIENT: u64 = 3;
+
 /// One OTLP string attribute: `KeyValue { key, AnyValue { string_value } }`.
 fn otlp_attr(key: &str, value: &str) -> Vec<u8> {
     let mut any = Vec::new();
@@ -55,6 +68,7 @@ fn otlp_span(
     span_id: u8,
     parent: Option<u8>,
     name: &str,
+    kind: u64,
     start_ns: u64,
     end_ns: u64,
     attrs: &[Vec<u8>],
@@ -66,6 +80,7 @@ fn otlp_span(
         push_bytes_field(&mut span, 4, &[parent; 8]);
     }
     push_bytes_field(&mut span, 5, name.as_bytes());
+    push_varint_field(&mut span, 6, kind);
     push_fixed64(&mut span, 7, start_ns);
     push_fixed64(&mut span, 8, end_ns);
     for attr in attrs {
@@ -89,6 +104,7 @@ fn otlp_trace_body() -> Vec<u8> {
             0x0a,
             None,
             "OrderService::create_order",
+            SPAN_KIND_SERVER,
             ROOT_NS,
             ROOT_NS + 50_000_000,
             &[
@@ -106,6 +122,7 @@ fn otlp_trace_body() -> Vec<u8> {
                 u8::try_from(i).expect("child index fits a byte"),
                 Some(0x0a),
                 "db.query",
+                SPAN_KIND_CLIENT,
                 start,
                 start + 800_000,
                 &[

@@ -2925,12 +2925,17 @@ fn the_template_text_colours_clear_the_aa_contrast_floor() {
         TEMPLATE[at..at + 7].to_string()
     }
 
-    // Two theme blocks, and the light one is the second: the dark palette is
-    // the default and the light one overrides it.
-    let dark = 0;
+    // Anchored on each block's own selector, not on document order: reading
+    // the dark palette from offset 0 would silently read the light one twice
+    // if the blocks were ever swapped, and a wrong pass here is worse than a
+    // failure, since this test replaces a comment nobody could enforce.
+    let dark = TEMPLATE
+        .find(":root[data-theme=\"dark\"]")
+        .expect("the template declares a dark theme block");
     let light = TEMPLATE
-        .find("--bg: #ffffff")
-        .expect("the light theme declares a white background");
+        .find(":root[data-theme=\"light\"]")
+        .expect("the template declares a light theme block");
+    assert!(dark != light, "the two theme blocks resolved to one offset");
 
     for (theme, at, grounds) in [
         (
