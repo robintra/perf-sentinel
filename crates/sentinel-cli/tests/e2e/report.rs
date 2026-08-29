@@ -1535,3 +1535,216 @@ fn cli_report_help_lists_the_mysql_stat_prometheus_flags() {
         assert!(help.contains(flag), "report --help should list {flag}");
     }
 }
+
+// ---------------------------------------------------------------------
+// Findings order: `--sort`, its default, and the span-tree embed that
+// follows it. The realistic fixture yields six findings whose detector
+// order is [order-01, order-02, notify-01, payment-01, payment-02,
+// chat-05] and whose six signatures are all distinct, so every finding
+// is its own recurrence group and the aggregate impact the sort ranks on
+// equals the unitary `estimated_extra_io_ops`. Both sort permutations
+// contain a 3-cycle, which is what makes these tests a guard: applying
+// the inverse permutation instead of the permutation leaves swaps intact
+// and misorders every longer cycle, so it would put trace-order-02 first.
+// ---------------------------------------------------------------------
+
+/// Render the realistic fixture with extra flags and return the embedded
+/// payload.
+fn render_realistic(extra: &[&str]) -> serde_json::Value {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+    let mut args = vec![
+        "report",
+        "--input",
+        &fixture_path,
+        "--output",
+        out_path.to_str().unwrap(),
+    ];
+    args.extend_from_slice(extra);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(&args)
+        .output()
+        .expect("spawn");
+    assert!(
+        output.status.success(),
+        "report {extra:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    extract_payload_json_from_html(&fs::read_to_string(&out_path).expect("read html"))
+}
+
+/// Trace ids of the findings, in payload order.
+fn finding_trace_ids(payload: &serde_json::Value) -> Vec<String> {
+    payload["report"]["findings"]
+        .as_array()
+        .expect("report.findings")
+        .iter()
+        .map(|f| f["trace_id"].as_str().expect("trace_id").to_string())
+        .collect()
+}
+
+/// Avoidable I/O ops of each finding, in payload order. Absent green
+/// impact reads as zero, the same weight `sort_findings` gives it.
+fn finding_impacts(payload: &serde_json::Value) -> Vec<u64> {
+    payload["report"]["findings"]
+        .as_array()
+        .expect("report.findings")
+        .iter()
+        .map(|f| {
+            f["green_impact"]["estimated_extra_io_ops"]
+                .as_u64()
+                .unwrap_or(0)
+        })
+        .collect()
+}
+
+/// Worst-first rank of each severity, in payload order.
+fn severity_ranks(payload: &serde_json::Value) -> Vec<u8> {
+    payload["report"]["findings"]
+        .as_array()
+        .expect("report.findings")
+        .iter()
+        .map(|f| match f["severity"].as_str().expect("severity") {
+            "critical" => 0,
+            "warning" => 1,
+            "info" => 2,
+            other => panic!("unknown severity {other}"),
+        })
+        .collect()
+}
+
+const IMPACT_ORDER: [&str; 6] = [
+    "trace-notify-01",
+    "trace-order-01",
+    "trace-order-02",
+    "trace-payment-01",
+    "trace-payment-02",
+    "trace-chat-05",
+];
+
+const SEVERITY_ORDER: [&str; 6] = [
+    "trace-notify-01",
+    "trace-order-01",
+    "trace-order-02",
+    "trace-chat-05",
+    "trace-payment-01",
+    "trace-payment-02",
+];
+
+#[test]
+fn cli_report_sort_impact_ranks_findings_by_descending_impact() {
+    let payload = render_realistic(&["--sort", "impact"]);
+    let traces = finding_trace_ids(&payload);
+    assert_eq!(
+        traces, IMPACT_ORDER,
+        "the whole sequence must be the impact ranking, not a permutation of it"
+    );
+    // The head and the tail on their own, the two rows a reader lands on.
+    assert_eq!(traces[0], "trace-notify-01", "5 avoidable ops leads");
+    assert_eq!(traces[5], "trace-chat-05", "0 avoidable ops closes");
+    let impacts = finding_impacts(&payload);
+    assert_eq!(impacts, [5, 4, 4, 3, 2, 0]);
+    assert!(
+        impacts.windows(2).all(|w| w[0] >= w[1]),
+        "impact must not climb back up anywhere in the list, got {impacts:?}"
+    );
+}
+
+#[test]
+fn cli_report_sort_severity_ranks_findings_worst_first() {
+    let payload = render_realistic(&["--sort", "severity"]);
+    let traces = finding_trace_ids(&payload);
+    assert_eq!(
+        traces, SEVERITY_ORDER,
+        "the whole sequence must be the severity ranking, not a permutation of it"
+    );
+    assert_eq!(traces[0], "trace-notify-01", "worst severity leads");
+    assert_eq!(
+        traces[5], "trace-payment-02",
+        "the lightest info closes the list"
+    );
+    let ranks = severity_ranks(&payload);
+    assert_eq!(ranks, [1, 1, 1, 1, 2, 2], "four warnings then two infos");
+    assert!(
+        ranks.windows(2).all(|w| w[0] <= w[1]),
+        "severity must never improve then worsen again, got {ranks:?}"
+    );
+}
+
+#[test]
+fn cli_report_defaults_to_the_impact_order() {
+    let payload = render_realistic(&[]);
+    assert_eq!(
+        finding_trace_ids(&payload),
+        IMPACT_ORDER,
+        "no --sort must rank on impact, the key the dashboard opens on"
+    );
+    assert_ne!(
+        finding_trace_ids(&payload),
+        SEVERITY_ORDER,
+        "the default must be distinguishable from the severity ranking"
+    );
+    assert_eq!(
+        payload["initial_sort"], "impact",
+        "the dashboard must open on the key the payload was ranked by"
+    );
+}
+
+#[test]
+fn cli_report_max_traces_embedded_caps_the_span_trees_at_n() {
+    for cap in 1..=3usize {
+        let payload = render_realistic(&["--max-traces-embedded", &cap.to_string()]);
+        let embedded: Vec<String> = payload["embedded_traces"]
+            .as_array()
+            .expect("embedded_traces")
+            .iter()
+            .map(|t| t["trace_id"].as_str().expect("trace_id").to_string())
+            .collect();
+        assert_eq!(embedded.len(), cap, "cap {cap} must be honored exactly");
+        // The embed runs after the sort, so the trees kept are the ones
+        // the top rows of the ranked list point at.
+        assert_eq!(
+            embedded,
+            IMPACT_ORDER[..cap],
+            "cap {cap} must keep the trees of the first {cap} ranked findings"
+        );
+        assert_eq!(payload["trimmed_traces"]["kept"], cap);
+        assert_eq!(
+            payload["trimmed_traces"]["total"], 6,
+            "the fixture has six candidate traces to trim from"
+        );
+    }
+}
+
+#[test]
+fn cli_report_keeps_the_trace_id_of_a_finding_whose_tree_was_dropped() {
+    // The dashboard tells a reader whose span tree was trimmed to rerun
+    // on the trace id shown right above the message, so every finding
+    // must carry its own id even when its tree did not make the cap.
+    let payload = render_realistic(&["--max-traces-embedded", "1"]);
+    let embedded: Vec<&str> = payload["embedded_traces"]
+        .as_array()
+        .expect("embedded_traces")
+        .iter()
+        .map(|t| t["trace_id"].as_str().expect("trace_id"))
+        .collect();
+    assert_eq!(embedded, ["trace-notify-01"]);
+
+    let traces = finding_trace_ids(&payload);
+    assert_eq!(traces, IMPACT_ORDER, "trimming must not reorder the list");
+    for trace_id in &traces[1..] {
+        assert!(
+            !trace_id.is_empty(),
+            "a trimmed finding must still name its own trace"
+        );
+        assert!(
+            !embedded.contains(&trace_id.as_str()),
+            "{trace_id} was trimmed, so it must not be in embedded_traces"
+        );
+    }
+}
