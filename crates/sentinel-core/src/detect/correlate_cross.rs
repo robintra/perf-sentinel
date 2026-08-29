@@ -42,6 +42,41 @@ impl Default for CorrelationConfig {
     }
 }
 
+/// Counts pairs refused at the `max_tracked_pairs` cap within one batch.
+///
+/// Deduplicating is the useful semantics, one refused pair counts once
+/// per batch however many window occurrences matched it, but the set has
+/// to be bounded: a batch on a wide topology walks the cross product of
+/// the incoming findings and the lag window, which reaches millions of
+/// distinct keys and a table far larger than the map they were refused
+/// from. Past the ceiling the count degrades to occurrences, which
+/// overstates rather than hides.
+#[derive(Debug, Default)]
+struct RefusedPairs {
+    seen: std::collections::HashSet<PairKey>,
+    beyond_ceiling: usize,
+}
+
+impl RefusedPairs {
+    /// Deduplicated up to here, then counted. 8k keys is about 140 KiB
+    /// of table, and any deployment refusing more than that per batch is
+    /// past the point where an exact figure tells the operator anything
+    /// the order of magnitude does not.
+    const CEILING: usize = 8_192;
+
+    fn record(&mut self, key: PairKey) {
+        if self.seen.len() < Self::CEILING {
+            self.seen.insert(key);
+        } else {
+            self.beyond_ceiling += 1;
+        }
+    }
+
+    fn total(&self) -> usize {
+        self.seen.len() + self.beyond_ceiling
+    }
+}
+
 /// One side of a cross-trace correlation pair.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 pub struct CorrelationEndpoint {
@@ -94,8 +129,8 @@ pub struct CrossTraceCorrelation {
 ///
 /// Holds `Arc<CorrelationEndpoint>` on both sides so inner-loop cloning
 /// in `ingest()` is a pointer bump instead of 3 `String` clones per
-/// endpoint. Interning is handled by `intern_endpoint` which shares
-/// `Arc`s across `occurrences` entries that reference the same endpoint.
+/// endpoint. The `Arc`s are not interned: `ingest` builds a fresh one
+/// per finding, so two findings on the same endpoint do not share.
 #[derive(Debug, Clone)]
 struct PairKey {
     source: std::sync::Arc<CorrelationEndpoint>,
@@ -347,8 +382,9 @@ impl CrossTraceCorrelator {
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
     /// Returns the number of pairs lost to the `max_tracked_pairs` cap
-    /// in this batch (distinct refused newcomers + incumbents evicted
-    /// at batch end). A pair refused again on a later batch counts
+    /// in this batch (refusal events + incumbents evicted at batch
+    /// end). One newcomer refused against several targets counts once
+    /// per target, and a pair refused again on a later batch counts
     /// again: the lifetime counter reads as "pair-batches lost".
     ///
     /// `source_totals` is maintained incrementally (increment on
@@ -369,7 +405,7 @@ impl CrossTraceCorrelator {
             state.rotate_buckets(now_ms, half_window_ms);
         }
 
-        let mut refused = std::collections::HashSet::new();
+        let mut refused = RefusedPairs::default();
         for finding in findings {
             let grouping = finding.effective_grouping();
             let endpoint = std::sync::Arc::new(CorrelationEndpoint {
@@ -388,7 +424,7 @@ impl CrossTraceCorrelator {
                 seq: self.next_seq,
             });
         }
-        let not_admitted = refused.len();
+        let not_admitted = refused.total();
 
         // Under admission pressure, free room at batch end (lowest
         // co-occurrence first) so refused newcomers are admitted on the
@@ -425,17 +461,16 @@ impl CrossTraceCorrelator {
     /// `trace_id` (the incoming target-side finding's) is stored on every
     /// matching [`PairState`] so [`active_correlations`] can surface a
     /// representative trace for UI jump-through. Pairs refused at the
-    /// `max_tracked_pairs` cap go into `refused` (a set: one count per
-    /// distinct pair per batch). This admission control is what bounds
-    /// intra-batch growth on wide topologies; batch-end eviction alone
-    /// cannot, and the map's high-water capacity is never returned to
-    /// the allocator.
+    /// `max_tracked_pairs` cap increment `refused` instead of being
+    /// stored. This admission control is what bounds intra-batch growth
+    /// on wide topologies, batch-end eviction alone cannot, and the
+    /// map's high-water capacity is never returned to the allocator.
     fn record_co_occurrences(
         &mut self,
         endpoint: &std::sync::Arc<CorrelationEndpoint>,
         now_ms: u64,
         trace_id: &str,
-        refused: &mut std::collections::HashSet<PairKey>,
+        refused: &mut RefusedPairs,
     ) {
         // Oldest first, so `last_source_seq` only grows: one source
         // occurrence counts once per pair, not once per following target.
@@ -472,9 +507,7 @@ impl CrossTraceCorrelator {
                 std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                 std::collections::hash_map::Entry::Vacant(v) => {
                     if len >= self.config.max_tracked_pairs {
-                        // A refused pair counts once per batch however
-                        // many window occurrences matched it.
-                        refused.insert(v.into_key());
+                        refused.record(v.into_key());
                         continue;
                     }
                     v.insert(PairState {
@@ -941,6 +974,44 @@ mod tests {
             correlator.ingest(&[fb], 1_010),
             1,
             "five matching occurrences of the same refused pair must count once"
+        );
+    }
+
+    #[test]
+    fn refused_pairs_stops_collecting_at_the_ceiling_but_keeps_counting() {
+        // The whole point of the type: a wide topology walks the cross
+        // product of the batch and the lag window, so the set has to stop
+        // growing while the figure it feeds stays truthful.
+        let mut refused = RefusedPairs::default();
+        let extra = 500;
+        for i in 0..(RefusedPairs::CEILING + extra) {
+            refused.record(PairKey {
+                source: std::sync::Arc::new(CorrelationEndpoint {
+                    finding_type: FindingType::NPlusOneSql,
+                    service: format!("svc-{i}"),
+                    template: "tpl".to_string(),
+                    grouping_key: None,
+                    grouping_value: None,
+                }),
+                target: std::sync::Arc::new(CorrelationEndpoint {
+                    finding_type: FindingType::RedundantSql,
+                    service: "target".to_string(),
+                    template: "tpl".to_string(),
+                    grouping_key: None,
+                    grouping_value: None,
+                }),
+            });
+        }
+
+        assert_eq!(
+            refused.seen.len(),
+            RefusedPairs::CEILING,
+            "the set must stop growing at the ceiling"
+        );
+        assert_eq!(
+            refused.total(),
+            RefusedPairs::CEILING + extra,
+            "every refusal must still reach the counter"
         );
     }
 
