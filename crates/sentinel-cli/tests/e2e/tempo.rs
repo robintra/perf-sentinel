@@ -3,7 +3,184 @@
 
 #![cfg(feature = "tempo")]
 
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
 use std::process::Command;
+use std::thread;
+
+/// The id the stub search hands back and the stub trace carries. Hex
+/// only, so the fetch's own trace-id validation accepts it.
+const STUB_TRACE_ID: [u8; 16] = [0xa1; 16];
+const STUB_TRACE_ID_HEX: &str = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+
+/// Append a protobuf varint.
+fn push_varint(out: &mut Vec<u8>, mut n: u64) {
+    loop {
+        let byte = u8::try_from(n & 0x7f).expect("seven bits fit a byte");
+        n >>= 7;
+        if n == 0 {
+            out.push(byte);
+            return;
+        }
+        out.push(byte | 0x80);
+    }
+}
+
+/// Append a length-delimited protobuf field (wire type 2).
+fn push_bytes_field(out: &mut Vec<u8>, field: u32, payload: &[u8]) {
+    push_varint(out, (u64::from(field) << 3) | 2);
+    push_varint(out, u64::try_from(payload.len()).expect("body fits u64"));
+    out.extend_from_slice(payload);
+}
+
+/// Append a fixed64 protobuf field (wire type 1).
+fn push_fixed64(out: &mut Vec<u8>, field: u32, value: u64) {
+    push_varint(out, (u64::from(field) << 3) | 1);
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+/// One OTLP string attribute: `KeyValue { key, AnyValue { string_value } }`.
+fn otlp_attr(key: &str, value: &str) -> Vec<u8> {
+    let mut any = Vec::new();
+    push_bytes_field(&mut any, 1, value.as_bytes());
+    let mut kv = Vec::new();
+    push_bytes_field(&mut kv, 1, key.as_bytes());
+    push_bytes_field(&mut kv, 2, &any);
+    kv
+}
+
+/// One OTLP `Span`. Span ids are a repeated byte so a single seed names
+/// each of them.
+fn otlp_span(
+    span_id: u8,
+    parent: Option<u8>,
+    name: &str,
+    start_ns: u64,
+    end_ns: u64,
+    attrs: &[Vec<u8>],
+) -> Vec<u8> {
+    let mut span = Vec::new();
+    push_bytes_field(&mut span, 1, &STUB_TRACE_ID);
+    push_bytes_field(&mut span, 2, &[span_id; 8]);
+    if let Some(parent) = parent {
+        push_bytes_field(&mut span, 4, &[parent; 8]);
+    }
+    push_bytes_field(&mut span, 5, name.as_bytes());
+    push_fixed64(&mut span, 7, start_ns);
+    push_fixed64(&mut span, 8, end_ns);
+    for attr in attrs {
+        push_bytes_field(&mut span, 9, attr);
+    }
+    span
+}
+
+/// The `ExportTraceServiceRequest` the stub serves for `/api/traces/{id}`:
+/// one routed root over six sibling SELECTs, the n+1 shape the jaeger
+/// fixture carries. Hand-encoded because the CLI test crate has no prost
+/// dependency to build it from the generated types.
+fn otlp_trace_body() -> Vec<u8> {
+    const ROOT_NS: u64 = 1_720_621_921_000_000_000;
+
+    let mut scope_spans = Vec::new();
+    push_bytes_field(
+        &mut scope_spans,
+        2,
+        &otlp_span(
+            0x0a,
+            None,
+            "OrderService::create_order",
+            ROOT_NS,
+            ROOT_NS + 50_000_000,
+            &[
+                otlp_attr("http.route", "POST /api/orders/42/submit"),
+                otlp_attr("code.function", "OrderService::create_order"),
+            ],
+        ),
+    );
+    for i in 1..=6u64 {
+        let start = ROOT_NS + i * 1_000_000;
+        push_bytes_field(
+            &mut scope_spans,
+            2,
+            &otlp_span(
+                u8::try_from(i).expect("child index fits a byte"),
+                Some(0x0a),
+                "db.query",
+                start,
+                start + 800_000,
+                &[
+                    otlp_attr(
+                        "db.statement",
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    ),
+                    otlp_attr("db.system", "postgresql"),
+                ],
+            ),
+        );
+    }
+
+    let mut resource = Vec::new();
+    push_bytes_field(&mut resource, 1, &otlp_attr("service.name", "order-svc"));
+
+    let mut resource_spans = Vec::new();
+    push_bytes_field(&mut resource_spans, 1, &resource);
+    push_bytes_field(&mut resource_spans, 2, &scope_spans);
+
+    let mut request = Vec::new();
+    push_bytes_field(&mut request, 1, &resource_spans);
+    request
+}
+
+/// Serve the two hops a tempo search makes, then stop: `/api/search`
+/// answers JSON trace ids, `/api/traces/{id}` answers OTLP protobuf.
+/// Every response closes its connection, so one accept loop covers the
+/// pair whether or not the client reuses the socket. Returns the port.
+fn spawn_tempo_stub(search_body: String, trace_body: Vec<u8>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+
+    thread::spawn(move || {
+        while let Ok((mut stream, _)) = listener.accept() {
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut request_line = String::new();
+            if reader.read_line(&mut request_line).is_err() {
+                return;
+            }
+            // Drain the headers, otherwise the client can see a reset
+            // before it reads the response.
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                line.clear();
+            }
+            let is_trace = request_line.contains("/api/traces/");
+            let body: &[u8] = if is_trace {
+                &trace_body
+            } else {
+                search_body.as_bytes()
+            };
+            let content_type = if is_trace {
+                "application/protobuf"
+            } else {
+                "application/json"
+            };
+            let head = format!(
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: {content_type}\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body);
+            let _ = stream.flush();
+            if is_trace {
+                return;
+            }
+        }
+    });
+
+    port
+}
 
 #[test]
 fn cli_tempo_missing_trace_id_and_service_exits_tooling_error() {
@@ -319,6 +496,61 @@ fn cli_tempo_max_traces_at_the_ceiling_reaches_the_fetch() {
         output.status.code(),
         Some(75),
         "a fetch/network failure must exit EXIT_TOOLING_ERROR (75), not a clap usage error"
+    );
+}
+
+#[test]
+fn cli_tempo_json_carries_the_findings_spans() {
+    // The jaeger-query mirror of this seam, over tempo's two hops: the
+    // search hands back an id, the trace fetch answers OTLP protobuf,
+    // and the JSON still has to carry the spans of the traces its
+    // findings point at, since it travels without its input.
+    let search = format!(r#"{{"traces":[{{"traceID":"{STUB_TRACE_ID_HEX}"}}]}}"#);
+    let port = spawn_tempo_stub(search, otlp_trace_body());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "tempo",
+            "--endpoint",
+            &format!("http://127.0.0.1:{port}"),
+            "--service",
+            "order-svc",
+            "--no-acknowledgments",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "the stubbed two-hop fetch must analyze cleanly, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout parses as JSON");
+    assert!(
+        !report["findings"]
+            .as_array()
+            .expect("findings array")
+            .is_empty(),
+        "the stub trace must yield a finding for a trace to be embedded"
+    );
+    let embedded = report["embedded_traces"]
+        .as_array()
+        .expect("embedded_traces array present");
+    assert_eq!(
+        embedded.len(),
+        1,
+        "the one trace the findings point at travels with the report"
+    );
+    assert_eq!(embedded[0]["trace_id"], STUB_TRACE_ID_HEX);
+    assert!(
+        !embedded[0]["spans"]
+            .as_array()
+            .expect("spans array")
+            .is_empty(),
+        "an embedded trace without spans draws nothing"
     );
 }
 

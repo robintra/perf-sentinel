@@ -332,8 +332,8 @@ fn cli_jaeger_query_max_traces_at_the_ceiling_reaches_the_fetch() {
 #[test]
 fn cli_jaeger_query_json_carries_the_findings_spans() {
     // The backend-query JSON travels without its input, so it has to
-    // carry the spans of the traces its findings point at. Same seam in
-    // tempo_cmd.rs, whose protobuf trace fetch no e2e stub can serve.
+    // carry the spans of the traces its findings point at. The tempo file
+    // pins the same seam, over a stub that serves both of its hops.
     let body = std::fs::read_to_string(fixture_path(JAEGER_EXPORT_FIXTURE)).expect("read fixture");
     let port = spawn_one_shot_json(body);
 

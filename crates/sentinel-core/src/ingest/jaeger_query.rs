@@ -122,9 +122,13 @@ const MAX_TRACE_ID_LEN: usize = 128;
 /// The `tokio::time::timeout` wraps BOTH the `client.request` future
 /// (TCP + TLS + headers) AND the body drain, so a backend that sends
 /// headers promptly then trickles the body still hits the timeout.
+///
+/// `max_bytes` is a parameter rather than the const read inline, as in
+/// the Tempo twin, so a test can reach the overrun path with a small cap.
 async fn fetch_json(
     client: &HttpClient,
     uri: hyper::Uri,
+    max_bytes: usize,
     auth: Option<&AuthHeader>,
     map_404: bool,
     overrun_remedy: &'static str,
@@ -160,13 +164,13 @@ async fn fetch_json(
             });
         }
 
-        let limited = http_body_util::Limited::new(resp.into_body(), MAX_RESPONSE_BYTES);
+        let limited = http_body_util::Limited::new(resp.into_body(), max_bytes);
         let body = http_body_util::BodyExt::collect(limited)
             .await
             .map_err(|e| {
                 if http_client::is_body_limit_error(&*e) {
                     JaegerQueryError::BodyTooLarge {
-                        limit: MAX_RESPONSE_BYTES,
+                        limit: max_bytes,
                         remedy: overrun_remedy,
                     }
                 } else {
@@ -216,8 +220,17 @@ pub async fn search_and_fetch_traces(
     limit: usize,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
-    search_and_fetch_traces_with_grouping(client, endpoint, service, window, limit, auth, None)
-        .await
+    search_and_fetch_traces_with_grouping(
+        client,
+        endpoint,
+        service,
+        window,
+        limit,
+        auth,
+        MAX_RESPONSE_BYTES,
+        None,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -228,6 +241,7 @@ async fn search_and_fetch_traces_with_grouping(
     window: SearchWindow,
     limit: usize,
     auth: Option<&AuthHeader>,
+    max_bytes: usize,
     grouping_attributes: Option<&[Arc<str>]>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     let encoded_service = percent_encode_query_value(service);
@@ -248,6 +262,7 @@ async fn search_and_fetch_traces_with_grouping(
     let body = fetch_json(
         client,
         uri,
+        max_bytes,
         auth,
         false,
         crate::ingest::SEARCH_OVERRUN_REMEDY,
@@ -284,7 +299,7 @@ pub async fn fetch_trace(
     trace_id: &str,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
-    fetch_trace_with_grouping(client, endpoint, trace_id, auth, None).await
+    fetch_trace_with_grouping(client, endpoint, trace_id, auth, MAX_RESPONSE_BYTES, None).await
 }
 
 async fn fetch_trace_with_grouping(
@@ -292,6 +307,7 @@ async fn fetch_trace_with_grouping(
     endpoint: &str,
     trace_id: &str,
     auth: Option<&AuthHeader>,
+    max_bytes: usize,
     grouping_attributes: Option<&[Arc<str>]>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     validate_trace_id(trace_id)?;
@@ -301,7 +317,15 @@ async fn fetch_trace_with_grouping(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(client, uri, auth, true, crate::ingest::TRACE_OVERRUN_REMEDY).await?;
+    let body = fetch_json(
+        client,
+        uri,
+        max_bytes,
+        auth,
+        true,
+        crate::ingest::TRACE_OVERRUN_REMEDY,
+    )
+    .await?;
 
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
@@ -404,6 +428,7 @@ async fn ingest_from_jaeger_query_impl(
             endpoint,
             tid,
             parsed_auth.as_ref(),
+            MAX_RESPONSE_BYTES,
             grouping_attributes.as_deref(),
         )
         .await;
@@ -427,6 +452,7 @@ async fn ingest_from_jaeger_query_impl(
         window,
         max_traces,
         parsed_auth.as_ref(),
+        MAX_RESPONSE_BYTES,
         grouping_attributes.as_deref(),
     )
     .await
@@ -646,9 +672,16 @@ mod tests {
         let client = http_client::build_client();
         let grouping = [Arc::from("tenant.id")];
 
-        let events = fetch_trace_with_grouping(&client, &endpoint, "abc123", None, Some(&grouping))
-            .await
-            .expect("fetch must succeed");
+        let events = fetch_trace_with_grouping(
+            &client,
+            &endpoint,
+            "abc123",
+            None,
+            MAX_RESPONSE_BYTES,
+            Some(&grouping),
+        )
+        .await
+        .expect("fetch must succeed");
         assert_eq!(events[0].grouping[0].key.as_ref(), "tenant.id");
         assert_eq!(events[0].grouping[0].value.as_ref(), "acme");
         server.await.expect("server join");
@@ -806,6 +839,61 @@ mod tests {
                 || text.contains("Authorization: Bearer topsecret"),
             "auth header missing from request, got:\n{text}"
         );
+        server.await.expect("server join");
+    }
+
+    // --- Body-cap overruns on both paths ---
+    //
+    // `MAX_RESPONSE_BYTES` (256 MiB) cannot be served from a test, so
+    // these go through the private path helpers with a tiny cap. Both
+    // serve `SAMPLE_TRACE`, valid JSON: what is untested otherwise is
+    // that an overrun survives the wire as `BodyTooLarge` rather than
+    // the parse or read error a truncated body would look like, and
+    // that each path binds its own remedy.
+
+    #[tokio::test]
+    async fn a_search_body_over_the_cap_carries_the_search_remedy() {
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
+        let client = http_client::build_client();
+
+        let err = search_and_fetch_traces_with_grouping(
+            &client,
+            &endpoint,
+            "order-svc",
+            SearchWindow::Lookback(Duration::from_mins(1)),
+            10,
+            None,
+            64,
+            None,
+        )
+        .await
+        .expect_err("a body over a 64 byte cap must fail");
+        match err {
+            JaegerQueryError::BodyTooLarge { limit: 64, remedy } => {
+                assert_eq!(remedy, crate::ingest::SEARCH_OVERRUN_REMEDY);
+            }
+            other => panic!("expected BodyTooLarge on the search path, got {other:?}"),
+        }
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn a_trace_body_over_the_cap_carries_the_trace_remedy() {
+        // Same overrun on the other path. Inverting the two remedies
+        // would tell an operator to lower `--max-traces` for a single
+        // trace the flag cannot shrink.
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
+        let client = http_client::build_client();
+
+        let err = fetch_trace_with_grouping(&client, &endpoint, "abc123", None, 64, None)
+            .await
+            .expect_err("a body over a 64 byte cap must fail");
+        match err {
+            JaegerQueryError::BodyTooLarge { limit: 64, remedy } => {
+                assert_eq!(remedy, crate::ingest::TRACE_OVERRUN_REMEDY);
+            }
+            other => panic!("expected BodyTooLarge on the per-trace path, got {other:?}"),
+        }
         server.await.expect("server join");
     }
 }

@@ -1548,11 +1548,11 @@ fn cli_report_help_lists_the_mysql_stat_prometheus_flags() {
 // and misorders every longer cycle, so it would put trace-order-02 first.
 // ---------------------------------------------------------------------
 
-/// Render the realistic fixture with extra flags and return the embedded
-/// payload.
-fn render_realistic(extra: &[&str]) -> serde_json::Value {
+/// Render a workspace-root fixture with extra flags and return the
+/// embedded payload.
+fn render_fixture(fixture: &str, extra: &[&str]) -> serde_json::Value {
     let fixture_path = format!(
-        "{}/../../tests/fixtures/report_realistic.json",
+        "{}/../../tests/fixtures/{fixture}",
         env!("CARGO_MANIFEST_DIR")
     );
     let dir = tempfile::tempdir().expect("tempdir");
@@ -1576,6 +1576,12 @@ fn render_realistic(extra: &[&str]) -> serde_json::Value {
         String::from_utf8_lossy(&output.stderr)
     );
     extract_payload_json_from_html(&fs::read_to_string(&out_path).expect("read html"))
+}
+
+/// Render the realistic fixture with extra flags and return the embedded
+/// payload.
+fn render_realistic(extra: &[&str]) -> serde_json::Value {
+    render_fixture("report_realistic.json", extra)
 }
 
 /// Trace ids of the findings, in payload order.
@@ -1636,6 +1642,24 @@ const SEVERITY_ORDER: [&str; 6] = [
     "trace-payment-02",
 ];
 
+// The realistic fixture holds no critical finding, so it can only prove
+// warning-before-info. demo.json is the one workspace-root fixture that
+// carries all three severities (1 critical, 7 warnings, 3 infos), which
+// is what pins the critical rank to the top of the list.
+const DEMO_SEVERITY_ORDER: [&str; 11] = [
+    "trace-demo-nplus-sql",
+    "trace-demo-messaging",
+    "trace-demo-nplus-http",
+    "trace-demo-slow-sql",
+    "trace-demo-slow-http",
+    "trace-demo-fanout",
+    "trace-demo-chatty",
+    "trace-demo-pool",
+    "trace-demo-redundant-sql",
+    "trace-demo-redundant-http",
+    "trace-demo-serialized",
+];
+
 #[test]
 fn cli_report_sort_impact_ranks_findings_by_descending_impact() {
     let payload = render_realistic(&["--sort", "impact"]);
@@ -1673,6 +1697,52 @@ fn cli_report_sort_severity_ranks_findings_worst_first() {
     assert!(
         ranks.windows(2).all(|w| w[0] <= w[1]),
         "severity must never improve then worsen again, got {ranks:?}"
+    );
+}
+
+#[test]
+fn cli_report_sort_severity_puts_the_critical_above_every_warning_and_info() {
+    let payload = render_fixture("demo.json", &["--sort", "severity"]);
+    let traces = finding_trace_ids(&payload);
+    assert_eq!(
+        traces, DEMO_SEVERITY_ORDER,
+        "the whole sequence must be the severity ranking, not a permutation of it"
+    );
+    let ranks = severity_ranks(&payload);
+    assert_eq!(
+        ranks,
+        [0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2],
+        "one critical, then seven warnings, then three infos"
+    );
+    // The three ranks must all be reached, otherwise the ordering below
+    // is asserted across a subset of the scale, which is the very gap
+    // the realistic fixture leaves.
+    for rank in [0, 1, 2] {
+        assert!(
+            ranks.contains(&rank),
+            "rank {rank} must be exercised, got {ranks:?}"
+        );
+    }
+    assert_eq!(traces[0], "trace-demo-nplus-sql", "the critical leads");
+    assert_eq!(
+        traces[10], "trace-demo-serialized",
+        "the lightest info closes the list"
+    );
+    assert!(
+        ranks.windows(2).all(|w| w[0] <= w[1]),
+        "severity must never improve then worsen again, got {ranks:?}"
+    );
+    // The critical also carries the top impact, so leading the list is
+    // not on its own proof of a severity sort. Its 9 avoidable ops would
+    // put it first under either key; the tail is what separates them,
+    // the two impact-bearing infos rank below every zero-impact warning
+    // here and above them under `--sort impact`.
+    let impacts = finding_impacts(&payload);
+    assert_eq!(impacts[0], 9, "the critical is also the heaviest finding");
+    assert_eq!(
+        &impacts[7..],
+        &[0, 2, 2, 0],
+        "a zero-impact warning must still outrank the infos that cost I/O"
     );
 }
 

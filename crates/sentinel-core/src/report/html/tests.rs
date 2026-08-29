@@ -2966,3 +2966,87 @@ fn the_template_text_colours_clear_the_aa_contrast_floor() {
         }
     }
 }
+
+/// Trace ids in the rendered payload, in the order the sink kept them.
+fn payload_trace_ids(html: &str) -> Vec<String> {
+    let payload: serde_json::Value =
+        serde_json::from_str(&extract_payload_json(html)).expect("payload parses");
+    payload["embedded_traces"]
+        .as_array()
+        .expect("embedded_traces array")
+        .iter()
+        .map(|t| t["trace_id"].as_str().expect("trace id").to_string())
+        .collect()
+}
+
+/// Findings pointing at `trace_ids`, in that order. The top one is the
+/// mildest so a severity-keyed selection would keep the tail instead.
+fn findings_pointing_at(trace_ids: &[&str]) -> Vec<Finding> {
+    let last = trace_ids.len().saturating_sub(1);
+    trace_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let mut f = finding(id, "svc", "/ep", "select 1");
+            f.severity = if i == last {
+                Severity::Critical
+            } else {
+                Severity::Info
+            };
+            f
+        })
+        .collect()
+}
+
+/// One trace per id, one span each.
+fn traces_named(ids: &[&str]) -> Vec<Trace> {
+    ids.iter()
+        .map(|id| Trace {
+            trace_id: (*id).into(),
+            spans: vec![span(id, "s1", None, "svc", "/ep", "select 1")],
+        })
+        .collect()
+}
+
+#[test]
+fn the_raw_trace_path_embeds_the_trees_the_top_findings_reference() {
+    // `analyze --format html`: raw traces handed over. The findings are out
+    // of trace-id order and out of candidate order, and t2 carries no
+    // finding at all, so a path back on its own ordering would keep
+    // ["t1", "t2"] or ["t1", "t3"] rather than the pair the top rows point
+    // at. Asserting the ids and their order is the point, the count alone
+    // passes under every one of those rules.
+    let report = minimal_report(findings_pointing_at(&["t3", "t1", "t4"]));
+    let traces = traces_named(&["t1", "t2", "t3", "t4"]);
+
+    let (html, stats) = render(&report, &traces, &opts("-", Some(2)));
+
+    assert_eq!(
+        payload_trace_ids(&html),
+        ["t3", "t1"],
+        "the first two findings point at t3 and t1"
+    );
+    assert_eq!(stats.total, 3, "t2 is a candidate of no finding");
+}
+
+#[test]
+fn the_report_carried_path_embeds_the_trees_the_top_findings_reference() {
+    // `report --input <daemon snapshot>`: no trace handed over, the spans
+    // travel inside the report, sorted by trace id as `embed_finding_traces`
+    // writes them. Same findings, same expected pair: both sink paths owe
+    // the reader the same trees for the same report.
+    let mut report = minimal_report(findings_pointing_at(&["t3", "t1", "t4"]));
+    report.embedded_traces = traces_named(&["t1", "t2", "t3", "t4"])
+        .iter()
+        .map(EmbeddedTrace::from_trace)
+        .collect();
+
+    let (html, stats) = render(&report, &[], &opts("snapshot.json", Some(2)));
+
+    assert_eq!(
+        payload_trace_ids(&html),
+        ["t3", "t1"],
+        "the first two findings point at t3 and t1"
+    );
+    assert_eq!(stats.total, 3, "t2 is a candidate of no finding");
+}
