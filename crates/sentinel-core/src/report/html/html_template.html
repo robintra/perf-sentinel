@@ -45,7 +45,10 @@
     /* --text-3 #6a6a6a is the AA-contrast floor on the grey surfaces, do not
        lighten it back to #767676 (handoff a11y polish). */
     --text: #20261f; --text-2: #556b5c; --text-3: #6a6a6a;
-    --brand: #0ba671; --brand-2: #0b523a; --brand-text: #11845d; --accent-bg: #e0f4ed;
+    /* --brand-text #107a56 is the AA-contrast floor on the light surfaces, do
+       not lighten it back to #11845d, which fell to 4.09 on --accent-bg, 4.12
+       on --surface-3 and 4.37 on --surface. */
+    --brand: #0ba671; --brand-2: #0b523a; --brand-text: #107a56; --accent-bg: #e0f4ed;
     --crit-fg: #bf2a22; --crit-bg: #ffe4e1; --crit-bd: #f6d2cd;
     --warn-fg: #754618; --warn-bg: #ffe0c2; --warn-bd: #f0d2b2;
     --info-fg: #1f5e9e; --info-bg: #e9f0f8; --info-bd: #d5e4f3;
