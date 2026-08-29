@@ -374,4 +374,133 @@ mod tests {
         let back: EmbeddedTrace = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back, embedded);
     }
+
+    fn finding_at(trace_id: &str) -> crate::detect::Finding {
+        use crate::detect::{FindingType, Severity};
+        let mut finding =
+            crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Critical);
+        finding.trace_id = trace_id.to_string();
+        finding
+    }
+
+    /// A report whose findings point at `trace_ids`, in that order.
+    fn report_for(trace_ids: &[&str]) -> crate::report::Report {
+        let mut report = crate::test_helpers::empty_report();
+        for id in trace_ids {
+            report.findings.push(finding_at(id));
+        }
+        report
+    }
+
+    fn trace_of(trace_id: &str, spans: usize) -> Trace {
+        Trace {
+            trace_id: trace_id.to_string(),
+            spans: (0..spans)
+                .map(|i| event(&format!("s{i}"), "raw", "tpl"))
+                .collect(),
+        }
+    }
+
+    fn embedded_size(trace: &Trace) -> usize {
+        serde_json::to_string(&EmbeddedTrace::from_trace(trace))
+            .expect("serializes")
+            .len()
+    }
+
+    fn embedded_ids(report: &crate::report::Report) -> Vec<&str> {
+        report
+            .embedded_traces
+            .iter()
+            .map(|t| t.trace_id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn first_reference_rank_keeps_the_earliest_index_of_a_repeated_trace() {
+        let report = report_for(&["a", "b", "a", "c"]);
+
+        let rank = first_reference_rank(&report.findings);
+
+        assert_eq!(rank.get("a"), Some(&0), "the later reference must not win");
+        assert_eq!(rank.get("b"), Some(&1));
+        assert_eq!(rank.get("c"), Some(&3));
+        assert_eq!(rank.len(), 3, "one rank per distinct trace id");
+    }
+
+    #[test]
+    fn the_kept_trees_are_the_ones_the_top_findings_reference() {
+        // Findings deliberately out of trace-id order: the rule follows the
+        // findings, not the ids.
+        let mut report = report_for(&["t3", "t1", "t4", "t2", "t5"]);
+        let traces: Vec<Trace> = ["t5", "t4", "t3", "t2", "t1"]
+            .iter()
+            .map(|id| trace_of(id, 3))
+            .collect();
+        let budget = 2 * embedded_size(&traces[0]);
+
+        embed_finding_traces_with_budget(&mut report, &traces, budget);
+
+        assert_eq!(
+            embedded_ids(&report),
+            ["t1", "t3"],
+            "findings 1 and 2 point at t3 and t1, output stays sorted by id"
+        );
+    }
+
+    #[test]
+    fn a_trace_referenced_by_the_first_finding_outranks_a_bigger_one_referenced_by_the_fifth() {
+        let mut report = report_for(&["early", "gone", "gone", "gone", "late"]);
+        let traces = vec![trace_of("late", 40), trace_of("early", 1)];
+        // Room for the big trace alone: rank, not size, decides who gets it.
+        let budget = embedded_size(&traces[0]);
+
+        embed_finding_traces_with_budget(&mut report, &traces, budget);
+
+        assert_eq!(
+            embedded_ids(&report),
+            ["early"],
+            "first reference ranks, the candidate order and the sizes do not"
+        );
+    }
+
+    #[test]
+    fn a_finding_whose_trace_is_not_a_candidate_is_skipped_without_spending_the_budget() {
+        let traces = vec![trace_of("kept", 3)];
+        let mut report = report_for(&["ghost", "kept"]);
+
+        // Budget for exactly one trace: the absent top-ranked one must not
+        // take the slot.
+        embed_finding_traces_with_budget(&mut report, &traces, embedded_size(&traces[0]));
+
+        assert_eq!(embedded_ids(&report), ["kept"]);
+
+        let mut only_ghosts = report_for(&["ghost"]);
+        embed_finding_traces(&mut only_ghosts, &traces);
+        assert!(
+            only_ghosts.embedded_traces.is_empty(),
+            "no finding points at a candidate"
+        );
+    }
+
+    #[test]
+    fn the_cap_is_inclusive_at_the_boundary_and_one_byte_short_drops_the_last_trace() {
+        let traces = vec![trace_of("t1", 4), trace_of("t2", 4)];
+        let pair = embedded_size(&traces[0]) + embedded_size(&traces[1]);
+
+        let mut report = report_for(&["t1", "t2"]);
+        embed_finding_traces_with_budget(&mut report, &traces, pair);
+        assert_eq!(
+            embedded_ids(&report),
+            ["t1", "t2"],
+            "spending exactly the budget still fits"
+        );
+
+        let mut report = report_for(&["t1", "t2"]);
+        embed_finding_traces_with_budget(&mut report, &traces, pair - 1);
+        assert_eq!(
+            embedded_ids(&report),
+            ["t1"],
+            "one byte short drops the lowest-ranked trace"
+        );
+    }
 }

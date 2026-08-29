@@ -1046,6 +1046,55 @@ mod tests {
         server.await.unwrap();
     }
 
+    // --- Body-cap overruns on both paths ---
+    //
+    // `MAX_SEARCH_BODY_BYTES` (16 MiB) and `MAX_TRACE_BODY_BYTES`
+    // (64 MiB) are compiled in, so these go through the private fetch
+    // helpers with a tiny cap instead of serving the real one. The
+    // constants themselves are guarded by the `const _: () = assert!`
+    // above; what is untested without these two is that an overrun
+    // survives the wire as `BodyTooLarge` rather than a parse or read
+    // error, and that each path binds its own remedy.
+
+    #[tokio::test]
+    async fn a_search_body_over_the_cap_carries_the_search_remedy() {
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(&"x".repeat(256))).await;
+        let client = http_client::build_client();
+        let uri: hyper::Uri = format!("{endpoint}/api/search").parse().unwrap();
+
+        let err = fetch_json(&client, uri, 64, None)
+            .await
+            .expect_err("a 256 byte body over a 64 byte cap must fail");
+        match err {
+            TempoError::BodyTooLarge { limit: 64, remedy } => {
+                assert_eq!(remedy, crate::ingest::SEARCH_OVERRUN_REMEDY);
+            }
+            other => panic!("expected BodyTooLarge on the search path, got {other:?}"),
+        }
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_trace_body_over_the_cap_carries_the_trace_remedy() {
+        // Same overrun on the other path. Inverting the two remedies
+        // would tell an operator to lower `--max-traces` for a single
+        // trace the flag cannot shrink.
+        let (endpoint, server) = spawn_one_shot_server(http_200_proto(&[0u8; 256])).await;
+        let client = http_client::build_client();
+        let uri: hyper::Uri = format!("{endpoint}/api/traces/abc123").parse().unwrap();
+
+        let err = fetch_bytes(&client, uri, 64, None)
+            .await
+            .expect_err("a 256 byte body over a 64 byte cap must fail");
+        match err {
+            TempoError::BodyTooLarge { limit: 64, remedy } => {
+                assert_eq!(remedy, crate::ingest::TRACE_OVERRUN_REMEDY);
+            }
+            other => panic!("expected BodyTooLarge on the per-trace path, got {other:?}"),
+        }
+        server.await.unwrap();
+    }
+
     // --- search_traces ---
 
     #[tokio::test]
