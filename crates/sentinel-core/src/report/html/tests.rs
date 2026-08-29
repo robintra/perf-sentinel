@@ -2935,7 +2935,14 @@ fn the_template_text_colours_clear_the_aa_contrast_floor() {
     let light = TEMPLATE
         .find(":root[data-theme=\"light\"]")
         .expect("the template declares a light theme block");
-    assert!(dark != light, "the two theme blocks resolved to one offset");
+    // Two different needles always land on two different offsets, so comparing
+    // them proves nothing. What the anchors owe is two distinct palettes, and
+    // a template that put both selectors on one rule would give one.
+    assert_ne!(
+        token(dark, "--bg"),
+        token(light, "--bg"),
+        "both anchors resolved into the same palette"
+    );
 
     for (theme, at, grounds) in [
         (

@@ -211,20 +211,24 @@ struct Backend<'a> {
 }
 
 impl<'a> Backend<'a> {
-    /// The shape the public entry points use: the declared cap, no grouping.
-    fn new(client: &'a HttpClient, endpoint: &'a str, auth: Option<&'a AuthHeader>) -> Self {
+    /// Grouping is a parameter and not a default, because it was a mandatory
+    /// argument before these five were grouped: a path that forgot it would
+    /// return findings with no grouping and no test would say so. The cap has
+    /// no such hazard, it is the same value on every production path, which is
+    /// what lets it sit in the struct and out of reach of a positional swap.
+    fn new(
+        client: &'a HttpClient,
+        endpoint: &'a str,
+        auth: Option<&'a AuthHeader>,
+        grouping_attributes: Option<&'a [Arc<str>]>,
+    ) -> Self {
         Self {
             client,
             endpoint,
             auth,
             max_bytes: MAX_RESPONSE_BYTES,
-            grouping_attributes: None,
+            grouping_attributes,
         }
-    }
-
-    fn with_grouping(mut self, grouping_attributes: Option<&'a [Arc<str>]>) -> Self {
-        self.grouping_attributes = grouping_attributes;
-        self
     }
 }
 
@@ -251,7 +255,7 @@ pub async fn search_and_fetch_traces(
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     search_and_fetch_traces_on(
-        &Backend::new(client, endpoint, auth),
+        &Backend::new(client, endpoint, auth, None),
         service,
         window,
         limit,
@@ -321,7 +325,7 @@ pub async fn fetch_trace(
     trace_id: &str,
     auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
-    fetch_trace_on(&Backend::new(client, endpoint, auth), trace_id).await
+    fetch_trace_on(&Backend::new(client, endpoint, auth, None), trace_id).await
 }
 
 async fn fetch_trace_on(
@@ -435,8 +439,12 @@ async fn ingest_from_jaeger_query_impl(
     }
 
     let client = http_client::build_client();
-    let backend = Backend::new(&client, endpoint, parsed_auth.as_ref())
-        .with_grouping(grouping_attributes.as_deref());
+    let backend = Backend::new(
+        &client,
+        endpoint,
+        parsed_auth.as_ref(),
+        grouping_attributes.as_deref(),
+    );
 
     if let Some(tid) = trace_id {
         tracing::info!(
@@ -674,7 +682,7 @@ mod tests {
         let client = http_client::build_client();
         let grouping = [Arc::from("tenant.id")];
 
-        let backend = Backend::new(&client, &endpoint, None).with_grouping(Some(&grouping));
+        let backend = Backend::new(&client, &endpoint, None, Some(&grouping));
         let events = fetch_trace_on(&backend, "abc123")
             .await
             .expect("fetch must succeed");
@@ -849,8 +857,10 @@ mod tests {
 
     /// The two tests below inject a small cap, which is the only way to reach
     /// the overrun branch without serving 256 MiB. That leaves the binding
-    /// itself unasserted, so this pins it: every call site that is not a test
-    /// passes `MAX_RESPONSE_BYTES`, and the constant is the documented one.
+    /// itself unasserted, so this pins it on the source text rather than on
+    /// behaviour: no run can observe which constant a call site named, so the
+    /// module reads itself, ignoring comments, and counts where the cap is
+    /// bound.
     #[test]
     fn every_production_call_site_binds_the_declared_response_cap() {
         let source = include_str!("jaeger_query.rs");
@@ -861,16 +871,22 @@ mod tests {
             after_const.starts_with("256 * 1024 * 1024;"),
             "the response cap moved, which the docs and the overrun remedy both state"
         );
-        // The declaration and the single place production binds it, which is
-        // Backend::new. Two mentions, and every request path goes through it,
-        // so a path that started carrying its own cap shows up here.
-        let production = source
+        // Comments dropped first: naming the constant in prose is not binding
+        // it, and counting a doc line would fail this with a message about
+        // call sites.
+        let production: String = source
             .split_once("#[cfg(test)]")
-            .map_or(source, |(before, _)| before);
+            .map_or(source, |(before, _)| before)
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
         assert_eq!(
             production.matches("MAX_RESPONSE_BYTES").count(),
             2,
-            "production stopped binding MAX_RESPONSE_BYTES in exactly one place"
+            "the cap is declared once and bound once, in Backend::new, and every \
+             request path goes through it. A third occurrence is a path that \
+             carries its own cap, or a doc line this filter did not drop."
         );
     }
 
@@ -883,7 +899,7 @@ mod tests {
         // reachable from a test where the real 256 MiB is not.
         let backend = Backend {
             max_bytes: 64,
-            ..Backend::new(&client, &endpoint, None)
+            ..Backend::new(&client, &endpoint, None, None)
         };
         let err = search_and_fetch_traces_on(
             &backend,
@@ -912,7 +928,7 @@ mod tests {
 
         let backend = Backend {
             max_bytes: 64,
-            ..Backend::new(&client, &endpoint, None)
+            ..Backend::new(&client, &endpoint, None, None)
         };
         let err = fetch_trace_on(&backend, "abc123")
             .await
