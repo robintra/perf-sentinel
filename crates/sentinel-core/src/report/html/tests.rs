@@ -2881,3 +2881,88 @@ fn template_carries_the_report_warnings_banner() {
     assert!(TEMPLATE.contains(r#"id="report-warnings""#));
     assert!(TEMPLATE.contains("renderReportWarnings()"));
 }
+
+/// The AA floor for the two text colours the template comments tell the next
+/// reader not to lighten. A comment cannot fail a build, and both of these had
+/// already drifted under 4.5 once, `--brand-text` to 4.09 on the light accent
+/// and `--text-3` to 3.50 on the dark deep surface.
+///
+/// Sampled per theme against the grounds each colour is actually painted on,
+/// read out of the template rather than restated here, so a palette change
+/// moves the test with it instead of leaving it asserting a colour nobody uses.
+#[test]
+fn the_template_text_colours_clear_the_aa_contrast_floor() {
+    /// WCAG 2.x relative luminance of an `#rrggbb` string.
+    fn luminance(hex: &str) -> f64 {
+        let value = u32::from_str_radix(hex.trim_start_matches('#'), 16).expect("six hex digits");
+        let channel = |shift: u32| {
+            let raw = f64::from((value >> shift) & 0xff) / 255.0;
+            if raw <= 0.040_45 {
+                raw / 12.92
+            } else {
+                ((raw + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+
+    fn ratio(a: &str, b: &str) -> f64 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// The value of one `--name: #rrggbb` declaration, from the theme block
+    /// that starts at `from`. Each theme declares the whole palette, so the
+    /// first hit after the block's opening is that theme's own.
+    fn token(from: usize, name: &str) -> String {
+        let needle = format!("{name}: #");
+        let at = TEMPLATE[from..]
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} is declared after byte {from}"))
+            + from
+            + needle.len()
+            - 1;
+        TEMPLATE[at..at + 7].to_string()
+    }
+
+    // Two theme blocks, and the light one is the second: the dark palette is
+    // the default and the light one overrides it.
+    let dark = 0;
+    let light = TEMPLATE
+        .find("--bg: #ffffff")
+        .expect("the light theme declares a white background");
+
+    for (theme, at, grounds) in [
+        (
+            "dark",
+            dark,
+            ["--bg", "--surface", "--surface-2", "--surface-3"].as_slice(),
+        ),
+        (
+            "light",
+            light,
+            // The light accent is an opaque hex, the dark one is translucent
+            // and composites over its surface, so it is not comparable here.
+            [
+                "--bg",
+                "--surface",
+                "--surface-2",
+                "--surface-3",
+                "--accent-bg",
+            ]
+            .as_slice(),
+        ),
+    ] {
+        for name in ["--text-3", "--brand-text"] {
+            let colour = token(at, name);
+            for ground in grounds {
+                let behind = token(at, ground);
+                let measured = ratio(&colour, &behind);
+                assert!(
+                    measured >= 4.5,
+                    "{theme} {name} {colour} on {ground} {behind} is {measured:.2}, under the 4.5 floor"
+                );
+            }
+        }
+    }
+}
