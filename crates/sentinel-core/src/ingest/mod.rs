@@ -29,7 +29,14 @@ pub const MAX_SEARCH_TRACES: usize = 10_000;
 
 /// Overrun remedies for [`MAX_SEARCH_TRACES`]-bounded clients, written
 /// once: the search body shrinks with the flag, a single trace does not.
+///
+/// Gated with the two clients that read them, unlike `MAX_SEARCH_TRACES`
+/// above, which the clap declarations name whether or not either feature is
+/// on. Ungated they are dead code in the default core build, which is the one
+/// CI checks for crates.io parity.
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
 pub(crate) const SEARCH_OVERRUN_REMEDY: &str = "lower --max-traces";
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
 pub(crate) const TRACE_OVERRUN_REMEDY: &str =
     "this single trace is larger than the cap, --max-traces cannot shrink it";
 
