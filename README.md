@@ -290,6 +290,66 @@ perf-sentinel processes traces in place. It makes no silent outbound calls and s
 
 The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
 
+## Fleet view with PerfSentinelHub
+
+Optional, and worth adding once you run more than one daemon.
+
+A `watch` daemon holds its findings in memory. The ring buffer forgets, and `/api/findings` answers at most 1,000 rows, which is enough for one service and thin for a fleet. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) is a separate service that collects from every daemon and keeps the one thing they cannot reconstruct: when a finding was first seen.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_dark.gif">
+  <img alt="the Hub launcher: pick a source, shape a run, read the fleet" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_light.gif">
+</picture>
+
+What it adds on top of a daemon:
+
+- **A durable timeline.** `first_seen` per acknowledgment signature, retained 180 days by default, so "this regressed last Tuesday" survives a restart.
+- **Push and poll, and one of them owns reachability.** Daemons push into `/api/import/findings`, and the Hub polls them back as a safety net. Only a successful poll clears an unreachable marker, because a daemon reaching the Hub proves nothing about the Hub reaching the daemon.
+- **A browser that runs an analysis.** Against a daemon, a Tempo backend or a Jaeger query backend, serving the same HTML dashboard `report` renders.
+- **One read API for tooling.** `/api/findings` for IDE plugins and CI jobs, with a `status` derived at read time that tells "the endpoint runs without this finding" apart from "nobody is looking".
+
+It never replaces this engine, it runs it. Every analysis spawns this binary as a subprocess, and every daemon is read over its own query API. Nothing of the Hub lives in perf-sentinel, and a daemon does not know a Hub exists.
+
+<details>
+<summary>The five screens</summary>
+
+Starting a run against a trace backend, which is the form that takes a service, a window and a trace cap. A daemon source takes no parameters at all:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-new-dark.png">
+  <img alt="run an analysis: sources grouped by kind, the full backend form" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-new.png">
+</picture>
+
+Fleet health, one row per source, unfolded onto the gauges and tuning hints a daemon publishes about itself:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-sources-dark.png">
+  <img alt="fleet health: daemons and trace backends, one row unfolded" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-sources.png">
+</picture>
+
+Recent runs, in the states they ended in:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-recent-dark.png">
+  <img alt="recent analyses in mixed terminal states" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-recent.png">
+</picture>
+
+One run, with the quality gate leading its result strip:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-run-dark.png">
+  <img alt="a single run: event log, result strip and request parameters" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-run.png">
+</picture>
+
+The rendered dashboard, served from the Hub's own origin:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-report-dark.png">
+  <img alt="the engine's HTML dashboard embedded in the Hub" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-report.png">
+</picture>
+
+</details>
+
 ## Performance
 
 `perf-sentinel bench` times the analysis pipeline only (`normalize -> correlate -> detect -> score`), single-threaded, on synthetic datasets: these figures are the pure pipeline cost, not an end-to-end or daemon-under-load benchmark. The exact clock scope and dataset construction are folded below the table.
