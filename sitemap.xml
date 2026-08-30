@@ -32,17 +32,17 @@
   <url><loc>https://perf-sentinel.dev/docs/LIMITATIONS</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/SUPPLY-CHAIN</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/RELEASE-PROCEDURE</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__00-INDEX</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__01-PIPELINE-AND-TYPES</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__02-NORMALIZATION</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__03-CORRELATION-AND-STREAMING</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__04-DETECTION</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__05-GREENOPS-AND-CARBON</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__06-INGESTION-AND-DAEMON</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__07-CLI-CONFIG-RELEASE</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__08-PERIODIC-DISCLOSURE</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__09-CARBON-ATTRIBUTION</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/design__10-SIGSTORE-ATTESTATION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/00-INDEX</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/01-PIPELINE-AND-TYPES</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/02-NORMALIZATION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/03-CORRELATION-AND-STREAMING</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/04-DETECTION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/05-GREENOPS-AND-CARBON</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/06-INGESTION-AND-DAEMON</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/07-CLI-CONFIG-RELEASE</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/08-PERIODIC-DISCLOSURE</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/09-CARBON-ATTRIBUTION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/design/10-SIGSTORE-ATTESTATION</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/fr/00-INDEX</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/fr/ARCHITECTURE</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/fr/INTEGRATION</loc></url>
@@ -67,15 +67,15 @@
   <url><loc>https://perf-sentinel.dev/docs/fr/LIMITATIONS</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/fr/SUPPLY-CHAIN</loc></url>
   <url><loc>https://perf-sentinel.dev/docs/fr/RELEASE-PROCEDURE</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__00-INDEX</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__01-PIPELINE-AND-TYPES</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__02-NORMALIZATION</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__03-CORRELATION-AND-STREAMING</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__04-DETECTION</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__05-GREENOPS-AND-CARBON</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__06-INGESTION-AND-DAEMON</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__07-CLI-CONFIG-RELEASE</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__08-PERIODIC-DISCLOSURE</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__09-CARBON-ATTRIBUTION</loc></url>
-  <url><loc>https://perf-sentinel.dev/docs/fr/design__10-SIGSTORE-ATTESTATION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/00-INDEX</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/01-PIPELINE-AND-TYPES</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/02-NORMALIZATION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/03-CORRELATION-AND-STREAMING</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/04-DETECTION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/05-GREENOPS-AND-CARBON</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/06-INGESTION-AND-DAEMON</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/07-CLI-CONFIG-RELEASE</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/08-PERIODIC-DISCLOSURE</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/09-CARBON-ATTRIBUTION</loc></url>
+  <url><loc>https://perf-sentinel.dev/docs/fr/design/10-SIGSTORE-ATTESTATION</loc></url>
 </urlset>
