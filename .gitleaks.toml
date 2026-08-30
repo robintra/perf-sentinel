@@ -5,7 +5,12 @@
 # finding-signature format so generic-api-key does not flag the SHA-256
 # prefix tail in operator-facing examples.
 #
-# The signature is `<finding_type>:<service>:<sanitized_endpoint>:<16-hex>`
+# The signature is `<finding_type>:<service>:<sanitized_endpoint>:<32-hex>`
+# (compute_signature writes digest[..16] as two hex digits per byte). The
+# regex below asks for only the first 16 of those, on purpose: with
+# `regexTarget = "line"` that still matches a real signature, and it also
+# covers the shorter literals the ack tests use. Tightening it to 32 makes
+# crates/sentinel-core/src/daemon/ack.rs trip generic-api-key. Measured.
 # (see docs/ACKNOWLEDGMENTS.md). It is a deterministic SHA-256 prefix,
 # public by design (operators copy the value from `analyze --format json`
 # into PR-reviewed ack files), not a credential.
@@ -24,11 +29,18 @@ description = "Documented finding-signature examples are public, not secrets"
 # attacker cannot hide a real credential by formatting it
 # `aws_secret_key:account:region:<hex>`, which would otherwise match a
 # bare `[a-z_]+:` prefix.
+#
+# What the pinning does not stop, measured rather than assumed: because
+# `regexTarget = "line"` allowlists the whole line, a credential sitting on
+# the same line as a genuine signature is silenced with it. A key on its own
+# line is still caught. Signatures appear across crates/, docs/ and tests/,
+# so scoping this allowlist by path would cover the repository and buy
+# nothing.
 regexTarget = "line"
 regexes = [
   # Service and sanitized-endpoint segments only contain bytes
   # `compute_signature` lets through after `sanitize_endpoint` strips
   # `/` and ` `: alnum, `_`, `-`, `.`. Tighter than `@/` would allow,
   # so a real credential cannot hide as a fake signature.
-  '''(?:n_plus_one_sql|n_plus_one_http|redundant_sql|redundant_http|slow_sql|slow_http|excessive_fanout|chatty_service|pool_saturation|serialized_calls):[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[0-9a-f]{16}''',
+  '''(?:n_plus_one_sql|n_plus_one_http|n_plus_one_messaging|redundant_sql|redundant_http|slow_sql|slow_http|slow_messaging|excessive_fanout|chatty_service|pool_saturation|serialized_calls):[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[0-9a-f]{16}''',
 ]
