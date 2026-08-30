@@ -88,7 +88,7 @@ if (!source.includes('id="theme-toggle"')) {
 
 const PATCH = `<script>
 (function () {
-  var F = ${JSON.stringify(fixtures)};
+  var F = ${JSON.stringify(fixtures).replace(/</g, '\\u003c')};
   var ROUTES = F.routes;
   // A captured moment is stored against a fixed epoch, so one offset moves the
   // whole set onto now and every gap between them survives. Without this a run
@@ -101,8 +101,12 @@ const PATCH = `<script>
   // capture-fixtures.sh chooses gauge values rather than recording an idle
   // daemon's zeros.
   var AGED_BY_MS = 8 * 60 * 1000;
-  var DELTA = Date.now() - F.epoch_ms - AGED_BY_MS;
+  // Above this a number is a moment, below it a duration. Kept in step with
+  // IS_TIMESTAMP in the Hub's global-setup.ts, which decides the same thing on
+  // the way in.
+  var IS_TIMESTAMP = 1e12;
   var LOAD = Date.now();
+  var DELTA = LOAD - F.epoch_ms - AGED_BY_MS;
 
   function shift(value) {
     if (Array.isArray(value)) return value.map(shift);
@@ -111,7 +115,7 @@ const PATCH = `<script>
       for (var k in value) {
         if (!Object.prototype.hasOwnProperty.call(value, k)) continue;
         var v = value[k];
-        out[k] = (k.slice(-3) === '_ms' && typeof v === 'number' && v > 1e12) ? v + DELTA : shift(v);
+        out[k] = (k.slice(-3) === '_ms' && typeof v === 'number' && v > IS_TIMESTAMP) ? v + DELTA : shift(v);
       }
       return out;
     }
@@ -138,7 +142,7 @@ const PATCH = `<script>
   function daemonView(path) {
     var body = shift(ROUTES[path]);
     var n = reads[path] = (reads[path] || 0) + 1;
-    var step = WALK[n % WALK.length];
+    var step = WALK[(n - 1) % WALK.length];
     body.traces = gauge(body.traces, step);
     body.analysis_queue = gauge(body.analysis_queue, Math.round(step / 3));
     body.findings = gauge(body.findings, n % 3 === 0 ? 1 : 0);
@@ -155,6 +159,7 @@ const PATCH = `<script>
   // A submitted run is carried through the states the launcher's own poll
   // expects, reusing a real succeeded run for the terminal body.
   var submitted = {};
+  var submits = 0;
   var TEMPLATE = null;
   for (var key in ROUTES) {
     if (key.indexOf('/api/analyses/') === 0 && ROUTES[key] && ROUTES[key].status === 'succeeded') {
@@ -207,13 +212,18 @@ const PATCH = `<script>
   var realFetch = window.fetch.bind(window);
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || '';
-    var path = url.replace(/^https?:\\/\\/[^/]+/, '');
+    var target;
+    try { target = new URL(url, location.href); } catch (e) { return realFetch(input, init); }
+    // Same origin only. Stripping any host would let a request to another origin
+    // be answered from a fixture whose path happened to match.
+    if (target.origin !== location.origin) return realFetch(input, init);
+    var path = target.pathname + target.search;
     var method = ((init && init.method) || 'GET').toUpperCase();
 
     if (method === 'POST' && path.indexOf('/api/analyses') === 0) {
       var payload = {};
       try { payload = JSON.parse((init && init.body) || '{}'); } catch (e) {}
-      var id = 'd' + (Date.now().toString(16) + '0000000000000000').slice(0, 15);
+      var id = 'f' + String(++submits).padStart(15, '0');
       submitted[id] = { at: Date.now(), sourceId: payload.source_id, request: payload.request };
       return json({ id: id, status: 'pending' });
     }
