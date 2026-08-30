@@ -42,6 +42,12 @@ annotations:
       description: "tempo and jaeger-query accept --sort, the severity and impact keys analyze already took, applied before the sinks so a wide sweep comes back ranked instead of leaving the caller to re-sort it."
     - kind: changed
       description: "The dashboard and the TUI open on impact rather than on severity and trace-id order. A reader arriving on a report asks what costs the most, and the answer now leads."
+    - kind: changed
+      description: "The PrometheusRule drops from seven always-on alerts to five and reshapes three survivors, alerting only on data the daemon lost irrecoverably. PerfSentinelDown becomes up{job=\"<fullname>\"} == 0 at severity warning, since absent() stayed green when one replica of a sharded pair died. PerfSentinelIngestRejecting narrows to reason=channel_full with a floor, having fired on any malformed request reaching :4318. Breaking for prometheusRule.enabled: true, see the upgrade note in the chart CHANGELOG."
+    - kind: added
+      description: "PerfSentinelArchiveDropping alerts on a dropped disclosure archive window. The archive hash chain stays contiguous across a drop, so verify-hash recomputes clean over a record that is short and this counter is the only witness. Inert without [daemon.archive]."
+    - kind: removed
+      description: "PerfSentinelAnalysisQueueSaturated, PerfSentinelCorrelatorEvicting and PerfSentinelServiceCardinalityOverflow. The first predicted the shedding alert and is already a dashboard panel, the other two shipped at severity info and fired on states the daemon reaches while working normally. Grep your Alertmanager config for those three names before upgrading."
   artifacthub.io/images: |
     - name: perf-sentinel
       image: ghcr.io/robintra/perf-sentinel:0.17.0

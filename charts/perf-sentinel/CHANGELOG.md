@@ -12,6 +12,75 @@ the chart version, to know which daemon image ships.
 
 ## [0.17.0]
 
+### Changed
+
+- **The `PrometheusRule` drops from seven always-on alerts to five, and three of
+  the survivors change shape. Breaking for `prometheusRule.enabled: true`.** The
+  shipped set alerted on conditions that were routine, already predicted by
+  another rule, or already a Grafana panel, and two of them shipped at
+  `severity: info`, which routes to nobody. What is left alerts only on data the
+  daemon lost irrecoverably.
+- `PerfSentinelDown` becomes `up{job="<fullname>"} == 0`, `for: 15m`, at
+  `severity: warning` rather than `critical`. `absent(perf_sentinel_active_traces)`
+  is aggregation-blind and label-less: on the sharded topology this repo
+  documents in `examples/docker-compose-sharded.yml`, one dead replica out of two
+  left the surviving replica publishing the metric, so the alert stayed green
+  while half the spans went nowhere. It was equally silent when one Prometheus
+  scraped two installs. `up == 0` fires per target and carries `pod` and
+  `namespace`, so it names which one died. It does require a scrape job named
+  after the release, which is what `serviceMonitor.enabled: true` produces.
+- `PerfSentinelIngestRejecting` narrows to `reason="channel_full"` with a
+  `> 0.05` floor over `[10m]`, held `for: 15m`. It previously matched
+  `reason!="memory_pressure"`, which swept in `parse_error` and
+  `unsupported_media_type`, raised by any malformed request reaching `:4318`.
+  Nothing the daemon meant to analyse was lost in those cases and the fix lives
+  in another team's exporter, so they belong on the `OTLP span intake` panel.
+  The effective threshold was roughly three rejected requests in ten minutes.
+- `PerfSentinelAnalysisShedding` gains a `> 1` trace per second floor over
+  `[10m]`, held `for: 15m`, so it fires past roughly 900 lost traces instead of
+  at any single one.
+
+### Added
+
+- `PerfSentinelArchiveDropping`, on
+  `rate(perf_sentinel_archive_windows_dropped_total[15m]) > 0`. A dropped
+  disclosure window leaves the archive hash chain contiguous, so `verify-hash`
+  recomputes clean over a record that is short and this counter is the only
+  witness. No floor, unlike the rules above, because the unit is a whole scoring
+  window rather than one request. Inert on an install without `[daemon.archive]`,
+  where the counter is pre-warmed to zero and never advances.
+
+### Removed
+
+- `PerfSentinelAnalysisQueueSaturated`. It predicted `PerfSentinelAnalysisShedding`
+  and is already the `Runtime headroom and shedding` panel under the same
+  division, so one incident alerted twice and the first alert had no remedy the
+  second did not. A daemon running healthily at sustained throughput also sits
+  above eighty percent indefinitely without dropping anything.
+- `PerfSentinelCorrelatorEvicting`. `severity: info` routes nowhere, the rule is
+  inert unless `[daemon.correlation]` is enabled, and once it is, eviction at the
+  cap is the documented steady state. The tuning advisor already names
+  `max_tracked_pairs` inside `/api/export/report`.
+- `PerfSentinelServiceCardinalityOverflow`. `severity: info`, and its own
+  description ended `Expected on very wide topologies`. The 1024-series cap is a
+  compile-time constant, so the alert carried no action, and what overflows is
+  per-service attribution granularity: every trace is still correlated and every
+  finding still produced.
+
+### Upgrade
+
+The three removed alert names never fire again. Grep your Alertmanager
+configuration for `PerfSentinelAnalysisQueueSaturated`,
+`PerfSentinelCorrelatorEvicting` and `PerfSentinelServiceCardinalityOverflow`
+and drop any route, silence or inhibition rule keyed on them, since Alertmanager
+does not warn about a route that stops receiving. `PerfSentinelDown` moves from
+`critical` to `warning` and now carries `pod` and `namespace`, so severity
+routing, grouping and deduplication keys all change for it, and a multi-replica
+install now gets one alert per replica where it got at most one in total.
+`PerfSentinelMemoryPressureRejecting` and the five
+`PerfSentinelEnergyScraperStale` rules are byte-identical, and no `values.yaml`
+key is added or removed.
+
 ### Fixed
 
 - `appVersion` moves to `0.17.0`. The cross-trace correlator no longer gets the
