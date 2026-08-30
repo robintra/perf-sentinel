@@ -17,14 +17,14 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "daemon")]
 mod ack;
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
+mod backend_cmd;
 mod bench;
 #[cfg(feature = "daemon")]
 mod capture;
 mod demo;
 mod disclose;
 mod hash_bake;
-#[cfg(feature = "jaeger-query")]
-mod jaeger_cmd;
 mod limits;
 #[cfg(all(feature = "daemon", feature = "tui"))]
 mod monitor;
@@ -33,8 +33,6 @@ mod pg_stat;
 #[cfg(feature = "daemon")]
 mod query;
 mod render;
-#[cfg(feature = "tempo")]
-mod tempo_cmd;
 #[cfg(feature = "tui")]
 mod tui;
 #[cfg(feature = "tui")]
@@ -1522,7 +1520,8 @@ async fn dispatch_command(command: Commands) {
             show_acknowledged,
         } => {
             let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
-            tempo_cmd::cmd_tempo(
+            backend_cmd::cmd_backend_query(
+                backend_cmd::QueryBackend::Tempo,
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
@@ -1560,7 +1559,8 @@ async fn dispatch_command(command: Commands) {
             show_acknowledged,
         } => {
             let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
-            jaeger_cmd::cmd_jaeger_query(
+            backend_cmd::cmd_backend_query(
+                backend_cmd::QueryBackend::JaegerQuery,
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
