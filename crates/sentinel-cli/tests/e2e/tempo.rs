@@ -4,7 +4,7 @@
 #![cfg(feature = "tempo")]
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::process::Command;
 use std::thread;
 
@@ -160,45 +160,48 @@ fn spawn_tempo_stub(search_body: String, trace_body: Vec<u8>) -> u16 {
 
     thread::spawn(move || {
         while let Ok((mut stream, _)) = listener.accept() {
-            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-            let mut request_line = String::new();
-            if reader.read_line(&mut request_line).is_err() {
-                return;
-            }
-            // Drain the headers, otherwise the client can see a reset
-            // before it reads the response.
-            let mut line = String::new();
-            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
-                line.clear();
-            }
-            let is_trace = request_line.contains("/api/traces/");
-            let body: &[u8] = if is_trace {
-                &trace_body
-            } else {
-                search_body.as_bytes()
-            };
-            let content_type = if is_trace {
-                "application/protobuf"
-            } else {
-                "application/json"
-            };
-            let head = format!(
-                "HTTP/1.1 200 OK\r\n\
-                 Content-Type: {content_type}\r\n\
-                 Content-Length: {}\r\n\
-                 Connection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = stream.write_all(head.as_bytes());
-            let _ = stream.write_all(body);
-            let _ = stream.flush();
-            if is_trace {
+            if serve_one_hop(&mut stream, &search_body, &trace_body) {
                 return;
             }
         }
     });
 
     port
+}
+
+/// Answer one request, and say whether the stub is done. The trace hop is
+/// the last one the client makes, and an unreadable request line means the
+/// peer went away, so both end the accept loop.
+fn serve_one_hop(stream: &mut TcpStream, search_body: &str, trace_body: &[u8]) -> bool {
+    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() {
+        return true;
+    }
+    // Drain the headers, otherwise the client can see a reset before it
+    // reads the response.
+    let mut line = String::new();
+    while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+        line.clear();
+    }
+
+    let is_trace = request_line.contains("/api/traces/");
+    let (body, content_type): (&[u8], &str) = if is_trace {
+        (trace_body, "application/protobuf")
+    } else {
+        (search_body.as_bytes(), "application/json")
+    };
+    let head = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(body);
+    let _ = stream.flush();
+    is_trace
 }
 
 #[test]
