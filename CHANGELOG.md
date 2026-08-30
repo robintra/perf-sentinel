@@ -10,6 +10,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Changed
 
+- `tempo` and `jaeger-query` log their ingest line as `Ingested events from the backend` with the backend in a `backend` field, where each used to name itself in the message text. The two subcommands are one command over two backends and now share the one function that was copied twice, seven tokens apart. An operator grepping the old literal has to match the field instead.
 - The dashboard and the TUI open on impact rather than on their previous defaults, and the impact control comes before the severity one in both. A reader arriving on a report is asking what costs the most, and the answer now leads. The dashboard was severity-first, the TUI opened on trace id order, which is alphabetical and carries nothing on a backend that mints random ids. `s` still cycles the TUI through all three, starting from impact.
 - `report` sorts by impact when no `--sort` is given, so the trees it embeds under `--max-traces-embedded` belong to the rows the dashboard puts on top. Left out of step, a report would have opened on its highest-impact finding and shown it without a span tree.
 - The permalink from the dashboard's copy-link button omits the sort only when it is the default, and that test now names impact. Left on severity it would have dropped the parameter from a link copied while sorting by severity, and the recipient would have opened on impact instead.
