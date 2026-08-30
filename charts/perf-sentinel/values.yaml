@@ -241,9 +241,18 @@ serviceMonitor:
   # -- Prometheus relabeling rules applied after scraping.
   metricRelabelings: []
 
-# Prometheus Operator PrometheusRule. Ships the daemon's loss and saturation
-# alerts so "alerts the moment a problem appears" works out of the box instead
-# of being a build-it-yourself wiring exercise. Gated like serviceMonitor.
+# Prometheus Operator PrometheusRule. Ships the alerts for data the daemon lost
+# and cannot recover, so "alerts the moment a problem appears" works out of the
+# box instead of being a build-it-yourself wiring exercise. Gated like
+# serviceMonitor. Saturation, service cardinality and correlator eviction are
+# deliberately not alerts: they are dashboard panels, because each one fires on
+# a state the daemon reaches while working normally.
+#
+# PerfSentinelDown reads `up{job="<release fullname>"}`, which is the job name
+# Prometheus Operator derives from the Service when serviceMonitor.enabled is
+# true and no jobLabel is set. Scraping with your own scrape_config under a
+# different job_name leaves that one rule permanently silent, so override it
+# through additionalRules if you do.
 prometheusRule:
   enabled: false
   # -- Namespace where the PrometheusRule is created. Defaults to the release

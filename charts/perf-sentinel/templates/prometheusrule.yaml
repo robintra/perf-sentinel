@@ -17,22 +17,25 @@ spec:
   groups:
     - name: perf-sentinel.rules
       rules:
+        # Every rule below alerts on data the daemon lost and cannot recover.
+        # Saturation, cardinality and correlator eviction are dashboard panels
+        # instead: see docs/METRICS.md.
         - alert: PerfSentinelDown
-          expr: absent(perf_sentinel_active_traces)
-          for: 5m
-          labels:
-            severity: critical
-          annotations:
-            summary: "perf-sentinel daemon is not reporting metrics"
-            description: "perf_sentinel_active_traces has been absent for 5m. The daemon is down or its /metrics endpoint is not being scraped."
-        - alert: PerfSentinelIngestRejecting
-          expr: rate(perf_sentinel_otlp_rejected_total{reason!="memory_pressure"}[5m]) > 0
-          for: 10m
+          expr: up{job="{{ include "perf-sentinel.fullname" . }}"} == 0
+          for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "perf-sentinel is rejecting OTLP spans"
-            description: "perf_sentinel_otlp_rejected_total is increasing (excluding memory_pressure, which has its own alert): check the reason label. channel_full means the ingest channel is saturated, raise daemon.ingest_queue_capacity or limits.cpu; parse_error / unsupported_media_type mean a misconfigured exporter is flooding invalid requests."
+            summary: "perf-sentinel daemon is not being scraped"
+            description: "No scrape has succeeded for 15m, which at the chart's 15s interval is 60 consecutive failures, well past any rolling update. Every other rule here is a rate() that reads 0 on a dead process, so this is what keeps the rest from disarming silently."
+        - alert: PerfSentinelIngestRejecting
+          expr: rate(perf_sentinel_otlp_rejected_total{reason="channel_full"}[10m]) > 0.05
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "perf-sentinel is dropping OTLP requests, the ingest channel is saturated"
+            description: "Spans the daemon accepted and then dropped, so the findings that follow are incomplete with no marker saying so. Raise daemon.ingest_queue_capacity or limits.cpu."
         - alert: PerfSentinelMemoryPressureRejecting
           expr: perf_sentinel_ingest_memory_pressure == 1
           for: 5m
@@ -40,39 +43,23 @@ spec:
             severity: warning
           annotations:
             summary: "perf-sentinel is rejecting ingest under memory pressure"
-            description: "perf_sentinel_ingest_memory_pressure has been 1 for 5m: the daemon is refusing ingest to keep RSS under the cgroup memory limit (protecting against OOM). State-based, so the alert keeps firing while ingest is paused even after exporters stop retrying. Raise resources.limits.memory or add replicas to spread ingestion."
+            description: "The daemon is refusing ingest to keep RSS under the cgroup limit, so it never OOMKills and no cluster rule reports it. State-based, so it stays firing even after exporters stop retrying: raise resources.limits.memory or add replicas."
         - alert: PerfSentinelAnalysisShedding
-          expr: rate(perf_sentinel_analysis_shed_traces_total[5m]) > 0
-          for: 10m
+          expr: rate(perf_sentinel_analysis_shed_traces_total[10m]) > 1
+          for: 15m
           labels:
             severity: warning
           annotations:
             summary: "perf-sentinel is shedding traces before analysis"
-            description: "perf_sentinel_analysis_shed_traces_total is increasing: the analysis worker queue overflowed and traces are dropped before detection. Raise daemon.analysis_queue_capacity or limits.cpu."
-        - alert: PerfSentinelAnalysisQueueSaturated
-          expr: perf_sentinel_analysis_queue_depth / perf_sentinel_analysis_queue_capacity > 0.8
-          for: 10m
+            description: "Roughly 900 traces dropped before detection ever ran, and the report that follows carries no marker naming what was skipped. Raise daemon.analysis_queue_capacity or limits.cpu."
+        - alert: PerfSentinelArchiveDropping
+          expr: rate(perf_sentinel_archive_windows_dropped_total[15m]) > 0
+          for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "perf-sentinel analysis queue is over 80% full"
-            description: "The analysis worker queue has been above 80% of capacity for 10m. Shedding is imminent. Raise daemon.analysis_queue_capacity or limits.cpu."
-        - alert: PerfSentinelCorrelatorEvicting
-          expr: rate(perf_sentinel_correlator_pairs_evicted_total[5m]) > 0
-          for: 15m
-          labels:
-            severity: info
-          annotations:
-            summary: "perf-sentinel is evicting correlator pairs"
-            description: "perf_sentinel_correlator_pairs_evicted_total is increasing: cross-trace correlation pairs are dropped under load. Raise the correlator cap if cross-trace findings matter."
-        - alert: PerfSentinelServiceCardinalityOverflow
-          expr: rate(perf_sentinel_service_io_ops_overflow_total[5m]) > 0
-          for: 15m
-          labels:
-            severity: info
-          annotations:
-            summary: "perf-sentinel service-cardinality cap reached"
-            description: "perf_sentinel_service_io_ops_overflow_total is increasing: more distinct services than the per-meter cap, so some per-service I/O accounting is bucketed. Expected on very wide topologies."
+            summary: "perf-sentinel dropped a disclosure archive window"
+            description: "The archive hash chain stays contiguous across a drop, so verify-hash recomputes clean over a record that is short and this counter is the only witness. No floor here, unlike the rules above: the unit is a whole scoring window."
         {{- if .Values.prometheusRule.energyScrapers }}
         {{- $stale := .Values.prometheusRule.scraperStaleSeconds }}
         {{- range $backend := list "alumet" "scaphandre" "kepler" "redfish" "cloud_energy" }}
