@@ -168,7 +168,7 @@ analysable. Valeurs du label `reason` de
 | `perf_sentinel_max_active_traces`              | gauge     | (aucun)            | Plafond configuré de la fenêtre glissante (`[daemon] max_active_traces`), positionné une fois au démarrage (depuis 0.8.8). À apparier avec `perf_sentinel_active_traces`. Le conseiller de réglages alerte à 90 %.                                                                                                                                            |
 | `perf_sentinel_analysis_queue_capacity`        | gauge     | (aucun)            | Plafond configuré de la file du worker d'analyse (`[daemon] analysis_queue_capacity`), positionné une fois au démarrage (depuis 0.8.8). À apparier avec `perf_sentinel_analysis_queue_depth`.                                                                                                                                                                 |
 | `perf_sentinel_max_retained_findings`          | gauge     | (aucun)            | Plafond configuré du ring buffer de findings (`[daemon] max_retained_findings`), positionné une fois au démarrage (depuis 0.8.8). À apparier avec `perf_sentinel_stored_findings`.                                                                                                                                                                            |
-| `perf_sentinel_analysis_shed_batches_total`    | counter   | (aucun)            | Lots d'analyse délestés parce que la file du worker était pleine ou que le worker s'est arrêté. Remplace le drop implicite précédent : chaque délestage est compté ici. Alerte sur `rate(...) > 0`.                                                                                                                                                           |
+| `perf_sentinel_analysis_shed_batches_total`    | counter   | (aucun)            | Lots d'analyse délestés parce que la file du worker était pleine ou que le worker s'est arrêté. Remplace le drop implicite précédent : chaque délestage est compté ici. Alertez plutôt sur `perf_sentinel_analysis_shed_traces_total`, un lot délesté pouvant porter une trace comme un millier.                                                                                                                                                           |
 | `perf_sentinel_analysis_shed_traces_total`     | counter   | (aucun)            | Traces abandonnées par les lots délestés comptés dans `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                                                                                                            |
 | `perf_sentinel_archive_windows_dropped_total`  | counter   | `reason`           | Fenêtres de l'archive de divulgation abandonnées au lieu d'être écrites, par `reason` (`channel_full`, `writer_exited`, `serialize_error`, `write_error`). La chaîne de hachage de l'archive reste contiguë malgré la perte, ce compteur et le log d'avertissement associé sont donc les seuls témoins d'une archive incomplète. Alertez sur `rate(...) > 0`. |
 | `perf_sentinel_correlator_pairs_evicted_total` | counter   | (aucun)            | Paires du corrélateur inter-traces évincées par le plafond `max_tracked_pairs` (depuis 0.8.7). Un taux soutenu signifie que la topologie de corrélation dépasse le plafond et que les paires les moins comptées sont recyclées, `/api/correlations` peut donc perdre des entrées entre deux lectures. Les refus sont dédupliqués par batch jusqu'à 8192 paires distinctes, au-delà chaque refus compte pour lui-même, donc une topologie très large lit haut plutôt qu'exact.                                                         |
@@ -488,6 +488,71 @@ l'échantillon survivant n'est pas représentatif comme l'est un hachage
 uniforme. Voir
 [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#sampling-du-collector-et-ce-qui-atteint-le-daemon)
 pour la disposition de pipeline qui l'évite.
+
+## Alertes
+
+Le chart Helm rend ces règles sous forme de `PrometheusRule`, conditionnée par
+`prometheusRule.enabled`. `PrometheusRule` est une CRD de l'opérateur
+Prometheus, donc hors Kubernetes le même groupe se place dans une entrée
+`rule_files` ordinaire. Le template du chart fait foi, ce bloc le reflète.
+
+Chaque règle se déclenche sur une donnée que le daemon a perdue sans pouvoir la
+retrouver. Rien ici n'alerte sur la saturation, la cardinalité de services ou
+l'éviction du corrélateur : ce sont des états que le daemon atteint en
+fonctionnant normalement, et chacun est un panneau du tableau de bord. Les
+seuils portent un plancher pour la même raison, `rate(...) > 0` se déclenchant
+sur un taux de perte d'une fraction de pourcent, ce qui apprend au lecteur à
+couper la règle.
+
+```yaml
+groups:
+  - name: perf-sentinel.rules
+    rules:
+      - alert: PerfSentinelDown
+        expr: up{job="perf-sentinel"} == 0
+        for: 15m
+        labels: { severity: warning }
+      - alert: PerfSentinelIngestRejecting
+        expr: rate(perf_sentinel_otlp_rejected_total{reason="channel_full"}[10m]) > 0.05
+        for: 15m
+        labels: { severity: warning }
+      - alert: PerfSentinelMemoryPressureRejecting
+        expr: perf_sentinel_ingest_memory_pressure == 1
+        for: 5m
+        labels: { severity: warning }
+      - alert: PerfSentinelAnalysisShedding
+        expr: rate(perf_sentinel_analysis_shed_traces_total[10m]) > 1
+        for: 15m
+        labels: { severity: warning }
+      - alert: PerfSentinelArchiveDropping
+        expr: rate(perf_sentinel_archive_windows_dropped_total[15m]) > 0
+        for: 15m
+        labels: { severity: warning }
+```
+
+`job="perf-sentinel"` est le nom de job des extraits de collecte de
+[INTEGRATION-FR.md](INTEGRATION-FR.md) et
+[HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md). Sous le chart c'est le fullname
+de la release, celui que l'opérateur dérive du Service.
+
+Une règle de plus mérite d'exister sans être livrée active, parce qu'elle est
+vraie et inutile sur une installation dont la flotte n'émet légitimement aucun
+span d'I/O, et qu'une règle fausse dès le premier jour finit coupée pour
+toujours. Activez-la une fois votre premier finding vu, avec une fenêtre
+supérieure à votre plus longue période d'inactivité légitime :
+
+```yaml
+      - alert: PerfSentinelIngestingButProducingNothing
+        expr: rate(perf_sentinel_otlp_spans_received_total[30m]) > 0
+          and rate(perf_sentinel_events_processed_total[30m]) == 0
+        for: 30m
+        labels: { severity: warning }
+```
+
+C'est la panne où toutes les règles livrées restent vertes : une instrumentation
+qui retire `db.statement` ou `http.url` transforme chaque requête en zéro
+événement tout en répondant succès, et un lecteur en conclut qu'il n'y a aucun
+problème de performance plutôt que de voir que rien n'a été mesuré.
 
 ## Références croisées
 

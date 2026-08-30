@@ -655,9 +655,9 @@ La clé d'étiquette (`grafana_dashboard` ici) doit correspondre au
 
 ### Règles d'alerte (PrometheusRule)
 
-Le chart fournit une `PrometheusRule` pour que les alertes de perte et de
-saturation soient livrées, plutôt qu'un exercice de câblage à faire soi-même.
-Elle est conditionnée comme le ServiceMonitor et désactivée par défaut :
+Le chart fournit une `PrometheusRule` pour que les alertes qui comptent soient
+livrées, plutôt qu'un exercice de câblage à faire soi-même. Elle est
+conditionnée comme le ServiceMonitor et désactivée par défaut :
 
 ```yaml
 prometheusRule:
@@ -672,13 +672,26 @@ prometheusRule:
   scraperStaleSeconds: 120
 ```
 
-Le groupe par défaut `perf-sentinel.rules` couvre le daemon injoignable
-(`absent(perf_sentinel_active_traces)`), le rejet OTLP, le délestage d'analyse
-et la saturation de file, l'éviction de paires du corrélateur, et le
-débordement de cardinalité de services. La `description` de chaque alerte
-nomme le paramètre `[daemon]` à relever. Ajoutez les vôtres via
-`prometheusRule.additionalRules` (les règles sont passées telles quelles dans
-le même groupe), sans fork.
+Le groupe par défaut `perf-sentinel.rules` porte cinq règles, et chacune se
+déclenche sur une donnée que le daemon a perdue sans pouvoir la retrouver : le
+daemon qui n'est plus collecté (`up{job="<fullname> de la release"} == 0`),
+l'ingestion abandonnée sur un canal saturé, l'ingestion refusée sous pression
+mémoire, les traces délestées avant analyse, et une fenêtre d'archive de
+divulgation perdue. La `description` de chaque alerte nomme le paramètre
+`[daemon]` à relever. Ajoutez les vôtres via `prometheusRule.additionalRules`,
+passées telles quelles dans le même groupe, sans fork.
+
+La saturation de file, l'éviction de paires du corrélateur et le débordement de
+cardinalité de services ne sont délibérément **pas** des alertes. Chacune se
+déclencherait sur un état que le daemon atteint en fonctionnant normalement, et
+chacune est déjà un panneau du tableau de bord Grafana livré. La saturation en
+particulier prédisait l'alerte de délestage, donc un incident produisait deux
+notifications et la première ne portait aucun remède que la seconde n'avait pas.
+
+`PerfSentinelDown` lit le nom de job que l'opérateur Prometheus dérive du
+Service, c'est-à-dire le fullname de la release. Collecter avec votre propre
+`scrape_config` sous un autre `job_name` laisse cette règle muette, redéfinissez
+-la alors via `additionalRules`.
 
 ### PodDisruptionBudget
 
