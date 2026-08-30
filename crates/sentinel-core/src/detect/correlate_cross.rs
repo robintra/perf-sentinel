@@ -58,10 +58,11 @@ struct RefusedPairs {
 }
 
 impl RefusedPairs {
-    /// Deduplicated up to here, then counted. 8k keys is about 140 KiB
-    /// of table, and any deployment refusing more than that per batch is
-    /// past the point where an exact figure tells the operator anything
-    /// the order of magnitude does not.
+    /// Deduplicated up to here, then counted. A `PairKey` is two `Arc`s,
+    /// so 8192 of them land in a 16384-bucket table at 17 bytes each,
+    /// 272 KiB. Any deployment refusing more than that per batch is past
+    /// the point where an exact figure tells the operator anything the
+    /// order of magnitude does not.
     const CEILING: usize = 8_192;
 
     fn record(&mut self, key: PairKey) {
@@ -382,10 +383,11 @@ impl CrossTraceCorrelator {
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
     /// Returns the number of pairs lost to the `max_tracked_pairs` cap
-    /// in this batch (refusal events + incumbents evicted at batch
-    /// end). One newcomer refused against several targets counts once
-    /// per target, and a pair refused again on a later batch counts
-    /// again: the lifetime counter reads as "pair-batches lost".
+    /// in this batch (refusals + incumbents evicted at batch end). One
+    /// pair matched by several window occurrences counts once while the
+    /// refused set is under its ceiling and once per occurrence above
+    /// it, and a pair refused again on a later batch counts again: the
+    /// lifetime counter reads as "pair-batches lost".
     ///
     /// `source_totals` is maintained incrementally (increment on
     /// `push_back`, decrement on `pop_front`, remove at 0), avoiding an
@@ -984,6 +986,35 @@ mod tests {
         // growing while the figure it feeds stays truthful.
         let mut refused = RefusedPairs::default();
         let extra = 500;
+        // Distinct keys only up to the ceiling, then the same key again:
+        // dedup below and the documented degradation above are the two
+        // halves of what this type does.
+        let key_for = |i: usize| PairKey {
+            source: std::sync::Arc::new(CorrelationEndpoint {
+                finding_type: FindingType::NPlusOneSql,
+                service: format!("svc-{i}"),
+                template: "tpl".to_string(),
+                grouping_key: None,
+                grouping_value: None,
+            }),
+            target: std::sync::Arc::new(CorrelationEndpoint {
+                finding_type: FindingType::RedundantSql,
+                service: "target".to_string(),
+                template: "tpl".to_string(),
+                grouping_key: None,
+                grouping_value: None,
+            }),
+        };
+        // The same pair twice, well under the ceiling: counted once.
+        refused.record(key_for(0));
+        refused.record(key_for(0));
+        assert_eq!(
+            refused.total(),
+            1,
+            "a repeated pair counts once below the ceiling"
+        );
+
+        let mut refused = RefusedPairs::default();
         for i in 0..(RefusedPairs::CEILING + extra) {
             refused.record(PairKey {
                 source: std::sync::Arc::new(CorrelationEndpoint {
@@ -1012,6 +1043,17 @@ mod tests {
             refused.total(),
             RefusedPairs::CEILING + extra,
             "every refusal must still reach the counter"
+        );
+
+        // Past the ceiling the dedup is gone, which the doc calls
+        // overstating rather than hiding: a key already in the set
+        // counts again.
+        let before = refused.total();
+        refused.record(key_for(0));
+        assert_eq!(
+            refused.total(),
+            before + 1,
+            "above the ceiling a known pair counts again"
         );
     }
 
