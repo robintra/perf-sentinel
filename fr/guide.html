@@ -382,6 +382,11 @@
                   <div data-dc-tpl="135" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">JSON perf-sentinel-report/v1.0 vérifiable par hash, signable Sigstore.</span></div>
                 </div>
               
+                <div data-dc-tpl="133" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+                  <div data-dc-tpl="134" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Export Hub</span></div>
+                  <div data-dc-tpl="135" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Push borné et fusionné des findings live vers PerfSentinelHub, rejoué en cas d’échec.</span></div>
+                </div>
+              
             </div>
           </div>
         </div>
@@ -764,6 +769,11 @@
             <div data-dc-tpl="217" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;">
               <div data-dc-tpl="218" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Collector central</span></div>
               <div data-dc-tpl="219" style="margin-top: 6px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l’API de query.</span></div>
+            </div>
+          
+            <div data-dc-tpl="217" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;">
+              <div data-dc-tpl="218" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Flotte adossée au Hub</span></div>
+              <div data-dc-tpl="219" style="margin-top: 6px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Les daemons poussent leurs findings vers PerfSentinelHub, un service séparé qui conserve un historique interrogeable à l’échelle des services et la date de première apparition de chaque finding. Le collector central ci-dessus garde un tampon borné et ne partage aucun état entre répliques, et c’est le trou que cela comble.</span></div>
             </div>
           
         </div>
@@ -1196,7 +1206,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px">{{ fmOutLabel }}</div>
             <div style="display:flex;flex-direction:column;gap:10px">
-              <sc-for list="{{ fmOutputs }}" as="f" hint-placeholder-count="7">
+              <sc-for list="{{ fmOutputs }}" as="f" hint-placeholder-count="8">
                 <div class="ps-card" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
                   <div style="font-size:14.5px;font-weight:600;color:var(--text)">{{ f.name }}</div>
                   <div style="margin-top:4px;font-size:13px;color:var(--text-2);line-height:1.5">{{ f.desc }}</div>
@@ -1306,7 +1316,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
         <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ dpTitle }}</h2>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:660px">{{ dpIntro }}</p>
         <div style="display:flex;flex-direction:column;gap:12px;margin-top:22px">
-          <sc-for list="{{ dpModes }}" as="d" hint-placeholder-count="4">
+          <sc-for list="{{ dpModes }}" as="d" hint-placeholder-count="5">
             <div class="ps-card" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 22px">
               <div style="font-size:16px;font-weight:600;color:var(--text)">{{ d.name }}</div>
               <div style="margin-top:6px;font-size:14px;color:var(--text-2);line-height:1.55">{{ d.desc }}</div>
@@ -1598,6 +1608,7 @@ class Component extends DCLogic {
           { name: 'Interactive TUI', desc: 'Analyze, Inspect and Explain in one keyboard drill-down.' },
           { name: 'Live daemon', desc: 'NDJSON findings, Prometheus /metrics, /health probe, query API.' },
           { name: 'Periodic disclosure', desc: 'Hash-verifiable perf-sentinel-report/v1.0 JSON, Sigstore-signable.' },
+          { name: 'Hub export', desc: 'Bounded, coalesced push of live findings to PerfSentinelHub, retried on failure.' },
         ],
         mtTitle: 'GreenOps metrics',
         mtIntro: 'Every finding carries a GreenOps reading. The figures are directional and meant to rank and trend, not to certify (for now).',
@@ -1670,7 +1681,7 @@ class Component extends DCLogic {
         ],
         cpFoot: 'Commercial-APM agent footprints are order-of-magnitude estimates from public deployments; real overhead depends on instrumentation scope.',
         dpTitle: 'Deployment', dpIntro: 'One binary, two modes, four environments, three deployment models. Pick the lightest that fits where your traces live. The central collector is a single stateful daemon, so horizontal replicas need trace-id-aware load balancing and do not share correlation state. Upstream trace sampling (head-based vs tail-based) and the daemon’s own `sampling_rate` undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, every shed counted in the metrics, never a silent drop.',
-        dpModes: [ { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' }, { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' }, { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' }, { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API.' } ],
+        dpModes: [ { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' }, { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' }, { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' }, { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API.' }, { name: 'Hub-backed fleet', desc: 'Daemons push their findings to PerfSentinelHub, a separate service that keeps a queryable history across services and the date each finding was first seen. The central collector above holds a bounded ring and shares no state between replicas, which is the gap this fills.' } ],
         dpMore: 'Full integration guide', dpMonitorPlay: 'Play the demo (GIF)', dpMonitorCap: 'Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via `perf-sentinel query --daemon <URL> monitor`:',
         dpDiagrams: [
           { label: 'Local dev', url: 'https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg' },
@@ -1784,6 +1795,7 @@ class Component extends DCLogic {
           { name: 'TUI interactif', desc: 'Analyze, Inspect et Explain en un seul drill-down clavier.' },
           { name: 'Daemon live', desc: 'Findings NDJSON, /metrics Prometheus, sonde /health, API de query.' },
           { name: 'Divulgation périodique', desc: 'JSON perf-sentinel-report/v1.0 vérifiable par hash, signable Sigstore.' },
+          { name: 'Export Hub', desc: 'Push borné et fusionné des findings live vers PerfSentinelHub, rejoué en cas d’échec.' },
         ],
         mtTitle: 'Métriques GreenOps',
         mtIntro: 'Chaque finding porte une lecture GreenOps. Les chiffres sont directionnels : ils servent à classer et suivre une tendance, pas à certifier (pour le moment).',
@@ -1856,7 +1868,7 @@ class Component extends DCLogic {
         ],
         cpFoot: 'Les empreintes d\u2019agent des APM commerciaux sont des estimations d\u2019ordre de grandeur issues de déploiements publics ; l\u2019overhead réel dépend du périmètre d\u2019instrumentation.',
         dpTitle: 'Déploiement', dpIntro: 'Un binaire, deux modes, quatre environnements, trois modèles de déploiement. Choisissez le plus léger adapté à l\u2019endroit où vivent vos traces. Le collecteur central est un daemon unique avec état, donc des réplicas horizontaux exigent un load balancing par trace-id et ne partagent pas l’état de corrélation. L’échantillonnage de traces en amont (head ou tail) et le `sampling_rate` du daemon sous-comptent les détecteurs par répétition, et sous surcharge soutenue le daemon déleste des lots d’analyse entiers plutôt que de bloquer l’ingestion, chaque délestage étant compté dans les métriques, jamais une perte silencieuse.',
-        dpModes: [ { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' }, { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' }, { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' }, { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l\u2019API de query.' } ],
+        dpModes: [ { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' }, { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' }, { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' }, { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l\u2019API de query.' }, { name: 'Flotte adoss\u00e9e au Hub', desc: 'Les daemons poussent leurs findings vers PerfSentinelHub, un service s\u00e9par\u00e9 qui conserve un historique interrogeable \u00e0 l\u2019\u00e9chelle des services et la date de premi\u00e8re apparition de chaque finding. Le collector central ci-dessus garde un tampon born\u00e9 et ne partage aucun \u00e9tat entre r\u00e9pliques, et c\u2019est le trou que cela comble.' } ],
         dpMore: 'Guide d\u2019intégration complet', dpMonitorPlay: 'Lancer la démo (GIF)', dpMonitorCap: 'Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, quatre onglets cyclés par Tab (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) via `perf-sentinel query --daemon <URL> monitor` :',
         dpDiagrams: [
           { label: 'Dev local', url: 'https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg' },
@@ -1940,7 +1952,7 @@ class Component extends DCLogic {
       dpTitle: t.dpTitle, dpIntro: t.dpIntro, dpModes: t.dpModes, dpMore: t.dpMore, dpMonitorCap: t.dpMonitorCap, dpMonitorPlay: t.dpMonitorPlay, dpDiagrams: t.dpDiagrams,
       pvTitle: t.pvTitle, pvIntro: t.pvIntro, pvPoints: t.pvPoints, pvMore: t.pvMore,
       frTitle: t.frTitle, frIntro: t.frIntro,
-      frLinks: t.frMap.map(m => ({ id: m[0], label: m[1], desc: m[2], href: refBase + m[0].replace(/\//g, '__') })),
+      frLinks: t.frMap.map(m => ({ id: m[0], label: m[1], desc: m[2], href: refBase + m[0] })),
     };
   }
 }

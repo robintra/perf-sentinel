@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>perf-sentinel hub</title>
+<script>
+/* Resolves the theme before the first paint. tokens.css defines its palettes
+   under [data-theme], so a root without the attribute has no variables at all
+   and the page would flash unstyled. The stored position may be auto, light or
+   dark; only the resolved light or dark ever reaches the DOM. */
+(function () {
+  var stored = null;
+  try {
+    /* sessionStorage first: the dashboard writes the same key, so a theme
+       chosen over there comes back here within the tab. */
+    stored = sessionStorage.getItem("perf-sentinel:theme") || localStorage.getItem("perf-sentinel:theme");
+  } catch (e) { stored = null; }
+  const position = stored === "light" || stored === "dark" ? stored : "auto";
+  let theme = position;
+  if (position === "auto")
+    theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.themePosition = position;
+})();
+</script>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="launcher.css">
+<script>
+(function () {
+  var F = {"epoch_ms":1756512000000,"routes":{"/api/status":{"service":"perf-sentinel-hub","version":"0.1.1","identity":null,"engine_version":"0.17.0","latest_engine_version":null,"latest_hub_version":null,"queue_depth":0,"workers":2,"limits":{"max_traces_cap":2000,"analysis_timeout_seconds":300,"report_retention_hours":24,"max_traces_embedded":50},"detection_knobs":[{"name":"n_plus_one_min_occurrences","min":1,"max":10000,"default":5},{"name":"window_duration_ms","min":1,"max":3600000,"default":500},{"name":"slow_query_threshold_ms","min":1,"max":3600000,"default":500},{"name":"slow_query_min_occurrences","min":1,"max":10000,"default":3},{"name":"max_fanout","min":1,"max":100000,"default":20},{"name":"chatty_service_min_calls","min":1,"max":10000,"default":15},{"name":"pool_saturation_concurrent_threshold","min":2,"max":10000,"default":10},{"name":"serialized_min_sequential","min":2,"max":10000,"default":3}]},"/api/sources":[{"id":"checkout-prod","name":"Checkout production","environment":"production","kind":"daemon","retention_hours":null,"reachable":true,"last_attempt_ms":1756511998795,"last_success_ms":1756511998795,"unreachable_since_ms":null,"producer_version":"0.17.0","last_error_code":null,"base_url":"http://127.0.0.1:41400","engine_subcommand":null,"auth_header_name":null},{"id":"billing-stg","name":"Billing staging","environment":"staging","kind":"daemon","retention_hours":null,"reachable":true,"last_attempt_ms":1756511998799,"last_success_ms":1756511998799,"unreachable_since_ms":null,"producer_version":"0.16.0","last_error_code":null,"base_url":"http://127.0.0.1:41401","engine_subcommand":null,"auth_header_name":null},{"id":"tempo-eu","name":"Tempo EU","environment":"production","kind":"tempo","retention_hours":168,"reachable":true,"last_attempt_ms":null,"last_success_ms":null,"unreachable_since_ms":null,"producer_version":null,"last_error_code":null,"base_url":"http://127.0.0.1:41402","engine_subcommand":"tempo","auth_header_name":null},{"id":"search-prod","name":"Search production","environment":"production","kind":"daemon","retention_hours":null,"reachable":false,"last_attempt_ms":1756511999884,"last_success_ms":null,"unreachable_since_ms":1756511998803,"producer_version":null,"last_error_code":"network_error","base_url":"http://127.0.0.1:41403","engine_subcommand":null,"auth_header_name":null},{"id":"victoria-eu","name":"Victoria Traces EU","environment":"staging","kind":"jaeger_query","retention_hours":72,"reachable":true,"last_attempt_ms":null,"last_success_ms":null,"unreachable_since_ms":null,"producer_version":null,"last_error_code":null,"base_url":"http://127.0.0.1:41404","engine_subcommand":"jaeger-query","auth_header_name":null}],"/api/analyses?limit=500":[{"id":"8e78fb626be26afa","status":"failed","source_id":"tempo-eu","source_name":"Tempo EU","environment":"production","kind":"tempo","request":{"service":"checkout","lookback":"999h","max_traces":100},"requested_by":"unknown","created_at_ms":1756511999085,"started_at_ms":1756511999867,"finished_at_ms":1756511999893,"expires_at_ms":null,"producer_version":null,"error_code":"source_rejected_request","result":null},{"id":"d2e683c3bb89cf4c","status":"failed","source_id":"search-prod","source_name":"Search production","environment":"production","kind":"daemon","request":{},"requested_by":"unknown","created_at_ms":1756511999084,"started_at_ms":1756511999864,"finished_at_ms":1756511999867,"expires_at_ms":null,"producer_version":null,"error_code":"source_unreachable","result":null},{"id":"9728716e78691849","status":"succeeded","source_id":"billing-stg","source_name":"Billing staging","environment":"staging","kind":"daemon","request":{},"requested_by":"unknown","created_at_ms":1756511999083,"started_at_ms":1756511999799,"finished_at_ms":1756511999867,"expires_at_ms":1756598399867,"producer_version":"0.17.0","error_code":null,"result":{"empty":false,"findings":11,"critical":1,"warning":7,"info":3,"traces_analyzed":11,"quality_gate_passed":false,"report_bytes":571692,"warnings":[{"kind":"tuning","message":"ingest queue is undersized for the observed span rate"}]}},{"id":"1718b8b846c0202a","status":"succeeded","source_id":"checkout-prod","source_name":"Checkout production","environment":"production","kind":"daemon","request":{},"requested_by":"unknown","created_at_ms":1756511999079,"started_at_ms":1756511999799,"finished_at_ms":1756511999863,"expires_at_ms":1756598399863,"producer_version":"0.17.0","error_code":null,"result":{"empty":false,"findings":11,"critical":1,"warning":7,"info":3,"traces_analyzed":11,"quality_gate_passed":false,"report_bytes":571692,"warnings":[{"kind":"tuning","message":"ingest queue is undersized for the observed span rate"}]}}],"/api/analyses/1718b8b846c0202a":{"id":"1718b8b846c0202a","status":"succeeded","source_id":"checkout-prod","source_name":"Checkout production","environment":"production","kind":"daemon","request":{},"requested_by":"unknown","created_at_ms":1756511999079,"started_at_ms":1756511999799,"finished_at_ms":1756511999863,"expires_at_ms":1756598399863,"producer_version":"0.17.0","error_code":null,"result":{"empty":false,"findings":11,"critical":1,"warning":7,"info":3,"traces_analyzed":11,"quality_gate_passed":false,"report_bytes":571692,"warnings":[{"kind":"tuning","message":"ingest queue is undersized for the observed span rate"}]}},"/api/analyses/9728716e78691849":{"id":"9728716e78691849","status":"succeeded","source_id":"billing-stg","source_name":"Billing staging","environment":"staging","kind":"daemon","request":{},"requested_by":"unknown","created_at_ms":1756511999083,"started_at_ms":1756511999799,"finished_at_ms":1756511999867,"expires_at_ms":1756598399867,"producer_version":"0.17.0","error_code":null,"result":{"empty":false,"findings":11,"critical":1,"warning":7,"info":3,"traces_analyzed":11,"quality_gate_passed":false,"report_bytes":571692,"warnings":[{"kind":"tuning","message":"ingest queue is undersized for the observed span rate"}]}},"/api/analyses/d2e683c3bb89cf4c":{"id":"d2e683c3bb89cf4c","status":"failed","source_id":"search-prod","source_name":"Search production","environment":"production","kind":"daemon","request":{},"requested_by":"unknown","created_at_ms":1756511999084,"started_at_ms":1756511999864,"finished_at_ms":1756511999867,"expires_at_ms":null,"producer_version":null,"error_code":"source_unreachable","result":null},"/api/analyses/8e78fb626be26afa":{"id":"8e78fb626be26afa","status":"failed","source_id":"tempo-eu","source_name":"Tempo EU","environment":"production","kind":"tempo","request":{"service":"checkout","lookback":"999h","max_traces":100},"requested_by":"unknown","created_at_ms":1756511999085,"started_at_ms":1756511999867,"finished_at_ms":1756511999893,"expires_at_ms":null,"producer_version":null,"error_code":"source_rejected_request","result":null},"/api/sources/checkout-prod/daemon":{"source_id":"checkout-prod","observed_at_ms":1756512000017,"state":"near_capacity","error_code":null,"version":"0.17.0","uptime_seconds":888120,"config":{"listen_addr":"127.0.0.1","listen_port":41890,"listen_port_grpc":41891,"json_socket":"/tmp/perf-sentinel.sock","max_active_traces":1000,"trace_ttl_ms":30000,"sampling_rate":1,"max_events_per_trace":1000,"max_payload_size":16777216,"environment":"production","max_retained_findings":10000,"max_export_findings":1000,"max_retained_traces":50,"ingest_queue_capacity":1024,"analysis_queue_capacity":1024,"memory_high_water_pct":0,"api_enabled":true,"tls_configured":false,"ack_enabled":true,"ack_api_key_set":false,"cors_allowed_origins":["http://127.0.0.1:8080"],"archive_configured":false,"correlation_enabled":false,"correlation_window_ms":600000,"correlation_lag_threshold_ms":5000,"correlation_min_co_occurrences":5,"correlation_min_confidence":0.7,"correlation_max_tracked_pairs":10000},"config_unavailable_reason":null,"detection_config":{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,"slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,"pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,"sanitizer_aware_classification":"auto"},"daemon_defaults":{"listen_addr":"127.0.0.1","listen_port":4318,"listen_port_grpc":4317,"json_socket":"/tmp/perf-sentinel.sock","max_active_traces":10000,"trace_ttl_ms":30000,"sampling_rate":1,"max_events_per_trace":1000,"max_payload_size":16777216,"environment":"staging","max_retained_findings":10000,"max_export_findings":1000,"max_retained_traces":50,"ingest_queue_capacity":1024,"analysis_queue_capacity":1024,"memory_high_water_pct":0,"api_enabled":true,"tls_configured":false,"ack_enabled":true,"ack_api_key_set":false,"cors_allowed_origins":[],"archive_configured":false,"correlation_enabled":false,"correlation_window_ms":600000,"correlation_lag_threshold_ms":5000,"correlation_min_co_occurrences":5,"correlation_min_confidence":0.7,"correlation_max_tracked_pairs":10000},"detection_defaults":{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,"slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,"pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,"sanitizer_aware_classification":"auto"},"defaults_engine_version":"0.17.0","scoring_config":{"api_version":"v4","emission_factor_type":"lifecycle","temporal_granularity":"hourly","electricity_maps":false,"embodied_per_request_gco2":0.001,"network_energy_per_byte_kwh":4e-11,"per_operation_coefficients":true,"use_hourly_profiles":true},"energy_model":"","traces":{"value":912,"capacity":1000,"pct":91.2,"at_capacity":true},"analysis_queue":{"value":41,"capacity":1024,"pct":4,"at_capacity":false},"findings":{"value":11,"capacity":10000,"pct":0.1,"at_capacity":false},"hints_unavailable_reason":null,"warnings_dropped":0,"warnings":[{"kind":"tuning","message":"ingest queue is undersized for the observed span rate"}]},"/api/sources/billing-stg/daemon":{"source_id":"billing-stg","observed_at_ms":1756512000024,"state":"advised","error_code":null,"version":"0.16.0","uptime_seconds":263220,"config":{"listen_addr":"127.0.0.1","listen_port":41890,"listen_port_grpc":41891,"json_socket":"/tmp/perf-sentinel.sock","max_active_traces":1000,"trace_ttl_ms":30000,"sampling_rate":1,"max_events_per_trace":1000,"max_payload_size":16777216,"environment":"production","max_retained_findings":10000,"max_export_findings":1000,"max_retained_traces":50,"ingest_queue_capacity":1024,"analysis_queue_capacity":1024,"memory_high_water_pct":0,"api_enabled":true,"tls_configured":false,"ack_enabled":true,"ack_api_key_set":false,"cors_allowed_origins":["http://127.0.0.1:8080"],"archive_configured":false,"correlation_enabled":false,"correlation_window_ms":600000,"correlation_lag_threshold_ms":5000,"correlation_min_co_occurrences":5,"correlation_min_confidence":0.7,"correlation_max_tracked_pairs":10000},"config_unavailable_reason":null,"detection_config":{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,"slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,"pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,"sanitizer_aware_classification":"auto"},"daemon_defaults":{"listen_addr":"127.0.0.1","listen_port":4318,"listen_port_grpc":4317,"json_socket":"/tmp/perf-sentinel.sock","max_active_traces":10000,"trace_ttl_ms":30000,"sampling_rate":1,"max_events_per_trace":1000,"max_payload_size":16777216,"environment":"staging","max_retained_findings":10000,"max_export_findings":1000,"max_retained_traces":50,"ingest_queue_capacity":1024,"analysis_queue_capacity":1024,"memory_high_water_pct":0,"api_enabled":true,"tls_configured":false,"ack_enabled":true,"ack_api_key_set":false,"cors_allowed_origins":[],"archive_configured":false,"correlation_enabled":false,"correlation_window_ms":600000,"correlation_lag_threshold_ms":5000,"correlation_min_co_occurrences":5,"correlation_min_confidence":0.7,"correlation_max_tracked_pairs":10000},"detection_defaults":{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,"slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,"pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,"sanitizer_aware_classification":"auto"},"defaults_engine_version":"0.17.0","scoring_config":{"api_version":"v4","emission_factor_type":"lifecycle","temporal_granularity":"hourly","electricity_maps":false,"embodied_per_request_gco2":0.001,"network_energy_per_byte_kwh":4e-11,"per_operation_coefficients":true,"use_hourly_profiles":true},"energy_model":"","traces":{"value":128,"capacity":1000,"pct":12.8,"at_capacity":false},"analysis_queue":{"value":2,"capacity":1024,"pct":0.2,"at_capacity":false},"findings":{"value":4,"capacity":10000,"pct":0,"at_capacity":false},"hints_unavailable_reason":null,"warnings_dropped":0,"warnings":[{"kind":"tuning","message":"ingest queue is undersized for the observed span rate"}]},"/api/sources/search-prod/daemon":{"source_id":"search-prod","observed_at_ms":1756512000026,"state":"unreachable","error_code":"network_error","version":null,"uptime_seconds":null,"config":null,"config_unavailable_reason":"unreachable","detection_config":null,"daemon_defaults":{"listen_addr":"127.0.0.1","listen_port":4318,"listen_port_grpc":4317,"json_socket":"/tmp/perf-sentinel.sock","max_active_traces":10000,"trace_ttl_ms":30000,"sampling_rate":1,"max_events_per_trace":1000,"max_payload_size":16777216,"environment":"staging","max_retained_findings":10000,"max_export_findings":1000,"max_retained_traces":50,"ingest_queue_capacity":1024,"analysis_queue_capacity":1024,"memory_high_water_pct":0,"api_enabled":true,"tls_configured":false,"ack_enabled":true,"ack_api_key_set":false,"cors_allowed_origins":[],"archive_configured":false,"correlation_enabled":false,"correlation_window_ms":600000,"correlation_lag_threshold_ms":5000,"correlation_min_co_occurrences":5,"correlation_min_confidence":0.7,"correlation_max_tracked_pairs":10000},"detection_defaults":{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,"slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,"pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,"sanitizer_aware_classification":"auto"},"defaults_engine_version":"0.17.0","scoring_config":null,"energy_model":null,"traces":null,"analysis_queue":null,"findings":null,"hints_unavailable_reason":"network_error","warnings_dropped":0,"warnings":[]}}};
+  var ROUTES = F.routes;
+  // A captured moment is stored against a fixed epoch, so one offset moves the
+  // whole set onto now and every gap between them survives. Without this a run
+  // captured today reads as eight months old next spring.
+  //
+  // The snapshot is also aged deliberately. Capture happens seconds after the
+  // Hub's first poll, so every row would read "1 s ago" and the fleet would look
+  // like it had just booted. Ageing the whole set by one offset keeps every gap
+  // intact and puts the reader in front of a settled fleet, the same reason
+  // capture-fixtures.sh chooses gauge values rather than recording an idle
+  // daemon's zeros.
+  var AGED_BY_MS = 8 * 60 * 1000;
+  var DELTA = Date.now() - F.epoch_ms - AGED_BY_MS;
+  var LOAD = Date.now();
+
+  function shift(value) {
+    if (Array.isArray(value)) return value.map(shift);
+    if (value && typeof value === 'object') {
+      var out = {};
+      for (var k in value) {
+        if (!Object.prototype.hasOwnProperty.call(value, k)) continue;
+        var v = value[k];
+        out[k] = (k.slice(-3) === '_ms' && typeof v === 'number' && v > 1e12) ? v + DELTA : shift(v);
+      }
+      return out;
+    }
+    return value;
+  }
+
+  var reads = {};
+  // A small closed walk rather than randomness, so two visitors see the same
+  // page and a screenshot of it is reproducible. Every gauge on this screen
+  // counts toward a cap, so the walk stays well inside its band.
+  var WALK = [0, 7, -3, 11, -5, 4, -8, 2];
+
+  // pct is a percentage rounded to one decimal, and at_capacity is the engine's
+  // own advisor line at 90 %, not a full gauge. Recomputing them the way
+  // DaemonView.cs does keeps a walked value toned exactly as a real read.
+  function gauge(g, step) {
+    if (!g || typeof g.value !== 'number' || typeof g.capacity !== 'number') return g;
+    var value = Math.max(0, Math.min(g.capacity, g.value + step));
+    var pct = Math.max(0, Math.min(100, value / g.capacity * 100));
+    return { value: value, capacity: g.capacity, pct: Math.round(pct * 10) / 10,
+             at_capacity: pct >= 90 };
+  }
+
+  function daemonView(path) {
+    var body = shift(ROUTES[path]);
+    var n = reads[path] = (reads[path] || 0) + 1;
+    var step = WALK[n % WALK.length];
+    body.traces = gauge(body.traces, step);
+    body.analysis_queue = gauge(body.analysis_queue, Math.round(step / 3));
+    body.findings = gauge(body.findings, n % 3 === 0 ? 1 : 0);
+    // Uptime follows the wall clock rather than the read count, so it stays
+    // truthful whether the reader refreshes every five seconds or leaves the
+    // row open.
+    if (typeof body.uptime_seconds === 'number') {
+      body.uptime_seconds += Math.floor((Date.now() - LOAD) / 1000);
+    }
+    body.observed_at_ms = Date.now();
+    return body;
+  }
+
+  // A submitted run is carried through the states the launcher's own poll
+  // expects, reusing a real succeeded run for the terminal body.
+  var submitted = {};
+  var TEMPLATE = null;
+  for (var key in ROUTES) {
+    if (key.indexOf('/api/analyses/') === 0 && ROUTES[key] && ROUTES[key].status === 'succeeded') {
+      TEMPLATE = ROUTES[key];
+      break;
+    }
+  }
+
+  var SOURCES = ROUTES['/api/sources'] || [];
+  function sourceOf(id) {
+    for (var i = 0; i < SOURCES.length; i++) if (SOURCES[i].id === id) return SOURCES[i];
+    return null;
+  }
+
+  // Every state is derived from the captured succeeded run rather than built by
+  // hand. A run carries fifteen fields and the screens read most of them, so a
+  // hand-built pending body prints "read from undefined" for the one it forgot.
+  function run(id) {
+    var started = submitted[id];
+    var age = Date.now() - started.at;
+    var status = age < 1500 ? 'pending' : (age < 4000 ? 'running' : 'succeeded');
+    var body = shift(TEMPLATE);
+    var src = sourceOf(started.sourceId);
+    body.id = id;
+    body.status = status;
+    body.created_at_ms = started.at;
+    body.started_at_ms = status === 'pending' ? null : started.at + 1500;
+    body.finished_at_ms = status === 'succeeded' ? started.at + 4000 : null;
+    body.request = started.request;
+    if (src) {
+      body.source_id = src.id;
+      body.source_name = src.name;
+      body.environment = src.environment;
+      body.kind = src.kind;
+      body.producer_version = status === 'succeeded' ? src.producer_version : null;
+    }
+    if (status !== 'succeeded') {
+      body.result = null;
+      body.expires_at_ms = null;
+    }
+    return body;
+  }
+
+  function json(body) {
+    return Promise.resolve(new Response(JSON.stringify(body), {
+      status: 200, headers: { 'content-type': 'application/json' }
+    }));
+  }
+
+  var realFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    var url = typeof input === 'string' ? input : (input && input.url) || '';
+    var path = url.replace(/^https?:\/\/[^/]+/, '');
+    var method = ((init && init.method) || 'GET').toUpperCase();
+
+    if (method === 'POST' && path.indexOf('/api/analyses') === 0) {
+      var payload = {};
+      try { payload = JSON.parse((init && init.body) || '{}'); } catch (e) {}
+      var id = 'd' + (Date.now().toString(16) + '0000000000000000').slice(0, 15);
+      submitted[id] = { at: Date.now(), sourceId: payload.source_id, request: payload.request };
+      return json({ id: id, status: 'pending' });
+    }
+
+    var match = path.match(/^\/api\/analyses\/([0-9a-f]{16})$/);
+    if (match && submitted[match[1]]) return json(run(match[1]));
+
+    if (path.indexOf('/api/sources/') === 0 && path.indexOf('/daemon') !== -1) {
+      var key = path.split('?')[0];
+      return ROUTES[key] ? json(daemonView(key))
+                         : Promise.resolve(new Response('{}', { status: 404 }));
+    }
+
+    if (ROUTES[path]) return json(shift(ROUTES[path]));
+    // The launcher asks for exactly the routes the fixtures carry. Anything else
+    // is a change upstream, and answering it with a plausible empty body would
+    // hide that.
+    if (path.indexOf('/api/') === 0) {
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    }
+    return realFetch(input, init);
+  };
+
+  // The report screen is an iframe, not a read, so fetch never sees it. The site
+  // already hosts the engine's dashboard, so the demo closes on itself.
+  new MutationObserver(function (records) {
+    for (var i = 0; i < records.length; i++) {
+      var added = records[i].addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        var node = added[j];
+        if (!node.querySelectorAll) continue;
+        var frames = node.tagName === 'IFRAME' ? [node] : node.querySelectorAll('iframe');
+        for (var k = 0; k < frames.length; k++) {
+          var src = frames[k].getAttribute('src') || '';
+          if (src.indexOf('/reports/') === 0) frames[k].setAttribute('src', '/exemple/dashboard');
+        }
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
+  // The launcher resolves its theme in a blocking script at the top of <head>,
+  // so by the time this runs it has already read an empty store and fallen back
+  // to prefers-color-scheme. Writing the store alone would apply on the next
+  // load and leave a light launcher inside a dark page now, so the attribute is
+  // set outright. This is where the launcher differs from the dashboard, whose
+  // own resolution runs from an IIFE at the end of body.
+  // The site owns the theme in a frame, and the launcher's own control reads its
+  // label from application state this patch does not reach. Hidden rather than
+  // fought, the same choice the dashboard embed makes.
+  if (window.self !== window.top) {
+    try {
+      var hide = document.createElement('style');
+      hide.textContent = '#theme-toggle{display:none!important}';
+      (document.head || document.documentElement).appendChild(hide);
+    } catch (e) {}
+  }
+
+  var initial = (location.search.match(/[?&]theme=(dark|light)(?:&|$)/) || [])[1];
+  if (initial) {
+    document.documentElement.setAttribute('data-theme', initial);
+    document.documentElement.setAttribute('data-theme-position', initial);
+    try {
+      sessionStorage.setItem('perf-sentinel:theme', initial);
+      localStorage.setItem('perf-sentinel:theme', initial);
+    } catch (e) {}
+  }
+
+  // The launcher has no postMessage listener of its own, and neither store
+  // crosses an origin, so the parent's theme arrives here and nowhere else.
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    var t = e.data && e.data.psTheme;
+    if (t !== 'light' && t !== 'dark') return;
+    document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.setAttribute('data-theme-position', t);
+    try { sessionStorage.setItem('perf-sentinel:theme', t); } catch (_) {}
+  });
+})();
+</script>
+</head>
+<body>
+<header class="shell-topbar">
+  <a class="shell-wordmark" href="#/new" aria-label="perf-sentinel hub, new analysis">
+    <img src="logo-horiz-light.svg" alt="perf-sentinel" data-logo="light">
+    <img src="logo-horiz-dark.svg" alt="perf-sentinel" data-logo="dark">
+    <span class="shell-wordmark-suffix">hub</span>
+  </a>
+
+  <nav class="shell-tabs" aria-label="Screens">
+    <a class="shell-tab" href="#/new" data-screen="new">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5z"></path>
+      </svg>
+      New analysis
+    </a>
+    <a class="shell-tab" href="#/recent" data-screen="recent">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3.5 2"></path>
+      </svg>
+      Recent
+    </a>
+    <a class="shell-tab" href="#/sources" data-screen="sources">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <ellipse cx="12" cy="6" rx="7.5" ry="3"></ellipse>
+        <path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"></path>
+        <path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"></path>
+      </svg>
+      Sources
+      <span class="shell-tab-badge" id="sources-badge" hidden></span>
+    </a>
+  </nav>
+
+  <div class="shell-cluster">
+    <div class="shell-version" id="version-chip">
+      <span class="shell-version-label">hub</span>
+      <span class="shell-version-value" id="version-hub">…</span>
+      <span class="shell-version-rule" aria-hidden="true"></span>
+      <span class="shell-version-label">engine</span>
+      <span class="shell-version-value" id="version-engine">…</span>
+    </div>
+
+    <div class="shell-identity" id="identity"
+         title="Established by the reverse proxy in front of the Hub. There is no account to manage here.">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.6"></circle><path d="M4.8 20c.9-3.6 3.8-5.4 7.2-5.4s6.3 1.8 7.2 5.4"></path>
+      </svg>
+      <span id="identity-name"></span>
+    </div>
+
+    <button type="button" class="shell-theme" id="theme-toggle" aria-live="polite">
+      <span class="shell-theme-glyph" id="theme-glyph" aria-hidden="true"></span>
+      <span id="theme-label">System</span>
+    </button>
+  </div>
+</header>
+
+<main class="shell-main" id="main"></main>
+
+<footer class="shell-footer">
+  <span class="shell-credit">Powered by
+    <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">Perf Sentinel</a>
+    &middot; design &amp; logo by
+    <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a>
+  </span>
+</footer>
+
+<script src="launcher.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+/* Extracted verbatim from perf-sentinel:
+   crates/sentinel-core/src/report/html/html_template.html lines 18-52 and 644.
+   These are the ONLY custom properties the dashboard defines. Everything else
+   (spacing, font sizes, most radii) is hardcoded per component. */
+
+  :root {
+    --font-ui: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+    /* Legacy aliases kept so any un-migrated rule still resolves. */
+    --font-sans: var(--font-ui);
+    --r: 16px; --r-sm: 8px;
+    /* Only for the instant before the theme is stamped, and for anything that
+       reaches this sheet without it. Each theme below pins its own. */
+    color-scheme: light dark;
+  }
+  :root[data-theme="dark"] {
+    --bg: #141a17; --surface: #1c241f; --surface-2: #252e28; --surface-3: #2d3730;
+    --border: #2b352e; --border-2: #3b473f;
+    /* The Hub's own, not the dashboard's: the dashed outline carries a meaning
+       (declared, never measured) and so owes 3:1 as a UI component. On
+       --border-2 it read 1.36 against the surfaces it lands on. 3.55 here, on
+       the worst of them. */
+    --dash: #788880;
+    /* --text-3 #95a199 is the AA-contrast floor on the dark surfaces, do not
+       darken it back to #7d8c83, which fell to 3.97 on --surface-2 and 3.50 on
+       --surface-3 (the light theme's own floor was set first, this is its
+       other half). */
+    --text: #e8ede9; --text-2: #a3b5ab; --text-3: #95a199;
+    --brand: #0ba671; --brand-2: #2fd49a; --brand-text: #3ecf9d; --accent-bg: rgba(11,166,113,.13);
+    --crit-fg: #ffa79e; --crit-bg: #3a1f1c; --crit-bd: #573029;
+    --warn-fg: #f2c08a; --warn-bg: #392a19; --warn-bd: #53381f;
+    --info-fg: #8fc0f5; --info-bg: #1a2836; --info-bd: #26394e;
+    --ok-fg: #8fe6b8; --ok-bg: #17342a; --ok-bd: #235c41;
+    --pill: #1e3b30; --pill-fg: #9fe9c6; --btn-bd: #2e4d41; --btn-fg: #5ecfa6;
+    --fix-bg: #16382b; --fix-fg: #a5e8c9;
+    --glow: none;
+    /* Native controls the page does not draw itself: number spinners, the
+       select popup, caret and default focus rings. Without it they render in
+       the browser's light scheme on top of a dark page. */
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --surface: #f7f7f7; --surface-2: #ffffff; --surface-3: #eef1ef;
+    --border: #ebebeb; --border-2: #dcdcdc;
+    /* See the dark half: 1.20 on --border-2, 3.45 here, against the palest
+       ground a dashed mark sits on. */
+    --dash: #808080;
+    /* --text-3 #6a6a6a is the AA-contrast floor on the grey surfaces, do not
+       lighten it back to #767676 (handoff a11y polish). */
+    --text: #20261f; --text-2: #556b5c; --text-3: #6a6a6a;
+    /* --brand-text #107a56 is the AA-contrast floor on the light surfaces, do
+       not lighten it back to #11845d, which fell to 4.09 on --accent-bg (the
+       active tab), 4.12 on --surface-3 and 4.37 on --surface. */
+    --brand: #0ba671; --brand-2: #0b523a; --brand-text: #107a56; --accent-bg: #e0f4ed;
+    --crit-fg: #bf2a22; --crit-bg: #ffe4e1; --crit-bd: #f6d2cd;
+    --warn-fg: #754618; --warn-bg: #ffe0c2; --warn-bd: #f0d2b2;
+    --info-fg: #1f5e9e; --info-bg: #e9f0f8; --info-bd: #d5e4f3;
+    --ok-fg: #1b530d; --ok-bg: #ddf3dc; --ok-bd: #c6e6c4;
+    --pill: #d6e9e3; --pill-fg: #0b523a; --btn-bd: #a7c7bc; --btn-fg: #186b4f;
+    --fix-bg: #d6e9e3; --fix-fg: #0b523a;
+    --glow: none;
+    color-scheme: light;
+  }
+  /* -------- density (comfort by default, toggled from the topbar gear) -------- */
+  :root[data-density="compact"] { --r: 13px; --r-sm: 7px; }
