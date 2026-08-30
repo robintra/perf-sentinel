@@ -988,9 +988,9 @@ for a severity it does not know.
 
 ### Alerting rules (PrometheusRule)
 
-The chart ships a `PrometheusRule` so loss and saturation alerts are
-delivered, not a build-it-yourself wiring exercise. It is gated like the
-ServiceMonitor and off by default:
+The chart ships a `PrometheusRule` so the alerts that matter are delivered, not
+a build-it-yourself wiring exercise. It is gated like the ServiceMonitor and off
+by default:
 
 ```yaml
 prometheusRule:
@@ -1004,11 +1004,24 @@ prometheusRule:
   scraperStaleSeconds: 120
 ```
 
-The default group `perf-sentinel.rules` covers the daemon being unreachable
-(`absent(perf_sentinel_active_traces)`), OTLP rejection, analysis shedding and
-queue saturation, correlator-pair eviction, and service-cardinality overflow.
-Each alert's `description` names the `[daemon]` knob to raise. Append your own with `prometheusRule.additionalRules`
-(rules are passed through verbatim into the same group), no fork needed.
+The default group `perf-sentinel.rules` carries five rules, and every one of
+them fires on data the daemon lost and cannot recover: the daemon not being
+scraped (`up{job="<release fullname>"} == 0`), ingest dropped at a saturated
+channel, ingest refused under memory pressure, traces shed before analysis, and
+a dropped disclosure archive window. Each `description` names the `[daemon]` knob
+to raise. Append your own with `prometheusRule.additionalRules`, passed through
+verbatim into the same group, no fork needed.
+
+Queue saturation, correlator-pair eviction and service-cardinality overflow are
+deliberately **not** alerts. Each fires on a state the daemon reaches while
+working normally, and each is already a panel on the shipped Grafana dashboard.
+Saturation in particular predicted the shedding alert, so one incident produced
+two notifications and the first carried no remedy the second did not.
+
+`PerfSentinelDown` reads the job name Prometheus Operator derives from the
+Service, which is the release fullname. Scraping with your own `scrape_config`
+under a different `job_name` leaves that one rule silent, so override it through
+`additionalRules` if you do.
 
 ### PodDisruptionBudget
 

@@ -164,7 +164,7 @@ pre-warmed to 0:
 | `perf_sentinel_max_active_traces`              | gauge     | (none)             | Configured cap of the sliding window (`[daemon] max_active_traces`), set once at startup (since 0.8.8). Pair with `perf_sentinel_active_traces`. The settings advisor hints at 90%.                                                                                                                                                |
 | `perf_sentinel_analysis_queue_capacity`        | gauge     | (none)             | Configured cap of the analysis worker queue (`[daemon] analysis_queue_capacity`), set once at startup (since 0.8.8). Pair with `perf_sentinel_analysis_queue_depth`.                                                                                                                                                               |
 | `perf_sentinel_max_retained_findings`          | gauge     | (none)             | Configured cap of the findings ring buffer (`[daemon] max_retained_findings`), set once at startup (since 0.8.8). Pair with `perf_sentinel_stored_findings`.                                                                                                                                                                       |
-| `perf_sentinel_analysis_shed_batches_total`    | counter   | (none)             | Analysis batches shed because the worker queue was full or the worker stopped. Replaces the previous implicit drop: every shed is counted here. Alert on `rate(...) > 0`.                                                                                                                                                          |
+| `perf_sentinel_analysis_shed_batches_total`    | counter   | (none)             | Analysis batches shed because the worker queue was full or the worker stopped. Replaces the previous implicit drop: every shed is counted here. Alert on the paired `perf_sentinel_analysis_shed_traces_total` instead, since a shed batch may hold one trace or a thousand.                                                                                                                                                          |
 | `perf_sentinel_analysis_shed_traces_total`     | counter   | (none)             | Traces dropped by the shed batches counted in `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                                                                                         |
 | `perf_sentinel_archive_windows_dropped_total`  | counter   | `reason`           | Per-window disclosure archive entries dropped instead of written, by `reason` (`channel_full`, `writer_exited`, `serialize_error`, `write_error`). The archive hash chain stays contiguous across a drop, so this counter and the paired warn log are the only witnesses that the archive is incomplete. Alert on `rate(...) > 0`. |
 | `perf_sentinel_correlator_pairs_evicted_total` | counter   | (none)             | Cross-trace correlator pairs evicted by the `max_tracked_pairs` cap (since 0.8.7). A sustained rate means the correlation topology exceeds the cap and lowest-count pairs are recycled, so `/api/correlations` may drop entries between reads. Refusals are deduplicated per batch up to 8192 distinct pairs, past which each refusal counts on its own, so a very wide topology reads high rather than exact.                                                                                     |
@@ -469,9 +469,71 @@ should account for the transient nature: any background traffic, even
 synthetic seed traces or health probes, can close the cold-start
 window in well under 60 seconds.
 
+## Alerting
+
+The Helm chart renders these as a `PrometheusRule`, gated on
+`prometheusRule.enabled`. `PrometheusRule` is a Prometheus Operator CRD, so
+outside Kubernetes the same group goes in a plain `rule_files` entry. The chart
+template is the source of truth, this block mirrors it.
+
+Every rule fires on data the daemon lost and cannot recover. Nothing here alerts
+on saturation, service cardinality or correlator eviction: each of those is a
+state the daemon reaches while working normally, and each is a dashboard panel.
+Thresholds carry a floor for the same reason, `rate(...) > 0` firing on a loss
+rate of a fraction of a percent trains a reader to mute the rule.
+
+```yaml
+groups:
+  - name: perf-sentinel.rules
+    rules:
+      - alert: PerfSentinelDown
+        expr: up{job="perf-sentinel"} == 0
+        for: 15m
+        labels: { severity: warning }
+      - alert: PerfSentinelIngestRejecting
+        expr: rate(perf_sentinel_otlp_rejected_total{reason="channel_full"}[10m]) > 0.05
+        for: 15m
+        labels: { severity: warning }
+      - alert: PerfSentinelMemoryPressureRejecting
+        expr: perf_sentinel_ingest_memory_pressure == 1
+        for: 5m
+        labels: { severity: warning }
+      - alert: PerfSentinelAnalysisShedding
+        expr: rate(perf_sentinel_analysis_shed_traces_total[10m]) > 1
+        for: 15m
+        labels: { severity: warning }
+      - alert: PerfSentinelArchiveDropping
+        expr: rate(perf_sentinel_archive_windows_dropped_total[15m]) > 0
+        for: 15m
+        labels: { severity: warning }
+```
+
+`job="perf-sentinel"` is the job name in the scrape stanzas under
+[INTEGRATION.md](INTEGRATION.md) and [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md).
+Under the chart it is the release fullname instead, which is what the Operator
+derives from the Service.
+
+One more rule is worth having and is not shipped on, because it is truthful and
+useless on an install whose fleet legitimately emits no I/O spans, and a rule
+that is wrong on day one gets muted forever. Enable it once you have seen your
+first finding, with a window above your longest legitimate idle period:
+
+```yaml
+      - alert: PerfSentinelIngestingButProducingNothing
+        expr: rate(perf_sentinel_otlp_spans_received_total[30m]) > 0
+          and rate(perf_sentinel_events_processed_total[30m]) == 0
+        for: 30m
+        labels: { severity: warning }
+```
+
+That is the failure where every shipped rule reads green: instrumentation that
+strips `db.statement` or `http.url` turns every request into zero events while
+still returning success, and a reader concludes there are no performance
+problems rather than that nothing was measured.
+
 ## Cross-references
 
-- Shipped alerts: the Helm chart packages these alert hints as a
+- Shipped alerts: the section above, packaged by the Helm chart as a
   `PrometheusRule` (`prometheusRule.enabled`), see
   [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#alerting-rules-prometheusrule).
 - `Report.warning_details` field (operator-facing snapshot warnings):
