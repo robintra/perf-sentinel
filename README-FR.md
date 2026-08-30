@@ -198,6 +198,64 @@ perf-sentinel query findings --service order-svc                   # dialoguer a
 
 </details>
 
+## Hub, optionnel mais recommandé
+
+Un daemon `watch` garde ses findings en mémoire. Le tampon circulaire oublie, et `/api/findings` répond au plus 1 000 lignes, ce qui suffit pour un service et devient mince pour une flotte. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) est un service séparé qui collecte auprès de chaque daemon et conserve la seule chose qu'ils ne peuvent pas reconstruire : la date de première apparition d'un finding.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_dark.gif">
+  <img alt="le lanceur du Hub : choisir une source, façonner un run, lire la flotte" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_light.gif">
+</picture>
+
+Ce qu'il ajoute par-dessus un daemon :
+
+- **Une chronologie durable.** `first_seen` par signature d'acquittement, conservé 180 jours par défaut, pour que "ça a régressé mardi dernier" survive à un redémarrage.
+- **Push et poll, et un seul des deux possède la joignabilité.** Les daemons poussent dans `/api/import/findings`, et le Hub les interroge en retour comme filet. Seul un poll réussi efface un marqueur d'injoignabilité, parce qu'un daemon qui joint le Hub ne prouve rien sur la capacité du Hub à le joindre.
+- **Un navigateur qui lance une analyse.** Contre un daemon, un backend Tempo ou un backend d'API de requêtage Jaeger, en servant le tableau de bord HTML que `report` produit.
+- **Une API de lecture pour l'outillage.** `/api/findings` pour les greffons d'IDE et les jobs de CI, avec un `status` dérivé à la lecture qui distingue "l'endpoint tourne sans ce finding" de "personne ne regarde".
+
+Il ne remplace jamais ce moteur, il le lance. Chaque analyse crée ce binaire en sous-processus, et chaque daemon est lu par sa propre API de requêtage. Rien du Hub ne réside dans perf-sentinel, et un daemon ignore qu'un Hub existe.
+
+<details>
+<summary>Les cinq écrans</summary>
+
+Lancement d'un run contre un backend de traces, le formulaire complet avec service, fenêtre et plafond de traces. Une source daemon ne prend aucun paramètre :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-new-dark.png">
+  <img alt="lancer une analyse : sources groupées par type, formulaire complet" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-new.png">
+</picture>
+
+Santé de la flotte, une ligne par source, dépliée sur les jauges et les conseils de réglage qu'un daemon publie sur lui-même :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-sources-dark.png">
+  <img alt="santé de la flotte : daemons et backends de traces, une ligne dépliée" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-sources.png">
+</picture>
+
+Les runs récents, dans les états où ils se sont terminés :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-recent-dark.png">
+  <img alt="analyses récentes dans des états terminaux variés" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-recent.png">
+</picture>
+
+Un run, avec la porte de qualité en tête de sa bande de résultat :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-run-dark.png">
+  <img alt="un run : journal d'événements, bande de résultat et paramètres" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-run.png">
+</picture>
+
+Le tableau de bord rendu, servi depuis l'origine du Hub :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-report-dark.png">
+  <img alt="le tableau de bord HTML du moteur, embarqué dans le Hub" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-report.png">
+</picture>
+
+</details>
+
 ## Formats d'entrée et de sortie
 
 <details>
@@ -289,66 +347,6 @@ Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, quatre 
 perf-sentinel traite les traces sur place. Il ne fait aucun appel réseau sortant silencieux et n'embarque aucune télémétrie d'usage. Le contenu brut des spans (valeurs SQL littérales, URLs complètes) ne vit **qu'en mémoire**, dans la fenêtre de streaming : par défaut un TTL de 30 s et un cache LRU plafonné à 10 000 traces actives, tous deux ajustables sous `[daemon]`. Le daemon n'écrit jamais de spans bruts sur disque. Tout ce qu'il émet (rapports JSON / SARIF / HTML, API de query dont `/api/explain`, métriques Prometheus, archive NDJSON par fenêtre optionnelle) ne porte que le **template normalisé** : les littéraux SQL et les valeurs de chemin/query des URLs sont remplacés par des `?` et réduits à un *décompte* de paramètres distincts, jamais les valeurs elles-mêmes.
 
 Le daemon écoute sur `127.0.0.1` par défaut. TLS, CORS et la clé d'API d'acquittement sont tous opt-in. Les endpoints `GET` en lecture seule **et les listeners d'ingestion OTLP** (gRPC `:4317`, HTTP `:4318`) ne sont pas authentifiés et font confiance à leurs émetteurs, gardez donc l'ingestion sur un réseau de confiance et placez un reverse proxy ou une network policy devant avant d'exposer quoi que ce soit au-delà de localhost. Réglages de rétention et d'écoute dans [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md), surface d'API dans [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md).
-
-## Vue de flotte avec PerfSentinelHub
-
-Optionnel, et utile dès que vous faites tourner plus d'un daemon.
-
-Un daemon `watch` garde ses findings en mémoire. Le tampon circulaire oublie, et `/api/findings` répond au plus 1 000 lignes, ce qui suffit pour un service et devient mince pour une flotte. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) est un service séparé qui collecte auprès de chaque daemon et conserve la seule chose qu'ils ne peuvent pas reconstruire : la date de première apparition d'un finding.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_dark.gif">
-  <img alt="le lanceur du Hub : choisir une source, façonner un run, lire la flotte" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_light.gif">
-</picture>
-
-Ce qu'il ajoute par-dessus un daemon :
-
-- **Une chronologie durable.** `first_seen` par signature d'acquittement, conservé 180 jours par défaut, pour que "ça a régressé mardi dernier" survive à un redémarrage.
-- **Push et poll, et un seul des deux possède la joignabilité.** Les daemons poussent dans `/api/import/findings`, et le Hub les interroge en retour comme filet. Seul un poll réussi efface un marqueur d'injoignabilité, parce qu'un daemon qui joint le Hub ne prouve rien sur la capacité du Hub à le joindre.
-- **Un navigateur qui lance une analyse.** Contre un daemon, un backend Tempo ou un backend d'API de requêtage Jaeger, en servant le tableau de bord HTML que `report` produit.
-- **Une API de lecture pour l'outillage.** `/api/findings` pour les greffons d'IDE et les jobs de CI, avec un `status` dérivé à la lecture qui distingue "l'endpoint tourne sans ce finding" de "personne ne regarde".
-
-Il ne remplace jamais ce moteur, il le lance. Chaque analyse crée ce binaire en sous-processus, et chaque daemon est lu par sa propre API de requêtage. Rien du Hub ne réside dans perf-sentinel, et un daemon ignore qu'un Hub existe.
-
-<details>
-<summary>Les cinq écrans</summary>
-
-Lancement d'un run contre un backend de traces, le formulaire complet avec service, fenêtre et plafond de traces. Une source daemon ne prend aucun paramètre :
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-new-dark.png">
-  <img alt="lancer une analyse : sources groupées par type, formulaire complet" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-new.png">
-</picture>
-
-Santé de la flotte, une ligne par source, dépliée sur les jauges et les conseils de réglage qu'un daemon publie sur lui-même :
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-sources-dark.png">
-  <img alt="santé de la flotte : daemons et backends de traces, une ligne dépliée" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-sources.png">
-</picture>
-
-Les runs récents, dans les états où ils se sont terminés :
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-recent-dark.png">
-  <img alt="analyses récentes dans des états terminaux variés" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-recent.png">
-</picture>
-
-Un run, avec la porte de qualité en tête de sa bande de résultat :
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-run-dark.png">
-  <img alt="un run : journal d'événements, bande de résultat et paramètres" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-run.png">
-</picture>
-
-Le tableau de bord rendu, servi depuis l'origine du Hub :
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-report-dark.png">
-  <img alt="le tableau de bord HTML du moteur, embarqué dans le Hub" src="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher-report.png">
-</picture>
-
-</details>
 
 ## Performance
 
