@@ -213,8 +213,9 @@
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Expliquer une trace identifiée</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--trace-id</span> abc123def456
 
-<span style="color:var(--term-comment)"># Balayer un service sur une fenêtre quand le trace_id n'est pas encore connu</span>
-<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--service</span> order-svc <span style="color:var(--code-flag)">--lookback</span> <span style="color:var(--code-num)">2h</span>
+<span style="color:var(--term-comment)"># Balayer un service sur une fenêtre quand le trace_id n'est pas encore</span>
+<span style="color:var(--term-comment)"># connu, findings les plus coûteux d'abord</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--service</span> order-svc <span style="color:var(--code-flag)">--lookback</span> <span style="color:var(--code-num)">2h</span> <span style="color:var(--code-flag)">--sort</span> impact
 
 <span style="color:var(--term-comment)"># Artefact post-mortem pour un ticket ou une PR</span>
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--trace-id</span> abc123 <span style="color:var(--code-flag)">--format</span> json &gt; incident.json</code></pre></div>
