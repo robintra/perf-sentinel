@@ -101,6 +101,7 @@
   // expects, reusing a real succeeded run for the terminal body.
   var submitted = {};
   var submits = 0;
+  var SUBMIT_HISTORY = 20;
   var TEMPLATE = null;
   for (var key in ROUTES) {
     if (key.indexOf('/api/analyses/') === 0 && ROUTES[key] && ROUTES[key].status === 'succeeded') {
@@ -166,6 +167,11 @@
       try { payload = JSON.parse((init && init.body) || '{}'); } catch (e) {}
       var id = 'f' + String(++submits).padStart(15, '0');
       submitted[id] = { at: Date.now(), sourceId: payload.source_id, request: payload.request };
+      // Only the run being watched is ever read back, so a short tail is enough
+      // and the map cannot grow for the life of the page. Keys are insertion
+      // ordered here because none of them looks like an array index.
+      var held = Object.keys(submitted);
+      if (held.length > SUBMIT_HISTORY) delete submitted[held[0]];
       return json({ id: id, status: 'pending' });
     }
 
