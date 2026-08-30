@@ -10,6 +10,26 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.17.0]
+
+### Fixed
+
+- `appVersion` moves to `0.17.0`. The cross-trace correlator no longer gets the
+  daemon OOM-killed under a memory limit on a wide topology. Each batch
+  collected every pair refused at the `max_tracked_pairs` cap into a set whose
+  size is the batch times the lag window and never the cap, which reached tens
+  of MiB inside one call and put a 256Mi pod over the edge. Refusals are now
+  deduplicated up to a bounded ceiling and counted past it. Lowering
+  `max_tracked_pairs` never helped and made the peak worse, so a deployment
+  that worked around this by disabling correlation can turn it back on. The
+  chart itself is unchanged: this is an application fix carried by the new
+  `appVersion`.
+
+### Added
+
+- `tempo` and `jaeger-query` accept `--sort`, with the same `severity` and
+  `impact` keys `analyze` takes.
+
 ## [0.16.0]
 
 ### Fixed
