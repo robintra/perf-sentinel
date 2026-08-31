@@ -25,8 +25,15 @@ the chart version, to know which daemon image ships.
   single line, which is how this was found on an install running the shipped
   chart. The daemon exposes no `job`, `instance` or `namespace` label, so no
   other label changes hands and the `namespace` the dashboard filters on still
-  comes from the scrape. Series stored before the upgrade keep their
-  `exported_service`, the next scrape after it is correct. Set
+  comes from the scrape. Honor labels settles a collision rather than replacing
+  anything, and `perf_sentinel_service_io_ops_total` is the only metric that
+  exposes a `service` of its own, so every other series still takes the
+  operator's `service` from the target and anything routing on that label is
+  untouched. What does move is a query written against the shape the bug
+  produced: `perf_sentinel_service_io_ops_total{service="<release fullname>"}`
+  comes back empty after the upgrade, with the real service names in its place.
+  Series stored before the upgrade keep their `exported_service`, the next
+  scrape after it is correct. Set
   `serviceMonitor.honorLabels: false` to go back to the operator's labels
   winning. `appVersion` stays on 0.17.0, this is a chart-only release.
 

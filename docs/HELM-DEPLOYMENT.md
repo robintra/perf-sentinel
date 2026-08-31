@@ -864,7 +864,15 @@ stored as `exported_service`. The dashboard's `Service` variable then
 offered the release name as its only value and its per-service panel
 collapsed every analysed service into one line. The daemon exposes no
 `job`, `instance` or `namespace` label, so nothing else changes hands
-and `Namespace` still reads what the scrape attaches. On an install
+and `Namespace` still reads what the scrape attaches. Honor labels
+settles a collision rather than replacing anything, and
+`perf_sentinel_service_io_ops_total` is the only metric exposing a
+`service` of its own, so every other series still takes the operator's
+`service` from the target and anything routing on that label is
+untouched. A panel or an alert written against the shape the bug
+produced, filtering `service="<release fullname>"` on the per-service
+metric, comes back empty with the real service names in its place. On
+an install
 that already stored the renamed series, `helm upgrade` fixes the next
 scrape and leaves the history as it is.
 
