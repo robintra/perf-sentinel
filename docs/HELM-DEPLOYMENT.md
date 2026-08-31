@@ -891,14 +891,21 @@ Import it one of two ways.
 Manual import: in Grafana open Dashboards then Import, upload the JSON,
 and map the `DS_PROMETHEUS` input to your Prometheus datasource.
 
-**Two template variables** sit above the panels. `Job` selects which
+**Three template variables** sit above the panels. `Job` selects which
 Prometheus job to read, which matters when several daemons are scraped
-by the same Prometheus, staging and production for instance. `Service`
-filters the per-service I/O panel and only that one: every other metric
-the daemon exports is daemon-wide by design, since Prometheus label
-values here come from a bounded compile-time set to keep cardinality
-under control. A service filter that appeared to narrow the whole
-dashboard would be lying about nineteen of its panels.
+by the same Prometheus, staging and production for instance.
+`Namespace` narrows all twenty-one panels to one or more Kubernetes
+namespaces, and defaults to `All`, the fleet-wide view the dashboard
+had before. It is the one label the daemon does not export: the scrape
+attaches it, so Prometheus Operator fills it in when it reads the
+chart's ServiceMonitor, and a scrape that attaches none is still
+matched by `All`, which leaves the dashboard unchanged outside
+Kubernetes. `Service` filters the per-service I/O panel and only that
+one: every other metric the daemon exports is daemon-wide by design,
+since Prometheus label values here come from a bounded compile-time set
+to keep cardinality under control. A service filter that appeared to
+narrow the whole dashboard would be lying about nineteen of its
+panels.
 
 **Every panel follows the time picker**, with one rule and one stated
 exception. Rate panels use `$__rate_interval` and windowed panels use

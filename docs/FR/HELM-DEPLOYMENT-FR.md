@@ -596,15 +596,21 @@ du Grafana que vous exploitez déjà. Importez-le de deux façons.
 Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
 JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
 
-**Deux variables de template** surmontent les panneaux. `Job` choisit le
+**Trois variables de template** surmontent les panneaux. `Job` choisit le
 job Prometheus à lire, ce qui compte quand plusieurs daemons sont scrapés
-par le même Prometheus, staging et production par exemple. `Service`
-filtre le panneau d'I/O par service, et lui seul : toutes les autres
-métriques exportées par le daemon sont globales par conception, les
-valeurs de labels Prometheus venant ici d'un ensemble borné à la
-compilation pour maîtriser la cardinalité. Un filtre service qui
-paraîtrait restreindre tout le tableau de bord mentirait sur dix-neuf de
-ses panneaux.
+par le même Prometheus, staging et production par exemple. `Namespace`
+restreint les vingt et un panneaux à un ou plusieurs namespaces
+Kubernetes, et vaut `All` par défaut, la vue globale que le tableau de
+bord offrait jusqu'ici. C'est le seul label que le daemon n'exporte pas :
+il est attaché par le scrape, donc Prometheus Operator le renseigne en
+lisant le ServiceMonitor du chart, et un scrape qui n'en attache aucun
+reste couvert par `All`, ce qui laisse le tableau de bord inchangé hors
+Kubernetes. `Service` filtre le panneau d'I/O par service, et lui seul :
+toutes les autres métriques exportées par le daemon sont globales par
+conception, les valeurs de labels Prometheus venant ici d'un ensemble
+borné à la compilation pour maîtriser la cardinalité. Un filtre service
+qui paraîtrait restreindre tout le tableau de bord mentirait sur
+dix-neuf de ses panneaux.
 
 **Tous les panneaux suivent le sélecteur de plage**, avec une règle et
 une exception assumée. Les panneaux de taux utilisent `$__rate_interval`

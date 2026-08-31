@@ -89,7 +89,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (service) (rate(perf_sentinel_service_io_ops_total{job=~\"$job\", service=~\"$service\"}[$__rate_interval]))",
+          "expr": "sum by (service) (rate(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__rate_interval]))",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -117,7 +117,7 @@
       },
       "targets": [
         {
-          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range])))",
+          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\"}[$__range])))",
           "legendFormat": "{{type}} ({{severity}})",
           "refId": "A"
         }
@@ -143,7 +143,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_avoidable_io_ops{job=~\"$job\"}[$__range]))\n/\nsum(increase(perf_sentinel_total_io_ops{job=~\"$job\"}[$__range]))",
+          "expr": "sum(increase(perf_sentinel_avoidable_io_ops{job=~\"$job\", namespace=~\"$namespace\"}[$__range]))\n/\nsum(increase(perf_sentinel_total_io_ops{job=~\"$job\", namespace=~\"$namespace\"}[$__range]))",
           "refId": "A",
           "legendFormat": "waste ratio"
         }
@@ -195,7 +195,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_findings_total{job=~\"$job\", severity=\"critical\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", severity=\"critical\"}[$__range])) or vector(0)",
           "refId": "A"
         }
       ],
@@ -234,7 +234,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\"}[$__range]))",
           "legendFormat": "{{type}}",
           "refId": "A"
         }
@@ -256,7 +256,7 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_active_traces{job=~\"$job\"}",
+          "expr": "perf_sentinel_active_traces{job=~\"$job\", namespace=~\"$namespace\"}",
           "refId": "A",
           "legendFormat": "{{instance}}"
         }
@@ -300,17 +300,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"sql\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", type=\"sql\"}[$__rate_interval])))",
           "legendFormat": "SQL p95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"http_out\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", type=\"http_out\"}[$__rate_interval])))",
           "legendFormat": "HTTP p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"messaging\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", type=\"messaging\"}[$__rate_interval])))",
           "legendFormat": "Messaging p95",
           "refId": "C"
         }
@@ -338,7 +338,7 @@
       },
       "targets": [
         {
-          "expr": "rate(perf_sentinel_events_processed_total{job=~\"$job\"}[$__rate_interval])",
+          "expr": "rate(perf_sentinel_events_processed_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval])",
           "legendFormat": "events/s {{instance}}",
           "refId": "A"
         }
@@ -366,7 +366,7 @@
       },
       "targets": [
         {
-          "expr": "sum(perf_sentinel_findings_total{job=~\"$job\"}) or vector(0)",
+          "expr": "sum(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\"}) or vector(0)",
           "legendFormat": "total",
           "refId": "A"
         }
@@ -416,7 +416,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "refId": "A"
@@ -445,7 +445,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\"}[$__range]))",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -478,7 +478,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=~\"$job\"}",
+          "expr": "up{job=~\"$job\", namespace=~\"$namespace\"}",
           "refId": "A",
           "legendFormat": "{{instance}}"
         }
@@ -537,7 +537,7 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_total_io_ops{job=~\"$job\"}",
+          "expr": "perf_sentinel_total_io_ops{job=~\"$job\", namespace=~\"$namespace\"}",
           "refId": "A",
           "legendFormat": "{{instance}}"
         }
@@ -564,7 +564,7 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_traces_analyzed_total{job=~\"$job\"}",
+          "expr": "perf_sentinel_traces_analyzed_total{job=~\"$job\", namespace=~\"$namespace\"}",
           "refId": "A",
           "legendFormat": "{{instance}}"
         }
@@ -591,7 +591,7 @@
       },
       "targets": [
         {
-          "expr": "rate(perf_sentinel_avoidable_io_ops{job=~\"$job\"}[$__rate_interval])",
+          "expr": "rate(perf_sentinel_avoidable_io_ops{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval])",
           "refId": "A",
           "legendFormat": "avoidable ops/s {{instance}}"
         }
@@ -618,27 +618,27 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"alumet\"} == 1)",
+          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"alumet\"} == 1)",
           "legendFormat": "alumet {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"scaphandre\"} == 1)",
+          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"scaphandre\"} == 1)",
           "refId": "B",
           "legendFormat": "scaphandre {{instance}}"
         },
         {
-          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"kepler\"} == 1)",
+          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"kepler\"} == 1)",
           "legendFormat": "kepler {{instance}}",
           "refId": "C"
         },
         {
-          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"redfish\"} == 1)",
+          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"redfish\"} == 1)",
           "legendFormat": "redfish {{instance}}",
           "refId": "D"
         },
         {
-          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", backend=\"cloud_energy\"} == 1)",
+          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"cloud_energy\"} == 1)",
           "refId": "E",
           "legendFormat": "cloud_energy {{instance}}"
         }
@@ -666,7 +666,7 @@
       },
       "targets": [
         {
-          "expr": "rate(perf_sentinel_export_report_requests_total{job=~\"$job\"}[$__rate_interval])",
+          "expr": "rate(perf_sentinel_export_report_requests_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval])",
           "refId": "A",
           "legendFormat": "exports/s {{instance}}"
         }
@@ -693,7 +693,7 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_energy_kwh{job=~\"$job\"}",
+          "expr": "perf_sentinel_energy_kwh{job=~\"$job\", namespace=~\"$namespace\"}",
           "refId": "A",
           "legendFormat": "energy {{instance}}"
         }
@@ -727,7 +727,7 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_carbon_gco2{job=~\"$job\"}",
+          "expr": "perf_sentinel_carbon_gco2{job=~\"$job\", namespace=~\"$namespace\"}",
           "refId": "A",
           "legendFormat": "carbon {{instance}}"
         }
@@ -761,32 +761,32 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_active_traces{job=~\"$job\"} / perf_sentinel_max_active_traces{job=~\"$job\"} * 100",
+          "expr": "perf_sentinel_active_traces{job=~\"$job\", namespace=~\"$namespace\"} / perf_sentinel_max_active_traces{job=~\"$job\", namespace=~\"$namespace\"} * 100",
           "refId": "A",
           "legendFormat": "active_traces {{instance}}"
         },
         {
-          "expr": "perf_sentinel_analysis_queue_depth{job=~\"$job\"} / perf_sentinel_analysis_queue_capacity{job=~\"$job\"} * 100",
+          "expr": "perf_sentinel_analysis_queue_depth{job=~\"$job\", namespace=~\"$namespace\"} / perf_sentinel_analysis_queue_capacity{job=~\"$job\", namespace=~\"$namespace\"} * 100",
           "refId": "B",
           "legendFormat": "analysis_queue {{instance}}"
         },
         {
-          "expr": "perf_sentinel_stored_findings{job=~\"$job\"} / perf_sentinel_max_retained_findings{job=~\"$job\"} * 100",
+          "expr": "perf_sentinel_stored_findings{job=~\"$job\", namespace=~\"$namespace\"} / perf_sentinel_max_retained_findings{job=~\"$job\", namespace=~\"$namespace\"} * 100",
           "refId": "C",
           "legendFormat": "findings_store {{instance}}"
         },
         {
-          "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "refId": "D",
           "legendFormat": "shed_batches/s"
         },
         {
-          "expr": "sum(rate(perf_sentinel_archive_windows_dropped_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(perf_sentinel_archive_windows_dropped_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "refId": "E",
           "legendFormat": "archive_drops/s"
         },
         {
-          "expr": "sum(rate(perf_sentinel_correlator_pairs_evicted_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(perf_sentinel_correlator_pairs_evicted_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "refId": "F",
           "legendFormat": "pair_evictions/s"
         }
@@ -944,17 +944,17 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(perf_sentinel_otlp_spans_received_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(perf_sentinel_otlp_spans_received_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "received/s",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "filtered/s (not I/O)",
           "refId": "B"
         },
         {
-          "expr": "sum by (reason) (rate(perf_sentinel_otlp_rejected_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (reason) (rate(perf_sentinel_otlp_rejected_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "rejected/s {{reason}}",
           "refId": "C"
         }
@@ -1007,6 +1007,37 @@
         "description": "The Prometheus job scraping perf-sentinel. Pick one when several daemons are scraped."
       },
       {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_events_processed_total{job=~\"$job\"}, namespace)",
+        "query": {
+          "query": "label_values(perf_sentinel_events_processed_total{job=~\"$job\"}, namespace)",
+          "refId": "namespace"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0,
+        "description": "The Kubernetes namespaces to read. The label comes from the scrape rather than from the daemon, so it is there when Prometheus Operator scrapes the ServiceMonitor and absent otherwise. All keeps the fleet-wide view every panel had before, and matches series carrying no namespace label at all."
+      },
+      {
         "name": "service",
         "label": "Service",
         "type": "query",
@@ -1014,9 +1045,9 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(perf_sentinel_service_io_ops_total{job=~\"$job\"}, service)",
+        "definition": "label_values(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\"}, service)",
         "query": {
-          "query": "label_values(perf_sentinel_service_io_ops_total{job=~\"$job\"}, service)",
+          "query": "label_values(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\"}, service)",
           "refId": "service"
         },
         "refresh": 2,
