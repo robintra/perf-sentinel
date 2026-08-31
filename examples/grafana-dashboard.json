@@ -747,7 +747,7 @@
     },
     {
       "title": "Runtime headroom and shedding",
-      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches and dropped archive windows per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist, and when the archive channel is full whole disclosure windows are dropped even though their findings were served live. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU; any sustained archive drops mean the disclosure archive under-reports the period.",
+      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches and dropped archive windows per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist, and when the archive channel is full whole disclosure windows are dropped even though their findings were served live. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU; any sustained archive drops mean the disclosure archive under-reports the period. Pair evictions are the correlator recycling tracked pairs at the `max_tracked_pairs` cap, at which point /api/correlations returns an arbitrary subset with nothing on the output saying so. No alert covers it, since eviction at the cap is the steady state rather than a fault; the tuning advisor in /api/export/report names the knob.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -784,6 +784,11 @@
           "expr": "sum(rate(perf_sentinel_archive_windows_dropped_total{job=~\"$job\"}[$__rate_interval]))",
           "refId": "E",
           "legendFormat": "archive_drops/s"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_correlator_pairs_evicted_total{job=~\"$job\"}[$__rate_interval]))",
+          "refId": "F",
+          "legendFormat": "pair_evictions/s"
         }
       ],
       "fieldConfig": {
@@ -884,13 +889,48 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pair_evictions/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
           }
         ]
       }
     },
     {
       "title": "OTLP span intake (received vs filtered)",
-      "description": "Span intake at the OTLP boundary. `filtered` are spans carrying no I/O operation, which is normal and usually the majority. `rejected` is back-pressure or malformed payloads and should sit at zero.",
+      "description": "Span intake at the OTLP boundary. `filtered` are spans carrying no I/O operation, which is normal and usually the majority. `rejected` is split by reason: `channel_full` is the one the daemon loses work to and the only one PerfSentinelIngestRejecting fires on, while `parse_error` and `unsupported_media_type` are malformed requests from a producer, fixed in that producer and read here rather than paged on.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -914,8 +954,8 @@
           "refId": "B"
         },
         {
-          "expr": "sum(rate(perf_sentinel_otlp_rejected_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "rejected/s",
+          "expr": "sum by (reason) (rate(perf_sentinel_otlp_rejected_total{job=~\"$job\"}[$__rate_interval]))",
+          "legendFormat": "rejected/s {{reason}}",
           "refId": "C"
         }
       ],
