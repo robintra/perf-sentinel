@@ -339,6 +339,9 @@
           "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$",
           "description": "Prometheus duration, e.g. 10s, 1m30s. Same grammar as the Prometheus Operator Duration type."
         },
+        "honorLabels": {
+          "type": "boolean"
+        },
         "labels": {
           "type": "object"
         },

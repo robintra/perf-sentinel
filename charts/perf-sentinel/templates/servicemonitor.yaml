@@ -29,6 +29,9 @@ spec:
   endpoints:
     - port: otlp-http
       path: /metrics
+      # The operator attaches a target label `service` from the Service name,
+      # which would rename the daemon's own `service` to `exported_service`.
+      honorLabels: {{ .Values.serviceMonitor.honorLabels }}
       interval: {{ .Values.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
       {{- with .Values.serviceMonitor.relabelings }}

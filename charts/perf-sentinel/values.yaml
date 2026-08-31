@@ -233,6 +233,10 @@ serviceMonitor:
   namespace: ""
   interval: 15s
   scrapeTimeout: 10s
+  # -- Let the labels the daemon exposes win over the target labels the
+  # operator attaches. Off, its `service` label is renamed `exported_service`
+  # and the Grafana dashboard's Service variable lists the Service name.
+  honorLabels: true
   # -- Extra labels applied to the ServiceMonitor (e.g. `release: prometheus`
   # for the kube-prometheus-stack operator selector).
   labels: {}

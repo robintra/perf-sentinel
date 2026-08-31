@@ -572,6 +572,8 @@ serviceMonitor:
     release: prometheus
 ```
 
+`honorLabels` vaut `true` par défaut depuis la version 0.17.1 du chart, et ce défaut compte. L'opérateur attache un label de cible nommé `service`, tiré du nom du Service, et quand honor labels est désactivé Prometheus renomme le label homonyme exposé par la cible : le `service` du daemon était stocké en `exported_service`. La variable `Service` du tableau de bord ne proposait plus que le nom de la release, et son panneau par service réduisait tous les services analysés à une seule ligne. Le daemon n'expose ni `job`, ni `instance`, ni `namespace`, donc rien d'autre ne change de main et `Namespace` lit toujours ce que le scrape attache. Sur une installation qui a déjà stocké les séries renommées, `helm upgrade` corrige le scrape suivant et laisse l'historique en l'état.
+
 #### Dashboards qui scrapent `/api/findings`
 
 Depuis 0.5.20, `GET /api/findings` filtre par défaut les findings acquittés. Les dashboards ou règles d'alerte existants qui interrogent l'endpoint et comptent les résultats vont silencieusement passer à côté de findings critiques si ceux-ci ont été acquittés au runtime ou par la baseline TOML CI. Deux options pour câbler un panel Prometheus ou Grafana sur l'endpoint :

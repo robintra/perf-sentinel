@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.17.0
+version: 0.17.1
 appVersion: "0.17.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -37,17 +37,7 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: fixed
-      description: "appVersion 0.17.0. The cross-trace correlator no longer gets a memory-limited daemon OOM-killed on a wide topology. One batch collected every pair it refused at the max_tracked_pairs cap into a set sized by the batch times the lag window rather than by the cap, which reached tens of MiB inside a single call. Operators running correlation on a small memory limit no longer need to disable it, and lowering the cap was never the workaround it looked like."
-    - kind: added
-      description: "tempo and jaeger-query accept --sort, the severity and impact keys analyze already took, applied before the sinks so a wide sweep comes back ranked instead of leaving the caller to re-sort it."
-    - kind: changed
-      description: "The dashboard and the TUI open on impact rather than on severity and trace-id order. A reader arriving on a report asks what costs the most, and the answer now leads."
-    - kind: changed
-      description: "The PrometheusRule drops from seven always-on alerts to five and reshapes three survivors, alerting only on data the daemon lost irrecoverably. PerfSentinelDown becomes up{job=\"<fullname>\"} == 0 at severity warning, since absent() stayed green when one replica of a sharded pair died. PerfSentinelIngestRejecting narrows to reason=channel_full with a floor, having fired on any malformed request reaching :4318. Breaking for prometheusRule.enabled: true, see the upgrade note in the chart CHANGELOG."
-    - kind: added
-      description: "PerfSentinelArchiveDropping alerts on a dropped disclosure archive window. The archive hash chain stays contiguous across a drop, so verify-hash recomputes clean over a record that is short and this counter is the only witness. Inert without [daemon.archive]."
-    - kind: removed
-      description: "PerfSentinelAnalysisQueueSaturated, PerfSentinelCorrelatorEvicting and PerfSentinelServiceCardinalityOverflow. The first predicted the shedding alert and is already a dashboard panel, the other two shipped at severity info and fired on states the daemon reaches while working normally. Grep your Alertmanager config for those three names before upgrading."
+      description: "The ServiceMonitor sets honorLabels: true, through the new serviceMonitor.honorLabels knob. Prometheus Operator attaches a target label named service, taken from the Service name, which renamed the label the daemon exposes to exported_service. The Grafana dashboard's Service variable then listed the release name as its only value and the per-service I/O panel collapsed every analysed service into one line. appVersion stays on 0.17.0, this is a chart-only release."
   artifacthub.io/images: |
     - name: perf-sentinel
       image: ghcr.io/robintra/perf-sentinel:0.17.0

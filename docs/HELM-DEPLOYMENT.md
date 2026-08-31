@@ -856,6 +856,18 @@ serviceMonitor:
     release: prometheus
 ```
 
+`honorLabels` defaults to `true` since chart 0.17.1, and that default
+matters. The operator attaches a target label named `service`, taken
+from the Service name, and with honor labels off Prometheus renames the
+colliding label a target exposes, so the daemon's own `service` was
+stored as `exported_service`. The dashboard's `Service` variable then
+offered the release name as its only value and its per-service panel
+collapsed every analysed service into one line. The daemon exposes no
+`job`, `instance` or `namespace` label, so nothing else changes hands
+and `Namespace` still reads what the scrape attaches. On an install
+that already stored the renamed series, `helm upgrade` fixes the next
+scrape and leaves the history as it is.
+
 #### Dashboards that scrape `/api/findings`
 
 Since 0.5.20, `GET /api/findings` filters out acked findings by
