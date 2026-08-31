@@ -618,27 +618,27 @@
       },
       "targets": [
         {
-          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"alumet\"} == 1)",
+          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"alumet\"} == 1)",
           "legendFormat": "alumet {{instance}}",
           "refId": "A"
         },
         {
-          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"scaphandre\"} == 1)",
+          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"scaphandre\"} == 1)",
           "refId": "B",
           "legendFormat": "scaphandre {{instance}}"
         },
         {
-          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"kepler\"} == 1)",
+          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"kepler\"} == 1)",
           "legendFormat": "kepler {{instance}}",
           "refId": "C"
         },
         {
-          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"redfish\"} == 1)",
+          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"redfish\"} == 1)",
           "legendFormat": "redfish {{instance}}",
           "refId": "D"
         },
         {
-          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"cloud_energy\"} == 1)",
+          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"cloud_energy\"} == 1)",
           "refId": "E",
           "legendFormat": "cloud_energy {{instance}}"
         }

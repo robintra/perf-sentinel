@@ -896,15 +896,17 @@ Prometheus job to read, which matters when several daemons are scraped
 by the same Prometheus, staging and production for instance.
 `Namespace` narrows all twenty-one panels to one or more Kubernetes
 namespaces, and defaults to `All`, the fleet-wide view the dashboard
-had before. It is the one label the daemon does not export: the scrape
-attaches it, so Prometheus Operator fills it in when it reads the
-chart's ServiceMonitor, and a scrape that attaches none is still
-matched by `All`, which leaves the dashboard unchanged outside
+had before. The namespace is the one each daemon runs in, not the one
+its analysed workloads run in, so the variable picks an install rather
+than a slice of the traffic. It is the one label the daemon does not
+export: the scrape attaches it, so Prometheus Operator fills it in when
+it reads the chart's ServiceMonitor, and a scrape that attaches none is
+still matched by `All`, which leaves the dashboard unchanged outside
 Kubernetes. `Service` filters the per-service I/O panel and only that
 one: every other metric the daemon exports is daemon-wide by design,
 since Prometheus label values here come from a bounded compile-time set
 to keep cardinality under control. A service filter that appeared to
-narrow the whole dashboard would be lying about nineteen of its
+narrow the whole dashboard would be lying about twenty of its
 panels.
 
 **Every panel follows the time picker**, with one rule and one stated
@@ -933,11 +935,12 @@ a fleet at 1% avoidable I/O over a million operations is worth seeing
 where integer percent rounds it to zero. The exported gauge stays
 available for alerting.
 
-Every series is labelled with `{{instance}}`. Running more than one
-replica otherwise produced legends with the same entry repeated once per
-pod (`events/s`, `events/s`, `events/s`), and stat panels showing four
-unlabelled numbers side by side with no way to tell which pod was
-which.
+Every series a query returns once per replica is labelled with
+`{{instance}}`, and the panels that aggregate across the fleet name what
+they aggregated instead. Running more than one replica otherwise
+produced legends with the same entry repeated once per pod (`events/s`,
+`events/s`, `events/s`), and stat panels showing four unlabelled numbers
+side by side with no way to tell which pod was which.
 
 Sidecar import (kube-prometheus-stack and similar): load the JSON into a
 ConfigMap labelled so the Grafana sidecar discovers it automatically.
@@ -1079,7 +1082,7 @@ entry instead:
 scrape_configs:
   - job_name: perf-sentinel
     kubernetes_sd_configs:
-      - role: service
+      - role: endpoints
         namespaces:
           names: [observability]
     relabel_configs:
@@ -1089,7 +1092,15 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_endpoint_port_name]
         regex: otlp-http
         action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
 ```
+
+The role is `endpoints` because `__meta_kubernetes_endpoint_port_name`
+exists only there, and a `keep` on a label the role never sets drops
+every target. The last rule is what the dashboard's `Namespace` variable
+reads: Prometheus Operator attaches that label on its own, a
+hand-written scrape config has to ask for it.
 
 ## Upgrading
 

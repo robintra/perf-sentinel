@@ -601,16 +601,18 @@ job Prometheus à lire, ce qui compte quand plusieurs daemons sont scrapés
 par le même Prometheus, staging et production par exemple. `Namespace`
 restreint les vingt et un panneaux à un ou plusieurs namespaces
 Kubernetes, et vaut `All` par défaut, la vue globale que le tableau de
-bord offrait jusqu'ici. C'est le seul label que le daemon n'exporte pas :
-il est attaché par le scrape, donc Prometheus Operator le renseigne en
-lisant le ServiceMonitor du chart, et un scrape qui n'en attache aucun
-reste couvert par `All`, ce qui laisse le tableau de bord inchangé hors
-Kubernetes. `Service` filtre le panneau d'I/O par service, et lui seul :
-toutes les autres métriques exportées par le daemon sont globales par
-conception, les valeurs de labels Prometheus venant ici d'un ensemble
-borné à la compilation pour maîtriser la cardinalité. Un filtre service
-qui paraîtrait restreindre tout le tableau de bord mentirait sur
-dix-neuf de ses panneaux.
+bord offrait jusqu'ici. Le namespace est celui où tourne chaque daemon,
+pas celui des charges qu'il analyse, la variable choisit donc une
+installation et non une tranche du trafic. C'est le seul label que le
+daemon n'exporte pas : il est attaché par le scrape, donc Prometheus
+Operator le renseigne en lisant le ServiceMonitor du chart, et un scrape
+qui n'en attache aucun reste couvert par `All`, ce qui laisse le tableau
+de bord inchangé hors Kubernetes. `Service` filtre le panneau d'I/O par
+service, et lui seul : toutes les autres métriques exportées par le
+daemon sont globales par conception, les valeurs de labels Prometheus
+venant ici d'un ensemble borné à la compilation pour maîtriser la
+cardinalité. Un filtre service qui paraîtrait restreindre tout le
+tableau de bord mentirait sur vingt de ses panneaux.
 
 **Tous les panneaux suivent le sélecteur de plage**, avec une règle et
 une exception assumée. Les panneaux de taux utilisent `$__rate_interval`
@@ -640,7 +642,9 @@ deux décimales, parce qu'une flotte à 1 % d'I/O évitables sur un million
 d'opérations mérite d'être vue là où un pourcentage entier l'arrondit à
 zéro. La gauge exportée reste disponible pour l'alerting.
 
-Chaque série porte `{{instance}}` en légende. Au-delà d'un réplica, les
+Chaque série qu'une requête renvoie une fois par réplica porte
+`{{instance}}` en légende, et les panneaux qui agrègent sur toute la
+flotte nomment plutôt ce qu'ils ont agrégé. Au-delà d'un réplica, les
 légendes répétaient sinon la même entrée une fois par pod (`events/s`,
 `events/s`, `events/s`), et les panneaux `stat` affichaient quatre
 nombres côte à côte sans moyen de savoir lequel venait de quel pod.
@@ -744,7 +748,7 @@ Si vous utilisez un Prometheus vanilla sans operator, ajoutez une entrée de scr
 scrape_configs:
   - job_name: perf-sentinel
     kubernetes_sd_configs:
-      - role: service
+      - role: endpoints
         namespaces:
           names: [observability]
     relabel_configs:
@@ -754,7 +758,15 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_endpoint_port_name]
         regex: otlp-http
         action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
 ```
+
+Le rôle est `endpoints` parce que `__meta_kubernetes_endpoint_port_name`
+n'existe que là, et un `keep` sur un label que le rôle ne pose jamais
+écarte toutes les cibles. La dernière règle est ce que lit la variable
+`Namespace` du tableau de bord : Prometheus Operator attache ce label de
+lui-même, un scrape écrit à la main doit le demander.
 
 ## Mise à jour
 
