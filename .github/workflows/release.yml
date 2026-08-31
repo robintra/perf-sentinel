@@ -104,7 +104,7 @@ jobs:
       # (the aarch64-musl build moved off the `cross` Docker tool onto an arm64
       # runner), so every released binary carries the embedded data.
       - name: Install cargo-auditable
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
         with:
           tool: cargo-auditable@0.7.5
 
