@@ -196,8 +196,7 @@
       "targets": [
         {
           "expr": "sum(increase(perf_sentinel_findings_total{job=~\"$job\", severity=\"critical\"}[$__range])) or vector(0)",
-          "refId": "A",
-          "legendFormat": "{{instance}}"
+          "refId": "A"
         }
       ],
       "fieldConfig": {
@@ -302,17 +301,17 @@
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"sql\"}[$__rate_interval])))",
-          "legendFormat": "SQL p95 {{instance}}",
+          "legendFormat": "SQL p95",
           "refId": "A"
         },
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"http_out\"}[$__rate_interval])))",
-          "legendFormat": "HTTP p95 {{instance}}",
+          "legendFormat": "HTTP p95",
           "refId": "B"
         },
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", type=\"messaging\"}[$__rate_interval])))",
-          "legendFormat": "Messaging p95 {{instance}}",
+          "legendFormat": "Messaging p95",
           "refId": "C"
         }
       ],
@@ -368,7 +367,7 @@
       "targets": [
         {
           "expr": "sum(perf_sentinel_findings_total{job=~\"$job\"}) or vector(0)",
-          "legendFormat": "total {{instance}}",
+          "legendFormat": "total",
           "refId": "A"
         }
       ],
@@ -449,8 +448,7 @@
           "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\"}[$__range]))",
           "format": "table",
           "instant": true,
-          "refId": "A",
-          "legendFormat": "{{instance}}"
+          "refId": "A"
         }
       ],
       "fieldConfig": {
@@ -780,7 +778,7 @@
         {
           "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total{job=~\"$job\"}[$__rate_interval]))",
           "refId": "D",
-          "legendFormat": "shed_batches/s {{instance}}"
+          "legendFormat": "shed_batches/s"
         },
         {
           "expr": "sum(rate(perf_sentinel_archive_windows_dropped_total{job=~\"$job\"}[$__rate_interval]))",
@@ -837,7 +835,7 @@
               },
               {
                 "id": "custom.axisLabel",
-                "value": "batches/s"
+                "value": "per second"
               },
               {
                 "id": "custom.fillOpacity",
@@ -872,7 +870,7 @@
               },
               {
                 "id": "custom.axisLabel",
-                "value": "batches/s"
+                "value": "per second"
               },
               {
                 "id": "custom.fillOpacity",
@@ -907,17 +905,17 @@
       "targets": [
         {
           "expr": "sum(rate(perf_sentinel_otlp_spans_received_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "received/s {{instance}}",
+          "legendFormat": "received/s",
           "refId": "A"
         },
         {
           "expr": "sum(rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "filtered/s (not I/O) {{instance}}",
+          "legendFormat": "filtered/s (not I/O)",
           "refId": "B"
         },
         {
           "expr": "sum(rate(perf_sentinel_otlp_rejected_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "rejected/s {{instance}}",
+          "legendFormat": "rejected/s",
           "refId": "C"
         }
       ],
