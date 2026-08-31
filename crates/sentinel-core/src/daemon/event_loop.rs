@@ -813,34 +813,7 @@ fn take_broker_energy(
     let measured_owns_the_timeline =
         alumet_state.is_some_and(|b| b.has_recent_sample(now, alumet_staleness_ms));
     if !measured_owns_the_timeline {
-        // Read, never consume: a sub-second stale tick bills nothing (see
-        // MIN_BILLABLE_MS) and would otherwise erase the marker before the
-        // recovery path can act on it.
-        if declared.is_some_and(score::broker_static::StaticBrokerState::outage_billed) {
-            // The declaration already billed this stretch, so whatever the
-            // series banked since covers time someone else paid for.
-            if let Some(state) = alumet_state {
-                state.discard_pending();
-            }
-        } else if let Some(kwh) =
-            alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms))
-        {
-            // Joules banked while the series was live are real, and nothing
-            // else billed that stretch, so the declared marker may advance
-            // over it. A label never seen banks nothing, so a typo still
-            // falls through to the declaration below.
-            if let Some(state) = declared {
-                state.take_window_kwh(now);
-            }
-            return (Some(kwh), None);
-        }
-        let declared_kwh = declared.and_then(|state| state.take_window_kwh(now));
-        if declared_kwh.is_some()
-            && let Some(state) = declared
-        {
-            state.mark_outage_billed();
-        }
-        return (None, declared_kwh);
+        return take_broker_energy_stale(alumet_state, declared, now, alumet_staleness_ms);
     }
     if declared.is_some_and(score::broker_static::StaticBrokerState::clear_outage_billed)
         && let Some(state) = alumet_state
@@ -857,6 +830,44 @@ fn take_broker_energy(
         state.take_window_kwh(now);
     }
     (measured, None)
+}
+
+/// The stale half of `take_broker_energy`: the series stopped answering, so
+/// the declaration may bill, unless the series banked joules while it was
+/// still live. Same arbitration section as the caller.
+fn take_broker_energy_stale(
+    alumet_state: Option<&DbEnergyState>,
+    declared: Option<&score::broker_static::StaticBrokerState>,
+    now: u64,
+    alumet_staleness_ms: u64,
+) -> (Option<f64>, Option<f64>) {
+    // Read, never consume: a sub-second stale tick bills nothing (see
+    // MIN_BILLABLE_MS) and would otherwise erase the marker before the
+    // recovery path can act on it.
+    if declared.is_some_and(score::broker_static::StaticBrokerState::outage_billed) {
+        // The declaration already billed this stretch, so whatever the
+        // series banked since covers time someone else paid for.
+        if let Some(state) = alumet_state {
+            state.discard_pending();
+        }
+    } else if let Some(kwh) = alumet_state.and_then(|b| b.take_window_kwh(now, alumet_staleness_ms))
+    {
+        // Joules banked while the series was live are real, and nothing
+        // else billed that stretch, so the declared marker may advance
+        // over it. A label never seen banks nothing, so a typo still
+        // falls through to the declaration below.
+        if let Some(state) = declared {
+            state.take_window_kwh(now);
+        }
+        return (Some(kwh), None);
+    }
+    let declared_kwh = declared.and_then(|state| state.take_window_kwh(now));
+    if declared_kwh.is_some()
+        && let Some(state) = declared
+    {
+        state.mark_outage_billed();
+    }
+    (None, declared_kwh)
 }
 
 /// The tag and region follow the source that actually filled the

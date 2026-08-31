@@ -1203,13 +1203,7 @@ pub fn cmd_disclose(
     report.integrity.binary_hash = binary_hash().ok();
     report.report_metadata.integrity_level = IntegrityLevel::HashOnly;
 
-    if matches!(intent_schema, ReportIntent::Official)
-        && let Err(errors) = validate_official(&report)
-    {
-        eprintln!("Error: report validation failed");
-        for e in &errors {
-            eprintln!("  - {}", sanitize_for_terminal(&e.to_string()));
-        }
+    if !official_report_is_valid(&report, intent_schema) {
         return 2;
     }
 
@@ -1238,19 +1232,8 @@ pub fn cmd_disclose(
         return 1;
     }
 
-    if let Some(att_path) = emit_attestation {
-        let subject_name = output
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("perf-sentinel-report.json");
-        if let Err(err) = write_attestation(&report, output, att_path, subject_name) {
-            eprintln!(
-                "Error: failed to write attestation {}: {err}",
-                att_path.display()
-            );
-            return 1;
-        }
-        eprintln!("Wrote attestation {}", att_path.display());
+    if !write_optional_attestation(&report, output, emit_attestation) {
+        return 1;
     }
 
     eprintln!(
@@ -1260,6 +1243,47 @@ pub fn cmd_disclose(
         report.applications.len()
     );
     0
+}
+
+// Official intent is the only one that hard-fails on validation. Prints each
+// error and returns false when the report must not be written.
+fn official_report_is_valid(report: &PeriodicReport, intent: ReportIntent) -> bool {
+    if !matches!(intent, ReportIntent::Official) {
+        return true;
+    }
+    let Err(errors) = validate_official(report) else {
+        return true;
+    };
+    eprintln!("Error: report validation failed");
+    for e in &errors {
+        eprintln!("  - {}", sanitize_for_terminal(&e.to_string()));
+    }
+    false
+}
+
+// Write the in-toto attestation when one was requested. Returns false after
+// reporting the failure, so the caller can exit non-zero.
+fn write_optional_attestation(
+    report: &PeriodicReport,
+    output: &Path,
+    attestation_path: Option<&Path>,
+) -> bool {
+    let Some(att_path) = attestation_path else {
+        return true;
+    };
+    let subject_name = output
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("perf-sentinel-report.json");
+    if let Err(err) = write_attestation(report, output, att_path, subject_name) {
+        eprintln!(
+            "Error: failed to write attestation {}: {err}",
+            att_path.display()
+        );
+        return false;
+    }
+    eprintln!("Wrote attestation {}", att_path.display());
+    true
 }
 
 // Non-fatal continuity + completeness warnings. temporal_coverage is never
