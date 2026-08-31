@@ -1588,7 +1588,7 @@ fn collect_dir_ndjson(
         // Symlink rejection scoped to `.ndjson` candidates only. A
         // symlinked README or sibling file in the same archive
         // directory is not our concern.
-        if p.extension().and_then(|e| e.to_str()) != Some("ndjson") {
+        if p.extension().and_then(std::ffi::OsStr::to_str) != Some("ndjson") {
             continue;
         }
         stat_no_follow(&p)?;

@@ -182,7 +182,7 @@ static MANUAL_INSTANCE_ROWS: &[(&str, f64, f64)] = &[
 /// (`table_data.rs`) with [`MANUAL_INSTANCE_ROWS`] above; keys are
 /// disjoint by construction. See the module-level docs for the
 /// methodology.
-static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::new(|| {
+static INSTANCE_POWER: LazyLock<HashMap<&str, (f64, f64)>> = LazyLock::new(|| {
     super::table_data::GENERATED_INSTANCE_ROWS
         .iter()
         .chain(MANUAL_INSTANCE_ROWS)
@@ -195,7 +195,7 @@ static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::n
 /// Used as a fallback when an instance type is not found in the
 /// [`INSTANCE_POWER`] table. Values are approximate medians across
 /// each provider's most common general-purpose 2-vCPU instances.
-static PROVIDER_DEFAULTS: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::new(|| {
+static PROVIDER_DEFAULTS: LazyLock<HashMap<&str, (f64, f64)>> = LazyLock::new(|| {
     // Defaults track the most common 2-vCPU general-purpose instance
     // per provider, derived from the table so a dataset refresh moves
     // them automatically. Operators wanting a different default should

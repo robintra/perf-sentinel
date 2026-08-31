@@ -398,7 +398,7 @@ fn derive_page_title(input_label: &str) -> String {
     }
     let filename = Path::new(trimmed)
         .file_name()
-        .and_then(|n| n.to_str())
+        .and_then(std::ffi::OsStr::to_str)
         .unwrap_or(trimmed);
     format!("perf-sentinel: {}", html_escape_text(filename))
 }

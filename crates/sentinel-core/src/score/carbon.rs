@@ -696,7 +696,7 @@ static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
 /// Pre-built map for O(1) region lookup (keys are lowercase).
 /// Chains the generated rows (`carbon_data.rs`) with the manual rows
 /// above; keys are disjoint by construction.
-static REGION_MAP: std::sync::LazyLock<HashMap<&'static str, (f64, Provider)>> =
+static REGION_MAP: std::sync::LazyLock<HashMap<&str, (f64, Provider)>> =
     std::sync::LazyLock::new(|| {
         super::carbon_data::GENERATED_CARBON_ROWS
             .iter()
@@ -707,7 +707,7 @@ static REGION_MAP: std::sync::LazyLock<HashMap<&'static str, (f64, Provider)>> =
 
 /// Pre-built map for O(1) hourly profile lookup (keys are lowercase).
 /// Merges flat-year profiles, monthly profiles, and aliases.
-static HOURLY_REGION_MAP: std::sync::LazyLock<HashMap<&'static str, HourlyProfileRef<'static>>> =
+static HOURLY_REGION_MAP: std::sync::LazyLock<HashMap<&str, HourlyProfileRef<'static>>> =
     std::sync::LazyLock::new(|| {
         use super::carbon_profiles::{FLAT_YEAR_PROFILES, MONTHLY_PROFILES, PROFILE_ALIASES};
 

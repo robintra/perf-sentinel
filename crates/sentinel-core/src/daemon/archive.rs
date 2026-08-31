@@ -2,6 +2,7 @@
 //! with size rotation, count-based pruning, bounded mpsc channel with
 //! drop-on-full policy. See `docs/design/08-PERIODIC-DISCLOSURE.md`.
 
+use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -297,7 +298,7 @@ fn write_line(file: &mut File, line: &str) -> std::io::Result<()> {
 fn rotate(active: &Path, file: &mut File, max_files: u32) -> std::io::Result<()> {
     file.flush()?;
     let stamp = Utc::now().format("%Y%m%dT%H%M%S%fZ").to_string();
-    let rotated_name = match active.file_stem().and_then(|s| s.to_str()) {
+    let rotated_name = match active.file_stem().and_then(OsStr::to_str) {
         Some(stem) => format!("{stem}-{stamp}.ndjson"),
         None => format!("archive-{stamp}.ndjson"),
     };
@@ -329,8 +330,8 @@ fn prune(active: &Path, max_files: u32) -> std::io::Result<()> {
             dir_buf.as_path()
         }
     };
-    let active_name = active.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let active_stem = active.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let active_name = active.file_name().and_then(OsStr::to_str).unwrap_or("");
+    let active_stem = active.file_stem().and_then(OsStr::to_str).unwrap_or("");
     if active_stem.is_empty() {
         return Ok(());
     }
@@ -340,7 +341,7 @@ fn prune(active: &Path, max_files: u32) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let p = entry.path();
-        let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+        let Some(name) = p.file_name().and_then(OsStr::to_str) else {
             continue;
         };
         if name == active_name {
