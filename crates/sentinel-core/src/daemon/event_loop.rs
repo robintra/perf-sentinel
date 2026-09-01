@@ -566,6 +566,12 @@ impl AnalysisServiceMeter {
             .hist_names
             .admit(service, &metrics.slow_duration_service_overflow_total)
             .unwrap_or(SERVICE_OVERFLOW_LABEL);
+        // Past the cap the label is `_other`, minted on the first fold:
+        // no `String` per folded span.
+        if let Some(hists) = self.hist_children.get(label) {
+            hists.for_type(event_type).observe(seconds);
+            return;
+        }
         self.hist_children
             .entry(label.to_string())
             .or_insert_with(|| SlowHists::mint(label, metrics))
