@@ -459,6 +459,39 @@ impl ServiceMeter {
     }
 }
 
+/// The three slow-duration histogram children of one `service` label.
+/// Named rather than a positional array: the index-to-`EventType` map
+/// used to live in `record_slow_durations`, one reorder away from
+/// filing every duration under the wrong `type`.
+struct SlowHists {
+    sql: prometheus::Histogram,
+    http_out: prometheus::Histogram,
+    messaging: prometheus::Histogram,
+}
+
+impl SlowHists {
+    fn mint(label: &str, metrics: &MetricsState) -> Self {
+        let child = |kind: &str| {
+            metrics
+                .slow_duration_seconds
+                .with_label_values(&[kind, label])
+        };
+        Self {
+            sql: child("sql"),
+            http_out: child("http_out"),
+            messaging: child("messaging"),
+        }
+    }
+
+    fn for_type(&self, event_type: &crate::event::EventType) -> &prometheus::Histogram {
+        match event_type {
+            crate::event::EventType::Sql => &self.sql,
+            crate::event::EventType::HttpOut => &self.http_out,
+            crate::event::EventType::Messaging => &self.messaging,
+        }
+    }
+}
+
 /// Caps the `service` label on the analysis-side metrics. Single-owner
 /// state of the analysis worker task, like [`ServiceMeter`]: no lock.
 /// Past a cap, series fold into [`SERVICE_OVERFLOW_LABEL`] so sums stay
@@ -469,9 +502,9 @@ struct AnalysisServiceMeter {
     per_service_labels: bool,
     names: CappedServices,
     hist_names: CappedServices,
-    /// `[sql, http_out, messaging]` children per effective label, so the
-    /// per-span path is one `HashMap` hit.
-    hist_children: HashMap<String, [prometheus::Histogram; 3]>,
+    /// Histogram children per effective label, so the per-span path is
+    /// one `HashMap` hit.
+    hist_children: HashMap<String, SlowHists>,
 }
 
 impl AnalysisServiceMeter {
@@ -500,18 +533,11 @@ impl AnalysisServiceMeter {
             hist_children: HashMap::new(),
         };
         if !per_service_labels {
-            meter.mint_hist_children("", metrics);
+            meter
+                .hist_children
+                .insert(String::new(), SlowHists::mint("", metrics));
         }
         meter
-    }
-
-    fn mint_hist_children(&mut self, label: &str, metrics: &MetricsState) {
-        let children = ["sql", "http_out", "messaging"].map(|kind| {
-            metrics
-                .slow_duration_seconds
-                .with_label_values(&[kind, label])
-        });
-        self.hist_children.insert(label.to_string(), children);
     }
 
     /// Effective label under the shared analysis cap: the service, or
@@ -534,30 +560,37 @@ impl AnalysisServiceMeter {
         }
     }
 
-    /// Histogram children for a slow span's service, under the
-    /// histogram's own cap.
-    fn hist_children(
+    /// Observe one slow span's duration on its service's histogram,
+    /// under the histogram's own cap. Observing here rather than handing
+    /// back a `&SlowHists` keeps the hit path at a single `HashMap`
+    /// lookup: returning a reference out of a `&mut self` method forces
+    /// the `contains_key`-then-index dance.
+    fn observe_slow(
         &mut self,
         service: &str,
+        event_type: &crate::event::EventType,
+        seconds: f64,
         metrics: &MetricsState,
-    ) -> &[prometheus::Histogram; 3] {
+    ) {
         let service = if self.per_service_labels {
             normalize_service(service)
         } else {
             ""
         };
-        if self.hist_children.contains_key(service) {
-            return &self.hist_children[service];
+        if let Some(hists) = self.hist_children.get(service) {
+            hists.for_type(event_type).observe(seconds);
+            return;
         }
 
         let label = self
             .hist_names
             .admit(service, &metrics.slow_duration_service_overflow_total)
             .unwrap_or(SERVICE_OVERFLOW_LABEL);
-        if !self.hist_children.contains_key(label) {
-            self.mint_hist_children(label, metrics);
-        }
-        &self.hist_children[label]
+        self.hist_children
+            .entry(label.to_string())
+            .or_insert_with(|| SlowHists::mint(label, metrics))
+            .for_type(event_type)
+            .observe(seconds);
     }
 }
 
@@ -1088,13 +1121,12 @@ fn record_slow_durations(
     for trace in traces {
         for span in &trace.spans {
             if span.event.duration_us > slow_threshold_us {
-                let hists = meter.hist_children(span.event.service.as_ref(), metrics);
-                let hist = match span.event.event_type {
-                    crate::event::EventType::Sql => &hists[0],
-                    crate::event::EventType::HttpOut => &hists[1],
-                    crate::event::EventType::Messaging => &hists[2],
-                };
-                hist.observe(span.event.duration_us as f64 / 1_000_000.0);
+                meter.observe_slow(
+                    span.event.service.as_ref(),
+                    &span.event.event_type,
+                    span.event.duration_us as f64 / 1_000_000.0,
+                    metrics,
+                );
             }
         }
     }
@@ -3574,7 +3606,7 @@ mod tests {
         // Anonymous spans never mint the knob-off sentinel `service=""`.
         assert_eq!(meter.service_label("", &metrics), "unknown");
         assert_eq!(meter.finding_label("", &metrics), "unknown");
-        meter.hist_children("", &metrics)[0].observe(1.0);
+        meter.observe_slow("", &crate::event::EventType::Sql, 1.0, &metrics);
         let empty_label_samples = metrics
             .slow_duration_seconds
             .with_label_values(&["sql", ""])
@@ -3636,8 +3668,8 @@ mod tests {
         let mut meter = AnalysisServiceMeter::new(true, &metrics);
         meter.hist_names.cap = 1;
 
-        meter.hist_children("svc-a", &metrics)[0].observe(1.0);
-        meter.hist_children("svc-b", &metrics)[0].observe(1.0);
+        meter.observe_slow("svc-a", &crate::event::EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-b", &crate::event::EventType::Sql, 1.0, &metrics);
 
         assert_eq!(metrics.slow_duration_service_overflow_total.get(), 1);
         let sample_count = |service: &str| {
@@ -3657,7 +3689,7 @@ mod tests {
 
         // Findings and histogram series carry the empty value...
         assert_eq!(meter.finding_label("svc-a", &metrics), "");
-        meter.hist_children("svc-a", &metrics)[0].observe(1.0);
+        meter.observe_slow("svc-a", &crate::event::EventType::Sql, 1.0, &metrics);
         let unlabeled = metrics
             .slow_duration_seconds
             .with_label_values(&["sql", ""])
