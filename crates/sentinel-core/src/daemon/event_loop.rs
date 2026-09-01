@@ -320,6 +320,19 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
     let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
     let mut msg_waste_sticky: Option<(MessagingWaste, u64)> = None;
     let mut service_meter = AnalysisServiceMeter::new(wctx.per_service_labels);
+    // Materialize one slow-duration series per kind up front (0.17
+    // resolved the three children on every batch), so "series absent"
+    // keeps meaning "worker not running" rather than "no slow span yet".
+    let prewarm_label = if wctx.per_service_labels {
+        SERVICE_OVERFLOW_LABEL
+    } else {
+        ""
+    };
+    for kind in ["sql", "http_out", "messaging"] {
+        wctx.metrics
+            .slow_duration_seconds
+            .with_label_values(&[kind, prewarm_label]);
+    }
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -393,7 +406,8 @@ impl ServiceMeter {
 pub(crate) const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
 
 /// Cardinality cap on the slow-duration histogram's `service` label.
-/// Lower still: a histogram costs 13 series per (type, service) pair.
+/// Lower still: a histogram costs 14 series per (type, service) pair
+/// (11 buckets plus `+Inf`, `_sum` and `_count`).
 pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 
 /// Label value that series of services past a cap fold into, so the
@@ -417,7 +431,6 @@ struct AnalysisServiceMeter {
     /// messaging]`, resolved once at admission so the per-span path does
     /// one `HashMap` lookup instead of a `MetricVec` label-hash + lock.
     hist_children: HashMap<String, [prometheus::Histogram; 3]>,
-    hist_admitted: usize,
     hist_cap_warned: bool,
 }
 
@@ -431,7 +444,6 @@ impl AnalysisServiceMeter {
             cap_warned: false,
 
             hist_children: HashMap::new(),
-            hist_admitted: 0,
             hist_cap_warned: false,
         }
     }
@@ -439,6 +451,21 @@ impl AnalysisServiceMeter {
     /// Effective label value under the shared analysis cap: the service
     /// itself when admitted, [`SERVICE_OVERFLOW_LABEL`] past the cap.
     fn service_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
+        // Anonymous spans (Zipkin/Jaeger ingest defaults to an empty
+        // name) must not mint `service=""`: that is the documented
+        // `per_service_labels = false` sentinel, and honor_labels-style
+        // scrapes treat an empty value as absent and re-attribute the
+        // series to the scrape target. Match the OTLP default instead.
+        let service = if service.is_empty() {
+            "unknown"
+        } else {
+            service
+        };
+        // A real service named like the fold bucket merges into it
+        // without consuming a cap slot or tripping the overflow counter.
+        if service == SERVICE_OVERFLOW_LABEL {
+            return SERVICE_OVERFLOW_LABEL;
+        }
         if self.services.contains(service) {
             return service;
         }
@@ -475,9 +502,20 @@ impl AnalysisServiceMeter {
         service: &str,
         metrics: &MetricsState,
     ) -> &[prometheus::Histogram; 3] {
+        // Same guards as `service_label`: no `service=""` sentinel from
+        // real data, and the fold bucket's name is reserved.
+        let service = if service.is_empty() {
+            "unknown"
+        } else {
+            service
+        };
         let label = if !self.per_service_labels {
             ""
-        } else if self.hist_children.contains_key(service) || self.hist_admitted < self.hist_cap {
+        } else if service == SERVICE_OVERFLOW_LABEL {
+            SERVICE_OVERFLOW_LABEL
+        } else if self.hist_children.contains_key(service)
+            || self.hist_children.len() < self.hist_cap
+        {
             service
         } else {
             metrics.slow_duration_service_overflow_total.inc();
@@ -491,18 +529,15 @@ impl AnalysisServiceMeter {
             }
             SERVICE_OVERFLOW_LABEL
         };
-        if label == service && !self.hist_children.contains_key(label) {
-            self.hist_admitted += 1;
+        if !self.hist_children.contains_key(label) {
+            let children = ["sql", "http_out", "messaging"].map(|kind| {
+                metrics
+                    .slow_duration_seconds
+                    .with_label_values(&[kind, label])
+            });
+            self.hist_children.insert(label.to_string(), children);
         }
-        self.hist_children
-            .entry(label.to_string())
-            .or_insert_with(|| {
-                ["sql", "http_out", "messaging"].map(|kind| {
-                    metrics
-                        .slow_duration_seconds
-                        .with_label_values(&[kind, label])
-                })
-            })
+        &self.hist_children[label]
     }
 }
 
@@ -3453,6 +3488,36 @@ mod tests {
         assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
         assert_eq!(metrics.analysis_service_overflow_total.get(), 1);
         assert!(meter.cap_warned);
+    }
+
+    #[test]
+    fn analysis_service_meter_reserves_sentinel_names() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true);
+
+        // A real service named like the fold bucket merges into it
+        // without taking a cap slot or counting as overflow.
+        assert_eq!(
+            meter.service_label(SERVICE_OVERFLOW_LABEL, &metrics),
+            SERVICE_OVERFLOW_LABEL
+        );
+        assert!(meter.services.is_empty());
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 0);
+
+        // Anonymous spans never mint the knob-off sentinel `service=""`.
+        assert_eq!(meter.service_label("", &metrics), "unknown");
+        assert_eq!(meter.finding_label("", &metrics), "unknown");
+        meter.hist_children("", &metrics)[0].observe(1.0);
+        let empty_label_samples = metrics
+            .slow_duration_seconds
+            .with_label_values(&["sql", ""])
+            .get_sample_count();
+        assert_eq!(empty_label_samples, 0);
+        let unknown_samples = metrics
+            .slow_duration_seconds
+            .with_label_values(&["sql", "unknown"])
+            .get_sample_count();
+        assert_eq!(unknown_samples, 1);
     }
 
     #[test]

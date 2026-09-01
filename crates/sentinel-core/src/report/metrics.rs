@@ -4,6 +4,7 @@
 //! with counters and gauges for monitoring perf-sentinel in real time.
 //! Supports `OpenMetrics` exemplars for click-through from Grafana to traces.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -476,16 +477,18 @@ pub struct MetricsState {
     /// folds services past its cardinality cap into the `_other` series,
     /// so the sum across services still equals the global counter.
     pub service_avoidable_io_ops_total: CounterVec,
-    /// Findings whose `service` label was folded into `_other` because
-    /// the `AnalysisServiceMeter` cardinality cap was already reached.
-    /// An ongoing increase means per-service findings attribution is
-    /// coarsening for newly seen services; the totals stay exact.
+    /// Analysis-side service-label attributions (findings, and the
+    /// per-service avoidable I/O split, which ignores
+    /// `per_service_labels`) folded into `_other` because the
+    /// `AnalysisServiceMeter` cardinality cap was already reached. An
+    /// ongoing increase means per-service attribution is coarsening
+    /// for newly seen services; the totals stay exact.
     pub analysis_service_overflow_total: IntCounter,
     /// Slow spans folded into the `_other` histogram series because the
     /// histogram service cardinality cap was already reached. Same
     /// contract as [`Self::analysis_service_overflow_total`], with a
-    /// lower cap because a histogram costs 13 series per (type, service)
-    /// pair.
+    /// lower cap because a histogram costs 14 series per (type, service)
+    /// pair (11 buckets plus `+Inf`, `_sum` and `_count`).
     pub slow_duration_service_overflow_total: IntCounter,
 
     /// age in seconds since the last successful Scaphandre
@@ -842,7 +845,7 @@ impl MetricsState {
 
         let analysis_service_overflow_total = IntCounter::new(
             "perf_sentinel_analysis_service_overflow_total",
-            "Findings folded into the _other service series because the analysis service cardinality cap was reached",
+            "Analysis-side service attributions (findings and per-service avoidable I/O ops) folded into the _other series because the analysis service cardinality cap was reached",
         )
         .expect("metric creation should not fail");
 
@@ -1499,6 +1502,11 @@ impl MetricsState {
     /// resolves capped/disabled service label values first and calls
     /// [`Self::record_exemplars_labeled`] so the keys match the series
     /// it actually incremented.
+    /// Cardinality note: this path labels series with each finding's
+    /// raw service name, with no cap or `_other` fold — batch reports
+    /// carry a bounded service set by construction. A long-lived
+    /// embedder feeding unbounded `service.name` values must cap them
+    /// itself (the daemon does, via its analysis-side meter).
     pub fn record_exemplars(
         &self,
         findings: &[crate::detect::Finding],
@@ -1671,6 +1679,14 @@ impl MetricsState {
             return base;
         }
 
+        // O(1) per-line lookups: borrow the guarded map's keys once
+        // instead of scanning it for every findings_total line (the
+        // service label multiplied both the line count and the map).
+        let finding_lookup: HashMap<(&str, &str, &str), &ExemplarData> = finding_map
+            .iter()
+            .map(|((ft, sev, svc), v)| ((*ft, *sev, svc.as_str()), v))
+            .collect();
+
         let mut output = String::with_capacity(base.len() + 256);
 
         for line in base.lines() {
@@ -1679,7 +1695,7 @@ impl MetricsState {
             // Inject exemplar on findings_total lines
             if let Some(exemplar) = line
                 .starts_with("perf_sentinel_findings_total{")
-                .then(|| extract_finding_exemplar(line, &finding_map))
+                .then(|| extract_finding_exemplar(line, &finding_lookup))
                 .flatten()
             {
                 let sanitized = sanitize_exemplar_value(&exemplar.trace_id);
@@ -1815,41 +1831,55 @@ fn is_zero_quality_parameter(parameter: &str) -> bool {
 
 /// Extract the finding exemplar for a given `findings_total` metric line.
 ///
-/// Parses the `type`, `severity` and `service` labels from the line and
-/// looks them up in the exemplar map. The lookup iterates the map to
-/// compare against the parsed label values without allocating.
+/// Parses the `type`, `severity` and `service` labels from the line with
+/// the shared escape-aware parser ([`crate::score::prom_parser`]): the
+/// `service` value is user-controlled OTLP data and may contain `,`,
+/// `}`, `"` or `\`, which the exposition format escapes and a naive
+/// split would mis-parse. Looks the triple up in the borrowed-key map
+/// built once per render by `inject_exemplars`.
 fn extract_finding_exemplar<'a>(
     line: &str,
-    map: &'a HashMap<FindingExemplarKey, ExemplarData>,
+    lookup: &HashMap<(&str, &str, &str), &'a ExemplarData>,
 ) -> Option<&'a ExemplarData> {
+    use crate::score::prom_parser::{
+        find_label_block_end, parse_next_label, unescape_prometheus_value,
+    };
+
     // Line format:
     // perf_sentinel_findings_total{service="checkout",severity="warning",type="n_plus_one_sql"} 1
     let labels_start = line.find('{')?;
-    let labels_end = line.find('}')?;
-    let labels_str = &line[labels_start + 1..labels_end];
+    let labels_block = &line[labels_start..];
+    let labels_end = find_label_block_end(labels_block)?;
+    let labels_str = &labels_block[1..labels_end];
 
-    let mut finding_type = None;
-    let mut severity = None;
-    let mut service = None;
+    let mut finding_type: Option<Cow<'_, str>> = None;
+    let mut severity: Option<Cow<'_, str>> = None;
+    let mut service: Option<Cow<'_, str>> = None;
 
-    for part in labels_str.split(',') {
-        let part = part.trim();
-        if let Some(val) = part.strip_prefix("type=\"") {
-            finding_type = val.strip_suffix('"');
-        } else if let Some(val) = part.strip_prefix("severity=\"") {
-            severity = val.strip_suffix('"');
-        } else if let Some(val) = part.strip_prefix("service=\"") {
-            service = val.strip_suffix('"');
+    let bytes = labels_str.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let parsed = parse_next_label(labels_str, bytes, i)?;
+        let value = if parsed.needs_unescape {
+            Cow::Owned(unescape_prometheus_value(parsed.value))
+        } else {
+            Cow::Borrowed(parsed.value)
+        };
+        match parsed.name.trim() {
+            "type" => finding_type = Some(value),
+            "severity" => severity = Some(value),
+            "service" => service = Some(value),
+            _ => {}
         }
+        i = parsed.next_index;
     }
 
     let ft = finding_type?;
     let sev = severity?;
     let svc = service?;
-    // Iterate the map to find a matching key without allocating Strings
-    map.iter()
-        .find(|((k_ft, k_sev, k_svc), _)| *k_ft == ft && *k_sev == sev && k_svc == svc)
-        .map(|(_, v)| v)
+    lookup
+        .get(&(ft.as_ref(), sev.as_ref(), svc.as_ref()))
+        .copied()
 }
 
 impl Default for MetricsState {
@@ -2126,6 +2156,30 @@ mod tests {
         };
         assert_eq!(trace_of("svc-a"), "trace-a");
         assert_eq!(trace_of("svc-b"), "trace-b");
+    }
+
+    #[test]
+    fn exemplars_survive_metacharacters_in_service_names() {
+        // service comes from OTLP `service.name`: commas, quotes,
+        // braces and backslashes are all legal and must round-trip
+        // through the rendered-text parse.
+        for service in ["shop,eu", "a\"b", "svc{prod}", "back\\slash"] {
+            let state = MetricsState::new();
+            let mut finding =
+                make_finding(FindingType::NPlusOneSql, Severity::Warning, "trace-x", 5);
+            finding.service = service.to_string();
+            state.record_batch(&make_test_report(vec![finding], 0.0));
+
+            let output = openmetrics_body(&state);
+            let line = output
+                .lines()
+                .find(|l| l.starts_with("perf_sentinel_findings_total{"))
+                .unwrap_or_else(|| panic!("no findings_total line for {service:?}"));
+            assert!(
+                line.contains("trace_id=\"trace-x\""),
+                "exemplar missing for service {service:?}: {line}"
+            );
+        }
     }
 
     #[test]
