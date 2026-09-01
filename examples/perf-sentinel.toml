@@ -212,7 +212,8 @@ max_retained_traces = 50           # default 50, bounds 0..10000
 ingest_queue_capacity = 1024       # default 1024, bounds 1..1048576
 analysis_queue_capacity = 1024     # default 1024, bounds 1..1048576
 # `service` label on findings and slow-span histograms (bounded by the
-# daemon's cardinality caps). false restores the pre-0.18 label shape.
+# daemon's cardinality caps). false restores the pre-0.18 label shape,
+# and the dashboard's Service filter then shows 0 findings per service.
 per_service_labels = true          # default true
 
 # Stamped on every finding as `confidence`, read by downstream tooling and

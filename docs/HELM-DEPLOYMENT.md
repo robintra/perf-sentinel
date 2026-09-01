@@ -866,9 +866,11 @@ collapsed every analysed service into one line. The daemon exposes no
 `job`, `instance` or `namespace` label, so nothing else changes hands
 and `Namespace` still reads what the scrape attaches. Honor labels
 settles a collision rather than replacing anything, and
-`perf_sentinel_service_io_ops_total` is the only metric exposing a
-`service` of its own, so every other series still takes the operator's
-`service` from the target and anything routing on that label is
+the daemon's own `service` label (`perf_sentinel_service_io_ops_total`,
+and since 0.18.0 `perf_sentinel_findings_total`,
+`perf_sentinel_slow_duration_seconds` and the per-service analysis
+counters) is kept where it is exposed, so every other series still takes
+the operator's `service` from the target and anything routing on that label is
 untouched. A panel or an alert written against the shape the bug
 produced, filtering `service="<release fullname>"` on the per-service
 metric, comes back empty with the real service names in its place. On
