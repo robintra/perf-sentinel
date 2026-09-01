@@ -385,26 +385,63 @@ pub fn apply_to_report(
 fn drifted_successor<'a>(
     ack: &Acknowledgment,
     kept: &'a [(Cow<'a, str>, &'a Finding)],
-) -> Option<&'a str> {
+) -> Option<(&'a str, Drift)> {
     let (ack_prefix, ack_hash) = ack.signature.rsplit_once(':')?;
-    let mut found: Option<&str> = None;
+    let mut found: Option<(&str, Drift)> = None;
     for (sig, finding) in kept {
         let Some((prefix, hash)) = sig.rsplit_once(':') else {
             continue;
         };
-        let fields_match = ack.service.as_ref().is_none_or(|s| s == &finding.service)
-            && ack
-                .source_endpoint
-                .as_ref()
-                .is_none_or(|e| e == &finding.source_endpoint);
-        if prefix == ack_prefix && hash != ack_hash && fields_match {
+        if let Some(drift) = drift_kind(ack, (ack_prefix, ack_hash), (prefix, hash), finding) {
             if found.is_some() {
                 return None;
             }
-            found = Some(sig.as_ref());
+            found = Some((sig.as_ref(), drift));
         }
     }
     found
+}
+
+/// What moved, when a current finding can explain an ack's signature.
+#[derive(Clone, Copy)]
+enum Drift {
+    /// Same detector, service and endpoint, different template hash: the
+    /// query itself changed.
+    Template,
+    /// Same detector and template hash under a different prefix: the
+    /// service or endpoint the finding is attributed to moved. A
+    /// `service.name` that starts resolving differently produces this.
+    Attribution,
+}
+
+/// Classify one current finding against an unmatched ack. Both arms stay
+/// conservative: a candidate is only named when the ack's own structured
+/// fields, where present, agree with it.
+fn drift_kind(
+    ack: &Acknowledgment,
+    acked: (&str, &str),
+    current: (&str, &str),
+    finding: &Finding,
+) -> Option<Drift> {
+    let ((ack_prefix, ack_hash), (prefix, hash)) = (acked, current);
+    let endpoint_matches = ack
+        .source_endpoint
+        .as_ref()
+        .is_none_or(|e| e == &finding.source_endpoint);
+    if prefix == ack_prefix && hash != ack_hash {
+        let service_matches = ack.service.as_ref().is_none_or(|s| s == &finding.service);
+        return (service_matches && endpoint_matches).then_some(Drift::Template);
+    }
+    if hash == ack_hash && prefix != ack_prefix {
+        // The prefix is not injective (a service or endpoint may hold a
+        // colon), so the detector is checked by prefix rather than parsed
+        // out. Two candidates still collapse to the generic message.
+        let same_kind = ack_prefix
+            .strip_prefix(finding.finding_type.as_str())
+            .is_some_and(|rest| rest.starts_with(':'));
+        return (same_kind && endpoint_matches).then_some(Drift::Attribution);
+    }
+    None
 }
 
 /// A finding's stored signature, computed on the fly when the report
@@ -423,6 +460,8 @@ fn signature_cow(finding: &Finding) -> Cow<'_, str> {
 /// the successor signature. Otherwise, when the entry names its service
 /// and endpoint, the run's per-endpoint I/O ops say whether that
 /// endpoint did I/O, which splits "fixed" from "scenario did not run".
+/// A successor whose template hash is unchanged means the attribution
+/// moved instead, which the message says rather than reading as "fixed".
 /// The counts only hold endpoints that emitted I/O spans, so absence
 /// stays ambiguous (not exercised, or a fix that removed the I/O
 /// outright) and the message says so. Entries without the fields keep
@@ -430,15 +469,23 @@ fn signature_cow(finding: &Finding) -> Cow<'_, str> {
 fn unmatched_message(
     ack: &Acknowledgment,
     observed: &HashSet<(&str, &str)>,
-    successor: Option<&str>,
+    successor: Option<(&str, Drift)>,
 ) -> String {
     let sig = &ack.signature;
-    if let Some(successor) = successor {
+    if let Some((successor, Drift::Template)) = successor {
         return format!(
             "acknowledgment {sig} matched no finding in this run, but \
              {successor} fired with the same detector, service, and \
              endpoint: the template drifted (schema or query change), \
              re-acknowledge the new signature if the reason still holds"
+        );
+    }
+    if let Some((successor, Drift::Attribution)) = successor {
+        return format!(
+            "acknowledgment {sig} matched no finding in this run, but \
+             {successor} fired with the same detector and template under a \
+             different service or endpoint: the attribution moved, not the \
+             query, re-acknowledge the new signature if the reason still holds"
         );
     }
     match (&ack.service, &ack.source_endpoint) {
@@ -1117,6 +1164,48 @@ expires_at = "not-a-date"
         assert!(
             warning.message.contains(&successor_sig) && warning.message.contains("drifted"),
             "warning must name the successor signature, got: {}",
+            warning.message
+        );
+        assert_eq!(report.findings.len(), 1, "the successor stays unsuppressed");
+    }
+
+    /// A `service.name` that starts resolving differently moves the
+    /// signature's prefix while the template hash stays put. The warning
+    /// must name the successor instead of reading as "possibly fixed",
+    /// which is what would send an operator to delete a live suppression.
+    #[test]
+    fn apply_to_report_unmatched_ack_names_the_reattributed_successor() {
+        let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
+        findings[0].service = "unknown".to_string();
+        enrich_with_signatures(&mut findings);
+        let successor_sig = findings[0].signature.clone();
+
+        // The same finding as it signed before the service resolved.
+        let mut before = findings[0].clone();
+        before.service = String::new();
+        let acked_old = compute_signature(&before);
+        assert_ne!(acked_old, successor_sig);
+
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![ack(&acked_old, None)],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .expect("unmatched warning");
+        assert!(
+            warning.message.contains(&successor_sig) && warning.message.contains("attribution"),
+            "warning must name the re-attributed successor, got: {}",
             warning.message
         );
         assert_eq!(report.findings.len(), 1, "the successor stays unsuppressed");
