@@ -6,6 +6,7 @@
 //! change and `-- --baseline main` after.
 
 use std::hint::black_box;
+use std::sync::Arc;
 
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use sentinel_core::config::Config;
@@ -186,6 +187,33 @@ fn bench_score_green_findings(c: &mut Criterion) {
     group.finish();
 }
 
+/// Every group split between two services: the worst case of the
+/// per-service avoidable credit, which `synth` never produces on its own
+/// (one service per trace).
+fn bench_score_green_findings_mixed(c: &mut Criterion) {
+    let config = DetectConfig::from(&Config::default());
+    let mut group = c.benchmark_group("score_green_findings_mixed");
+    for (n, services) in [(10_000usize, 16usize), (100_000, 16), (100_000, 128)] {
+        let mut traces = traces_with_services(n, services);
+        for trace in &mut traces {
+            let second: Arc<str> = Arc::from(format!("{}-b", trace.spans[0].event.service));
+            for span in trace.spans.iter_mut().skip(1).step_by(2) {
+                span.event.service = Arc::clone(&second);
+            }
+        }
+        let findings = detect::run_full_detection(&traces, &config);
+        group.throughput(Throughput::Elements(findings.len() as u64));
+        group.bench_function(format!("{n}_events_{services}_services"), |b| {
+            b.iter_batched(
+                || findings.clone(),
+                |f| black_box(score::score_green(black_box(&traces), f, None)),
+                BatchSize::LargeInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn bench_full_pipeline(c: &mut Criterion) {
     let config = Config::default();
     let mut group = c.benchmark_group("pipeline_analyze");
@@ -262,6 +290,7 @@ criterion_group!(
     bench_detectors,
     bench_score_green,
     bench_score_green_findings,
+    bench_score_green_findings_mixed,
     bench_full_pipeline,
     bench_time_parse,
     bench_prometheus_counter
