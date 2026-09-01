@@ -376,15 +376,19 @@ struct CappedServices {
     warned: bool,
     /// Metric family named in the one-shot cap warning.
     what: &'static str,
+    /// What happens past the cap, so the one-shot warning says whether
+    /// the ops are dropped (ingest) or folded into `_other` (analysis).
+    consequence: &'static str,
 }
 
 impl CappedServices {
-    fn new(cap: usize, what: &'static str) -> Self {
+    fn new(cap: usize, what: &'static str, consequence: &'static str) -> Self {
         Self {
             admitted: HashSet::new(),
             cap,
             warned: false,
             what,
+            consequence,
         }
     }
 
@@ -407,7 +411,8 @@ impl CappedServices {
             tracing::warn!(
                 cap = self.cap,
                 what = self.what,
-                "service cardinality cap reached"
+                "service cardinality cap reached; {}",
+                self.consequence
             );
             self.warned = true;
         }
@@ -429,7 +434,11 @@ impl ServiceMeter {
     fn new(cap: usize) -> Self {
         Self {
             children: HashMap::new(),
-            capped: CappedServices::new(cap, "ingest I/O ops"),
+            capped: CappedServices::new(
+                cap,
+                "ingest I/O ops",
+                "new services get no per-service I/O op counter",
+            ),
         }
     }
 
@@ -478,10 +487,15 @@ impl AnalysisServiceMeter {
     fn new(per_service_labels: bool, metrics: &MetricsState) -> Self {
         let mut meter = Self {
             per_service_labels,
-            names: CappedServices::new(MAX_ANALYSIS_SERVICE_CARDINALITY, "analysis service labels"),
+            names: CappedServices::new(
+                MAX_ANALYSIS_SERVICE_CARDINALITY,
+                "analysis service labels",
+                "new services fold into service=\"_other\"",
+            ),
             hist_names: CappedServices::new(
                 MAX_HISTOGRAM_SERVICE_CARDINALITY,
                 "slow-duration histogram",
+                "new services fold into service=\"_other\"",
             ),
             hist_children: HashMap::new(),
         };
