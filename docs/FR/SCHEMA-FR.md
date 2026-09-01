@@ -93,7 +93,7 @@ Deux granularités, homogènes par rapport. Le validator refuse un rapport qui m
 
 ### G1 (intent `internal`)
 
-Chaque entrée porte les totaux au niveau service plus un tableau `anti_patterns: [...]`. Chaque détail anti-pattern a `type` (un des 12 patterns connus), `occurrences`, `estimated_waste_kwh`, `estimated_waste_kgco2eq`, `first_seen`, `last_seen`. Les timestamps sont UTC RFC 3339. `rgesn_criteria` (v1.3) est la liste interprétative des critères RGESN 2024 auxquels le pattern se rapporte (voir [docs/FR/METHODOLOGY-FR.md](METHODOLOGY-FR.md#correspondance-rgesn-2024)), vide pour `slow_*` et absente sur les rapports pré-v1.3. `display_name` et `service_version` sont des hints optionnels.
+Chaque entrée porte les totaux au niveau service plus un tableau `anti_patterns: [...]`. Chaque détail anti-pattern a `type` (un des 12 patterns connus), `occurrences`, `estimated_waste_kwh`, `estimated_waste_kgco2eq`, `first_seen`, `last_seen`. `occurrences` compte les findings qu'un service détient, tandis que `estimated_waste_*` porte aussi sa part des findings dont il a émis les spans sous le finding d'un autre service (depuis 0.18.0, sur les fenêtres archivées par 0.18.0 ou plus récent), une ligne peut donc afficher du gaspillage avec zéro occurrence. Les timestamps sont UTC RFC 3339. `rgesn_criteria` (v1.3) est la liste interprétative des critères RGESN 2024 auxquels le pattern se rapporte (voir [docs/FR/METHODOLOGY-FR.md](METHODOLOGY-FR.md#correspondance-rgesn-2024)), vide pour `slow_*` et absente sur les rapports pré-v1.3. `display_name` et `service_version` sont des hints optionnels.
 
 ### G2 (intent `official` avec confidentiality `public`)
 
