@@ -356,12 +356,12 @@ fn normalize_service(service: &str) -> &str {
 /// (`findings_total`, `service_avoidable_io_ops_total`,
 /// `service_analyzed_io_ops_total`). Lower than
 /// [`MAX_SERVICE_CARDINALITY`]: these series multiply by type/severity.
-const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
+pub(crate) const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
 
 /// Cardinality cap on the slow-duration histogram's `service` label.
 /// Lower still: a histogram costs 14 series per (type, service) pair
 /// (11 buckets plus `+Inf`, `_sum` and `_count`).
-const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
+pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 
 /// Label value that series of services past a cap fold into, so the
 /// global sums stay exact while cardinality stays bounded.
