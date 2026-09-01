@@ -1,8 +1,7 @@
 //! Daemon main event loop: ingest batches, evict expired traces, and route
 //! the resulting traces through detect + score + metrics + findings store.
 
-use std::collections::{HashMap, HashSet};
-
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -133,7 +132,6 @@ struct AnalysisWorkerCtx {
     detect_config: DetectConfig,
     green_enabled: bool,
     per_service_labels: bool,
-
     confidence: Confidence,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
@@ -183,7 +181,6 @@ pub(super) async fn run_event_loop(
             detect_config: detect_config.clone(),
             green_enabled: loop_cfg.green_enabled,
             per_service_labels: loop_cfg.per_service_labels,
-
             confidence: loop_cfg.confidence,
             metrics: metrics.clone(),
             findings_store,
@@ -313,7 +310,6 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
     let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
     let mut msg_waste_sticky: Option<(MessagingWaste, u64)> = None;
     let mut service_meter = AnalysisServiceMeter::new(wctx.per_service_labels, &wctx.metrics);
-
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -322,7 +318,6 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
                 detect_config: &wctx.detect_config,
                 green_enabled: wctx.green_enabled,
                 service_meter: &mut service_meter,
-
                 carbon_ctx: batch.carbon_ctx.as_ref(),
                 metrics: &wctx.metrics,
                 confidence: wctx.confidence,
@@ -345,12 +340,13 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
 /// the tuning advisor in `query_api` so its hint names the real cap.
 pub(crate) const MAX_SERVICE_CARDINALITY: usize = 1024;
 
-/// Effective service name for metric labels: anonymous spans (Zipkin
-/// and Jaeger default to an empty name) take the OTLP default instead of
-/// minting `service=""`, the `per_service_labels = false` sentinel.
+/// Belt and braces at the label boundary: `sanitize_span_event` already
+/// settles this on every ingestion path, but an empty value here would
+/// mint the `per_service_labels = false` sentinel, which a scrape
+/// re-attributes to its own target.
 fn normalize_service(service: &str) -> &str {
     if service.is_empty() {
-        "unknown"
+        crate::event::UNKNOWN_SERVICE
     } else {
         service
     }
@@ -360,16 +356,16 @@ fn normalize_service(service: &str) -> &str {
 /// (`findings_total`, `service_avoidable_io_ops_total`,
 /// `service_analyzed_io_ops_total`). Lower than
 /// [`MAX_SERVICE_CARDINALITY`]: these series multiply by type/severity.
-pub(crate) const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
+const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
 
 /// Cardinality cap on the slow-duration histogram's `service` label.
 /// Lower still: a histogram costs 14 series per (type, service) pair
 /// (11 buckets plus `+Inf`, `_sum` and `_count`).
-pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
+const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 
 /// Label value that series of services past a cap fold into, so the
 /// global sums stay exact while cardinality stays bounded.
-pub(crate) const SERVICE_OVERFLOW_LABEL: &str = "_other";
+const SERVICE_OVERFLOW_LABEL: &str = "_other";
 
 /// Admission policy shared by the service meters: a bounded name set, an
 /// overflow counter, a one-shot warning. [`SERVICE_OVERFLOW_LABEL`] is
@@ -470,25 +466,28 @@ struct AnalysisServiceMeter {
 }
 
 impl AnalysisServiceMeter {
-    /// Materializes the default histogram label up front (0.17 resolved
-    /// the children on every batch), so "series absent" keeps meaning
-    /// "worker not running" rather than "no slow span yet".
+    /// With the knob off there is a single histogram label, so it is
+    /// materialized up front (0.17 resolved the children on every
+    /// batch) and "series absent" keeps meaning "worker not running"
+    /// rather than "no slow span yet". With the knob on nothing is
+    /// pre-warmed: the only label known before traffic arrives is
+    /// [`SERVICE_OVERFLOW_LABEL`], and minting it would publish a
+    /// permanent `service="_other"` series on a daemon that never hit a
+    /// cap, which reads as overflow and shows up in the dashboard's
+    /// service picker.
     fn new(per_service_labels: bool, metrics: &MetricsState) -> Self {
         let mut meter = Self {
             per_service_labels,
-            names: CappedServices::new(MAX_ANALYSIS_SERVICE_CARDINALITY, "analysis"),
+            names: CappedServices::new(MAX_ANALYSIS_SERVICE_CARDINALITY, "analysis service labels"),
             hist_names: CappedServices::new(
                 MAX_HISTOGRAM_SERVICE_CARDINALITY,
                 "slow-duration histogram",
             ),
             hist_children: HashMap::new(),
         };
-        let prewarm = if per_service_labels {
-            SERVICE_OVERFLOW_LABEL
-        } else {
-            ""
-        };
-        meter.mint_hist_children(prewarm, metrics);
+        if !per_service_labels {
+            meter.mint_hist_children("", metrics);
+        }
         meter
     }
 
@@ -1127,17 +1126,35 @@ fn emit_findings_and_update_metrics(
     // per-service waste ratio divides, from the same scoring pass and
     // under the same cap. Both empty when green is off, like the
     // global avoidable counter.
-    for (service, ops) in avoidable_per_service {
+    //
+    // Folded to one row per service before touching the `MetricVec`:
+    // `per_endpoint_io_ops` carries a row per (service, endpoint), so
+    // the raw loop paid a label hash plus the vec lock per endpoint and
+    // charged the overflow counter once per endpoint of an over-cap
+    // service. `BTreeMap` also makes cap admission deterministic, where
+    // `HashMap` order decided at random which services kept their own
+    // label at the boundary.
+    let mut analyzed_per_service: BTreeMap<&str, usize> = BTreeMap::new();
+    for entry in per_endpoint_io_ops {
+        *analyzed_per_service
+            .entry(entry.service.as_str())
+            .or_default() += entry.io_ops;
+    }
+    let avoidable_sorted: BTreeMap<&str, usize> = avoidable_per_service
+        .iter()
+        .map(|(service, ops)| (service.as_str(), *ops))
+        .collect();
+    for (service, ops) in avoidable_sorted {
         metrics
             .service_avoidable_io_ops_total
             .with_label_values(&[meter.service_label(service, metrics)])
-            .inc_by(*ops as f64);
+            .inc_by(ops as f64);
     }
-    for entry in per_endpoint_io_ops {
+    for (service, ops) in analyzed_per_service {
         metrics
             .service_analyzed_io_ops_total
-            .with_label_values(&[meter.service_label(&entry.service, metrics)])
-            .inc_by(entry.io_ops as f64);
+            .with_label_values(&[meter.service_label(service, metrics)])
+            .inc_by(ops as f64);
     }
 
     // Resolve effective service labels once; the counter and its
@@ -1219,7 +1236,6 @@ struct ProcessTracesCtx<'a> {
     detect_config: &'a DetectConfig,
     green_enabled: bool,
     service_meter: &'a mut AnalysisServiceMeter,
-
     carbon_ctx: &'a score::carbon::CarbonContext,
     metrics: &'a MetricsState,
     confidence: Confidence,
@@ -1610,7 +1626,6 @@ mod tests {
             traces_store: noop_traces_store(),
             green_enabled,
             service_meter: Box::leak(Box::new(AnalysisServiceMeter::new(true, metrics))),
-
             carbon_ctx,
             metrics,
             confidence: Confidence::DaemonStaging,
@@ -3559,6 +3574,49 @@ mod tests {
             .with_label_values(&["sql", "unknown"])
             .get_sample_count();
         assert_eq!(unknown_samples, 1);
+    }
+
+    #[test]
+    fn fresh_meter_publishes_no_overflow_histogram_series() {
+        let metrics = MetricsState::new();
+        let _meter = AnalysisServiceMeter::new(true, &metrics);
+
+        // `_other` means "past the cap"; pre-warming it would put a
+        // permanent phantom service in every scrape and in the
+        // dashboard's service picker.
+        let rendered = metrics.render();
+        assert!(
+            !rendered.contains("perf_sentinel_slow_duration_seconds_count{"),
+            "no histogram series before the first slow span: {rendered}"
+        );
+
+        // The knob-off shape keeps its single pre-warmed series.
+        let metrics_off = MetricsState::new();
+        let _off = AnalysisServiceMeter::new(false, &metrics_off);
+        assert!(
+            metrics_off
+                .render()
+                .contains("perf_sentinel_slow_duration_seconds_count{service=\"\",type=\"sql\"} 0"),
+            "knob off pre-warms the unlabeled series as 0.17 did"
+        );
+    }
+
+    #[test]
+    fn analysis_overflow_counts_services_not_endpoint_fanout() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        meter.names.cap = 0;
+
+        // One over-cap service with a wide endpoint fan-out must charge
+        // the overflow counter once per attribution row, not once per
+        // endpoint: `emit_findings_and_update_metrics` folds first.
+        for _ in 0..3 {
+            assert_eq!(
+                meter.service_label("svc-a", &metrics),
+                SERVICE_OVERFLOW_LABEL
+            );
+        }
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 3);
     }
 
     #[test]

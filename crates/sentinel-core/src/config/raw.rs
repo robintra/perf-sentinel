@@ -265,7 +265,6 @@ pub(super) struct DaemonSection {
     analysis_queue_capacity: Option<usize>,
     per_service_labels: Option<bool>,
     memory_high_water_pct: Option<u8>,
-
     api_enabled: Option<bool>,
     correlation: CorrelationSection,
     ack: DaemonAckSection,
@@ -583,7 +582,6 @@ impl From<RawConfig> for Config {
                     .daemon
                     .per_service_labels
                     .unwrap_or(daemon_defaults.per_service_labels),
-
                 memory_high_water_pct: raw
                     .daemon
                     .memory_high_water_pct

@@ -425,7 +425,6 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             confidence: config.confidence(),
             analysis_queue_capacity: config.daemon.analysis_queue_capacity,
             per_service_labels: config.daemon.per_service_labels,
-
             // 2x the scraper staleness window: flap-free between scrapes,
             // aged out shortly after a dead scraper's last reading. A
             // declared cluster has no scraper, so it falls back to the
