@@ -222,7 +222,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) / sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) / (sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) > 0) or vector(0)",
           "refId": "A",
           "legendFormat": "waste ratio"
         }
@@ -700,7 +700,7 @@
           "legendFormat": "analysis_queue {{instance}}"
         },
         {
-          "expr": "perf_sentinel_stored_findings{job=~\"$job\", namespace=~\"$namespace\"} / perf_sentinel_max_retained_findings{job=~\"$job\", namespace=~\"$namespace\"} * 100",
+          "expr": "perf_sentinel_stored_findings{job=~\"$job\", namespace=~\"$namespace\"} / (perf_sentinel_max_retained_findings{job=~\"$job\", namespace=~\"$namespace\"} > 0) * 100",
           "refId": "C",
           "legendFormat": "findings_store {{instance}}"
         },
