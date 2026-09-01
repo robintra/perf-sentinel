@@ -354,7 +354,8 @@ occurrence et n'agrègent pas cross-traces.
 
 Le daemon expose des compteurs Prometheus
 (`perf_sentinel_findings_total`,
-`perf_sentinel_avoidable_io_ops_total`) qui accumulent de manière
+`perf_sentinel_avoidable_io_ops` et, depuis 0.18.0, sa part par
+service `perf_sentinel_service_avoidable_io_ops_total`) qui accumulent de manière
 monotone sur la durée de vie du daemon. Chaque batch contribue avec
 sa propre dédup intra-batch, clé sur
 `(trace_id, template, source_endpoint)`, ce qui empêche de compter
