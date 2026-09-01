@@ -1031,31 +1031,49 @@ impl Builder {
     }
 
     fn route_findings(&mut self, findings: &[Finding], ts: DateTime<Utc>, unattributed: bool) {
+        // Route findings to the unattributed bucket when the window had
+        // no per-service offenders or runtime maps, so a service never
+        // publishes efficiency=100 alongside non-zero
+        // anti_patterns_detected_count.
+        let fold = unattributed.then_some(UNATTRIBUTED_SERVICE);
         for finding in findings {
-            // Route findings to the unattributed bucket when the window
-            // had no per-service offenders or runtime maps, so a service
-            // never publishes efficiency=100 alongside non-zero
-            // anti_patterns_detected_count.
-            let service_key: &str = if unattributed {
-                UNATTRIBUTED_SERVICE
-            } else {
-                finding.service.as_str()
-            };
             let pattern: &'static str = finding.finding_type.as_str();
-            let avoidable = if finding.finding_type.is_avoidable_io() {
-                finding.pattern.occurrences.saturating_sub(1) as u64
-            } else {
-                0
-            };
-
-            let Some(bucket) = bounded_entry(&mut self.per_service, service_key) else {
+            if !finding.finding_type.is_avoidable_io() {
+                self.credit(fold.unwrap_or(&finding.service), pattern, ts, 1, 0);
                 continue;
-            };
-            let ap = bucket.anti_patterns.entry(pattern.to_string()).or_default();
-            ap.occurrences += 1;
-            ap.avoidable_io_ops = ap.avoidable_io_ops.saturating_add(avoidable);
-            self.update_seen_timestamps(service_key, pattern, ts);
+            }
+            // The finding counts once, on its owner. Its avoidable ops go
+            // to the services whose spans they are, the owner first so a
+            // refused owner drops the finding whole, as before the split.
+            for (service, ops) in finding.avoidable_by_service() {
+                let counted = u64::from(service == finding.service);
+                let admitted =
+                    self.credit(fold.unwrap_or(service), pattern, ts, counted, ops as u64);
+                if !admitted && counted == 1 {
+                    break;
+                }
+            }
         }
+    }
+
+    /// Add to one `(service, pattern)` row. False when the service cap
+    /// refuses a new service.
+    fn credit(
+        &mut self,
+        service: &str,
+        pattern: &str,
+        ts: DateTime<Utc>,
+        occurrences: u64,
+        avoidable: u64,
+    ) -> bool {
+        let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
+            return false;
+        };
+        let ap = bucket.anti_patterns.entry(pattern.to_string()).or_default();
+        ap.occurrences += occurrences;
+        ap.avoidable_io_ops = ap.avoidable_io_ops.saturating_add(avoidable);
+        self.update_seen_timestamps(service, pattern, ts);
+        true
     }
 
     fn update_seen_timestamps(&mut self, service_key: &str, pattern: &str, ts: DateTime<Utc>) {
@@ -2776,11 +2794,49 @@ mod tests {
     #[test]
     fn aggregator_falls_back_to_unattributed_when_lax() {
         let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
-        let r = make_report(20, 100, 5, &[], vec![]);
+        // A split finding folds whole into the bucket, no per-service row.
+        let mut finding = make_finding("svc-a", FindingType::NPlusOneSql, "SELECT *");
+        finding.pattern.occurrences_by_service =
+            std::collections::BTreeMap::from([("svc-a".to_string(), 2), ("svc-b".to_string(), 3)]);
+        let r = make_report(20, 100, 5, &[], vec![finding]);
         let (_dir, path) = write_archive(&[(ts, r)]);
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
-        assert!(out.per_service.contains_key(UNATTRIBUTED_SERVICE));
+        let ap = &out.per_service[UNATTRIBUTED_SERVICE].anti_patterns["n_plus_one_sql"];
+        assert_eq!((ap.occurrences, ap.avoidable_io_ops), (1, 4));
+        assert!(!out.per_service.contains_key("svc-b"));
+    }
+
+    /// A finding whose spans came from two services counts once, on its
+    /// owner, while its avoidable ops are split: the other service gets
+    /// its share and its timestamps, and no occurrence, so the global
+    /// count is unchanged.
+    #[test]
+    fn route_findings_splits_avoidable_across_services() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut finding = make_finding("svc-a", FindingType::NPlusOneSql, "SELECT *");
+        assert_eq!(finding.pattern.occurrences, 5);
+        finding.pattern.occurrences_by_service =
+            std::collections::BTreeMap::from([("svc-a".to_string(), 2), ("svc-b".to_string(), 3)]);
+        let r = make_report(
+            10,
+            100,
+            4,
+            &[("svc-a", "/", 50), ("svc-b", "/", 50)],
+            vec![finding],
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        let row = |service: &str| {
+            let ap = &out.per_service[service].anti_patterns["n_plus_one_sql"];
+            (ap.occurrences, ap.avoidable_io_ops)
+        };
+        assert_eq!(row("svc-a"), (1, 1));
+        assert_eq!(row("svc-b"), (0, 3));
+        assert_eq!(out.aggregate.anti_patterns_detected_count, 1);
+        let key = ("svc-b".to_string(), "n_plus_one_sql".to_string());
+        assert_eq!(*out.first_seen.get(&key).unwrap(), ts);
     }
 
     #[test]

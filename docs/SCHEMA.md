@@ -93,7 +93,7 @@ Two granularities, homogeneous per disclosure. The validator rejects a disclosur
 
 ### G1 (intent `internal`)
 
-Each entry carries the service-level totals plus an `anti_patterns: [...]` array. Every anti-pattern detail has `type` (one of the 12 known patterns), `occurrences`, `estimated_waste_kwh`, `estimated_waste_kgco2eq`, `first_seen`, and `last_seen`. Timestamps are RFC 3339 UTC. `rgesn_criteria` (v1.3) is the interpretive list of RGESN 2024 criteria the pattern relates to (see [docs/METHODOLOGY.md](METHODOLOGY.md#rgesn-2024-crosswalk)), empty for `slow_*` and absent on pre-v1.3 reports. `display_name` and `service_version` are optional hints.
+Each entry carries the service-level totals plus an `anti_patterns: [...]` array. Every anti-pattern detail has `type` (one of the 12 known patterns), `occurrences`, `estimated_waste_kwh`, `estimated_waste_kgco2eq`, `first_seen`, and `last_seen`. `occurrences` counts the findings a service owns, while `estimated_waste_*` also carries its share of findings whose spans it emitted under another service's finding (since 0.18.0, on windows archived by 0.18.0 or later), so a row may show waste with zero occurrences. Timestamps are RFC 3339 UTC. `rgesn_criteria` (v1.3) is the interpretive list of RGESN 2024 criteria the pattern relates to (see [docs/METHODOLOGY.md](METHODOLOGY.md#rgesn-2024-crosswalk)), empty for `slow_*` and absent on pre-v1.3 reports. `display_name` and `service_version` are optional hints.
 
 ### G2 (intent `official` with confidentiality `public`)
 
