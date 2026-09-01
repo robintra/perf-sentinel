@@ -47,6 +47,18 @@ pub const MAX_SERVICE_LENGTH: usize = 256;
 /// carries none.
 pub const UNKNOWN_SERVICE: &str = "unknown";
 
+/// `service`, or [`UNKNOWN_SERVICE`] when blank. `sanitize_span_event`
+/// settles this for every span, the metrics library path applies it to
+/// findings that never went through one (a pre-0.18 report).
+#[must_use]
+pub fn service_or_unknown(service: &str) -> &str {
+    if service.trim().is_empty() {
+        UNKNOWN_SERVICE
+    } else {
+        service
+    }
+}
+
 /// Maximum length for the `operation` field (bytes).
 pub const MAX_OPERATION_LENGTH: usize = 256;
 
@@ -235,7 +247,7 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     // Zipkin and Jaeger leave the name empty when the span carries no
-    // service; OTLP already falls back to "unknown". Settle it here, on
+    // service. OTLP already falls back to "unknown". Settle it here, on
     // the path all four ingests share, so `Finding.service`, the ack
     // signature and the `service` metric label agree. Blank counts as
     // missing, like OTLP's own `resource_service_name`: whitespace would
