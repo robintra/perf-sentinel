@@ -56,7 +56,7 @@ pub fn analyze_with_traces(
             findings,
             crate::report::GreenSummary::disabled(total_io_ops),
             per_endpoint_io_ops,
-            std::collections::HashMap::new(),
+            std::collections::BTreeMap::new(),
         )
     };
 
