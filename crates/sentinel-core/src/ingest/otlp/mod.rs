@@ -757,7 +757,7 @@ fn build_span_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes
     let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
     for resource_spans in &request.resource_spans {
         let service = resource_service_name(resource_spans);
-        if service == "unknown" {
+        if service == crate::event::UNKNOWN_SERVICE {
             continue;
         }
         let index = per_service.entry(service).or_default();
@@ -800,7 +800,7 @@ fn resource_service_name(
         .as_ref()
         .and_then(|r| get_str_attribute(&r.attributes, "service.name"))
         .filter(|service| !service.trim().is_empty())
-        .unwrap_or("unknown")
+        .unwrap_or(crate::event::UNKNOWN_SERVICE)
 }
 
 /// Build a `(trace_id, span_id) -> instrumentation scope name` index alongside
@@ -1451,7 +1451,7 @@ pub fn convert_otlp_request_counted_with_grouping(
 
     for resource_spans in &request.resource_spans {
         let service_name = resource_service_name(resource_spans);
-        let anonymous_index = if service_name == "unknown" {
+        let anonymous_index = if service_name == crate::event::UNKNOWN_SERVICE {
             let mut index = HashMap::new();
             index_resource_spans(resource_spans, &mut index);
             Some(index)
@@ -1485,7 +1485,7 @@ fn source_endpoint_updates(
     let empty_index = HashMap::new();
     for resource_spans in &request.resource_spans {
         let service_name = resource_service_name(resource_spans);
-        if service_name == "unknown" {
+        if service_name == crate::event::UNKNOWN_SERVICE {
             continue;
         }
         let span_index = span_indexes.get(service_name).unwrap_or(&empty_index);
@@ -1902,7 +1902,7 @@ fn convert_span<'a>(
         &span.trace_id,
         &span.parent_span_id,
         span_index,
-        service_arc.as_ref() != "unknown",
+        service_arc.as_ref() != crate::event::UNKNOWN_SERVICE,
     );
 
     let parent_span_id = if span.parent_span_id.is_empty() {
