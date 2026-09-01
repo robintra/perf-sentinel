@@ -386,20 +386,23 @@ fn drifted_successor<'a>(
     ack: &Acknowledgment,
     kept: &'a [(Cow<'a, str>, &'a Finding)],
 ) -> Option<(&'a str, Drift)> {
-    let (ack_prefix, ack_hash) = ack.signature.rsplit_once(':')?;
-    let mut found: Option<(&str, Drift)> = None;
+    let acked = ack.signature.rsplit_once(':')?;
+    let (mut templates, mut attributions) = (Vec::new(), Vec::new());
     for (sig, finding) in kept {
-        let Some((prefix, hash)) = sig.rsplit_once(':') else {
-            continue;
-        };
-        if let Some(drift) = drift_kind(ack, (ack_prefix, ack_hash), (prefix, hash), finding) {
-            if found.is_some() {
-                return None;
-            }
-            found = Some((sig.as_ref(), drift));
+        match drift_kind(ack, acked, sig, finding) {
+            Some(Drift::Template) => templates.push(sig.as_ref()),
+            Some(Drift::Attribution) => attributions.push(sig.as_ref()),
+            None => {}
         }
     }
-    found
+    // A template drift (same service and endpoint) is the stronger
+    // reading and outranks any attribution candidate. Two of a kind
+    // stay a guess and fall back to the generic message.
+    match (templates.as_slice(), attributions.as_slice()) {
+        ([successor], _) => Some((*successor, Drift::Template)),
+        ([], [successor]) => Some((*successor, Drift::Attribution)),
+        _ => None,
+    }
 }
 
 /// What moved, when a current finding can explain an ack's signature.
@@ -414,16 +417,18 @@ enum Drift {
     Attribution,
 }
 
-/// Classify one current finding against an unmatched ack. Both arms stay
-/// conservative: a candidate is only named when the ack's own structured
-/// fields, where present, agree with it.
+/// Classify one current finding against an unmatched ack. The Template
+/// arm requires the ack's structured fields, where present, to agree.
+/// The Attribution arm checks the endpoint only: a candidate agreeing on
+/// both fields would share the prefix and be a Template candidate, so
+/// with fields present it names a service move.
 fn drift_kind(
     ack: &Acknowledgment,
-    acked: (&str, &str),
-    current: (&str, &str),
+    (ack_prefix, ack_hash): (&str, &str),
+    sig: &str,
     finding: &Finding,
 ) -> Option<Drift> {
-    let ((ack_prefix, ack_hash), (prefix, hash)) = (acked, current);
+    let (prefix, hash) = sig.rsplit_once(':')?;
     let endpoint_matches = ack
         .source_endpoint
         .as_ref()
@@ -472,21 +477,32 @@ fn unmatched_message(
     successor: Option<(&str, Drift)>,
 ) -> String {
     let sig = &ack.signature;
-    if let Some((successor, Drift::Template)) = successor {
-        return format!(
-            "acknowledgment {sig} matched no finding in this run, but \
-             {successor} fired with the same detector, service, and \
-             endpoint: the template drifted (schema or query change), \
-             re-acknowledge the new signature if the reason still holds"
+    if let Some((successor, drift)) = successor {
+        // "Moved" implies the old attribution is gone: while the acked
+        // (service, endpoint) still emits I/O, a same-template finding
+        // elsewhere is a sibling and the observed verdict below applies.
+        let old_still_emits = matches!(
+            (&ack.service, &ack.source_endpoint),
+            (Some(s), Some(e)) if observed.contains(&(s.as_str(), e.as_str()))
         );
-    }
-    if let Some((successor, Drift::Attribution)) = successor {
-        return format!(
-            "acknowledgment {sig} matched no finding in this run, but \
-             {successor} fired with the same detector and template under a \
-             different service or endpoint: the attribution moved, not the \
-             query, re-acknowledge the new signature if the reason still holds"
-        );
+        let why = match drift {
+            Drift::Template => Some(
+                "with the same detector, service, and endpoint: the \
+                 template drifted (schema or query change)",
+            ),
+            Drift::Attribution if old_still_emits => None,
+            Drift::Attribution => Some(
+                "with the same detector and template under a different \
+                 service or endpoint: the attribution moved, not the query",
+            ),
+        };
+        if let Some(why) = why {
+            return format!(
+                "acknowledgment {sig} matched no finding in this run, but \
+                 {successor} fired {why}, re-acknowledge the new signature \
+                 if the reason still holds"
+            );
+        }
     }
     match (&ack.service, &ack.source_endpoint) {
         (Some(service), Some(endpoint)) => {
@@ -1209,6 +1225,90 @@ expires_at = "not-a-date"
             warning.message
         );
         assert_eq!(report.findings.len(), 1, "the successor stays unsuppressed");
+    }
+
+    /// A same-prefix template drift outranks a same-hash finding
+    /// elsewhere: the second must not turn the named successor back into
+    /// the generic message.
+    #[test]
+    fn apply_to_report_template_drift_outranks_an_attribution_candidate() {
+        let acked_old =
+            compute_signature(&make_finding(FindingType::NPlusOneSql, Severity::Warning));
+        let mut drifted = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        drifted.pattern.template = "SELECT * FROM t WHERE id = ? AND tenant = ?".to_string();
+        let mut moved = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        moved.source_endpoint = "GET /api/other".to_string();
+        let mut findings = vec![drifted, moved];
+        enrich_with_signatures(&mut findings);
+        let successor_sig = findings[0].signature.clone();
+
+        let mut report = empty_report(findings);
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![ack(&acked_old, None)],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .expect("unmatched warning");
+        assert!(
+            warning.message.contains(&successor_sig) && warning.message.contains("drifted"),
+            "the template drift must be named, got: {}",
+            warning.message
+        );
+    }
+
+    /// A sibling service running the same template on the same endpoint
+    /// is not a moved attribution while the acked service still emits
+    /// I/O there: the observed verdict applies.
+    #[test]
+    fn apply_to_report_sibling_service_is_not_a_move_while_the_acked_one_emits() {
+        let acked_old =
+            compute_signature(&make_finding(FindingType::NPlusOneSql, Severity::Warning));
+        let mut sibling = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        sibling.service = "billing-svc".to_string();
+        let mut findings = vec![sibling];
+        enrich_with_signatures(&mut findings);
+
+        let mut report = empty_report(findings);
+        report.per_endpoint_io_ops = vec![crate::report::PerEndpointIoOps {
+            service: "order-svc".to_string(),
+            endpoint: "POST /api/orders/42/submit".to_string(),
+            io_ops: 12,
+        }];
+        let acks = AcknowledgmentsFile {
+            acknowledged: vec![Acknowledgment {
+                service: Some("order-svc".to_string()),
+                source_endpoint: Some("POST /api/orders/42/submit".to_string()),
+                ..ack(&acked_old, None)
+            }],
+        };
+        apply_to_report(
+            &mut report,
+            &acks,
+            &Config::default(),
+            now_2026_05_02(),
+            ReportOrigin::FreshAnalysis,
+        );
+
+        let warning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == warnings::UNMATCHED_ACKNOWLEDGMENT)
+            .expect("unmatched warning");
+        assert!(
+            warning.message.contains("looks fixed") && !warning.message.contains("attribution"),
+            "an exercised acked location is not a move, got: {}",
+            warning.message
+        );
     }
 
     /// Two findings sharing the ack's prefix would make naming either one
