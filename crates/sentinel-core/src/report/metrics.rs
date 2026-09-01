@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::extract::State;
@@ -364,28 +365,20 @@ type FindingExemplarKey = (&'static str, &'static str, String);
 /// emitting would otherwise point its `findings_total` series at a
 /// `trace_id` past the tracing backend's retention forever, and the
 /// Grafana click-through lands on a 404.
-const EXEMPLAR_TTL_MS: u64 = 15 * 60 * 1000;
+const EXEMPLAR_TTL: Duration = Duration::from_mins(15);
 
 /// Data attached to a metric as an `OpenMetrics` exemplar.
 #[derive(Debug, Clone)]
 struct ExemplarData {
     trace_id: String,
-    /// When the exemplar was recorded, for [`EXEMPLAR_TTL_MS`].
-    at_ms: u64,
+    /// Recording instant plus [`EXEMPLAR_TTL`]. Monotonic, so an NTP
+    /// step neither revives a stale exemplar nor expires a live one.
+    expires_at: Instant,
 }
 
-/// Wall-clock milliseconds since the epoch. A clock set before the epoch
-/// reads as 0, which expires every exemplar rather than keeping a stale
-/// one alive.
-fn now_epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-}
-
-/// Whether an exemplar is still within [`EXEMPLAR_TTL_MS`].
-fn exemplar_is_fresh(exemplar: &ExemplarData, now_ms: u64) -> bool {
-    now_ms.saturating_sub(exemplar.at_ms) < EXEMPLAR_TTL_MS
+/// Whether an exemplar is still within [`EXEMPLAR_TTL`].
+fn exemplar_is_fresh(exemplar: &ExemplarData, now: Instant) -> bool {
+    now < exemplar.expires_at
 }
 
 /// Sanitize a value for use in an `OpenMetrics` exemplar label.
@@ -684,7 +677,8 @@ pub struct MetricsState {
     /// Cached child for `redfish_scrape_total{status="failed"}`.
     #[cfg(feature = "daemon")]
     pub redfish_scrape_failed: IntCounter,
-    /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
+    /// Last recorded `trace_id` per (type, severity, service) label set
+    /// of `findings_total`, for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<FindingExemplarKey, ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
     worst_waste_trace: Arc<RwLock<Option<ExemplarData>>>,
@@ -1528,7 +1522,7 @@ impl MetricsState {
                 .with_label_values(&[
                     finding.finding_type.as_str(),
                     finding.severity.as_str(),
-                    &finding.service,
+                    crate::event::service_or_unknown(&finding.service),
                 ])
                 .inc();
         }
@@ -1539,17 +1533,20 @@ impl MetricsState {
     /// Update exemplar tracking from findings and green summary.
     ///
     /// Library entry point, keyed on each finding's raw service (what
-    /// [`Self::record_batch`] renders); the daemon resolves capped
-    /// labels first and calls [`Self::record_exemplars_labeled`].
-    /// No cap on this path: a long-lived embedder feeding unbounded
-    /// `service.name` values must cap them itself.
+    /// [`Self::record_batch`] renders, a blank one reading as `unknown`
+    /// like a span's), the daemon resolves capped labels first and calls
+    /// [`Self::record_exemplars_labeled`]. No cap on this path: a
+    /// long-lived embedder feeding unbounded `service.name` values must
+    /// cap them itself.
     pub fn record_exemplars(
         &self,
         findings: &[crate::detect::Finding],
         green_summary: &crate::report::GreenSummary,
     ) {
-        let labeled: Vec<(&crate::detect::Finding, &str)> =
-            findings.iter().map(|f| (f, f.service.as_str())).collect();
+        let labeled: Vec<(&crate::detect::Finding, &str)> = findings
+            .iter()
+            .map(|f| (f, crate::event::service_or_unknown(&f.service)))
+            .collect();
         self.record_exemplars_labeled(&labeled, green_summary);
     }
 
@@ -1568,7 +1565,7 @@ impl MetricsState {
         green_summary: &crate::report::GreenSummary,
     ) {
         // Build exemplar updates locally to minimize lock hold time.
-        let now_ms = now_epoch_ms();
+        let expires_at = Instant::now() + EXEMPLAR_TTL;
         let mut new_exemplars: HashMap<FindingExemplarKey, ExemplarData> = HashMap::new();
         for (finding, service_label) in findings {
             new_exemplars.insert(
@@ -1579,20 +1576,22 @@ impl MetricsState {
                 ),
                 ExemplarData {
                     trace_id: finding.trace_id.clone(),
-                    at_ms: now_ms,
+                    expires_at,
                 },
             );
         }
 
-        if !new_exemplars.is_empty() {
+        {
             let mut worst_map = self
                 .worst_finding_trace
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            // Drop what aged out under the write lock we already hold.
-            // The read path filters too, so a daemon that goes quiet
-            // stops publishing stale exemplars even without this pass.
-            worst_map.retain(|_, exemplar| exemplar_is_fresh(exemplar, now_ms));
+            // Drop what aged out on every batch, findings or not, so a
+            // daemon that goes quiet prunes too (the read path filters
+            // as well, this keeps the bounded map from carrying dead
+            // entries between scrapes).
+            let now = Instant::now();
+            worst_map.retain(|_, exemplar| exemplar_is_fresh(exemplar, now));
             worst_map.extend(new_exemplars);
         }
 
@@ -1612,7 +1611,7 @@ impl MetricsState {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *waste_lock = Some(ExemplarData {
                 trace_id: worst_finding.trace_id.clone(),
-                at_ms: now_ms,
+                expires_at,
             });
         }
     }
@@ -1622,14 +1621,14 @@ impl MetricsState {
     /// Recovers gracefully if an internal lock is poisoned.
     #[must_use]
     pub fn has_exemplars(&self) -> bool {
-        let now_ms = now_epoch_ms();
+        let now = Instant::now();
         let finding_lock = self
             .worst_finding_trace
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if finding_lock
             .values()
-            .any(|exemplar| exemplar_is_fresh(exemplar, now_ms))
+            .any(|exemplar| exemplar_is_fresh(exemplar, now))
         {
             return true;
         }
@@ -1639,7 +1638,7 @@ impl MetricsState {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         waste_lock
             .as_ref()
-            .is_some_and(|exemplar| exemplar_is_fresh(exemplar, now_ms))
+            .is_some_and(|exemplar| exemplar_is_fresh(exemplar, now))
     }
 
     /// Render with HTTP content negotiation. Returns `(body, content_type)`.
@@ -1677,11 +1676,7 @@ impl MetricsState {
 
         match format {
             NegotiatedFormat::OpenMetricsForced => {
-                let mut output = if self.has_exemplars() {
-                    self.inject_exemplars(base_output)
-                } else {
-                    base_output
-                };
+                let mut output = self.inject_exemplars(base_output);
                 if !output.ends_with('\n') {
                     output.push('\n');
                 }
@@ -1724,24 +1719,23 @@ impl MetricsState {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        if finding_map.is_empty() && waste_exemplar.is_none() {
-            return base;
-        }
-
         // O(1) per-line lookups: borrow the guarded map's keys once
         // instead of scanning it for every findings_total line (the
         // service label multiplied both the line count and the map).
         // Aged-out entries are skipped here rather than evicted: the
         // scrape path holds a read lock, the write path prunes.
-        let now_ms = now_epoch_ms();
+        let now = Instant::now();
         let finding_lookup: HashMap<(&str, &str, &str), &ExemplarData> = finding_map
             .iter()
-            .filter(|(_, exemplar)| exemplar_is_fresh(exemplar, now_ms))
+            .filter(|(_, exemplar)| exemplar_is_fresh(exemplar, now))
             .map(|((ft, sev, svc), v)| ((*ft, *sev, svc.as_str()), v))
             .collect();
         let fresh_waste = waste_exemplar
             .as_ref()
-            .filter(|exemplar| exemplar_is_fresh(exemplar, now_ms));
+            .filter(|exemplar| exemplar_is_fresh(exemplar, now));
+        if finding_lookup.is_empty() && fresh_waste.is_none() {
+            return base;
+        }
 
         let mut output = String::with_capacity(base.len() + 256);
 
@@ -2284,7 +2278,7 @@ mod tests {
                 .unwrap()
                 .get_mut(&("n_plus_one_sql", "critical", key.to_string()))
                 .unwrap()
-                .at_ms -= EXEMPLAR_TTL_MS;
+                .expires_at -= EXEMPLAR_TTL;
         };
         age_out("svc-stale");
 
@@ -2301,7 +2295,7 @@ mod tests {
         // Everything aged out: nothing left to annotate at all.
         age_out("svc-fresh");
         if let Some(exemplar) = state.worst_waste_trace.write().unwrap().as_mut() {
-            exemplar.at_ms -= EXEMPLAR_TTL_MS;
+            exemplar.expires_at -= EXEMPLAR_TTL;
         }
         assert!(!state.has_exemplars());
 
