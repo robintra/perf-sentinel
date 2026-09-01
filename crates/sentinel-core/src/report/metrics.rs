@@ -359,10 +359,33 @@ fn register_int_counter_vec(
 /// name, `_other` past the cap, or empty with per-service labels off).
 type FindingExemplarKey = (&'static str, &'static str, String);
 
+/// How long an exemplar keeps annotating its series. The map is bounded
+/// by the service cap, so this is not about memory: a service that stops
+/// emitting would otherwise point its `findings_total` series at a
+/// `trace_id` past the tracing backend's retention forever, and the
+/// Grafana click-through lands on a 404.
+const EXEMPLAR_TTL_MS: u64 = 15 * 60 * 1000;
+
 /// Data attached to a metric as an `OpenMetrics` exemplar.
 #[derive(Debug, Clone)]
 struct ExemplarData {
     trace_id: String,
+    /// When the exemplar was recorded, for [`EXEMPLAR_TTL_MS`].
+    at_ms: u64,
+}
+
+/// Wall-clock milliseconds since the epoch. A clock set before the epoch
+/// reads as 0, which expires every exemplar rather than keeping a stale
+/// one alive.
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Whether an exemplar is still within [`EXEMPLAR_TTL_MS`].
+fn exemplar_is_fresh(exemplar: &ExemplarData, now_ms: u64) -> bool {
+    now_ms.saturating_sub(exemplar.at_ms) < EXEMPLAR_TTL_MS
 }
 
 /// Sanitize a value for use in an `OpenMetrics` exemplar label.
@@ -1545,6 +1568,7 @@ impl MetricsState {
         green_summary: &crate::report::GreenSummary,
     ) {
         // Build exemplar updates locally to minimize lock hold time.
+        let now_ms = now_epoch_ms();
         let mut new_exemplars: HashMap<FindingExemplarKey, ExemplarData> = HashMap::new();
         for (finding, service_label) in findings {
             new_exemplars.insert(
@@ -1555,6 +1579,7 @@ impl MetricsState {
                 ),
                 ExemplarData {
                     trace_id: finding.trace_id.clone(),
+                    at_ms: now_ms,
                 },
             );
         }
@@ -1564,6 +1589,10 @@ impl MetricsState {
                 .worst_finding_trace
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Drop what aged out under the write lock we already hold.
+            // The read path filters too, so a daemon that goes quiet
+            // stops publishing stale exemplars even without this pass.
+            worst_map.retain(|_, exemplar| exemplar_is_fresh(exemplar, now_ms));
             worst_map.extend(new_exemplars);
         }
 
@@ -1583,6 +1612,7 @@ impl MetricsState {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *waste_lock = Some(ExemplarData {
                 trace_id: worst_finding.trace_id.clone(),
+                at_ms: now_ms,
             });
         }
     }
@@ -1592,18 +1622,24 @@ impl MetricsState {
     /// Recovers gracefully if an internal lock is poisoned.
     #[must_use]
     pub fn has_exemplars(&self) -> bool {
+        let now_ms = now_epoch_ms();
         let finding_lock = self
             .worst_finding_trace
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !finding_lock.is_empty() {
+        if finding_lock
+            .values()
+            .any(|exemplar| exemplar_is_fresh(exemplar, now_ms))
+        {
             return true;
         }
         let waste_lock = self
             .worst_waste_trace
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        waste_lock.is_some()
+        waste_lock
+            .as_ref()
+            .is_some_and(|exemplar| exemplar_is_fresh(exemplar, now_ms))
     }
 
     /// Render with HTTP content negotiation. Returns `(body, content_type)`.
@@ -1695,10 +1731,17 @@ impl MetricsState {
         // O(1) per-line lookups: borrow the guarded map's keys once
         // instead of scanning it for every findings_total line (the
         // service label multiplied both the line count and the map).
+        // Aged-out entries are skipped here rather than evicted: the
+        // scrape path holds a read lock, the write path prunes.
+        let now_ms = now_epoch_ms();
         let finding_lookup: HashMap<(&str, &str, &str), &ExemplarData> = finding_map
             .iter()
+            .filter(|(_, exemplar)| exemplar_is_fresh(exemplar, now_ms))
             .map(|((ft, sev, svc), v)| ((*ft, *sev, svc.as_str()), v))
             .collect();
+        let fresh_waste = waste_exemplar
+            .as_ref()
+            .filter(|exemplar| exemplar_is_fresh(exemplar, now_ms));
 
         let mut output = String::with_capacity(base.len() + 256);
 
@@ -1716,9 +1759,8 @@ impl MetricsState {
             }
 
             // Inject exemplar on io_waste_ratio line
-            if let Some(exemplar) = waste_exemplar
-                .as_ref()
-                .filter(|_| line.starts_with("perf_sentinel_io_waste_ratio "))
+            if let Some(exemplar) =
+                fresh_waste.filter(|_| line.starts_with("perf_sentinel_io_waste_ratio "))
             {
                 let sanitized = sanitize_exemplar_value(&exemplar.trace_id);
                 let _ = write!(output, " # {{trace_id=\"{sanitized}\"}} 1.0");
@@ -2211,6 +2253,70 @@ mod tests {
 
         let waste = state.worst_waste_trace.read().unwrap();
         assert_eq!(waste.as_ref().unwrap().trace_id, "trace-waste");
+    }
+
+    #[test]
+    fn stale_exemplars_drop_out_of_the_scrape() {
+        let state = MetricsState::new();
+        let mut fresh = make_finding(
+            FindingType::NPlusOneSql,
+            Severity::Critical,
+            "trace-fresh",
+            10,
+        );
+        fresh.service = "svc-fresh".to_string();
+        let mut stale = make_finding(
+            FindingType::NPlusOneSql,
+            Severity::Critical,
+            "trace-stale",
+            5,
+        );
+        stale.service = "svc-stale".to_string();
+        state.record_batch(&make_test_report(vec![fresh, stale], 0.5));
+
+        // Age one of the two. A service that stopped emitting must not
+        // keep annotating its series with a trace the tracing backend
+        // has already dropped, while its live neighbour still does.
+        let age_out = |key: &str| {
+            state
+                .worst_finding_trace
+                .write()
+                .unwrap()
+                .get_mut(&("n_plus_one_sql", "critical", key.to_string()))
+                .unwrap()
+                .at_ms -= EXEMPLAR_TTL_MS;
+        };
+        age_out("svc-stale");
+
+        let body = openmetrics_body(&state);
+        assert!(
+            body.contains("trace-fresh"),
+            "live exemplar dropped: {body}"
+        );
+        assert!(
+            !body.contains("trace-stale"),
+            "stale exemplar still injected: {body}"
+        );
+
+        // Everything aged out: nothing left to annotate at all.
+        age_out("svc-fresh");
+        if let Some(exemplar) = state.worst_waste_trace.write().unwrap().as_mut() {
+            exemplar.at_ms -= EXEMPLAR_TTL_MS;
+        }
+        assert!(!state.has_exemplars());
+
+        // A live batch prunes the aged entries under the write lock it
+        // already holds.
+        let mut revived = make_finding(
+            FindingType::NPlusOneSql,
+            Severity::Critical,
+            "trace-new",
+            10,
+        );
+        revived.service = "svc-fresh".to_string();
+        state.record_batch(&make_test_report(vec![revived], 0.5));
+        assert_eq!(state.worst_finding_trace.read().unwrap().len(), 1);
+        assert!(openmetrics_body(&state).contains("trace-new"));
     }
 
     /// Body an exemplar-aware scraper receives. Exemplars are opt-in, so
