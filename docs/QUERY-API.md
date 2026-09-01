@@ -890,7 +890,8 @@ groups:
 ```
 
 The built-in Prometheus scrape endpoint at `/metrics` already exposes
-`perf_sentinel_findings_total{type,severity}` as a counter, so you do not
+`perf_sentinel_findings_total{type,severity,service}` as a counter, so you do not
+
 need the query API for counting alerts. Use the query API to fetch the
 **payload** (template, trace ID, suggestion) that the alert handler
 includes in the notification.
