@@ -85,7 +85,7 @@ Vec<SpanEvent>
   -> normalize::normalize_all()        -> Vec<NormalizedEvent>
   -> correlate::correlate()            -> Vec<Trace>
   -> detect::detect()                  -> Vec<Finding>
-  -> score::score_green()              -> (Vec<Finding>, GreenSummary)
+  -> score::score_green()              -> (Vec<Finding>, GreenSummary, Vec<PerEndpointIoOps>)
   -> quality_gate::evaluate()          -> QualityGate
   -> Report { analysis, findings, green_summary, quality_gate }
 ```

@@ -159,29 +159,19 @@ fn endpoint_stats_to_per_endpoint_io_ops(
 /// per-region carbon) is documented in
 /// `docs/design/05-GREENOPS-AND-CARBON.md`.
 ///
-/// The last tuple element is the per-service split of the deduped
-/// avoidable ops (same pass as the totals), feeding
-/// `perf_sentinel_service_avoidable_io_ops_total`. Ordered by service
-/// name, so the daemon's cap admission does not depend on hash order.
+/// The per-service split of the deduped avoidable ops (same pass as the
+/// totals) rides on `GreenSummary::avoidable_per_service`, in-process
+/// only, for the daemon's `perf_sentinel_service_avoidable_io_ops_total`.
 #[must_use]
 pub fn score_green(
     traces: &[Trace],
     findings: Vec<Finding>,
     carbon: Option<&CarbonContext>,
-) -> (
-    Vec<Finding>,
-    GreenSummary,
-    Vec<PerEndpointIoOps>,
-    BTreeMap<String, usize>,
-) {
+) -> (Vec<Finding>, GreenSummary, Vec<PerEndpointIoOps>) {
     let (endpoint_stats, total_io_ops, total_sql_io_ops, total_messaging_io_ops) =
         count_endpoint_stats(traces);
     let per_endpoint_io_ops = endpoint_stats_to_per_endpoint_io_ops(&endpoint_stats);
     let (avoidable, avoidable_per_service) = dedup_avoidable_io_ops_by_service(&findings);
-    let avoidable_per_service: BTreeMap<String, usize> = avoidable_per_service
-        .into_iter()
-        .map(|(service, ops)| (service.to_string(), ops))
-        .collect();
     let avoidable_io_ops = avoidable.total;
 
     let iis_map = build_iis_map(&endpoint_stats);
@@ -237,6 +227,7 @@ pub fn score_green(
         total_messaging_io_ops,
         avoidable_messaging_io_ops: avoidable.messaging,
         accounted_io_ops: carbon_outputs.accounted_io_ops,
+        avoidable_per_service,
         io_waste_ratio,
         io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
             io_waste_ratio,
@@ -260,12 +251,7 @@ pub fn score_green(
         messaging_waste,
     };
 
-    (
-        enriched,
-        green_summary,
-        per_endpoint_io_ops,
-        avoidable_per_service,
-    )
+    (enriched, green_summary, per_endpoint_io_ops)
 }
 
 /// Total, SQL-only and messaging-only sums of the deduped avoidable I/O ops.
@@ -283,10 +269,12 @@ pub(crate) struct AvoidableIoOps {
 /// that happen to be slow.
 ///
 /// The split is a `BTreeMap` so its consumers inherit a deterministic
-/// service order instead of re-collecting one.
+/// service order instead of re-collecting one. It inherits the
+/// detector's first-span attribution: a template shared by two services
+/// in one trace is one finding, credited to the first service seen.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
-) -> (AvoidableIoOps, BTreeMap<&str, usize>) {
+) -> (AvoidableIoOps, BTreeMap<String, usize>) {
     let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
@@ -313,10 +301,17 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         sql: 0,
         messaging: 0,
     };
-    let mut per_service: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
     for &(avoidable, finding_type, service) in dedup.values() {
         out.total += avoidable;
-        *per_service.entry(service).or_default() += avoidable;
+        // `get_mut` first: `entry(service.to_string())` would allocate
+        // once per dedup entry instead of once per distinct service.
+        match per_service.get_mut(service) {
+            Some(ops) => *ops += avoidable,
+            None => {
+                per_service.insert(service.to_string(), avoidable);
+            }
+        }
         match finding_type {
             FindingType::NPlusOneSql | FindingType::RedundantSql => out.sql += avoidable,
             // No RedundantMessaging exists: a publish carries no params.

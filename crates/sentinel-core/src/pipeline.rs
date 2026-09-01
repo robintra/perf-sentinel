@@ -41,8 +41,7 @@ pub fn analyze_with_traces(
     let detect_config = DetectConfig::from(config);
     let findings = detect::run_full_detection(&traces, &detect_config);
 
-    // The per-service avoidable split only feeds daemon /metrics.
-    let (mut findings, green_summary, per_endpoint_io_ops, _) = if config.green.enabled {
+    let (mut findings, green_summary, per_endpoint_io_ops) = if config.green.enabled {
         let carbon_ctx = config.carbon_context();
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
@@ -56,7 +55,6 @@ pub fn analyze_with_traces(
             findings,
             crate::report::GreenSummary::disabled(total_io_ops),
             per_endpoint_io_ops,
-            std::collections::BTreeMap::new(),
         )
     };
 

@@ -1,7 +1,7 @@
 //! Daemon main event loop: ingest batches, evict expired traces, and route
 //! the resulting traces through detect + score + metrics + findings store.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -1139,13 +1139,10 @@ fn emit_findings_and_update_metrics(
     findings: &[detect::Finding],
     green_summary: &GreenSummary,
     per_endpoint_io_ops: &[crate::report::PerEndpointIoOps],
-    avoidable_per_service: &BTreeMap<String, usize>,
-    ctx: &mut ProcessTracesCtx<'_>,
+    metrics: &MetricsState,
+    meter: &mut AnalysisServiceMeter,
 ) {
     use std::io::Write;
-
-    let metrics = ctx.metrics;
-    let meter = &mut *ctx.service_meter;
 
     metrics.traces_analyzed_total.inc_by(trace_count as f64);
     metrics
@@ -1173,30 +1170,24 @@ fn emit_findings_and_update_metrics(
     // under the same cap. Both empty when green is off, like the
     // global avoidable counter.
     //
-    // Folded to one row per service before touching the `MetricVec`:
-    // `per_endpoint_io_ops` carries a row per (service, endpoint), so
-    // the raw loop paid a label hash plus the vec lock per endpoint and
-    // charged the overflow counter once per endpoint of an over-cap
-    // service. `BTreeMap` also makes cap admission deterministic, where
-    // `HashMap` order decided at random which services kept their own
-    // label at the boundary. The avoidable split arrives ordered from
-    // `dedup_avoidable_io_ops_by_service`, so it needs no fold here.
-    let mut analyzed_per_service: BTreeMap<&str, usize> = BTreeMap::new();
-    for entry in per_endpoint_io_ops {
-        *analyzed_per_service
-            .entry(entry.service.as_str())
-            .or_default() += entry.io_ops;
-    }
-    for (service, ops) in avoidable_per_service {
+    // One row per service before touching the `MetricVec`: a row per
+    // (service, endpoint) paid a label hash plus the vec lock per
+    // endpoint and charged the overflow counter once per endpoint of an
+    // over-cap service. `per_endpoint_io_ops` arrives sorted by
+    // (service, endpoint) from `endpoint_stats_to_per_endpoint_io_ops`,
+    // so each service is one contiguous run, and the avoidable split
+    // arrives ordered from `dedup_avoidable_io_ops_by_service`.
+    for (service, ops) in &green_summary.avoidable_per_service {
         metrics
             .service_avoidable_io_ops_total
-            .with_label_values(&[meter.service_label(service.as_str(), metrics)])
+            .with_label_values(&[meter.service_label(service, metrics)])
             .inc_by(*ops as f64);
     }
-    for (service, ops) in analyzed_per_service {
+    for group in per_endpoint_io_ops.chunk_by(|a, b| a.service == b.service) {
+        let ops: usize = group.iter().map(|e| e.io_ops).sum();
         metrics
             .service_analyzed_io_ops_total
-            .with_label_values(&[meter.service_label(service, metrics)])
+            .with_label_values(&[meter.service_label(&group[0].service, metrics)])
             .inc_by(ops as f64);
     }
 
@@ -1255,18 +1246,12 @@ fn score_batch(
     Vec<detect::Finding>,
     GreenSummary,
     Vec<crate::report::PerEndpointIoOps>,
-    BTreeMap<String, usize>,
 ) {
     if ctx.green_enabled {
         score::score_green(traces, findings, Some(ctx.carbon_ctx))
     } else {
         let total_io_ops = traces.iter().map(|t| t.spans.len()).sum();
-        (
-            findings,
-            GreenSummary::disabled(total_io_ops),
-            Vec::new(),
-            BTreeMap::new(),
-        )
+        (findings, GreenSummary::disabled(total_io_ops), Vec::new())
     }
 }
 
@@ -1377,9 +1362,9 @@ async fn process_traces(
     );
 
     // Keep `per_endpoint_io_ops` for the periodic-disclosure archive
-    // (design doc 08) and `avoidable_per_service` for /metrics, both
-    // computed by `score_green`'s single pass.
-    let (mut findings, green_summary, per_endpoint_io_ops, avoidable_per_service) =
+    // (design doc 08), computed by `score_green`'s single pass along
+    // with the per-service avoidable split on the summary.
+    let (mut findings, green_summary, per_endpoint_io_ops) =
         score_batch(&trace_structs, findings, &ctx);
 
     // Publish the per-batch summary on the shared cell so live daemon
@@ -1426,8 +1411,8 @@ async fn process_traces(
         &findings,
         &green_summary,
         &per_endpoint_io_ops,
-        &avoidable_per_service,
-        &mut ctx,
+        ctx.metrics,
+        ctx.service_meter,
     );
 
     if let Some(archive_tx) = ctx.archive_tx {

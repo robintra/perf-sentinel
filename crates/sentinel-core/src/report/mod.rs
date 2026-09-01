@@ -306,6 +306,12 @@ pub struct GreenSummary {
     /// read by the daemon to rescale avoidable at the canonical threshold.
     #[serde(skip)]
     pub accounted_io_ops: usize,
+    /// Per-service split of `avoidable_io_ops`, from the same dedup pass.
+    /// In-process only (`serde(skip)`), read by the daemon for
+    /// `perf_sentinel_service_avoidable_io_ops_total`. Ordered by service
+    /// name so cap admission does not depend on hash order.
+    #[serde(skip)]
+    pub avoidable_per_service: BTreeMap<String, usize>,
     pub io_waste_ratio: f64,
     /// Classification band for `io_waste_ratio`
     /// (`healthy` / `moderate` / `high` / `critical`).
@@ -553,6 +559,7 @@ impl GreenSummary {
             total_messaging_io_ops: 0,
             avoidable_messaging_io_ops: 0,
             accounted_io_ops: total_io_ops,
+            avoidable_per_service: BTreeMap::new(),
             io_waste_ratio: 0.0,
             io_waste_ratio_band: InterpretationLevel::Healthy,
             top_offenders: vec![],
