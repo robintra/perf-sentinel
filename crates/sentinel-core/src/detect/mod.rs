@@ -15,7 +15,7 @@ pub mod suggestions;
 
 pub use n_plus_one::DISCLOSURE_N_PLUS_ONE_THRESHOLD;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::correlate::Trace;
 use crate::event::{EventType, GroupingAttribute};
@@ -158,6 +158,24 @@ impl Finding {
     pub fn grouping_identity(&self) -> Option<(&str, &str)> {
         self.grouping.first().map(GroupingAttribute::identity)
     }
+
+    /// Avoidable I/O ops per service, the finding's own service first:
+    /// each service is charged its span count, the owner one less for
+    /// the necessary call. Sums to `occurrences - 1`.
+    pub fn avoidable_by_service(&self) -> impl Iterator<Item = (&str, usize)> {
+        let split = &self.pattern.occurrences_by_service;
+        let service = self.service.as_str();
+        let owner = match split.get(service) {
+            Some(&n) => n,
+            None if split.is_empty() => self.pattern.occurrences,
+            None => 0,
+        };
+        let others = split
+            .iter()
+            .filter(move |(s, _)| s.as_str() != service)
+            .map(|(s, &n)| (s.as_str(), n));
+        std::iter::once((service, owner.saturating_sub(1))).chain(others)
+    }
 }
 
 /// Span ids of the spans a finding is built from, for the HTML evidence
@@ -176,6 +194,28 @@ pub(crate) fn member_span_ids<'a>(
     } else {
         Vec::new()
     }
+}
+
+/// Span count per service for a group, empty when one service emitted
+/// them all so the common case allocates nothing.
+pub(crate) fn occurrences_by_service(trace: &Trace, indices: &[usize]) -> BTreeMap<String, usize> {
+    let first = &trace.spans[indices[0]].event.service;
+    if indices
+        .iter()
+        .all(|&i| trace.spans[i].event.service == *first)
+    {
+        return BTreeMap::new();
+    }
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for &i in indices {
+        *counts
+            .entry(trace.spans[i].event.service.as_ref())
+            .or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(service, n)| (service.to_string(), n))
+        .collect()
 }
 
 /// Types of performance anti-patterns.
@@ -311,6 +351,10 @@ pub struct Pattern {
     pub template: String,
     /// Number of spans that matched this template within the window.
     pub occurrences: usize,
+    /// Span count per service when the group spans more than one service,
+    /// `service` always among the keys. Empty for a single-service group.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub occurrences_by_service: BTreeMap<String, usize>,
     /// Time span, in milliseconds, covering all matched occurrences.
     pub window_ms: u64,
     /// Count of distinct parameter sets observed across occurrences.
@@ -542,6 +586,7 @@ pub(crate) struct PerTraceFindingArgs<'a> {
     pub first_span: &'a crate::normalize::NormalizedEvent,
     pub template: &'a str,
     pub occurrences: usize,
+    pub occurrences_by_service: BTreeMap<String, usize>,
     pub window_ms: u64,
     pub distinct_params: usize,
     pub suggestion: String,
@@ -609,6 +654,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         pattern: Pattern {
             template: args.template.to_string(),
             occurrences: args.occurrences,
+            occurrences_by_service: args.occurrences_by_service,
             window_ms: args.window_ms,
             distinct_params: args.distinct_params,
             span_duration_us_p50: timing.map(|(p50, _, _)| p50),
@@ -1161,6 +1207,40 @@ mod tests {
         assert_eq!(finding.service, back.service);
         assert_eq!(finding.pattern.template, back.pattern.template);
         assert_eq!(finding.confidence, back.confidence);
+        // A single-service group adds no key, so 0.17 readers and writers
+        // see the same document.
+        assert!(!json.contains("occurrences_by_service"));
+        assert!(back.pattern.occurrences_by_service.is_empty());
+
+        let mut split = finding;
+        split.pattern.occurrences_by_service = BTreeMap::from([
+            ("inventory-svc".to_string(), 2),
+            ("order-svc".to_string(), 4),
+        ]);
+        let json = serde_json::to_string(&split).unwrap();
+        assert!(json.contains(r#""occurrences_by_service":{"inventory-svc":2,"order-svc":4}"#));
+        let back: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.pattern, split.pattern);
+    }
+
+    #[test]
+    fn avoidable_by_service_charges_each_service_its_own_repeats() {
+        let mut finding =
+            crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        assert_eq!(finding.pattern.occurrences, 6);
+        // No split: the whole group is the finding's service.
+        let whole: Vec<_> = finding.avoidable_by_service().collect();
+        assert_eq!(whole, [("order-svc", 5)]);
+
+        // Split: the owner comes first, one less for the necessary call.
+        finding.pattern.occurrences_by_service = BTreeMap::from([
+            ("inventory-svc".to_string(), 4),
+            ("order-svc".to_string(), 2),
+        ]);
+        let credit: Vec<_> = finding.avoidable_by_service().collect();
+        assert_eq!(credit, [("order-svc", 1), ("inventory-svc", 4)]);
+        let sum: usize = credit.iter().map(|(_, n)| n).sum();
+        assert_eq!(sum, finding.pattern.occurrences - 1);
     }
 
     #[test]

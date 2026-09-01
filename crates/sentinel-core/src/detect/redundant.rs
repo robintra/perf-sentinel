@@ -128,6 +128,7 @@ fn redundant_impl<'a>(
             pattern: Pattern {
                 template: (*template).to_string(),
                 occurrences: indices.len(),
+                occurrences_by_service: crate::detect::occurrences_by_service(trace, indices),
                 window_ms,
                 distinct_params: 1,
                 ..Default::default()
@@ -177,6 +178,30 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert_eq!(findings[0].pattern.distinct_params, 1);
         assert!(findings[0].suggestion.contains("cache"));
+        assert!(findings[0].pattern.occurrences_by_service.is_empty());
+    }
+
+    /// Same as the N+1 case: the redundant key has no service either.
+    #[test]
+    fn redundant_across_services_splits_occurrences() {
+        let mut events = crate::test_helpers::make_redundant_events();
+        for (i, event) in events.iter_mut().enumerate() {
+            event.service = std::sync::Arc::from(if i < 2 { "order-svc" } else { "inventory-svc" });
+        }
+        let trace = make_trace(events);
+        let findings = detect_redundant(&trace, &[]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].service, "order-svc");
+        assert_eq!(
+            findings[0].pattern.occurrences_by_service,
+            std::collections::BTreeMap::from([
+                ("inventory-svc".to_string(), 1),
+                ("order-svc".to_string(), 2),
+            ])
+        );
+        let credit: Vec<_> = findings[0].avoidable_by_service().collect();
+        assert_eq!(credit, [("order-svc", 1), ("inventory-svc", 1)]);
     }
 
     #[test]
