@@ -340,18 +340,6 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
 /// the tuning advisor in `query_api` so its hint names the real cap.
 pub(crate) const MAX_SERVICE_CARDINALITY: usize = 1024;
 
-/// Belt and braces at the label boundary: `sanitize_span_event` already
-/// settles this on every ingestion path, but an empty value here would
-/// mint the `per_service_labels = false` sentinel, which a scrape
-/// re-attributes to its own target.
-fn normalize_service(service: &str) -> &str {
-    if service.trim().is_empty() {
-        crate::event::UNKNOWN_SERVICE
-    } else {
-        service
-    }
-}
-
 /// Cardinality cap on the analysis-side `service` labels
 /// (`findings_total`, `service_avoidable_io_ops_total`,
 /// `service_analyzed_io_ops_total`). Lower than
@@ -443,7 +431,6 @@ impl ServiceMeter {
     }
 
     fn record(&mut self, service: &str, metrics: &MetricsState) {
-        let service = normalize_service(service);
         if let Some(child) = self.children.get(service) {
             child.inc();
             return;
@@ -544,10 +531,7 @@ impl AnalysisServiceMeter {
     /// [`SERVICE_OVERFLOW_LABEL`] past it.
     fn service_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
         self.names
-            .admit(
-                normalize_service(service),
-                &metrics.analysis_service_overflow_total,
-            )
+            .admit(service, &metrics.analysis_service_overflow_total)
             .unwrap_or(SERVICE_OVERFLOW_LABEL)
     }
 
@@ -572,11 +556,7 @@ impl AnalysisServiceMeter {
         seconds: f64,
         metrics: &MetricsState,
     ) {
-        let service = if self.per_service_labels {
-            normalize_service(service)
-        } else {
-            ""
-        };
+        let service = if self.per_service_labels { service } else { "" };
         if let Some(hists) = self.hist_children.get(service) {
             hists.for_type(event_type).observe(seconds);
             return;
@@ -3493,19 +3473,10 @@ mod tests {
     }
 
     #[test]
-    fn ingest_service_meter_normalizes_anonymous_and_reserved_names() {
+    fn ingest_service_meter_reserves_the_fold_name() {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter::new(2);
-
-        // Anonymous spans count under the OTLP default, not `service=""`.
-        meter.record("", &metrics);
-        let unknown = metrics
-            .service_io_ops_total
-            .with_label_values(&["unknown"])
-            .get();
-        assert!((unknown - 1.0).abs() < f64::EPSILON);
-        let empty = metrics.service_io_ops_total.with_label_values(&[""]).get();
-        assert!(empty.abs() < f64::EPSILON);
+        meter.record("svc-a", &metrics);
 
         // `_other` is reserved: counted, but never taking a cap slot.
         meter.record(SERVICE_OVERFLOW_LABEL, &metrics);
@@ -3587,21 +3558,6 @@ mod tests {
         );
         assert!(meter.names.admitted.is_empty());
         assert_eq!(metrics.analysis_service_overflow_total.get(), 0);
-
-        // Anonymous spans never mint the knob-off sentinel `service=""`.
-        assert_eq!(meter.service_label("", &metrics), "unknown");
-        assert_eq!(meter.finding_label("", &metrics), "unknown");
-        meter.observe_slow("", &crate::event::EventType::Sql, 1.0, &metrics);
-        let empty_label_samples = metrics
-            .slow_duration_seconds
-            .with_label_values(&["sql", ""])
-            .get_sample_count();
-        assert_eq!(empty_label_samples, 0);
-        let unknown_samples = metrics
-            .slow_duration_seconds
-            .with_label_values(&["sql", "unknown"])
-            .get_sample_count();
-        assert_eq!(unknown_samples, 1);
     }
 
     #[test]
