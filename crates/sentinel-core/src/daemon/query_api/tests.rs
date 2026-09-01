@@ -1037,6 +1037,20 @@ fn tuning_advisor_flags_service_cardinality_overflow() {
 }
 
 #[test]
+fn tuning_advisor_flags_analysis_service_folding() {
+    let metrics = MetricsState::new();
+    metrics.analysis_service_overflow_total.inc_by(5);
+    metrics.slow_duration_service_overflow_total.inc_by(2);
+    let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
+    assert_eq!(msgs.len(), 1);
+    assert!(
+        msgs[0].contains("7 ") && msgs[0].contains("_other"),
+        "got: {}",
+        msgs[0]
+    );
+}
+
+#[test]
 fn tuning_advisor_flags_pair_evictions_only_when_correlation_enabled() {
     let metrics = MetricsState::new();
     metrics.correlator_pairs_evicted_total.inc_by(900);
