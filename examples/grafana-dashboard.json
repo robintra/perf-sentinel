@@ -371,7 +371,7 @@
     },
     {
       "title": "Ingested I/O ops (cumulative)",
-      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue: an analysis stall does not flatten it; watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded. If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
+      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue: an analysis stall does not flatten it, watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded. If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -1082,7 +1082,7 @@
         "current": {},
         "options": [],
         "hide": 0,
-        "description": "Analysed service (OTLP service.name). Filters the Analysis row; the Daemon health row is daemon-wide. service=\"_other\" is the fold bucket for services past the per-run cardinality caps (128 on findings, 64 on the slow-span histogram): a service admitted at ingest but past an analysis cap has its findings there, not under its own name."
+        "description": "Analysed service (OTLP service.name). Filters the Analysis row, the Daemon health row is daemon-wide. service=\"_other\" is the fold bucket for services past the per-run cardinality caps (128 on findings, 64 on the slow-span histogram): a service admitted at ingest but past an analysis cap has its findings there, not under its own name."
       }
     ]
   },
