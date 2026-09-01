@@ -237,8 +237,10 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     // Zipkin and Jaeger leave the name empty when the span carries no
     // service; OTLP already falls back to "unknown". Settle it here, on
     // the path all four ingests share, so `Finding.service`, the ack
-    // signature and the `service` metric label agree.
-    if event.service.is_empty() {
+    // signature and the `service` metric label agree. Blank counts as
+    // missing, like OTLP's own `resource_service_name`: whitespace would
+    // otherwise reach `/metrics` as a label nobody can select.
+    if event.service.trim().is_empty() {
         event.service = Arc::from(UNKNOWN_SERVICE);
     }
 
@@ -739,6 +741,12 @@ mod tests {
         let mut event = make_event_with_field("service", "");
         sanitize_span_event(&mut event);
         assert_eq!(&*event.service, UNKNOWN_SERVICE);
+
+        // Blank counts as missing too: whitespace would otherwise mint a
+        // `service="  "` metric label and a blank-looking ack component.
+        let mut blank = make_event_with_field("service", " \t ");
+        sanitize_span_event(&mut blank);
+        assert_eq!(&*blank.service, UNKNOWN_SERVICE);
 
         let mut named = make_event_with_field("service", "cart-svc");
         sanitize_span_event(&mut named);
