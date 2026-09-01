@@ -263,7 +263,9 @@ pub(super) struct DaemonSection {
     max_retained_traces: Option<usize>,
     ingest_queue_capacity: Option<usize>,
     analysis_queue_capacity: Option<usize>,
+    per_service_labels: Option<bool>,
     memory_high_water_pct: Option<u8>,
+
     api_enabled: Option<bool>,
     correlation: CorrelationSection,
     ack: DaemonAckSection,
@@ -577,6 +579,11 @@ impl From<RawConfig> for Config {
                     .daemon
                     .analysis_queue_capacity
                     .unwrap_or(daemon_defaults.analysis_queue_capacity),
+                per_service_labels: raw
+                    .daemon
+                    .per_service_labels
+                    .unwrap_or(daemon_defaults.per_service_labels),
+
                 memory_high_water_pct: raw
                     .daemon
                     .memory_high_water_pct

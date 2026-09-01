@@ -37,7 +37,7 @@ pub(crate) mod canonical;
 mod carbon_compute;
 mod region_breakdown;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::correlate::Trace;
 use crate::detect::{Finding, FindingType, GreenImpact};
@@ -261,13 +261,23 @@ pub(crate) struct AvoidableIoOps {
 /// operations that happen to be slow. The per-kind sums let operators
 /// apply a waste share to a measured database or broker energy reading.
 pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
+    dedup_avoidable_io_ops_by_service(findings).0
+}
+
+/// [`dedup_avoidable_io_ops`] plus the per-service split of the same
+/// deduped ops, so `perf_sentinel_service_avoidable_io_ops_total` can
+/// never diverge from the global counter.
+pub(crate) fn dedup_avoidable_io_ops_by_service(
+    findings: &[Finding],
+) -> (AvoidableIoOps, BTreeMap<&str, usize>) {
     let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
         .count();
-    // Value = (max avoidable, the type it came from). Carrying the type
-    // rather than a flag per kind keeps `sql && messaging` unrepresentable.
-    let mut dedup: HashMap<(&str, &str, &str), (usize, &FindingType)> =
+    // Value = (max avoidable, the type and service it came from). Carrying
+    // the type rather than a flag per kind keeps `sql && messaging`
+    // unrepresentable.
+    let mut dedup: HashMap<(&str, &str, &str), (usize, &FindingType, &str)> =
         HashMap::with_capacity(capacity);
     for f in findings {
         if !f.finding_type.is_avoidable_io() {
@@ -276,9 +286,9 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
         let avoidable = f.pattern.occurrences.saturating_sub(1);
         let entry = dedup
             .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-            .or_insert((avoidable, &f.finding_type));
+            .or_insert((avoidable, &f.finding_type, f.service.as_str()));
         if avoidable > entry.0 {
-            *entry = (avoidable, &f.finding_type);
+            *entry = (avoidable, &f.finding_type, &f.service);
         }
     }
     let mut out = AvoidableIoOps {
@@ -286,8 +296,10 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
         sql: 0,
         messaging: 0,
     };
-    for &(avoidable, finding_type) in dedup.values() {
+    let mut per_service: BTreeMap<&str, usize> = BTreeMap::new();
+    for &(avoidable, finding_type, service) in dedup.values() {
         out.total += avoidable;
+        *per_service.entry(service).or_default() += avoidable;
         match finding_type {
             FindingType::NPlusOneSql | FindingType::RedundantSql => out.sql += avoidable,
             // No RedundantMessaging exists: a publish carries no params.
@@ -295,7 +307,7 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
             _ => {}
         }
     }
-    out
+    (out, per_service)
 }
 
 /// The shared shape of a waste figure: an energy, a ratio, and the two

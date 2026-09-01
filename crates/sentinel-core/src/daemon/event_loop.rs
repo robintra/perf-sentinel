@@ -1,7 +1,8 @@
 //! Daemon main event loop: ingest batches, evict expired traces, and route
 //! the resulting traces through detect + score + metrics + findings store.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -45,6 +46,9 @@ pub(super) struct EventLoopConfig {
     /// Capacity of the bounded analysis worker queue. From
     /// `[daemon] analysis_queue_capacity`.
     pub(super) analysis_queue_capacity: usize,
+    /// Whether findings and slow-span histograms carry a `service`
+    /// label. From `[daemon] per_service_labels`.
+    pub(super) per_service_labels: bool,
 }
 
 /// Bundle of handles aborted on shutdown (SIGINT, or SIGTERM on Unix).
@@ -128,6 +132,8 @@ impl AnalysisBatch {
 struct AnalysisWorkerCtx {
     detect_config: DetectConfig,
     green_enabled: bool,
+    per_service_labels: bool,
+
     confidence: Confidence,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
@@ -176,6 +182,8 @@ pub(super) async fn run_event_loop(
         AnalysisWorkerCtx {
             detect_config: detect_config.clone(),
             green_enabled: loop_cfg.green_enabled,
+            per_service_labels: loop_cfg.per_service_labels,
+
             confidence: loop_cfg.confidence,
             metrics: metrics.clone(),
             findings_store,
@@ -311,6 +319,7 @@ async fn drive_event_loop(
 async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
     let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
     let mut msg_waste_sticky: Option<(MessagingWaste, u64)> = None;
+    let mut service_meter = AnalysisServiceMeter::new(wctx.per_service_labels);
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -318,6 +327,8 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
             ProcessTracesCtx {
                 detect_config: &wctx.detect_config,
                 green_enabled: wctx.green_enabled,
+                service_meter: &mut service_meter,
+
                 carbon_ctx: batch.carbon_ctx.as_ref(),
                 metrics: &wctx.metrics,
                 confidence: wctx.confidence,
@@ -373,6 +384,125 @@ impl ServiceMeter {
                 self.service_cap_warned = true;
             }
         }
+    }
+}
+
+/// Cardinality cap on the analysis-side `service` labels
+/// (`findings_total`, `service_avoidable_io_ops_total`). Lower than
+/// [`MAX_SERVICE_CARDINALITY`]: these series multiply by type/severity.
+pub(crate) const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
+
+/// Cardinality cap on the slow-duration histogram's `service` label.
+/// Lower still: a histogram costs 13 series per (type, service) pair.
+pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
+
+/// Label value that series of services past a cap fold into, so the
+/// global sums stay exact while cardinality stays bounded.
+pub(crate) const SERVICE_OVERFLOW_LABEL: &str = "_other";
+
+/// Caps the `service` label on the analysis-side metrics. Single-owner
+/// state of the analysis worker task, like [`ServiceMeter`] on the
+/// ingest side: no lock. With `[daemon] per_service_labels = false`,
+/// findings and histogram series carry an empty `service` value instead
+/// of per-service ones; `service_avoidable_io_ops_total` is per-service
+/// by construction and ignores the knob.
+struct AnalysisServiceMeter {
+    per_service_labels: bool,
+    services: HashSet<String>,
+    cap: usize,
+    hist_cap: usize,
+    cap_warned: bool,
+
+    /// Histogram children per effective service label, `[sql, http_out,
+    /// messaging]`, resolved once at admission so the per-span path does
+    /// one `HashMap` lookup instead of a `MetricVec` label-hash + lock.
+    hist_children: HashMap<String, [prometheus::Histogram; 3]>,
+    hist_admitted: usize,
+    hist_cap_warned: bool,
+}
+
+impl AnalysisServiceMeter {
+    fn new(per_service_labels: bool) -> Self {
+        Self {
+            per_service_labels,
+            services: HashSet::new(),
+            cap: MAX_ANALYSIS_SERVICE_CARDINALITY,
+            hist_cap: MAX_HISTOGRAM_SERVICE_CARDINALITY,
+            cap_warned: false,
+
+            hist_children: HashMap::new(),
+            hist_admitted: 0,
+            hist_cap_warned: false,
+        }
+    }
+
+    /// Effective label value under the shared analysis cap: the service
+    /// itself when admitted, [`SERVICE_OVERFLOW_LABEL`] past the cap.
+    fn service_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
+        if self.services.contains(service) {
+            return service;
+        }
+        if self.services.len() < self.cap {
+            self.services.insert(service.to_string());
+            return service;
+        }
+        metrics.analysis_service_overflow_total.inc();
+        if !self.cap_warned {
+            tracing::warn!(
+                cap = self.cap,
+                "Analysis service cardinality cap reached; new services \
+                 fold into the _other series"
+            );
+            self.cap_warned = true;
+        }
+        SERVICE_OVERFLOW_LABEL
+    }
+
+    /// Label value for `findings_total`: empty with the knob off, else
+    /// the capped service label.
+    fn finding_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
+        if self.per_service_labels {
+            self.service_label(service, metrics)
+        } else {
+            ""
+        }
+    }
+
+    /// Histogram children for a slow span's service, under the
+    /// histogram's own cap.
+    fn hist_children(
+        &mut self,
+        service: &str,
+        metrics: &MetricsState,
+    ) -> &[prometheus::Histogram; 3] {
+        let label = if !self.per_service_labels {
+            ""
+        } else if self.hist_children.contains_key(service) || self.hist_admitted < self.hist_cap {
+            service
+        } else {
+            metrics.slow_duration_service_overflow_total.inc();
+            if !self.hist_cap_warned {
+                tracing::warn!(
+                    cap = self.hist_cap,
+                    "Histogram service cardinality cap reached; new \
+                     services fold into the _other series"
+                );
+                self.hist_cap_warned = true;
+            }
+            SERVICE_OVERFLOW_LABEL
+        };
+        if label == service && !self.hist_children.contains_key(label) {
+            self.hist_admitted += 1;
+        }
+        self.hist_children
+            .entry(label.to_string())
+            .or_insert_with(|| {
+                ["sql", "http_out", "messaging"].map(|kind| {
+                    metrics
+                        .slow_duration_seconds
+                        .with_label_values(&[kind, label])
+                })
+            })
     }
 }
 
@@ -890,24 +1020,24 @@ fn patch_broker_energy(
 /// Record slow span durations into a Prometheus histogram.
 ///
 /// `histogram_quantile()` can then compute accurate global percentiles
-/// across sharded daemon instances. Handles resolved once before the loop
-/// to avoid per-span `HashMap` lookups in `with_label_values`.
-fn record_slow_durations(traces: &[Trace], detect_config: &DetectConfig, metrics: &MetricsState) {
+/// across sharded daemon instances. The meter caches label children per
+/// service, so the per-span path stays one `HashMap` lookup instead of
+/// the `MetricVec` label-hash + lock of `with_label_values`.
+fn record_slow_durations(
+    traces: &[Trace],
+    detect_config: &DetectConfig,
+    metrics: &MetricsState,
+    meter: &mut AnalysisServiceMeter,
+) {
     let slow_threshold_us = detect_config.slow_threshold_ms.saturating_mul(1000);
-    let hist_sql = metrics.slow_duration_seconds.with_label_values(&["sql"]);
-    let hist_http = metrics
-        .slow_duration_seconds
-        .with_label_values(&["http_out"]);
-    let hist_messaging = metrics
-        .slow_duration_seconds
-        .with_label_values(&["messaging"]);
     for trace in traces {
         for span in &trace.spans {
             if span.event.duration_us > slow_threshold_us {
+                let hists = meter.hist_children(span.event.service.as_ref(), metrics);
                 let hist = match span.event.event_type {
-                    crate::event::EventType::Sql => &hist_sql,
-                    crate::event::EventType::HttpOut => &hist_http,
-                    crate::event::EventType::Messaging => &hist_messaging,
+                    crate::event::EventType::Sql => &hists[0],
+                    crate::event::EventType::HttpOut => &hists[1],
+                    crate::event::EventType::Messaging => &hists[2],
                 };
                 hist.observe(span.event.duration_us as f64 / 1_000_000.0);
             }
@@ -921,9 +1051,12 @@ fn emit_findings_and_update_metrics(
     trace_count: usize,
     findings: &[detect::Finding],
     green_summary: &GreenSummary,
-    metrics: &MetricsState,
+    ctx: &mut ProcessTracesCtx<'_>,
 ) {
     use std::io::Write;
+
+    let metrics = ctx.metrics;
+    let meter = &mut *ctx.service_meter;
 
     metrics.traces_analyzed_total.inc_by(trace_count as f64);
     metrics
@@ -945,14 +1078,37 @@ fn emit_findings_and_update_metrics(
     metrics
         .carbon_gco2
         .set(green_summary.regions.iter().map(|r| r.co2_gco2).sum());
-    metrics.record_exemplars(findings, green_summary);
+
+    // Per-service share of the avoidable counter, same dedup rule as the
+    // global one. Gated like the global: green off increments neither.
+    if ctx.green_enabled {
+        let (_, per_service) = score::dedup_avoidable_io_ops_by_service(findings);
+        for (service, ops) in per_service {
+            metrics
+                .service_avoidable_io_ops_total
+                .with_label_values(&[meter.service_label(service, metrics)])
+                .inc_by(ops as f64);
+        }
+    }
+
+    // Resolve effective service labels once; the counter and its
+    // exemplars must land on the same series.
+    let labeled: Vec<(&detect::Finding, &str)> = findings
+        .iter()
+        .map(|f| (f, meter.finding_label(&f.service, metrics)))
+        .collect();
+    metrics.record_exemplars_labeled(&labeled, green_summary);
 
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
-    for finding in findings {
+    for (finding, service_label) in &labeled {
         metrics
             .findings_total
-            .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
+            .with_label_values(&[
+                finding.finding_type.as_str(),
+                finding.severity.as_str(),
+                service_label,
+            ])
             .inc();
         if serde_json::to_writer(&mut lock, finding).is_ok() {
             let _ = writeln!(lock);
@@ -970,6 +1126,8 @@ fn emit_findings_and_update_metrics(
 struct ProcessTracesCtx<'a> {
     detect_config: &'a DetectConfig,
     green_enabled: bool,
+    service_meter: &'a mut AnalysisServiceMeter,
+
     carbon_ctx: &'a score::carbon::CarbonContext,
     metrics: &'a MetricsState,
     confidence: Confidence,
@@ -1060,7 +1218,12 @@ async fn process_traces(
 
     let findings = detect::run_full_detection(&trace_structs, ctx.detect_config);
 
-    record_slow_durations(&trace_structs, ctx.detect_config, ctx.metrics);
+    record_slow_durations(
+        &trace_structs,
+        ctx.detect_config,
+        ctx.metrics,
+        ctx.service_meter,
+    );
 
     // Keep `per_endpoint_io_ops` for the periodic-disclosure archive
     // (design doc 08). Already computed by `score_green`'s single pass.
@@ -1126,7 +1289,7 @@ async fn process_traces(
         }
     }
 
-    emit_findings_and_update_metrics(trace_count, &findings, &green_summary, ctx.metrics);
+    emit_findings_and_update_metrics(trace_count, &findings, &green_summary, &mut ctx);
 
     if let Some(archive_tx) = ctx.archive_tx {
         let events_processed = trace_structs.iter().map(|t| t.spans.len()).sum();
@@ -1366,6 +1529,8 @@ mod tests {
             detect_config,
             traces_store: noop_traces_store(),
             green_enabled,
+            service_meter: Box::leak(Box::new(AnalysisServiceMeter::new(true))),
+
             carbon_ctx,
             metrics,
             confidence: Confidence::DaemonStaging,
@@ -3108,6 +3273,8 @@ mod tests {
             detect_config: default_detect_config(),
             traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(0, 0)),
             green_enabled: true,
+            per_service_labels: true,
+
             confidence: Confidence::DaemonStaging,
             metrics: metrics.clone(),
             findings_store: findings_store.clone(),
@@ -3270,6 +3437,101 @@ mod tests {
         assert!(meter.service_cap_warned);
     }
 
+    #[test]
+    fn analysis_service_meter_folds_past_cap_into_other() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true);
+        meter.cap = 2;
+
+        assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
+        assert_eq!(meter.service_label("svc-b", &metrics), "svc-b");
+        assert_eq!(
+            meter.service_label("svc-c", &metrics),
+            SERVICE_OVERFLOW_LABEL
+        );
+        // Already-admitted services keep their own label past the cap.
+        assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 1);
+        assert!(meter.cap_warned);
+    }
+
+    #[test]
+    fn histogram_meter_folds_past_cap_into_other() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true);
+        meter.hist_cap = 1;
+
+        meter.hist_children("svc-a", &metrics)[0].observe(1.0);
+        meter.hist_children("svc-b", &metrics)[0].observe(1.0);
+
+        assert_eq!(metrics.slow_duration_service_overflow_total.get(), 1);
+        let sample_count = |service: &str| {
+            metrics
+                .slow_duration_seconds
+                .with_label_values(&["sql", service])
+                .get_sample_count()
+        };
+        assert_eq!(sample_count("svc-a"), 1);
+        assert_eq!(sample_count(SERVICE_OVERFLOW_LABEL), 1);
+    }
+
+    #[test]
+    fn per_service_labels_off_uses_empty_label() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(false);
+
+        // Findings and histogram series carry the empty value...
+        assert_eq!(meter.finding_label("svc-a", &metrics), "");
+        meter.hist_children("svc-a", &metrics)[0].observe(1.0);
+        let unlabeled = metrics
+            .slow_duration_seconds
+            .with_label_values(&["sql", ""])
+            .get_sample_count();
+        assert_eq!(unlabeled, 1);
+        // ...while the avoidable counter's labels ignore the knob.
+        assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn service_avoidable_io_ops_sums_to_global_counter() {
+        let trace_for = |trace_id: &str, service: &str| {
+            let events: Vec<_> = (1..=6)
+                .map(|i| {
+                    make_normalized_for_service(
+                        trace_id,
+                        service,
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    )
+                })
+                .collect();
+            (trace_id.to_string(), events)
+        };
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![trace_for("t1", "svc-a"), trace_for("t2", "svc-b")],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let global = metrics.avoidable_io_ops.get();
+        assert!(global > 0.0, "fixture should produce avoidable I/O");
+        let summed: f64 = ["svc-a", "svc-b", SERVICE_OVERFLOW_LABEL]
+            .iter()
+            .map(|s| {
+                metrics
+                    .service_avoidable_io_ops_total
+                    .with_label_values(&[s])
+                    .get()
+            })
+            .sum();
+        assert!((global - summed).abs() < f64::EPSILON);
+    }
+
     #[tokio::test]
     async fn shed_traces_are_excluded_from_analysis_outputs() {
         let metrics = Arc::new(MetricsState::new());
@@ -3398,6 +3660,7 @@ mod tests {
             evict_ms: 60_000,
             confidence: Confidence::DaemonStaging,
             analysis_queue_capacity: 1024,
+            per_service_labels: true,
             waste_sticky_ttl_ms: 0,
         }
     }

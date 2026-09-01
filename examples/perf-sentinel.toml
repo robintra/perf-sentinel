@@ -211,6 +211,10 @@ max_retained_traces = 50           # default 50, bounds 0..10000
 # Bounded queues. Raise under bursty load to cut backpressure and shedding.
 ingest_queue_capacity = 1024       # default 1024, bounds 1..1048576
 analysis_queue_capacity = 1024     # default 1024, bounds 1..1048576
+# `service` label on findings and slow-span histograms (bounded by the
+# daemon's cardinality caps). false restores the pre-0.18 label shape.
+per_service_labels = true          # default true
+
 # Stamped on every finding as `confidence`, read by downstream tooling and
 # not by the quality gate. Two values here, case-insensitive, anything else
 # is rejected at load time: "production" -> `daemon_production` (real
