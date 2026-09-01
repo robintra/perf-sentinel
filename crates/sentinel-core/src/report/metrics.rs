@@ -477,13 +477,16 @@ pub struct MetricsState {
     /// folds services past its cardinality cap into the `_other` series,
     /// so the sum across services still equals the global counter.
     pub service_avoidable_io_ops_total: CounterVec,
-    /// Analysis-side service-label attributions (findings, and the
-    /// per-service avoidable I/O split, which ignores
-    /// `per_service_labels`) folded into `_other` because the
-    /// `AnalysisServiceMeter` cardinality cap was already reached. An
-    /// ongoing increase means per-service attribution is coarsening
-    /// for newly seen services; the totals stay exact.
+    /// Per-service I/O ops of analysed traces: the denominator of the
+    /// per-service waste ratio, same population and cap as
+    /// [`Self::service_avoidable_io_ops_total`]. Ignores
+    /// `per_service_labels`, like every per-service counter.
+    pub service_analyzed_io_ops_total: CounterVec,
+    /// Analysis-side attributions (findings, avoidable and analysed I/O
+    /// ops) folded into `_other` past the cap. An ongoing increase means
+    /// per-service attribution is coarsening; totals stay exact.
     pub analysis_service_overflow_total: IntCounter,
+
     /// Slow spans folded into the `_other` histogram series because the
     /// histogram service cardinality cap was already reached. Same
     /// contract as [`Self::analysis_service_overflow_total`], with a
@@ -843,9 +846,22 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        // Denominator of the per-service waste ratio: same population
+        // (analysed batches, green-gated) and same cap as the avoidable
+        // numerator, unlike the ingest-side `service_io_ops_total`.
+        let service_analyzed_io_ops_total = CounterVec::new(
+            Opts::new(
+                "perf_sentinel_service_analyzed_io_ops_total",
+                "Cumulative I/O ops of analysed traces attributed to each service",
+            ),
+            &["service"],
+        )
+        .expect("metric creation should not fail");
+
         let analysis_service_overflow_total = IntCounter::new(
+
             "perf_sentinel_analysis_service_overflow_total",
-            "Analysis-side service attributions (findings and per-service avoidable I/O ops) folded into the _other series because the analysis service cardinality cap was reached",
+            "Analysis-side service attributions (findings, avoidable and analysed I/O ops) folded into the _other series because the analysis service cardinality cap was reached",
         )
         .expect("metric creation should not fail");
 
@@ -928,6 +944,10 @@ impl MetricsState {
         registry
             .register(Box::new(service_avoidable_io_ops_total.clone()))
             .expect("registration should not fail");
+        registry
+            .register(Box::new(service_analyzed_io_ops_total.clone()))
+            .expect("registration should not fail");
+
         registry
             .register(Box::new(analysis_service_overflow_total.clone()))
             .expect("registration should not fail");
@@ -1270,6 +1290,8 @@ impl MetricsState {
             slow_duration_seconds,
             slow_duration_service_overflow_total,
             service_avoidable_io_ops_total,
+            service_analyzed_io_ops_total,
+
             analysis_service_overflow_total,
 
             export_report_requests_total,
@@ -1497,16 +1519,11 @@ impl MetricsState {
 
     /// Update exemplar tracking from findings and green summary.
     ///
-    /// Library entry point: exemplars are keyed on each finding's own
-    /// service, matching what [`Self::record_batch`] renders. The daemon
-    /// resolves capped/disabled service label values first and calls
-    /// [`Self::record_exemplars_labeled`] so the keys match the series
-    /// it actually incremented.
-    /// Cardinality note: this path labels series with each finding's
-    /// raw service name, with no cap or `_other` fold — batch reports
-    /// carry a bounded service set by construction. A long-lived
-    /// embedder feeding unbounded `service.name` values must cap them
-    /// itself (the daemon does, via its analysis-side meter).
+    /// Library entry point, keyed on each finding's raw service (what
+    /// [`Self::record_batch`] renders); the daemon resolves capped
+    /// labels first and calls [`Self::record_exemplars_labeled`].
+    /// No cap on this path: a long-lived embedder feeding unbounded
+    /// `service.name` values must cap them itself.
     pub fn record_exemplars(
         &self,
         findings: &[crate::detect::Finding],

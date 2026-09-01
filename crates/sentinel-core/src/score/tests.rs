@@ -11,7 +11,7 @@ use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
 
 #[test]
 fn empty_input_returns_empty_summary() {
-    let (findings, summary, _) = score_green(&[], vec![], None);
+    let (findings, summary, _, _) = score_green(&[], vec![], None);
     assert!(findings.is_empty());
     assert_eq!(summary.total_io_ops, 0);
     assert_eq!(summary.avoidable_io_ops, 0);
@@ -60,7 +60,7 @@ fn single_trace_computes_iis() {
         signature: String::new(),
     };
 
-    let (findings, summary, _) = score_green(&[trace], vec![finding], None);
+    let (findings, summary, _, _) = score_green(&[trace], vec![finding], None);
 
     assert_eq!(summary.total_io_ops, 6);
     assert_eq!(summary.avoidable_io_ops, 5);
@@ -100,7 +100,7 @@ fn multiple_traces_same_endpoint() {
     let trace_a = make_trace(events_t1);
     let trace_b = make_trace(events_t2);
 
-    let (_, summary, _) = score_green(&[trace_a, trace_b], vec![], None);
+    let (_, summary, _, _) = score_green(&[trace_a, trace_b], vec![], None);
     assert_eq!(summary.total_io_ops, 6);
     assert_eq!(summary.top_offenders.len(), 1);
     assert!((summary.top_offenders[0].io_intensity_score - 3.0).abs() < f64::EPSILON);
@@ -138,7 +138,7 @@ fn top_offenders_sorted_by_iis_desc() {
     all_events.append(&mut events_b);
     let trace = make_trace(all_events);
 
-    let (_, summary, _) = score_green(&[trace], vec![], None);
+    let (_, summary, _, _) = score_green(&[trace], vec![], None);
 
     assert_eq!(summary.top_offenders.len(), 2);
     assert_eq!(
@@ -184,7 +184,7 @@ fn same_endpoint_across_services_stays_distinct_and_consistent() {
     }
     let trace = make_trace(events);
 
-    let (_, summary, per_endpoint) = score_green(&[trace], vec![], None);
+    let (_, summary, per_endpoint, _) = score_green(&[trace], vec![], None);
 
     // top_offenders splits the two services even though the
     // endpoint path is identical.
@@ -260,7 +260,7 @@ fn green_impact_populated_on_findings() {
         signature: String::new(),
     };
 
-    let (findings, _, _) = score_green(&[trace], vec![finding], None);
+    let (findings, _, _, _) = score_green(&[trace], vec![finding], None);
 
     let impact = findings[0].green_impact.as_ref().unwrap();
     assert_eq!(impact.estimated_extra_io_ops, 5);
@@ -337,7 +337,7 @@ fn dedup_avoidable_across_finding_types() {
         },
     ];
 
-    let (_, summary, _) = score_green(&[trace], findings, None);
+    let (_, summary, _, _) = score_green(&[trace], findings, None);
     // max(5, 2) = 5
     assert_eq!(summary.avoidable_io_ops, 5);
 }
@@ -398,7 +398,7 @@ fn sql_split_separates_sql_and_http_waste() {
     http_finding.pattern.occurrences = 2;
     http_finding.pattern.distinct_params = 1;
 
-    let (_, summary, _) = score_green(&[trace], vec![sql_finding, http_finding], None);
+    let (_, summary, _, _) = score_green(&[trace], vec![sql_finding, http_finding], None);
 
     assert_eq!(summary.total_io_ops, 8);
     assert_eq!(summary.total_sql_io_ops, 6);
@@ -457,7 +457,7 @@ fn messaging_split_excludes_the_sql_share() {
         signature: String::new(),
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![finding], None);
+    let (_, summary, _, _) = score_green(&[trace], vec![finding], None);
 
     assert_eq!(summary.total_io_ops, 5);
     assert_eq!(summary.total_messaging_io_ops, 4);
@@ -516,7 +516,7 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![finding], Some(&ctx));
 
     let db = summary.database_waste.expect("database waste emitted");
     assert!((db.energy_kwh - 2.0).abs() < 1e-12);
@@ -551,7 +551,7 @@ fn database_waste_emitted_at_zero_ratio_when_no_sql_ops() {
         }),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let db = summary.database_waste.expect("energy must surface");
     assert!((db.energy_kwh - 0.5).abs() < 1e-12);
     assert!((db.sql_waste_ratio - 0.0).abs() < f64::EPSILON);
@@ -579,7 +579,7 @@ fn database_waste_declared_but_undelivered_emits_nothing() {
         }),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(summary.database_waste.is_none());
 }
 
@@ -601,7 +601,7 @@ fn messaging_waste_measured_from_a_declared_broker() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let mw = summary.messaging_waste.expect("measured figure emitted");
     assert!((mw.energy_kwh - 2.0).abs() < f64::EPSILON);
     assert_eq!(mw.model, "alumet_rapl");
@@ -628,7 +628,7 @@ fn messaging_waste_carries_the_declared_cluster_tag() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let mw = summary.messaging_waste.expect("declared figure emitted");
     assert_eq!(
         mw.model, "broker_specpower",
@@ -649,7 +649,7 @@ fn messaging_waste_estimated_when_no_broker_declared() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let mw = summary.messaging_waste.expect("estimated fallback emitted");
     assert!(mw.energy_kwh > 0.0);
     assert_eq!(mw.model, "estimated");
@@ -671,7 +671,7 @@ fn database_waste_estimated_when_no_database_declared() {
         default_region: Some("eu-west-3".to_string()),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let db = summary.database_waste.expect("estimated fallback emitted");
     assert!(db.energy_kwh > 0.0, "modeled SQL energy must be positive");
     assert!((db.sql_waste_ratio - 0.0).abs() < f64::EPSILON);
@@ -681,7 +681,7 @@ fn database_waste_estimated_when_no_database_declared() {
     // Unknown-bucket spans are outside the accounted totals, so they
     // feed no estimate either: the figure stays a true subset.
     let trace = make_trace(events);
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&CarbonContext::default()));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&CarbonContext::default()));
     assert!(summary.database_waste.is_none());
 }
 
@@ -709,7 +709,7 @@ fn database_waste_estimated_carries_regional_gco2() {
         default_region: Some("eu-west-3".to_string()),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![finding], Some(&ctx));
     let db = summary.database_waste.expect("estimated fallback emitted");
     assert!((db.sql_waste_ratio - 5.0 / 6.0).abs() < 1e-12);
     assert!((db.waste_kwh - db.energy_kwh * 5.0 / 6.0).abs() < 1e-15);
@@ -750,7 +750,7 @@ fn clean_traces_zero_waste() {
     ];
     let trace = make_trace(events);
 
-    let (findings, summary, _) = score_green(&[trace], vec![], None);
+    let (findings, summary, _, _) = score_green(&[trace], vec![], None);
 
     assert!(findings.is_empty());
     assert_eq!(summary.total_io_ops, 4);
@@ -799,7 +799,7 @@ fn per_service_carbon_respects_service_region() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     let low = summary
         .per_service_carbon_kgco2eq
@@ -906,7 +906,7 @@ fn co2_computed_when_region_set() {
     };
 
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![finding], Some(&ctx));
 
     // Structured CO₂ report present.
     let co2 = summary.co2.as_ref().expect("co2 should be present");
@@ -961,7 +961,7 @@ fn sci_per_trace_divides_numerator_by_trace_count() {
     ];
 
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&traces, vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&traces, vec![], Some(&ctx));
 
     let co2 = summary.co2.as_ref().expect("co2 should be present");
     let sci = co2.sci_per_trace.as_ref().expect("sci_per_trace present");
@@ -988,7 +988,7 @@ fn co2_none_when_no_carbon_context() {
         .collect();
     let trace = make_trace(events);
 
-    let (_, summary, _) = score_green(&[trace], vec![], None);
+    let (_, summary, _, _) = score_green(&[trace], vec![], None);
 
     assert!(summary.co2.is_none());
     assert!(summary.regions.is_empty());
@@ -1019,7 +1019,7 @@ fn unknown_region_yields_zero_operational_but_keeps_embodied() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     let co2 = summary.co2.as_ref().expect("co2 should be present");
     assert!(
@@ -1094,7 +1094,7 @@ fn slow_findings_do_not_inflate_waste_ratio() {
         signature: String::new(),
     };
 
-    let (findings, summary, _) = score_green(&[trace], vec![slow_finding], None);
+    let (findings, summary, _, _) = score_green(&[trace], vec![slow_finding], None);
 
     // Slow findings should NOT contribute to avoidable ops
     assert_eq!(summary.avoidable_io_ops, 0, "slow ops are not avoidable");
@@ -1182,7 +1182,7 @@ fn slow_and_n_plus_one_waste_separate() {
         signature: String::new(),
     };
 
-    let (findings, summary, _) = score_green(&[trace], vec![n1_finding, slow_finding], None);
+    let (findings, summary, _, _) = score_green(&[trace], vec![n1_finding, slow_finding], None);
 
     // Only the N+1 finding's occurrences - 1 = 5 should be avoidable
     assert_eq!(summary.avoidable_io_ops, 5);
@@ -1238,7 +1238,7 @@ fn co2_includes_embodied_term() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
     // Operational: 6 ops × 1e-7 kWh × intensity × PUE (eu-west-3).
@@ -1293,7 +1293,7 @@ fn avoidable_excludes_embodied() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![finding], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![finding], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
     // avoidable = operational × (5/6), no embodied.
@@ -1313,7 +1313,7 @@ fn multi_region_bucketing_distinct_per_region() {
     let trace_eu = make_trace_with_region("t1", "eu-west-3", 3);
     let trace_us = make_trace_with_region("t2", "us-east-1", 2);
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&[trace_eu, trace_us], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace_eu, trace_us], vec![], Some(&ctx));
 
     assert_eq!(summary.regions.len(), 2);
     // CO₂-descending order: us-east-1 (higher total) before eu-west-3.
@@ -1355,7 +1355,7 @@ fn region_resolution_chain_priority() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     // Expect three distinct region buckets.
     let region_names: Vec<&str> = summary.regions.iter().map(|r| r.region.as_str()).collect();
@@ -1378,7 +1378,7 @@ fn unknown_bucket_for_unresolvable_events() {
         "2025-07-10T14:32:01.001Z",
     )]);
     let ctx = CarbonContext::default(); // no default_region, no service_regions
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     // The "unknown" synthetic bucket is present, with the orphan span.
     let unknown = summary
@@ -1407,7 +1407,7 @@ fn regions_sorted_by_co2_desc() {
     let trace_ap = make_trace_with_region("t3", "ap-south-1", 1);
     let ctx = ctx_with_region("eu-west-3");
     // Pass traces in non-sorted order on purpose.
-    let (_, summary, _) = score_green(&[trace_us, trace_eu, trace_ap], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace_us, trace_eu, trace_ap], vec![], Some(&ctx));
 
     let names: Vec<&str> = summary.regions.iter().map(|r| r.region.as_str()).collect();
     assert_eq!(names, vec!["ap-south-1", "us-east-1", "eu-west-3"]);
@@ -1435,8 +1435,8 @@ fn regions_output_deterministic_under_permutation() {
         make_trace_with_region("t2", "eu-west-3", 3),
     ];
 
-    let (_, sa, _) = score_green(&order_a, vec![], Some(&ctx));
-    let (_, sb, _) = score_green(&order_b, vec![], Some(&ctx));
+    let (_, sa, _, _) = score_green(&order_a, vec![], Some(&ctx));
+    let (_, sb, _, _) = score_green(&order_b, vec![], Some(&ctx));
     assert_eq!(sa.regions, sb.regions);
     assert_eq!(
         sa.co2.as_ref().map(|c| c.operational_gco2),
@@ -1448,7 +1448,7 @@ fn regions_output_deterministic_under_permutation() {
 fn confidence_interval_factors_match_constants() {
     let trace = make_trace_with_region("t1", "eu-west-3", 100);
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
     // Total
@@ -1467,7 +1467,7 @@ fn co2_methodology_labels_set() {
     // difference to downstream consumers at the data layer.
     let trace = make_trace_with_region("t1", "eu-west-3", 1);
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v1");
     assert_eq!(co2.total.methodology, "sci_v1_numerator+transport");
@@ -1495,7 +1495,7 @@ fn cloud_region_attribute_beats_service_mapping() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     // Only one region: ap-south-1 (the span attribute wins).
     assert_eq!(summary.regions.len(), 1);
@@ -1519,7 +1519,7 @@ fn top_offender_co2_some_in_single_region_mode() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(!summary.top_offenders.is_empty());
     assert!(
         summary.top_offenders[0].co2_grams.is_some(),
@@ -1544,7 +1544,7 @@ fn top_offender_co2_none_when_multi_region_via_service_regions() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(!summary.top_offenders.is_empty());
     for offender in &summary.top_offenders {
         assert!(
@@ -1568,7 +1568,7 @@ fn top_offender_co2_none_when_multi_region_via_span_attribute() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(!summary.top_offenders.is_empty());
     for offender in &summary.top_offenders {
         assert!(
@@ -1598,7 +1598,7 @@ fn region_cardinality_cap_folds_overflow_into_unknown() {
     }
     let trace = make_trace(events);
     let ctx = CarbonContext::default();
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     // Tighten the assertions. With 260 distinct region names fed
     // in insertion order and MAX_REGIONS = 256, exactly 256 known rows
@@ -1706,7 +1706,7 @@ fn avoidable_ratio_excludes_unknown_bucket_from_denominator() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace_eu, trace_orphan], vec![finding], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace_eu, trace_orphan], vec![finding], Some(&ctx));
 
     assert_eq!(summary.total_io_ops, 15);
     assert_eq!(summary.avoidable_io_ops, 3);
@@ -1746,7 +1746,7 @@ fn empty_traces_with_carbon_context_returns_no_co2() {
     // compute_carbon_report. Previous coverage only hit the outer
     // `None` arm via `score_green(..., None)`.
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&[], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[], vec![], Some(&ctx));
     assert!(
         summary.co2.is_none(),
         "empty traces must not emit an all-zeros co2 object"
@@ -1767,7 +1767,7 @@ fn region_breakdown_distinguishes_out_of_table_from_unresolved() {
     // No default_region, no service_regions: the orphan span has no way
     // to resolve. The mars-1 span resolves via its own cloud_region attr.
     let ctx = CarbonContext::default();
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     let mars = summary
         .regions
@@ -1791,7 +1791,7 @@ fn region_breakdown_status_known_for_in_table_region() {
     // Baseline: eu-west-3 is in the carbon table, status = known.
     let trace = make_trace_with_region("t1", "eu-west-3", 3);
     let ctx = ctx_with_region("eu-west-3");
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
 
     assert_eq!(summary.regions.len(), 1);
     assert_eq!(summary.regions[0].status, "known");
@@ -1839,8 +1839,8 @@ fn hourly_profile_different_co2_night_vs_evening_fr() {
     let trace_evening = make_trace_at_hour("t_evening", "eu-west-3", 19, 6);
 
     let ctx = ctx_hourly(true);
-    let (_, night, _) = score_green(&[trace_night], vec![], Some(&ctx));
-    let (_, evening, _) = score_green(&[trace_evening], vec![], Some(&ctx));
+    let (_, night, _, _) = score_green(&[trace_night], vec![], Some(&ctx));
+    let (_, evening, _, _) = score_green(&[trace_evening], vec![], Some(&ctx));
 
     let co2_night = night.co2.as_ref().unwrap().operational_gco2;
     let co2_evening = evening.co2.as_ref().unwrap().operational_gco2;
@@ -1856,7 +1856,7 @@ fn hourly_profile_flips_model_to_v3_for_monthly_region() {
     // model = io_proxy_v3 and intensity_source = MonthlyHourly.
     let trace = make_trace_at_hour("t1", "eu-west-3", 14, 6);
     let ctx = ctx_hourly(true);
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v3");
     assert_eq!(co2.avoidable.model, "io_proxy_v3");
@@ -1874,7 +1874,7 @@ fn hourly_profile_disabled_stays_on_v1() {
     // regions with hourly data.
     let trace = make_trace_at_hour("t1", "eu-west-3", 14, 6);
     let ctx = ctx_hourly(false);
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v1");
     assert_eq!(summary.regions[0].intensity_source, IntensitySource::Annual);
@@ -1887,7 +1887,7 @@ fn hourly_profile_fallback_to_annual_for_region_without_profile() {
     // the flat annual path and tag model = io_proxy_v1.
     let trace = make_trace_at_hour("t1", "us-central1", 10, 6);
     let ctx = ctx_hourly(true);
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v1");
     assert_eq!(summary.regions[0].intensity_source, IntensitySource::Annual);
@@ -1911,7 +1911,7 @@ fn de_flat_annual_numerical_regression() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // Model tag must stay v1 when hourly is disabled, even for a
     // region that has a hourly profile.
@@ -1943,7 +1943,7 @@ fn mixed_report_monthly_hourly_and_annual_tags_v3_per_row() {
     let trace_eu = make_trace_at_hour("t_eu", "eu-west-3", 12, 3);
     let trace_us = make_trace_at_hour("t_us", "us-central1", 12, 3);
     let ctx = ctx_hourly(true);
-    let (_, summary, _) = score_green(&[trace_eu, trace_us], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace_eu, trace_us], vec![], Some(&ctx));
 
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(
@@ -1973,7 +1973,7 @@ fn mixed_report_flat_hourly_and_annual_tags_v2() {
     let trace_ie = make_trace_at_hour("t_ie", "eu-west-1", 12, 3);
     let trace_us = make_trace_at_hour("t_us", "us-central1", 12, 3);
     let ctx = ctx_hourly(true);
-    let (_, summary, _) = score_green(&[trace_ie, trace_us], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace_ie, trace_us], vec![], Some(&ctx));
 
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v2");
@@ -1993,7 +1993,7 @@ fn hourly_row_intensity_is_time_weighted_mean() {
     // should equal the single hourly value used.
     let trace = make_trace_at_hour("t1", "eu-west-3", 3, 6);
     let ctx = ctx_hourly(true);
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let row = &summary.regions[0];
     // eu-west-3, July (month 6), hour 3 UTC = 28.1 g/kWh per the
     // Monthly profile in carbon_profiles.rs.
@@ -2035,7 +2035,7 @@ fn custom_profile_overrides_embedded_in_scoring_loop() {
         custom_hourly_profiles: Some(Arc::new(custom)),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let row = &summary.regions[0];
     // Custom FlatYear profile: all hours are 999.0.
     assert!(
@@ -2070,7 +2070,7 @@ fn custom_profile_on_out_of_table_region_uses_generic_pue() {
         custom_hourly_profiles: Some(Arc::new(custom)),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // 6 ops * 1e-7 kWh/op * 500 gCO2/kWh * 1.5 generic PUE = 4.5e-4 gCO2
     let expected = 6.0 * 1e-7 * 500.0 * 1.5;
@@ -2131,7 +2131,7 @@ fn scaphandre_snapshot_flips_model_and_replaces_coefficient() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // Top-level model is scaphandre_rapl (takes precedence over v1/v2).
     assert_eq!(co2.total.model, "scaphandre_rapl");
@@ -2159,7 +2159,7 @@ fn scaphandre_empty_snapshot_stays_on_proxy() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v1");
 }
@@ -2182,7 +2182,7 @@ fn scaphandre_takes_precedence_over_hourly_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "scaphandre_rapl");
     // The region row still reports intensity_source = MonthlyHourly
@@ -2212,7 +2212,7 @@ fn cloud_snapshot_flips_model_to_cloud_specpower() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "cloud_specpower");
     // Operational CO2 = 6 ops * 5e-7 kWh * intensity * PUE (eu-west-3).
@@ -2239,7 +2239,7 @@ fn cloud_takes_precedence_over_hourly_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "cloud_specpower");
 }
@@ -2264,7 +2264,7 @@ fn scaphandre_takes_precedence_over_cloud_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // "order-svc" (the service in the trace) has Scaphandre entry.
     assert_eq!(co2.total.model, "scaphandre_rapl");
@@ -2282,7 +2282,7 @@ fn cloud_empty_snapshot_stays_on_proxy() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v1");
 }
@@ -2305,7 +2305,7 @@ fn kepler_snapshot_flips_model_to_kepler_ebpf() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "kepler_ebpf");
     let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
@@ -2327,7 +2327,7 @@ fn redfish_snapshot_flips_model_to_redfish_bmc() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "redfish_bmc");
 }
@@ -2346,7 +2346,7 @@ fn alumet_snapshot_flips_model_to_alumet_rapl() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "alumet_rapl");
     let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
@@ -2374,7 +2374,7 @@ fn alumet_takes_precedence_over_scaphandre_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "alumet_rapl");
 }
@@ -2399,7 +2399,7 @@ fn scaphandre_takes_precedence_over_kepler_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "scaphandre_rapl");
 }
@@ -2419,7 +2419,7 @@ fn kepler_takes_precedence_over_redfish_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "kepler_ebpf");
 }
@@ -2439,7 +2439,7 @@ fn kepler_takes_precedence_over_cloud_specpower_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "kepler_ebpf");
 }
@@ -2459,7 +2459,7 @@ fn redfish_takes_precedence_over_cloud_specpower_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "redfish_bmc");
 }
@@ -2478,7 +2478,7 @@ fn kepler_takes_precedence_over_hourly_in_model_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "kepler_ebpf");
 }
@@ -2520,7 +2520,7 @@ fn kepler_active_suppresses_cal_suffix_when_calibration_present() {
         calibration: Some(calibration_with_one_service("some-other-svc", 1.5)),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "kepler_ebpf");
     assert!(!co2.total.model.contains("+cal"));
@@ -2541,7 +2541,7 @@ fn redfish_active_suppresses_cal_suffix_when_calibration_present() {
         calibration: Some(calibration_with_one_service("some-other-svc", 1.5)),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "redfish_bmc");
     assert!(!co2.total.model.contains("+cal"));
@@ -2568,7 +2568,7 @@ fn per_service_energy_model_tracks_scaphandre_hit() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert_eq!(
         summary.per_service_energy_model.get("order-svc"),
         Some(&"scaphandre_rapl".to_string())
@@ -2589,7 +2589,7 @@ fn per_service_energy_model_tracks_cloud_specpower_hit() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert_eq!(
         summary.per_service_energy_model.get("order-svc"),
         Some(&"cloud_specpower".to_string())
@@ -2608,7 +2608,7 @@ fn per_service_energy_model_falls_back_to_window_proxy_tag() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert_eq!(
         summary.per_service_energy_model.get("order-svc"),
         Some(&"io_proxy_v1".to_string())
@@ -2632,7 +2632,7 @@ fn per_service_measured_ratio_one_when_all_spans_measured() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let ratio = summary
         .per_service_measured_ratio
         .get("order-svc")
@@ -2653,7 +2653,7 @@ fn per_service_measured_ratio_zero_when_all_spans_proxy() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let ratio = summary
         .per_service_measured_ratio
         .get("order-svc")
@@ -2681,7 +2681,7 @@ fn per_service_measured_ratio_partial_when_only_some_services_measured() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace_a], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace_a], vec![], Some(&ctx));
     let measured = summary
         .per_service_measured_ratio
         .get("order-svc")
@@ -2718,7 +2718,7 @@ fn per_service_energy_model_inherits_cal_suffix_when_proxy() {
         calibration: Some(cal_data),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert_eq!(
         summary.per_service_energy_model.get("order-svc"),
         Some(&"io_proxy_v1+cal".to_string())
@@ -2761,8 +2761,8 @@ fn per_op_coefficients_select_lower_than_insert() {
         ..CarbonContext::default()
     };
 
-    let (_, summary_select, _) = score_green(&[trace_select], vec![], Some(&ctx));
-    let (_, summary_insert, _) = score_green(&[trace_insert], vec![], Some(&ctx));
+    let (_, summary_select, _, _) = score_green(&[trace_select], vec![], Some(&ctx));
+    let (_, summary_insert, _, _) = score_green(&[trace_insert], vec![], Some(&ctx));
 
     let co2_select = summary_select.co2.as_ref().unwrap().operational_gco2;
     let co2_insert = summary_insert.co2.as_ref().unwrap().operational_gco2;
@@ -2813,8 +2813,8 @@ fn per_op_coefficients_disabled_uses_flat() {
         ..CarbonContext::default()
     };
 
-    let (_, summary_select, _) = score_green(&[trace_select], vec![], Some(&ctx));
-    let (_, summary_insert, _) = score_green(&[trace_insert], vec![], Some(&ctx));
+    let (_, summary_select, _, _) = score_green(&[trace_select], vec![], Some(&ctx));
+    let (_, summary_insert, _, _) = score_green(&[trace_insert], vec![], Some(&ctx));
 
     let co2_select = summary_select.co2.as_ref().unwrap().operational_gco2;
     let co2_insert = summary_insert.co2.as_ref().unwrap().operational_gco2;
@@ -2855,7 +2855,7 @@ fn per_op_coefficients_measured_energy_ignores_coefficient() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
     // With Scaphandre, energy is measured_energy, not ENERGY_PER_IO_OP_KWH * coeff.
@@ -2896,7 +2896,7 @@ fn transport_co2_cross_region_http() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(
         summary.transport_gco2.is_some(),
         "transport_gco2 should be present for cross-region HTTP"
@@ -2932,7 +2932,7 @@ fn transport_co2_same_region_zero() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(
         summary.transport_gco2.is_none(),
         "transport_gco2 should be None for same-region calls"
@@ -2964,7 +2964,7 @@ fn transport_co2_no_response_size() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(
         summary.transport_gco2.is_none(),
         "transport_gco2 should be None when response_size_bytes is absent"
@@ -2995,7 +2995,7 @@ fn transport_co2_sql_excluded() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(
         summary.transport_gco2.is_none(),
         "transport_gco2 should be None for SQL spans"
@@ -3029,7 +3029,7 @@ fn transport_co2_numerical_value() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let transport = summary.transport_gco2.unwrap();
     let (intensity, pue) = carbon::lookup_region("eu-west-3").expect("eu-west-3");
     let expected =
@@ -3065,7 +3065,7 @@ fn transport_co2_uppercase_hostname_matches() {
         ..CarbonContext::default()
     };
 
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     assert!(
         summary.transport_gco2.is_some(),
         "uppercase hostname should match lowercase service_regions key"
@@ -3091,7 +3091,7 @@ fn realtime_intensity_overrides_annual() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
 
     // Verify the model tag reflects Electricity Maps.
@@ -3120,7 +3120,7 @@ fn realtime_intensity_overrides_hourly_profile() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, CO2_MODEL_EMAPS);
     assert_eq!(
@@ -3154,7 +3154,7 @@ fn realtime_with_scaphandre_uses_emaps_model() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // Electricity Maps takes precedence in model tag
     assert_eq!(co2.total.model, CO2_MODEL_EMAPS);
@@ -3184,7 +3184,7 @@ fn realtime_intensity_estimation_metadata_round_trips_through_json() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let row = &summary.regions[0];
 
     let json = serde_json::to_string(row).unwrap();
@@ -3240,7 +3240,7 @@ fn realtime_intensity_estimation_metadata_lands_in_region_breakdown() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let row = &summary.regions[0];
     assert_eq!(row.intensity_source, IntensitySource::RealTime);
     assert_eq!(row.intensity_estimated, Some(true));
@@ -3269,7 +3269,7 @@ fn realtime_intensity_without_metadata_leaves_region_fields_none() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let row = &summary.regions[0];
     assert_eq!(row.intensity_source, IntensitySource::RealTime);
     assert!(row.intensity_estimated.is_none());
@@ -3301,7 +3301,7 @@ fn non_realtime_source_drops_estimation_metadata_from_breakdown() {
         real_time_intensity: None,
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let row = &summary.regions[0];
     assert!(row.intensity_estimated.is_none());
     assert!(row.intensity_estimation_method.is_none());
@@ -3325,7 +3325,7 @@ fn realtime_for_out_of_table_region_uses_generic_pue() {
         real_time_intensity: Some(rt),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert!(
         co2.total.mid > 0.0,
@@ -3347,7 +3347,7 @@ fn calibration_factor_scales_proxy_energy() {
         per_operation_coefficients: false,
         ..CarbonContext::default()
     };
-    let (_, summary_no_cal, _) =
+    let (_, summary_no_cal, _, _) =
         score_green(std::slice::from_ref(&trace), vec![], Some(&ctx_no_cal));
     let co2_no_cal = summary_no_cal.co2.as_ref().unwrap().total.mid;
 
@@ -3374,7 +3374,7 @@ fn calibration_factor_scales_proxy_energy() {
         calibration: Some(cal_data),
         ..CarbonContext::default()
     };
-    let (_, summary_cal, _) = score_green(&[trace], vec![], Some(&ctx_cal));
+    let (_, summary_cal, _, _) = score_green(&[trace], vec![], Some(&ctx_cal));
     let co2_cal = summary_cal.co2.as_ref().unwrap().total.mid;
 
     assert!(
@@ -3409,7 +3409,7 @@ fn calibration_appends_cal_suffix_to_model_tag() {
         calibration: Some(cal_data),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, carbon::CO2_MODEL_V1_CAL);
 }
@@ -3449,7 +3449,7 @@ fn calibration_not_applied_when_scaphandre_overrides() {
         calibration: Some(cal_data),
         ..CarbonContext::default()
     };
-    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    let (_, summary, _, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // Scaphandre wins, no +cal suffix
     assert_eq!(co2.total.model, CO2_MODEL_SCAPHANDRE);
@@ -3532,7 +3532,8 @@ fn dedup_raises_the_entry_when_a_later_finding_has_higher_avoidable() {
     bigger.pattern.occurrences = 6; // avoidable = 5
     bigger.pattern.distinct_params = 6;
 
-    let out = dedup_avoidable_io_ops(&[base, bigger]);
+    let (out, _) = dedup_avoidable_io_ops_by_service(&[base, bigger]);
+
     assert_eq!(out.total, 5);
     assert_eq!(out.sql, 5);
 }

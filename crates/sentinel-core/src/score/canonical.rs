@@ -14,7 +14,8 @@ use crate::detect::{DISCLOSURE_N_PLUS_ONE_THRESHOLD, DetectConfig, n_plus_one, r
 use crate::report::{AvoidableTier, DisclosureDbWaste, DisclosureWaste, GreenSummary};
 
 use super::AvoidableIoOps;
-use super::dedup_avoidable_io_ops;
+use super::dedup_avoidable_io_ops_by_service;
+
 use super::region_breakdown::avoidable_share;
 
 /// Re-run N+1 at [`DISCLOSURE_N_PLUS_ONE_THRESHOLD`] (then redundant against
@@ -38,7 +39,7 @@ pub(crate) fn compute_canonical_avoidable(
         findings.append(&mut n1);
         findings.append(&mut redundant);
     }
-    dedup_avoidable_io_ops(&findings)
+    dedup_avoidable_io_ops_by_service(&findings).0
 }
 
 /// Build both avoidable tiers from the scored operational [`GreenSummary`]

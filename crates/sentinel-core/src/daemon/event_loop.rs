@@ -235,14 +235,7 @@ async fn drive_event_loop(
     // Prevent burst-catchup if a tick is delayed. With analysis off the
     // loop, the loop rarely lags, but the scrapers already use Delay.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    // Cardinality cap on the per-service Prometheus counter prevents OOM
-    // from a malicious OTLP sender injecting millions of unique
-    // `service.name` values.
-    let mut service_meter = ServiceMeter {
-        known_services: HashMap::new(),
-        max_service_cardinality: MAX_SERVICE_CARDINALITY,
-        service_cap_warned: false,
-    };
+    let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
     // Pin the shutdown future once so the SIGTERM/SIGINT listeners are
     // registered a single time rather than re-registered on every loop
@@ -319,20 +312,8 @@ async fn drive_event_loop(
 async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
     let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
     let mut msg_waste_sticky: Option<(MessagingWaste, u64)> = None;
-    let mut service_meter = AnalysisServiceMeter::new(wctx.per_service_labels);
-    // Materialize one slow-duration series per kind up front (0.17
-    // resolved the three children on every batch), so "series absent"
-    // keeps meaning "worker not running" rather than "no slow span yet".
-    let prewarm_label = if wctx.per_service_labels {
-        SERVICE_OVERFLOW_LABEL
-    } else {
-        ""
-    };
-    for kind in ["sql", "http_out", "messaging"] {
-        wctx.metrics
-            .slow_duration_seconds
-            .with_label_values(&[kind, prewarm_label]);
-    }
+    let mut service_meter = AnalysisServiceMeter::new(wctx.per_service_labels, &wctx.metrics);
+
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -364,44 +345,20 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
 /// the tuning advisor in `query_api` so its hint names the real cap.
 pub(crate) const MAX_SERVICE_CARDINALITY: usize = 1024;
 
-/// Per-service I/O op counter state with a cardinality cap. Prevents OOM
-/// from a malicious OTLP sender injecting millions of unique
-/// `service.name` values. Caches the labeled counter children so the
-/// per-event path is one `HashMap` lookup plus an atomic add, instead of
-/// the label-hash plus `MetricVec` lock of `with_label_values` (the same
-/// cached-children pattern as the OTLP reject counters).
-struct ServiceMeter {
-    known_services: HashMap<String, prometheus::Counter>,
-    max_service_cardinality: usize,
-    service_cap_warned: bool,
-}
-
-impl ServiceMeter {
-    fn record(&mut self, service: &str, metrics: &MetricsState) {
-        if let Some(child) = self.known_services.get(service) {
-            child.inc();
-        } else if self.known_services.len() < self.max_service_cardinality {
-            let child = metrics.service_io_ops_total.with_label_values(&[service]);
-            child.inc();
-            self.known_services.insert(service.to_string(), child);
-        } else {
-            // Keep the ongoing drop visible: the warn fires once, the
-            // overflow counter moves on every unattributed op.
-            metrics.service_io_ops_overflow_total.inc();
-            if !self.service_cap_warned {
-                tracing::warn!(
-                    cap = self.max_service_cardinality,
-                    "Service cardinality cap reached; new services will \
-                     not have per-service I/O op counters"
-                );
-                self.service_cap_warned = true;
-            }
-        }
+/// Effective service name for metric labels: anonymous spans (Zipkin
+/// and Jaeger default to an empty name) take the OTLP default instead of
+/// minting `service=""`, the `per_service_labels = false` sentinel.
+fn normalize_service(service: &str) -> &str {
+    if service.is_empty() {
+        "unknown"
+    } else {
+        service
     }
 }
 
 /// Cardinality cap on the analysis-side `service` labels
-/// (`findings_total`, `service_avoidable_io_ops_total`). Lower than
+/// (`findings_total`, `service_avoidable_io_ops_total`,
+/// `service_analyzed_io_ops_total`). Lower than
 /// [`MAX_SERVICE_CARDINALITY`]: these series multiply by type/severity.
 pub(crate) const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
 
@@ -414,79 +371,148 @@ pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 /// global sums stay exact while cardinality stays bounded.
 pub(crate) const SERVICE_OVERFLOW_LABEL: &str = "_other";
 
+/// Admission policy shared by the service meters: a bounded name set, an
+/// overflow counter, a one-shot warning. [`SERVICE_OVERFLOW_LABEL`] is
+/// reserved and passes through without taking a slot.
+struct CappedServices {
+    admitted: HashSet<String>,
+    cap: usize,
+    warned: bool,
+    /// Metric family named in the one-shot cap warning.
+    what: &'static str,
+}
+
+impl CappedServices {
+    fn new(cap: usize, what: &'static str) -> Self {
+        Self {
+            admitted: HashSet::new(),
+            cap,
+            warned: false,
+            what,
+        }
+    }
+
+    /// `Some(service)` while it has (or gets) a slot, `None` past the
+    /// cap (counts the overflow, warns once).
+    fn admit<'a>(
+        &mut self,
+        service: &'a str,
+        overflow: &prometheus::IntCounter,
+    ) -> Option<&'a str> {
+        if service == SERVICE_OVERFLOW_LABEL || self.admitted.contains(service) {
+            return Some(service);
+        }
+        if self.admitted.len() < self.cap {
+            self.admitted.insert(service.to_string());
+            return Some(service);
+        }
+        overflow.inc();
+        if !self.warned {
+            tracing::warn!(
+                cap = self.cap,
+                what = self.what,
+                "service cardinality cap reached"
+            );
+            self.warned = true;
+        }
+        None
+    }
+}
+
+/// Per-service I/O op counter cache over [`CappedServices`]. Caps
+/// cardinality against hostile `service.name` floods and caches the
+/// labeled children so the per-event path is one `HashMap` lookup plus
+/// an atomic add. Ingest drops past the cap: the overflow counter moves
+/// on every unattributed op.
+struct ServiceMeter {
+    children: HashMap<String, prometheus::Counter>,
+    capped: CappedServices,
+}
+
+impl ServiceMeter {
+    fn new(cap: usize) -> Self {
+        Self {
+            children: HashMap::new(),
+            capped: CappedServices::new(cap, "ingest I/O ops"),
+        }
+    }
+
+    fn record(&mut self, service: &str, metrics: &MetricsState) {
+        let service = normalize_service(service);
+        if let Some(child) = self.children.get(service) {
+            child.inc();
+            return;
+        }
+        if let Some(label) = self
+            .capped
+            .admit(service, &metrics.service_io_ops_overflow_total)
+        {
+            let child = metrics.service_io_ops_total.with_label_values(&[label]);
+            child.inc();
+            self.children.insert(label.to_string(), child);
+        }
+    }
+}
+
 /// Caps the `service` label on the analysis-side metrics. Single-owner
-/// state of the analysis worker task, like [`ServiceMeter`] on the
-/// ingest side: no lock. With `[daemon] per_service_labels = false`,
-/// findings and histogram series carry an empty `service` value instead
-/// of per-service ones; `service_avoidable_io_ops_total` is per-service
-/// by construction and ignores the knob.
+/// state of the analysis worker task, like [`ServiceMeter`]: no lock.
+/// Past a cap, series fold into [`SERVICE_OVERFLOW_LABEL`] so sums stay
+/// exact. With `[daemon] per_service_labels = false`, findings and
+/// histogram series carry an empty `service`; the per-service I/O
+/// counters ignore the knob.
 struct AnalysisServiceMeter {
     per_service_labels: bool,
-    services: HashSet<String>,
-    cap: usize,
-    hist_cap: usize,
-    cap_warned: bool,
-
-    /// Histogram children per effective service label, `[sql, http_out,
-    /// messaging]`, resolved once at admission so the per-span path does
-    /// one `HashMap` lookup instead of a `MetricVec` label-hash + lock.
+    names: CappedServices,
+    hist_names: CappedServices,
+    /// `[sql, http_out, messaging]` children per effective label, so the
+    /// per-span path is one `HashMap` hit.
     hist_children: HashMap<String, [prometheus::Histogram; 3]>,
-    hist_cap_warned: bool,
 }
 
 impl AnalysisServiceMeter {
-    fn new(per_service_labels: bool) -> Self {
-        Self {
+    /// Materializes the default histogram label up front (0.17 resolved
+    /// the children on every batch), so "series absent" keeps meaning
+    /// "worker not running" rather than "no slow span yet".
+    fn new(per_service_labels: bool, metrics: &MetricsState) -> Self {
+        let mut meter = Self {
             per_service_labels,
-            services: HashSet::new(),
-            cap: MAX_ANALYSIS_SERVICE_CARDINALITY,
-            hist_cap: MAX_HISTOGRAM_SERVICE_CARDINALITY,
-            cap_warned: false,
-
+            names: CappedServices::new(MAX_ANALYSIS_SERVICE_CARDINALITY, "analysis"),
+            hist_names: CappedServices::new(
+                MAX_HISTOGRAM_SERVICE_CARDINALITY,
+                "slow-duration histogram",
+            ),
             hist_children: HashMap::new(),
-            hist_cap_warned: false,
-        }
-    }
-
-    /// Effective label value under the shared analysis cap: the service
-    /// itself when admitted, [`SERVICE_OVERFLOW_LABEL`] past the cap.
-    fn service_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
-        // Anonymous spans (Zipkin/Jaeger ingest defaults to an empty
-        // name) must not mint `service=""`: that is the documented
-        // `per_service_labels = false` sentinel, and honor_labels-style
-        // scrapes treat an empty value as absent and re-attribute the
-        // series to the scrape target. Match the OTLP default instead.
-        let service = if service.is_empty() {
-            "unknown"
-        } else {
-            service
         };
-        // A real service named like the fold bucket merges into it
-        // without consuming a cap slot or tripping the overflow counter.
-        if service == SERVICE_OVERFLOW_LABEL {
-            return SERVICE_OVERFLOW_LABEL;
-        }
-        if self.services.contains(service) {
-            return service;
-        }
-        if self.services.len() < self.cap {
-            self.services.insert(service.to_string());
-            return service;
-        }
-        metrics.analysis_service_overflow_total.inc();
-        if !self.cap_warned {
-            tracing::warn!(
-                cap = self.cap,
-                "Analysis service cardinality cap reached; new services \
-                 fold into the _other series"
-            );
-            self.cap_warned = true;
-        }
-        SERVICE_OVERFLOW_LABEL
+        let prewarm = if per_service_labels {
+            SERVICE_OVERFLOW_LABEL
+        } else {
+            ""
+        };
+        meter.mint_hist_children(prewarm, metrics);
+        meter
     }
 
-    /// Label value for `findings_total`: empty with the knob off, else
-    /// the capped service label.
+    fn mint_hist_children(&mut self, label: &str, metrics: &MetricsState) {
+        let children = ["sql", "http_out", "messaging"].map(|kind| {
+            metrics
+                .slow_duration_seconds
+                .with_label_values(&[kind, label])
+        });
+        self.hist_children.insert(label.to_string(), children);
+    }
+
+    /// Effective label under the shared analysis cap: the service, or
+    /// [`SERVICE_OVERFLOW_LABEL`] past it.
+    fn service_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
+        self.names
+            .admit(
+                normalize_service(service),
+                &metrics.analysis_service_overflow_total,
+            )
+            .unwrap_or(SERVICE_OVERFLOW_LABEL)
+    }
+
+    /// Label for `findings_total`: empty with the knob off.
     fn finding_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
         if self.per_service_labels {
             self.service_label(service, metrics)
@@ -502,40 +528,21 @@ impl AnalysisServiceMeter {
         service: &str,
         metrics: &MetricsState,
     ) -> &[prometheus::Histogram; 3] {
-        // Same guards as `service_label`: no `service=""` sentinel from
-        // real data, and the fold bucket's name is reserved.
-        let service = if service.is_empty() {
-            "unknown"
+        let service = if self.per_service_labels {
+            normalize_service(service)
         } else {
-            service
-        };
-        let label = if !self.per_service_labels {
             ""
-        } else if service == SERVICE_OVERFLOW_LABEL {
-            SERVICE_OVERFLOW_LABEL
-        } else if self.hist_children.contains_key(service)
-            || self.hist_children.len() < self.hist_cap
-        {
-            service
-        } else {
-            metrics.slow_duration_service_overflow_total.inc();
-            if !self.hist_cap_warned {
-                tracing::warn!(
-                    cap = self.hist_cap,
-                    "Histogram service cardinality cap reached; new \
-                     services fold into the _other series"
-                );
-                self.hist_cap_warned = true;
-            }
-            SERVICE_OVERFLOW_LABEL
         };
+        if self.hist_children.contains_key(service) {
+            return &self.hist_children[service];
+        }
+
+        let label = self
+            .hist_names
+            .admit(service, &metrics.slow_duration_service_overflow_total)
+            .unwrap_or(SERVICE_OVERFLOW_LABEL);
         if !self.hist_children.contains_key(label) {
-            let children = ["sql", "http_out", "messaging"].map(|kind| {
-                metrics
-                    .slow_duration_seconds
-                    .with_label_values(&[kind, label])
-            });
-            self.hist_children.insert(label.to_string(), children);
+            self.mint_hist_children(label, metrics);
         }
         &self.hist_children[label]
     }
@@ -1086,6 +1093,8 @@ fn emit_findings_and_update_metrics(
     trace_count: usize,
     findings: &[detect::Finding],
     green_summary: &GreenSummary,
+    per_endpoint_io_ops: &[crate::report::PerEndpointIoOps],
+    avoidable_per_service: &HashMap<String, usize>,
     ctx: &mut ProcessTracesCtx<'_>,
 ) {
     use std::io::Write;
@@ -1114,16 +1123,21 @@ fn emit_findings_and_update_metrics(
         .carbon_gco2
         .set(green_summary.regions.iter().map(|r| r.co2_gco2).sum());
 
-    // Per-service share of the avoidable counter, same dedup rule as the
-    // global one. Gated like the global: green off increments neither.
-    if ctx.green_enabled {
-        let (_, per_service) = score::dedup_avoidable_io_ops_by_service(findings);
-        for (service, ops) in per_service {
-            metrics
-                .service_avoidable_io_ops_total
-                .with_label_values(&[meter.service_label(service, metrics)])
-                .inc_by(ops as f64);
-        }
+    // Per-service avoidable and analysed I/O ops: the two series a
+    // per-service waste ratio divides, from the same scoring pass and
+    // under the same cap. Both empty when green is off, like the
+    // global avoidable counter.
+    for (service, ops) in avoidable_per_service {
+        metrics
+            .service_avoidable_io_ops_total
+            .with_label_values(&[meter.service_label(service, metrics)])
+            .inc_by(*ops as f64);
+    }
+    for entry in per_endpoint_io_ops {
+        metrics
+            .service_analyzed_io_ops_total
+            .with_label_values(&[meter.service_label(&entry.service, metrics)])
+            .inc_by(entry.io_ops as f64);
     }
 
     // Resolve effective service labels once; the counter and its
@@ -1151,8 +1165,51 @@ fn emit_findings_and_update_metrics(
     }
 }
 
-/// Process a batch of completed/expired traces: detect, score, emit NDJSON.
-///
+/// Count correlator pair evictions, warning once per process: under
+/// steady cap pressure every batch loses pairs, and the counter already
+/// carries the ongoing magnitude (same policy as the service cap warn).
+fn record_correlator_evictions(evicted: usize, metrics: &MetricsState) {
+    static CAP_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if evicted == 0 {
+        return;
+    }
+    metrics
+        .correlator_pairs_evicted_total
+        .inc_by(evicted as u64);
+    if !CAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(
+            evicted,
+            "correlator pair cap reached, dropping pairs (see \
+             perf_sentinel_correlator_pairs_evicted_total)"
+        );
+    }
+}
+
+/// Green scoring for one batch, or the disabled envelope when green is
+/// off (empty per-endpoint and per-service splits).
+fn score_batch(
+    traces: &[Trace],
+    findings: Vec<detect::Finding>,
+    ctx: &ProcessTracesCtx<'_>,
+) -> (
+    Vec<detect::Finding>,
+    GreenSummary,
+    Vec<crate::report::PerEndpointIoOps>,
+    HashMap<String, usize>,
+) {
+    if ctx.green_enabled {
+        score::score_green(traces, findings, Some(ctx.carbon_ctx))
+    } else {
+        let total_io_ops = traces.iter().map(|t| t.spans.len()).sum();
+        (
+            findings,
+            GreenSummary::disabled(total_io_ops),
+            Vec::new(),
+            HashMap::new(),
+        )
+    }
+}
+
 /// Shared context passed to [`process_traces`] on every tick.
 ///
 /// Groups the configuration, state, and downstream sinks so the function
@@ -1261,13 +1318,10 @@ async fn process_traces(
     );
 
     // Keep `per_endpoint_io_ops` for the periodic-disclosure archive
-    // (design doc 08). Already computed by `score_green`'s single pass.
-    let (mut findings, green_summary, per_endpoint_io_ops) = if ctx.green_enabled {
-        score::score_green(&trace_structs, findings, Some(ctx.carbon_ctx))
-    } else {
-        let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
-        (findings, GreenSummary::disabled(total_io_ops), Vec::new())
-    };
+    // (design doc 08) and `avoidable_per_service` for /metrics, both
+    // computed by `score_green`'s single pass.
+    let (mut findings, green_summary, per_endpoint_io_ops, avoidable_per_service) =
+        score_batch(&trace_structs, findings, &ctx);
 
     // Publish the per-batch summary on the shared cell so live daemon
     // snapshots served by `/api/export/report` carry the latest CO2
@@ -1305,26 +1359,17 @@ async fn process_traces(
 
     if let Some(correlator) = ctx.correlator {
         let evicted = correlator.lock().await.ingest(&findings, now_ms);
-        if evicted > 0 {
-            // Warn once per process: under steady cap pressure every
-            // batch loses pairs, and the counter already carries the
-            // ongoing magnitude (same policy as the service cap warn).
-            static CAP_WARNED: std::sync::atomic::AtomicBool =
-                std::sync::atomic::AtomicBool::new(false);
-            ctx.metrics
-                .correlator_pairs_evicted_total
-                .inc_by(evicted as u64);
-            if !CAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                tracing::warn!(
-                    evicted,
-                    "correlator pair cap reached, dropping pairs (see \
-                     perf_sentinel_correlator_pairs_evicted_total)"
-                );
-            }
-        }
+        record_correlator_evictions(evicted, ctx.metrics);
     }
 
-    emit_findings_and_update_metrics(trace_count, &findings, &green_summary, &mut ctx);
+    emit_findings_and_update_metrics(
+        trace_count,
+        &findings,
+        &green_summary,
+        &per_endpoint_io_ops,
+        &avoidable_per_service,
+        &mut ctx,
+    );
 
     if let Some(archive_tx) = ctx.archive_tx {
         let events_processed = trace_structs.iter().map(|t| t.spans.len()).sum();
@@ -1564,7 +1609,7 @@ mod tests {
             detect_config,
             traces_store: noop_traces_store(),
             green_enabled,
-            service_meter: Box::leak(Box::new(AnalysisServiceMeter::new(true))),
+            service_meter: Box::leak(Box::new(AnalysisServiceMeter::new(true, metrics))),
 
             carbon_ctx,
             metrics,
@@ -1654,11 +1699,7 @@ mod tests {
         event.event.source.endpoint = "unknown".to_string();
         event.event.parent_span_id = Some("root-1".to_string());
         window.lock().await.push(event, current_time_ms());
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -1705,11 +1746,7 @@ mod tests {
         nested_sql.event.span_id = "sql".to_string();
         nested_sql.event.parent_span_id = Some("nested-server".to_string());
         nested_sql.event.source.endpoint = "/api/payments/history".to_string();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let first = super::super::IngestBatch {
             events: vec![nested_sql.event],
@@ -1776,11 +1813,7 @@ mod tests {
         nested_sql.event.span_id = "sql".to_string();
         nested_sql.event.parent_span_id = Some("inner-server".to_string());
         nested_sql.event.source.endpoint = "/api/payments/history".to_string();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let first = super::super::IngestBatch {
             events: vec![nested_sql.event],
@@ -1846,11 +1879,7 @@ mod tests {
         callee_sql.event.span_id = "sql".to_string();
         callee_sql.event.parent_span_id = Some("callee-server".to_string());
         callee_sql.event.source.endpoint = "/api/payments/history".to_string();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         assert!(
             ingest_event_batch(
@@ -1917,11 +1946,7 @@ mod tests {
             make_normalized_messaging("kept", "span", "root", "orders"),
             current_time_ms(),
         );
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -1966,11 +1991,7 @@ mod tests {
             max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
             ..WindowConfig::default()
         })));
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
         let root_batch = |trace_id: &str, endpoint: &str| super::super::IngestBatch {
             events: Vec::new(),
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
@@ -2026,11 +2047,7 @@ mod tests {
                 .event
             })
             .collect();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2079,11 +2096,7 @@ mod tests {
             current_time_ms(),
         );
         let event = make_normalized_messaging("trace-1", "new", "root-1", "orders").event;
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2129,11 +2142,7 @@ mod tests {
             make_normalized_messaging("trace-a", "span-a", "root-a", "orders").event,
             make_normalized_messaging("trace-b", "span-b", "root-b", "orders").event,
         ];
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2179,11 +2188,7 @@ mod tests {
                     .event
             })
             .collect();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let started = std::time::Instant::now();
         let evicted = ingest_event_batch(
@@ -2248,11 +2253,7 @@ mod tests {
                 endpoint: Some(format!("/api/{index}")),
             })
             .collect();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2281,11 +2282,7 @@ mod tests {
             max_events_per_trace: EVENT_COUNT,
             ..WindowConfig::default()
         })));
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
         ingest_event_batch(
             super::super::IngestBatch {
                 events: Vec::new(),
@@ -2369,11 +2366,7 @@ mod tests {
             100,
         );
         trace_b.service = Arc::from("orders-svc");
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2427,11 +2420,7 @@ mod tests {
 
         let metrics = MetricsState::new();
         let window = test_window();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
         for _ in 0..2 {
             let batch = rx.recv().await.expect("daemon ingest batch sent");
             let evicted =
@@ -2476,11 +2465,7 @@ mod tests {
 
         let metrics = MetricsState::new();
         let window = test_window();
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
         let root_batch = rx.recv().await.expect("early root batch sent");
         assert!(
             ingest_event_batch(root_batch, 1.0, &window, &metrics, &mut service_meter)
@@ -2555,11 +2540,7 @@ mod tests {
             max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
             ..WindowConfig::default()
         })));
-        let mut service_meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: MAX_SERVICE_CARDINALITY,
-            service_cap_warned: false,
-        };
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
 
         assert!(
             ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter)
@@ -3448,11 +3429,7 @@ mod tests {
     #[test]
     fn service_meter_overflow_counts_unattributed_ops() {
         let metrics = MetricsState::new();
-        let mut meter = ServiceMeter {
-            known_services: HashMap::new(),
-            max_service_cardinality: 2,
-            service_cap_warned: false,
-        };
+        let mut meter = ServiceMeter::new(2);
 
         for service in ["svc-a", "svc-b", "svc-c"] {
             meter.record(service, &metrics);
@@ -3469,14 +3446,78 @@ mod tests {
                 .get();
             assert!((count - 2.0).abs() < f64::EPSILON);
         }
-        assert!(meter.service_cap_warned);
+        assert!(meter.capped.warned);
+    }
+
+    #[test]
+    fn ingest_service_meter_normalizes_anonymous_and_reserved_names() {
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter::new(2);
+
+        // Anonymous spans count under the OTLP default, not `service=""`.
+        meter.record("", &metrics);
+        let unknown = metrics
+            .service_io_ops_total
+            .with_label_values(&["unknown"])
+            .get();
+        assert!((unknown - 1.0).abs() < f64::EPSILON);
+        let empty = metrics.service_io_ops_total.with_label_values(&[""]).get();
+        assert!(empty.abs() < f64::EPSILON);
+
+        // `_other` is reserved: counted, but never taking a cap slot.
+        meter.record(SERVICE_OVERFLOW_LABEL, &metrics);
+        assert_eq!(meter.capped.admitted.len(), 1);
+        let other = metrics
+            .service_io_ops_total
+            .with_label_values(&[SERVICE_OVERFLOW_LABEL])
+            .get();
+        assert!((other - 1.0).abs() < f64::EPSILON);
+        assert_eq!(metrics.service_io_ops_overflow_total.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn service_analyzed_io_ops_sums_to_global_counter() {
+        let trace_for = |trace_id: &str, service: &str, n: usize| {
+            let events: Vec<_> = (1..=n)
+                .map(|i| {
+                    make_normalized_for_service(
+                        trace_id,
+                        service,
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    )
+                })
+                .collect();
+            (trace_id.to_string(), events)
+        };
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![trace_for("t1", "svc-a", 6), trace_for("t2", "svc-b", 2)],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let per_service = |s: &str| {
+            metrics
+                .service_analyzed_io_ops_total
+                .with_label_values(&[s])
+                .get()
+        };
+        assert!((per_service("svc-a") - 6.0).abs() < f64::EPSILON);
+        assert!((per_service("svc-b") - 2.0).abs() < f64::EPSILON);
+        let summed =
+            per_service("svc-a") + per_service("svc-b") + per_service(SERVICE_OVERFLOW_LABEL);
+        assert!((metrics.total_io_ops.get() - summed).abs() < f64::EPSILON);
     }
 
     #[test]
     fn analysis_service_meter_folds_past_cap_into_other() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true);
-        meter.cap = 2;
+        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        meter.names.cap = 2;
 
         assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
         assert_eq!(meter.service_label("svc-b", &metrics), "svc-b");
@@ -3487,13 +3528,13 @@ mod tests {
         // Already-admitted services keep their own label past the cap.
         assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
         assert_eq!(metrics.analysis_service_overflow_total.get(), 1);
-        assert!(meter.cap_warned);
+        assert!(meter.names.warned);
     }
 
     #[test]
     fn analysis_service_meter_reserves_sentinel_names() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true);
+        let mut meter = AnalysisServiceMeter::new(true, &metrics);
 
         // A real service named like the fold bucket merges into it
         // without taking a cap slot or counting as overflow.
@@ -3501,7 +3542,7 @@ mod tests {
             meter.service_label(SERVICE_OVERFLOW_LABEL, &metrics),
             SERVICE_OVERFLOW_LABEL
         );
-        assert!(meter.services.is_empty());
+        assert!(meter.names.admitted.is_empty());
         assert_eq!(metrics.analysis_service_overflow_total.get(), 0);
 
         // Anonymous spans never mint the knob-off sentinel `service=""`.
@@ -3523,8 +3564,8 @@ mod tests {
     #[test]
     fn histogram_meter_folds_past_cap_into_other() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true);
-        meter.hist_cap = 1;
+        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        meter.hist_names.cap = 1;
 
         meter.hist_children("svc-a", &metrics)[0].observe(1.0);
         meter.hist_children("svc-b", &metrics)[0].observe(1.0);
@@ -3543,7 +3584,7 @@ mod tests {
     #[test]
     fn per_service_labels_off_uses_empty_label() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(false);
+        let mut meter = AnalysisServiceMeter::new(false, &metrics);
 
         // Findings and histogram series carry the empty value...
         assert_eq!(meter.finding_label("svc-a", &metrics), "");
