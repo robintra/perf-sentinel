@@ -1285,6 +1285,22 @@ fn collect_warning_details(
         ));
     }
 
+    let folded = metrics.analysis_service_overflow_total.get()
+        + metrics.slow_duration_service_overflow_total.get();
+    if folded > 0 {
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "{folded} analysis-side attributions landed in \
+                 `service=\"_other\"` past the per-run service caps \
+                 (128 on findings and the per-service I/O counters, 64 \
+                 on the slow-span histogram): totals stay exact, the \
+                 per-service split does not, aggregate or reduce service \
+                 names upstream"
+            ),
+        ));
+    }
+
     let evicted = metrics.correlator_pairs_evicted_total.get();
     if daemon.correlation.enabled && evicted > 0 {
         let cap = daemon.correlation.max_tracked_pairs;
