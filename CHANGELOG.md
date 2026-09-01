@@ -2,7 +2,19 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **`perf_sentinel_findings_total` gains a `service` label, `perf_sentinel_slow_duration_seconds` a `service` label next to `type`. Breaking for any dashboard or alert that matches these series without aggregating.** The shipped Grafana dashboard carried a `Service` variable that filtered one panel out of twenty-one, because no other metric had the dimension; selecting a service left `Critical findings` unchanged, which is how this was found on a production install. The label value is the finding's emitting service (`Finding.service`, `service.name` on the span), and the cardinality rule this repo enforces still holds through a per-run cap on the analysis side: 128 distinct services on findings, 64 on the histogram (13 series per (type, service) pair), services past a cap folding into `service="_other"` rather than being dropped, so `sum` over the label always equals the old unlabeled series and the global p95 stays exact. A query like `perf_sentinel_findings_total{severity="critical"}` now returns one series per service and an unaggregated alert on it fires per service; wrap it in `sum()` to keep the old behavior. OpenMetrics exemplars follow the split: the worst-trace map is keyed on (type, severity, service), so each service's series links to its own trace instead of the last writer's. `[daemon] per_service_labels = false` restores the pre-0.18 shape (the label stays declared but empty on every series, which PromQL treats as absent). On Kubernetes the chart's `serviceMonitor.honorLabels: true` (chart 0.17.1) is what keeps these labels over the operator's target relabeling, same as `service_io_ops_total` before them.
+
+### Added
+
+- `perf_sentinel_service_avoidable_io_ops_total{service}`, the per-service share of `perf_sentinel_avoidable_io_ops`, derived from findings with the same dedup rule ((`trace_id`, template, `source_endpoint`), max) so the two cannot diverge; the sum across services, `_other` included, equals the global counter as long as green scoring is on, and the counter is silent when it is off, matching the global one. Divided by the existing `service_io_ops_total` it yields the per-service waste ratio the dashboard's `I/O waste ratio` panel now plots. Ignores `per_service_labels`: like `service_io_ops_total`, per-service is this metric's only shape. Two overflow counters keep the caps observable, `perf_sentinel_analysis_service_overflow_total` and `perf_sentinel_slow_duration_service_overflow_total`, both counting attributions folded into `_other`, not data lost; neither ships as an alert, for the same reason `PerfSentinelServiceCardinalityOverflow` was removed in 0.17.0.
+- The Grafana dashboard splits into two rows that say which is which: `Analysis (filtered by service)`, eleven panels where `service=~"$service"` now reaches every query, and `Daemon health (global)`, ten panels that measure the daemon itself and that no service filter could slice. The three I/O panels move from the daemon-wide counters to the per-service pair so the filter reaches them too. The `namespace` variable is relabeled `Daemon namespace` with a description saying it selects the install, not the analysed workloads: it is scrape-attached, and on a single-daemon cluster it holds exactly one value, which read as a broken filter.
+
 ## [0.17.0] - 2026-08-30
+
 
 ### Added
 
