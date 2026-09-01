@@ -169,6 +169,8 @@ struct ConfigSlim {
     #[serde(default)]
     analysis_queue_capacity: usize,
     #[serde(default)]
+    per_service_labels: bool,
+    #[serde(default)]
     api_enabled: bool,
     #[serde(default)]
     tls_configured: bool,
@@ -1271,6 +1273,13 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         &c.environment,
         d.environment.as_str(),
         "Deployment label stamped on findings as a Confidence (staging = medium, production = high).",
+    );
+    config_row(
+        &mut lines,
+        "per_service_labels",
+        &bool_str(c.per_service_labels),
+        &bool_str(d.per_service_labels),
+        "Whether findings and slow-span metrics carry a service label (0.18.0); off restores the pre-0.18 shape.",
     );
     config_row(
         &mut lines,

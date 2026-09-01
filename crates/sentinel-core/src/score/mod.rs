@@ -37,7 +37,7 @@ pub(crate) mod canonical;
 mod carbon_compute;
 mod region_breakdown;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use crate::correlate::Trace;
 use crate::detect::{Finding, FindingType, GreenImpact};
@@ -269,7 +269,7 @@ pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
 /// never diverge from the global counter.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
-) -> (AvoidableIoOps, BTreeMap<&str, usize>) {
+) -> (AvoidableIoOps, HashMap<&str, usize>) {
     let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
@@ -296,7 +296,7 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         sql: 0,
         messaging: 0,
     };
-    let mut per_service: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut per_service: HashMap<&str, usize> = HashMap::new();
     for &(avoidable, finding_type, service) in dedup.values() {
         out.total += avoidable;
         *per_service.entry(service).or_default() += avoidable;
