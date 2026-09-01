@@ -331,9 +331,10 @@ The `prometheus` crate 0.14.0 does not support OpenMetrics exemplars natively. I
 **Tracking worst-case trace IDs:**
 
 `MetricsState` stores exemplar data in `RwLock`-protected fields:
-- `worst_finding_trace: HashMap<(String, String, String), ExemplarData>`, keyed by (finding_type, severity, effective service label), updated on each `record_batch()` call
-
+- `worst_finding_trace: HashMap<(&'static str, &'static str, String), ExemplarData>`, keyed by (finding_type, severity, effective service label), updated on each `record_batch()` call
 - `worst_waste_trace: Option<ExemplarData>`, the trace_id of the finding with the most avoidable I/O
+
+Both expire 15 minutes after the batch that recorded them (`EXEMPLAR_TTL_MS`). The map is bounded by the analysis service cap, so this is not about memory: a service that goes quiet would otherwise annotate its series forever with a `trace_id` already past the tracing backend's retention, and the Grafana click-through would land on a 404. The scrape path skips aged entries under its read lock, the write path prunes them under the one it already holds.
 
 `RwLock` is used instead of `Mutex` because `render()` (read path) is called frequently by Prometheus scrapes, while `record_batch()` (write path) is called less often. Multiple concurrent scrapes should not block each other. Lock poisoning is handled gracefully via `unwrap_or_else(PoisonError::into_inner)`, so a panic in one thread does not cascade into crashes on subsequent lock acquisitions.
 
