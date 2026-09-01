@@ -208,7 +208,7 @@
     },
     {
       "title": "I/O waste ratio",
-      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. The numerator is analysis-side (folds into service=\"_other\" past the 128-service cap, silent when green scoring is off) while the denominator counts at ingest (drops past 1024 services, includes batches later shed before analysis), so the ratio understates waste under analysis-queue shedding, and a single service past the analysis cap reads as no data \u2014 its avoidable ops live under _other. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
+      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Both counters are analysis-side, from the same scoring pass and under the same 128-service cap (overflow folds into service=\"_other\", both silent when green scoring is off), so the ratio never mixes populations. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
       "type": "gauge",
       "gridPos": {
         "h": 8,
@@ -222,7 +222,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) / sum(increase(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range]))",
+          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) / sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range]))",
           "refId": "A",
           "legendFormat": "waste ratio"
         }
@@ -260,7 +260,7 @@
     },
     {
       "title": "Critical findings",
-      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken \u2014 unless the selected service was folded past the 128-service analysis cap, in which case its findings count under service=\"_other\".",
+      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken: unless the selected service was folded past the 128-service analysis cap, in which case its findings count under service=\"_other\".",
       "type": "stat",
       "gridPos": {
         "h": 8,
@@ -371,7 +371,7 @@
     },
     {
       "title": "Total I/O ops processed",
-      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue \u2014 an analysis stall does not flatten it; watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded. If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
+      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue: an analysis stall does not flatten it; watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded. If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -1069,9 +1069,9 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, service)",
+        "definition": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_service_analyzed_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, service)",
         "query": {
-          "query": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, service)",
+          "query": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_service_analyzed_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, service)",
           "refId": "service"
         },
         "refresh": 2,
