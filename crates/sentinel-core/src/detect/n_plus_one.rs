@@ -283,6 +283,7 @@ fn build_finding(
         first_span: first,
         template,
         occurrences: indices.len(),
+        occurrences_by_service: super::occurrences_by_service(trace, indices),
         window_ms,
         distinct_params,
         suggestion,
@@ -383,6 +384,34 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 6);
         assert_eq!(findings[0].pattern.distinct_params, 6);
         assert!(findings[0].suggestion.contains("batch"));
+        assert!(findings[0].pattern.occurrences_by_service.is_empty());
+    }
+
+    /// The group key carries no service, so two services issuing the
+    /// same template in one trace form one finding. The finding names
+    /// the first span's service and records how many spans each issued.
+    #[test]
+    fn n_plus_one_across_services_splits_occurrences() {
+        let mut events = crate::test_helpers::make_n_plus_one_events();
+        for (i, event) in events.iter_mut().enumerate() {
+            event.service = Arc::from(if i < 3 { "order-svc" } else { "inventory-svc" });
+        }
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.service, "order-svc");
+        assert_eq!(finding.pattern.occurrences, 6);
+        assert_eq!(
+            finding.pattern.occurrences_by_service,
+            std::collections::BTreeMap::from([
+                ("inventory-svc".to_string(), 3),
+                ("order-svc".to_string(), 3),
+            ])
+        );
+        let credit: Vec<_> = finding.avoidable_by_service().collect();
+        assert_eq!(credit, [("order-svc", 2), ("inventory-svc", 3)]);
     }
 
     #[test]

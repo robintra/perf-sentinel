@@ -90,6 +90,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             first_span: first,
             template,
             occurrences: indices.len(),
+            occurrences_by_service: std::collections::BTreeMap::new(),
             window_ms,
             distinct_params: distinct_params.len(),
             suggestion,
@@ -243,6 +244,7 @@ fn build_cross_trace_finding(
         pattern: Pattern {
             template: template.to_string(),
             occurrences: n,
+            occurrences_by_service: std::collections::BTreeMap::new(),
             window_ms,
             distinct_params: 0,
             span_duration_us_p50: Some(p50),

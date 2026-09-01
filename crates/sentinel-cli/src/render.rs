@@ -2421,6 +2421,7 @@ mod tests {
         let mut pattern = Pattern {
             template: String::new(),
             occurrences: 3,
+            occurrences_by_service: std::collections::BTreeMap::new(),
             window_ms: 10,
             distinct_params: 3,
             span_duration_us_p50: Some(800),
