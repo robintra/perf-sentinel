@@ -144,8 +144,6 @@ Keep the message to the subject line: no body, no `Co-Authored-By` or other trai
 - The one sanctioned exception is the `service` label, and it pays for itself with a per-run cardinality cap and an overflow counter (`ServiceMeter` on the ingest side, `AnalysisServiceMeter` on the analysis side, overflow folded into `service="_other"` so sums stay exact). A new `service`-labeled metric written from the daemon must go through one of those meters; any other unbounded label value stays rejected.
 - The rule binds the daemon, which owns a long-lived registry. `MetricsState`'s library entry points (`record_batch`, `record_exemplars`) take a caller-supplied `Report` and label it verbatim: a batch run carries a bounded service set and exits, so the cap would buy nothing. An embedder holding one `MetricsState` across an unbounded service stream caps its own input, and the doc comments say so.
 
-
-
 ## Test strategy
 
 ### Unit tests

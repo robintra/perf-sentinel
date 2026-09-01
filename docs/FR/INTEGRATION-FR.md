@@ -250,12 +250,10 @@ scrape_configs:
 
 Métriques clés :
 - `perf_sentinel_findings_total{type, severity, service}` : findings avec exemplar `trace_id` pour le clic direct
-
 - `perf_sentinel_io_waste_ratio` : ratio de gaspillage I/O avec exemplar `trace_id`
 - `perf_sentinel_events_processed_total` : total de spans ingérés
 - `perf_sentinel_traces_analyzed_total` : total de traces complétées
 - `perf_sentinel_slow_duration_seconds{type, service}` : histogram des durées de spans lents (utiliser `histogram_quantile()` pour des percentiles globaux sur des instances shardées)
-
 
 Voir [`examples/otel-collector-config.yaml`](../../examples/otel-collector-config.yaml) pour la config complète avec les options de sampling et filtrage.
 

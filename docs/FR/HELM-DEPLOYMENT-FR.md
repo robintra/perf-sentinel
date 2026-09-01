@@ -621,7 +621,6 @@ run (128 services sur les findings, 64 sur l'histogramme, débordement
 replié dans `service="_other"`), et
 `[daemon] per_service_labels = false` restaure la forme sans label.
 
-
 **Tous les panneaux suivent le sélecteur de plage**, avec une règle et
 une exception assumée. Les panneaux de taux utilisent `$__rate_interval`
 et les panneaux à fenêtre utilisent `$__range` : choisir `Last 6 hours`

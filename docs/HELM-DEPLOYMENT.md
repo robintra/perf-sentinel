@@ -933,7 +933,6 @@ through per-run caps (128 services on findings, 64 on the histogram,
 overflow folded into `service="_other"`), and
 `[daemon] per_service_labels = false` restores the unlabeled shape.
 
-
 **Every panel follows the time picker**, with one rule and one stated
 exception. Rate panels use `$__rate_interval` and windowed panels use
 `$__range`, so picking `Last 6 hours` means the ranking, the
@@ -989,7 +988,6 @@ of what kind, from which service": since 0.18.0
 `service="_other"`). A per-endpoint label stays off `/metrics`,
 deliberately, because endpoint cardinality is unbounded. Which
 operation on which endpoint lives behind the query API.
-
 
 A second dashboard reads it directly through the
 [Infinity plugin](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
