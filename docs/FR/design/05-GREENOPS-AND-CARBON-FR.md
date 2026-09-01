@@ -52,8 +52,8 @@ Le tri gratuit à l'itération du `BTreeMap` est noyé par son surcoût `O(log K
 ### Étape 2 : dédup des I/O évitables
 
 ```rust
-// dedup_avoidable_io_ops_by_service : valeur = (max évitable, type, service)
-let mut dedup: HashMap<(&str, &str, &str), (usize, &FindingType, &str)> =
+// dedup_avoidable_io_ops_by_service : valeur = (max évitable, le finding)
+let mut dedup: HashMap<(&str, &str, &str), (usize, &Finding)> =
     HashMap::with_capacity(capacity);
 for f in findings {
     if !f.finding_type.is_avoidable_io() {
@@ -62,20 +62,24 @@ for f in findings {
     let avoidable = f.pattern.occurrences.saturating_sub(1);
     let entry = dedup
         .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-        .or_insert((avoidable, &f.finding_type, f.service.as_str()));
+        .or_insert((avoidable, f));
     if avoidable > entry.0 {
-        *entry = (avoidable, &f.finding_type, &f.service);
+        *entry = (avoidable, f);
     }
 }
 // Une seule passe sur l'ensemble dédoublonné alimente à la fois le total global
 // (réparti sql / messaging selon le type retenu) et la map par service derrière
 // `perf_sentinel_service_avoidable_io_ops_total`, les deux ne peuvent donc pas diverger.
 let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
-for &(avoidable, _finding_type, service) in dedup.values() {
+for &(avoidable, f) in dedup.values() {
     out.total += avoidable;
-    *per_service.entry(service.to_string()).or_default() += avoidable;
+    for (service, ops) in f.avoidable_by_service() {
+        credit(&mut per_service, service, ops);
+    }
 }
 ```
+
+**Pourquoi créditer via `avoidable_by_service()` ?** Aucun détecteur ne met le service dans sa clé de groupe, donc un template partagé par deux services dans une même trace est un seul finding, détenu par le service du premier span. `pattern.occurrences_by_service` enregistre combien de spans chaque service a émis quand il y en a plus d'un, et la répartition du gagnant est créditée par service : chacun ses propres répétitions, le détenteur une de moins pour l'appel nécessaire. La somme reste `occurrences - 1`, les compteurs par service continuent donc de sommer au compteur global, et un service ne lit plus 0 % ou plus de 100 % sur le waste ratio par service du dashboard pour un template qu'il partage. Le détenteur est le premier span dans l'ordre d'ingestion, pas le plus ancien horodatage, limite connue.
 
 **Pourquoi inclure `source_endpoint` dans la clé ?** Le même template SQL (ex. `SELECT * FROM config WHERE key = ?`) peut être appelé depuis deux endpoints différents dans la même trace. Les opérations évitables de chaque endpoint doivent être comptées indépendamment. Sans `source_endpoint`, `max(5, 3) = 5` sous-compterait : le total correct est `5 + 3 = 8`.
 
