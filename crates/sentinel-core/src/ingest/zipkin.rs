@@ -296,7 +296,9 @@ fn convert_zipkin_span(
             .to_string(),
     };
 
-    let service: Arc<str> = zipkin_service_name(span).map_or_else(|| Arc::from(""), Arc::from);
+    let service: Arc<str> = zipkin_service_name(span)
+        .map_or_else(|| Arc::from(crate::event::UNKNOWN_SERVICE), Arc::from);
+
     let grouping =
         crate::ingest::collect_grouping(grouping_attributes, |key| get_tag(key).map(Arc::from));
 
@@ -602,7 +604,8 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].duration_us, 0);
-        assert_eq!(&*events[0].service, "");
+        assert_eq!(&*events[0].service, crate::event::UNKNOWN_SERVICE);
+
         assert!(events[0].parent_span_id.is_none());
     }
 

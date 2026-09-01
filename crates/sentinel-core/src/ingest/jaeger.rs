@@ -358,7 +358,11 @@ fn convert_jaeger_span(
 
     // Service name from the per-trace Arc cache, cloned (O(1)) per span.
     let process = process_metadata.get(span.process_id.as_str());
-    let service: Arc<str> = process.map_or_else(|| Arc::from(""), |m| Arc::clone(&m.0));
+    let service: Arc<str> = process.map_or_else(
+        || Arc::from(crate::event::UNKNOWN_SERVICE),
+        |m| Arc::clone(&m.0),
+    );
+
     // Process tags win over span tags: they describe the emitter, a span
     // tag with the same name is a per-request override.
     let grouping = crate::ingest::collect_grouping(grouping_attributes, |key| {
@@ -729,12 +733,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_process_id_produces_empty_service() {
+    fn unknown_process_id_falls_back_to_unknown_service() {
         let json = r#"{"data": [{"traceID": "t1", "spans": [{"spanID": "s1", "operationName": "op", "startTime": 0, "duration": 100, "processID": "unknown", "tags": [{"key": "db.statement", "value": "SELECT 1"}]}], "processes": {"p1": {"serviceName": "svc"}}}]}"#;
         let ingest = JaegerIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(&*events[0].service, "");
+        assert_eq!(&*events[0].service, crate::event::UNKNOWN_SERVICE);
     }
 
     #[test]

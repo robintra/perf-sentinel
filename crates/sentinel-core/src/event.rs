@@ -43,6 +43,10 @@ pub fn sanitize_id(id: &str) -> String {
 /// Maximum length for the `service` field (bytes).
 pub const MAX_SERVICE_LENGTH: usize = 256;
 
+/// Fallback service name on every ingestion path, for a span that
+/// carries none.
+pub const UNKNOWN_SERVICE: &str = "unknown";
+
 /// Maximum length for the `operation` field (bytes).
 pub const MAX_OPERATION_LENGTH: usize = 256;
 
@@ -230,6 +234,14 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
         .truncate(crate::config::MAX_GROUPING_ATTRIBUTES);
     sanitize_optional_arc_str(&mut event.link_trace_id, MAX_ID_LENGTH);
     truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
+    // Zipkin and Jaeger leave the name empty when the span carries no
+    // service; OTLP already falls back to "unknown". Settle it here, on
+    // the path all four ingests share, so `Finding.service`, the ack
+    // signature and the `service` metric label agree.
+    if event.service.is_empty() {
+        event.service = Arc::from(UNKNOWN_SERVICE);
+    }
+
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
     // A messaging destination reaches the finding template verbatim, with
     // no tokenizer or URL parser in between. Scheme-gated on purpose, see
@@ -716,6 +728,21 @@ mod tests {
             _ => panic!("unknown field: {field}"),
         }
         event
+    }
+
+    #[test]
+    fn sanitize_falls_back_to_unknown_service() {
+        // Zipkin and Jaeger leave the name empty when the span carries
+        // no service. An empty `service` put a blank component in the
+        // ack signature and, on the Prometheus side, an empty label a
+        // scrape re-attributes to its target.
+        let mut event = make_event_with_field("service", "");
+        sanitize_span_event(&mut event);
+        assert_eq!(&*event.service, UNKNOWN_SERVICE);
+
+        let mut named = make_event_with_field("service", "cart-svc");
+        sanitize_span_event(&mut named);
+        assert_eq!(&*named.service, "cart-svc");
     }
 
     #[test]
