@@ -23,7 +23,15 @@ fn events(n: usize) -> Vec<SpanEvent> {
 }
 
 fn traces_for(n_events: usize) -> Vec<Trace> {
-    correlate::correlate(normalize::normalize_all(events(n_events)))
+    traces_with_services(n_events, 16)
+}
+
+/// `traces_for` with the service count as an axis: the per-service maps
+/// in the scoring pass are keyed by service, so their cost scales with
+/// how many distinct ones a corpus holds, not with its span count.
+fn traces_with_services(n_events: usize, services: usize) -> Vec<Trace> {
+    let raw = synth::generate_target_events(n_events, services, &PatternMix::default(), 42);
+    correlate::correlate(normalize::normalize_all(raw))
 }
 
 /// Pattern-pure dataset: isolates one detector's dominant cost while
@@ -151,6 +159,33 @@ fn bench_score_green(c: &mut Criterion) {
     group.finish();
 }
 
+/// `score_green` over a real finding set. The dedup that builds the
+/// per-service avoidable split walks the findings, and `bench_score_green`
+/// passes an empty vector, so nothing measured that pass. `carbon: None`
+/// keeps the carbon pipeline out of the number, leaving the endpoint
+/// counting, the dedup and the IIS enrichment.
+///
+/// The service axis is the one that matters for the split's ordered map:
+/// 16 is an ordinary deployment, 128 is the daemon's analysis cap, where
+/// a `BTreeMap` probe is at its deepest.
+fn bench_score_green_findings(c: &mut Criterion) {
+    let config = DetectConfig::from(&Config::default());
+    let mut group = c.benchmark_group("score_green_findings");
+    for (n, services) in [(10_000usize, 16usize), (100_000, 16), (100_000, 128)] {
+        let traces = traces_with_services(n, services);
+        let findings = detect::run_full_detection(&traces, &config);
+        group.throughput(Throughput::Elements(findings.len() as u64));
+        group.bench_function(format!("{n}_events_{services}_services"), |b| {
+            b.iter_batched(
+                || findings.clone(),
+                |f| black_box(score::score_green(black_box(&traces), f, None)),
+                BatchSize::LargeInput,
+            );
+        });
+    }
+    group.finish();
+}
+
 fn bench_full_pipeline(c: &mut Criterion) {
     let config = Config::default();
     let mut group = c.benchmark_group("pipeline_analyze");
@@ -226,6 +261,7 @@ criterion_group!(
     bench_correlate,
     bench_detectors,
     bench_score_green,
+    bench_score_green_findings,
     bench_full_pipeline,
     bench_time_parse,
     bench_prometheus_counter
