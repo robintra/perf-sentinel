@@ -274,7 +274,7 @@ Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande 
 
 ## Spike de findings critiques
 
-**Symptôme.** Alerte sur le rate de `perf_sentinel_findings_total{severity="critical"}`.
+**Symptôme.** Alerte sur le rate de `sum(rate(perf_sentinel_findings_total{severity="critical"}[5m]))`. Depuis 0.18.0 le counter porte un label `service` : une alerte non agrégée se déclenche une fois par service, entourez-la de `sum()` (ou `sum by (service)` si vous voulez une astreinte par service).
 
 **Workflow de triage.**
 
