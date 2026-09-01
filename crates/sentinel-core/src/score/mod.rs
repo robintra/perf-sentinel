@@ -158,17 +158,31 @@ fn endpoint_stats_to_per_endpoint_io_ops(
 /// The step-by-step algorithm (count, IIS, dedup, enrich, rank, then
 /// per-region carbon) is documented in
 /// `docs/design/05-GREENOPS-AND-CARBON.md`.
+///
+/// The last tuple element is the per-service split of the deduped
+/// avoidable ops (same pass as the totals), feeding
+/// `perf_sentinel_service_avoidable_io_ops_total`.
 #[must_use]
 pub fn score_green(
     traces: &[Trace],
     findings: Vec<Finding>,
     carbon: Option<&CarbonContext>,
-) -> (Vec<Finding>, GreenSummary, Vec<PerEndpointIoOps>) {
+) -> (
+    Vec<Finding>,
+    GreenSummary,
+    Vec<PerEndpointIoOps>,
+    HashMap<String, usize>,
+) {
     let (endpoint_stats, total_io_ops, total_sql_io_ops, total_messaging_io_ops) =
         count_endpoint_stats(traces);
     let per_endpoint_io_ops = endpoint_stats_to_per_endpoint_io_ops(&endpoint_stats);
-    let avoidable = dedup_avoidable_io_ops(&findings);
+    let (avoidable, avoidable_per_service) = dedup_avoidable_io_ops_by_service(&findings);
+    let avoidable_per_service: HashMap<String, usize> = avoidable_per_service
+        .into_iter()
+        .map(|(service, ops)| (service.to_string(), ops))
+        .collect();
     let avoidable_io_ops = avoidable.total;
+
     let iis_map = build_iis_map(&endpoint_stats);
     let enriched = enrich_findings_with_iis(findings, &iis_map);
 
@@ -245,7 +259,12 @@ pub fn score_green(
         messaging_waste,
     };
 
-    (enriched, green_summary, per_endpoint_io_ops)
+    (
+        enriched,
+        green_summary,
+        per_endpoint_io_ops,
+        avoidable_per_service,
+    )
 }
 
 /// Total, SQL-only and messaging-only sums of the deduped avoidable I/O ops.
@@ -257,16 +276,10 @@ pub(crate) struct AvoidableIoOps {
 }
 
 /// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`),
-/// taking max. Slow findings are not avoidable I/O, they are necessary
-/// operations that happen to be slow. The per-kind sums let operators
-/// apply a waste share to a measured database or broker energy reading.
-pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> AvoidableIoOps {
-    dedup_avoidable_io_ops_by_service(findings).0
-}
-
-/// [`dedup_avoidable_io_ops`] plus the per-service split of the same
-/// deduped ops, so `perf_sentinel_service_avoidable_io_ops_total` can
-/// never diverge from the global counter.
+/// taking max, plus the per-service split of the same deduped ops (so
+/// `service_avoidable_io_ops_total` cannot diverge from the global
+/// counter). Slow findings are not avoidable I/O: necessary operations
+/// that happen to be slow.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
 ) -> (AvoidableIoOps, HashMap<&str, usize>) {
