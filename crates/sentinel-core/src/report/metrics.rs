@@ -500,7 +500,7 @@ pub struct MetricsState {
     pub service_analyzed_io_ops_total: CounterVec,
     /// Analysis-side attributions (findings, avoidable and analysed I/O
     /// ops) folded into `_other` past the cap. An ongoing increase means
-    /// per-service attribution is coarsening; totals stay exact.
+    /// per-service attribution is coarsening, totals stay exact.
     pub analysis_service_overflow_total: IntCounter,
 
     /// Slow spans folded into the `_other` histogram series because the

@@ -1279,7 +1279,7 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         "per_service_labels",
         &bool_str(c.per_service_labels),
         &bool_str(d.per_service_labels),
-        "Whether findings and slow-span metrics carry a service label (0.18.0); off restores the pre-0.18 shape.",
+        "Whether findings and slow-span metrics carry a service label (0.18.0). Off restores the pre-0.18 shape.",
     );
     config_row(
         &mut lines,

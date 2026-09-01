@@ -399,7 +399,7 @@ impl CappedServices {
             tracing::warn!(
                 cap = self.cap,
                 what = self.what,
-                "service cardinality cap reached; {}",
+                "service cardinality cap reached, {}",
                 self.consequence
             );
             self.warned = true;
@@ -483,7 +483,7 @@ impl SlowHists {
 /// state of the analysis worker task, like [`ServiceMeter`]: no lock.
 /// Past a cap, series fold into [`SERVICE_OVERFLOW_LABEL`] so sums stay
 /// exact. With `[daemon] per_service_labels = false`, findings and
-/// histogram series carry an empty `service`; the per-service I/O
+/// histogram series carry an empty `service`, the per-service I/O
 /// counters ignore the knob.
 struct AnalysisServiceMeter {
     per_service_labels: bool,
@@ -1177,7 +1177,7 @@ fn emit_findings_and_update_metrics(
             .inc_by(ops as f64);
     }
 
-    // Resolve effective service labels once; the counter and its
+    // Resolve effective service labels once, the counter and its
     // exemplars must land on the same series.
     let labeled: Vec<(&detect::Finding, &str)> = findings
         .iter()
@@ -3571,7 +3571,7 @@ mod tests {
         let metrics = MetricsState::new();
         let _meter = AnalysisServiceMeter::new(true, &metrics);
 
-        // `_other` means "past the cap"; pre-warming it would put a
+        // `_other` means "past the cap". Pre-warming it would put a
         // permanent phantom service in every scrape and in the
         // dashboard's service picker.
         let rendered = metrics.render();
