@@ -208,7 +208,7 @@
     },
     {
       "title": "I/O waste ratio",
-      "description": "Share of analysed I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
+      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. The numerator is analysis-side (folds into service=\"_other\" past the 128-service cap, silent when green scoring is off) while the denominator counts at ingest (drops past 1024 services, includes batches later shed before analysis), so the ratio understates waste under analysis-queue shedding, and a single service past the analysis cap reads as no data \u2014 its avoidable ops live under _other. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
       "type": "gauge",
       "gridPos": {
         "h": 8,
@@ -260,7 +260,7 @@
     },
     {
       "title": "Critical findings",
-      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken.",
+      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken \u2014 unless the selected service was folded past the 128-service analysis cap, in which case its findings count under service=\"_other\".",
       "type": "stat",
       "gridPos": {
         "h": 8,
@@ -321,7 +321,7 @@
     },
     {
       "title": "Total findings (cumulative)",
-      "description": "Grand total of findings emitted by the daemon since start, summed across all types and severities. Pairs with the per-type / per-severity panels to give a single at-a-glance number.",
+      "description": "Findings emitted since daemon start for the selected services (the grand total with All selected), summed across all types and severities. Pairs with the per-type / per-severity panels to give a single at-a-glance number.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -371,7 +371,7 @@
     },
     {
       "title": "Total I/O ops processed",
-      "description": "Cumulative count of analysed I/O operations since the daemon started. A sanity counter rather than a diagnostic: if it stops climbing while traffic continues, ingestion or analysis has stalled. It resets on restart.",
+      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue \u2014 an analysis stall does not flatten it; watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded. If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -387,7 +387,7 @@
         {
           "expr": "sum(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"})",
           "refId": "A",
-          "legendFormat": "{{instance}}"
+          "legendFormat": "ingested ops"
         }
       ],
       "fieldConfig": {
@@ -414,7 +414,7 @@
         {
           "expr": "sum(rate(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__rate_interval]))",
           "refId": "A",
-          "legendFormat": "avoidable ops/s {{instance}}"
+          "legendFormat": "avoidable ops/s"
         }
       ],
       "fieldConfig": {
@@ -1069,9 +1069,9 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\"}, service)",
+        "definition": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, service)",
         "query": {
-          "query": "label_values(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\"}, service)",
+          "query": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, service)",
           "refId": "service"
         },
         "refresh": 2,
@@ -1082,7 +1082,7 @@
         "current": {},
         "options": [],
         "hide": 0,
-        "description": "Analysed service (OTLP service.name). Filters the Analysis row; the Daemon health row is daemon-wide."
+        "description": "Analysed service (OTLP service.name). Filters the Analysis row; the Daemon health row is daemon-wide. service=\"_other\" is the fold bucket for services past the per-run cardinality caps (128 on findings, 64 on the slow-span histogram): a service admitted at ingest but past an analysis cap has its findings there, not under its own name."
       }
     ]
   },
