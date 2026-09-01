@@ -274,7 +274,7 @@ and never echoed. The values are frozen at daemon startup.
 `max_events_per_trace`, `max_payload_size`, `environment`,
 `max_retained_findings`, `max_export_findings`,
 `max_retained_traces`, `memory_high_water_pct`, `ingest_queue_capacity`,
-`analysis_queue_capacity`, `api_enabled`), the summarized sub-systems
+`analysis_queue_capacity`, `per_service_labels`, `api_enabled`), the summarized sub-systems
 (`tls_configured`, `ack_enabled`, `ack_api_key_set`,
 `cors_allowed_origins`, `archive_configured`), and the correlation
 block (`correlation_enabled`, `correlation_window_ms`,
@@ -878,7 +878,7 @@ groups:
   - name: perf-sentinel
     rules:
       - alert: PerfSentinelCriticalFinding
-        expr: perf_sentinel_findings_total{severity="critical"} > 0
+        expr: sum(perf_sentinel_findings_total{severity="critical"}) > 0
         for: 2m
         labels:
           severity: page
@@ -891,8 +891,9 @@ groups:
 
 The built-in Prometheus scrape endpoint at `/metrics` already exposes
 `perf_sentinel_findings_total{type,severity,service}` as a counter, so you do not
-
-need the query API for counting alerts. Use the query API to fetch the
+need the query API for counting alerts. Wrap it in `sum()` as above: since
+0.18.0 the counter carries a `service` label, and an unaggregated alert
+fires once per service. Use the query API to fetch the
 **payload** (template, trace ID, suggestion) that the alert handler
 includes in the notification.
 
