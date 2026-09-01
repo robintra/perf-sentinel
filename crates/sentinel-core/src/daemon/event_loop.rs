@@ -1107,7 +1107,7 @@ fn emit_findings_and_update_metrics(
     findings: &[detect::Finding],
     green_summary: &GreenSummary,
     per_endpoint_io_ops: &[crate::report::PerEndpointIoOps],
-    avoidable_per_service: &HashMap<String, usize>,
+    avoidable_per_service: &BTreeMap<String, usize>,
     ctx: &mut ProcessTracesCtx<'_>,
 ) {
     use std::io::Write;
@@ -1147,22 +1147,19 @@ fn emit_findings_and_update_metrics(
     // charged the overflow counter once per endpoint of an over-cap
     // service. `BTreeMap` also makes cap admission deterministic, where
     // `HashMap` order decided at random which services kept their own
-    // label at the boundary.
+    // label at the boundary. The avoidable split arrives ordered from
+    // `dedup_avoidable_io_ops_by_service`, so it needs no fold here.
     let mut analyzed_per_service: BTreeMap<&str, usize> = BTreeMap::new();
     for entry in per_endpoint_io_ops {
         *analyzed_per_service
             .entry(entry.service.as_str())
             .or_default() += entry.io_ops;
     }
-    let avoidable_sorted: BTreeMap<&str, usize> = avoidable_per_service
-        .iter()
-        .map(|(service, ops)| (service.as_str(), *ops))
-        .collect();
-    for (service, ops) in avoidable_sorted {
+    for (service, ops) in avoidable_per_service {
         metrics
             .service_avoidable_io_ops_total
-            .with_label_values(&[meter.service_label(service, metrics)])
-            .inc_by(ops as f64);
+            .with_label_values(&[meter.service_label(service.as_str(), metrics)])
+            .inc_by(*ops as f64);
     }
     for (service, ops) in analyzed_per_service {
         metrics
@@ -1226,7 +1223,7 @@ fn score_batch(
     Vec<detect::Finding>,
     GreenSummary,
     Vec<crate::report::PerEndpointIoOps>,
-    HashMap<String, usize>,
+    BTreeMap<String, usize>,
 ) {
     if ctx.green_enabled {
         score::score_green(traces, findings, Some(ctx.carbon_ctx))
@@ -1236,7 +1233,7 @@ fn score_batch(
             findings,
             GreenSummary::disabled(total_io_ops),
             Vec::new(),
-            HashMap::new(),
+            BTreeMap::new(),
         )
     }
 }

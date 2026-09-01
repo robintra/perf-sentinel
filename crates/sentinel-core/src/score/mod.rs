@@ -37,7 +37,7 @@ pub(crate) mod canonical;
 mod carbon_compute;
 mod region_breakdown;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::correlate::Trace;
 use crate::detect::{Finding, FindingType, GreenImpact};
@@ -161,7 +161,8 @@ fn endpoint_stats_to_per_endpoint_io_ops(
 ///
 /// The last tuple element is the per-service split of the deduped
 /// avoidable ops (same pass as the totals), feeding
-/// `perf_sentinel_service_avoidable_io_ops_total`.
+/// `perf_sentinel_service_avoidable_io_ops_total`. Ordered by service
+/// name, so the daemon's cap admission does not depend on hash order.
 #[must_use]
 pub fn score_green(
     traces: &[Trace],
@@ -171,13 +172,13 @@ pub fn score_green(
     Vec<Finding>,
     GreenSummary,
     Vec<PerEndpointIoOps>,
-    HashMap<String, usize>,
+    BTreeMap<String, usize>,
 ) {
     let (endpoint_stats, total_io_ops, total_sql_io_ops, total_messaging_io_ops) =
         count_endpoint_stats(traces);
     let per_endpoint_io_ops = endpoint_stats_to_per_endpoint_io_ops(&endpoint_stats);
     let (avoidable, avoidable_per_service) = dedup_avoidable_io_ops_by_service(&findings);
-    let avoidable_per_service: HashMap<String, usize> = avoidable_per_service
+    let avoidable_per_service: BTreeMap<String, usize> = avoidable_per_service
         .into_iter()
         .map(|(service, ops)| (service.to_string(), ops))
         .collect();
@@ -280,9 +281,12 @@ pub(crate) struct AvoidableIoOps {
 /// `service_avoidable_io_ops_total` cannot diverge from the global
 /// counter). Slow findings are not avoidable I/O: necessary operations
 /// that happen to be slow.
+///
+/// The split is a `BTreeMap` so its consumers inherit a deterministic
+/// service order instead of re-collecting one.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
-) -> (AvoidableIoOps, HashMap<&str, usize>) {
+) -> (AvoidableIoOps, BTreeMap<&str, usize>) {
     let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
@@ -309,7 +313,7 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         sql: 0,
         messaging: 0,
     };
-    let mut per_service: HashMap<&str, usize> = HashMap::new();
+    let mut per_service: BTreeMap<&str, usize> = BTreeMap::new();
     for &(avoidable, finding_type, service) in dedup.values() {
         out.total += avoidable;
         *per_service.entry(service).or_default() += avoidable;
