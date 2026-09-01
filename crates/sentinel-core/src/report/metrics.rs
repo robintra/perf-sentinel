@@ -352,6 +352,12 @@ fn register_int_counter_vec(
     counter
 }
 
+/// Key of the worst-finding exemplar map: the `(type, severity, service)`
+/// label values of the `findings_total` series the exemplar annotates.
+/// The service member is the effective label value of the series (a real
+/// name, `_other` past the cap, or empty with per-service labels off).
+type FindingExemplarKey = (&'static str, &'static str, String);
+
 /// Data attached to a metric as an `OpenMetrics` exemplar.
 #[derive(Debug, Clone)]
 struct ExemplarData {
@@ -464,6 +470,24 @@ pub struct MetricsState {
     /// increase means per-service throughput and measured-energy
     /// attribution are undercounting newly seen services.
     pub service_io_ops_overflow_total: IntCounter,
+    /// Per-service share of [`Self::avoidable_io_ops`], derived from
+    /// findings with the same dedup rule as the global counter. The only
+    /// production writer is the daemon's `AnalysisServiceMeter`, which
+    /// folds services past its cardinality cap into the `_other` series,
+    /// so the sum across services still equals the global counter.
+    pub service_avoidable_io_ops_total: CounterVec,
+    /// Findings whose `service` label was folded into `_other` because
+    /// the `AnalysisServiceMeter` cardinality cap was already reached.
+    /// An ongoing increase means per-service findings attribution is
+    /// coarsening for newly seen services; the totals stay exact.
+    pub analysis_service_overflow_total: IntCounter,
+    /// Slow spans folded into the `_other` histogram series because the
+    /// histogram service cardinality cap was already reached. Same
+    /// contract as [`Self::analysis_service_overflow_total`], with a
+    /// lower cap because a histogram costs 13 series per (type, service)
+    /// pair.
+    pub slow_duration_service_overflow_total: IntCounter,
+
     /// age in seconds since the last successful Scaphandre
     /// scrape. Reset to 0 on each successful scrape and incremented
     /// every scrape interval by the scraper task. Useful for
@@ -632,7 +656,8 @@ pub struct MetricsState {
     #[cfg(feature = "daemon")]
     pub redfish_scrape_failed: IntCounter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
-    worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
+    worst_finding_trace: Arc<RwLock<HashMap<FindingExemplarKey, ExemplarData>>>,
+
     /// Worst-case `trace_id` for io waste ratio.
     worst_waste_trace: Arc<RwLock<Option<ExemplarData>>>,
 }
@@ -651,9 +676,9 @@ impl MetricsState {
         let findings_total = CounterVec::new(
             Opts::new(
                 "perf_sentinel_findings_total",
-                "Total findings detected by type and severity",
+                "Total findings detected by type, severity and service",
             ),
-            &["type", "severity"],
+            &["type", "severity", "service"],
         )
         .expect("metric creation should not fail");
 
@@ -801,6 +826,26 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        // Per-service share of `avoidable_io_ops`, derived from findings
+        // with the same dedup rule as the global counter so the two stay
+        // consistent. Services past the analysis cardinality cap fold
+        // into the `_other` series rather than being dropped, so the sum
+        // across services still equals the global counter.
+        let service_avoidable_io_ops_total = CounterVec::new(
+            Opts::new(
+                "perf_sentinel_service_avoidable_io_ops_total",
+                "Cumulative avoidable I/O ops attributed to each service",
+            ),
+            &["service"],
+        )
+        .expect("metric creation should not fail");
+
+        let analysis_service_overflow_total = IntCounter::new(
+            "perf_sentinel_analysis_service_overflow_total",
+            "Findings folded into the _other service series because the analysis service cardinality cap was reached",
+        )
+        .expect("metric creation should not fail");
+
         // Scaphandre scrape freshness gauge. 0 when a
         // successful scrape just completed; grows with wall-clock
         // time until the next success. Always 0 when Scaphandre is
@@ -878,6 +923,12 @@ impl MetricsState {
             .register(Box::new(service_io_ops_total.clone()))
             .expect("registration should not fail");
         registry
+            .register(Box::new(service_avoidable_io_ops_total.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(analysis_service_overflow_total.clone()))
+            .expect("registration should not fail");
+        registry
             .register(Box::new(service_io_ops_overflow_total.clone()))
             .expect("registration should not fail");
         registry
@@ -896,11 +947,20 @@ impl MetricsState {
             .buckets(vec![
                 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 30.0,
             ]),
-            &["type"],
+            &["type", "service"],
         )
         .expect("metric creation should not fail");
         registry
             .register(Box::new(slow_duration_seconds.clone()))
+            .expect("registration should not fail");
+
+        let slow_duration_service_overflow_total = IntCounter::new(
+            "perf_sentinel_slow_duration_service_overflow_total",
+            "Slow spans folded into the _other histogram series because the histogram service cardinality cap was reached",
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(slow_duration_service_overflow_total.clone()))
             .expect("registration should not fail");
 
         let cloud_energy_last_scrape_age_seconds = Gauge::new(
@@ -1205,6 +1265,10 @@ impl MetricsState {
             scaphandre_last_scrape_age_seconds,
             cloud_energy_last_scrape_age_seconds,
             slow_duration_seconds,
+            slow_duration_service_overflow_total,
+            service_avoidable_io_ops_total,
+            analysis_service_overflow_total,
+
             export_report_requests_total,
             otlp_rejected_total,
             otlp_rejected_unsupported_media_type,
@@ -1417,7 +1481,11 @@ impl MetricsState {
 
         for finding in &report.findings {
             self.findings_total
-                .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
+                .with_label_values(&[
+                    finding.finding_type.as_str(),
+                    finding.severity.as_str(),
+                    &finding.service,
+                ])
                 .inc();
         }
 
@@ -1426,20 +1494,44 @@ impl MetricsState {
 
     /// Update exemplar tracking from findings and green summary.
     ///
-    /// Called by both `record_batch` (batch mode) and the daemon's `process_traces`.
-    /// Builds exemplar data in a local map, then takes the write lock only for the swap.
-    ///
-    /// Recovers gracefully if an internal lock is poisoned.
+    /// Library entry point: exemplars are keyed on each finding's own
+    /// service, matching what [`Self::record_batch`] renders. The daemon
+    /// resolves capped/disabled service label values first and calls
+    /// [`Self::record_exemplars_labeled`] so the keys match the series
+    /// it actually incremented.
     pub fn record_exemplars(
         &self,
         findings: &[crate::detect::Finding],
         green_summary: &crate::report::GreenSummary,
     ) {
+        let labeled: Vec<(&crate::detect::Finding, &str)> =
+            findings.iter().map(|f| (f, f.service.as_str())).collect();
+        self.record_exemplars_labeled(&labeled, green_summary);
+    }
+
+    /// [`Self::record_exemplars`] with the effective `service` label
+    /// value of each finding's series alongside the finding, so an
+    /// exemplar always lands on the series its finding incremented
+    /// (capped services fold into `_other`, and with per-service labels
+    /// off every value is the empty string).
+    ///
+    /// Builds exemplar data in a local map, then takes the write lock only for the swap.
+    ///
+    /// Recovers gracefully if an internal lock is poisoned.
+    pub(crate) fn record_exemplars_labeled(
+        &self,
+        findings: &[(&crate::detect::Finding, &str)],
+        green_summary: &crate::report::GreenSummary,
+    ) {
         // Build exemplar updates locally to minimize lock hold time.
-        let mut new_exemplars: HashMap<(&'static str, &'static str), ExemplarData> = HashMap::new();
-        for finding in findings {
+        let mut new_exemplars: HashMap<FindingExemplarKey, ExemplarData> = HashMap::new();
+        for (finding, service_label) in findings {
             new_exemplars.insert(
-                (finding.finding_type.as_str(), finding.severity.as_str()),
+                (
+                    finding.finding_type.as_str(),
+                    finding.severity.as_str(),
+                    (*service_label).to_string(),
+                ),
                 ExemplarData {
                     trace_id: finding.trace_id.clone(),
                 },
@@ -1455,12 +1547,12 @@ impl MetricsState {
         }
 
         // Track worst-case trace for waste ratio
-        if let Some(worst_finding) = (green_summary.io_waste_ratio > 0.0)
+        if let Some((worst_finding, _)) = (green_summary.io_waste_ratio > 0.0)
             .then(|| {
                 findings
                     .iter()
-                    .filter(|f| f.finding_type.is_avoidable_io())
-                    .max_by_key(|f| f.pattern.occurrences)
+                    .filter(|(f, _)| f.finding_type.is_avoidable_io())
+                    .max_by_key(|(f, _)| f.pattern.occurrences)
             })
             .flatten()
         {
@@ -1723,21 +1815,22 @@ fn is_zero_quality_parameter(parameter: &str) -> bool {
 
 /// Extract the finding exemplar for a given `findings_total` metric line.
 ///
-/// Parses the `type` and `severity` labels from the line and looks them up
-/// in the exemplar map. Since the map keys are `&'static str` (from `FindingType::as_str()`
-/// and `Severity::as_str()`), the lookup iterates the map to compare against
-/// the parsed label values without allocating.
+/// Parses the `type`, `severity` and `service` labels from the line and
+/// looks them up in the exemplar map. The lookup iterates the map to
+/// compare against the parsed label values without allocating.
 fn extract_finding_exemplar<'a>(
     line: &str,
-    map: &'a HashMap<(&'static str, &'static str), ExemplarData>,
+    map: &'a HashMap<FindingExemplarKey, ExemplarData>,
 ) -> Option<&'a ExemplarData> {
-    // Line format: perf_sentinel_findings_total{severity="warning",type="n_plus_one_sql"} 1
+    // Line format:
+    // perf_sentinel_findings_total{service="checkout",severity="warning",type="n_plus_one_sql"} 1
     let labels_start = line.find('{')?;
     let labels_end = line.find('}')?;
     let labels_str = &line[labels_start + 1..labels_end];
 
     let mut finding_type = None;
     let mut severity = None;
+    let mut service = None;
 
     for part in labels_str.split(',') {
         let part = part.trim();
@@ -1745,14 +1838,17 @@ fn extract_finding_exemplar<'a>(
             finding_type = val.strip_suffix('"');
         } else if let Some(val) = part.strip_prefix("severity=\"") {
             severity = val.strip_suffix('"');
+        } else if let Some(val) = part.strip_prefix("service=\"") {
+            service = val.strip_suffix('"');
         }
     }
 
     let ft = finding_type?;
     let sev = severity?;
+    let svc = service?;
     // Iterate the map to find a matching key without allocating Strings
     map.iter()
-        .find(|((k_ft, k_sev), _)| *k_ft == ft && *k_sev == sev)
+        .find(|((k_ft, k_sev, k_svc), _)| *k_ft == ft && *k_sev == sev && k_svc == svc)
         .map(|(_, v)| v)
 }
 
@@ -1881,7 +1977,7 @@ mod tests {
         state.io_waste_ratio.set(0.25);
         state
             .findings_total
-            .with_label_values(&["n_plus_one_sql", "warning"])
+            .with_label_values(&["n_plus_one_sql", "warning", "order-svc"])
             .inc();
 
         let router = metrics_route(state);
@@ -1930,7 +2026,7 @@ mod tests {
         // Initialize the CounterVec with a label pair so it appears in output
         state
             .findings_total
-            .with_label_values(&["test", "test"])
+            .with_label_values(&["test", "test", "test"])
             .inc_by(0.0);
         let output = state.render();
         assert!(
@@ -1955,11 +2051,11 @@ mod tests {
         let state = MetricsState::new();
         state
             .findings_total
-            .with_label_values(&["n_plus_one_sql", "critical"])
+            .with_label_values(&["n_plus_one_sql", "critical", "order-svc"])
             .inc();
         state
             .findings_total
-            .with_label_values(&["n_plus_one_sql", "critical"])
+            .with_label_values(&["n_plus_one_sql", "critical", "order-svc"])
             .inc();
 
         let output = state.render();
@@ -2005,9 +2101,31 @@ mod tests {
 
         let map = state.worst_finding_trace.read().unwrap();
         assert_eq!(
-            map.get(&("n_plus_one_sql", "critical")).unwrap().trace_id,
+            map.get(&("n_plus_one_sql", "critical", "order-svc".to_string()))
+                .unwrap()
+                .trace_id,
             "trace-abc"
         );
+    }
+
+    #[test]
+    fn exemplars_stay_per_service_when_type_and_severity_collide() {
+        let state = MetricsState::new();
+        let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning, "trace-a", 5);
+        f1.service = "svc-a".to_string();
+        let mut f2 = make_finding(FindingType::NPlusOneSql, Severity::Warning, "trace-b", 5);
+        f2.service = "svc-b".to_string();
+        state.record_batch(&make_test_report(vec![f1, f2], 0.5));
+
+        let map = state.worst_finding_trace.read().unwrap();
+        let trace_of = |svc: &str| {
+            map.get(&("n_plus_one_sql", "warning", svc.to_string()))
+                .unwrap()
+                .trace_id
+                .clone()
+        };
+        assert_eq!(trace_of("svc-a"), "trace-a");
+        assert_eq!(trace_of("svc-b"), "trace-b");
     }
 
     #[test]
@@ -2064,7 +2182,7 @@ mod tests {
         state.traces_analyzed_total.inc();
         state
             .findings_total
-            .with_label_values(&["n_plus_one_sql", "warning"])
+            .with_label_values(&["n_plus_one_sql", "warning", "order-svc"])
             .inc();
 
         let output = state.render();
@@ -2153,7 +2271,9 @@ mod tests {
 
         let map = state.worst_finding_trace.read().unwrap();
         assert_eq!(
-            map.get(&("n_plus_one_sql", "warning")).unwrap().trace_id,
+            map.get(&("n_plus_one_sql", "warning", "order-svc".to_string()))
+                .unwrap()
+                .trace_id,
             "trace-new",
             "should update to latest batch's worst finding"
         );
@@ -2622,7 +2742,7 @@ mod tests {
         let state = MetricsState::new();
         state
             .findings_total
-            .with_label_values(&["n_plus_one_sql", "warning"])
+            .with_label_values(&["n_plus_one_sql", "warning", "order-svc"])
             .inc();
         state.io_waste_ratio.set(0.5);
 

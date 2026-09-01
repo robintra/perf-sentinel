@@ -303,6 +303,13 @@ pub struct DaemonConfig {
     /// awaiting detect+score. When full, whole batches are shed (counted
     /// on `perf_sentinel_analysis_shed_*`).
     pub analysis_queue_capacity: usize,
+    /// Whether `/metrics` breaks findings and slow-span durations down
+    /// by service, under the daemon's cardinality caps (overflow folds
+    /// into `service="_other"`). `false` leaves the label empty,
+    /// restoring the pre-0.18 shape. The per-service I/O counters are
+    /// unaffected: per-service is their only shape.
+    pub per_service_labels: bool,
+
     /// Memory-pressure admission control, as a percentage of the cgroup v2
     /// memory limit (1-100). When the pod's `memory.current / memory.max`
     /// crosses this high-water mark, OTLP ingest is rejected with a
@@ -499,6 +506,8 @@ impl Default for DaemonConfig {
             max_retained_traces: 50,
             ingest_queue_capacity: 1024,
             analysis_queue_capacity: 1024,
+            per_service_labels: true,
+
             memory_high_water_pct: 0,
             api_enabled: true,
             tls: DaemonTlsConfig::default(),
