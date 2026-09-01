@@ -141,6 +141,8 @@ Keep the message to the subject line: no body, no `Co-Authored-By` or other trai
 ### Prometheus metrics
 
 - Label values must always come from a **bounded, compile-time-known set** (enum variants, not user-controlled strings). This prevents label cardinality explosions that could crash the metrics endpoint.
+- The one sanctioned exception is the `service` label, and it pays for itself with a per-run cardinality cap and an overflow counter (`ServiceMeter` on the ingest side, `AnalysisServiceMeter` on the analysis side, overflow folded into `service="_other"` so sums stay exact). A new `service`-labeled metric must go through one of those meters; any other unbounded label value stays rejected.
+
 
 ## Test strategy
 

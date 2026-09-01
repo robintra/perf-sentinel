@@ -609,12 +609,18 @@ installation et non une tranche du trafic. C'est le seul label que le
 daemon n'exporte pas : il est attaché par le scrape, donc Prometheus
 Operator le renseigne en lisant le ServiceMonitor du chart, et un scrape
 qui n'en attache aucun reste couvert par `All`, ce qui laisse le tableau
-de bord inchangé hors Kubernetes. `Service` filtre le panneau d'I/O par
-service, et lui seul : toutes les autres métriques exportées par le
-daemon sont globales par conception, les valeurs de labels Prometheus
-venant ici d'un ensemble borné à la compilation pour maîtriser la
-cardinalité. Un filtre service qui paraîtrait restreindre tout le
-tableau de bord mentirait sur vingt de ses panneaux.
+de bord inchangé hors Kubernetes. `Service` filtre les panneaux
+d'analyse : findings, latence des spans lents et I/O, onze panneaux au
+total depuis la 0.18.0, où `perf_sentinel_findings_total` et
+`perf_sentinel_slow_duration_seconds` ont gagné un label `service`
+borné. Les autres panneaux mesurent le daemon lui-même (santé, files,
+intake OTLP, fraîcheur énergie) et restent globaux par construction :
+aucun service n'émet ces chiffres, aucun filtre service ne pourrait
+donc les découper. La cardinalité reste maîtrisée par des plafonds par
+run (128 services sur les findings, 64 sur l'histogramme, débordement
+replié dans `service="_other"`), et
+`[daemon] per_service_labels = false` restaure la forme sans label.
+
 
 **Tous les panneaux suivent le sélecteur de plage**, avec une règle et
 une exception assumée. Les panneaux de taux utilisent `$__rate_interval`

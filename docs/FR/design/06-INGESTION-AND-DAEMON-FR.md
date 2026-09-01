@@ -317,14 +317,16 @@ Le crate `prometheus` 0.14.0 ne supporte pas nativement les exemplars OpenMetric
 **Suivi des trace_id worst-case :**
 
 `MetricsState` stocke les données d'exemplars dans des champs protégés par `RwLock` :
-- `worst_finding_trace: HashMap<(String, String), ExemplarData>` : indexé par (finding_type, severity), mis à jour à chaque appel `record_batch()`
+- `worst_finding_trace: HashMap<(String, String, String), ExemplarData>` : indexé par (finding_type, severity, label service effectif), mis à jour à chaque appel `record_batch()`
+
 - `worst_waste_trace: Option<ExemplarData>` : le trace_id du finding avec le plus d'I/O évitables
 
 `RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent. L'empoisonnement de lock est géré gracieusement via `unwrap_or_else(PoisonError::into_inner)`, de sorte qu'un panic dans un thread ne cascade pas en crashs sur les acquisitions de lock suivantes.
 
 **Injection d'exemplars :**
 
-`inject_exemplars()` itère sur le texte rendu ligne par ligne. Pour les lignes `perf_sentinel_findings_total{...}`, il parse les labels `type` et `severity` pour trouver l'exemplar correspondant. Pour les lignes `perf_sentinel_io_waste_ratio`, il ajoute l'exemplar de gaspillage.
+`inject_exemplars()` itère sur le texte rendu ligne par ligne. Pour les lignes `perf_sentinel_findings_total{...}`, il parse les labels `type`, `severity` et `service` pour trouver l'exemplar correspondant.
+ Pour les lignes `perf_sentinel_io_waste_ratio`, il ajoute l'exemplar de gaspillage.
 
 Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id="abc123"}`. Quand des exemplars sont présents, le header `Content-Type` passe de `text/plain; version=0.0.4` (Prometheus) à `application/openmetrics-text; version=1.0.0` (OpenMetrics) pour que la source de données Prometheus de Grafana puisse reconnaître et afficher les liens d'exemplars.
 

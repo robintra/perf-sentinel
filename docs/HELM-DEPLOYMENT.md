@@ -922,12 +922,17 @@ than a slice of the traffic. It is the one label the daemon does not
 export: the scrape attaches it, so Prometheus Operator fills it in when
 it reads the chart's ServiceMonitor, and a scrape that attaches none is
 still matched by `All`, which leaves the dashboard unchanged outside
-Kubernetes. `Service` filters the per-service I/O panel and only that
-one: every other metric the daemon exports is daemon-wide by design,
-since Prometheus label values here come from a bounded compile-time set
-to keep cardinality under control. A service filter that appeared to
-narrow the whole dashboard would be lying about twenty of its
-panels.
+Kubernetes. `Service` filters the analysis panels: findings, slow-span
+latency and I/O, eleven panels in total since 0.18.0, when
+`perf_sentinel_findings_total` and `perf_sentinel_slow_duration_seconds`
+gained a bounded `service` label. The remaining panels measure the
+daemon itself (health, queues, OTLP intake, energy freshness) and stay
+daemon-wide by construction: no service emits those numbers, so no
+service filter could slice them. Cardinality stays under control
+through per-run caps (128 services on findings, 64 on the histogram,
+overflow folded into `service="_other"`), and
+`[daemon] per_service_labels = false` restores the unlabeled shape.
+
 
 **Every panel follows the time picker**, with one rule and one stated
 exception. Rate panels use `$__rate_interval` and windowed panels use
@@ -978,10 +983,13 @@ sidecar's configured `dashboards.sidecar.label`.
 ### Grafana on the query API (findings table)
 
 The dashboard above reads Prometheus, which answers "how many findings
-and of what kind": `perf_sentinel_findings_total` carries only `type` and
-`severity` labels, deliberately, because a per-service or per-endpoint
-label would blow up `/metrics` cardinality. It can never show which
-operation on which endpoint. That lives behind the query API.
+of what kind, from which service": since 0.18.0
+`perf_sentinel_findings_total` carries `type`, `severity` and a
+`service` label bounded by a 128-service cap (overflow folds into
+`service="_other"`). A per-endpoint label stays off `/metrics`,
+deliberately, because endpoint cardinality is unbounded. Which
+operation on which endpoint lives behind the query API.
+
 
 A second dashboard reads it directly through the
 [Infinity plugin](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
