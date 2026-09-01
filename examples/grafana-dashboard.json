@@ -385,7 +385,7 @@
       },
       "targets": [
         {
-          "expr": "sum(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"})",
+          "expr": "sum(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}) or vector(0)",
           "refId": "A",
           "legendFormat": "ingested ops"
         }
