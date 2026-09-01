@@ -52,14 +52,28 @@ Le tri gratuit à l'itération du `BTreeMap` est noyé par son surcoût `O(log K
 ### Étape 2 : dédup des I/O évitables
 
 ```rust
-let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(findings.len());
-for f in &findings {
-    if matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp) {
+// dedup_avoidable_io_ops_by_service : valeur = (max évitable, type, service)
+let mut dedup: HashMap<(&str, &str, &str), (usize, &FindingType, &str)> =
+    HashMap::with_capacity(capacity);
+for f in findings {
+    if !f.finding_type.is_avoidable_io() {
         continue; // les findings lents ne sont pas évitables
     }
     let avoidable = f.pattern.occurrences.saturating_sub(1);
-    let entry = dedup.entry((&f.trace_id, &f.pattern.template, &f.source_endpoint)).or_insert(0);
-    *entry = (*entry).max(avoidable);
+    let entry = dedup
+        .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
+        .or_insert((avoidable, &f.finding_type, f.service.as_str()));
+    if avoidable > entry.0 {
+        *entry = (avoidable, &f.finding_type, &f.service);
+    }
+}
+// Une seule passe sur l'ensemble dédoublonné alimente à la fois le total global
+// (réparti sql / messaging selon le type retenu) et la map par service derrière
+// `perf_sentinel_service_avoidable_io_ops_total`, les deux ne peuvent donc pas diverger.
+let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
+for &(avoidable, _finding_type, service) in dedup.values() {
+    out.total += avoidable;
+    *per_service.entry(service.to_string()).or_default() += avoidable;
 }
 ```
 
