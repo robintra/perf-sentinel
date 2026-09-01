@@ -345,7 +345,7 @@ pub(crate) const MAX_SERVICE_CARDINALITY: usize = 1024;
 /// mint the `per_service_labels = false` sentinel, which a scrape
 /// re-attributes to its own target.
 fn normalize_service(service: &str) -> &str {
-    if service.is_empty() {
+    if service.trim().is_empty() {
         crate::event::UNKNOWN_SERVICE
     } else {
         service
