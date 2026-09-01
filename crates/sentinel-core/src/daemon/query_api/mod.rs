@@ -1292,15 +1292,26 @@ fn collect_warning_details(
         // caps, same reason as the ingest-side message above.
         let analysis_cap = super::event_loop::MAX_ANALYSIS_SERVICE_CARDINALITY;
         let histogram_cap = super::event_loop::MAX_HISTOGRAM_SERVICE_CARDINALITY;
+        // With the knob off findings and the histogram carry no service
+        // label, so only the I/O counters can fold.
+        let caps = if daemon.per_service_labels {
+            format!(
+                "{analysis_cap} on findings and the per-service I/O \
+                 counters, {histogram_cap} on the slow-span histogram"
+            )
+        } else {
+            format!(
+                "{analysis_cap} on the per-service I/O counters, findings \
+                 and the slow-span histogram are unlabeled"
+            )
+        };
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
                 "{folded} analysis-side attributions landed in \
                  `service=\"_other\"` past the per-run service caps \
-                 ({analysis_cap} on findings and the per-service I/O \
-                 counters, {histogram_cap} on the slow-span histogram): \
-                 totals stay exact, the per-service split does not, \
-                 aggregate or reduce service names upstream"
+                 ({caps}): totals stay exact, the per-service split does \
+                 not, aggregate or reduce service names upstream"
             ),
         ));
     }

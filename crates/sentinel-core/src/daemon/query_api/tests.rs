@@ -1044,7 +1044,20 @@ fn tuning_advisor_flags_analysis_service_folding() {
     let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
     assert_eq!(msgs.len(), 1);
     assert!(
-        msgs[0].contains("7 ") && msgs[0].contains("_other"),
+        msgs[0].contains("7 ") && msgs[0].contains("_other") && msgs[0].contains("on findings"),
+        "got: {}",
+        msgs[0]
+    );
+
+    // Knob off: findings and the histogram are unlabeled, the hint must
+    // not claim they folded.
+    let off = crate::config::DaemonConfig {
+        per_service_labels: false,
+        ..Default::default()
+    };
+    let msgs = tuning_messages(&metrics, &off);
+    assert!(
+        !msgs[0].contains("on findings") && msgs[0].contains("unlabeled"),
         "got: {}",
         msgs[0]
     );
