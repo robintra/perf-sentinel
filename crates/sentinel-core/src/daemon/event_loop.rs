@@ -3686,6 +3686,42 @@ mod tests {
         assert!((global - summed).abs() < f64::EPSILON);
     }
 
+    /// A template shared by two services in one trace is one finding
+    /// owned by the first span's service. The counter charges each
+    /// service its own repeats, the owner one less for the necessary call.
+    #[tokio::test]
+    async fn service_avoidable_io_ops_split_follows_the_spans() {
+        let events: Vec<_> = (1..=6)
+            .map(|i| {
+                make_normalized_for_service(
+                    "t1",
+                    if i <= 3 { "svc-a" } else { "svc-b" },
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                )
+            })
+            .collect();
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![("t1".to_string(), events)],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let per = |service: &str| {
+            metrics
+                .service_avoidable_io_ops_total
+                .with_label_values(&[service])
+                .get()
+        };
+        assert!((per("svc-a") - 2.0).abs() < f64::EPSILON);
+        assert!((per("svc-b") - 3.0).abs() < f64::EPSILON);
+        assert!((metrics.avoidable_io_ops.get() - 5.0).abs() < f64::EPSILON);
+    }
+
     #[tokio::test]
     async fn shed_traces_are_excluded_from_analysis_outputs() {
         let metrics = Arc::new(MetricsState::new());

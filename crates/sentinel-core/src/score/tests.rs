@@ -3537,3 +3537,34 @@ fn dedup_raises_the_entry_when_a_later_finding_has_higher_avoidable() {
     assert_eq!(out.total, 5);
     assert_eq!(out.sql, 5);
 }
+
+/// A group whose spans came from two services is credited per service,
+/// the owner one less for the necessary call, and the losing duplicate's
+/// split is discarded with it.
+#[test]
+fn dedup_credits_the_winning_split_per_service() {
+    use std::collections::BTreeMap;
+    let mut winner = crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+    assert_eq!(winner.pattern.occurrences, 6);
+    winner.pattern.occurrences_by_service = BTreeMap::from([
+        ("order-svc".to_string(), 2),
+        ("inventory-svc".to_string(), 4),
+    ]);
+    let mut loser = winner.clone();
+    loser.finding_type = FindingType::RedundantSql;
+    loser.pattern.occurrences = 3;
+    loser.pattern.occurrences_by_service =
+        BTreeMap::from([("order-svc".to_string(), 2), ("other-svc".to_string(), 1)]);
+
+    let (out, per_service) = dedup_avoidable_io_ops_by_service(&[loser, winner]);
+
+    assert_eq!(out.total, 5);
+    assert_eq!(
+        per_service,
+        BTreeMap::from([
+            ("inventory-svc".to_string(), 4),
+            ("order-svc".to_string(), 1)
+        ])
+    );
+    assert_eq!(per_service.values().sum::<usize>(), out.total);
+}

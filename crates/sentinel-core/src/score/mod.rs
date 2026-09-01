@@ -269,9 +269,10 @@ pub(crate) struct AvoidableIoOps {
 /// that happen to be slow.
 ///
 /// The split is a `BTreeMap` so its consumers inherit a deterministic
-/// service order instead of re-collecting one. It inherits the
-/// detector's first-span attribution: a template shared by two services
-/// in one trace is one finding, credited to the first service seen.
+/// service order instead of re-collecting one. A group whose spans came
+/// from several services is credited through
+/// [`Finding::avoidable_by_service`]: each service its own repeats, the
+/// finding's service one less for the necessary call.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
 ) -> (AvoidableIoOps, BTreeMap<String, usize>) {
@@ -279,10 +280,9 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
         .count();
-    // Value = (max avoidable, the type and service it came from). Carrying
-    // the type rather than a flag per kind keeps `sql && messaging`
-    // unrepresentable.
-    let mut dedup: HashMap<(&str, &str, &str), (usize, &FindingType, &str)> =
+    // Value = (max avoidable, the finding it came from), so the winner's
+    // type and per-service split ride along.
+    let mut dedup: HashMap<(&str, &str, &str), (usize, &Finding)> =
         HashMap::with_capacity(capacity);
     for f in findings {
         if !f.finding_type.is_avoidable_io() {
@@ -291,9 +291,9 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         let avoidable = f.pattern.occurrences.saturating_sub(1);
         let entry = dedup
             .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-            .or_insert((avoidable, &f.finding_type, f.service.as_str()));
+            .or_insert((avoidable, f));
         if avoidable > entry.0 {
-            *entry = (avoidable, &f.finding_type, &f.service);
+            *entry = (avoidable, f);
         }
     }
     let mut out = AvoidableIoOps {
@@ -302,17 +302,12 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         messaging: 0,
     };
     let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
-    for &(avoidable, finding_type, service) in dedup.values() {
+    for &(avoidable, f) in dedup.values() {
         out.total += avoidable;
-        // `get_mut` first: `entry(service.to_string())` would allocate
-        // once per dedup entry instead of once per distinct service.
-        match per_service.get_mut(service) {
-            Some(ops) => *ops += avoidable,
-            None => {
-                per_service.insert(service.to_string(), avoidable);
-            }
+        for (service, ops) in f.avoidable_by_service() {
+            credit(&mut per_service, service, ops);
         }
-        match finding_type {
+        match &f.finding_type {
             FindingType::NPlusOneSql | FindingType::RedundantSql => out.sql += avoidable,
             // No RedundantMessaging exists: a publish carries no params.
             FindingType::NPlusOneMessaging => out.messaging += avoidable,
@@ -320,6 +315,17 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         }
     }
     (out, per_service)
+}
+
+/// `get_mut` first: `entry(service.to_string())` would allocate once per
+/// credited pair instead of once per distinct service.
+fn credit(per_service: &mut BTreeMap<String, usize>, service: &str, ops: usize) {
+    match per_service.get_mut(service) {
+        Some(total) => *total += ops,
+        None => {
+            per_service.insert(service.to_string(), ops);
+        }
+    }
 }
 
 /// The shared shape of a waste figure: an energy, a ratio, and the two

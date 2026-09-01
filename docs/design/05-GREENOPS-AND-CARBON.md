@@ -52,8 +52,8 @@ for (trace_idx, trace) in traces.iter().enumerate() {
 ### Step 2: dedup avoidable I/O
 
 ```rust
-// dedup_avoidable_io_ops_by_service: value = (max avoidable, type, service)
-let mut dedup: HashMap<(&str, &str, &str), (usize, &FindingType, &str)> =
+// dedup_avoidable_io_ops_by_service: value = (max avoidable, the finding)
+let mut dedup: HashMap<(&str, &str, &str), (usize, &Finding)> =
     HashMap::with_capacity(capacity);
 for f in findings {
     if !f.finding_type.is_avoidable_io() {
@@ -62,20 +62,24 @@ for f in findings {
     let avoidable = f.pattern.occurrences.saturating_sub(1);
     let entry = dedup
         .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-        .or_insert((avoidable, &f.finding_type, f.service.as_str()));
+        .or_insert((avoidable, f));
     if avoidable > entry.0 {
-        *entry = (avoidable, &f.finding_type, &f.service);
+        *entry = (avoidable, f);
     }
 }
 // One pass over the deduped set feeds both the global total (split sql /
 // messaging by the retained type) and the per-service map behind
 // `perf_sentinel_service_avoidable_io_ops_total`, so the two cannot diverge.
 let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
-for &(avoidable, _finding_type, service) in dedup.values() {
+for &(avoidable, f) in dedup.values() {
     out.total += avoidable;
-    *per_service.entry(service.to_string()).or_default() += avoidable;
+    for (service, ops) in f.avoidable_by_service() {
+        credit(&mut per_service, service, ops);
+    }
 }
 ```
+
+**Why credit through `avoidable_by_service()`?** Neither detector keys its group on the service, so a template shared by two services inside one trace is one finding, owned by the service of the first span. `pattern.occurrences_by_service` records how many spans each service issued when there is more than one, and the winner's split is credited per service: each its own repeats, the owner one less for the necessary call. The sum is still `occurrences - 1`, so the per-service counters keep adding up to the global one, and a service no longer reads 0 % or above 100 % on the dashboard's per-service waste ratio for a template it shares. The owner is the first span in ingestion order, not the earliest timestamp, a known ceiling.
 
 **Why include `source_endpoint` in the key?** The same SQL template (e.g., `SELECT * FROM config WHERE key = ?`) may be called from two different endpoints in the same trace. Each endpoint's avoidable ops should be counted independently. Without `source_endpoint`, `max(5, 3) = 5` would undercount, the correct total is `5 + 3 = 8`.
 
