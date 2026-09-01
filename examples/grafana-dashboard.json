@@ -222,7 +222,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) / sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range]))",
+          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) / sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}[$__range])) or vector(0)",
           "refId": "A",
           "legendFormat": "waste ratio"
         }
@@ -370,7 +370,7 @@
       }
     },
     {
-      "title": "Total I/O ops processed",
+      "title": "Ingested I/O ops (cumulative)",
       "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue: an analysis stall does not flatten it; watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded. If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
       "type": "stat",
       "gridPos": {

@@ -663,7 +663,6 @@ pub struct MetricsState {
     pub redfish_scrape_failed: IntCounter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<FindingExemplarKey, ExemplarData>>>,
-
     /// Worst-case `trace_id` for io waste ratio.
     worst_waste_trace: Arc<RwLock<Option<ExemplarData>>>,
 }
@@ -859,7 +858,6 @@ impl MetricsState {
         .expect("metric creation should not fail");
 
         let analysis_service_overflow_total = IntCounter::new(
-
             "perf_sentinel_analysis_service_overflow_total",
             "Analysis-side service attributions (findings, avoidable and analysed I/O ops) folded into the _other series because the analysis service cardinality cap was reached",
         )
@@ -1291,9 +1289,7 @@ impl MetricsState {
             slow_duration_service_overflow_total,
             service_avoidable_io_ops_total,
             service_analyzed_io_ops_total,
-
             analysis_service_overflow_total,
-
             export_report_requests_total,
             otlp_rejected_total,
             otlp_rejected_unsupported_media_type,

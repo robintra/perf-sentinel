@@ -15,7 +15,6 @@ use crate::report::{AvoidableTier, DisclosureDbWaste, DisclosureWaste, GreenSumm
 
 use super::AvoidableIoOps;
 use super::dedup_avoidable_io_ops_by_service;
-
 use super::region_breakdown::avoidable_share;
 
 /// Re-run N+1 at [`DISCLOSURE_N_PLUS_ONE_THRESHOLD`] (then redundant against
