@@ -539,7 +539,10 @@ impl Severity {
 /// must not silently become this binary's defaults, or the dashboard
 /// would state thresholds that never produced the findings. The
 /// tolerance lives one level up, on `Report::detection_config`, which
-/// degrades a shape it cannot read to `None`.
+/// degrades a shape it cannot read to `None`. The one field with a serde
+/// default, `sanitizer_aware_min_cv`, keeps to that rule rather than
+/// bending it: every report written before the field existed ran with
+/// that exact value hard-wired, so the default states what the run used.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DetectConfig {
     pub n_plus_one_threshold: u32,

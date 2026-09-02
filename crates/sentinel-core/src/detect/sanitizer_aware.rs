@@ -762,6 +762,9 @@ mod tests {
             sanitized_normalized_with_durations(&[100, 50, 200, 60, 250, 80, 300, 70, 150, 400]);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert!(timing_variance_suggests_n_plus_one(&refs, DEFAULT_MIN_CV));
+        // The same spread stays under the 1.0 an operator on a jittery runtime
+        // (PHP-FPM, throttled containers) would pick to keep cached repeats out.
+        assert!(!timing_variance_suggests_n_plus_one(&refs, 1.0));
     }
 
     #[test]
@@ -786,18 +789,6 @@ mod tests {
         let normalized: Vec<NormalizedEvent> = events.into_iter().map(normalize_one).collect();
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert!(!timing_variance_suggests_n_plus_one(&refs, DEFAULT_MIN_CV));
-    }
-
-    #[test]
-    fn timing_variance_threshold_is_configurable() {
-        // CV ~ 0.68 on this set: above the 0.5 default, below the 1.0 an
-        // operator on a jittery runtime (PHP-FPM, throttled containers)
-        // would pick to keep cached repeats out of the N+1 bucket.
-        let normalized =
-            sanitized_normalized_with_durations(&[100, 50, 200, 60, 250, 80, 300, 70, 150, 400]);
-        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
-        assert!(timing_variance_suggests_n_plus_one(&refs, 0.5));
-        assert!(!timing_variance_suggests_n_plus_one(&refs, 1.0));
     }
 
     #[test]

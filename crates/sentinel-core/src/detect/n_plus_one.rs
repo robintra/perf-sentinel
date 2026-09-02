@@ -39,11 +39,13 @@ type NPlusOneKey<'a> = (&'a EventType, &'a str, Option<(&'a str, &'a str)>);
 ///
 /// - **Direct** (`distinct_params >= threshold`): the standard rule. The
 ///   resulting finding has `classification_method = None`.
-/// - **Sanitizer heuristic** (gated on `mode`, SQL only): the group has
-///   fewer distinct param sets than the threshold but every span looks
-///   like the `OTel` SQL sanitizer collapsed its literals to `?`. See
-///   [`sanitizer_aware`] for the verdict logic. The resulting finding
-///   has `classification_method = Some(SanitizerHeuristic)`.
+/// - **Sanitizer heuristic** (gated on `mode`, timing spread measured
+///   against `min_cv`): the group has fewer distinct param sets than the
+///   threshold. On SQL every span must look like the `OTel` sanitizer
+///   collapsed its literals to `?`, on HTTP the heuristic runs on timing
+///   and trace shape alone. See [`sanitizer_aware`] for the verdict
+///   logic. The resulting finding has
+///   `classification_method = Some(SanitizerHeuristic)`.
 ///
 /// The two paths are mutually exclusive by construction
 /// ([`sanitizer_aware::looks_sanitized`] requires `params.is_empty()` on

@@ -170,9 +170,18 @@ The simulation lab measured a CV of about 0.75 on ten identical Doctrine
 lookups served from cache under load, enough to cross the default and
 turn a `redundant_sql` finding into `n_plus_one_sql` with a remediation
 hint (`leftJoin`, `with()`) that does not apply to a repeat. At `1.0`
-the group keeps its `redundant_sql` verdict, while a real N+1 past the
-high-occurrence bar (`3 x n_plus_one_min_occurrences`) is still reported
-under `"strict"` whatever the variance.
+the group keeps its `redundant_sql` verdict.
+
+The same threshold feeds the HTTP heuristic, which decides whether a
+repeated outbound call with few distinct parameters reads as
+`n_plus_one_http` or `redundant_http`, so raising it moves both
+verdicts. What still reports a real N+1 whatever the variance differs
+per path: on SQL, the high-occurrence bar (`3 x
+n_plus_one_min_occurrences`) under `"strict"`, on HTTP, the direct rule,
+since distinct path or query parameters classify the group before the
+heuristic runs. One value serves the whole configuration: a daemon in
+front of several runtimes picks the noisiest one's threshold and accepts
+the loss on moderate-count groups elsewhere.
 
 The value is recorded in `detection_config` of every report. A report
 written before the knob existed reads back as `0.5`, the value its run

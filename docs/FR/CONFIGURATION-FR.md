@@ -181,10 +181,19 @@ d'environ 0,75 sur dix lookups Doctrine identiques servis depuis le
 cache sous charge, assez pour franchir le défaut et transformer un
 finding `redundant_sql` en `n_plus_one_sql`, avec une piste de
 remédiation (`leftJoin`, `with()`) qui ne s'applique pas à une
-répétition. À `1.0` le groupe garde son verdict `redundant_sql`, tandis
-qu'un vrai N+1 au-dessus de la barre de haute occurrence
-(`3 x n_plus_one_min_occurrences`) reste signalé sous `"strict"` quelle
-que soit la variance.
+répétition. À `1.0` le groupe garde son verdict `redundant_sql`.
+
+Le même seuil alimente l'heuristique HTTP, qui décide si un appel sortant
+répété avec peu de paramètres distincts se lit `n_plus_one_http` ou
+`redundant_http`, si bien que le relever déplace les deux verdicts. Ce
+qui continue de signaler un vrai N+1 quelle que soit la variance diffère
+selon le chemin : en SQL, la barre de haute occurrence
+(`3 x n_plus_one_min_occurrences`) sous `"strict"`, en HTTP, la règle
+directe, puisque des paramètres de chemin ou de requête distincts
+classent le groupe avant que l'heuristique ne tourne. Une seule valeur
+sert toute la configuration : un daemon devant plusieurs runtimes prend
+le seuil du plus bruyant et accepte la perte sur les groupes de compte
+modéré ailleurs.
 
 La valeur est consignée dans le `detection_config` de chaque rapport. Un
 rapport écrit avant l'existence de la clé se relit avec `0.5`, la valeur

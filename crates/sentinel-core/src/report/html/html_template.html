@@ -1549,7 +1549,9 @@
     max_fanout: "max_fanout",
     chatty_service_min_calls: "chatty_service_min_calls",
     pool_saturation_concurrent_threshold: "pool_saturation_concurrent_threshold",
-    serialized_min_sequential: "serialized_min_sequential"
+    serialized_min_sequential: "serialized_min_sequential",
+    sanitizer_aware_classification: "sanitizer_aware_classification",
+    sanitizer_aware_min_cv: "sanitizer_aware_min_cv"
   };
   // Inline the producing run's values next to the key names. Reports
   // from older binaries carry no detection_config: keys alone then.
@@ -1576,13 +1578,13 @@
     n_plus_one_sql: { t: "N+1 SQL", u: METHO_URL, s: [
       ["What it measures", "One query per row instead of one query for the whole set, the classic lazy-loading pattern: fetching 50 orders then firing 50 `SELECT * FROM order_item WHERE order_id = ?` instead of a single query for all 50."],
       ["How it is computed", "Literals are normalized away (`WHERE id = 42` becomes `WHERE id = ?`), so queries share a shape. The SQL spans of a trace are grouped by shape, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms`, with as many distinct parameter sets, one query per row. Ten occurrences or more raise it to critical. The same shape with identical parameters is a different smell, Redundant SQL: the results could not differ."],
-      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, and `sanitizer_aware_classification`, which can keep already-parameterized safe patterns out of the count."],
+      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, `sanitizer_aware_classification`, which can keep already-parameterized safe patterns out of the count, and `sanitizer_aware_min_cv`, the timing spread past which a repeat reads as N+1."],
       ["Limits", "The detector counts what the trace shows: a driver that batches the queries under the hood, or repeats spread beyond the window, are invisible to it."]
     ]},
     n_plus_one_http: { t: "N+1 HTTP", u: METHO_URL, s: [
       ["What it measures", "One outbound HTTP call per item instead of one bulk call: fetching a list, then calling `GET /api/users/{id}` once per element."],
       ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. Otherwise, the optional sanitizer-aware path uses timing and trace-shape signals; always mode deliberately forces that path without those signals. Neither path proves that instrumentation collapsed the parameters or that the calls are causally N+1. The finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
-      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, and `sanitizer_aware_classification`."],
+      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, `sanitizer_aware_classification`, and `sanitizer_aware_min_cv`."],
       ["Limits", "The detector sees spans, not the client's internal coalescing or caching. Use the displayed timestamps, duration distribution, distinct-parameter count and classification method to validate the signal in context."]
     ]},
     n_plus_one_messaging: { t: "N+1 messaging", u: METHO_URL, s: [

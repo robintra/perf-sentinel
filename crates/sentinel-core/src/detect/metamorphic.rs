@@ -556,6 +556,49 @@ proptest! {
         }
     }
 
+    /// Raising `min_cv` only ever withdraws the variance signal, so the N+1
+    /// templates found at a higher threshold are a subset of those found at
+    /// a lower one, whatever the mode, on the SQL and the HTTP heuristic
+    /// alike. Pins the knob's one-way action: a branch that consumed the
+    /// signal negatively would add a finding here.
+    #[test]
+    fn raising_min_cv_never_adds_an_n_plus_one(
+        (durations, orm, mode, a, b) in (3usize..=16).prop_flat_map(|n| (
+            prop::collection::vec(100u64..=100_000, n),
+            any::<bool>(),
+            any_mode(),
+            0.05f64..=10.0,
+            0.05f64..=10.0,
+        )),
+    ) {
+        let (low, high) = if a <= b { (a, b) } else { (b, a) };
+        let scope = orm.then_some("io.opentelemetry.spring-data-jpa-3.0");
+        let mut events = make_sanitized_n_plus_one_events(durations.len(), scope, Some(&durations));
+        for (i, duration) in durations.iter().enumerate() {
+            events.push(make_http_event_with_duration(
+                "trace-1",
+                &format!("span-http-{i}"),
+                "http://svc:5000/api/items/7",
+                &ts_at(1000 + i * 30),
+                *duration,
+            ));
+        }
+        let trace = make_trace(events);
+        let templates = |min_cv: f64| -> HashSet<String> {
+            detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, mode, min_cv)
+                .into_iter()
+                .map(|finding| finding.pattern.template)
+                .collect()
+        };
+        let at_low = templates(low);
+        let at_high = templates(high);
+        prop_assert!(
+            at_high.is_subset(&at_low),
+            "raising min_cv from {low} to {high} added n+1 templates: {:?}",
+            at_high.difference(&at_low).collect::<Vec<_>>()
+        );
+    }
+
     /// Characterization (Auto, HTTP): one template, few distinct path
     /// ids, spread durations. Span removal may flip the group between
     /// the direct distinct-params rule and the timing-variance heuristic,
