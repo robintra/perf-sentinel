@@ -3616,8 +3616,8 @@ mod tests {
         let mut meter = AnalysisServiceMeter::new(true, &metrics);
         meter.hist_names.cap = 1;
 
-        meter.observe_slow("svc-a", &crate::event::EventType::Sql, 1.0, &metrics);
-        meter.observe_slow("svc-b", &crate::event::EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-a", &EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-b", &EventType::Sql, 1.0, &metrics);
 
         assert_eq!(metrics.slow_duration_service_overflow_total.get(), 1);
         let sample_count = |service: &str| {
@@ -3637,7 +3637,7 @@ mod tests {
 
         // Findings and histogram series carry the empty value...
         assert_eq!(meter.finding_label("svc-a", &metrics), "");
-        meter.observe_slow("svc-a", &crate::event::EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-a", &EventType::Sql, 1.0, &metrics);
         let unlabeled = metrics
             .slow_duration_seconds
             .with_label_values(&["sql", ""])

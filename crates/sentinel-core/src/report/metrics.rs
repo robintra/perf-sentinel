@@ -387,12 +387,12 @@ fn exemplar_is_fresh(exemplar: &ExemplarData, now: Instant) -> bool {
 /// Prevents injection into the Prometheus text exposition format. Trace IDs are
 /// almost always already valid (hex from `bytes_to_hex`), so probe-before-allocate
 /// returns `Cow::Borrowed` on the hot path.
-fn sanitize_exemplar_value(value: &str) -> std::borrow::Cow<'_, str> {
+fn sanitize_exemplar_value(value: &str) -> Cow<'_, str> {
     let valid = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
     if value.len() <= 64 && value.chars().all(valid) {
-        return std::borrow::Cow::Borrowed(value);
+        return Cow::Borrowed(value);
     }
-    std::borrow::Cow::Owned(value.chars().filter(|&c| valid(c)).take(64).collect())
+    Cow::Owned(value.chars().filter(|&c| valid(c)).take(64).collect())
 }
 
 /// Shared metrics state for the daemon.

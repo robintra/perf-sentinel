@@ -2797,7 +2797,7 @@ mod tests {
         // A split finding folds whole into the bucket, no per-service row.
         let mut finding = make_finding("svc-a", FindingType::NPlusOneSql, "SELECT *");
         finding.pattern.occurrences_by_service =
-            std::collections::BTreeMap::from([("svc-a".to_string(), 2), ("svc-b".to_string(), 3)]);
+            BTreeMap::from([("svc-a".to_string(), 2), ("svc-b".to_string(), 3)]);
         let r = make_report(20, 100, 5, &[], vec![finding]);
         let (_dir, path) = write_archive(&[(ts, r)]);
 
@@ -2817,7 +2817,7 @@ mod tests {
         let mut finding = make_finding("svc-a", FindingType::NPlusOneSql, "SELECT *");
         assert_eq!(finding.pattern.occurrences, 5);
         finding.pattern.occurrences_by_service =
-            std::collections::BTreeMap::from([("svc-a".to_string(), 2), ("svc-b".to_string(), 3)]);
+            BTreeMap::from([("svc-a".to_string(), 2), ("svc-b".to_string(), 3)]);
         let r = make_report(
             10,
             100,
