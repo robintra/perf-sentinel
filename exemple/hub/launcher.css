@@ -2789,6 +2789,7 @@ body[data-screen="report"] .shell-footer {
     color: var(--text-3);
 }
 
+
 /* An icon rather than the word: the row already names the value and its
    default, so the button only has to say which direction it goes. */
 .knob-reset {
@@ -3550,26 +3551,35 @@ body[data-screen="report"] .shell-footer {
    picker over as a real popover the page positions and paints itself. Where it
    is unsupported the native menu stays, which is what there was before. */
 @supports (appearance: base-select) {
-    .refresh-select, .refresh-select::picker(select) {
+    .refresh-select, .refresh-select::picker(select),
+    select.input-knob, select.input-knob::picker(select) {
         appearance: base-select;
     }
 
-    .refresh-select {
+    /* base-select hands back a plain box: without this the label sits at the
+       top-left and the picker icon drifts to the bottom-right corner. */
+    .refresh-select, select.input-knob {
         display: inline-flex;
         align-items: center;
         gap: 6px;
     }
 
-    .refresh-select::picker-icon {
+    /* The knob select keeps the pill height and padding .input gives it, and
+       pushes its icon to the trailing edge. */
+    select.input-knob {
+        justify-content: space-between;
+    }
+
+    .refresh-select::picker-icon, select.input-knob::picker-icon {
         color: var(--text-3);
         transition: transform .15s ease;
     }
 
-    .refresh-select:open::picker-icon {
+    .refresh-select:open::picker-icon, select.input-knob:open::picker-icon {
         transform: rotate(180deg);
     }
 
-    .refresh-select::picker(select) {
+    .refresh-select::picker(select), select.input-knob::picker(select) {
         position-area: block-end span-inline-end;
         margin-block-start: 4px;
         padding: 4px;
@@ -3580,7 +3590,7 @@ body[data-screen="report"] .shell-footer {
         font-size: 11px;
     }
 
-    .refresh-select option {
+    .refresh-select option, select.input-knob option {
         display: flex;
         align-items: center;
         gap: 6px;
@@ -3589,21 +3599,41 @@ body[data-screen="report"] .shell-footer {
         color: var(--text-2);
     }
 
-    .refresh-select option:hover {
+    .refresh-select option:hover, select.input-knob option:hover {
         background: var(--surface-3);
         color: var(--text);
     }
 
-    .refresh-select option:checked {
+    .refresh-select option:checked, select.input-knob option:checked {
         color: var(--brand-text);
     }
 
-    .refresh-select option::checkmark {
+    .refresh-select option::checkmark, select.input-knob option::checkmark {
         content: "\2713";
         color: var(--brand-text);
     }
 
-    .refresh-select option:not(:checked)::checkmark {
+    .refresh-select option:not(:checked)::checkmark,
+    select.input-knob option:not(:checked)::checkmark {
         visibility: hidden;
+    }
+
+    /* The knob select is the taller control of the two and carries the form's
+       type scale, not the refresh row's. */
+    select.input-knob::picker(select) {
+        font-size: 13px;
+        /* The picker asks for `max-height: stretch`, so it claims whatever room
+           the axis offers rather than the height its four options need. Down
+           the page that reads as too little room below, the browser takes its
+           first fallback, `start span-end`, and the list lands back over the
+           button, which is the whole thing this block exists to stop. Bounding
+           the height does not change the decision, only dropping the fallbacks
+           does. The refresh select sits high enough on its screen never to
+           flip, so it keeps them. */
+        position-try-fallbacks: none;
+    }
+
+    select.input-knob option {
+        color: var(--text);
     }
 }

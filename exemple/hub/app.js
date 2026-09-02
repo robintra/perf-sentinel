@@ -3843,12 +3843,13 @@
         serialized_min_sequential: "Sequential independent calls under one parent before they are "
             + "worth parallelising.",
         sanitizer_aware_classification: "How a run of identical parameterised queries is read once the "
-            + "agent has hidden their literals. auto calls it an N+1 on the ORM scope alone, strict also "
-            + "wants the timings to spread, never leaves it a redundant query, always reports an N+1.",
+            + "agent has hidden their literals. `auto` calls it an N+1 on the ORM scope alone, `strict` "
+            + "also wants the timings to spread, `never` leaves it a redundant query, `always` reports "
+            + "an N+1.",
         sanitizer_aware_min_cv: "How much those timings have to spread (standard deviation over "
-            + "mean) before strict or auto call the run an N+1 rather than a cached repeat. The same bar "
-            + "reads a repeated HTTP call. Raise it on a jittery runtime such as PHP-FPM, where repeats "
-            + "of one cached query spread past 0.5."
+            + "mean) before `strict` or `auto` call the run an N+1 rather than a cached repeat. The same "
+            + "bar reads a repeated HTTP call. Raise it on a jittery runtime such as PHP-FPM, where "
+            + "repeats of one cached query spread past 0.5."
     };
 
     function detectionKnobs() {
@@ -4020,7 +4021,7 @@
                 el("span", {class: "knob-name", text: knob.name}),
                 el("span", {class: "knob-default", text: "default " + knob.default})
             ]),
-            el("span", {class: "knob-body", text: DETECTION_COPY[knob.name] || ""}),
+            proseInto(el("span", {class: "knob-body"}), DETECTION_COPY[knob.name] || ""),
             el("div", {class: "knob-controls"}, [input, reset])
         ]);
     }
