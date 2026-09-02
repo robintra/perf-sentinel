@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.17.1
-appVersion: "0.17.0"
+version: 0.18.0
+appVersion: "0.18.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,11 +36,13 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "The ServiceMonitor sets honorLabels: true, through the new serviceMonitor.honorLabels knob. Prometheus Operator attaches a target label named service, taken from the Service name, which renamed the label the daemon exposes to exported_service. The Grafana dashboard's Service variable then listed the release name as its only value and the per-service I/O panel collapsed every analysed service into one line. appVersion stays on 0.17.0, this is a chart-only release."
+    - kind: changed
+      description: "appVersion 0.18.0. perf_sentinel_findings_total gains a service label and perf_sentinel_slow_duration_seconds gains one next to type, so an alert or dashboard query that matches either series without aggregating now returns one series per service. Wrap it in sum() to keep the old shape, or set per_service_labels = false in the daemon config. The chart itself is unchanged, and its ServiceMonitor already carries honorLabels: true, which is what keeps these labels through the operator relabeling."
+    - kind: added
+      description: "The daemon exposes perf_sentinel_service_avoidable_io_ops_total and perf_sentinel_service_analyzed_io_ops_total, the per-service numerator and denominator of the I/O waste ratio, plus two counters that report how many attributions folded into the _other bucket at the per-run service caps. No alert ships on any of them, and no values.yaml key is added or removed."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.17.0
+      image: ghcr.io/robintra/perf-sentinel:0.18.0
       platforms:
         - linux/amd64
         - linux/arm64

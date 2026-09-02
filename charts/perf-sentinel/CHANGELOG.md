@@ -10,6 +10,37 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.18.0]
+
+### Changed
+
+- **`appVersion` moves to `0.18.0`, and the daemon it ships labels two metrics
+  by service. Breaking for any alert or recording rule that matches
+  `perf_sentinel_findings_total` or `perf_sentinel_slow_duration_seconds`
+  without aggregating.** Both now carry a `service` label, the second next to
+  its existing `type`, so a query that returned one series returns one per
+  service. Wrap it in `sum()` to keep the old shape, or set
+  `per_service_labels = false` under `[daemon]` in `config.toml` to make the
+  label empty on every series, which PromQL treats as absent. Cardinality is
+  capped per daemon run, 128 services on findings and 64 on the histogram, and
+  services past a cap fold into `service="_other"` rather than being dropped,
+  so a `sum` over the label still equals the old unlabeled series. The chart's
+  own `PrometheusRule` matches neither metric, so no shipped alert changes, and
+  `serviceMonitor.honorLabels: true` from `0.17.1` is what keeps these labels
+  through the operator's target relabeling.
+
+### Added
+
+- The daemon exposes `perf_sentinel_service_avoidable_io_ops_total{service}`
+  and `perf_sentinel_service_analyzed_io_ops_total{service}`, the per-service
+  numerator and denominator of the I/O waste ratio, alongside
+  `perf_sentinel_analysis_service_overflow_total` and
+  `perf_sentinel_slow_duration_service_overflow_total`, which count
+  attributions folded into `_other` at the caps above. Both ignore
+  `per_service_labels`, per-service being their only shape. No alert ships on
+  any of them, for the same reason `PerfSentinelServiceCardinalityOverflow` was
+  removed in `0.17.0`, and no `values.yaml` key is added or removed.
+
 ## [0.17.1]
 
 ### Fixed
