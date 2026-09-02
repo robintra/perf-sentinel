@@ -33,6 +33,12 @@ config:
     window_duration_ms = 500
     slow_query_threshold_ms = 500
     slow_query_min_occurrences = 3
+    # Sanitized SQL recovery. Run "strict" when a repeated identical query is
+    # itself actionable, and raise the variance bar on a jittery runtime such as
+    # PHP-FPM, where repeats of one cached query spread past 0.5 and get read as
+    # N+1. See docs/CONFIGURATION.md.
+    # sanitizer_aware_classification = "auto"
+    # sanitizer_aware_min_cv = 0.5
 
     [green]
     enabled = true
