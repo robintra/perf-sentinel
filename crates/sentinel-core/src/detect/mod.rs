@@ -551,6 +551,14 @@ pub struct DetectConfig {
     pub pool_saturation_concurrent_threshold: u32,
     pub serialized_min_sequential: u32,
     pub sanitizer_aware_classification: sanitizer_aware::SanitizerAwareMode,
+    /// Defaulted on read: a report from before the knob ran with this exact
+    /// value hard-wired, so the default states what that run used.
+    #[serde(default = "default_min_cv")]
+    pub sanitizer_aware_min_cv: f64,
+}
+
+fn default_min_cv() -> f64 {
+    sanitizer_aware::DEFAULT_MIN_CV
 }
 
 impl Default for DetectConfig {
@@ -573,6 +581,7 @@ impl From<&crate::config::Config> for DetectConfig {
                 .pool_saturation_concurrent_threshold,
             serialized_min_sequential: config.detection.serialized_min_sequential,
             sanitizer_aware_classification: config.detection.sanitizer_aware_classification,
+            sanitizer_aware_min_cv: config.detection.sanitizer_aware_min_cv,
         }
     }
 }
@@ -731,6 +740,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
             config.n_plus_one_threshold,
             config.window_ms,
             config.sanitizer_aware_classification,
+            config.sanitizer_aware_min_cv,
         );
         let mut redundant_findings = redundant::detect_redundant(trace, &n_plus_one_findings);
         findings.append(&mut n_plus_one_findings);
@@ -823,6 +833,7 @@ mod tests {
             pool_saturation_concurrent_threshold: 10,
             serialized_min_sequential: 3,
             sanitizer_aware_classification: sanitizer_aware::SanitizerAwareMode::default(),
+            sanitizer_aware_min_cv: sanitizer_aware::DEFAULT_MIN_CV,
         }
     }
 
@@ -1319,5 +1330,22 @@ mod tests {
         // CV ~ 0.68 on this set → cv_x1000 ~ 680
         assert!(cv > 500, "CV should be > 0.5, got {cv}");
         assert!(cv < 800, "CV should be < 0.8, got {cv}");
+    }
+
+    #[test]
+    fn detect_config_from_a_report_without_the_variance_knob_reads_0_5() {
+        // A report written before the knob existed ran with the 0.5 the
+        // heuristic hard-wired, so defaulting it is truthful rather than
+        // the fabrication the strict deserialization otherwise refuses.
+        let json = r#"{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,
+            "slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,
+            "pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,
+            "sanitizer_aware_classification":"strict"}"#;
+        let cfg: DetectConfig = serde_json::from_str(json).unwrap();
+        assert!((cfg.sanitizer_aware_min_cv - 0.5).abs() < f64::EPSILON);
+        assert_eq!(
+            cfg.sanitizer_aware_classification,
+            sanitizer_aware::SanitizerAwareMode::Strict
+        );
     }
 }

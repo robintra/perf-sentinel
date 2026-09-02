@@ -2470,6 +2470,7 @@ fn culprit_spans_name_every_n_plus_one_occurrence() {
         5,
         500,
         crate::detect::sanitizer_aware::SanitizerAwareMode::Auto,
+        crate::detect::sanitizer_aware::DEFAULT_MIN_CV,
     );
     crate::acknowledgments::enrich_with_signatures(&mut findings);
     let mut report = minimal_report(findings);
@@ -2514,6 +2515,7 @@ fn n_plus_one_evidence_stays_inside_its_grouping_identity() {
         5,
         500,
         crate::detect::sanitizer_aware::SanitizerAwareMode::Auto,
+        crate::detect::sanitizer_aware::DEFAULT_MIN_CV,
     );
     crate::acknowledgments::enrich_with_signatures(&mut findings);
     assert_eq!(findings.len(), 2, "{findings:#?}");

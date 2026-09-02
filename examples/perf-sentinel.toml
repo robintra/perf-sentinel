@@ -102,6 +102,12 @@ serialized_min_sequential = 3   # default 3, min 2
 # too, whatever the timing and whatever the scope. "strict" changes the
 # verdict on moderate counts, not on the large ones.
 sanitizer_aware_classification = "auto"   # default "auto"
+# Coefficient of variation of the per-span durations above which the heuristic
+# reads a sanitized group as N+1 (durations spread across cache states) rather
+# than a cached repeat (durations cluster). Raise it on a jittery runtime such as
+# PHP-FPM or a CPU-throttled container, where even repeats of one cached query
+# spread past 0.5 and get reported as N+1 with the wrong remediation hint.
+sanitizer_aware_min_cv = 0.5   # default 0.5, range (0, 10]
 
 # Attributes that separate one deployment from another, most specific first.
 # The first one present on a span decides which findings are the "same"

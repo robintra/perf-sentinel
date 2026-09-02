@@ -33,6 +33,7 @@ pub(crate) fn compute_canonical_avoidable(
             DISCLOSURE_N_PLUS_ONE_THRESHOLD,
             detect_config.window_ms,
             detect_config.sanitizer_aware_classification,
+            detect_config.sanitizer_aware_min_cv,
         );
         let mut redundant = redundant::detect_redundant(trace, &n1);
         findings.append(&mut n1);

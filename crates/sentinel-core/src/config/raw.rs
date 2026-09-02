@@ -82,6 +82,7 @@ struct DetectionSection {
     pool_saturation_concurrent_threshold: Option<u32>,
     serialized_min_sequential: Option<u32>,
     sanitizer_aware_classification: Option<String>,
+    sanitizer_aware_min_cv: Option<f64>,
     grouping_attributes: Option<Vec<String>>,
 }
 
@@ -383,6 +384,10 @@ impl From<RawConfig> for Config {
                     crate::detect::sanitizer_aware::SanitizerAwareMode::from_config(
                         raw.detection.sanitizer_aware_classification.as_deref(),
                     ),
+                sanitizer_aware_min_cv: raw
+                    .detection
+                    .sanitizer_aware_min_cv
+                    .unwrap_or(detection_defaults.sanitizer_aware_min_cv),
                 grouping_attributes: raw.detection.grouping_attributes.map_or_else(
                     || detection_defaults.grouping_attributes.clone(),
                     |attrs| {

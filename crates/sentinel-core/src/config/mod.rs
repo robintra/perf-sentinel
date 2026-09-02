@@ -167,6 +167,10 @@ pub struct DetectionConfig {
     /// Sanitizer-aware classification mode for SQL N+1 vs redundant.
     /// See [`crate::detect::sanitizer_aware::SanitizerAwareMode`].
     pub sanitizer_aware_classification: crate::detect::sanitizer_aware::SanitizerAwareMode,
+    /// Coefficient of variation of per-span durations above which a sanitized
+    /// group reads as N+1 rather than a cached repeat. Raise it on runtimes
+    /// whose scheduling jitter spreads identical queries past the default.
+    pub sanitizer_aware_min_cv: f64,
     /// Resource or span attributes captured to separate deployments, most
     /// specific first. The first one present on a span decides its identity,
     /// the others are still captured and shown. Capped at
@@ -447,6 +451,7 @@ impl Default for DetectionConfig {
             serialized_min_sequential: 3,
             sanitizer_aware_classification:
                 crate::detect::sanitizer_aware::SanitizerAwareMode::default(),
+            sanitizer_aware_min_cv: crate::detect::sanitizer_aware::DEFAULT_MIN_CV,
             grouping_attributes: DEFAULT_GROUPING_ATTRIBUTES
                 .iter()
                 .map(|s| (*s).to_string())
