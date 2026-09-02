@@ -917,6 +917,13 @@ max_fanout = 20
 chatty_service_min_calls = 15
 pool_saturation_concurrent_threshold = 10
 serialized_min_sequential = 3
+# Heuristique de récupération pour le SQL déjà paramétré : "auto", "strict",
+# "always", "never". La barre de variance ci-dessous est ce qui sépare un vrai
+# N+1 d'une répétition servie par le cache. La relever sur un runtime instable
+# comme PHP-FPM, où les répétitions d'une même requête en cache dépassent 0,5
+# et sont lues comme des N+1.
+sanitizer_aware_classification = "auto"
+sanitizer_aware_min_cv = 0.5
 
 [green]
 enabled = true

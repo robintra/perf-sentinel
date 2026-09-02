@@ -896,6 +896,12 @@ max_fanout = 20
 chatty_service_min_calls = 15
 pool_saturation_concurrent_threshold = 10
 serialized_min_sequential = 3
+# Recovery heuristic for already-parameterized SQL: "auto", "strict",
+# "always", "never". The variance bar below is what separates a real N+1
+# from a cached repeat. Raise it on a jittery runtime such as PHP-FPM,
+# where repeats of one cached query spread past 0.5 and read as N+1.
+sanitizer_aware_classification = "auto"
+sanitizer_aware_min_cv = 0.5
 
 [green]
 enabled = true
