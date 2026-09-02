@@ -70,7 +70,7 @@ La prévisualisation nécessite un terminal interactif. Rediriger sa sortie (pas
 
 Un rapport porte l'énergie et le carbone opérationnels totaux de la charge (dérivés des spans, non réglables) plus deux tiers de gaspillage évitable :
 
-- **Canonique** (`aggregate.canonical_waste`). Calculé à un seuil N+1 fixe épinglé dans le binaire (`2`), indépendamment du `[detection] n_plus_one_threshold` de l'opérateur. C'est le chiffre non manipulable : relever votre propre seuil ne peut pas le réduire. C'est le chiffre évitable de référence, et au seuil opérateur par défaut de `5` il est typiquement plus grand que ce que le tableau de bord de l'opérateur affiche.
+- **Canonique** (`aggregate.canonical_waste`). Calculé à un seuil N+1 fixe épinglé dans le binaire (`2`), indépendamment du `[detection] n_plus_one_min_occurrences` de l'opérateur. C'est le chiffre non manipulable : relever votre propre seuil ne peut pas le réduire. C'est le chiffre évitable de référence, et au seuil opérateur par défaut de `5` il est typiquement plus grand que ce que le tableau de bord de l'opérateur affiche.
 - **Opérationnel** (`aggregate.operational_waste`). Calculé au seuil configuré par l'opérateur et enregistré avec ce seuil.
 
 Publier les deux garde la disclosure honnête : un lecteur compare les deux et voit combien de gaspillage évitable un seuil opérateur relâché masquerait. Pour `intent = official`, le validator refuse un rapport dont le `canonical_waste.n_plus_one_threshold` n'est pas la valeur canonique du binaire.

@@ -1165,11 +1165,11 @@ fn print_green_summary(
 
     // One-liner on the interpret bands: they are anchored on the *default*
     // detector thresholds, not on the user's config. An endpoint still
-    // labelled "high" after raising `n_plus_one_threshold` is not a bug;
+    // labelled "high" after raising `n_plus_one_min_occurrences` is not a bug;
     // see README "How to read the report" for the full explanation.
     println!(
         "  {dim}Note: `(healthy/moderate/high/critical)` bands use fixed heuristic \
-         thresholds, independent of your `n_plus_one_threshold` / \
+         thresholds, independent of your `n_plus_one_min_occurrences` / \
          `io_waste_ratio_max` overrides. See README \"How to read the report\".{reset}"
     );
 
