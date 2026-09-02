@@ -40,6 +40,13 @@ the chart version, to know which daemon image ships.
   `per_service_labels`, per-service being their only shape. No alert ships on
   any of them, for the same reason `PerfSentinelServiceCardinalityOverflow` was
   removed in `0.17.0`, and no `values.yaml` key is added or removed.
+- The default `config.toml` in `values.yaml` names the two sanitizer knobs in a
+  comment, `sanitizer_aware_classification` and the new
+  `sanitizer_aware_min_cv`, both left commented out on their defaults. A
+  jittery runtime such as PHP-FPM spreads repeats of one cached query past the
+  0.5 variance bar, which reports them as N+1 with a join hint where the fix is
+  to memoize, and the knob that settles it was reachable only from
+  `docs/CONFIGURATION.md`.
 
 ## [0.17.1]
 
