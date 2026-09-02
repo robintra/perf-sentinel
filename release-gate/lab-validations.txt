@@ -139,3 +139,8 @@ v0.15.0	3dc681b	2026-08-27	PASS
 # Cargo.toml is bumped after this gate, so the SHA identifies the content.
 v0.16.0	dad0e7c	2026-08-28	PASS
 v0.17.0	d7f5889	2026-08-29	PASS
+# v0.18.0 PASS is a targeted pass, not verify-all-scenarios in full: the seven
+# metric assertions of the per-service label work, 13 priority-1 and 7 priority-2
+# scenarios, then a replay of 11 scenarios and validate-findings 12/12 at both
+# sanitizer_aware_min_cv 0.5 and 1.0 after the detection change.
+v0.18.0	5cd07f7	2026-09-02	PASS
