@@ -19,8 +19,8 @@ use super::region_breakdown::avoidable_share;
 
 /// Re-run N+1 at [`DISCLOSURE_N_PLUS_ONE_THRESHOLD`] (then redundant against
 /// that set) over every trace, and dedup the avoidable I/O ops (total and
-/// SQL-only). Only the N+1 threshold is overridden; window and sanitizer
-/// mode stay as configured.
+/// SQL-only). Only the N+1 threshold is overridden, the window, the
+/// sanitizer mode and its variance threshold stay as configured.
 #[must_use]
 pub(crate) fn compute_canonical_avoidable(
     traces: &[Trace],
