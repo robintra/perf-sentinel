@@ -183,7 +183,7 @@ pub fn score_green(
             report: None,
             regions: Vec::new(),
             multi_region_active: false,
-            per_service: std::collections::BTreeMap::new(),
+            per_service: BTreeMap::new(),
             window_model: "",
             accounted_io_ops: total_io_ops,
             sql_energy_kwh: 0.0,
@@ -548,27 +548,24 @@ fn build_top_offenders<'a>(
 
 struct PerServiceMaps {
     energy_kwh: f64,
-    energy_kwh_by_service: std::collections::BTreeMap<String, f64>,
-    carbon_kgco2eq: std::collections::BTreeMap<String, f64>,
-    region: std::collections::BTreeMap<String, String>,
-    energy_model: std::collections::BTreeMap<String, String>,
-    measured_ratio: std::collections::BTreeMap<String, f64>,
+    energy_kwh_by_service: BTreeMap<String, f64>,
+    carbon_kgco2eq: BTreeMap<String, f64>,
+    region: BTreeMap<String, String>,
+    energy_model: BTreeMap<String, String>,
+    measured_ratio: BTreeMap<String, f64>,
 }
 
 fn build_per_service_maps(
-    per_service_runtime: std::collections::BTreeMap<
-        String,
-        carbon_compute::ServiceCarbonAccumulator,
-    >,
+    per_service_runtime: BTreeMap<String, carbon_compute::ServiceCarbonAccumulator>,
     window_model: &'static str,
 ) -> PerServiceMaps {
     let mut out = PerServiceMaps {
         energy_kwh: 0.0,
-        energy_kwh_by_service: std::collections::BTreeMap::new(),
-        carbon_kgco2eq: std::collections::BTreeMap::new(),
-        region: std::collections::BTreeMap::new(),
-        energy_model: std::collections::BTreeMap::new(),
-        measured_ratio: std::collections::BTreeMap::new(),
+        energy_kwh_by_service: BTreeMap::new(),
+        carbon_kgco2eq: BTreeMap::new(),
+        region: BTreeMap::new(),
+        energy_model: BTreeMap::new(),
+        measured_ratio: BTreeMap::new(),
     };
     for (svc, acc) in per_service_runtime {
         out.energy_kwh += acc.energy_kwh;

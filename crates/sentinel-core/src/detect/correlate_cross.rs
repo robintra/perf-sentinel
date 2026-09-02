@@ -1016,22 +1016,7 @@ mod tests {
 
         let mut refused = RefusedPairs::default();
         for i in 0..(RefusedPairs::CEILING + extra) {
-            refused.record(PairKey {
-                source: std::sync::Arc::new(CorrelationEndpoint {
-                    finding_type: FindingType::NPlusOneSql,
-                    service: format!("svc-{i}"),
-                    template: "tpl".to_string(),
-                    grouping_key: None,
-                    grouping_value: None,
-                }),
-                target: std::sync::Arc::new(CorrelationEndpoint {
-                    finding_type: FindingType::RedundantSql,
-                    service: "target".to_string(),
-                    template: "tpl".to_string(),
-                    grouping_key: None,
-                    grouping_value: None,
-                }),
-            });
+            refused.record(key_for(i));
         }
 
         assert_eq!(
