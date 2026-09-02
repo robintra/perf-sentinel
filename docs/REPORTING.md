@@ -70,7 +70,7 @@ The preview needs an interactive terminal. Piping its output (no TTY) exits with
 
 A report carries the total operational energy and carbon of the workload (span-derived, not tunable) plus two tiers of avoidable waste:
 
-- **Canonical** (`aggregate.canonical_waste`). Computed at a fixed N+1 threshold pinned in the binary (`2`), regardless of the operator's `[detection] n_plus_one_threshold`. This is the non-manipulable figure: raising your own threshold cannot shrink it. It is the headline avoidable number, and at the default operator threshold of `5` it is typically larger than what the operator's own dashboard shows.
+- **Canonical** (`aggregate.canonical_waste`). Computed at a fixed N+1 threshold pinned in the binary (`2`), regardless of the operator's `[detection] n_plus_one_min_occurrences`. This is the non-manipulable figure: raising your own threshold cannot shrink it. It is the headline avoidable number, and at the default operator threshold of `5` it is typically larger than what the operator's own dashboard shows.
 - **Operational** (`aggregate.operational_waste`). Computed at the operator's configured threshold and recorded with that threshold.
 
 Publishing both keeps the disclosure honest: a reader compares the two and sees how much avoidable waste a loose operator threshold would otherwise hide. For `intent = official`, the validator rejects a report whose `canonical_waste.n_plus_one_threshold` is not the binary's canonical value.
