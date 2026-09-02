@@ -109,6 +109,7 @@ Paramètres des algorithmes de détection.
 | `serialized_min_sequential`            | entier | `3`                                           | Nombre minimum d'appels séquentiels indépendants (même parent, sans chevauchement, templates différents) pour signaler des appels potentiellement parallélisables.                                                                                                                                                                                                                        |
 | `grouping_attributes`                  | liste  | `["k8s.namespace.name", "service.namespace"]` | Attributs de ressource ou de span qui séparent un déploiement d'un autre, du plus spécifique au moins. Le premier présent sur un span décide de l'identité du finding, le même problème dans deux namespaces reste donc deux findings. Chaque attribut présent est capturé et affiché. 8 entrées max, une liste vide désactive le regroupement. Les signatures d'acquittement l'ignorent. |
 | `sanitizer_aware_classification`       | chaîne | `"auto"`                                      | Classification des groupes SQL dont les littéraux ont été remplacés par un placeholder (`?`, `$?`, `%s`, `@param`, `:name`) par un agent OTel ou un driver de base de données. Une valeur parmi `"auto"`, `"strict"`, `"always"`, `"never"`. Voir la note ci-dessous.                                                                                                                     |
+| `sanitizer_aware_min_cv`               | nombre | `0.5`                                         | Coefficient de variation (écart-type sur moyenne) des durées par span au-dessus duquel l'heuristique sanitizer lit un groupe comme un N+1 plutôt qu'une répétition en cache. Plage `(0, 10]`. Voir la note ci-dessous.                                                                                                                                                                     |
 
 #### `sanitizer_aware_classification`
 
@@ -162,6 +163,32 @@ ou `"always"`) portent `classification_method = "sanitizer_heuristic"`
 dans leur représentation JSON, ce qui permet à un opérateur de repérer
 où elle se déclenche. Les findings produits par la règle standard
 omettent ce champ.
+
+#### `sanitizer_aware_min_cv`
+
+Le signal de variance temporelle derrière les modes ci-dessus compare le
+coefficient de variation des durées par span du groupe à ce seuil. Des
+lookups sur des clés différentes étalent leurs durées entre hits et
+miss de cache, les répétitions d'une même requête en cache se
+regroupent. Le défaut de `0.5` préfère signaler un N+1 plutôt qu'en
+manquer un, puisqu'une erreur ne fait qu'échanger `redundant_sql` contre
+`n_plus_one_sql` au même poids d'I/O évitables.
+
+À relever sur un runtime dont la gigue d'ordonnancement étale même les
+répétitions en cache : workers PHP-FPM, conteneurs bridés en CPU,
+runners CI partagés. Le laboratoire de simulation a mesuré un CV
+d'environ 0,75 sur dix lookups Doctrine identiques servis depuis le
+cache sous charge, assez pour franchir le défaut et transformer un
+finding `redundant_sql` en `n_plus_one_sql`, avec une piste de
+remédiation (`leftJoin`, `with()`) qui ne s'applique pas à une
+répétition. À `1.0` le groupe garde son verdict `redundant_sql`, tandis
+qu'un vrai N+1 au-dessus de la barre de haute occurrence
+(`3 x n_plus_one_min_occurrences`) reste signalé sous `"strict"` quelle
+que soit la variance.
+
+La valeur est consignée dans le `detection_config` de chaque rapport. Un
+rapport écrit avant l'existence de la clé se relit avec `0.5`, la valeur
+que son run avait en dur.
 
 ### `[green]`
 

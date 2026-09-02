@@ -259,17 +259,23 @@ pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
     out
 }
 
+/// Default for `[detection] sanitizer_aware_min_cv`, the value the
+/// heuristic hard-wired before the knob existed.
+pub const DEFAULT_MIN_CV: f64 = 0.5;
+
 /// Returns `true` when the coefficient of variation (std-dev / mean)
-/// of the per-span `duration_us` values exceeds `0.5`: true N+1 hits
-/// different rows with different cache states (durations spread),
+/// of the per-span `duration_us` values exceeds `cv_threshold`: true N+1
+/// hits different rows with different cache states (durations spread),
 /// redundant calls hit the same cache lines (durations cluster).
 /// Requires at least 3 spans; `false` for fewer, zero mean, or empty.
 ///
-/// The threshold favors false positives over silent misses; the harm
-/// asymmetry and the Strict-mode warm-cache limit are discussed in
-/// `docs/design/04-DETECTION.md`.
+/// The default threshold favors false positives over silent misses; the
+/// harm asymmetry and the Strict-mode warm-cache limit are discussed in
+/// `docs/design/04-DETECTION.md`. A jittery runtime (PHP-FPM, throttled
+/// containers) spreads cached repeats past 0.5, which is what the knob
+/// is for.
 #[must_use]
-pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
+pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent], cv_threshold: f64) -> bool {
     if spans.len() < 3 {
         return false;
     }
@@ -293,7 +299,7 @@ pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     #[allow(clippy::cast_precision_loss)]
     let variance = m2 / count as f64;
     let cv = variance.sqrt() / mean;
-    cv > 0.5
+    cv > cv_threshold
 }
 
 /// Combined verdict for `Auto` mode: ORM scope or timing variance.
@@ -309,8 +315,9 @@ pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
 pub fn classify_sanitized_sql_group(
     spans: &[&NormalizedEvent],
     scopes: &[String],
+    min_cv: f64,
 ) -> SanitizerVerdict {
-    if has_orm_scope(scopes) || timing_variance_suggests_n_plus_one(spans) {
+    if has_orm_scope(scopes) || timing_variance_suggests_n_plus_one(spans, min_cv) {
         SanitizerVerdict::LikelyNPlusOne
     } else {
         SanitizerVerdict::Inconclusive
@@ -333,13 +340,14 @@ pub fn classify_sanitized_sql_group_strict(
     scopes: &[String],
     sequential: impl FnOnce() -> bool,
     high_occurrence: bool,
+    min_cv: f64,
 ) -> SanitizerVerdict {
     let orm = has_orm_scope(scopes);
     let primary_ok = orm || high_occurrence || sequential();
     if !primary_ok {
         return SanitizerVerdict::Inconclusive;
     }
-    let variance_ok = timing_variance_suggests_n_plus_one(spans);
+    let variance_ok = timing_variance_suggests_n_plus_one(spans, min_cv);
     let corroborated = variance_ok || high_occurrence;
     if corroborated {
         SanitizerVerdict::LikelyNPlusOne
@@ -363,6 +371,7 @@ pub(super) fn classify_sanitized_sql_group_indexed(
     mode: SanitizerAwareMode,
     sequential_siblings: impl FnOnce() -> bool,
     high_occurrence: bool,
+    min_cv: f64,
 ) -> SanitizerVerdict {
     let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
     let scopes = collect_scopes(&group);
@@ -372,9 +381,10 @@ pub(super) fn classify_sanitized_sql_group_indexed(
             &scopes,
             sequential_siblings,
             high_occurrence,
+            min_cv,
         ),
         SanitizerAwareMode::Auto | SanitizerAwareMode::Always | SanitizerAwareMode::Never => {
-            classify_sanitized_sql_group(&group, &scopes)
+            classify_sanitized_sql_group(&group, &scopes, min_cv)
         }
     }
 }
@@ -403,9 +413,10 @@ pub(super) fn classify_http_group_indexed(
     mode: SanitizerAwareMode,
     sequential_siblings: impl FnOnce() -> bool,
     high_occurrence: bool,
+    min_cv: f64,
 ) -> SanitizerVerdict {
     let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
-    let variance = timing_variance_suggests_n_plus_one(&group);
+    let variance = timing_variance_suggests_n_plus_one(&group, min_cv);
     match mode {
         SanitizerAwareMode::Never => SanitizerVerdict::Inconclusive,
         SanitizerAwareMode::Auto | SanitizerAwareMode::Always => {
@@ -668,7 +679,7 @@ mod tests {
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         let scopes = collect_scopes(&refs);
         assert_eq!(
-            classify_sanitized_sql_group(&refs, &scopes),
+            classify_sanitized_sql_group(&refs, &scopes, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive,
             "Auto must NOT fire on high_occurrence alone (cache-warm precision guard)"
         );
@@ -750,7 +761,7 @@ mod tests {
         let normalized =
             sanitized_normalized_with_durations(&[100, 50, 200, 60, 250, 80, 300, 70, 150, 400]);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
-        assert!(timing_variance_suggests_n_plus_one(&refs));
+        assert!(timing_variance_suggests_n_plus_one(&refs, DEFAULT_MIN_CV));
     }
 
     #[test]
@@ -758,7 +769,7 @@ mod tests {
         let normalized =
             sanitized_normalized_with_durations(&[100, 102, 98, 101, 99, 100, 101, 99, 100, 102]);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
-        assert!(!timing_variance_suggests_n_plus_one(&refs));
+        assert!(!timing_variance_suggests_n_plus_one(&refs, DEFAULT_MIN_CV));
     }
 
     #[test]
@@ -774,7 +785,19 @@ mod tests {
             .collect();
         let normalized: Vec<NormalizedEvent> = events.into_iter().map(normalize_one).collect();
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
-        assert!(!timing_variance_suggests_n_plus_one(&refs));
+        assert!(!timing_variance_suggests_n_plus_one(&refs, DEFAULT_MIN_CV));
+    }
+
+    #[test]
+    fn timing_variance_threshold_is_configurable() {
+        // CV ~ 0.68 on this set: above the 0.5 default, below the 1.0 an
+        // operator on a jittery runtime (PHP-FPM, throttled containers)
+        // would pick to keep cached repeats out of the N+1 bucket.
+        let normalized =
+            sanitized_normalized_with_durations(&[100, 50, 200, 60, 250, 80, 300, 70, 150, 400]);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert!(timing_variance_suggests_n_plus_one(&refs, 0.5));
+        assert!(!timing_variance_suggests_n_plus_one(&refs, 1.0));
     }
 
     #[test]
@@ -792,7 +815,7 @@ mod tests {
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         let scopes = collect_scopes(&refs);
         assert_eq!(
-            classify_sanitized_sql_group(&refs, &scopes),
+            classify_sanitized_sql_group(&refs, &scopes, DEFAULT_MIN_CV),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -819,7 +842,7 @@ mod tests {
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         let scopes = collect_scopes(&refs);
         assert_eq!(
-            classify_sanitized_sql_group(&refs, &scopes),
+            classify_sanitized_sql_group(&refs, &scopes, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -867,7 +890,7 @@ mod tests {
             build_sanitized_group_for_strict(Some("io.opentelemetry.hibernate-6.0"), &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -883,7 +906,7 @@ mod tests {
         );
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false, DEFAULT_MIN_CV),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -898,7 +921,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -909,7 +932,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -927,7 +950,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || true, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true, false, DEFAULT_MIN_CV),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -940,7 +963,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || true, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true, false, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -954,7 +977,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -974,7 +997,7 @@ mod tests {
         );
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, true),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, true, DEFAULT_MIN_CV),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -985,7 +1008,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || true, true),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true, true, DEFAULT_MIN_CV),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -998,7 +1021,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, true),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, true, DEFAULT_MIN_CV),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -1014,7 +1037,7 @@ mod tests {
             build_sanitized_group_for_strict(Some("io.opentelemetry.hibernate-6.0"), &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false, DEFAULT_MIN_CV),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -1068,6 +1091,7 @@ mod tests {
             SanitizerAwareMode::Auto,
             || false,
             false,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::LikelyNPlusOne);
     }
@@ -1082,6 +1106,7 @@ mod tests {
             SanitizerAwareMode::Auto,
             || false,
             false,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::Inconclusive);
     }
@@ -1096,6 +1121,7 @@ mod tests {
             SanitizerAwareMode::Never,
             || false,
             false,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::Inconclusive);
     }
@@ -1110,6 +1136,7 @@ mod tests {
             SanitizerAwareMode::Strict,
             || false,
             false,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::LikelyNPlusOne);
     }
@@ -1126,6 +1153,7 @@ mod tests {
             SanitizerAwareMode::Strict,
             || false,
             true,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::Inconclusive);
     }
@@ -1154,6 +1182,7 @@ mod tests {
             SanitizerAwareMode::Strict,
             || false,
             false,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::Inconclusive);
     }
@@ -1168,6 +1197,7 @@ mod tests {
             SanitizerAwareMode::Strict,
             || true,
             false,
+            DEFAULT_MIN_CV,
         );
         assert_eq!(verdict, SanitizerVerdict::LikelyNPlusOne);
     }

@@ -1712,6 +1712,14 @@ impl Config {
             &self.detection.serialized_min_sequential,
             &2,
         )?;
+        // A CV past 10 never fires and silently disables the signal, which is
+        // what `sanitizer_aware_classification = "never"` is for.
+        let cv = self.detection.sanitizer_aware_min_cv;
+        if !cv.is_finite() || cv <= 0.0 || cv > 10.0 {
+            return Err(format!(
+                "sanitizer_aware_min_cv must be a finite number in (0, 10], got {cv}"
+            ));
+        }
         Ok(())
     }
 

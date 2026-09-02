@@ -524,6 +524,7 @@ fn explain_tree_from_n_plus_one_fixture() {
         serialized_min_sequential: 3,
         sanitizer_aware_classification:
             sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
+        sanitizer_aware_min_cv: sentinel_core::detect::sanitizer_aware::DEFAULT_MIN_CV,
     };
     let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
     let tree = sentinel_core::explain::build_tree(trace, &findings);

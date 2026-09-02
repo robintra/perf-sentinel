@@ -55,6 +55,7 @@ pub fn detect_n_plus_one(
     threshold: u32,
     window_limit: u64,
     mode: SanitizerAwareMode,
+    min_cv: f64,
 ) -> Vec<Finding> {
     let threshold = threshold as usize;
 
@@ -78,7 +79,7 @@ pub fn detect_n_plus_one(
     let mut findings = Vec::new();
     for ((event_type, template, _grouping), indices) in &groups {
         let Some((distinct_params, classification_method)) =
-            classify_group(trace, event_type, indices, threshold, mode)
+            classify_group(trace, event_type, indices, threshold, mode, min_cv)
         else {
             continue;
         };
@@ -115,6 +116,7 @@ fn classify_group(
     indices: &[usize],
     threshold: usize,
     mode: SanitizerAwareMode,
+    min_cv: f64,
 ) -> Option<(usize, Option<ClassificationMethod>)> {
     if indices.len() < threshold {
         return None;
@@ -150,6 +152,7 @@ fn classify_group(
                 mode,
                 || sequential_siblings_indexed(&trace.spans, indices),
                 high_occurrence,
+                min_cv,
             );
             matches!(verdict, SanitizerVerdict::LikelyNPlusOne)
                 .then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
@@ -167,6 +170,7 @@ fn classify_group(
                 mode,
                 || sequential_siblings_indexed(&trace.spans, indices),
                 high_occurrence,
+                min_cv,
             );
             matches!(verdict, SanitizerVerdict::LikelyNPlusOne).then_some((
                 distinct_params.len(),
@@ -366,6 +370,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::detect::sanitizer_aware::DEFAULT_MIN_CV;
     use crate::event::SpanEvent;
     use crate::test_helpers::{
         make_http_event, make_http_event_with_duration, make_sql_event, make_trace,
@@ -376,7 +381,7 @@ mod tests {
         let events = crate::test_helpers::make_n_plus_one_events();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
@@ -397,7 +402,7 @@ mod tests {
             event.service = Arc::from(if i < 3 { "order-svc" } else { "inventory-svc" });
         }
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
@@ -440,7 +445,8 @@ mod tests {
 
         // `Always` forces the sanitizer path, the one that fires in production
         // on a pooled driver: identical template, no params.
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+        let findings =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert!(
@@ -466,7 +472,13 @@ mod tests {
         }
         let trace = make_trace(events);
 
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::default());
+        let findings = detect_n_plus_one(
+            &trace,
+            5,
+            500,
+            SanitizerAwareMode::default(),
+            DEFAULT_MIN_CV,
+        );
 
         assert_eq!(findings[0].grouping_value(), Some("acme"));
         assert_eq!(
@@ -482,7 +494,7 @@ mod tests {
         crate::test_helpers::split_grouping_keys_same_value(&mut events);
         let trace = make_trace(events);
 
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert!(
             findings.is_empty(),
@@ -504,7 +516,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
@@ -517,7 +529,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events(4);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -545,7 +557,7 @@ mod tests {
         ];
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -554,7 +566,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events_with_stride(12, 10);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
@@ -576,7 +588,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         // Only 1 distinct param set, below threshold of 5
         assert!(findings.is_empty());
     }
@@ -596,7 +608,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -655,7 +667,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern.window_ms, 500);
@@ -666,7 +678,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events(5);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 0, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 0, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -675,7 +687,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events_with_stride(9, 10);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
@@ -696,7 +708,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
@@ -746,7 +758,7 @@ mod tests {
         let events = crate::test_helpers::make_n_plus_one_events();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
@@ -763,7 +775,7 @@ mod tests {
             None,
         );
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -783,7 +795,7 @@ mod tests {
         let events =
             crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -801,7 +813,7 @@ mod tests {
         let events =
             crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         // Inconclusive verdict: heuristic stays silent, leaves the group
         // for the redundant detector.
         assert!(findings.is_empty());
@@ -815,7 +827,7 @@ mod tests {
             None,
         );
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -825,7 +837,8 @@ mod tests {
         let events =
             crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always, DEFAULT_MIN_CV);
         assert_eq!(n_plus_one.len(), 1);
         assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -862,7 +875,8 @@ mod tests {
             Some(&durations),
         );
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(
             n_plus_one.is_empty(),
             "Strict must not reclassify when timing variance is flat and \
@@ -896,7 +910,8 @@ mod tests {
             Some(&durations),
         );
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert_eq!(n_plus_one.len(), 1);
         assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -918,13 +933,49 @@ mod tests {
             Some(&durations),
         );
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert_eq!(n_plus_one.len(), 1);
         assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
             n_plus_one[0].classification_method,
             Some(ClassificationMethod::SanitizerHeuristic)
         );
+    }
+
+    #[test]
+    fn strict_mode_variance_threshold_keeps_redundant_on_noisy_runtime() {
+        // Simulation-lab PHP shape: 10 identical Doctrine lookups for the
+        // same customer, served from cache, on a PHP-FPM runtime whose
+        // scheduling jitter spreads the durations to CV ~ 0.75. Under the
+        // 0.5 default the ORM scope plus the variance reclassify the
+        // group to N+1 and the redundant finding vanishes. Raising the
+        // threshold keeps the verdict the code deserves.
+        let durations = [400u64, 2600, 500, 3100, 450, 2900, 380, 3300, 420, 2700];
+        let events = crate::test_helpers::make_sanitized_n_plus_one_events(
+            10,
+            Some("io.opentelemetry.contrib.php.doctrine"),
+            Some(&durations),
+        );
+        let trace = make_trace(events);
+
+        let default_cv = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, 0.5);
+        assert_eq!(default_cv.len(), 1);
+        assert_eq!(default_cv[0].finding_type, FindingType::NPlusOneSql);
+
+        let raised_cv = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, 1.0);
+        assert!(
+            raised_cv.is_empty(),
+            "a CV of 0.75 must stay under a 1.0 threshold: got {:?}",
+            raised_cv
+                .iter()
+                .map(|f| &f.finding_type)
+                .collect::<Vec<_>>()
+        );
+        let redundant = crate::detect::redundant::detect_redundant(&trace, &raised_cv);
+        assert_eq!(redundant.len(), 1);
+        assert_eq!(redundant[0].finding_type, FindingType::RedundantSql);
+        assert_eq!(redundant[0].pattern.occurrences, 10);
     }
 
     /// Build a bare-driver-shaped sanitized N+1: no ORM scope, every
@@ -967,7 +1018,8 @@ mod tests {
         let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
         let events = make_bare_driver_sanitized_events(10, "reactive-root-span", 30, &durations);
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let findings =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -986,7 +1038,8 @@ mod tests {
         let durations = [100_000u64; 10];
         let events = make_bare_driver_sanitized_events(10, "fanout-root-span", 30, &durations);
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(
             n_plus_one.is_empty(),
             "Strict must not reclassify overlapping bare-driver spans below threshold, got: {:?}",
@@ -1010,7 +1063,8 @@ mod tests {
         let durations = [100_000u64; 15];
         let events = make_bare_driver_sanitized_events(15, "fanout-root-span", 30, &durations);
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert_eq!(n_plus_one.len(), 1);
         assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -1040,7 +1094,8 @@ mod tests {
             })
             .collect();
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(
             n_plus_one.is_empty(),
             "sub-ms overlap must not pass the sequentiality gate, got: {:?}",
@@ -1068,7 +1123,8 @@ mod tests {
             event.parent_span_id = Some("parent-b".to_string());
         }
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(n_plus_one.is_empty());
     }
 
@@ -1078,7 +1134,8 @@ mod tests {
         let mut events = make_bare_driver_sanitized_events(10, "any-parent", 30, &durations);
         events[0].parent_span_id = None;
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(n_plus_one.is_empty());
     }
 
@@ -1087,7 +1144,8 @@ mod tests {
         let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
         let events = make_bare_driver_sanitized_events(10, "", 30, &durations);
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(n_plus_one.is_empty());
     }
 
@@ -1103,7 +1161,8 @@ mod tests {
         let mut events = make_bare_driver_sanitized_events(10, "ts-root-span", 30, &durations);
         events[3].timestamp = "not-a-timestamp".to_string();
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert_eq!(n_plus_one.len(), 1);
         assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
@@ -1122,7 +1181,8 @@ mod tests {
             event.timestamp = "bad".to_string();
         }
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let n_plus_one =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(n_plus_one.is_empty());
     }
 
@@ -1132,7 +1192,7 @@ mod tests {
         // stamp the heuristic marker.
         let events = crate::test_helpers::make_n_plus_one_events();
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].classification_method, None);
     }
@@ -1161,7 +1221,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
@@ -1190,7 +1250,7 @@ mod tests {
     fn http_heuristic_auto_reclassifies_on_high_variance() {
         let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
         assert_eq!(
@@ -1203,7 +1263,7 @@ mod tests {
     fn http_heuristic_auto_low_variance_no_finding() {
         let events = http_same_id_events(&[100, 100, 100, 100, 100, 100, 100]);
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -1211,7 +1271,7 @@ mod tests {
     fn http_heuristic_never_mode_no_finding() {
         let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 
@@ -1219,7 +1279,8 @@ mod tests {
     fn http_heuristic_always_mode_reclassifies_unconditionally() {
         let events = http_same_id_events(&[100, 100, 100, 100, 100, 100, 100]);
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+        let findings =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
         assert_eq!(
@@ -1232,7 +1293,8 @@ mod tests {
     fn http_heuristic_strict_placeholder_plus_variance() {
         let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let findings =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
     }
@@ -1251,7 +1313,8 @@ mod tests {
             })
             .collect();
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        let findings =
+            detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
         assert!(findings.is_empty());
     }
 }

@@ -104,6 +104,7 @@ Detection algorithm parameters.
 | `serialized_min_sequential`            | integer | `3`                                           | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable.                                                                                                                                                                                                                  |
 | `grouping_attributes`                  | list    | `["k8s.namespace.name", "service.namespace"]` | Resource or span attributes that separate one deployment from another, most specific first. The first one present on a span decides finding identity, so the same problem in two namespaces stays two findings. Every present attribute is captured and displayed. Max 8 entries, an empty list turns grouping off. Acknowledgment signatures ignore it. |
 | `sanitizer_aware_classification`       | string  | `"auto"`                                      | How to classify SQL groups whose literals were collapsed to a placeholder (`?`, `$?`, `%s`, `@param`, `:name`) by an OTel agent or database driver. One of `"auto"`, `"strict"`, `"always"`, `"never"`. See note below.                                                                                                                                  |
+| `sanitizer_aware_min_cv`               | number  | `0.5`                                         | Coefficient of variation (standard deviation over mean) of the per-span durations above which the sanitizer heuristic reads a group as N+1 rather than a cached repeat. Range `(0, 10]`. See note below.                                                                                                                                                  |
 
 #### `sanitizer_aware_classification`
 
@@ -152,6 +153,30 @@ Findings reclassified by the heuristic (whether under `"auto"`,
 "sanitizer_heuristic"` in their JSON representation so operators can
 spot where it is firing. Findings produced by the standard rule omit
 the field.
+
+#### `sanitizer_aware_min_cv`
+
+The timing-variance signal behind the modes above compares the
+coefficient of variation of the group's per-span durations to this
+threshold. Row lookups against different keys spread their durations
+across cache hits and misses, repeats of one cached query cluster. The
+default of `0.5` favors reporting an N+1 over missing one, since a wrong
+call only swaps `redundant_sql` for `n_plus_one_sql` at the same
+avoidable-I/O weight.
+
+Raise it on a runtime whose scheduling jitter spreads even cached
+repeats: PHP-FPM workers, CPU-throttled containers, shared CI runners.
+The simulation lab measured a CV of about 0.75 on ten identical Doctrine
+lookups served from cache under load, enough to cross the default and
+turn a `redundant_sql` finding into `n_plus_one_sql` with a remediation
+hint (`leftJoin`, `with()`) that does not apply to a repeat. At `1.0`
+the group keeps its `redundant_sql` verdict, while a real N+1 past the
+high-occurrence bar (`3 x n_plus_one_min_occurrences`) is still reported
+under `"strict"` whatever the variance.
+
+The value is recorded in `detection_config` of every report. A report
+written before the knob existed reads back as `0.5`, the value its run
+hard-wired.
 
 ### `[green]`
 

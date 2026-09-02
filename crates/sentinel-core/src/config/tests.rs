@@ -621,6 +621,38 @@ fn parse_sanitizer_aware_classification_modes() {
 }
 
 #[test]
+fn parse_sanitizer_aware_min_cv() {
+    let default_config = load_from_str("").unwrap();
+    assert!(
+        (default_config.detection.sanitizer_aware_min_cv - 0.5).abs() < f64::EPSILON,
+        "default must stay the 0.5 the heuristic always used"
+    );
+
+    let config = load_from_str("[detection]\nsanitizer_aware_min_cv = 1.0\n").unwrap();
+    assert!((config.detection.sanitizer_aware_min_cv - 1.0).abs() < f64::EPSILON);
+
+    // A TOML integer reads as the float too: a generated config that prints
+    // `1` rather than `1.0` must not be refused.
+    let config = load_from_str("[detection]\nsanitizer_aware_min_cv = 1\n").unwrap();
+    assert!((config.detection.sanitizer_aware_min_cv - 1.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn rejects_sanitizer_aware_min_cv_out_of_range() {
+    for value in ["0.0", "-0.5", "10.5", "inf", "nan"] {
+        let result = load_from_str(&format!("[detection]\nsanitizer_aware_min_cv = {value}\n"));
+        let Err(err) = result else {
+            panic!("{value} must be rejected")
+        };
+        let err = err.to_string();
+        assert!(
+            err.contains("sanitizer_aware_min_cv"),
+            "{value}: error must name the key, got: {err}"
+        );
+    }
+}
+
+#[test]
 fn parse_windows_style_json_socket_path_in_basic_string() {
     let config = load_from_str(
         r#"

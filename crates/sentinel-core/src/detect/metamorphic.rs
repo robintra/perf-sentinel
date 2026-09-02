@@ -51,7 +51,7 @@ use proptest::test_runner::TestCaseError;
 
 use super::n_plus_one::{CRITICAL_OCCURRENCE_THRESHOLD, detect_n_plus_one};
 use super::redundant::detect_redundant;
-use super::sanitizer_aware::SanitizerAwareMode;
+use super::sanitizer_aware::{DEFAULT_MIN_CV, SanitizerAwareMode};
 use super::{
     ClassificationMethod, DetectConfig, Finding, FindingType, Severity, detect, run_full_detection,
 };
@@ -76,6 +76,7 @@ fn default_config() -> DetectConfig {
         pool_saturation_concurrent_threshold: 10,
         serialized_min_sequential: 3,
         sanitizer_aware_classification: SanitizerAwareMode::default(),
+        sanitizer_aware_min_cv: DEFAULT_MIN_CV,
     }
 }
 
@@ -268,8 +269,20 @@ fn assert_amplification(
     base: usize,
     extra: usize,
 ) -> Result<(), TestCaseError> {
-    let f_before = detect_n_plus_one(before, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
-    let f_after = detect_n_plus_one(after, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+    let f_before = detect_n_plus_one(
+        before,
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
+    );
+    let f_after = detect_n_plus_one(
+        after,
+        THRESHOLD,
+        WINDOW_MS,
+        SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
+    );
 
     prop_assert_eq!(f_before.len(), 1);
     prop_assert_eq!(f_after.len(), 1);
@@ -307,12 +320,14 @@ fn assert_removal_monotone(
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Never,
+        DEFAULT_MIN_CV,
     );
     let f_kept = detect_n_plus_one(
         &make_trace(kept),
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Never,
+        DEFAULT_MIN_CV,
     );
 
     prop_assert!(f_kept.len() <= f_full.len());
@@ -342,12 +357,14 @@ fn assert_permutation_invariant(
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
     );
     let f_shuffled = detect_n_plus_one(
         &make_trace(shuffled),
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
     );
     prop_assert_eq!(sorted_keys(&f_original), sorted_keys(&f_shuffled));
     Ok(())
@@ -445,7 +462,7 @@ proptest! {
         stride in 1usize..=10,
     ) {
         let trace = make_trace(sql_series("users", count, stride, 0));
-        let findings = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         prop_assert!(findings.is_empty(), "found {:?}", sorted_keys(&findings));
     }
 
@@ -492,7 +509,7 @@ proptest! {
         stride in 1usize..=10,
     ) {
         let trace = make_trace(http_series("items", count, stride, 0));
-        let findings = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+        let findings = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         prop_assert!(findings.is_empty(), "found {:?}", sorted_keys(&findings));
     }
 
@@ -518,7 +535,7 @@ proptest! {
         (events, mode) in exclusivity_workload(),
     ) {
         let trace = make_trace(events);
-        let n_plus_one = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, mode);
+        let n_plus_one = detect_n_plus_one(&trace, THRESHOLD, WINDOW_MS, mode, DEFAULT_MIN_CV);
         let redundant = detect_redundant(&trace, &n_plus_one);
 
         let claimed: HashSet<(&FindingType, &str)> = n_plus_one
@@ -578,9 +595,9 @@ proptest! {
 
         let kept_len = kept.len();
         let full = detect_n_plus_one(
-            &make_trace(events.clone()), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+            &make_trace(events.clone()), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         let partial = detect_n_plus_one(
-            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+            &make_trace(kept), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         prop_assert!(full.len() <= 1);
         prop_assert!(partial.len() <= 1);
@@ -619,7 +636,7 @@ proptest! {
         let window = ((count - 1) * stride) as u64;
 
         let findings =
-            detect_n_plus_one(&make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto);
+            detect_n_plus_one(&make_trace(events), THRESHOLD, WINDOW_MS, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
 
         if window <= WINDOW_MS {
             prop_assert_eq!(findings.len(), 1, "window {}ms within limit must fire", window);
@@ -658,6 +675,7 @@ fn sanitizer_heuristic_can_fire_after_span_removal() {
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
     );
     assert!(
         full.is_empty(),
@@ -671,6 +689,7 @@ fn sanitizer_heuristic_can_fire_after_span_removal() {
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
     );
     assert_eq!(after_removal.len(), 1);
     assert_eq!(
@@ -746,6 +765,7 @@ fn window_exactly_at_limit_fires() {
         THRESHOLD,
         WINDOW_MS,
         SanitizerAwareMode::Auto,
+        DEFAULT_MIN_CV,
     );
 
     assert_eq!(findings.len(), 1);
