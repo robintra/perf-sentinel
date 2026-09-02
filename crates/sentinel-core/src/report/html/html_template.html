@@ -1524,12 +1524,13 @@
   }
   // What each finding type means and how it is detected, shown behind
   // the "?" on the detail title. Mechanisms mirror detect/ and
-  // docs/design/04-DETECTION.md; thresholds are named by config key, the
-  // report does not embed the values the producing run used.
+  // docs/design/04-DETECTION.md. Thresholds are named by config key, and
+  // substituteDetectionValues inlines the producing run's value after
+  // each key when the report carries detection_config.
   var FINDING_HELP = {
-    n_plus_one_sql: "The same query shape fired once per row instead of once for the whole set. Flagged when a trace repeats one normalized SQL template at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`. Identical parameters classify as Redundant SQL instead.",
+    n_plus_one_sql: "The same query shape fired once per row instead of once for the whole set. Flagged when a trace repeats one normalized SQL template at least `[detection] n_plus_one_min_occurrences` times with as many distinct parameter sets, inside `window_duration_ms`. Identical parameters classify as Redundant SQL instead.",
     n_plus_one_http: "The same endpoint called once per item instead of once in bulk. Direct classification uses repeated normalized endpoints with distinct parameter sets. Otherwise, `sanitizer_aware_classification` can classify the group heuristically from timing and trace-shape signals; always mode deliberately forces that classification without those signals. Neither path proves the parameters were collapsed or that the calls are causally N+1. The detail identifies which path fired.",
-    n_plus_one_messaging: "One broker publish per item instead of a batch. Flagged when a trace repeats one destination at least `[detection] n_plus_one_threshold` times with as many distinct parameter sets, inside `window_duration_ms`.",
+    n_plus_one_messaging: "One broker publish per item instead of a batch. Flagged when a trace repeats one destination at least `[detection] n_plus_one_min_occurrences` times with as many distinct parameter sets, inside `window_duration_ms`.",
     redundant_sql: "The exact same query, template and parameters alike, ran more than once in one trace, so the later results could not differ. Two identical calls flag at info, five or more raise a warning: a cache or a local variable would remove them.",
     redundant_http: "The exact same HTTP call, endpoint and parameters alike, ran more than once in one trace. Two identical calls flag at info, five or more raise a warning.",
     slow_sql: "A query template ran above `[detection] slow_query_threshold_ms`, at least `slow_query_min_occurrences` times. Critical past five times the threshold.",
@@ -1540,27 +1541,23 @@
     pool_saturation: "The peak number of SQL queries in flight at the same instant reached `[detection] pool_saturation_concurrent_threshold`, enough to contend on the database connection pool. A tuning or architecture signal, not avoidable I/O.",
     serialized_calls: "Sibling calls with distinct templates ran strictly one after another (longest non-overlapping chain, at least `[detection] serialized_min_sequential` long) with no visible data dependency: they could run in parallel. Always info, the heuristic cannot see hidden dependencies."
   };
-  // Config-key name in the .toml vs field name in detection_config.
-  var DETECTION_KEY_FIELD = {
-    n_plus_one_threshold: "n_plus_one_threshold",
-    window_duration_ms: "window_ms",
-    slow_query_threshold_ms: "slow_threshold_ms",
-    slow_query_min_occurrences: "slow_min_occurrences",
-    max_fanout: "max_fanout",
-    chatty_service_min_calls: "chatty_service_min_calls",
-    pool_saturation_concurrent_threshold: "pool_saturation_concurrent_threshold",
-    serialized_min_sequential: "serialized_min_sequential",
-    sanitizer_aware_classification: "sanitizer_aware_classification",
-    sanitizer_aware_min_cv: "sanitizer_aware_min_cv"
+  // The four detection_config fields whose .toml key is spelled
+  // differently. Every other field is its own key.
+  var DETECTION_FIELD_KEY = {
+    n_plus_one_threshold: "n_plus_one_min_occurrences",
+    window_ms: "window_duration_ms",
+    slow_threshold_ms: "slow_query_threshold_ms",
+    slow_min_occurrences: "slow_query_min_occurrences"
   };
   // Inline the producing run's values next to the key names. Reports
   // from older binaries carry no detection_config: keys alone then.
   function substituteDetectionValues(text) {
     var cfg = report.detection_config;
     if (!text || !cfg) return text;
-    Object.keys(DETECTION_KEY_FIELD).forEach(function (key) {
-      var v = cfg[DETECTION_KEY_FIELD[key]];
+    Object.keys(cfg).forEach(function (field) {
+      var v = cfg[field];
       if (v === undefined || v === null) return;
+      var key = DETECTION_FIELD_KEY[field] || field;
       text = text.split(key + "`").join(key + " = " + v + "`");
     });
     return text;
@@ -1577,20 +1574,20 @@
   var HELP_DEEP = {
     n_plus_one_sql: { t: "N+1 SQL", u: METHO_URL, s: [
       ["What it measures", "One query per row instead of one query for the whole set, the classic lazy-loading pattern: fetching 50 orders then firing 50 `SELECT * FROM order_item WHERE order_id = ?` instead of a single query for all 50."],
-      ["How it is computed", "Literals are normalized away (`WHERE id = 42` becomes `WHERE id = ?`), so queries share a shape. The SQL spans of a trace are grouped by shape, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms`, with as many distinct parameter sets, one query per row. Ten occurrences or more raise it to critical. The same shape with identical parameters is a different smell, Redundant SQL: the results could not differ."],
-      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, `sanitizer_aware_classification`, which can keep already-parameterized safe patterns out of the count, and `sanitizer_aware_min_cv`, the timing spread past which a repeat reads as N+1."],
+      ["How it is computed", "Literals are normalized away (`WHERE id = 42` becomes `WHERE id = ?`), so queries share a shape. The SQL spans of a trace are grouped by shape, and a group flags when it repeats at least `n_plus_one_min_occurrences` times inside `window_duration_ms`, with as many distinct parameter sets, one query per row. Ten occurrences or more raise it to critical. The same shape with identical parameters is a different smell, Redundant SQL: the results could not differ."],
+      ["What tunes it", "`[detection] n_plus_one_min_occurrences`, `window_duration_ms`, `sanitizer_aware_classification`, which can keep already-parameterized safe patterns out of the count, and `sanitizer_aware_min_cv`, the timing spread past which a repeat reads as N+1."],
       ["Limits", "The detector counts what the trace shows: a driver that batches the queries under the hood, or repeats spread beyond the window, are invisible to it."]
     ]},
     n_plus_one_http: { t: "N+1 HTTP", u: METHO_URL, s: [
       ["What it measures", "One outbound HTTP call per item instead of one bulk call: fetching a list, then calling `GET /api/users/{id}` once per element."],
       ["How it is computed", "Paths are normalized (`/users/42` becomes `/users/{id}`) so calls share a template. Direct classification uses repeated calls with distinct parameter sets inside `window_duration_ms`. Otherwise, the optional sanitizer-aware path uses timing and trace-shape signals; always mode deliberately forces that path without those signals. Neither path proves that instrumentation collapsed the parameters or that the calls are causally N+1. The finding reports `sanitizer_heuristic` when that path fired. Ten or more occurrences is critical."],
-      ["What tunes it", "`[detection] n_plus_one_threshold`, `window_duration_ms`, `sanitizer_aware_classification`, and `sanitizer_aware_min_cv`."],
+      ["What tunes it", "`[detection] n_plus_one_min_occurrences`, `window_duration_ms`, `sanitizer_aware_classification`, and `sanitizer_aware_min_cv`."],
       ["Limits", "The detector sees spans, not the client's internal coalescing or caching. Use the displayed timestamps, duration distribution, distinct-parameter count and classification method to validate the signal in context."]
     ]},
     n_plus_one_messaging: { t: "N+1 messaging", u: METHO_URL, s: [
       ["What it measures", "One broker publish per item instead of a batched publish."],
-      ["How it is computed", "Publish spans are grouped by destination, and a group flags when it repeats at least `n_plus_one_threshold` times inside `window_duration_ms` with as many distinct parameter sets."],
-      ["What tunes it", "`[detection] n_plus_one_threshold` and `window_duration_ms`."],
+      ["How it is computed", "Publish spans are grouped by destination, and a group flags when it repeats at least `n_plus_one_min_occurrences` times inside `window_duration_ms` with as many distinct parameter sets."],
+      ["What tunes it", "`[detection] n_plus_one_min_occurrences` and `window_duration_ms`."],
       ["Limits", "A client library may already batch the publishes it buffers before the broker sees them, so the occurrence count is an upper bound on the real waste."]
     ]},
     redundant_sql: { t: "Redundant SQL", u: METHO_URL, s: [

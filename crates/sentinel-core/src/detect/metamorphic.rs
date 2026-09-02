@@ -563,12 +563,15 @@ proptest! {
     /// signal negatively would add a finding here.
     #[test]
     fn raising_min_cv_never_adds_an_n_plus_one(
-        (durations, orm, mode, a, b) in (3usize..=16).prop_flat_map(|n| (
-            prop::collection::vec(100u64..=100_000, n),
+        (durations, orm, mode, a, b) in (5usize..=16).prop_flat_map(|n| (
+            // Cache hits against misses: a bimodal mix spreads the group's CV
+            // across the range a threshold in 0.05..=2.0 can cut, where a
+            // uniform draw would pin it near 0.58 and leave most cases vacuous.
+            prop::collection::vec(prop_oneof![100u64..=1_000, 50_000u64..=100_000], n),
             any::<bool>(),
             any_mode(),
-            0.05f64..=10.0,
-            0.05f64..=10.0,
+            0.05f64..=2.0,
+            0.05f64..=2.0,
         )),
     ) {
         let (low, high) = if a <= b { (a, b) } else { (b, a) };
