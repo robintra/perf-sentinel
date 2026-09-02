@@ -175,13 +175,20 @@ the group keeps its `redundant_sql` verdict.
 The same threshold feeds the HTTP heuristic, which decides whether a
 repeated outbound call with few distinct parameters reads as
 `n_plus_one_http` or `redundant_http`, so raising it moves both
-verdicts. What still reports a real N+1 whatever the variance differs
-per path: on SQL, the high-occurrence bar (`3 x
-n_plus_one_min_occurrences`) under `"strict"`, on HTTP, the direct rule,
-since distinct path or query parameters classify the group before the
-heuristic runs. One value serves the whole configuration: a daemon in
-front of several runtimes picks the noisiest one's threshold and accepts
-the loss on moderate-count groups elsewhere.
+verdicts. What still reports a real N+1 whatever the variance depends
+on the mode and the path:
+
+- SQL under `"auto"`: the ORM scope marker alone, so raising the
+  threshold changes nothing on an ORM-instrumented group.
+- SQL under `"strict"`: the high-occurrence bar
+  (`3 x n_plus_one_min_occurrences`).
+- HTTP: the direct rule, since distinct path or query parameters
+  classify the group before the heuristic runs.
+- `"always"` ignores the variance entirely, `"never"` never consults it.
+
+One value serves the whole configuration: a daemon in front of several
+runtimes picks the noisiest one's threshold and accepts the loss on
+moderate-count groups elsewhere.
 
 The value is recorded in `detection_config` of every report. A report
 written before the knob existed reads back as `0.5`, the value its run

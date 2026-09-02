@@ -186,14 +186,21 @@ répétition. À `1.0` le groupe garde son verdict `redundant_sql`.
 Le même seuil alimente l'heuristique HTTP, qui décide si un appel sortant
 répété avec peu de paramètres distincts se lit `n_plus_one_http` ou
 `redundant_http`, si bien que le relever déplace les deux verdicts. Ce
-qui continue de signaler un vrai N+1 quelle que soit la variance diffère
-selon le chemin : en SQL, la barre de haute occurrence
-(`3 x n_plus_one_min_occurrences`) sous `"strict"`, en HTTP, la règle
-directe, puisque des paramètres de chemin ou de requête distincts
-classent le groupe avant que l'heuristique ne tourne. Une seule valeur
-sert toute la configuration : un daemon devant plusieurs runtimes prend
-le seuil du plus bruyant et accepte la perte sur les groupes de compte
-modéré ailleurs.
+qui continue de signaler un vrai N+1 quelle que soit la variance dépend
+du mode et du chemin :
+
+- SQL sous `"auto"` : le marqueur de scope ORM à lui seul, donc relever
+  le seuil ne change rien sur un groupe instrumenté par un ORM.
+- SQL sous `"strict"` : la barre de haute occurrence
+  (`3 x n_plus_one_min_occurrences`).
+- HTTP : la règle directe, puisque des paramètres de chemin ou de
+  requête distincts classent le groupe avant que l'heuristique ne tourne.
+- `"always"` ignore la variance entièrement, `"never"` ne la consulte
+  jamais.
+
+Une seule valeur sert toute la configuration : un daemon devant plusieurs
+runtimes prend le seuil du plus bruyant et accepte la perte sur les
+groupes de compte modéré ailleurs.
 
 La valeur est consignée dans le `detection_config` de chaque rapport. Un
 rapport écrit avant l'existence de la clé se relit avec `0.5`, la valeur
