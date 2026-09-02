@@ -157,15 +157,32 @@
 <div class="ps-tablewrap"><table><thead><tr><th style="text-align:right">Endpoint cardinality</th><th style="text-align:right">Spans</th><th style="text-align:right"><code class="ps-ic">HashMap + sort</code></th><th style="text-align:right"><code class="ps-ic">BTreeMap</code></th><th style="text-align:right">Ratio</th></tr></thead><tbody><tr><td style="text-align:right">16</td><td style="text-align:right">1M</td><td style="text-align:right">15 ms</td><td style="text-align:right">19 ms</td><td style="text-align:right">1.24x</td></tr><tr><td style="text-align:right">64</td><td style="text-align:right">1M</td><td style="text-align:right">16 ms</td><td style="text-align:right">31 ms</td><td style="text-align:right">1.94x</td></tr><tr><td style="text-align:right">256</td><td style="text-align:right">1M</td><td style="text-align:right">17 ms</td><td style="text-align:right">49 ms</td><td style="text-align:right">2.89x</td></tr><tr><td style="text-align:right">1024</td><td style="text-align:right">1M</td><td style="text-align:right">18 ms</td><td style="text-align:right">73 ms</td><td style="text-align:right">3.99x</td></tr></tbody></table></div>
 <p class="ps-p"><code class="ps-ic">BTreeMap</code>'s free-sort-on-iteration is dwarfed by its per-insert <code class="ps-ic">O(log K)</code> overhead. The terminal sort is <code class="ps-ic">O(K log K)</code> on small K (20-90 µs across the whole range), negligible next to the insert volume.</p>
 <h3 id="step-2-dedup-avoidable-io" class="ps-h3">Step 2: dedup avoidable I/O</h3>
-<div class="ps-code"><div class="ps-code-lang">rust</div><pre><code><span style="color:var(--code-cmd);font-weight:600">let</span> <span style="color:var(--code-cmd);font-weight:600">mut</span> dedup: <span style="color:var(--code-sub)">HashMap</span>&lt;(&amp;str, &amp;str, &amp;str), usize&gt; = <span style="color:var(--code-sub)">HashMap</span>::with_capacity(findings.len());
-<span style="color:var(--code-cmd);font-weight:600">for</span> f <span style="color:var(--code-cmd);font-weight:600">in</span> &amp;findings {
-    <span style="color:var(--code-cmd);font-weight:600">if</span> <span style="color:var(--code-flag)">matches!</span>(f.finding_type, <span style="color:var(--code-sub)">FindingType</span>::<span style="color:var(--code-sub)">SlowSql</span> | <span style="color:var(--code-sub)">FindingType</span>::<span style="color:var(--code-sub)">SlowHttp</span>) {
+<div class="ps-code"><div class="ps-code-lang">rust</div><pre><code><span style="color:var(--term-comment)">// dedup_avoidable_io_ops_by_service: value = (max avoidable, the finding)</span>
+<span style="color:var(--code-cmd);font-weight:600">let</span> <span style="color:var(--code-cmd);font-weight:600">mut</span> dedup: <span style="color:var(--code-sub)">HashMap</span>&lt;(&amp;str, &amp;str, &amp;str), (usize, &amp;<span style="color:var(--code-sub)">Finding</span>)&gt; =
+    <span style="color:var(--code-sub)">HashMap</span>::with_capacity(capacity);
+<span style="color:var(--code-cmd);font-weight:600">for</span> f <span style="color:var(--code-cmd);font-weight:600">in</span> findings {
+    <span style="color:var(--code-cmd);font-weight:600">if</span> !f.finding_type.is_avoidable_io() {
         <span style="color:var(--code-cmd);font-weight:600">continue</span>; <span style="color:var(--term-comment)">// slow findings are not avoidable</span>
     }
     <span style="color:var(--code-cmd);font-weight:600">let</span> avoidable = f.pattern.occurrences.saturating_sub(<span style="color:var(--code-num)">1</span>);
-    <span style="color:var(--code-cmd);font-weight:600">let</span> entry = dedup.entry((&amp;f.trace_id, &amp;f.pattern.template, &amp;f.source_endpoint)).or_insert(<span style="color:var(--code-num)">0</span>);
-    *entry = (*entry).max(avoidable);
+    <span style="color:var(--code-cmd);font-weight:600">let</span> entry = dedup
+        .entry((&amp;f.trace_id, &amp;f.pattern.template, &amp;f.source_endpoint))
+        .or_insert((avoidable, f));
+    <span style="color:var(--code-cmd);font-weight:600">if</span> avoidable &gt; entry.<span style="color:var(--code-num)">0</span> {
+        *entry = (avoidable, f);
+    }
+}
+<span style="color:var(--term-comment)">// One pass over the deduped set feeds both the global total (split sql /</span>
+<span style="color:var(--term-comment)">// messaging by the retained type) and the per-service map behind</span>
+<span style="color:var(--term-comment)">// `perf_sentinel_service_avoidable_io_ops_total`, so the two cannot diverge.</span>
+<span style="color:var(--code-cmd);font-weight:600">let</span> <span style="color:var(--code-cmd);font-weight:600">mut</span> per_service: <span style="color:var(--code-sub)">BTreeMap</span>&lt;<span style="color:var(--code-sub)">String</span>, usize&gt; = <span style="color:var(--code-sub)">BTreeMap</span>::new();
+<span style="color:var(--code-cmd);font-weight:600">for</span> &amp;(avoidable, f) <span style="color:var(--code-cmd);font-weight:600">in</span> dedup.values() {
+    out.total += avoidable;
+    <span style="color:var(--code-cmd);font-weight:600">for</span> (service, ops) <span style="color:var(--code-cmd);font-weight:600">in</span> f.avoidable_by_service() {
+        credit(&amp;<span style="color:var(--code-cmd);font-weight:600">mut</span> per_service, service, ops);
+    }
 }</code></pre></div>
+<p class="ps-p"><strong>Why credit through <code class="ps-ic">avoidable_by_service()</code>?</strong> Neither detector keys its group on the service, so a template shared by two services inside one trace is one finding, owned by the service of the first span. <code class="ps-ic">pattern.occurrences_by_service</code> records how many spans each service issued when there is more than one, and the winner's split is credited per service: each its own repeats, the owner one less for the necessary call. The sum is still <code class="ps-ic">occurrences - 1</code>, so the per-service counters keep adding up to the global one, and a service no longer reads 0 % or above 100 % on the dashboard's per-service waste ratio for a template it shares. The owner is the first span in ingestion order, not the earliest timestamp, a known ceiling.</p>
 <p class="ps-p"><strong>Why include <code class="ps-ic">source_endpoint</code> in the key?</strong> The same SQL template (e.g., <code class="ps-ic">SELECT * FROM config WHERE key = ?</code>) may be called from two different endpoints in the same trace. Each endpoint's avoidable ops should be counted independently. Without <code class="ps-ic">source_endpoint</code>, <code class="ps-ic">max(5, 3) = 5</code> would undercount, the correct total is <code class="ps-ic">5 + 3 = 8</code>.</p>
 <p class="ps-p"><strong>Why <code class="ps-ic">max()</code> instead of <code class="ps-ic">sum()</code>?</strong> Within the same (trace, template, endpoint), both N+1 and redundant detectors may fire on overlapping sets of spans. Taking the max prevents double-counting: if N+1 reports 9 avoidable and redundant reports 4 avoidable for the same group, the true avoidable count is 9 (the larger set already includes the smaller one).</p>
 <p class="ps-p"><strong>Slow findings excluded:</strong> slow queries are necessary operations that happen to be slow. They need optimization (indexing, caching), not elimination. Including them in the waste ratio would conflate "wasteful I/O" with "slow I/O".</p>

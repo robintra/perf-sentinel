@@ -158,7 +158,7 @@
   -&gt; normalize::normalize_all()        -&gt; Vec&lt;NormalizedEvent&gt;
   -&gt; correlate::correlate()            -&gt; Vec&lt;Trace&gt;
   -&gt; detect::detect()                  -&gt; Vec&lt;Finding&gt;
-  -&gt; score::score_green()              -&gt; (Vec&lt;Finding&gt;, GreenSummary)
+  -&gt; score::score_green()              -&gt; (Vec&lt;Finding&gt;, GreenSummary, Vec&lt;PerEndpointIoOps&gt;)
   -&gt; quality_gate::evaluate()          -&gt; QualityGate
   -&gt; Report { analysis, findings, green_summary, quality_gate }</code></pre></div>
 <p class="ps-p">In CI mode (<code class="ps-ic">--ci</code>), the process exits with code 1 if the quality gate fails.</p>

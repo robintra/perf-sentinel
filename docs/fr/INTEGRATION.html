@@ -297,11 +297,11 @@
       - targets: ['perf-sentinel:4318']</code></pre></div>
 <p class="ps-p">Métriques clés :</p>
 <ul>
-<li><code class="ps-ic">perf_sentinel_findings_total{type, severity}</code> : findings avec exemplar <code class="ps-ic">trace_id</code> pour le clic direct</li>
+<li><code class="ps-ic">perf_sentinel_findings_total{type, severity, service}</code> : findings avec exemplar <code class="ps-ic">trace_id</code> pour le clic direct</li>
 <li><code class="ps-ic">perf_sentinel_io_waste_ratio</code> : ratio de gaspillage I/O avec exemplar <code class="ps-ic">trace_id</code></li>
 <li><code class="ps-ic">perf_sentinel_events_processed_total</code> : total de spans ingérés</li>
 <li><code class="ps-ic">perf_sentinel_traces_analyzed_total</code> : total de traces complétées</li>
-<li><code class="ps-ic">perf_sentinel_slow_duration_seconds{type}</code> : histogram des durées de spans lents (utiliser <code class="ps-ic">histogram_quantile()</code> pour des percentiles globaux sur des instances shardées)</li>
+<li><code class="ps-ic">perf_sentinel_slow_duration_seconds{type, service}</code> : histogram des durées de spans lents (utiliser <code class="ps-ic">histogram_quantile()</code> pour des percentiles globaux sur des instances shardées)</li>
 </ul>
 <p class="ps-p">Voir <a href="https://github.com/robintra/perf-sentinel/blob/main/examples/otel-collector-config.yaml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">examples/otel-collector-config.yaml</code></a> pour la config complète avec les options de sampling et filtrage.</p>
 <hr class="ps-hr">
