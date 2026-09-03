@@ -472,6 +472,9 @@ struct ConfigResponse {
     /// `[daemon] per_service_labels`: whether findings and slow-span
     /// metrics carry a `service` label (since 0.18.0).
     per_service_labels: bool,
+    /// `[daemon] per_grouping_labels`: whether the same series and the
+    /// per-service I/O counters carry a `grouping` label (since 0.19.0).
+    per_grouping_labels: bool,
     api_enabled: bool,
     /// True when both TLS cert and key paths are set (paths themselves
     /// never exposed).
@@ -510,6 +513,7 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
         analysis_queue_capacity: d.analysis_queue_capacity,
         memory_high_water_pct: d.memory_high_water_pct,
         per_service_labels: d.per_service_labels,
+        per_grouping_labels: d.per_grouping_labels,
         api_enabled: d.api_enabled,
         tls_configured: d.tls.cert_path.is_some() && d.tls.key_path.is_some(),
         ack_enabled: d.ack.enabled,
@@ -1312,6 +1316,30 @@ fn collect_warning_details(
                  `service=\"_other\"` past the per-run service caps \
                  ({caps}): totals stay exact, the per-service split does \
                  not, aggregate or reduce service names upstream"
+            ),
+        ));
+    }
+
+    // No knob branch: with `per_grouping_labels` off no path reaches a
+    // grouping cap, so these counters cannot move.
+    let folded_groupings = metrics.service_io_ops_grouping_overflow_total.get()
+        + metrics.analysis_grouping_overflow_total.get()
+        + metrics.slow_duration_grouping_overflow_total.get();
+    if folded_groupings > 0 {
+        let ingest_cap = super::event_loop::MAX_GROUPING_CARDINALITY;
+        let analysis_cap = super::event_loop::MAX_ANALYSIS_GROUPING_CARDINALITY;
+        let histogram_cap = super::event_loop::MAX_HISTOGRAM_GROUPING_CARDINALITY;
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "{folded_groupings} attributions landed in \
+                 `grouping=\"_other\"` past the per-run grouping caps \
+                 ({ingest_cap} on the ingest I/O counter, {analysis_cap} \
+                 on findings and the per-service I/O counters, \
+                 {histogram_cap} on the slow-span histogram): per-service \
+                 totals stay exact, the per-grouping split does not, trim \
+                 `[detection] grouping_attributes` or set \
+                 `per_grouping_labels = false`"
             ),
         ));
     }

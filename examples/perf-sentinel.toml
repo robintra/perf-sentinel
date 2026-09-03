@@ -222,6 +222,11 @@ analysis_queue_capacity = 1024     # default 1024, bounds 1..1048576
 # daemon's cardinality caps). false restores the pre-0.18 label shape,
 # and the dashboard's Service filter then shows 0 findings per service.
 per_service_labels = true          # default true
+# `grouping` label next to `service` on the same series plus the
+# per-service I/O counters: the span's first `[detection]
+# grouping_attributes` value, bounded by its own caps. false restores
+# the 0.18 shape.
+per_grouping_labels = true         # default true
 
 # Stamped on every finding as `confidence`, read by downstream tooling and
 # not by the quality gate. Two values here, case-insensitive, anything else

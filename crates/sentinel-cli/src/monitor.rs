@@ -171,6 +171,8 @@ struct ConfigSlim {
     #[serde(default)]
     per_service_labels: bool,
     #[serde(default)]
+    per_grouping_labels: bool,
+    #[serde(default)]
     api_enabled: bool,
     #[serde(default)]
     tls_configured: bool,
@@ -1283,6 +1285,13 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     );
     config_row(
         &mut lines,
+        "per_grouping_labels",
+        &bool_str(c.per_grouping_labels),
+        &bool_str(d.per_grouping_labels),
+        "Whether the same metrics and the per-service I/O counters carry a grouping label next to service (0.19.0). Off restores the 0.18 shape.",
+    );
+    config_row(
+        &mut lines,
         "api_enabled",
         &bool_str(c.api_enabled),
         &bool_str(d.api_enabled),
@@ -2225,6 +2234,7 @@ mod tests {
             sampling_rate: d.sampling_rate,
             environment: d.environment.as_str().to_string(),
             listen_addr: d.listen_addr.clone(),
+            per_grouping_labels: d.per_grouping_labels,
             ..Default::default()
         }
     }
@@ -2241,6 +2251,7 @@ mod tests {
             text.contains("correlation.max_tracked_pairs ="),
             "got: {text}"
         );
+        assert!(text.contains("per_grouping_labels ="), "got: {text}");
         // A param left at its default must not be flagged modified.
         let dline = text
             .lines()

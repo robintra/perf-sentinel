@@ -48,6 +48,9 @@ pub(super) struct EventLoopConfig {
     /// Whether findings and slow-span histograms carry a `service`
     /// label. From `[daemon] per_service_labels`.
     pub(super) per_service_labels: bool,
+    /// Whether the same series and the per-service I/O counters carry a
+    /// `grouping` label. From `[daemon] per_grouping_labels`.
+    pub(super) per_grouping_labels: bool,
 }
 
 /// Bundle of handles aborted on shutdown (SIGINT, or SIGTERM on Unix).
@@ -132,6 +135,7 @@ struct AnalysisWorkerCtx {
     detect_config: DetectConfig,
     green_enabled: bool,
     per_service_labels: bool,
+    per_grouping_labels: bool,
     confidence: Confidence,
     metrics: Arc<MetricsState>,
     findings_store: Arc<findings_store::FindingsStore>,
@@ -181,6 +185,7 @@ pub(super) async fn run_event_loop(
             detect_config: detect_config.clone(),
             green_enabled: loop_cfg.green_enabled,
             per_service_labels: loop_cfg.per_service_labels,
+            per_grouping_labels: loop_cfg.per_grouping_labels,
             confidence: loop_cfg.confidence,
             metrics: metrics.clone(),
             findings_store,
@@ -232,7 +237,8 @@ async fn drive_event_loop(
     // Prevent burst-catchup if a tick is delayed. With analysis off the
     // loop, the loop rarely lags, but the scrapers already use Delay.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+    let mut service_meter =
+        ServiceMeter::new(MAX_SERVICE_CARDINALITY, loop_cfg.per_grouping_labels);
 
     // Pin the shutdown future once so the SIGTERM/SIGINT listeners are
     // registered a single time rather than re-registered on every loop
@@ -309,7 +315,11 @@ async fn drive_event_loop(
 async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
     let mut db_waste_sticky: Option<(DatabaseWaste, u64)> = None;
     let mut msg_waste_sticky: Option<(MessagingWaste, u64)> = None;
-    let mut service_meter = AnalysisServiceMeter::new(wctx.per_service_labels, &wctx.metrics);
+    let mut service_meter = AnalysisServiceMeter::new(
+        wctx.per_service_labels,
+        wctx.per_grouping_labels,
+        &wctx.metrics,
+    );
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -351,13 +361,36 @@ pub(crate) const MAX_ANALYSIS_SERVICE_CARDINALITY: usize = 128;
 /// (11 buckets plus `+Inf`, `_sum` and `_count`).
 pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 
-/// Label value that series of services past a cap fold into, so the
-/// global sums stay exact while cardinality stays bounded.
+/// Cardinality cap on the `grouping` label of
+/// `perf_sentinel_service_io_ops_total`. Independent of
+/// [`MAX_SERVICE_CARDINALITY`] and folding rather than dropping, so a
+/// service's sum over its groupings stays its pre-0.19 value. Worst
+/// case 1024 x 33 series.
+pub(crate) const MAX_GROUPING_CARDINALITY: usize = 32;
+
+/// Cardinality cap on the analysis-side `grouping` label
+/// (`findings_total`, `service_avoidable_io_ops_total`,
+/// `service_analyzed_io_ops_total`). Findings multiply by 12 types x 3
+/// severities x 129 services, so 17 grouping values bound the family
+/// near 79k series in the adversarial case; a real fleet, where the
+/// grouping is nearly a function of the service, sits near twice the
+/// 0.18 count.
+pub(crate) const MAX_ANALYSIS_GROUPING_CARDINALITY: usize = 16;
+
+/// Cardinality cap on the slow-duration histogram's `grouping` label,
+/// the lowest of the three: 14 series per (type, service, grouping),
+/// 3 x 65 x 9 x 14 in the adversarial case.
+pub(crate) const MAX_HISTOGRAM_GROUPING_CARDINALITY: usize = 8;
+
+/// Label value that series of services or groupings past a cap fold
+/// into, so the global sums stay exact while cardinality stays bounded.
 const SERVICE_OVERFLOW_LABEL: &str = "_other";
 
-/// Admission policy shared by the service meters: a bounded name set, an
+/// Admission policy shared by the label meters: a bounded value set, an
 /// overflow counter, a one-shot warning. [`SERVICE_OVERFLOW_LABEL`] is
-/// reserved and passes through without taking a slot.
+/// reserved and passes through without taking a slot, and so does the
+/// empty value, the "declared but absent" shape of a label whose knob
+/// is off or whose span carried no grouping.
 struct CappedServices {
     admitted: HashSet<String>,
     cap: usize,
@@ -380,26 +413,22 @@ impl CappedServices {
         }
     }
 
-    /// `Some(service)` while it has (or gets) a slot, `None` past the
+    /// `Some(value)` while it has (or gets) a slot, `None` past the
     /// cap (counts the overflow, warns once).
-    fn admit<'a>(
-        &mut self,
-        service: &'a str,
-        overflow: &prometheus::IntCounter,
-    ) -> Option<&'a str> {
-        if service == SERVICE_OVERFLOW_LABEL || self.admitted.contains(service) {
-            return Some(service);
+    fn admit<'a>(&mut self, value: &'a str, overflow: &prometheus::IntCounter) -> Option<&'a str> {
+        if value.is_empty() || value == SERVICE_OVERFLOW_LABEL || self.admitted.contains(value) {
+            return Some(value);
         }
         if self.admitted.len() < self.cap {
-            self.admitted.insert(service.to_string());
-            return Some(service);
+            self.admitted.insert(value.to_string());
+            return Some(value);
         }
         overflow.inc();
         if !self.warned {
             tracing::warn!(
                 cap = self.cap,
                 what = self.what,
-                "service cardinality cap reached, {}",
+                "label cardinality cap reached, {}",
                 self.consequence
             );
             self.warned = true;
@@ -410,43 +439,81 @@ impl CappedServices {
 
 /// Per-service I/O op counter cache over [`CappedServices`]. Caps
 /// cardinality against hostile `service.name` floods and caches the
-/// labeled children so the per-event path is one `HashMap` lookup plus
-/// an atomic add. Ingest drops past the cap: the overflow counter moves
-/// on every unattributed op.
+/// labeled children so the per-event path is two `HashMap` lookups plus
+/// an atomic add. Ingest drops past the service cap: the overflow
+/// counter moves on every unattributed op. The grouping axis folds into
+/// [`SERVICE_OVERFLOW_LABEL`] instead, so a service's sum over its
+/// groupings stays exact for the energy scrapers.
 struct ServiceMeter {
-    children: HashMap<String, prometheus::Counter>,
+    per_grouping_labels: bool,
+    /// Children per effective (service, grouping) pair. Two levels
+    /// rather than a `(String, String)` key: std's `HashMap` cannot
+    /// probe a tuple of `String`s with borrowed `&str`s, and the
+    /// per-event hit path must not allocate.
+    children: HashMap<String, HashMap<String, prometheus::Counter>>,
     capped: CappedServices,
+    groupings: CappedServices,
 }
 
 impl ServiceMeter {
-    fn new(cap: usize) -> Self {
+    fn new(cap: usize, per_grouping_labels: bool) -> Self {
         Self {
+            per_grouping_labels,
             children: HashMap::new(),
             capped: CappedServices::new(
                 cap,
                 "ingest I/O ops",
                 "new services get no per-service I/O op counter",
             ),
+            groupings: CappedServices::new(
+                MAX_GROUPING_CARDINALITY,
+                "ingest I/O ops grouping",
+                "new groupings fold into grouping=\"_other\"",
+            ),
         }
     }
 
-    fn record(&mut self, service: &str, metrics: &MetricsState) {
-        if let Some(child) = self.children.get(service) {
+    fn record(&mut self, service: &str, grouping: &str, metrics: &MetricsState) {
+        let grouping = if self.per_grouping_labels {
+            grouping
+        } else {
+            ""
+        };
+        if let Some(child) = self.children.get(service).and_then(|m| m.get(grouping)) {
             child.inc();
             return;
         }
-        if let Some(label) = self
+        let Some(service) = self
             .capped
             .admit(service, &metrics.service_io_ops_overflow_total)
-        {
-            let child = metrics.service_io_ops_total.with_label_values(&[label]);
+        else {
+            return;
+        };
+        let grouping = self
+            .groupings
+            .admit(grouping, &metrics.service_io_ops_grouping_overflow_total)
+            .unwrap_or(SERVICE_OVERFLOW_LABEL);
+        // Past the grouping cap the label is `_other`, minted on the
+        // first fold: no `String` per folded event.
+        if let Some(child) = self.children.get(service).and_then(|m| m.get(grouping)) {
             child.inc();
-            self.children.insert(label.to_string(), child);
+            return;
         }
+        self.children
+            .entry(service.to_string())
+            .or_default()
+            .entry(grouping.to_string())
+            .or_insert_with(|| {
+                metrics
+                    .service_io_ops_total
+                    .with_label_values(&[service, grouping])
+            })
+            .inc();
     }
 }
 
-/// The three slow-duration histogram children of one `service` label.
+/// The three slow-duration histogram children of one (service, grouping)
+/// label pair.
 /// Named rather than a positional array: the index-to-`EventType` map
 /// used to live in `record_slow_durations`, one reorder away from
 /// filing every duration under the wrong `type`.
@@ -457,11 +524,11 @@ struct SlowHists {
 }
 
 impl SlowHists {
-    fn mint(label: &str, metrics: &MetricsState) -> Self {
+    fn mint(service: &str, grouping: &str, metrics: &MetricsState) -> Self {
         let child = |kind: &str| {
             metrics
                 .slow_duration_seconds
-                .with_label_values(&[kind, label])
+                .with_label_values(&[kind, service, grouping])
         };
         Self {
             sql: child("sql"),
@@ -479,50 +546,69 @@ impl SlowHists {
     }
 }
 
-/// Caps the `service` label on the analysis-side metrics. Single-owner
-/// state of the analysis worker task, like [`ServiceMeter`]: no lock.
-/// Past a cap, series fold into [`SERVICE_OVERFLOW_LABEL`] so sums stay
-/// exact. With `[daemon] per_service_labels = false`, findings and
-/// histogram series carry an empty `service`, the per-service I/O
-/// counters ignore the knob.
+/// Caps the `service` and `grouping` labels on the analysis-side
+/// metrics. Single-owner state of the analysis worker task, like
+/// [`ServiceMeter`]: no lock. Past a cap, series fold into
+/// [`SERVICE_OVERFLOW_LABEL`] on that axis so sums stay exact; the two
+/// caps are independent, so a series can fold on either or both. With
+/// `[daemon] per_service_labels = false`, findings and histogram series
+/// carry an empty `service` (the per-service I/O counters ignore that
+/// knob); with `per_grouping_labels = false` every family carries an
+/// empty `grouping`.
 struct AnalysisServiceMeter {
     per_service_labels: bool,
+    per_grouping_labels: bool,
     names: CappedServices,
+    groupings: CappedServices,
     hist_names: CappedServices,
-    /// Histogram children per effective label, so the per-span path is
-    /// one `HashMap` hit.
-    hist_children: HashMap<String, SlowHists>,
+    hist_groupings: CappedServices,
+    /// Histogram children per effective (service, grouping) pair, so the
+    /// per-span path is two `HashMap` hits and no allocation.
+    hist_children: HashMap<String, HashMap<String, SlowHists>>,
 }
 
 impl AnalysisServiceMeter {
-    /// With the knob off there is a single histogram label, so it is
-    /// materialized up front (0.17 resolved the children on every
+    /// With both knobs off there is a single histogram label pair, so it
+    /// is materialized up front (0.17 resolved the children on every
     /// batch) and "series absent" keeps meaning "worker not running"
-    /// rather than "no slow span yet". With the knob on nothing is
-    /// pre-warmed: the only label known before traffic arrives is
-    /// [`SERVICE_OVERFLOW_LABEL`], and minting it would publish a
-    /// permanent `service="_other"` series on a daemon that never hit a
-    /// cap, which reads as overflow and shows up in the dashboard's
-    /// service picker.
-    fn new(per_service_labels: bool, metrics: &MetricsState) -> Self {
+    /// rather than "no slow span yet". With either knob on nothing is
+    /// pre-warmed: the only values known before traffic arrives are
+    /// [`SERVICE_OVERFLOW_LABEL`] on the labeled axes, and minting them
+    /// would publish a permanent `_other` series on a daemon that never
+    /// hit a cap, which reads as overflow and shows up in the dashboard's
+    /// pickers.
+    fn new(per_service_labels: bool, per_grouping_labels: bool, metrics: &MetricsState) -> Self {
         let mut meter = Self {
             per_service_labels,
+            per_grouping_labels,
             names: CappedServices::new(
                 MAX_ANALYSIS_SERVICE_CARDINALITY,
                 "analysis service labels",
                 "new services fold into service=\"_other\"",
+            ),
+            groupings: CappedServices::new(
+                MAX_ANALYSIS_GROUPING_CARDINALITY,
+                "analysis grouping labels",
+                "new groupings fold into grouping=\"_other\"",
             ),
             hist_names: CappedServices::new(
                 MAX_HISTOGRAM_SERVICE_CARDINALITY,
                 "slow-duration histogram",
                 "new services fold into service=\"_other\"",
             ),
+            hist_groupings: CappedServices::new(
+                MAX_HISTOGRAM_GROUPING_CARDINALITY,
+                "slow-duration histogram grouping",
+                "new groupings fold into grouping=\"_other\"",
+            ),
             hist_children: HashMap::new(),
         };
-        if !per_service_labels {
+        if !per_service_labels && !per_grouping_labels {
             meter
                 .hist_children
-                .insert(String::new(), SlowHists::mint("", metrics));
+                .entry(String::new())
+                .or_default()
+                .insert(String::new(), SlowHists::mint("", "", metrics));
         }
         meter
     }
@@ -535,46 +621,86 @@ impl AnalysisServiceMeter {
             .unwrap_or(SERVICE_OVERFLOW_LABEL)
     }
 
-    /// Label for `findings_total`: empty with the knob off.
-    fn finding_label<'a>(&mut self, service: &'a str, metrics: &MetricsState) -> &'a str {
-        if self.per_service_labels {
+    /// Effective `grouping` label under the analysis grouping cap: empty
+    /// with the knob off, the value, or [`SERVICE_OVERFLOW_LABEL`] past
+    /// the cap.
+    fn grouping_label<'a>(&mut self, grouping: &'a str, metrics: &MetricsState) -> &'a str {
+        if !self.per_grouping_labels {
+            return "";
+        }
+        self.groupings
+            .admit(grouping, &metrics.analysis_grouping_overflow_total)
+            .unwrap_or(SERVICE_OVERFLOW_LABEL)
+    }
+
+    /// Label pair for `findings_total`: the service half is empty with
+    /// `per_service_labels` off, the grouping half follows
+    /// [`Self::grouping_label`].
+    fn finding_labels<'a>(
+        &mut self,
+        service: &'a str,
+        grouping: &'a str,
+        metrics: &MetricsState,
+    ) -> (&'a str, &'a str) {
+        let service = if self.per_service_labels {
             self.service_label(service, metrics)
         } else {
             ""
-        }
+        };
+        (service, self.grouping_label(grouping, metrics))
     }
 
-    /// Observe one slow span's duration on its service's histogram,
-    /// under the histogram's own cap. Observing here rather than handing
-    /// back a `&SlowHists` keeps the hit path at a single `HashMap`
-    /// lookup: returning a reference out of a `&mut self` method forces
-    /// the `contains_key`-then-index dance.
+    /// Observe one slow span's duration on its (service, grouping)
+    /// histogram, under the histogram's own caps. Observing here rather
+    /// than handing back a `&SlowHists` keeps the hit path at two
+    /// `HashMap` lookups: returning a reference out of a `&mut self`
+    /// method forces the `contains_key`-then-index dance.
     fn observe_slow(
         &mut self,
         service: &str,
+        grouping: &str,
         event_type: &crate::event::EventType,
         seconds: f64,
         metrics: &MetricsState,
     ) {
         let service = if self.per_service_labels { service } else { "" };
-        if let Some(hists) = self.hist_children.get(service) {
+        let grouping = if self.per_grouping_labels {
+            grouping
+        } else {
+            ""
+        };
+        if let Some(hists) = self
+            .hist_children
+            .get(service)
+            .and_then(|m| m.get(grouping))
+        {
             hists.for_type(event_type).observe(seconds);
             return;
         }
 
-        let label = self
+        let service = self
             .hist_names
             .admit(service, &metrics.slow_duration_service_overflow_total)
             .unwrap_or(SERVICE_OVERFLOW_LABEL);
-        // Past the cap the label is `_other`, minted on the first fold:
+        let grouping = self
+            .hist_groupings
+            .admit(grouping, &metrics.slow_duration_grouping_overflow_total)
+            .unwrap_or(SERVICE_OVERFLOW_LABEL);
+        // Past a cap the label is `_other`, minted on the first fold:
         // no `String` per folded span.
-        if let Some(hists) = self.hist_children.get(label) {
+        if let Some(hists) = self
+            .hist_children
+            .get(service)
+            .and_then(|m| m.get(grouping))
+        {
             hists.for_type(event_type).observe(seconds);
             return;
         }
         self.hist_children
-            .entry(label.to_string())
-            .or_insert_with(|| SlowHists::mint(label, metrics))
+            .entry(service.to_string())
+            .or_default()
+            .entry(grouping.to_string())
+            .or_insert_with(|| SlowHists::mint(service, grouping, metrics))
             .for_type(event_type)
             .observe(seconds);
     }
@@ -652,7 +778,11 @@ async fn ingest_event_batch(
     // Normalize OUTSIDE the lock to minimize lock hold time.
     let normalized: Vec<_> = events.into_iter().map(normalize::normalize).collect();
     for event in &normalized {
-        service_meter.record(event.event.service.as_ref(), metrics);
+        service_meter.record(
+            event.event.service.as_ref(),
+            event.event.grouping_value().unwrap_or(""),
+            metrics,
+        );
     }
     let (source_endpoint_groups, source_endpoint_parent_groups) =
         group_source_endpoint_updates(source_endpoint_updates, sampling_rate);
@@ -1109,6 +1239,7 @@ fn record_slow_durations(
             if span.event.duration_us > slow_threshold_us {
                 meter.observe_slow(
                     span.event.service.as_ref(),
+                    span.event.grouping_value().unwrap_or(""),
                     &span.event.event_type,
                     span.event.duration_us as f64 / 1_000_000.0,
                     metrics,
@@ -1124,7 +1255,6 @@ fn emit_findings_and_update_metrics(
     trace_count: usize,
     findings: &[detect::Finding],
     green_summary: &GreenSummary,
-    per_endpoint_io_ops: &[crate::report::PerEndpointIoOps],
     metrics: &MetricsState,
     meter: &mut AnalysisServiceMeter,
 ) {
@@ -1151,49 +1281,55 @@ fn emit_findings_and_update_metrics(
         .carbon_gco2
         .set(green_summary.regions.iter().map(|r| r.co2_gco2).sum());
 
-    // Per-service avoidable and analysed I/O ops: the two series a
-    // per-service waste ratio divides, from the same scoring pass and
-    // under the same cap. Both empty when green is off, like the
-    // global avoidable counter.
-    //
-    // One row per service before touching the `MetricVec`: a row per
-    // (service, endpoint) paid a label hash plus the vec lock per
-    // endpoint and charged the overflow counter once per endpoint of an
-    // over-cap service. `per_endpoint_io_ops` arrives sorted by
-    // (service, endpoint) from `endpoint_stats_to_per_endpoint_io_ops`,
-    // so each service is one contiguous run, and the avoidable split
-    // arrives ordered from `dedup_avoidable_io_ops_by_service`.
-    for (service, ops) in &green_summary.avoidable_per_service {
+    // Per-(service, grouping) avoidable and analysed I/O ops: the two
+    // series a per-service waste ratio divides, from the same scoring
+    // pass and under the same caps. Both empty when green is off, like
+    // the global avoidable counter. Both maps arrive ordered by
+    // (service, grouping) from `score_green`, so cap admission is
+    // deterministic and the overflow counters move once per row.
+    for ((service, grouping), ops) in &green_summary.avoidable_per_service {
+        let labels = [
+            meter.service_label(service, metrics),
+            meter.grouping_label(grouping, metrics),
+        ];
         metrics
             .service_avoidable_io_ops_total
-            .with_label_values(&[meter.service_label(service, metrics)])
+            .with_label_values(&labels)
             .inc_by(*ops as f64);
     }
-    for group in per_endpoint_io_ops.chunk_by(|a, b| a.service == b.service) {
-        let ops: usize = group.iter().map(|e| e.io_ops).sum();
+    for ((service, grouping), ops) in &green_summary.analyzed_per_service {
+        let labels = [
+            meter.service_label(service, metrics),
+            meter.grouping_label(grouping, metrics),
+        ];
         metrics
             .service_analyzed_io_ops_total
-            .with_label_values(&[meter.service_label(&group[0].service, metrics)])
-            .inc_by(ops as f64);
+            .with_label_values(&labels)
+            .inc_by(*ops as f64);
     }
 
-    // Resolve effective service labels once, the counter and its
-    // exemplars must land on the same series.
-    let labeled: Vec<(&detect::Finding, &str)> = findings
+    // Resolve effective labels once, the counter and its exemplars must
+    // land on the same series.
+    let labeled: Vec<(&detect::Finding, &str, &str)> = findings
         .iter()
-        .map(|f| (f, meter.finding_label(&f.service, metrics)))
+        .map(|f| {
+            let (service, grouping) =
+                meter.finding_labels(&f.service, f.grouping_value().unwrap_or(""), metrics);
+            (f, service, grouping)
+        })
         .collect();
     metrics.record_exemplars_labeled(&labeled, green_summary);
 
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
-    for (finding, service_label) in &labeled {
+    for (finding, service_label, grouping_label) in &labeled {
         metrics
             .findings_total
             .with_label_values(&[
                 finding.finding_type.as_str(),
                 finding.severity.as_str(),
                 service_label,
+                grouping_label,
             ])
             .inc();
         if serde_json::to_writer(&mut lock, finding).is_ok() {
@@ -1396,7 +1532,6 @@ async fn process_traces(
         trace_count,
         &findings,
         &green_summary,
-        &per_endpoint_io_ops,
         ctx.metrics,
         ctx.service_meter,
     );
@@ -1640,7 +1775,7 @@ mod tests {
             detect_config,
             traces_store: noop_traces_store(),
             green_enabled,
-            service_meter: Box::leak(Box::new(AnalysisServiceMeter::new(true, metrics))),
+            service_meter: Box::leak(Box::new(AnalysisServiceMeter::new(true, true, metrics))),
             carbon_ctx,
             metrics,
             confidence: Confidence::DaemonStaging,
@@ -1729,7 +1864,7 @@ mod tests {
         event.event.source.endpoint = "unknown".to_string();
         event.event.parent_span_id = Some("root-1".to_string());
         window.lock().await.push(event, current_time_ms());
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -1761,7 +1896,7 @@ mod tests {
         assert!(
             metrics
                 .service_io_ops_total
-                .with_label_values(&["orders-svc"])
+                .with_label_values(&["orders-svc", ""])
                 .get()
                 .abs()
                 < f64::EPSILON
@@ -1776,7 +1911,7 @@ mod tests {
         nested_sql.event.span_id = "sql".to_string();
         nested_sql.event.parent_span_id = Some("nested-server".to_string());
         nested_sql.event.source.endpoint = "/api/payments/history".to_string();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let first = super::super::IngestBatch {
             events: vec![nested_sql.event],
@@ -1843,7 +1978,7 @@ mod tests {
         nested_sql.event.span_id = "sql".to_string();
         nested_sql.event.parent_span_id = Some("inner-server".to_string());
         nested_sql.event.source.endpoint = "/api/payments/history".to_string();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let first = super::super::IngestBatch {
             events: vec![nested_sql.event],
@@ -1909,7 +2044,7 @@ mod tests {
         callee_sql.event.span_id = "sql".to_string();
         callee_sql.event.parent_span_id = Some("callee-server".to_string());
         callee_sql.event.source.endpoint = "/api/payments/history".to_string();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         assert!(
             ingest_event_batch(
@@ -1976,7 +2111,7 @@ mod tests {
             make_normalized_messaging("kept", "span", "root", "orders"),
             current_time_ms(),
         );
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2021,7 +2156,7 @@ mod tests {
             max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
             ..WindowConfig::default()
         })));
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
         let root_batch = |trace_id: &str, endpoint: &str| super::super::IngestBatch {
             events: Vec::new(),
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
@@ -2077,7 +2212,7 @@ mod tests {
                 .event
             })
             .collect();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2126,7 +2261,7 @@ mod tests {
             current_time_ms(),
         );
         let event = make_normalized_messaging("trace-1", "new", "root-1", "orders").event;
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2172,7 +2307,7 @@ mod tests {
             make_normalized_messaging("trace-a", "span-a", "root-a", "orders").event,
             make_normalized_messaging("trace-b", "span-b", "root-b", "orders").event,
         ];
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2218,7 +2353,7 @@ mod tests {
                     .event
             })
             .collect();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let started = std::time::Instant::now();
         let evicted = ingest_event_batch(
@@ -2283,7 +2418,7 @@ mod tests {
                 endpoint: Some(format!("/api/{index}")),
             })
             .collect();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2312,7 +2447,7 @@ mod tests {
             max_events_per_trace: EVENT_COUNT,
             ..WindowConfig::default()
         })));
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
         ingest_event_batch(
             super::super::IngestBatch {
                 events: Vec::new(),
@@ -2396,7 +2531,7 @@ mod tests {
             100,
         );
         trace_b.service = Arc::from("orders-svc");
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         let evicted = ingest_event_batch(
             super::super::IngestBatch {
@@ -2450,7 +2585,7 @@ mod tests {
 
         let metrics = MetricsState::new();
         let window = test_window();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
         for _ in 0..2 {
             let batch = rx.recv().await.expect("daemon ingest batch sent");
             let evicted =
@@ -2495,7 +2630,7 @@ mod tests {
 
         let metrics = MetricsState::new();
         let window = test_window();
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
         let root_batch = rx.recv().await.expect("early root batch sent");
         assert!(
             ingest_event_batch(root_batch, 1.0, &window, &metrics, &mut service_meter)
@@ -2506,7 +2641,7 @@ mod tests {
         assert!(
             metrics
                 .service_io_ops_total
-                .with_label_values(&["orders-svc"])
+                .with_label_values(&["orders-svc", ""])
                 .get()
                 .abs()
                 < f64::EPSILON
@@ -2570,7 +2705,7 @@ mod tests {
             max_active_traces: std::num::NonZeroUsize::new(1).expect("nonzero"),
             ..WindowConfig::default()
         })));
-        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY);
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
         assert!(
             ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter)
@@ -3320,6 +3455,7 @@ mod tests {
             traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(0, 0)),
             green_enabled: true,
             per_service_labels: true,
+            per_grouping_labels: true,
 
             confidence: Confidence::DaemonStaging,
             metrics: metrics.clone(),
@@ -3459,11 +3595,11 @@ mod tests {
     #[test]
     fn service_meter_overflow_counts_unattributed_ops() {
         let metrics = MetricsState::new();
-        let mut meter = ServiceMeter::new(2);
+        let mut meter = ServiceMeter::new(2, true);
 
         for service in ["svc-a", "svc-b", "svc-c"] {
-            meter.record(service, &metrics);
-            meter.record(service, &metrics);
+            meter.record(service, "", &metrics);
+            meter.record(service, "", &metrics);
         }
 
         // svc-c arrived after the cap: both its ops overflow, the two
@@ -3472,7 +3608,7 @@ mod tests {
         for service in ["svc-a", "svc-b"] {
             let count = metrics
                 .service_io_ops_total
-                .with_label_values(&[service])
+                .with_label_values(&[service, ""])
                 .get();
             assert!((count - 2.0).abs() < f64::EPSILON);
         }
@@ -3482,15 +3618,15 @@ mod tests {
     #[test]
     fn ingest_service_meter_reserves_the_fold_name() {
         let metrics = MetricsState::new();
-        let mut meter = ServiceMeter::new(2);
-        meter.record("svc-a", &metrics);
+        let mut meter = ServiceMeter::new(2, true);
+        meter.record("svc-a", "", &metrics);
 
         // `_other` is reserved: counted, but never taking a cap slot.
-        meter.record(SERVICE_OVERFLOW_LABEL, &metrics);
+        meter.record(SERVICE_OVERFLOW_LABEL, "", &metrics);
         assert_eq!(meter.capped.admitted.len(), 1);
         let other = metrics
             .service_io_ops_total
-            .with_label_values(&[SERVICE_OVERFLOW_LABEL])
+            .with_label_values(&[SERVICE_OVERFLOW_LABEL, ""])
             .get();
         assert!((other - 1.0).abs() < f64::EPSILON);
         assert_eq!(metrics.service_io_ops_overflow_total.get(), 0);
@@ -3524,7 +3660,7 @@ mod tests {
         let per_service = |s: &str| {
             metrics
                 .service_analyzed_io_ops_total
-                .with_label_values(&[s])
+                .with_label_values(&[s, ""])
                 .get()
         };
         assert!((per_service("svc-a") - 6.0).abs() < f64::EPSILON);
@@ -3537,7 +3673,7 @@ mod tests {
     #[test]
     fn analysis_service_meter_folds_past_cap_into_other() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
         meter.names.cap = 2;
 
         assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
@@ -3555,7 +3691,7 @@ mod tests {
     #[test]
     fn analysis_service_meter_reserves_sentinel_names() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
 
         // A real service named like the fold bucket merges into it
         // without taking a cap slot or counting as overflow.
@@ -3569,33 +3705,36 @@ mod tests {
 
     #[test]
     fn fresh_meter_publishes_no_overflow_histogram_series() {
-        let metrics = MetricsState::new();
-        let _meter = AnalysisServiceMeter::new(true, &metrics);
-
         // `_other` means "past the cap". Pre-warming it would put a
-        // permanent phantom service in every scrape and in the
-        // dashboard's service picker.
-        let rendered = metrics.render();
-        assert!(
-            !rendered.contains("perf_sentinel_slow_duration_seconds_count{"),
-            "no histogram series before the first slow span: {rendered}"
-        );
+        // permanent phantom value in every scrape and in the dashboard's
+        // pickers, so with either knob on nothing is minted before the
+        // first slow span.
+        for (per_service, per_grouping) in [(true, true), (true, false), (false, true)] {
+            let metrics = MetricsState::new();
+            let _meter = AnalysisServiceMeter::new(per_service, per_grouping, &metrics);
+            let rendered = metrics.render();
+            assert!(
+                !rendered.contains("perf_sentinel_slow_duration_seconds_count{"),
+                "({per_service}, {per_grouping}): no histogram series before the first slow span: {rendered}"
+            );
+        }
 
-        // The knob-off shape keeps its single pre-warmed series.
+        // Both knobs off is the 0.17 shape: its single unlabeled series
+        // is pre-warmed so "absent" keeps meaning "worker not running".
         let metrics_off = MetricsState::new();
-        let _off = AnalysisServiceMeter::new(false, &metrics_off);
+        let _off = AnalysisServiceMeter::new(false, false, &metrics_off);
         assert!(
             metrics_off
                 .render()
-                .contains("perf_sentinel_slow_duration_seconds_count{service=\"\",type=\"sql\"} 0"),
-            "knob off pre-warms the unlabeled series as 0.17 did"
+                .contains("perf_sentinel_slow_duration_seconds_count{grouping=\"\",service=\"\",type=\"sql\"} 0"),
+            "both knobs off pre-warms the unlabeled series as 0.17 did"
         );
     }
 
     #[test]
     fn analysis_overflow_counts_services_not_endpoint_fanout() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
         meter.names.cap = 0;
 
         // One over-cap service with a wide endpoint fan-out must charge
@@ -3613,17 +3752,17 @@ mod tests {
     #[test]
     fn histogram_meter_folds_past_cap_into_other() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true, &metrics);
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
         meter.hist_names.cap = 1;
 
-        meter.observe_slow("svc-a", &EventType::Sql, 1.0, &metrics);
-        meter.observe_slow("svc-b", &EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-a", "", &EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-b", "", &EventType::Sql, 1.0, &metrics);
 
         assert_eq!(metrics.slow_duration_service_overflow_total.get(), 1);
         let sample_count = |service: &str| {
             metrics
                 .slow_duration_seconds
-                .with_label_values(&["sql", service])
+                .with_label_values(&["sql", service, ""])
                 .get_sample_count()
         };
         assert_eq!(sample_count("svc-a"), 1);
@@ -3633,14 +3772,14 @@ mod tests {
     #[test]
     fn per_service_labels_off_uses_empty_label() {
         let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(false, &metrics);
+        let mut meter = AnalysisServiceMeter::new(false, true, &metrics);
 
         // Findings and histogram series carry the empty value...
-        assert_eq!(meter.finding_label("svc-a", &metrics), "");
-        meter.observe_slow("svc-a", &EventType::Sql, 1.0, &metrics);
+        assert_eq!(meter.finding_labels("svc-a", "", &metrics), ("", ""));
+        meter.observe_slow("svc-a", "", &EventType::Sql, 1.0, &metrics);
         let unlabeled = metrics
             .slow_duration_seconds
-            .with_label_values(&["sql", ""])
+            .with_label_values(&["sql", "", ""])
             .get_sample_count();
         assert_eq!(unlabeled, 1);
         // ...while the avoidable counter's labels ignore the knob.
@@ -3680,7 +3819,7 @@ mod tests {
             .map(|s| {
                 metrics
                     .service_avoidable_io_ops_total
-                    .with_label_values(&[s])
+                    .with_label_values(&[s, ""])
                     .get()
             })
             .sum();
@@ -3715,7 +3854,7 @@ mod tests {
         let per = |service: &str| {
             metrics
                 .service_avoidable_io_ops_total
-                .with_label_values(&[service])
+                .with_label_values(&[service, ""])
                 .get()
         };
         assert!((per("svc-a") - 2.0).abs() < f64::EPSILON);
@@ -3852,6 +3991,7 @@ mod tests {
             confidence: Confidence::DaemonStaging,
             analysis_queue_capacity: 1024,
             per_service_labels: true,
+            per_grouping_labels: true,
             waste_sticky_ttl_ms: 0,
         }
     }
@@ -4009,5 +4149,390 @@ mod tests {
         assert_eq!(finding.source_endpoint, "/api/shutdown");
         assert!(metrics.events_processed_total.get().abs() < f64::EPSILON);
         assert!((metrics.traces_analyzed_total.get() - 1.0).abs() < f64::EPSILON);
+    }
+
+    // --- grouping label (0.19.0) ---
+
+    /// An ingest event carrying a grouping, the way the OTLP path leaves
+    /// it before `ingest_event_batch` meters it.
+    fn grouped(
+        mut event: normalize::NormalizedEvent,
+        grouping: &str,
+    ) -> normalize::NormalizedEvent {
+        event.event.grouping = crate::test_helpers::k8s_grouping(grouping);
+        event
+    }
+
+    fn n_plus_one_trace(
+        trace_id: &str,
+        service: &str,
+        grouping: &str,
+        n: usize,
+    ) -> (String, Vec<normalize::NormalizedEvent>) {
+        let events = (1..=n)
+            .map(|i| {
+                grouped(
+                    make_normalized_for_service(
+                        trace_id,
+                        service,
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    ),
+                    grouping,
+                )
+            })
+            .collect();
+        (trace_id.to_string(), events)
+    }
+
+    #[test]
+    fn service_meter_folds_grouping_past_cap_into_other() {
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter::new(2, true);
+        meter.groupings.cap = 1;
+
+        for grouping in ["prod", "prod", "staging", "staging"] {
+            meter.record("svc-a", grouping, &metrics);
+        }
+
+        // Only the grouping axis folded; the service axis never overflowed.
+        assert_eq!(metrics.service_io_ops_grouping_overflow_total.get(), 2);
+        assert_eq!(metrics.service_io_ops_overflow_total.get(), 0);
+        let per = |grouping: &str| {
+            metrics
+                .service_io_ops_total
+                .with_label_values(&["svc-a", grouping])
+                .get()
+        };
+        assert!((per("prod") - 2.0).abs() < f64::EPSILON);
+        assert!((per(SERVICE_OVERFLOW_LABEL) - 2.0).abs() < f64::EPSILON);
+        assert!(meter.groupings.warned);
+    }
+
+    #[test]
+    fn ingest_service_meter_reserves_the_grouping_fold_name() {
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter::new(2, true);
+        meter.record("svc-a", "prod", &metrics);
+        meter.record("svc-a", SERVICE_OVERFLOW_LABEL, &metrics);
+
+        assert_eq!(meter.groupings.admitted.len(), 1);
+        let other = metrics
+            .service_io_ops_total
+            .with_label_values(&["svc-a", SERVICE_OVERFLOW_LABEL])
+            .get();
+        assert!((other - 1.0).abs() < f64::EPSILON);
+        assert_eq!(metrics.service_io_ops_grouping_overflow_total.get(), 0);
+    }
+
+    #[test]
+    fn service_meter_sums_across_groupings_to_the_service_total() {
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter::new(2, true);
+        for grouping in ["prod", "prod", "staging", "staging", "staging", ""] {
+            meter.record("svc-a", grouping, &metrics);
+        }
+
+        // What the energy scrapers read: one total per service, the
+        // grouping axis folded away, equal to the pre-0.19 value.
+        assert_eq!(metrics.snapshot_service_io_ops()["svc-a"], 6);
+        let per = |grouping: &str| {
+            metrics
+                .service_io_ops_total
+                .with_label_values(&["svc-a", grouping])
+                .get()
+        };
+        assert!((per("prod") - 2.0).abs() < f64::EPSILON);
+        assert!((per("staging") - 3.0).abs() < f64::EPSILON);
+        assert!((per("") - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn per_grouping_labels_off_uses_empty_label_on_ingest() {
+        let metrics = MetricsState::new();
+        // Unlike `per_service_labels`, this knob reaches the I/O counters.
+        let mut meter = ServiceMeter::new(2, false);
+        meter.record("svc-a", "prod", &metrics);
+
+        let unlabeled = metrics
+            .service_io_ops_total
+            .with_label_values(&["svc-a", ""])
+            .get();
+        assert!((unlabeled - 1.0).abs() < f64::EPSILON);
+        assert!(!metrics.render().contains("grouping=\"prod\""));
+        assert_eq!(metrics.service_io_ops_grouping_overflow_total.get(), 0);
+    }
+
+    #[test]
+    fn analysis_grouping_meter_folds_past_cap_into_other() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+        meter.groupings.cap = 2;
+
+        assert_eq!(meter.grouping_label("prod", &metrics), "prod");
+        assert_eq!(meter.grouping_label("staging", &metrics), "staging");
+        assert_eq!(
+            meter.grouping_label("dev", &metrics),
+            SERVICE_OVERFLOW_LABEL
+        );
+        // Already-admitted groupings keep their own label past the cap.
+        assert_eq!(meter.grouping_label("prod", &metrics), "prod");
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 1);
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 0);
+        assert!(meter.groupings.warned);
+    }
+
+    #[test]
+    fn analysis_grouping_meter_reserves_sentinel_names() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+
+        assert_eq!(
+            meter.grouping_label(SERVICE_OVERFLOW_LABEL, &metrics),
+            SERVICE_OVERFLOW_LABEL
+        );
+        assert!(meter.groupings.admitted.is_empty());
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 0);
+    }
+
+    #[test]
+    fn absent_grouping_never_takes_a_cap_slot() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+        meter.groupings.cap = 0;
+        meter.hist_groupings.cap = 0;
+
+        // A span with no configured attribute renders `grouping=""`,
+        // which PromQL reads as no label: it must neither consume a
+        // slot nor fold into `_other`.
+        assert_eq!(meter.grouping_label("", &metrics), "");
+        assert_eq!(meter.finding_labels("svc-a", "", &metrics), ("svc-a", ""));
+        meter.observe_slow("svc-a", "", &EventType::Sql, 1.0, &metrics);
+        assert_eq!(
+            metrics
+                .slow_duration_seconds
+                .with_label_values(&["sql", "svc-a", ""])
+                .get_sample_count(),
+            1
+        );
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 0);
+        assert_eq!(metrics.slow_duration_grouping_overflow_total.get(), 0);
+    }
+
+    #[test]
+    fn analysis_grouping_cap_is_independent_of_the_service_cap() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+        meter.names.cap = 1;
+        meter.groupings.cap = 1;
+
+        assert_eq!(
+            meter.finding_labels("svc-a", "prod", &metrics),
+            ("svc-a", "prod")
+        );
+        // Each axis folds on its own: a new service keeps its grouping,
+        // a new grouping keeps its service.
+        assert_eq!(
+            meter.finding_labels("svc-b", "prod", &metrics),
+            (SERVICE_OVERFLOW_LABEL, "prod")
+        );
+        assert_eq!(
+            meter.finding_labels("svc-a", "staging", &metrics),
+            ("svc-a", SERVICE_OVERFLOW_LABEL)
+        );
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 1);
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 1);
+    }
+
+    #[test]
+    fn analysis_grouping_overflow_counts_attributions_not_endpoint_fanout() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+        meter.groupings.cap = 0;
+
+        for _ in 0..3 {
+            assert_eq!(
+                meter.grouping_label("prod", &metrics),
+                SERVICE_OVERFLOW_LABEL
+            );
+        }
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 3);
+    }
+
+    #[test]
+    fn histogram_meter_folds_grouping_past_cap_into_other() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+        meter.hist_groupings.cap = 1;
+
+        meter.observe_slow("svc-a", "prod", &EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-a", "staging", &EventType::Sql, 1.0, &metrics);
+
+        assert_eq!(metrics.slow_duration_grouping_overflow_total.get(), 1);
+        assert_eq!(metrics.slow_duration_service_overflow_total.get(), 0);
+        let sample_count = |grouping: &str| {
+            metrics
+                .slow_duration_seconds
+                .with_label_values(&["sql", "svc-a", grouping])
+                .get_sample_count()
+        };
+        assert_eq!(sample_count("prod"), 1);
+        assert_eq!(sample_count(SERVICE_OVERFLOW_LABEL), 1);
+    }
+
+    #[test]
+    fn per_grouping_labels_off_uses_empty_label() {
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, false, &metrics);
+
+        assert_eq!(meter.grouping_label("prod", &metrics), "");
+        assert_eq!(
+            meter.finding_labels("svc-a", "prod", &metrics),
+            ("svc-a", "")
+        );
+        meter.observe_slow("svc-a", "prod", &EventType::Sql, 1.0, &metrics);
+        assert_eq!(
+            metrics
+                .slow_duration_seconds
+                .with_label_values(&["sql", "svc-a", ""])
+                .get_sample_count(),
+            1
+        );
+        // The service half still folds on its own cap.
+        assert_eq!(meter.service_label("svc-a", &metrics), "svc-a");
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn service_analyzed_io_ops_sums_across_groupings_to_the_service_total() {
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![
+                n_plus_one_trace("t1", "svc-a", "prod", 6),
+                n_plus_one_trace("t2", "svc-a", "staging", 2),
+                n_plus_one_trace("t3", "svc-b", "prod", 2),
+            ],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let per = |service: &str, grouping: &str| {
+            metrics
+                .service_analyzed_io_ops_total
+                .with_label_values(&[service, grouping])
+                .get()
+        };
+        assert!((per("svc-a", "prod") - 6.0).abs() < f64::EPSILON);
+        assert!((per("svc-a", "staging") - 2.0).abs() < f64::EPSILON);
+        assert!((per("svc-b", "prod") - 2.0).abs() < f64::EPSILON);
+        // Summed over its groupings a service reads its 0.18 value, and
+        // summed over everything the counter still equals the global one.
+        assert!((per("svc-a", "prod") + per("svc-a", "staging") - 8.0).abs() < f64::EPSILON);
+        let all = per("svc-a", "prod") + per("svc-a", "staging") + per("svc-b", "prod");
+        assert!((metrics.total_io_ops.get() - all).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn service_avoidable_io_ops_sums_across_groupings_to_global_counter() {
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![
+                n_plus_one_trace("t1", "svc-a", "prod", 6),
+                n_plus_one_trace("t2", "svc-a", "staging", 6),
+            ],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let per = |grouping: &str| {
+            metrics
+                .service_avoidable_io_ops_total
+                .with_label_values(&["svc-a", grouping])
+                .get()
+        };
+        assert!(per("prod") > 0.0);
+        assert!((per("prod") - per("staging")).abs() < f64::EPSILON);
+        assert!(
+            (metrics.avoidable_io_ops.get() - per("prod") - per("staging")).abs() < f64::EPSILON
+        );
+    }
+
+    #[tokio::test]
+    async fn service_avoidable_io_ops_split_charges_every_service_under_the_findings_grouping() {
+        // t1: one finding owned by svc-a, half its spans from svc-b, all
+        // in prod. t2: svc-b alone in staging. svc-b's share of the t1
+        // finding must land under prod, the finding's grouping, not
+        // under staging or under "".
+        let t1: Vec<_> = (1..=6)
+            .map(|i| {
+                grouped(
+                    make_normalized_for_service(
+                        "t1",
+                        if i <= 3 { "svc-a" } else { "svc-b" },
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    ),
+                    "prod",
+                )
+            })
+            .collect();
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![
+                ("t1".to_string(), t1),
+                n_plus_one_trace("t2", "svc-b", "staging", 6),
+            ],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        // Read the render first: `with_label_values` would mint the
+        // very series this asserts is absent.
+        assert!(
+            !metrics
+                .render()
+                .contains("service_avoidable_io_ops_total{grouping=\"\",service=\"svc-b\"")
+        );
+        let per = |service: &str, grouping: &str| {
+            metrics
+                .service_avoidable_io_ops_total
+                .with_label_values(&[service, grouping])
+                .get()
+        };
+        assert!((per("svc-a", "prod") - 2.0).abs() < f64::EPSILON);
+        assert!((per("svc-b", "prod") - 3.0).abs() < f64::EPSILON);
+        assert!((per("svc-b", "staging") - 5.0).abs() < f64::EPSILON);
+        assert!((metrics.avoidable_io_ops.get() - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn findings_total_carries_the_findings_grouping() {
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![n_plus_one_trace("t1", "svc-a", "prod", 6)],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let rendered = metrics.render();
+        assert!(
+            rendered.contains("perf_sentinel_findings_total{grouping=\"prod\",service=\"svc-a\""),
+            "findings_total must carry the finding's grouping: {rendered}"
+        );
+        assert!(!rendered.contains("perf_sentinel_findings_total{grouping=\"\""));
     }
 }
