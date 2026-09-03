@@ -942,8 +942,8 @@ service filter could slice them. Cardinality stays under control
 through per-run caps (128 services on findings, 64 on the histogram,
 overflow folded into `service="_other"`), and
 `[daemon] per_service_labels = false` restores the unlabeled shape, and `per_grouping_labels = false` the 0.18.0
-one; the grouping caps are independent of the service caps and fold into
-`grouping="_other"` the same way.
+one; the grouping caps count admitted (service, grouping) pairs after the
+service caps and fold only the grouping half into `grouping="_other"`.
 
 **Every panel follows the time picker**, with one rule and one stated
 exception. Rate panels use `$__rate_interval` and windowed panels use

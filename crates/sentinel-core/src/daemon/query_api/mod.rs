@@ -1180,17 +1180,19 @@ fn grouping_fold_warning(metrics: &MetricsState) -> Option<crate::report::Warnin
     if folded == 0 {
         return None;
     }
-    let ingest_cap = super::event_loop::MAX_GROUPING_CARDINALITY;
-    let analysis_cap = super::event_loop::MAX_ANALYSIS_GROUPING_CARDINALITY;
-    let histogram_cap = super::event_loop::MAX_HISTOGRAM_GROUPING_CARDINALITY;
+    let ingest_cap = super::event_loop::MAX_GROUPING_PAIRS;
+    let analysis_cap = super::event_loop::MAX_ANALYSIS_GROUPING_PAIRS;
+    let histogram_cap = super::event_loop::MAX_HISTOGRAM_GROUPING_PAIRS;
     Some(crate::report::Warning::new(
         TUNING,
         format!(
             "{folded} attributions landed in `grouping=\"_other\"` past the \
-             per-run grouping caps ({ingest_cap} on the ingest I/O counter, \
-             {analysis_cap} on findings and the analysis-side I/O counters, \
-             {histogram_cap} on the slow-span histogram): per-service totals \
-             stay exact, the per-grouping split does not, trim \
+             per-run (service, grouping) pair caps ({ingest_cap} on the \
+             ingest I/O counter, {analysis_cap} on findings and the \
+             analysis-side I/O counters, {histogram_cap} on the slow-span \
+             histogram): a pair past its cap keeps its service and folds \
+             its grouping, so per-service totals stay exact and the \
+             per-grouping split does not, trim \
              `[detection] grouping_attributes` or set \
              `per_grouping_labels = false`"
         ),
