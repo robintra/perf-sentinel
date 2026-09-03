@@ -436,6 +436,12 @@ chacun avec un cycle de vie différent. La distinction compte pour la
 stratégie de monitoring : un warning transitoire se résout seul, un
 collant persiste jusqu'au redémarrage du daemon.
 
+`warning_details` est le champ que lit un consommateur. Un tableau
+`warnings` de chaînes simples subsiste à côté, écrit par le seul chemin
+de démarrage à froid, donc lire `warnings` sur le `/api/export/report`
+d'un daemon en marche renvoie une liste vide et se lit comme "aucun
+warning", alors que les entrées structurées sont juste à côté.
+
 | Kind                       | Cycle de vie | Émis quand                                                                                                                                                                                                     | Effacé par                                                                                                                                |
 |----------------------------|--------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | `cold_start`               | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon                                                                                                                                    | Premier batch réussi (les deux compteurs strictement positifs)                                                                            |
