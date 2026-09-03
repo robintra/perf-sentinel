@@ -1035,8 +1035,9 @@ with Grafana):
 - [`examples/grafana-infinity-datasource.yaml`](../examples/grafana-infinity-datasource.yaml),
   the provisioned datasource. Set the namespace in the URL.
 - [`examples/grafana-findings-dashboard.json`](../examples/grafana-findings-dashboard.json),
-  title `perf-sentinel findings`, uid `perf-sentinel-findings`: a
-  filterable table of findings plus the runtime acknowledgments.
+  title `perf-sentinel findings`, uid `perf-sentinel-findings`: the
+  daemon's status line, a filterable table of findings, the runtime
+  acknowledgments and the energy backends' health.
 
 **No port-forward and no Ingress.** Grafana's backend performs the
 request, so an in-cluster Grafana reaches the Service over the cluster
@@ -1058,7 +1059,14 @@ use, and its `Traces` column is that fold's count. It counts detections
 still held in the daemon's ring buffer, so it falls as older ones age out
 and resets when the daemon restarts. Filtering is done with the column
 headers rather than a dashboard variable, so no request can ask the API
-for a severity it does not know.
+for a severity it does not know. The one variable that does change the
+request is `Include acked`: the API leaves acknowledged findings out by
+default, so an acked critical is absent with nothing saying so, and
+`true` asks for them back with an `Acked via` column naming the source
+(`toml` for the CI baseline, `daemon` for the runtime store). The
+dashboard declares the Infinity plugin in `__inputs` and `__requires`,
+so the import dialog asks which Infinity datasource to bind rather than
+importing panels with nothing to query.
 
 ### Alerting rules (PrometheusRule)
 

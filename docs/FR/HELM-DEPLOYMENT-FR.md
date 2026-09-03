@@ -15,7 +15,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 - [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : tâche mainteneur, renvoie vers RELEASE-PROCEDURE.
 - [Modes de workload](#modes-de-workload) : trois valeurs de `workload.kind` au choix.
 - [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus [fragments](#fragments-de-configuration), secrets, TLS et NetworkPolicy.
-- [Observabilité](#observabilité) : Prometheus ServiceMonitor, tableau de bord Grafana, alertes et exemplars.
+- [Observabilité](#observabilité) : Prometheus ServiceMonitor, les tableaux de bord Grafana (métriques et [la table des findings](#grafana-sur-lapi-de-requête-table-des-findings)), alertes et exemplars.
 - [Mise à jour](#mise-à-jour) : flux `helm upgrade`.
 - [Désinstallation](#désinstallation) : flux `helm uninstall`.
 - [Exemple bout en bout](#exemple-bout-en-bout) : exemple complet composant le chart avec le chart upstream OpenTelemetry Collector.
@@ -700,6 +700,61 @@ kubectl -n observability label configmap perf-sentinel-grafana \
 
 La clé d'étiquette (`grafana_dashboard` ici) doit correspondre au
 `dashboards.sidecar.label` configuré pour votre sidecar Grafana.
+
+### Grafana sur l'API de requête (table des findings)
+
+Le tableau de bord ci-dessus lit Prometheus, qui répond à "combien de
+findings, de quel type, depuis quel service" : depuis la 0.18.0
+`perf_sentinel_findings_total` porte `type`, `severity` et un label
+`service` borné par un plafond de 128 services (le débordement se replie
+dans `service="_other"`) et, depuis la 0.19.0, un label `grouping` borné
+par ses propres plafonds. Un label par endpoint reste hors de
+`/metrics`, volontairement, parce que la cardinalité des endpoints n'est
+pas bornée. Quelle opération sur quel endpoint vit derrière l'API de
+requête.
+
+Un second tableau de bord la lit directement par le
+[plugin Infinity](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
+(`yesoreyeram-infinity-datasource`, à installer d'abord, il n'est pas
+livré avec Grafana) :
+
+- [`examples/grafana-infinity-datasource.yaml`](../../examples/grafana-infinity-datasource.yaml),
+  la datasource provisionnée. Renseignez le namespace dans l'URL.
+- [`examples/grafana-findings-dashboard.json`](../../examples/grafana-findings-dashboard.json),
+  titre `perf-sentinel findings`, uid `perf-sentinel-findings` : la
+  ligne d'état du daemon, une table filtrable des findings, les
+  acquittements à chaud et la santé des backends énergie.
+
+**Ni port-forward, ni Ingress.** C'est le backend de Grafana qui fait la
+requête, donc un Grafana dans le cluster atteint le Service par le
+réseau du cluster. C'est la réponse à "il me faut un `kubectl
+port-forward` chaque fois que je veux voir les findings", et rien n'est
+exposé hors du cluster.
+
+Deux points à régler avant de le mettre en service. D'abord, le daemon
+n'embarque pas d'IAM : qui ouvre le dossier de ce tableau de bord lit
+vos templates SQL et vos noms d'endpoints, réservez donc le dossier aux
+personnes autorisées à les voir. Ensuite, si `networkPolicy.enabled=true`,
+ajoutez Grafana comme pair sous `networkPolicy.ingress.fromNamespaceSelectors`
+ou `.fromPodSelectors`, sinon la datasource expire sans erreur utile,
+parce qu'une NetworkPolicy refuse en silence.
+
+La table affiche une ligne par problème distinct plutôt qu'une par
+détection, puisque `/api/findings` replie par la signature qu'utilisent
+les acquittements, et sa colonne `Traces` est le compte de ce repli. Il
+compte les détections encore retenues dans le tampon circulaire du
+daemon, il baisse donc quand les plus anciennes expirent et repart de
+zéro au redémarrage du daemon. Le filtrage se fait par les en-têtes de
+colonne plutôt que par une variable de tableau de bord, ainsi aucune
+requête ne peut demander à l'API une sévérité qu'elle ne connaît pas. La
+seule variable qui change la requête est `Include acked` : l'API laisse
+par défaut les findings acquittés de côté, un critique acquitté est donc
+absent sans que rien ne le dise, et `true` les redemande avec une
+colonne `Acked via` qui nomme la source (`toml` pour la baseline CI,
+`daemon` pour le stockage à chaud). Le tableau de bord déclare le plugin
+Infinity dans `__inputs` et `__requires`, la boîte d'import demande donc
+quelle datasource Infinity lier au lieu d'importer des panneaux qui
+n'ont rien à interroger.
 
 ### Règles d'alerte (PrometheusRule)
 

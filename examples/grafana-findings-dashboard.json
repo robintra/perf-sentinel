@@ -1,4 +1,40 @@
 {
+  "__inputs": [
+    {
+      "name": "DS_INFINITY",
+      "label": "perf-sentinel API",
+      "description": "The Infinity datasource pointing at the perf-sentinel daemon's query API, provisioned by examples/grafana-infinity-datasource.yaml.",
+      "type": "datasource",
+      "pluginId": "yesoreyeram-infinity-datasource",
+      "pluginName": "Infinity"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "yesoreyeram-infinity-datasource",
+      "name": "Infinity",
+      "version": "2.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "table",
+      "version": ""
+    }
+  ],
   "title": "perf-sentinel findings",
   "uid": "perf-sentinel-findings",
   "tags": [
@@ -65,20 +101,46 @@
         "includeAll": false,
         "multi": false,
         "description": "Server-side cap, applied after the API folds findings by signature. The daemon refuses anything above 1000."
+      },
+      {
+        "name": "include_acked",
+        "label": "Include acked",
+        "type": "custom",
+        "query": "false,true",
+        "current": {
+          "text": "false",
+          "value": "false"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "false",
+            "value": "false"
+          },
+          {
+            "selected": false,
+            "text": "true",
+            "value": "true"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "Since 0.5.20 the API leaves acknowledged findings out by default, so a critical problem someone acked is absent from the table with nothing saying so. true asks for them back, and the 'Acked via' column names the source (toml for the CI baseline, daemon for the runtime store), the same union the acknowledgments table below lists."
       }
     ]
   },
   "panels": [
     {
-      "type": "table",
-      "title": "Findings",
-      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. Click that header to rank by it. The default order stays Traces desc, which ranks every row: findings that waste no I/O (the slow_* family) have no Ops/trace, so their impact cell is blank and sorting on it would place them arbitrarily.",
+      "type": "stat",
+      "title": "Daemon status",
+      "description": "GET /api/status, the daemon's own liveness object: binary version, seconds since the process started, and the three runtime gauges each followed by its configured cap (correlation window, analysis queue, findings ring buffer). The Prometheus dashboard plots the same three pairs as headroom over time, this is the current value from the daemon itself, with the version Prometheus does not carry. Uptime resetting is a restart, which also empties the acknowledgments table below unless [daemon.ack] persists to disk.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
       },
       "gridPos": {
-        "h": 16,
+        "h": 4,
         "w": 24,
         "x": 0,
         "y": 0
@@ -94,7 +156,117 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/findings?limit=${limit}",
+          "url": "/api/status",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "version",
+              "text": "Version",
+              "type": "string"
+            },
+            {
+              "selector": "uptime_seconds",
+              "text": "Uptime",
+              "type": "number"
+            },
+            {
+              "selector": "active_traces",
+              "text": "Active traces",
+              "type": "number"
+            },
+            {
+              "selector": "max_active_traces",
+              "text": "Active traces cap",
+              "type": "number"
+            },
+            {
+              "selector": "analysis_queue_depth",
+              "text": "Analysis queue",
+              "type": "number"
+            },
+            {
+              "selector": "analysis_queue_capacity",
+              "text": "Analysis queue cap",
+              "type": "number"
+            },
+            {
+              "selector": "stored_findings",
+              "text": "Stored findings",
+              "type": "number"
+            },
+            {
+              "selector": "max_retained_findings",
+              "text": "Stored findings cap",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uptime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Findings",
+      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. Click that header to rank by it. The default order stays Traces desc, which ranks every row: findings that waste no I/O (the slow_* family) have no Ops/trace, so their impact cell is blank and sorting on it would place them arbitrarily.\n\nColumns keep this order through an organize transformation, since the Infinity backend parser returns them alphabetically. 'Acked via' is empty unless the Include acked variable is true, and then names where the ack came from: toml for the CI baseline file, daemon for the runtime store.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/findings?limit=${limit}&include_acked=${include_acked}",
           "url_options": {
             "method": "GET"
           },
@@ -143,6 +315,11 @@
             {
               "selector": "finding.suggestion",
               "text": "Suggestion",
+              "type": "string"
+            },
+            {
+              "selector": "acknowledged_by.source",
+              "text": "Acked via",
               "type": "string"
             },
             {
@@ -277,6 +454,18 @@
                 "value": 100
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Acked via"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
           }
         ]
       },
@@ -301,6 +490,28 @@
             },
             "alias": "Est. impact (ops)"
           }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Severity": 0,
+              "Type": 1,
+              "Service": 2,
+              "Endpoint": 3,
+              "Traces": 4,
+              "Occurrences": 5,
+              "Ops/trace": 6,
+              "Est. impact (ops)": 7,
+              "Operation": 8,
+              "Suggestion": 9,
+              "Acked via": 10,
+              "Trace": 11,
+              "Last seen": 12
+            },
+            "renameByName": {}
+          }
         }
       ]
     },
@@ -316,7 +527,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 20
       },
       "targets": [
         {
@@ -388,6 +599,95 @@
       "options": {
         "showHeader": true
       }
+    },
+    {
+      "type": "table",
+      "title": "Energy backends",
+      "description": "GET /api/energy, one row per energy or intensity backend in precedence order: whether it is configured from the [green] section frozen at startup, seconds since its last successful scrape, and its success and failure counts since daemon start. The age and the counts are omitted rather than zeroed for a backend that is not configured or not scraped (cloud_energy, electricity_maps), so an empty cell means not applicable and a 0 means fresh. A configured backend reads age 0 with 0 successes during its first scrape interval: not scraped yet, not fresh. With every row unconfigured, carbon figures come from the built-in I/O proxy.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/energy",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "backends",
+          "columns": [
+            {
+              "selector": "backend",
+              "text": "Backend",
+              "type": "string"
+            },
+            {
+              "selector": "configured",
+              "text": "Configured",
+              "type": "boolean"
+            },
+            {
+              "selector": "last_scrape_age_seconds",
+              "text": "Last scrape age (s)",
+              "type": "number"
+            },
+            {
+              "selector": "scrapes_ok",
+              "text": "Scrapes OK",
+              "type": "number"
+            },
+            {
+              "selector": "scrapes_failed",
+              "text": "Scrapes failed",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
     }
-  ]
+  ],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "perf-sentinel"
+      ],
+      "targetBlank": false,
+      "title": "perf-sentinel dashboards",
+      "tooltip": "The companion dashboard sharing the perf-sentinel tag: perf-sentinel overview reads Prometheus and answers how many findings, of what kind, and how the daemon is doing.",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "version": 2
 }
