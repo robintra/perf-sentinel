@@ -416,6 +416,12 @@ each with a different lifecycle. The distinction matters for
 monitoring strategies: a transient warning self-resolves, a sticky one
 persists until the daemon restarts.
 
+`warning_details` is the field a consumer reads. A legacy `warnings`
+array of plain strings ships next to it, written only by the cold-start
+path, so reading `warnings` off a working daemon's
+`/api/export/report` returns an empty list and reads as "no warning
+fired" while the structured entries sit right beside it.
+
 | Kind                       | Lifecycle | Emitted when                                                                                                                                                                   | Cleared by                                                                                                                 |
 |----------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
 | `cold_start`               | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon                                                                                                    | First successful batch (both counters strictly positive)                                                                   |
