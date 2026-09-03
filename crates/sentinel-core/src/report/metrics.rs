@@ -362,8 +362,7 @@ fn register_int_counter_vec(
 type FindingExemplarKey = (&'static str, &'static str, String, String);
 
 /// How long an exemplar keeps annotating its series. The map is bounded
-/// by the product of the service and grouping caps, so this is not about
-/// memory: a service that stops
+/// by the analysis pair cap, so this is not about memory: a service that stops
 /// emitting would otherwise point its `findings_total` series at a
 /// `trace_id` past the tracing backend's retention forever, and the
 /// Grafana click-through lands on a 404.

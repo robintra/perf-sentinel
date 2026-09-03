@@ -208,7 +208,7 @@
     },
     {
       "title": "I/O waste ratio",
-      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Both counters are analysis-side, from the same scoring pass and under the same 128-service cap (overflow folds into service=\"_other\", both silent when green scoring is off) and the same 16-grouping cap (grouping=\"_other\"), so the ratio never mixes populations. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
+      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Both counters are analysis-side, from the same scoring pass and under the same 128-service cap (overflow folds into service=\"_other\", both silent when green scoring is off) and the same 512-pair cap on (service, grouping) pairs (grouping=\"_other\"), so the ratio never mixes populations. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
       "type": "gauge",
       "gridPos": {
         "h": 8,
@@ -260,7 +260,7 @@
     },
     {
       "title": "Critical findings",
-      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken: unless the selected service was folded past the 128-service analysis cap, in which case its findings count under service=\"_other\", and likewise a grouping past the 16-grouping cap counts under grouping=\"_other\".",
+      "description": "Findings the analyzer rated critical, over the selected time range. Severity comes from how far the pattern exceeds its detection threshold, not from user impact, so a critical finding is a strong optimisation candidate rather than an outage. Shows 0 rather than 'no data' when none were emitted, so a flat zero line means healthy and not broken: unless the selected service was folded past the 128-service analysis cap, in which case its findings count under service=\"_other\", and likewise a (service, grouping) pair past the 512-pair cap counts under grouping=\"_other\".",
       "type": "stat",
       "gridPos": {
         "h": 8,
@@ -371,7 +371,7 @@
     },
     {
       "title": "Ingested I/O ops (cumulative)",
-      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue: an analysis stall does not flatten it, watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded; groupings past the 32-grouping cap fold into grouping=\"_other\". If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
+      "description": "Cumulative count of ingested I/O operations since the daemon started, per service (counted at ingest admission, before the analysis queue: an analysis stall does not flatten it, watch perf_sentinel_analysis_queue_depth and the shed counters for that). Ops past the 1024-service ingest cap are dropped, not folded; (service, grouping) pairs past the 4096-pair cap fold their grouping into grouping=\"_other\". If it stops climbing while traffic continues, ingestion has stalled. It resets on restart.",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -1090,7 +1090,7 @@
         },
         "options": [],
         "hide": 0,
-        "description": "Grouping of the analysed traffic: the first attribute present from [detection] grouping_attributes (k8s.namespace.name, then service.namespace, by default), so on Kubernetes the namespace the workloads run in. Filters the Analysis row and narrows the Service list. The value alone is the label: two attributes with the same value share one entry. grouping=\"_other\" is the fold bucket for values past the per-run grouping caps (16 on findings and the analysis-side I/O counters, 8 on the slow-span histogram, 32 on the ingest counter). A span that carried none of the configured attributes has an empty value, which Prometheus stores as no label at all: those series are only visible with All selected."
+        "description": "Grouping of the analysed traffic: the first attribute present from [detection] grouping_attributes (k8s.namespace.name, then service.namespace, by default), so on Kubernetes the namespace the workloads run in. Filters the Analysis row and narrows the Service list. The value alone is the label: two attributes with the same value share one entry. grouping=\"_other\" is the fold bucket for (service, grouping) pairs past the per-run pair caps (512 on findings and the analysis-side I/O counters, 256 on the slow-span histogram, 4096 on the ingest counter); a folded pair keeps its service. A span that carried none of the configured attributes has an empty value, which Prometheus stores as no label at all: those series are only visible with All selected."
       },
       {
         "name": "service",
