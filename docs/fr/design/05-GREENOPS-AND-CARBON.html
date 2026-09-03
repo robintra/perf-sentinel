@@ -175,11 +175,12 @@
 <span style="color:var(--term-comment)">// Une seule passe sur l'ensemble dédoublonné alimente à la fois le total global</span>
 <span style="color:var(--term-comment)">// (réparti sql / messaging selon le type retenu) et la map par service derrière</span>
 <span style="color:var(--term-comment)">// `perf_sentinel_service_avoidable_io_ops_total`, les deux ne peuvent donc pas diverger.</span>
-<span style="color:var(--code-cmd);font-weight:600">let</span> <span style="color:var(--code-cmd);font-weight:600">mut</span> per_service: <span style="color:var(--code-sub)">BTreeMap</span>&lt;<span style="color:var(--code-sub)">String</span>, usize&gt; = <span style="color:var(--code-sub)">BTreeMap</span>::new();
+<span style="color:var(--code-cmd);font-weight:600">let</span> <span style="color:var(--code-cmd);font-weight:600">mut</span> per_service: <span style="color:var(--code-sub)">BTreeMap</span>&lt;(&amp;str, &amp;str), usize&gt; = <span style="color:var(--code-sub)">BTreeMap</span>::new();
 <span style="color:var(--code-cmd);font-weight:600">for</span> &amp;(avoidable, f) <span style="color:var(--code-cmd);font-weight:600">in</span> dedup.values() {
     out.total += avoidable;
+    <span style="color:var(--code-cmd);font-weight:600">let</span> grouping = f.grouping_value().unwrap_or(<span style="color:var(--code-num)">""</span>);
     <span style="color:var(--code-cmd);font-weight:600">for</span> (service, ops) <span style="color:var(--code-cmd);font-weight:600">in</span> f.avoidable_by_service() {
-        credit(&amp;<span style="color:var(--code-cmd);font-weight:600">mut</span> per_service, service, ops);
+        *per_service.entry((service, grouping)).or_insert(<span style="color:var(--code-num)">0</span>) += ops;
     }
 }</code></pre></div>
 <p class="ps-p"><strong>Pourquoi créditer via <code class="ps-ic">avoidable_by_service()</code> ?</strong> Aucun détecteur ne met le service dans sa clé de groupe, donc un template partagé par deux services dans une même trace est un seul finding, détenu par le service du premier span. <code class="ps-ic">pattern.occurrences_by_service</code> enregistre combien de spans chaque service a émis quand il y en a plus d'un, et la répartition du gagnant est créditée par service : chacun ses propres répétitions, le détenteur une de moins pour l'appel nécessaire. La somme reste <code class="ps-ic">occurrences - 1</code>, les compteurs par service continuent donc de sommer au compteur global, et un service ne lit plus 0 % ou plus de 100 % sur le waste ratio par service du dashboard pour un template qu'il partage. Le détenteur est le premier span dans l'ordre d'ingestion, pas le plus ancien horodatage, limite connue.</p>
