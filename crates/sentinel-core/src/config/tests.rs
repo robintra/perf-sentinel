@@ -4220,7 +4220,7 @@ fn grouping_attributes_past_the_cap_are_dropped_in_order() {
     let keys: Vec<String> = (0..9).map(|i| format!("\"a{i}\"")).collect();
     let toml = format!("[detection]\ngrouping_attributes = [{}]", keys.join(", "));
     let config = load_from_str(&toml).unwrap();
-    let expected: Vec<String> = (0..crate::config::MAX_GROUPING_ATTRIBUTES)
+    let expected: Vec<String> = (0..MAX_GROUPING_ATTRIBUTES)
         .map(|i| format!("a{i}"))
         .collect();
     assert_eq!(config.detection.grouping_attributes, expected);

@@ -28,7 +28,7 @@ fn make_state_with_correlator(
             pool_saturation_concurrent_threshold: 10,
             serialized_min_sequential: 3,
             sanitizer_aware_classification: SanitizerAwareMode::default(),
-            sanitizer_aware_min_cv: crate::detect::sanitizer_aware::DEFAULT_MIN_CV,
+            sanitizer_aware_min_cv: detect::sanitizer_aware::DEFAULT_MIN_CV,
         },
         start_time: std::time::Instant::now(),
         correlator,
