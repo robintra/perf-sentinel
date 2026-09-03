@@ -4,9 +4,9 @@
 #
 # WHY THIS EXISTS. The Prometheus dashboard (examples/grafana-dashboard.json)
 # answers "how many findings and of what kind": `perf_sentinel_findings_total`
-# carries `type`, `severity` and (since 0.18.0) a capped `service` label, but
-# deliberately no per-endpoint label, which would blow up /metrics
-# cardinality. It can never show you WHICH query on WHICH endpoint. That
+# carries `type`, `severity`, (since 0.18.0) a capped `service` label and
+# (since 0.19.0) a capped `grouping` label, but deliberately no per-endpoint
+# label, which would blow up /metrics cardinality. It can never show you WHICH query on WHICH endpoint. That
 # lives behind the query API, and this datasource is how Grafana reads it.
 #
 # NO PORT-FORWARD, NO INGRESS. Grafana's backend performs the request, so an
