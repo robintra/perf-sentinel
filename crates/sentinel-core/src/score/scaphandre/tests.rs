@@ -813,7 +813,7 @@ async fn spawn_scraper_happy_path_updates_state() {
     // delta, otherwise apply_scrape would be a no-op.
     metrics
         .service_io_ops_total
-        .with_label_values(&["order-svc"])
+        .with_label_values(&["order-svc", ""])
         .inc_by(5_000.0);
 
     let handle = spawn_scraper(cfg, state.clone(), metrics.clone());

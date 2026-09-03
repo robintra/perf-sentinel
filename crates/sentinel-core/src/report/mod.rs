@@ -306,12 +306,23 @@ pub struct GreenSummary {
     /// read by the daemon to rescale avoidable at the canonical threshold.
     #[serde(skip)]
     pub accounted_io_ops: usize,
-    /// Per-service split of `avoidable_io_ops`, from the same dedup pass.
+    /// Split of `avoidable_io_ops` per `(service, grouping)`, from the
+    /// same dedup pass. The grouping is the finding's effective one
+    /// (`""` when its span carried none): a finding whose spans come
+    /// from several services charges every service's share under that
+    /// one grouping, because `Pattern.occurrences_by_service` carries no
+    /// grouping and its shape is pinned by the v1 report schema.
     /// In-process only (`serde(skip)`), read by the daemon for
-    /// `perf_sentinel_service_avoidable_io_ops_total`. Ordered by service
-    /// name so cap admission does not depend on hash order.
+    /// `perf_sentinel_service_avoidable_io_ops_total`. Ordered so cap
+    /// admission does not depend on hash order.
     #[serde(skip)]
-    pub avoidable_per_service: BTreeMap<String, usize>,
+    pub avoidable_per_service: BTreeMap<(String, String), usize>,
+    /// I/O ops of the analysed traces per `(service, grouping)`, from
+    /// the same span pass as `total_io_ops` (sums to it). In-process
+    /// only, read by the daemon for
+    /// `perf_sentinel_service_analyzed_io_ops_total`.
+    #[serde(skip)]
+    pub analyzed_per_service: BTreeMap<(String, String), usize>,
     pub io_waste_ratio: f64,
     /// Classification band for `io_waste_ratio`
     /// (`healthy` / `moderate` / `high` / `critical`).
@@ -560,6 +571,7 @@ impl GreenSummary {
             avoidable_messaging_io_ops: 0,
             accounted_io_ops: total_io_ops,
             avoidable_per_service: BTreeMap::new(),
+            analyzed_per_service: BTreeMap::new(),
             io_waste_ratio: 0.0,
             io_waste_ratio_band: InterpretationLevel::Healthy,
             top_offenders: vec![],

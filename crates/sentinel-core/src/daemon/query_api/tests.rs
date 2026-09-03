@@ -132,6 +132,8 @@ async fn config_exposes_daemon_params_without_secrets() {
     assert!(cfg.get("trace_ttl_ms").is_some());
     assert!(cfg.get("sampling_rate").is_some());
     assert!(cfg.get("correlation_enabled").is_some());
+    assert_eq!(cfg["per_service_labels"], true);
+    assert_eq!(cfg["per_grouping_labels"], true);
     // Secrets are summarized to booleans, never echoed: no raw key
     // or path fields exist on the response at all.
     assert_eq!(cfg["tls_configured"], false);
@@ -1840,5 +1842,22 @@ async fn export_findings_are_capped_by_max_export_findings() {
         scope[0].contains('3') && scope[0].contains("10"),
         "{}",
         scope[0]
+    );
+}
+
+#[test]
+fn tuning_advisor_flags_grouping_folding() {
+    let metrics = MetricsState::new();
+    metrics.service_io_ops_grouping_overflow_total.inc_by(1);
+    metrics.analysis_grouping_overflow_total.inc_by(4);
+    metrics.slow_duration_grouping_overflow_total.inc_by(2);
+    let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
+    assert_eq!(msgs.len(), 1);
+    assert!(
+        msgs[0].contains("7 ")
+            && msgs[0].contains("grouping=\"_other\"")
+            && msgs[0].contains("grouping_attributes"),
+        "got: {}",
+        msgs[0]
     );
 }

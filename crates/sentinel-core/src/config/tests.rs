@@ -851,6 +851,8 @@ fn new_fields_have_correct_defaults() {
     assert_eq!(config.daemon.listen_port_grpc, 4317);
     assert_eq!(config.daemon.json_socket, "/tmp/perf-sentinel.sock");
     assert!((config.daemon.sampling_rate - 1.0).abs() < f64::EPSILON);
+    assert!(config.daemon.per_service_labels);
+    assert!(config.daemon.per_grouping_labels);
 }
 
 #[test]
@@ -4186,4 +4188,40 @@ fn embedded_traces_budget_matches_the_export() {
         validate::EMBEDDED_TRACES_BUDGET_BYTES,
         crate::daemon::query_api::EMBEDDED_TRACES_BYTE_BUDGET
     );
+}
+
+#[test]
+fn parse_daemon_metric_label_knobs() {
+    // Both set to the non-default value, so the ignored-key path cannot
+    // satisfy the assertion (the two knobs default to true).
+    let config = load_from_str(
+        "[daemon]\n\
+         per_service_labels = false\n\
+         per_grouping_labels = false",
+    )
+    .unwrap();
+    assert!(!config.daemon.per_service_labels);
+    assert!(!config.daemon.per_grouping_labels);
+}
+
+#[test]
+fn parse_grouping_attributes_empty_list_disables_grouping() {
+    let config = load_from_str("[detection]\ngrouping_attributes = []").unwrap();
+    assert!(
+        config.detection.grouping_attributes.is_empty(),
+        "an explicit empty list turns grouping off rather than falling back to the defaults"
+    );
+    let blank = load_from_str("[detection]\ngrouping_attributes = [\" \"]").unwrap();
+    assert!(blank.detection.grouping_attributes.is_empty());
+}
+
+#[test]
+fn grouping_attributes_past_the_cap_are_dropped_in_order() {
+    let keys: Vec<String> = (0..9).map(|i| format!("\"a{i}\"")).collect();
+    let toml = format!("[detection]\ngrouping_attributes = [{}]", keys.join(", "));
+    let config = load_from_str(&toml).unwrap();
+    let expected: Vec<String> = (0..crate::config::MAX_GROUPING_ATTRIBUTES)
+        .map(|i| format!("a{i}"))
+        .collect();
+    assert_eq!(config.detection.grouping_attributes, expected);
 }

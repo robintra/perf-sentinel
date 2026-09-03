@@ -3562,8 +3562,39 @@ fn dedup_credits_the_winning_split_per_service() {
     assert_eq!(
         per_service,
         BTreeMap::from([
-            ("inventory-svc".to_string(), 4),
-            ("order-svc".to_string(), 1)
+            (("inventory-svc".to_string(), String::new()), 4),
+            (("order-svc".to_string(), String::new()), 1)
+        ])
+    );
+    assert_eq!(per_service.values().sum::<usize>(), out.total);
+}
+
+/// A shared finding charges every service in its split under the
+/// finding's own grouping, and two groupings of one service stay two
+/// entries.
+#[test]
+fn dedup_charges_a_shared_finding_under_its_own_grouping() {
+    use std::collections::BTreeMap;
+    let mut prod = crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+    prod.grouping = crate::test_helpers::k8s_grouping("prod");
+    prod.pattern.occurrences_by_service = BTreeMap::from([
+        ("order-svc".to_string(), 2),
+        ("inventory-svc".to_string(), 4),
+    ]);
+    let mut staging = prod.clone();
+    staging.trace_id = "trace-staging".to_string();
+    staging.grouping = crate::test_helpers::k8s_grouping("staging");
+    staging.pattern.occurrences_by_service = BTreeMap::new();
+
+    let (out, per_service) = dedup_avoidable_io_ops_by_service(&[prod, staging]);
+
+    assert_eq!(out.total, 10);
+    assert_eq!(
+        per_service,
+        BTreeMap::from([
+            (("inventory-svc".to_string(), "prod".to_string()), 4),
+            (("order-svc".to_string(), "prod".to_string()), 1),
+            (("order-svc".to_string(), "staging".to_string()), 5),
         ])
     );
     assert_eq!(per_service.values().sum::<usize>(), out.total);
