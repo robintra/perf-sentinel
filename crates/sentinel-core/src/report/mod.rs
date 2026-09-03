@@ -311,7 +311,9 @@ pub struct GreenSummary {
     /// (`""` when its span carried none): a finding whose spans come
     /// from several services charges every service's share under that
     /// one grouping, because `Pattern.occurrences_by_service` carries no
-    /// grouping and its shape is pinned by the v1 report schema.
+    /// grouping and its shape is pinned by the v1 report schema. Exact
+    /// rather than approximate: the detectors key their groups on the
+    /// grouping identity, so every span of a finding carries it.
     /// In-process only (`serde(skip)`), read by the daemon for
     /// `perf_sentinel_service_avoidable_io_ops_total`. Ordered so cap
     /// admission does not depend on hash order.

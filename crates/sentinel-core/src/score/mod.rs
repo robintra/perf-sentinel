@@ -92,7 +92,9 @@ fn count_endpoint_stats(traces: &[Trace]) -> EndpointCounts<'_> {
     let mut total_io_ops: usize = 0;
     let mut total_sql_io_ops: usize = 0;
     let mut total_messaging_io_ops: usize = 0;
-    let mut analyzed: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    // `HashMap` on the per-span path, sorted once at materialisation:
+    // the consumer only needs the final `BTreeMap` order.
+    let mut analyzed: HashMap<(&str, &str), usize> = HashMap::with_capacity(traces.len().min(64));
 
     for (trace_idx, trace) in traces.iter().enumerate() {
         for span in &trace.spans {
@@ -303,7 +305,10 @@ pub(crate) struct AvoidableIoOps {
 /// finding's service one less for the necessary call. Every share lands
 /// under the finding's own grouping (`""` when it has none): the split
 /// on `Pattern` knows services, not groupings, and its shape is pinned
-/// by the v1 report schema.
+/// by the v1 report schema. That is exact, not approximate: the N+1 and
+/// redundant detectors key their groups on the grouping identity, so
+/// every span a finding charges already carries it. What the split does
+/// approximate is which service made the one necessary call.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
 ) -> (AvoidableIoOps, BTreeMap<(String, String), usize>) {

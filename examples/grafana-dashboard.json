@@ -1079,10 +1079,18 @@
         "includeAll": true,
         "allValue": ".*",
         "multi": true,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "options": [],
         "hide": 0,
-        "description": "Grouping of the analysed traffic: the first attribute present from [detection] grouping_attributes (k8s.namespace.name, then service.namespace, by default), so on Kubernetes this is the namespace the workloads run in, where Daemon namespace is the one the daemon runs in. Filters the Analysis row and narrows the Service list. grouping=\"_other\" is the fold bucket for values past the per-run grouping caps (16 on findings and the analysis-side I/O counters, 8 on the slow-span histogram, 32 on the ingest counter). A span that carried none of the configured attributes has an empty value, which Prometheus stores as no label at all: those series are only visible with All selected. The label is grouping rather than namespace because the operator attaches a namespace target label of its own, and with honorLabels: true the daemon's would win and break every namespace=~\"$namespace\" filter on this dashboard."
+        "description": "Grouping of the analysed traffic: the first attribute present from [detection] grouping_attributes (k8s.namespace.name, then service.namespace, by default), so on Kubernetes the namespace the workloads run in. Filters the Analysis row and narrows the Service list. The value alone is the label: two attributes with the same value share one entry. grouping=\"_other\" is the fold bucket for values past the per-run grouping caps (16 on findings and the analysis-side I/O counters, 8 on the slow-span histogram, 32 on the ingest counter). A span that carried none of the configured attributes has an empty value, which Prometheus stores as no label at all: those series are only visible with All selected."
       },
       {
         "name": "service",

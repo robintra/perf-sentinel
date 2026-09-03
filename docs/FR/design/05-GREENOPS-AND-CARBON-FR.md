@@ -70,11 +70,12 @@ for f in findings {
 // Une seule passe sur l'ensemble dédoublonné alimente à la fois le total global
 // (réparti sql / messaging selon le type retenu) et la map par service derrière
 // `perf_sentinel_service_avoidable_io_ops_total`, les deux ne peuvent donc pas diverger.
-let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
+let mut per_service: BTreeMap<(&str, &str), usize> = BTreeMap::new();
 for &(avoidable, f) in dedup.values() {
     out.total += avoidable;
+    let grouping = f.grouping_value().unwrap_or("");
     for (service, ops) in f.avoidable_by_service() {
-        credit(&mut per_service, service, ops);
+        *per_service.entry((service, grouping)).or_insert(0) += ops;
     }
 }
 ```

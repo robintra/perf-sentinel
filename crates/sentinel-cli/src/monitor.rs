@@ -2234,6 +2234,7 @@ mod tests {
             sampling_rate: d.sampling_rate,
             environment: d.environment.as_str().to_string(),
             listen_addr: d.listen_addr.clone(),
+            per_service_labels: d.per_service_labels,
             per_grouping_labels: d.per_grouping_labels,
             ..Default::default()
         }
@@ -2251,7 +2252,14 @@ mod tests {
             text.contains("correlation.max_tracked_pairs ="),
             "got: {text}"
         );
-        assert!(text.contains("per_grouping_labels ="), "got: {text}");
+        let gline = text
+            .lines()
+            .find(|l| l.contains("per_grouping_labels ="))
+            .expect("per_grouping_labels row");
+        assert!(
+            gline.contains("= yes") && !gline.contains("modified"),
+            "default knob rendered as its value, unflagged: {gline}"
+        );
         // A param left at its default must not be flagged modified.
         let dline = text
             .lines()

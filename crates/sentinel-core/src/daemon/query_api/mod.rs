@@ -1168,6 +1168,35 @@ fn sampling_rate_warning(daemon: &crate::config::DaemonConfig) -> Option<crate::
     }
 }
 
+/// Grouping-cap fold rule, one message for the three axes: all three
+/// fold rather than drop, and the remedy is the same for each. No knob
+/// branch: with `per_grouping_labels` off no path reaches a grouping cap,
+/// so the counters cannot move.
+fn grouping_fold_warning(metrics: &MetricsState) -> Option<crate::report::Warning> {
+    use crate::report::warnings::TUNING;
+    let folded = metrics.service_io_ops_grouping_overflow_total.get()
+        + metrics.analysis_grouping_overflow_total.get()
+        + metrics.slow_duration_grouping_overflow_total.get();
+    if folded == 0 {
+        return None;
+    }
+    let ingest_cap = super::event_loop::MAX_GROUPING_CARDINALITY;
+    let analysis_cap = super::event_loop::MAX_ANALYSIS_GROUPING_CARDINALITY;
+    let histogram_cap = super::event_loop::MAX_HISTOGRAM_GROUPING_CARDINALITY;
+    Some(crate::report::Warning::new(
+        TUNING,
+        format!(
+            "{folded} attributions landed in `grouping=\"_other\"` past the \
+             per-run grouping caps ({ingest_cap} on the ingest I/O counter, \
+             {analysis_cap} on findings and the analysis-side I/O counters, \
+             {histogram_cap} on the slow-span histogram): per-service totals \
+             stay exact, the per-grouping split does not, trim \
+             `[detection] grouping_attributes` or set \
+             `per_grouping_labels = false`"
+        ),
+    ))
+}
+
 /// Surface aggregated soft conditions in `Report.warning_details`, on
 /// top of the /metrics counters. Operators reading `/api/export/report`
 /// do not always scrape Prometheus, so a count of dropped requests
@@ -1198,9 +1227,7 @@ fn collect_warning_details(
     let mut details = Vec::new();
 
     // Config-only rule, first so it frames the counts below.
-    if let Some(w) = sampling_rate_warning(daemon) {
-        details.push(w);
-    }
+    details.extend(sampling_rate_warning(daemon));
 
     let dropped = metrics.otlp_rejected_channel_full.get();
     if dropped > 0 {
@@ -1320,29 +1347,7 @@ fn collect_warning_details(
         ));
     }
 
-    // No knob branch: with `per_grouping_labels` off no path reaches a
-    // grouping cap, so these counters cannot move.
-    let folded_groupings = metrics.service_io_ops_grouping_overflow_total.get()
-        + metrics.analysis_grouping_overflow_total.get()
-        + metrics.slow_duration_grouping_overflow_total.get();
-    if folded_groupings > 0 {
-        let ingest_cap = super::event_loop::MAX_GROUPING_CARDINALITY;
-        let analysis_cap = super::event_loop::MAX_ANALYSIS_GROUPING_CARDINALITY;
-        let histogram_cap = super::event_loop::MAX_HISTOGRAM_GROUPING_CARDINALITY;
-        details.push(crate::report::Warning::new(
-            TUNING,
-            format!(
-                "{folded_groupings} attributions landed in \
-                 `grouping=\"_other\"` past the per-run grouping caps \
-                 ({ingest_cap} on the ingest I/O counter, {analysis_cap} \
-                 on findings and the per-service I/O counters, \
-                 {histogram_cap} on the slow-span histogram): per-service \
-                 totals stay exact, the per-grouping split does not, trim \
-                 `[detection] grouping_attributes` or set \
-                 `per_grouping_labels = false`"
-            ),
-        ));
-    }
+    details.extend(grouping_fold_warning(metrics));
 
     let evicted = metrics.correlator_pairs_evicted_total.get();
     if daemon.correlation.enabled && evicted > 0 {

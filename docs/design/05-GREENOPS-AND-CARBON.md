@@ -70,11 +70,12 @@ for f in findings {
 // One pass over the deduped set feeds both the global total (split sql /
 // messaging by the retained type) and the per-service map behind
 // `perf_sentinel_service_avoidable_io_ops_total`, so the two cannot diverge.
-let mut per_service: BTreeMap<String, usize> = BTreeMap::new();
+let mut per_service: BTreeMap<(&str, &str), usize> = BTreeMap::new();
 for &(avoidable, f) in dedup.values() {
     out.total += avoidable;
+    let grouping = f.grouping_value().unwrap_or("");
     for (service, ops) in f.avoidable_by_service() {
-        credit(&mut per_service, service, ops);
+        *per_service.entry((service, grouping)).or_insert(0) += ops;
     }
 }
 ```
@@ -435,7 +436,7 @@ let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 
 The scoring stage tracks per-region flags (`any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime_report`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
 
-**Per-service op counter as single source of truth.** The scraper reads the per-service op counter from `MetricsState::service_io_ops_total` (a Prometheus `CounterVec` labeled with `service`) via `snapshot_service_io_ops()`. The daemon's event intake path increments this counter on every normalized event. Using the Prometheus counter directly, instead of a parallel counter that would need resetting every scrape window, avoids reset races and gives Grafana users a per-service op rate graph for free.
+**Per-service op counter as single source of truth.** The scraper reads the per-service op counter from `MetricsState::service_io_ops_total` (a Prometheus `CounterVec` labeled with `service` and, since 0.19.0, `grouping`) via `snapshot_service_io_ops()`, which folds the grouping axis back to one total per service,. The daemon's event intake path increments this counter on every normalized event. Using the Prometheus counter directly, instead of a parallel counter that would need resetting every scrape window, avoids reset races and gives Grafana users a per-service op rate graph for free.
 
 **Graceful shutdown.** The daemon captures the scraper `JoinHandle` and calls `.abort()` on it before the final `process_traces` drain in the Ctrl-C arm. This prevents "scrape failed" log lines from appearing after the "Shutting down daemon" message.
 
