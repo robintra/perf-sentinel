@@ -315,8 +315,9 @@ pub struct DaemonConfig {
     pub per_service_labels: bool,
     /// Whether the same series, and the three per-service I/O counters,
     /// carry a `grouping` label next to `service`: the span's first
-    /// `[detection] grouping_attributes` value present, under its own
-    /// cardinality caps (overflow folds into `grouping="_other"`).
+    /// `[detection] grouping_attributes` value present, under per-run
+    /// caps on admitted (service, grouping) pairs (a pair past the cap
+    /// folds its grouping into `grouping="_other"`).
     /// `false` leaves the label empty on every series, restoring the
     /// 0.18 shape. Since 0.19.0.
     pub per_grouping_labels: bool,

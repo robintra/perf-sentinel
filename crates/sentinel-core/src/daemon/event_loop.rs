@@ -367,19 +367,20 @@ pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 /// folds its grouping into `_other`, so a service's sum over its
 /// groupings stays its pre-0.19 value. Capping pairs rather than
 /// grouping values keeps the bound proportional to the series that
-/// exist: a fleet under the cap never folds, whatever its namespace
-/// count. Worst case 4096 pairs plus `_other` and the empty value per
-/// admitted service, about 6k series, against 1024 x 34 under a
-/// value cap.
+/// exist, and the binding term is services x groupings: 11 services in
+/// 20 namespaces is 220 pairs, 100 services in 10 namespaces is 1000.
+/// Worst case 4096 pairs plus `_other` and the empty value per
+/// admitted service, about 6k series.
 pub(crate) const MAX_GROUPING_PAIRS: usize = 4096;
 
 /// Cap on admitted (service, grouping) pairs on the analysis side
 /// (`findings_total`, `service_avoidable_io_ops_total`,
 /// `service_analyzed_io_ops_total`). Findings multiply by 12 types x 3
 /// severities, so 512 pairs plus two extra groupings per admitted
-/// service bound the family near 28k series in the adversarial case,
-/// against 84k under a 16-value cap, and a fleet of 11 services in 20
-/// namespaces (220 pairs) never folds.
+/// service bound the family near 28k series in the adversarial case.
+/// The cap counts pairs: 11 services in 20 namespaces (220 pairs) never
+/// folds, 100 services in 10 namespaces (1000 pairs) folds every pair
+/// past the 512th.
 pub(crate) const MAX_ANALYSIS_GROUPING_PAIRS: usize = 512;
 
 /// Cap on admitted (service, grouping) pairs of the slow-duration
@@ -394,8 +395,8 @@ const SERVICE_OVERFLOW_LABEL: &str = "_other";
 /// Admission policy shared by the label meters: a bounded value set, an
 /// overflow counter, a one-shot warning. [`SERVICE_OVERFLOW_LABEL`] is
 /// reserved and passes through without taking a slot, and so does the
-/// empty value, the "declared but absent" shape of a label whose knob
-/// is off or whose span carried no grouping.
+/// empty value, the service blanked by `per_service_labels = false` on
+/// the histogram path.
 struct CappedServices {
     admitted: HashSet<String>,
     cap: usize,
@@ -448,7 +449,11 @@ impl CappedServices {
 /// first by [`CappedServices`]; this is the second gate. A pair past
 /// the cap keeps its service and folds its grouping, so per-service
 /// sums stay exact. [`SERVICE_OVERFLOW_LABEL`] and the empty value pass
-/// through without a slot, as they do for services.
+/// through without a slot, as they do for services. Where a meter also
+/// keeps a child cache keyed on the same pairs, the admitted set
+/// duplicates the cache's keys and only `len` gates; the set is what
+/// keeps `len` exact where a folded service re-hits an admitted pair
+/// (the histogram) and where no cache exists (findings).
 struct CappedPairs {
     admitted: HashMap<String, HashSet<String>>,
     len: usize,
@@ -512,8 +517,8 @@ impl CappedPairs {
 /// cardinality against hostile `service.name` floods and caches the
 /// labeled children so the hit path is two `HashMap` lookups plus an
 /// atomic add; an event whose grouping folded past its cap misses that
-/// path and pays the two admission probes plus the overflow increment on
-/// every occurrence. Ingest drops past the service cap: the overflow
+/// path and pays the three admission probes plus the overflow increment
+/// on every occurrence. Ingest drops past the service cap: the overflow
 /// counter moves on every unattributed op. The grouping axis is capped
 /// on (service, grouping) pairs and folds into [`SERVICE_OVERFLOW_LABEL`]
 /// instead, so a service's sum over its groupings stays exact for the
@@ -539,7 +544,7 @@ impl ServiceMeter {
                 "ingest I/O ops",
                 "new services get no per-service I/O op counter",
             ),
-            pairs: CappedPairs::new(MAX_GROUPING_PAIRS, "ingest I/O ops"),
+            pairs: CappedPairs::new(MAX_GROUPING_PAIRS, "ingest I/O ops grouping pairs"),
         }
     }
 
@@ -662,13 +667,16 @@ impl AnalysisServiceMeter {
                 "analysis service labels",
                 "new services fold into service=\"_other\"",
             ),
-            pairs: CappedPairs::new(MAX_ANALYSIS_GROUPING_PAIRS, "analysis labels"),
+            pairs: CappedPairs::new(MAX_ANALYSIS_GROUPING_PAIRS, "analysis grouping pairs"),
             hist_names: CappedServices::new(
                 MAX_HISTOGRAM_SERVICE_CARDINALITY,
                 "slow-duration histogram",
                 "new services fold into service=\"_other\"",
             ),
-            hist_pairs: CappedPairs::new(MAX_HISTOGRAM_GROUPING_PAIRS, "slow-duration histogram"),
+            hist_pairs: CappedPairs::new(
+                MAX_HISTOGRAM_GROUPING_PAIRS,
+                "slow-duration histogram grouping pairs",
+            ),
             hist_children: HashMap::new(),
         };
         if !per_service_labels && !per_grouping_labels {
@@ -719,21 +727,19 @@ impl AnalysisServiceMeter {
         (service, self.grouping_half(service, grouping, metrics))
     }
 
-    /// Label pair for `findings_total`: the service half is empty with
-    /// `per_service_labels` off, the grouping half follows
-    /// [`Self::grouping_half`] keyed on that (possibly empty) service.
+    /// Label pair for `findings_total`. The pair is keyed on the effective
+    /// service whatever the knob says, so a finding and its I/O counter
+    /// rows share one slot; only the emitted service half is blanked with
+    /// `per_service_labels` off.
     fn finding_labels<'a>(
         &mut self,
         service: &'a str,
         grouping: &'a str,
         metrics: &MetricsState,
     ) -> (&'a str, &'a str) {
-        let service = if self.per_service_labels {
-            self.service_label(service, metrics)
-        } else {
-            ""
-        };
-        (service, self.grouping_half(service, grouping, metrics))
+        let service = self.service_label(service, metrics);
+        let grouping = self.grouping_half(service, grouping, metrics);
+        (if self.per_service_labels { service } else { "" }, grouping)
     }
 
     /// Observe one slow span's duration on its (service, grouping)
@@ -1315,8 +1321,9 @@ fn patch_broker_energy(
 ///
 /// `histogram_quantile()` can then compute accurate global percentiles
 /// across sharded daemon instances. The meter caches label children per
-/// service, so the per-span path stays one `HashMap` lookup instead of
-/// the `MetricVec` label-hash + lock of `with_label_values`.
+/// (service, grouping) pair, so the per-span hit path stays two `HashMap`
+/// lookups instead of the `MetricVec` label-hash + lock of
+/// `with_label_values`.
 fn record_slow_durations(
     traces: &[Trace],
     detect_config: &DetectConfig,
@@ -4420,9 +4427,9 @@ mod tests {
 
     #[test]
     fn pair_cap_counts_pairs_not_grouping_values() {
-        // The cap is on admitted (service, grouping) pairs: traffic in
-        // many namespaces cannot exhaust it for a namespace whose
-        // findings arrive later, as long as the fleet's real pairs fit.
+        // The cap counts admitted (service, grouping) pairs, not grouping
+        // values: a third value fits while pairs remain, and a repeated
+        // value under a new service is a new pair.
         let metrics = MetricsState::new();
         let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
         meter.pairs.cap = 3;
@@ -4435,12 +4442,11 @@ mod tests {
             meter.pair_labels("svc-b", "ns-2", &metrics),
             ("svc-b", "ns-2")
         );
-        // A third pair fits even though it is a third grouping value...
         assert_eq!(
             meter.finding_labels("svc-c", "ns-3", &metrics),
             ("svc-c", "ns-3")
         );
-        // ...and the same grouping under another service is a new pair.
+        // The same grouping under another service is a new pair.
         assert_eq!(
             meter.finding_labels("svc-d", "ns-3", &metrics),
             ("svc-d", SERVICE_OVERFLOW_LABEL)
@@ -4465,13 +4471,21 @@ mod tests {
             meter.finding_labels("svc-b", "prod", &metrics),
             (SERVICE_OVERFLOW_LABEL, "prod")
         );
+        // A second folded service reuses the folded service's pair: no
+        // new slot, no grouping overflow. Keyed on the raw service it
+        // would be a third pair and fold.
+        assert_eq!(
+            meter.finding_labels("svc-c", "prod", &metrics),
+            (SERVICE_OVERFLOW_LABEL, "prod")
+        );
+        assert_eq!(meter.pairs.len, 2);
         // Pair cap full: a new grouping under an admitted service folds
         // its grouping half only.
         assert_eq!(
             meter.finding_labels("svc-a", "staging", &metrics),
             ("svc-a", SERVICE_OVERFLOW_LABEL)
         );
-        assert_eq!(metrics.analysis_service_overflow_total.get(), 1);
+        assert_eq!(metrics.analysis_service_overflow_total.get(), 2);
         assert_eq!(metrics.analysis_grouping_overflow_total.get(), 1);
     }
 
@@ -4827,5 +4841,79 @@ mod tests {
             !rendered.contains("perf_sentinel_service_io_ops_total{grouping=\"prod\""),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn finding_labels_share_the_pair_slot_when_the_service_knob_is_off() {
+        // The pair is keyed on the effective service whatever the knob
+        // says, so a finding and its I/O counter rows take one slot and
+        // agree on the grouping.
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(false, true, &metrics);
+        meter.pairs.cap = 1;
+
+        assert_eq!(
+            meter.pair_labels("svc-a", "prod", &metrics),
+            ("svc-a", "prod")
+        );
+        assert_eq!(
+            meter.finding_labels("svc-a", "prod", &metrics),
+            ("", "prod")
+        );
+        assert_eq!(meter.pairs.len, 1);
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 0);
+        // A new grouping under the same service folds on both paths.
+        assert_eq!(
+            meter.finding_labels("svc-a", "staging", &metrics),
+            ("", SERVICE_OVERFLOW_LABEL)
+        );
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 1);
+    }
+
+    #[test]
+    fn ingest_pair_cap_keys_on_the_service() {
+        // A grouping already admitted under one service is a new pair
+        // under another: this is what tells a pair cap from a value cap
+        // on the ingest side.
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter::new(2, true);
+        meter.pairs.cap = 1;
+
+        meter.record("svc-a", "prod", &metrics);
+        meter.record("svc-b", "prod", &metrics);
+
+        let per = |service: &str, grouping: &str| {
+            metrics
+                .service_io_ops_total
+                .with_label_values(&[service, grouping])
+                .get()
+        };
+        assert!((per("svc-a", "prod") - 1.0).abs() < f64::EPSILON);
+        assert!((per("svc-b", SERVICE_OVERFLOW_LABEL) - 1.0).abs() < f64::EPSILON);
+        assert_eq!(metrics.service_io_ops_grouping_overflow_total.get(), 1);
+        assert_eq!(meter.pairs.len, 1);
+    }
+
+    #[test]
+    fn histogram_pair_cap_keys_on_the_folded_service() {
+        // Services past the histogram cap share the `_other` pairs: a
+        // second folded service reuses the first one's slot instead of
+        // burning the pair budget on a series that already exists.
+        let metrics = MetricsState::new();
+        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
+        meter.hist_names.cap = 0;
+        meter.hist_pairs.cap = 1;
+
+        meter.observe_slow("svc-b", "prod", &EventType::Sql, 1.0, &metrics);
+        meter.observe_slow("svc-c", "prod", &EventType::Sql, 1.0, &metrics);
+
+        let count = metrics
+            .slow_duration_seconds
+            .with_label_values(&["sql", SERVICE_OVERFLOW_LABEL, "prod"])
+            .get_sample_count();
+        assert_eq!(count, 2);
+        assert_eq!(metrics.slow_duration_grouping_overflow_total.get(), 0);
+        assert_eq!(metrics.slow_duration_service_overflow_total.get(), 2);
+        assert_eq!(meter.hist_pairs.len, 1);
     }
 }

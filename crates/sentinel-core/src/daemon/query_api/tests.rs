@@ -1856,6 +1856,9 @@ fn tuning_advisor_flags_grouping_folding() {
     assert!(
         msgs[0].contains("7 ")
             && msgs[0].contains("grouping=\"_other\"")
+            && msgs[0].contains("pair caps (4096 on the ingest")
+            && msgs[0].contains("512 on findings")
+            && msgs[0].contains("256 on the slow-span")
             && msgs[0].contains("grouping_attributes"),
         "got: {}",
         msgs[0]

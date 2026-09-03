@@ -362,7 +362,9 @@ fn register_int_counter_vec(
 type FindingExemplarKey = (&'static str, &'static str, String, String);
 
 /// How long an exemplar keeps annotating its series. The map is bounded
-/// by the analysis pair cap, so this is not about memory: a service that stops
+/// by the findings series count, 12 types x 3 severities x (the analysis
+/// pair cap plus two groupings per admitted service), near 28k, so this
+/// is not about memory: a service that stops
 /// emitting would otherwise point its `findings_total` series at a
 /// `trace_id` past the tracing backend's retention forever, and the
 /// Grafana click-through lands on a 404.
@@ -491,8 +493,8 @@ pub struct MetricsState {
     /// attribution are undercounting newly seen services.
     pub service_io_ops_overflow_total: IntCounter,
     /// I/O ops whose `grouping` folded into `_other` on
-    /// [`Self::service_io_ops_total`] because the ingest grouping cap
-    /// was reached. Unlike the service axis of the same counter nothing
+    /// [`Self::service_io_ops_total`] because the ingest (service,
+    /// grouping) pair cap was reached. Unlike the service axis of the same counter nothing
     /// is dropped: per-service totals stay exact, the per-grouping split
     /// coarsens.
     pub service_io_ops_grouping_overflow_total: IntCounter,
@@ -512,9 +514,10 @@ pub struct MetricsState {
     /// per-service attribution is coarsening, totals stay exact.
     pub analysis_service_overflow_total: IntCounter,
     /// Same families, `grouping` axis: attributions folded into
-    /// `grouping="_other"` past the analysis grouping cap. Independent
-    /// of [`Self::analysis_service_overflow_total`], a series can fold
-    /// on either axis or both.
+    /// `grouping="_other"` past the analysis (service, grouping) pair
+    /// cap, the second gate after the service cap: a pair is keyed on
+    /// the effective service, so a series folds on the service axis
+    /// first and on the grouping axis only past the pair budget.
     pub analysis_grouping_overflow_total: IntCounter,
 
     /// Slow spans folded into the `_other` histogram series because the
@@ -524,7 +527,8 @@ pub struct MetricsState {
     /// pair (11 buckets plus `+Inf`, `_sum` and `_count`).
     pub slow_duration_service_overflow_total: IntCounter,
     /// Slow spans folded into a `grouping="_other"` histogram series
-    /// past the histogram grouping cap, the lowest of the three: the
+    /// past the histogram (service, grouping) pair cap, the lowest of
+    /// the three: the
     /// histogram now costs 14 series per (type, service, grouping).
     pub slow_duration_grouping_overflow_total: IntCounter,
 
@@ -869,7 +873,7 @@ impl MetricsState {
 
         let service_io_ops_grouping_overflow_total = IntCounter::new(
             "perf_sentinel_service_io_ops_grouping_overflow_total",
-            "I/O ops folded into the _other grouping series of the per-service counter because the ingest grouping cardinality cap was reached",
+            "I/O ops folded into the _other grouping series of the per-service counter because the ingest (service, grouping) pair cap was reached",
         )
         .expect("metric creation should not fail");
 
@@ -907,7 +911,7 @@ impl MetricsState {
 
         let analysis_grouping_overflow_total = IntCounter::new(
             "perf_sentinel_analysis_grouping_overflow_total",
-            "Analysis-side grouping attributions (findings, avoidable and analysed I/O ops) folded into the _other grouping series because the analysis grouping cardinality cap was reached",
+            "Analysis-side grouping attributions (findings, avoidable and analysed I/O ops) folded into the _other grouping series because the analysis (service, grouping) pair cap was reached",
         )
         .expect("metric creation should not fail");
 
@@ -1040,7 +1044,7 @@ impl MetricsState {
 
         let slow_duration_grouping_overflow_total = IntCounter::new(
             "perf_sentinel_slow_duration_grouping_overflow_total",
-            "Slow spans folded into the _other grouping histogram series because the histogram grouping cardinality cap was reached",
+            "Slow spans folded into the _other grouping histogram series because the histogram (service, grouping) pair cap was reached",
         )
         .expect("metric creation should not fail");
         registry
