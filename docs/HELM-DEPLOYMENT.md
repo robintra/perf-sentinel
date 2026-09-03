@@ -907,10 +907,12 @@ detection events without any ack filter.
 
 A ready-made dashboard ships in the repo at
 [`examples/grafana-dashboard.json`](../examples/grafana-dashboard.json)
-(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 21 panels:
-I/O ops and waste ratio, finding types by severity, slow-query p95,
-active traces, daemon health, plus the energy, carbon and runtime
-headroom gauges off the `/metrics` counters scraped above). The chart
+(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 27 panels:
+I/O ops and waste ratio, finding types by severity and over time,
+slow-query p95, active traces, daemon health, memory pressure,
+cardinality caps, energy scrapes and Hub export, plus the energy,
+carbon and runtime headroom gauges off the `/metrics` counters scraped
+above). The chart
 does not bundle it, for the same reason it does not bundle a collector:
 a dashboard pinned in the chart drifts from the Grafana you already run.
 Import it one of two ways.
@@ -919,9 +921,10 @@ Manual import: in Grafana open Dashboards then Import, upload the JSON,
 and map the `DS_PROMETHEUS` input to your Prometheus datasource.
 
 **Four template variables** sit above the panels. `Job` selects which
-Prometheus job to read, which matters when several daemons are scraped
-by the same Prometheus, staging and production for instance.
-`Namespace` narrows all twenty-one panels to one or more Kubernetes
+Prometheus jobs to read, `All` by default, which matters when several
+daemons are scraped by the same Prometheus, staging and production for
+instance: pick one to keep them apart.
+`Namespace` narrows all twenty-seven panels to one or more Kubernetes
 namespaces, and defaults to `All`, the fleet-wide view the dashboard
 had before. The namespace is the one each daemon runs in, not the one
 its analysed workloads run in, so the variable picks an install rather
@@ -930,10 +933,11 @@ export: the scrape attaches it, so Prometheus Operator fills it in when
 it reads the chart's ServiceMonitor, and a scrape that attaches none is
 still matched by `All`, which leaves the dashboard unchanged outside
 Kubernetes. `Service` filters the analysis panels: findings, slow-span
-latency and I/O, eleven panels in total since 0.18.0, when
-`perf_sentinel_findings_total` and `perf_sentinel_slow_duration_seconds`
-gained a bounded `service` label, and `Grouping`, ahead of it, narrows the
-same eleven panels and the service list to the analysed traffic's grouping
+latency and I/O, twelve panels in total, every query in the row since
+0.18.0, when `perf_sentinel_findings_total` and
+`perf_sentinel_slow_duration_seconds` gained a bounded `service` label,
+and `Grouping`, ahead of it, narrows the
+same twelve panels and the service list to the analysed traffic's grouping
 (`k8s.namespace.name`, then `service.namespace`, by default), which is what
 `Namespace` does not do. The remaining panels measure the
 daemon itself (health, queues, OTLP intake, energy freshness) and stay
@@ -979,6 +983,25 @@ they aggregated instead. Running more than one replica otherwise
 produced legends with the same entry repeated once per pod (`events/s`,
 `events/s`, `events/s`), and stat panels showing four unlabelled numbers
 side by side with no way to tell which pod was which.
+
+The `Daemon health (global)` row also carries what the shipped alerts
+key on and what this documentation calls panels. `Ingest memory
+pressure` is the gauge `PerfSentinelMemoryPressureRejecting` reads,
+`Runtime headroom and shedding` plots shed traces next to shed batches
+since the alert fires on traces, `Cardinality caps (overflow)` is the
+six per-run cap counters that are deliberately not alerts, `Energy
+scrape outcome` sets the success and failure rates beside the freshness
+gauges, `Daemon memory (RSS)` is the process collector's figure the
+memory guard keeps under the limit, and `Hub export (pending and
+dropped)` watches the bounded export buffer. `OTLP span intake` splits
+filtered spans by reason, so `missing_db_statement` and
+`missing_http_url`, the two instrumentation gaps no shipped rule
+catches, are read there. In the analysis row, `Findings rate by type`
+is the one time series over `perf_sentinel_findings_total` and the only
+panel with exemplars enabled: the click-through to a trace needs the
+setup under [Exemplars](#exemplars). The dashboard refreshes every
+minute and links to `perf-sentinel findings` through the shared
+`perf-sentinel` tag, and that one links back.
 
 Sidecar import (kube-prometheus-stack and similar): load the JSON into a
 ConfigMap labelled so the Grafana sidecar discovers it automatically.

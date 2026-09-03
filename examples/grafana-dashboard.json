@@ -66,12 +66,40 @@
     }
   ],
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
   },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "links": [],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "perf-sentinel"
+      ],
+      "targetBlank": false,
+      "title": "perf-sentinel dashboards",
+      "tooltip": "The companion dashboard sharing the perf-sentinel tag: perf-sentinel findings reads the query API and answers which operation on which endpoint.",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
   "panels": [
     {
       "collapsed": false,
@@ -424,14 +452,44 @@
       }
     },
     {
-      "title": "Findings detail by type and severity",
-      "description": "Tabular breakdown of finding counts grouped by (type, severity) over the selected time range, the same window as the ranking and distribution panels beside it, so the three never contradict each other. Useful for raw triage, copy-paste into tickets, and comparing relative magnitude across detection categories side by side. The cumulative grand total since daemon start is the 'Total findings (cumulative)' stat.",
-      "type": "table",
+      "title": "Findings rate by type",
+      "description": "Findings emitted per second, by type, for the selected grouping and services: the same counter the ranking, the pie and the table read over the whole range, here as a trend, so a deploy that regressed or fixed a path shows as a step at the moment it landed. The only panel with exemplars enabled. With exemplar storage on Prometheus and a trace datasource mapped in Grafana (docs/HELM-DEPLOYMENT.md, Exemplars), each series carries diamonds linking to the worst trace of its (type, severity, service, grouping), kept for 15 minutes after the batch that recorded it. Without that setup the diamonds are absent and the counts are the same.",
+      "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
         "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__rate_interval]))",
+          "legendFormat": "{{type}}",
+          "refId": "A",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Findings detail by type and severity",
+      "description": "Tabular breakdown of finding counts grouped by (type, severity) over the selected time range, the same window as the ranking and distribution panels beside it, so the three never contradict each other. Useful for raw triage, copy-paste into tickets, and comparing relative magnitude across detection categories side by side. The cumulative grand total since daemon start is the 'Total findings (cumulative)' stat.",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 33
       },
       "datasource": {
         "type": "prometheus",
@@ -462,7 +520,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 41
       },
       "panels": [],
       "title": "Daemon health (global)",
@@ -474,9 +532,9 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 8,
+        "w": 6,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "datasource": {
         "type": "prometheus",
@@ -533,9 +591,9 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 8,
-        "x": 8,
-        "y": 34
+        "w": 6,
+        "x": 6,
+        "y": 42
       },
       "datasource": {
         "type": "prometheus",
@@ -560,9 +618,9 @@
       "type": "stat",
       "gridPos": {
         "h": 4,
-        "w": 8,
-        "x": 16,
-        "y": 34
+        "w": 6,
+        "x": 12,
+        "y": 42
       },
       "datasource": {
         "type": "prometheus",
@@ -599,6 +657,65 @@
       }
     },
     {
+      "title": "Ingest memory pressure",
+      "description": "perf_sentinel_ingest_memory_pressure, 1 while the cgroup admission guard refuses ingest (HTTP 503, gRPC UNAVAILABLE, both retryable) to keep RSS under the memory limit, the gauge PerfSentinelMemoryPressureRejecting fires on after 5 minutes. Requests refused during an episode count on the OTLP intake panel under reason=\"memory_pressure\", as requests rather than spans, since they are turned away before the body is decoded. Reads 0 as well when the guard is off ([daemon] memory_high_water_pct = 0, the default) or on a host without a cgroup v2 memory limit, so OK does not say the guard is armed: /api/config does. The area behind the value is the state over the selected range.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 42
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_ingest_memory_pressure{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OK",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "REJECTING",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
+    },
+    {
       "title": "Events processed rate",
       "description": "Spans accepted into the analysis pipeline per second, after non-I/O spans have been filtered out. Compare with the OTLP intake panel: a large gap between the two is normal, most spans in a trace are not I/O. A drop to zero while intake continues means the pipeline stopped consuming.",
       "type": "timeseries",
@@ -606,7 +723,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 46
       },
       "datasource": {
         "type": "prometheus",
@@ -634,7 +751,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 46
       },
       "datasource": {
         "type": "prometheus",
@@ -675,14 +792,95 @@
       }
     },
     {
+      "title": "Daemon memory (RSS)",
+      "description": "process_resident_memory_bytes per replica, from the standard process collector, which is registered on Linux only, so an empty panel on a macOS or Windows host is expected. Context for the memory-pressure stat: the guard compares the cgroup working set to [daemon] memory_high_water_pct, not this figure, and the two differ by the page cache, but a climb that never plateaus is the shape the guard exists to stop, and the level it plateaus at against resources.limits.memory is the number to size the limit from.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=~\"$job\", namespace=~\"$namespace\"}",
+          "legendFormat": "rss {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "noValue": "No process metrics: the process collector is registered on Linux only."
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Energy scrape outcome",
+      "description": "Scrape attempts per second on each CONFIGURED measured-energy backend, by outcome, gated on perf_sentinel_energy_backend_configured like the freshness panel beside it. The freshness gauge alone cannot tell two states apart: a backend not scraped yet reads 0 during its first interval, and a backend failing every other tick keeps its age under the alert threshold. Here the first shows no success yet, the second a failed series beside the success one. Failure reasons are on perf_sentinel_<backend>_scrape_failed_total{reason}. What neither panel catches: an endpoint answering HTTP 200 with no sample matching the configured metric counts as a success and resets the age to 0, while carbon attribution has silently fallen back to the built-in estimate. That case is on the daemon's warn log after three such ticks and on the report's energy model tag. cloud_energy has a freshness gauge but no outcome counters, so it appears on the freshness panel only.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_alumet_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"alumet\"} == 1)",
+          "legendFormat": "alumet {{status}} {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_scaphandre_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"scaphandre\"} == 1)",
+          "legendFormat": "scaphandre {{status}} {{instance}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_kepler_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"kepler\"} == 1)",
+          "legendFormat": "kepler {{status}} {{instance}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_redfish_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"redfish\"} == 1)",
+          "legendFormat": "redfish {{status}} {{instance}}",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "min": 0,
+          "noValue": "No measured-energy backend configured, or none scraped yet."
+        },
+        "overrides": []
+      }
+    },
+    {
       "title": "Runtime headroom and shedding",
-      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches and dropped archive windows per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist, and when the archive channel is full whole disclosure windows are dropped even though their findings were served live. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU; any sustained archive drops mean the disclosure archive under-reports the period. Pair evictions are the correlator recycling tracked pairs at the `max_tracked_pairs` cap, at which point /api/correlations returns an arbitrary subset with nothing on the output saying so. No alert covers it, since eviction at the cap is the steady state rather than a fault; the tuning advisor in /api/export/report names the knob.",
+      "description": "Each runtime limit as a percentage of its configured cap, on the left axis. The advisor starts hinting at 90% (red line). The right axis shows shed batches, the traces they held, and dropped archive windows per second: when the analysis queue is full the daemon discards a whole batch rather than blocking ingestion, so those traces are never analysed and their findings never exist, and when the archive channel is full whole disclosure windows are dropped even though their findings were served live. A batch holds anywhere from one trace to a thousand, so PerfSentinelAnalysisShedding fires on the traces, past one per second over ten minutes, and the batch series says how the loss is chunked. Any sustained shedding means raising analysis_queue_capacity or giving the daemon more CPU, any sustained archive drops mean the disclosure archive under-reports the period. Pair evictions are the correlator recycling tracked pairs at the `max_tracked_pairs` cap, at which point /api/correlations returns an arbitrary subset with nothing on the output saying so. No alert covers it, since eviction at the cap is the steady state rather than a fault, and the tuning advisor in /api/export/report names the knob.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -718,6 +916,11 @@
           "expr": "sum(rate(perf_sentinel_correlator_pairs_evicted_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
           "refId": "F",
           "legendFormat": "pair_evictions/s"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_shed_traces_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "refId": "G",
+          "legendFormat": "shed_traces/s"
         }
       ],
       "fieldConfig": {
@@ -853,19 +1056,108 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shed_traces/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
+              }
+            ]
           }
         ]
       }
     },
     {
-      "title": "OTLP span intake (received vs filtered)",
-      "description": "Span intake at the OTLP boundary. `filtered` are spans carrying no I/O operation, which is normal and usually the majority. `rejected` is split by reason: `channel_full` is the one the daemon loses work to and the only one PerfSentinelIngestRejecting fires on, while `parse_error` and `unsupported_media_type` are malformed requests from a producer, fixed in that producer and read here rather than paged on.",
+      "title": "Cardinality caps (overflow)",
+      "description": "Attributions per second that a per-run cardinality cap turned away, one series per cap. Five of the six fold into service=\"_other\" or grouping=\"_other\": the analysis-side series (findings, avoidable and analysed I/O ops) at 128 services and 512 (service, grouping) pairs, and the slow-span histogram at 64 services and 256 pairs, so their totals and sum by (service) stay exact and only the attribution of newly seen services or groupings coarsens. The ingest I/O counter folds groupings past 4096 pairs the same way, but a service past its 1024 cap is left out of the per-service counter rather than folded, so per-service throughput and measured-energy attribution undercount it. A flat zero is the normal state and none of these is an alert. A series that starts climbing means the fleet has more services or groupings than the cap, and the Service and Grouping variables show the folded ones under _other. The caps are per process lifetime: once reached they stay reached until the daemon restarts, so a rate that began after a burst of one-off service names (a load test, a canary naming scheme) keeps folding every service that came after it.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 70
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(perf_sentinel_service_io_ops_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "ingest I/O ops, 1024 services (left out)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_service_io_ops_grouping_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "ingest I/O ops, 4096 pairs",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_service_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "analysis, 128 services",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_grouping_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "analysis, 512 pairs",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_slow_duration_service_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "slow histogram, 64 services",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_slow_duration_grouping_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "slow histogram, 256 pairs",
+          "refId": "F"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "OTLP span intake (received vs filtered)",
+      "description": "Span intake at the OTLP boundary. `filtered` are spans carrying no analyzable I/O operation, split by reason: `not_io` (internal spans, cache hits, middleware, inbound SERVER handlers) is normal and usually the majority, `non_sql_datastore` and `merged_db_span` are deliberate, and `missing_db_statement` and `missing_http_url` are the instrumentation gaps, a driver configured to omit query text or a client span with a method but no URL, which turn every request into zero events while every shipped alert stays green: this is the panel that shows them. `rejected` is split the same way: `channel_full` is the one the daemon loses work to and the only one PerfSentinelIngestRejecting fires on, `memory_pressure` is the admission guard (requests, counted before the body is decoded), while `parse_error` and `unsupported_media_type` are malformed requests from a producer, fixed in that producer and read here rather than paged on.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 78
       },
       "datasource": {
         "type": "prometheus",
@@ -878,8 +1170,8 @@
           "refId": "A"
         },
         {
-          "expr": "sum(rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
-          "legendFormat": "filtered/s (not I/O)",
+          "expr": "sum by (reason) (rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "filtered/s {{reason}}",
           "refId": "B"
         },
         {
@@ -896,14 +1188,90 @@
       }
     },
     {
+      "title": "Hub export (pending and dropped)",
+      "description": "State of the bounded PerfSentinelHub export buffer, for installs with [daemon.hub_export] configured, both series flat at zero otherwise. Pending is distinct finding signatures waiting for the next push, one per signature however often it recurs, so it plateaus at the fleet's distinct-problem count and climbs past it only when pushes fail. Dropped, on the right axis, is what the buffer gave up: entries evicted at hub_export.max_pending, a finding too large for the payload, and every entry of a batch the Hub refused with an unretryable 4xx. Nothing on the daemon side replays them, so a nonzero rate means the Hub's view of this daemon is short. No shipped alert: add rate(perf_sentinel_hub_export_dropped_total[15m]) > 0 through prometheusRule.additionalRules if you run the Hub.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 86
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_hub_export_pending{job=~\"$job\", namespace=~\"$namespace\"}",
+          "legendFormat": "pending {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_hub_export_dropped_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "dropped/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dropped/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "title": "Report exports rate",
       "description": "rate(perf_sentinel_export_report_requests_total). Tracks how often /api/export/report is consumed (CI snapshots, dev triage, daemon-Report to local-batch path).",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 62
+        "w": 12,
+        "x": 12,
+        "y": 86
       },
       "datasource": {
         "type": "prometheus",
@@ -930,7 +1298,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 70
+        "y": 94
       },
       "datasource": {
         "type": "prometheus",
@@ -964,7 +1332,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 70
+        "y": 94
       },
       "datasource": {
         "type": "prometheus",
@@ -979,7 +1347,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "none",
+          "unit": "suffix: gCO2e",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
@@ -1023,12 +1391,20 @@
         },
         "refresh": 1,
         "sort": 1,
-        "includeAll": false,
-        "multi": false,
-        "current": {},
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "options": [],
         "hide": 0,
-        "description": "The Prometheus job scraping perf-sentinel. Pick one when several daemons are scraped."
+        "description": "The Prometheus job scraping perf-sentinel, one per install when several daemons share a Prometheus. All reads the fleet, pick one to keep staging apart from production. No .* fallback here, unlike Namespace: a scrape always sets job, so All expands to the jobs that carry perf-sentinel metrics and never to every target Prometheus knows."
       },
       {
         "name": "namespace",
@@ -1125,5 +1501,6 @@
   "timezone": "utc",
   "title": "perf-sentinel overview",
   "uid": "perf-sentinel-overview",
-  "version": 5
+  "version": 6,
+  "refresh": "1m"
 }

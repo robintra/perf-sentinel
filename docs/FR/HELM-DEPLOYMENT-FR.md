@@ -587,21 +587,23 @@ Les compteurs `/metrics` (`perf_sentinel_findings_total`, `perf_sentinel_io_wast
 
 Un tableau de bord prêt à l'emploi est fourni dans le dépôt à
 [`examples/grafana-dashboard.json`](../../examples/grafana-dashboard.json)
-(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 21 panneaux :
-opérations d'E/S et ratio de gaspillage, types de findings par sévérité,
-p95 des requêtes lentes, traces actives, santé du daemon, plus les jauges
-d'énergie, de carbone et de marge runtime issues des compteurs `/metrics`
-scrapés ci-dessus). Le chart ne l'embarque pas, pour la même raison qu'il
+(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 27 panneaux :
+opérations d'E/S et ratio de gaspillage, types de findings par sévérité
+et dans le temps, p95 des requêtes lentes, traces actives, santé du
+daemon, pression mémoire, plafonds de cardinalité, scrapes énergie et
+export Hub, plus les jauges d'énergie, de carbone et de marge runtime
+issues des compteurs `/metrics` scrapés ci-dessus). Le chart ne l'embarque pas, pour la même raison qu'il
 n'embarque pas de collecteur : un tableau de bord figé dans le chart dérive
 du Grafana que vous exploitez déjà. Importez-le de deux façons.
 
 Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
 JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
 
-**Quatre variables de template** surmontent les panneaux. `Job` choisit le
-job Prometheus à lire, ce qui compte quand plusieurs daemons sont scrapés
-par le même Prometheus, staging et production par exemple. `Namespace`
-restreint les vingt et un panneaux à un ou plusieurs namespaces
+**Quatre variables de template** surmontent les panneaux. `Job` choisit les
+jobs Prometheus à lire, `All` par défaut, ce qui compte quand plusieurs
+daemons sont scrapés par le même Prometheus, staging et production par
+exemple : n'en garder qu'un les sépare. `Namespace`
+restreint les vingt-sept panneaux à un ou plusieurs namespaces
 Kubernetes, et vaut `All` par défaut, la vue globale que le tableau de
 bord offrait jusqu'ici. Le namespace est celui où tourne chaque daemon,
 pas celui des charges qu'il analyse, la variable choisit donc une
@@ -610,10 +612,11 @@ daemon n'exporte pas : il est attaché par le scrape, donc Prometheus
 Operator le renseigne en lisant le ServiceMonitor du chart, et un scrape
 qui n'en attache aucun reste couvert par `All`, ce qui laisse le tableau
 de bord inchangé hors Kubernetes. `Service` filtre les panneaux
-d'analyse : findings, latence des spans lents et I/O, onze panneaux au
-total depuis la 0.18.0, où `perf_sentinel_findings_total` et
-`perf_sentinel_slow_duration_seconds` ont gagné un label `service`
-borné, et `Grouping`, placée avant, restreint les mêmes onze panneaux et la
+d'analyse : findings, latence des spans lents et I/O, douze panneaux au
+total, chaque requête de la ligne depuis la 0.18.0, où
+`perf_sentinel_findings_total` et `perf_sentinel_slow_duration_seconds`
+ont gagné un label `service` borné, et `Grouping`, placée avant,
+restreint les mêmes douze panneaux et la
 liste des services au regroupement du trafic analysé (`k8s.namespace.name`,
 puis `service.namespace`, par défaut), ce que `Namespace` ne fait pas. Les
 autres panneaux mesurent le daemon lui-même (santé, files,
@@ -663,6 +666,26 @@ flotte nomment plutôt ce qu'ils ont agrégé. Au-delà d'un réplica, les
 légendes répétaient sinon la même entrée une fois par pod (`events/s`,
 `events/s`, `events/s`), et les panneaux `stat` affichaient quatre
 nombres côte à côte sans moyen de savoir lequel venait de quel pod.
+
+La ligne `Daemon health (global)` porte aussi ce que lisent les alertes
+livrées et ce que cette documentation appelle des panneaux. `Ingest
+memory pressure` est la gauge que lit `PerfSentinelMemoryPressureRejecting`,
+`Runtime headroom and shedding` trace les traces écartées à côté des
+lots écartés puisque l'alerte se déclenche sur les traces, `Cardinality
+caps (overflow)` regroupe les six compteurs de plafond par run qui ne
+sont volontairement pas des alertes, `Energy scrape outcome` place les
+taux de succès et d'échec à côté des jauges de fraîcheur, `Daemon memory
+(RSS)` est le chiffre du collecteur de processus que le garde-fou
+mémoire maintient sous la limite, et `Hub export (pending and dropped)`
+surveille le tampon d'export borné. `OTLP span intake` ventile les spans
+filtrés par raison, `missing_db_statement` et `missing_http_url`, les
+deux trous d'instrumentation qu'aucune règle livrée n'attrape, se lisent
+donc là. Dans la ligne d'analyse, `Findings rate by type` est la seule
+série temporelle sur `perf_sentinel_findings_total` et le seul panneau
+avec les exemplars activés : le clic vers une trace demande la
+configuration décrite sous [Exemplars](#exemplars). Le tableau de bord
+se rafraîchit toutes les minutes et pointe vers `perf-sentinel findings`
+par le tag `perf-sentinel` partagé, qui pointe en retour.
 
 Import par sidecar (kube-prometheus-stack et similaires) : chargez le JSON
 dans une ConfigMap étiquetée pour que le sidecar Grafana la découvre

@@ -4,6 +4,14 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Added
+
+- The Grafana dashboard gains six panels, 27 in all. `Ingest memory pressure` is the gauge `PerfSentinelMemoryPressureRejecting` reads, the one metric a shipped rule alerted on with nowhere to look. `Cardinality caps (overflow)` plots the six per-run cap counters: `docs/METRICS.md` and the chart's `values.yaml` had said since 0.18.0 that saturation and cardinality are not alerts because they are dashboard panels, and none of them was. `Energy scrape outcome` sets each configured backend's success and failure rates beside the freshness gauges, which alone cannot tell "not scraped yet" from "fresh" nor see a backend failing every other tick. `Hub export (pending and dropped)` watches the bounded export buffer, whose drops were readable in the warn log only. `Daemon memory (RSS)` gives the memory guard its context. `Findings rate by type`, in the analysis row, is the first time series over `perf_sentinel_findings_total` and the only panel with exemplars enabled, so the click-through from a metric to a trace has a panel to land on.
+
+### Changed
+
+- `Runtime headroom and shedding` plots shed traces next to shed batches: `PerfSentinelAnalysisShedding` fires on traces, the panel showed batches, and a batch holds anywhere from one trace to a thousand. `OTLP span intake` splits filtered spans by `reason`, so `missing_db_statement` and `missing_http_url`, the two instrumentation gaps `docs/METRICS.md` names as the failure no shipped rule catches, are visible where they were summed away. The carbon panel carries a `gCO2e` suffix instead of no unit. The overview refreshes every minute, carries the built-in annotation layer, and the two dashboards link to each other through the shared `perf-sentinel` tag. `Job` accepts several values and defaults to `All`, like the other three variables, where it was a single pick behind a regex match. `Report exports rate` shrinks to half width beside the Hub export panel. Dashboard `version` 6, a new revision to publish on grafana.com at the next release.
+
 ### Fixed
 
 - `docs/HELM-DEPLOYMENT.md` and its French mirror described a `Total I/O ops processed` stat and an `I/O waste ratio` formula over the daemon-wide `avoidable_io_ops` and `total_io_ops` counters. The stat is `Ingested I/O ops (cumulative)` and the ratio has divided `perf_sentinel_service_avoidable_io_ops_total` by `perf_sentinel_service_analyzed_io_ops_total` since 0.18.0, when the three I/O panels moved to the per-service pair. `docs/METRICS.md` lists `perf_sentinel_ingest_memory_pressure` in the OTLP ingestion table, where it appeared in prose only.
