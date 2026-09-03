@@ -623,7 +623,7 @@ donc les découper. La cardinalité reste maîtrisée par des plafonds par
 run (128 services sur les findings, 64 sur l'histogramme, débordement
 replié dans `service="_other"`), et
 `[daemon] per_service_labels = false` restaure la forme sans label, et
-`per_grouping_labels = false` celle de la 0.18.0 ; les plafonds de regroupement
+`per_grouping_labels = false` celle de la 0.18.0. Les plafonds de regroupement
 comptent les paires (service, grouping) admises après les plafonds de services
 et ne replient que la moitié regroupement dans `grouping="_other"`.
 
