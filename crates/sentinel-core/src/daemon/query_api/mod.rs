@@ -1190,10 +1190,8 @@ fn grouping_fold_warning(metrics: &MetricsState) -> Option<crate::report::Warnin
              per-run (service, grouping) pair caps ({ingest_cap} on the \
              ingest I/O counter, {analysis_cap} on findings and the \
              analysis-side I/O counters, {histogram_cap} on the slow-span \
-             histogram): a pair past its cap keeps its service and folds \
-             its grouping, so per-service totals stay exact and the \
-             per-grouping split does not, trim \
-             `[detection] grouping_attributes` or set \
+             histogram): per-service totals stay exact, the per-grouping \
+             split does not, trim `[detection] grouping_attributes` or set \
              `per_grouping_labels = false`"
         ),
     ))
