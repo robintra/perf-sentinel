@@ -144,3 +144,8 @@ v0.17.0	d7f5889	2026-08-29	PASS
 # scenarios, then a replay of 11 scenarios and validate-findings 12/12 at both
 # sanitizer_aware_min_cv 0.5 and 1.0 after the detection change.
 v0.18.0	5cd07f7	2026-09-02	PASS
+# v0.19.0 PASS is a targeted pass, not verify-all-scenarios in full: the eleven
+# metric assertions of the grouping label, eight in-scope scenarios and
+# validate-findings 12/12, plus the new grouping-metrics-split scenario that
+# freezes the split, the sum invariant, the pair caps and the knob.
+v0.19.0	660ceb5	2026-09-03	PASS
