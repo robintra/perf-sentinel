@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.18.0
-appVersion: "0.18.0"
+version: 0.19.0
+appVersion: "0.19.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,12 +37,12 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: changed
-      description: "appVersion 0.18.0. perf_sentinel_findings_total gains a service label and perf_sentinel_slow_duration_seconds gains one next to type, so an alert or dashboard query that matches either series without aggregating now returns one series per service. Wrap it in sum() to keep the old shape, or set per_service_labels = false in the daemon config. The chart itself is unchanged, and its ServiceMonitor already carries honorLabels: true, which is what keeps these labels through the operator relabeling."
+      description: "appVersion 0.19.0. perf_sentinel_findings_total, perf_sentinel_slow_duration_seconds and the three per-service I/O counters gain a grouping label next to service, holding the analysed traffic's namespace by default, so a query that matches any of them without aggregating now returns one series per (service, grouping) pair. Wrap it in sum() or sum by (service) to keep the 0.18.0 shape, or set per_grouping_labels = false in the daemon config. The chart itself is unchanged, and its PrometheusRule matches none of the five metrics, so no shipped alert changes."
     - kind: added
-      description: "The daemon exposes perf_sentinel_service_avoidable_io_ops_total and perf_sentinel_service_analyzed_io_ops_total, the per-service numerator and denominator of the I/O waste ratio, plus two counters that report how many attributions folded into the _other bucket at the per-run service caps. No alert ships on any of them, and no values.yaml key is added or removed."
+      description: "The daemon config takes per_grouping_labels, default true, the grouping twin of per_service_labels, and exposes three counters that report how many attributions folded into grouping=\"_other\" at the per-run caps on admitted (service, grouping) pairs. No alert ships on any of them, and no values.yaml key is added or removed."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.18.0
+      image: ghcr.io/robintra/perf-sentinel:0.19.0
       platforms:
         - linux/amd64
         - linux/arm64

@@ -10,6 +10,52 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.19.0]
+
+### Changed
+
+- **`appVersion` moves to `0.19.0`, and the daemon it ships adds a second label
+  to five metrics. Breaking for any alert or recording rule that matches
+  `perf_sentinel_findings_total`, `perf_sentinel_slow_duration_seconds`,
+  `perf_sentinel_service_io_ops_total`,
+  `perf_sentinel_service_avoidable_io_ops_total` or
+  `perf_sentinel_service_analyzed_io_ops_total` without aggregating.** All five
+  now carry a `grouping` label next to `service`, holding the first attribute
+  present from `[detection] grouping_attributes` (`k8s.namespace.name`, then
+  `service.namespace`, by default), so on Kubernetes it is the namespace the
+  analysed workloads run in, not the one this release installs into. A query
+  that returned one series per service returns one per (service, grouping)
+  pair. Wrap it in `sum by (service)` to keep the 0.18.0 shape, `sum()` for the
+  pre-0.18 one, or set `per_grouping_labels = false` under `[daemon]` in
+  `config.toml` to make the label empty on every series, which PromQL treats as
+  absent. Cardinality is capped per daemon run on admitted (service, grouping)
+  pairs, a second gate after the service caps, 512 on findings and the
+  analysis-side I/O counters, 256 on the histogram and 4096 on the ingest
+  counter. A pair past its cap keeps its service and folds only its grouping
+  into `grouping="_other"`, so a `sum by (service)` still equals the 0.18.0
+  series exactly. The label is deliberately not called `namespace`: Prometheus
+  Operator attaches a target label by that name, and
+  `serviceMonitor.honorLabels: true` from `0.17.1` would let the daemon's win,
+  breaking every `namespace` filter on the shipped dashboard. The chart's own
+  `PrometheusRule` matches none of the five metrics, so no shipped alert
+  changes.
+
+### Added
+
+- The daemon config takes `[daemon] per_grouping_labels`, default `true`, the
+  `grouping` twin of `per_service_labels`, reported on `/api/config`. Unlike
+  `per_service_labels` it governs the three per-service I/O counters too. Three
+  counters keep the caps observable,
+  `perf_sentinel_analysis_grouping_overflow_total`,
+  `perf_sentinel_slow_duration_grouping_overflow_total` and
+  `perf_sentinel_service_io_ops_grouping_overflow_total`, all counting
+  attributions folded into `grouping="_other"` rather than data lost. No alert
+  ships on any of them, for the same reason as the service overflow counters in
+  `0.18.0`, and no `values.yaml` key is added or removed. An install already
+  running `per_service_labels = false` needs `per_grouping_labels = false` as
+  well to keep the histogram's pre-warmed unlabeled series, which since
+  `0.19.0` is minted at startup only when both knobs are off.
+
 ## [0.18.0]
 
 ### Changed
