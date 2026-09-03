@@ -80,6 +80,7 @@ sibling Pod cannot read the daemon's process state freely.
 | `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total OTLP requests rejected by the daemon since start, by reason (since 0.5.19).              |
 | `perf_sentinel_otlp_spans_received_total` | counter | (none)   | Total OTLP spans received across all requests, before I/O filtering (since 0.8.7).             |
 | `perf_sentinel_otlp_spans_filtered_total` | counter | `reason` | OTLP spans skipped by conversion because they are not analyzable I/O operations (since 0.8.7). |
+| `perf_sentinel_ingest_memory_pressure`    | gauge   | (none)   | 1 while the memory-pressure admission guard is rejecting ingest, 0 otherwise, including when the guard is off. What `PerfSentinelMemoryPressureRejecting` and the dashboard's `Ingest memory pressure` stat read. |
 
 `reason` label values:
 

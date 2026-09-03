@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `docs/HELM-DEPLOYMENT.md` and its French mirror described a `Total I/O ops processed` stat and an `I/O waste ratio` formula over the daemon-wide `avoidable_io_ops` and `total_io_ops` counters. The stat is `Ingested I/O ops (cumulative)` and the ratio has divided `perf_sentinel_service_avoidable_io_ops_total` by `perf_sentinel_service_analyzed_io_ops_total` since 0.18.0, when the three I/O panels moved to the per-service pair. `docs/METRICS.md` lists `perf_sentinel_ingest_memory_pressure` in the OTLP ingestion table, where it appeared in prose only.
+
 ## [0.19.0] - 2026-09-03
 
 ### Changed

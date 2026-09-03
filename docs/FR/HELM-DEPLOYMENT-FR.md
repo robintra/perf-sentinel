@@ -639,14 +639,16 @@ l'impression d'un dashboard ignorant à moitié le sélecteur.
 L'exception, ce sont les quelques panneaux `stat` qui affichent une
 valeur instantanée (`Active traces`, `Daemon health`) ou un total depuis
 le démarrage (`Total findings (cumulative)`, `Traces analyzed
-(cumulative)`, `Total I/O ops processed`). Un compteur cumulé depuis le
+(cumulative)`, `Ingested I/O ops (cumulative)`). Un compteur cumulé depuis le
 démarrage du daemon est précisément ce qu'ils rapportent, ils le disent
 donc dans leur titre ou leur description, et ils repartent de zéro au
 redémarrage du pod.
 
 `I/O waste ratio` est calculé dans le panneau, en
-`sum(increase(avoidable_io_ops[$__range])) / sum(increase(total_io_ops[$__range]))`,
-plutôt que lu sur la gauge `perf_sentinel_io_waste_ratio` exportée par le
+`sum(increase(perf_sentinel_service_avoidable_io_ops_total[$__range]))`
+sur `sum(increase(perf_sentinel_service_analyzed_io_ops_total[$__range]))`,
+les deux compteurs côté analyse de la même passe de scoring sous les
+mêmes plafonds, plutôt que lu sur la gauge `perf_sentinel_io_waste_ratio` exportée par le
 daemon. Cette gauge est un rapport de compteurs cumulés : elle ignore le
 sélecteur de plage, dilue un problème actuel dans tout ce qui s'est passé
 depuis le démarrage du pod, et affiche un cadran par réplica. La forme

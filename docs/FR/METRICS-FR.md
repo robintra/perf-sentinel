@@ -82,6 +82,7 @@ daemon librement.
 | `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total des requêtes OTLP rejetées par le daemon depuis le démarrage, par raison (depuis 0.5.19).              |
 | `perf_sentinel_otlp_spans_received_total` | counter | (aucun)  | Total des spans OTLP reçus toutes requêtes confondues, avant le filtrage I/O (depuis 0.8.7).                 |
 | `perf_sentinel_otlp_spans_filtered_total` | counter | `reason` | Spans OTLP écartés par la conversion parce qu'ils ne sont pas des opérations I/O analysables (depuis 0.8.7). |
+| `perf_sentinel_ingest_memory_pressure`    | gauge   | (aucun)  | 1 tant que le garde-fou d'admission mémoire rejette l'ingest, 0 sinon, y compris quand le garde-fou est désactivé. C'est ce que lisent `PerfSentinelMemoryPressureRejecting` et le panneau `Ingest memory pressure` du tableau de bord. |
 
 Valeurs du label `reason` :
 

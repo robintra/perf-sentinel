@@ -955,14 +955,16 @@ adapted, which read as a dashboard that half-ignored the picker.
 
 The exception is the handful of `stat` panels that show a current value
 (`Active traces`, `Daemon health`) or a lifetime total (`Total findings
-(cumulative)`, `Traces analyzed (cumulative)`, `Total I/O ops
-processed`). A counter total since daemon start is what those report, so
+(cumulative)`, `Traces analyzed (cumulative)`, `Ingested I/O ops
+(cumulative)`). A counter total since daemon start is what those report, so
 they say so in the title or the description, and they reset when the pod
 restarts.
 
 `I/O waste ratio` is computed in the panel, as
-`sum(increase(avoidable_io_ops[$__range])) / sum(increase(total_io_ops[$__range]))`,
-rather than read off the `perf_sentinel_io_waste_ratio` gauge the daemon
+`sum(increase(perf_sentinel_service_avoidable_io_ops_total[$__range]))`
+over `sum(increase(perf_sentinel_service_analyzed_io_ops_total[$__range]))`,
+the two analysis-side counters of the same scoring pass under the same
+caps, rather than read off the `perf_sentinel_io_waste_ratio` gauge the daemon
 exports. That gauge is a ratio of lifetime counters: it ignores the time
 picker, dilutes a current problem in everything since the pod started,
 and renders one dial per replica. The panel form answers for the
