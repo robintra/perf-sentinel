@@ -572,7 +572,7 @@ serviceMonitor:
     release: prometheus
 ```
 
-`honorLabels` vaut `true` par défaut depuis la version 0.17.1 du chart, et ce défaut compte. L'opérateur attache un label de cible nommé `service`, tiré du nom du Service, et quand honor labels est désactivé Prometheus renomme le label homonyme exposé par la cible : le `service` du daemon était stocké en `exported_service`. La variable `Service` du tableau de bord ne proposait plus que le nom de la release, et son panneau par service réduisait tous les services analysés à une seule ligne. Le daemon n'expose ni `job`, ni `instance`, ni `namespace`, donc rien d'autre ne change de main et `Namespace` lit toujours ce que le scrape attache. Honor labels tranche une collision, il ne remplace rien : le label `service` propre au daemon (`perf_sentinel_service_io_ops_total`, et depuis 0.18.0 `perf_sentinel_findings_total`, `perf_sentinel_slow_duration_seconds` et les counters d'analyse par service) est conservé là où il est exposé, donc toutes les autres séries reçoivent toujours le `service` de l'opérateur attaché à la cible, et tout ce qui route sur ce label reste intact. Ce qui bouge, c'est une requête écrite sur la forme produite par le bug : filtrer `service="<nom complet de la release>"` sur la métrique par service ne renvoie plus rien, les vrais noms de services ont pris la place. Sur une installation qui a déjà stocké les séries renommées, `helm upgrade` corrige le scrape suivant et laisse l'historique en l'état.
+`honorLabels` vaut `true` par défaut depuis la version 0.17.1 du chart, et ce défaut compte. L'opérateur attache un label de cible nommé `service`, tiré du nom du Service, et quand honor labels est désactivé Prometheus renomme le label homonyme exposé par la cible : le `service` du daemon était stocké en `exported_service`. La variable `Service` du tableau de bord ne proposait plus que le nom de la release, et son panneau par service réduisait tous les services analysés à une seule ligne. Le daemon n'expose ni `job`, ni `instance`, ni `namespace`, donc rien d'autre ne change de main et `Namespace` lit toujours ce que le scrape attache. Honor labels tranche une collision, il ne remplace rien : le label `service` propre au daemon (`perf_sentinel_service_io_ops_total`, et depuis 0.18.0 `perf_sentinel_findings_total`, `perf_sentinel_slow_duration_seconds` et les counters d'analyse par service) est conservé là où il est exposé, donc toutes les autres séries reçoivent toujours le `service` de l'opérateur attaché à la cible, et tout ce qui route sur ce label reste intact. Le label `grouping` que ces séries gagnent en 0.19.0 n'entre en collision avec rien de ce que l'opérateur attache. Il ne s'appelle pas `namespace` précisément pour cela : l'opérateur attache bien un label de cible `namespace`, honor labels ferait gagner celui du daemon, et la variable `Daemon namespace` du tableau de bord comme tous les filtres `namespace=~"$namespace"` se mettraient à sélectionner les namespaces des charges au lieu de l'installation. Ce qui bouge, c'est une requête écrite sur la forme produite par le bug : filtrer `service="<nom complet de la release>"` sur la métrique par service ne renvoie plus rien, les vrais noms de services ont pris la place. Sur une installation qui a déjà stocké les séries renommées, `helm upgrade` corrige le scrape suivant et laisse l'historique en l'état.
 
 #### Dashboards qui scrapent `/api/findings`
 
@@ -598,7 +598,7 @@ du Grafana que vous exploitez déjà. Importez-le de deux façons.
 Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
 JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
 
-**Trois variables de template** surmontent les panneaux. `Job` choisit le
+**Quatre variables de template** surmontent les panneaux. `Job` choisit le
 job Prometheus à lire, ce qui compte quand plusieurs daemons sont scrapés
 par le même Prometheus, staging et production par exemple. `Namespace`
 restreint les vingt et un panneaux à un ou plusieurs namespaces
@@ -613,13 +613,19 @@ de bord inchangé hors Kubernetes. `Service` filtre les panneaux
 d'analyse : findings, latence des spans lents et I/O, onze panneaux au
 total depuis la 0.18.0, où `perf_sentinel_findings_total` et
 `perf_sentinel_slow_duration_seconds` ont gagné un label `service`
-borné. Les autres panneaux mesurent le daemon lui-même (santé, files,
+borné, et `Grouping`, placée avant, restreint les mêmes onze panneaux et la
+liste des services au regroupement du trafic analysé (`k8s.namespace.name`,
+puis `service.namespace`, par défaut), ce que `Namespace` ne fait pas. Les
+autres panneaux mesurent le daemon lui-même (santé, files,
 intake OTLP, fraîcheur énergie) et restent globaux par construction :
 aucun service n'émet ces chiffres, aucun filtre service ne pourrait
 donc les découper. La cardinalité reste maîtrisée par des plafonds par
 run (128 services sur les findings, 64 sur l'histogramme, débordement
 replié dans `service="_other"`), et
-`[daemon] per_service_labels = false` restaure la forme sans label.
+`[daemon] per_service_labels = false` restaure la forme sans label, et
+`per_grouping_labels = false` celle de la 0.18.0 ; les plafonds de regroupement
+sont indépendants des plafonds de services et se replient de même dans
+`grouping="_other"`.
 
 **Tous les panneaux suivent le sélecteur de plage**, avec une règle et
 une exception assumée. Les panneaux de taux utilisent `$__rate_interval`

@@ -272,7 +272,7 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 
 ## Spike in critical findings
 
-**Symptom.** Alert fires on `sum(rate(perf_sentinel_findings_total{severity="critical"}[5m]))` rate. Since 0.18.0 the counter carries a `service` label, so an unaggregated alert on it fires once per service: wrap it in `sum()` (or `sum by (service)` when per-service paging is what you want).
+**Symptom.** Alert fires on `sum(rate(perf_sentinel_findings_total{severity="critical"}[5m]))` rate. Since 0.18.0 the counter carries a `service` label and since 0.19.0 a `grouping` label, so an unaggregated alert on it fires once per (service, grouping): wrap it in `sum()` (or `sum by (service)`, `sum by (grouping)`, when per-service or per-namespace paging is what you want).
 
 **Triage workflow.**
 

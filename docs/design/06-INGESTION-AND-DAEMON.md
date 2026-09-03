@@ -331,16 +331,16 @@ The `prometheus` crate 0.14.0 does not support OpenMetrics exemplars natively. I
 **Tracking worst-case trace IDs:**
 
 `MetricsState` stores exemplar data in `RwLock`-protected fields:
-- `worst_finding_trace: HashMap<(&'static str, &'static str, String), ExemplarData>`, keyed by (finding_type, severity, effective service label), last writer per key, updated per analysed batch by the daemon (`record_exemplars_labeled`) and on each `record_batch()` call on the library path
+- `worst_finding_trace: HashMap<(&'static str, &'static str, String, String), ExemplarData>`, keyed by (finding_type, severity, effective service label, effective grouping label), last writer per key, updated per analysed batch by the daemon (`record_exemplars_labeled`) and on each `record_batch()` call on the library path
 - `worst_waste_trace: Option<ExemplarData>`, the trace_id of the finding with the most avoidable I/O
 
-Both expire 15 minutes after the batch that recorded them (`EXEMPLAR_TTL`). The map is bounded by the analysis service cap, so this is not about memory: a service that goes quiet would otherwise annotate its series forever with a `trace_id` already past the tracing backend's retention, and the Grafana click-through would land on a 404. The scrape path skips aged entries under its read lock, the write path prunes them under the one it already holds.
+Both expire 15 minutes after the batch that recorded them (`EXEMPLAR_TTL`). The map is bounded by the product of the analysis service and grouping caps, so this is not about memory: a service that goes quiet would otherwise annotate its series forever with a `trace_id` already past the tracing backend's retention, and the Grafana click-through would land on a 404. The scrape path skips aged entries under its read lock, the write path prunes them under the one it already holds.
 
 `RwLock` is used instead of `Mutex` because `render()` (read path) is called frequently by Prometheus scrapes, while `record_batch()` (write path) is called less often. Multiple concurrent scrapes should not block each other. Lock poisoning is handled gracefully via `unwrap_or_else(PoisonError::into_inner)`, so a panic in one thread does not cascade into crashes on subsequent lock acquisitions.
 
 **Exemplar injection:**
 
-`inject_exemplars()` iterates over the rendered text line by line. For `perf_sentinel_findings_total{...}` lines, it parses the `type`, `severity` and `service` labels to look up the matching exemplar.
+`inject_exemplars()` iterates over the rendered text line by line. For `perf_sentinel_findings_total{...}` lines, it parses the `type`, `severity`, `service` and `grouping` labels to look up the matching exemplar.
  For `perf_sentinel_io_waste_ratio` lines, it appends the waste trace exemplar.
 
 The exemplar format follows the OpenMetrics specification: `metric{labels} value # {trace_id="abc123"}`. When exemplars are present, the `Content-Type` header switches from `text/plain; version=0.0.4` (Prometheus) to `application/openmetrics-text; version=1.0.0` (OpenMetrics) so that Grafana's Prometheus data source can recognize and display exemplar links.
