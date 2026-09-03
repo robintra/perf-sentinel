@@ -285,7 +285,7 @@ Les valeurs sont figées au démarrage du daemon.
 `max_events_per_trace`, `max_payload_size`, `environment`,
 `max_retained_findings`, `max_export_findings`,
 `max_retained_traces`, `memory_high_water_pct`, `ingest_queue_capacity`,
-`analysis_queue_capacity`, `per_service_labels`, `api_enabled`), les sous-systèmes résumés
+`analysis_queue_capacity`, `per_service_labels`, `per_grouping_labels`, `api_enabled`), les sous-systèmes résumés
 (`tls_configured`, `ack_enabled`, `ack_api_key_set`,
 `cors_allowed_origins`, `archive_configured`) et le bloc de corrélation
 (`correlation_enabled`, `correlation_window_ms`,
@@ -913,11 +913,11 @@ groups:
 ```
 
 L'endpoint Prometheus intégré à `/metrics` expose déjà
-`perf_sentinel_findings_total{type,severity,service}` comme compteur, donc vous
-n'avez pas besoin de l'API de requêtage pour compter les alertes.
+`perf_sentinel_findings_total{type,severity,service,grouping}` comme compteur,
+donc vous n'avez pas besoin de l'API de requêtage pour compter les alertes.
 Enveloppez-le dans `sum()` comme ci-dessus : depuis 0.18.0 le compteur
-porte un label `service`, et une alerte non agrégée se déclenche une
-fois par service.
+porte un label `service` et depuis 0.19.0 un label `grouping`, et une
+alerte non agrégée se déclenche une fois par paire.
 Utilisez l'API de requêtage pour récupérer le **payload** (template,
 trace ID, suggestion) que le handler d'alerte inclut dans la
 notification.

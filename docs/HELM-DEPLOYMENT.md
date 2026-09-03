@@ -871,7 +871,12 @@ and since 0.18.0 `perf_sentinel_findings_total`,
 `perf_sentinel_slow_duration_seconds` and the per-service analysis
 counters) is kept where it is exposed, so every other series still takes
 the operator's `service` from the target and anything routing on that label is
-untouched. A panel or an alert written against the shape the bug
+untouched. The `grouping` label those series gain in 0.19.0 collides with
+nothing the operator attaches. It is not called `namespace` for exactly that
+reason: the operator does attach a `namespace` target label, honor labels
+would let the daemon's win, and the dashboard's `Daemon namespace` variable
+and every `namespace=~"$namespace"` filter would start selecting workload
+namespaces instead of the install. A panel or an alert written against the shape the bug
 produced, filtering `service="<release fullname>"` on the per-service
 metric, comes back empty with the real service names in its place. On
 an install
@@ -913,7 +918,7 @@ Import it one of two ways.
 Manual import: in Grafana open Dashboards then Import, upload the JSON,
 and map the `DS_PROMETHEUS` input to your Prometheus datasource.
 
-**Three template variables** sit above the panels. `Job` selects which
+**Four template variables** sit above the panels. `Job` selects which
 Prometheus job to read, which matters when several daemons are scraped
 by the same Prometheus, staging and production for instance.
 `Namespace` narrows all twenty-one panels to one or more Kubernetes
@@ -927,13 +932,18 @@ still matched by `All`, which leaves the dashboard unchanged outside
 Kubernetes. `Service` filters the analysis panels: findings, slow-span
 latency and I/O, eleven panels in total since 0.18.0, when
 `perf_sentinel_findings_total` and `perf_sentinel_slow_duration_seconds`
-gained a bounded `service` label. The remaining panels measure the
+gained a bounded `service` label, and `Grouping`, ahead of it, narrows the
+same eleven panels and the service list to the analysed traffic's grouping
+(`k8s.namespace.name`, then `service.namespace`, by default), which is what
+`Namespace` does not do. The remaining panels measure the
 daemon itself (health, queues, OTLP intake, energy freshness) and stay
 daemon-wide by construction: no service emits those numbers, so no
 service filter could slice them. Cardinality stays under control
 through per-run caps (128 services on findings, 64 on the histogram,
 overflow folded into `service="_other"`), and
-`[daemon] per_service_labels = false` restores the unlabeled shape.
+`[daemon] per_service_labels = false` restores the unlabeled shape, and `per_grouping_labels = false` the 0.18.0
+one; the grouping caps are independent of the service caps and fold into
+`grouping="_other"` the same way.
 
 **Every panel follows the time picker**, with one rule and one stated
 exception. Rate panels use `$__rate_interval` and windowed panels use
@@ -987,7 +997,8 @@ The dashboard above reads Prometheus, which answers "how many findings
 of what kind, from which service": since 0.18.0
 `perf_sentinel_findings_total` carries `type`, `severity` and a
 `service` label bounded by a 128-service cap (overflow folds into
-`service="_other"`). A per-endpoint label stays off `/metrics`,
+`service="_other"`) and, since 0.19.0, a `grouping` label bounded by its
+own caps. A per-endpoint label stays off `/metrics`,
 deliberately, because endpoint cardinality is unbounded. Which
 operation on which endpoint lives behind the query API.
 

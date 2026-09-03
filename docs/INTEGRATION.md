@@ -175,7 +175,7 @@ scrape_configs:
       - targets: ['perf-sentinel:4318']
 ```
 
-Key metrics: `perf_sentinel_findings_total{type, severity, service}`, `perf_sentinel_io_waste_ratio`, `perf_sentinel_events_processed_total`, `perf_sentinel_traces_analyzed_total`, `perf_sentinel_slow_duration_seconds{type, service}`. See [`METRICS.md`](./METRICS.md) for the full schema and [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the collector config.
+Key metrics: `perf_sentinel_findings_total{type, severity, service, grouping}`, `perf_sentinel_io_waste_ratio`, `perf_sentinel_events_processed_total`, `perf_sentinel_traces_analyzed_total`, `perf_sentinel_slow_duration_seconds{type, service, grouping}`. See [`METRICS.md`](./METRICS.md) for the full schema and [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the collector config.
 
 ---
 
