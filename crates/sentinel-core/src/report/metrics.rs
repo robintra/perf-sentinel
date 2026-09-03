@@ -398,6 +398,30 @@ fn sanitize_exemplar_value(value: &str) -> Cow<'_, str> {
     Cow::Owned(value.chars().filter(|&c| valid(c)).take(64).collect())
 }
 
+/// Saturating conversion of a Prometheus counter value to `u64`.
+///
+/// Counter values are never negative and never overflow in practice, the
+/// bounds are spelled out because clippy's cast lints want them explicit.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn counter_value_as_u64(value: f64) -> u64 {
+    if value <= 0.0 {
+        0
+    } else if value >= u64::MAX as f64 {
+        u64::MAX
+    } else {
+        value as u64
+    }
+}
+
+/// The `service` label of one child series, `None` when it carries none.
+fn service_label(metric: &prometheus::proto::Metric) -> Option<&str> {
+    metric
+        .get_label()
+        .iter()
+        .find(|label| label.name() == "service")
+        .map(prometheus::proto::LabelPair::value)
+}
+
 /// Shared metrics state for the daemon.
 #[derive(Clone)]
 pub struct MetricsState {
@@ -1518,39 +1542,21 @@ impl MetricsState {
         let mut out: HashMap<String, u64> = HashMap::new();
         for family in Collector::collect(&self.service_io_ops_total) {
             for metric in family.get_metric() {
+                let Some(service) = service_label(metric) else {
+                    continue;
+                };
                 // `metric.get_counter()` returns `MessageField<Counter>`
                 // (protobuf wrapper). Dereference to the inner Counter
                 // and call `.value()` which is the current accessor in
                 // prometheus 0.14.
-                let counter_value = metric.get_counter().value();
-                // Cumulative counts should always be representable as
-                // u64, saturate to u64::MAX on overflow so the delta
-                // math still produces sane values.
-                // Saturate to u64 safely: clamp the float to the
-                // representable range first, then cast. Counter
-                // values should never be negative or overflow, but
-                // clippy's cast_sign_loss / cast_possible_truncation
-                // lints want the bounds to be explicit.
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let count = if counter_value <= 0.0 {
-                    0u64
-                } else if counter_value >= u64::MAX as f64 {
-                    u64::MAX
-                } else {
-                    counter_value as u64
-                };
-                for label in metric.get_label() {
-                    if label.name() == "service" {
-                        // `get_mut` first: `entry(to_string())` would
-                        // allocate once per child series instead of once
-                        // per distinct service.
-                        match out.get_mut(label.value()) {
-                            Some(slot) => *slot = slot.saturating_add(count),
-                            None => {
-                                out.insert(label.value().to_string(), count);
-                            }
-                        }
-                        break;
+                let count = counter_value_as_u64(metric.get_counter().value());
+                // `get_mut` first: `entry(to_string())` would allocate
+                // once per child series instead of once per distinct
+                // service.
+                match out.get_mut(service) {
+                    Some(slot) => *slot = slot.saturating_add(count),
+                    None => {
+                        out.insert(service.to_string(), count);
                     }
                 }
             }
@@ -3489,5 +3495,28 @@ mod tests {
         assert_eq!(snapshot["svc-a"], 6);
         assert_eq!(snapshot["svc-b"], 4);
         assert_eq!(snapshot.len(), 2);
+    }
+
+    #[test]
+    fn counter_value_as_u64_saturates_at_both_ends() {
+        assert_eq!(counter_value_as_u64(-1.0), 0);
+        assert_eq!(counter_value_as_u64(0.0), 0);
+        assert_eq!(counter_value_as_u64(7.9), 7);
+        assert_eq!(counter_value_as_u64(f64::MAX), u64::MAX);
+    }
+
+    #[test]
+    fn service_label_reads_the_service_label_only() {
+        use prometheus::core::Collector;
+        let labeled =
+            CounterVec::new(Opts::new("t_service", "help"), &["grouping", "service"]).unwrap();
+        labeled.with_label_values(&["prod", "svc-a"]).inc();
+        let families = Collector::collect(&labeled);
+        assert_eq!(service_label(&families[0].get_metric()[0]), Some("svc-a"));
+
+        let unlabeled = CounterVec::new(Opts::new("t_grouping", "help"), &["grouping"]).unwrap();
+        unlabeled.with_label_values(&["prod"]).inc();
+        let families = Collector::collect(&unlabeled);
+        assert_eq!(service_label(&families[0].get_metric()[0]), None);
     }
 }
