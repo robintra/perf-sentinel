@@ -365,19 +365,19 @@
     <section data-dc-tpl="233" data-tech-only="" data-screen-label="Hub" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="234" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// one for the fleet</span></div>
       <h2 data-dc-tpl="235" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">A daemon remembers a service.</span><br data-dc-tpl="236"><span class="sc-interp">The Hub remembers the fleet.</span></h2>
-      <p data-dc-tpl="237" style="margin: 16px 0px 0px; max-width: 780px; font-size: 15.5px; color: var(--text-2); line-height: 1.62;"><span class="sc-interp">A watch daemon holds its findings in memory. The ring buffer forgets, and </span><code data-dc-tpl="238" class="dc-cmd">/api/findings</code><span class="sc-interp"> answers at most 1,000 rows, which is enough for one service but thin for a whole fleet. The Hub is a separate service that collects from every daemon and keeps the one thing they cannot reconstruct: when a finding was first seen.</span></p>
+      <p data-dc-tpl="237" style="margin: 16px 0px 0px; max-width: 780px; font-size: 15.5px; color: var(--text-2); line-height: 1.62;"><span class="sc-interp">A watch daemon holds its findings in memory, oldest evicted first, and </span><code data-dc-tpl="238" class="dc-cmd">/api/findings</code><span class="sc-interp"> answers at most 1,000 rows. Enough for one service, thin for a fleet. The Hub is a separate service that collects from every daemon and keeps what an eviction or a restart erases: when a finding was first seen.</span></p>
       <div data-dc-tpl="239" data-grid="cards3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 30px;">
         
           <div data-dc-tpl="241" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
             <div data-dc-tpl="242" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">PUSH</span></div>
             <div data-dc-tpl="243" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Push first, poll as a net</span></div>
-            <p data-dc-tpl="244" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Each daemon posts its findings, and retries a failed batch rather than dropping it. The Hub polls as a safety net, and only a successful poll decides whether a source is reachable, because that is the direction an operator needs when a source goes quiet.</span></p>
+            <p data-dc-tpl="244" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Each daemon posts its findings and retries a failed batch rather than dropping it. The Hub polls as a net, and only a successful poll marks a source reachable, the direction an operator needs when a source goes quiet.</span></p>
           </div>
         
           <div data-dc-tpl="241" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
             <div data-dc-tpl="242" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">HISTORY</span></div>
             <div data-dc-tpl="243" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">A first-seen date nothing else holds</span></div>
-            <p data-dc-tpl="244" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">The ring buffer forgets, so losing that timeline loses it for good. A finding whose normalized template changes is linked to the one it replaced, and the oldest date in the chain is the one kept.</span></p>
+            <p data-dc-tpl="244" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">A finding whose normalized template changes is linked to the one it replaced, and the chain keeps its oldest date. Nothing downstream rebuilds that timeline once the buffer has forgotten it.</span></p>
           </div>
         
           <div data-dc-tpl="241" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
@@ -397,7 +397,7 @@
           <h2 data-dc-tpl="252" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">A single </span><span data-dc-tpl="253" style="color: var(--rust);"><span class="sc-interp">Rust</span></span><span class="sc-interp"> binary, measured</span></h2>
         </div>
         <div data-dc-tpl="254" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--rust); background: color-mix(in srgb,var(--rust) 12%,transparent); border: 1px solid color-mix(in srgb,var(--rust) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
-          <img data-dc-tpl="255" src="assets/rust.svg" alt="Rust" width="15" height="15" style="display: block; flex: 0 0 auto;"><span class="sc-interp">Version 1.96.0</span>
+          <img data-dc-tpl="255" src="assets/rust.svg" alt="Rust" width="15" height="15" style="display: block; flex: 0 0 auto;"><span class="sc-interp">Version 1.97.1</span>
         </div>
       </div>
       <p data-dc-tpl="256" style="margin: 18px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.</span></p>
@@ -1569,11 +1569,11 @@ class Component extends DCLogic {
         detFoot: 'Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.',
         hubEyebrow: '// one for the fleet',
         hubTitleA: 'A daemon remembers a service.', hubTitleB: 'The Hub remembers the fleet.',
-        hubLeadA: 'A watch daemon holds its findings in memory. The ring buffer forgets, and ',
-        hubLeadB: ' answers at most 1,000 rows, which is enough for one service but thin for a whole fleet. The Hub is a separate service that collects from every daemon and keeps the one thing they cannot reconstruct: when a finding was first seen.',
+        hubLeadA: 'A watch daemon holds its findings in memory, oldest evicted first, and ',
+        hubLeadB: ' answers at most 1,000 rows. Enough for one service, thin for a fleet. The Hub is a separate service that collects from every daemon and keeps what an eviction or a restart erases: when a finding was first seen.',
         hubPoints: [
-          { tag: 'PUSH', title: 'Push first, poll as a net', desc: 'Each daemon posts its findings, and retries a failed batch rather than dropping it. The Hub polls as a safety net, and only a successful poll decides whether a source is reachable, because that is the direction an operator needs when a source goes quiet.' },
-          { tag: 'HISTORY', title: 'A first-seen date nothing else holds', desc: 'The ring buffer forgets, so losing that timeline loses it for good. A finding whose normalized template changes is linked to the one it replaced, and the oldest date in the chain is the one kept.' },
+          { tag: 'PUSH', title: 'Push first, poll as a net', desc: 'Each daemon posts its findings and retries a failed batch rather than dropping it. The Hub polls as a net, and only a successful poll marks a source reachable, the direction an operator needs when a source goes quiet.' },
+          { tag: 'HISTORY', title: 'A first-seen date nothing else holds', desc: 'A finding whose normalized template changes is linked to the one it replaced, and the chain keeps its oldest date. Nothing downstream rebuilds that timeline once the buffer has forgotten it.' },
           { tag: 'LAUNCHER', title: 'Run an analysis from a browser', desc: 'Pick a source, shape a run, read fleet health. The Hub launches the perf-sentinel binary itself and serves back the dashboard it renders.' }
         ],
         hubMore: 'PerfSentinelHub on GitHub',
@@ -1726,11 +1726,11 @@ class Component extends DCLogic {
         detFoot: 'Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source et impact GreenOps. En mode daemon, s\u2019y ajoute la corrélation cross-trace.',
         hubEyebrow: '// un seul pour la flotte',
         hubTitleA: 'Un daemon retient un service.', hubTitleB: 'Le Hub retient la flotte.',
-        hubLeadA: 'Un daemon watch garde ses findings en mémoire. Le tampon circulaire oublie, et ',
-        hubLeadB: " répond au plus 1 000 lignes, ce qui suffit pour un service mais devient mince pour toute une flotte. Le Hub est un service séparé qui collecte auprès de chaque daemon et conserve la seule chose qu'ils ne peuvent pas reconstruire : la date de première apparition d'un finding.",
+        hubLeadA: 'Un daemon watch garde ses findings en mémoire, les plus anciens évincés d\u2019abord, et ',
+        hubLeadB: " répond au plus 1 000 lignes. Assez pour un service, mince pour une flotte. Le Hub est un service séparé qui collecte auprès de chaque daemon et conserve ce qu'une éviction ou un redémarrage efface : la date de première apparition d'un finding.",
         hubPoints: [
-          { tag: 'PUSH', title: 'Le push d’abord, le poll en filet', desc: 'Chaque daemon pousse ses findings, et réessaie un lot en échec plutôt que de l’abandonner. Le Hub interroge en filet de sécurité, et seul un poll réussi décide de la joignabilité, parce que c’est la direction dont un opérateur a besoin quand une source se tait.' },
-          { tag: 'HISTORIQUE', title: 'Une date de première vue que rien d’autre ne garde', desc: 'Le tampon circulaire oublie, donc perdre cette chronologie la perd pour de bon. Un finding dont le template normalisé change est relié à celui qu’il remplace, et c’est la date la plus ancienne de la chaîne qui est conservée.' },
+          { tag: 'PUSH', title: 'Le push d’abord, le poll en filet', desc: 'Chaque daemon pousse ses findings et réessaie un lot en échec plutôt que de l’abandonner. Le Hub interroge en filet, et seul un poll réussi déclare une source joignable, la direction dont un opérateur a besoin quand une source se tait.' },
+          { tag: 'HISTORIQUE', title: 'Une date de première vue que rien d’autre ne garde', desc: 'Un finding dont le template normalisé change est relié à celui qu’il remplace, et la chaîne garde sa date la plus ancienne. Rien en aval ne reconstruit cette chronologie une fois que le tampon l’a oubliée.' },
           { tag: 'LANCEUR', title: 'Lancer une analyse depuis un navigateur', desc: 'Choisir une source, façonner un run, lire la santé de la flotte. Le Hub lance lui-même le binaire perf-sentinel et sert le tableau de bord qu’il produit.' }
         ],
         hubMore: 'PerfSentinelHub sur GitHub',
