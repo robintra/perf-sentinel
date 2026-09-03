@@ -3906,7 +3906,7 @@ mod tests {
         let global = metrics.avoidable_io_ops.get();
         assert!(global > 0.0, "fixture should produce avoidable I/O");
         let summed: f64 = ["svc-a", "svc-b", SERVICE_OVERFLOW_LABEL]
-            .iter()
+            .into_iter()
             .map(|s| {
                 metrics
                     .service_avoidable_io_ops_total
