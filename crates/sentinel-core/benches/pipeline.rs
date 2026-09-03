@@ -255,7 +255,7 @@ fn bench_prometheus_counter(c: &mut Criterion) {
     // pre-cached child handle (the pattern used for the OTLP counters).
     let vec = prometheus::CounterVec::new(
         prometheus::Opts::new("bench_counter", "bench"),
-        &["service"],
+        &["service", "grouping"],
     )
     .expect("counter creation");
     let services: Vec<String> = (0..64).map(|i| format!("synth-svc-{i:04}")).collect();
@@ -263,7 +263,7 @@ fn bench_prometheus_counter(c: &mut Criterion) {
     group.bench_function("with_label_values_per_event", |b| {
         let mut i = 0usize;
         b.iter(|| {
-            vec.with_label_values(&[services[i % services.len()].as_str()])
+            vec.with_label_values(&[services[i % services.len()].as_str(), "prod"])
                 .inc();
             i += 1;
         });
@@ -271,7 +271,7 @@ fn bench_prometheus_counter(c: &mut Criterion) {
     group.bench_function("cached_child_per_event", |b| {
         let children: Vec<prometheus::Counter> = services
             .iter()
-            .map(|s| vec.with_label_values(&[s.as_str()]))
+            .map(|s| vec.with_label_values(&[s.as_str(), "prod"]))
             .collect();
         let mut i = 0usize;
         b.iter(|| {

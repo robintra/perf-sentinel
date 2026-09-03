@@ -1538,8 +1538,15 @@ impl MetricsState {
                 };
                 for label in metric.get_label() {
                     if label.name() == "service" {
-                        let slot = out.entry(label.value().to_string()).or_insert(0);
-                        *slot = slot.saturating_add(count);
+                        // `get_mut` first: `entry(to_string())` would
+                        // allocate once per child series instead of once
+                        // per distinct service.
+                        match out.get_mut(label.value()) {
+                            Some(slot) => *slot = slot.saturating_add(count),
+                            None => {
+                                out.insert(label.value().to_string(), count);
+                            }
+                        }
                         break;
                     }
                 }

@@ -365,21 +365,22 @@ pub(crate) const MAX_HISTOGRAM_SERVICE_CARDINALITY: usize = 64;
 /// `perf_sentinel_service_io_ops_total`. Independent of
 /// [`MAX_SERVICE_CARDINALITY`] and folding rather than dropping, so a
 /// service's sum over its groupings stays its pre-0.19 value. Worst
-/// case 1024 x 33 series.
+/// case 1024 x 34 series (the cap, `_other` and the empty value).
 pub(crate) const MAX_GROUPING_CARDINALITY: usize = 32;
 
 /// Cardinality cap on the analysis-side `grouping` label
 /// (`findings_total`, `service_avoidable_io_ops_total`,
 /// `service_analyzed_io_ops_total`). Findings multiply by 12 types x 3
-/// severities x 129 services, so 17 grouping values bound the family
-/// near 79k series in the adversarial case; a real fleet, where the
-/// grouping is nearly a function of the service, sits near twice the
-/// 0.18 count.
+/// severities x 129 services, so 18 grouping values (the cap, `_other`
+/// and the empty value) bound the family near 84k series in the
+/// adversarial case. A real fleet, where each service lives in one
+/// grouping, keeps its 0.18 count; a service deployed in two groupings
+/// doubles its own series.
 pub(crate) const MAX_ANALYSIS_GROUPING_CARDINALITY: usize = 16;
 
 /// Cardinality cap on the slow-duration histogram's `grouping` label,
 /// the lowest of the three: 14 series per (type, service, grouping),
-/// 3 x 65 x 9 x 14 in the adversarial case.
+/// 3 x 65 x 10 x 14 in the adversarial case.
 pub(crate) const MAX_HISTOGRAM_GROUPING_CARDINALITY: usize = 8;
 
 /// Label value that series of services or groupings past a cap fold
@@ -439,8 +440,10 @@ impl CappedServices {
 
 /// Per-service I/O op counter cache over [`CappedServices`]. Caps
 /// cardinality against hostile `service.name` floods and caches the
-/// labeled children so the per-event path is two `HashMap` lookups plus
-/// an atomic add. Ingest drops past the service cap: the overflow
+/// labeled children so the hit path is two `HashMap` lookups plus an
+/// atomic add; an event whose grouping folded past its cap misses that
+/// path and pays the two admission probes plus the overflow increment on
+/// every occurrence. Ingest drops past the service cap: the overflow
 /// counter moves on every unattributed op. The grouping axis folds into
 /// [`SERVICE_OVERFLOW_LABEL`] instead, so a service's sum over its
 /// groupings stays exact for the energy scrapers.
@@ -563,7 +566,7 @@ struct AnalysisServiceMeter {
     hist_names: CappedServices,
     hist_groupings: CappedServices,
     /// Histogram children per effective (service, grouping) pair, so the
-    /// per-span path is two `HashMap` hits and no allocation.
+    /// hit path is two `HashMap` lookups and no allocation.
     hist_children: HashMap<String, HashMap<String, SlowHists>>,
 }
 
@@ -4277,6 +4280,12 @@ mod tests {
         // Already-admitted groupings keep their own label past the cap.
         assert_eq!(meter.grouping_label("prod", &metrics), "prod");
         assert_eq!(metrics.analysis_grouping_overflow_total.get(), 1);
+        // Every folded call counts: the fold is never memoized.
+        assert_eq!(
+            meter.grouping_label("dev", &metrics),
+            SERVICE_OVERFLOW_LABEL
+        );
+        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 2);
         assert_eq!(metrics.analysis_service_overflow_total.get(), 0);
         assert!(meter.groupings.warned);
     }
@@ -4341,21 +4350,6 @@ mod tests {
         );
         assert_eq!(metrics.analysis_service_overflow_total.get(), 1);
         assert_eq!(metrics.analysis_grouping_overflow_total.get(), 1);
-    }
-
-    #[test]
-    fn analysis_grouping_overflow_counts_attributions_not_endpoint_fanout() {
-        let metrics = MetricsState::new();
-        let mut meter = AnalysisServiceMeter::new(true, true, &metrics);
-        meter.groupings.cap = 0;
-
-        for _ in 0..3 {
-            assert_eq!(
-                meter.grouping_label("prod", &metrics),
-                SERVICE_OVERFLOW_LABEL
-            );
-        }
-        assert_eq!(metrics.analysis_grouping_overflow_total.get(), 3);
     }
 
     #[test]
@@ -4534,5 +4528,181 @@ mod tests {
             "findings_total must carry the finding's grouping: {rendered}"
         );
         assert!(!rendered.contains("perf_sentinel_findings_total{grouping=\"\""));
+    }
+
+    #[tokio::test]
+    async fn ingest_event_batch_labels_io_ops_with_the_spans_grouping() {
+        // The production read of a span's grouping on the ingest side
+        // lives in `ingest_event_batch`, not in the meter the other tests
+        // drive directly.
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut event = crate::test_helpers::make_sql_event_with_duration(
+            "trace-g",
+            "span-g",
+            "SELECT 1",
+            "2025-07-10T14:32:01.123Z",
+            100,
+        );
+        event.service = Arc::from("orders-svc");
+        event.grouping = crate::test_helpers::k8s_grouping("prod");
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
+
+        ingest_event_batch(
+            super::super::IngestBatch {
+                events: vec![event],
+                source_endpoint_updates: vec![],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(
+            !metrics
+                .render()
+                .contains("service_io_ops_total{grouping=\"\",service=\"orders-svc\"")
+        );
+        let labeled = metrics
+            .service_io_ops_total
+            .with_label_values(&["orders-svc", "prod"])
+            .get();
+        assert!((labeled - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn record_slow_durations_labels_the_histogram_with_the_spans_grouping() {
+        // 600 ms against the default 500 ms threshold: the only test
+        // that reaches `record_slow_durations` with a slow span.
+        let mut event = crate::test_helpers::make_sql_event_with_duration(
+            "t1",
+            "s1",
+            "SELECT 1",
+            "2025-07-10T14:32:01.123Z",
+            600_000,
+        );
+        event.grouping = crate::test_helpers::k8s_grouping("prod");
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![("t1".to_string(), vec![normalize::normalize(event)])],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+
+        let count = metrics
+            .slow_duration_seconds
+            .with_label_values(&["sql", "order-svc", "prod"])
+            .get_sample_count();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn analysis_worker_honours_per_grouping_labels_off() {
+        // The knob travels `DaemonConfig` -> `EventLoopConfig` ->
+        // `AnalysisWorkerCtx` -> `AnalysisServiceMeter::new`; every other
+        // test hardcodes it true on both sides, which a swapped argument
+        // would satisfy.
+        let metrics = Arc::new(MetricsState::new());
+        let store = Arc::new(findings_store::FindingsStore::new(100));
+        let cell = fresh_green_cell();
+        let base = Arc::new(empty_carbon_ctx());
+        let sources = no_scrapers(&base);
+
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        enqueue_for_analysis(
+            vec![n_plus_one_trace("t1", "svc-a", "prod", 6)],
+            &sources,
+            &work_tx,
+            &metrics,
+        );
+        let mut wctx = test_worker_ctx(&metrics, &store, &cell);
+        wctx.per_grouping_labels = false;
+        let worker = tokio::spawn(run_analysis_worker(work_rx, wctx));
+        drop(work_tx);
+        worker.await.expect("worker should drain and exit");
+
+        let rendered = metrics.render();
+        assert!(
+            rendered.contains("perf_sentinel_findings_total{grouping=\"\",service=\"svc-a\""),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("grouping=\"prod\""), "{rendered}");
+    }
+
+    #[tokio::test]
+    async fn event_loop_honours_per_grouping_labels_off_on_ingest() {
+        // The ingest meter is built inside `drive_event_loop` from
+        // `loop_cfg.per_grouping_labels`; the batch is sent from the
+        // shutdown future so the loop ingests it during the final drain,
+        // same shape as the queued-root-context test above.
+        let metrics = Arc::new(MetricsState::new());
+        let store = Arc::new(findings_store::FindingsStore::new(100));
+        let cell = fresh_green_cell();
+        let base = Arc::new(empty_carbon_ctx());
+        let sources = no_scrapers(&base);
+        let window = test_window();
+
+        let mut event = crate::test_helpers::make_sql_event_with_duration(
+            "trace-g",
+            "span-g",
+            "SELECT 1",
+            "2025-07-10T14:32:01.123Z",
+            100,
+        );
+        event.service = Arc::from("orders-svc");
+        event.grouping = crate::test_helpers::k8s_grouping("prod");
+
+        let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(1);
+        let shutdown_fut = async move {
+            tx.send(super::super::IngestBatch {
+                events: vec![event],
+                source_endpoint_updates: vec![],
+            })
+            .await
+            .expect("batch queued before shutdown");
+        };
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        let worker = tokio::spawn(run_analysis_worker(
+            work_rx,
+            test_worker_ctx(&metrics, &store, &cell),
+        ));
+        let grpc = tokio::spawn(std::future::pending::<()>());
+        let http = tokio::spawn(std::future::pending::<()>());
+        let mut loop_cfg = test_loop_cfg();
+        loop_cfg.per_grouping_labels = false;
+
+        let result = drive_event_loop(
+            &mut rx,
+            &window,
+            &metrics,
+            &sources,
+            dummy_shutdown(&grpc, &http),
+            loop_cfg,
+            work_tx,
+            worker,
+            shutdown_fut,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let rendered = metrics.render();
+        assert!(
+            rendered.contains(
+                "perf_sentinel_service_io_ops_total{grouping=\"\",service=\"orders-svc\"} 1"
+            ),
+            "{rendered}"
+        );
+        // The analysis worker keeps its own knob (true here), so only the
+        // ingest family is asserted unlabeled.
+        assert!(
+            !rendered.contains("perf_sentinel_service_io_ops_total{grouping=\"prod\""),
+            "{rendered}"
+        );
     }
 }
