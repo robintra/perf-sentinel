@@ -2472,15 +2472,22 @@ body[data-screen="report"] .shell-footer {
     padding: 0 18px;
     border: 1px solid var(--btn-bd);
     border-radius: 999px;
-    background: transparent;
+    /* These sit on the five toned outcome panels, so a transparent button took
+       the panel's own tone as its face and read as underlined prose with a ring
+       around it. The same ground the insets use, for the same reason: one rule
+       that separates by lightness on all five tones and in both themes. */
+    background: var(--inset-bg);
     color: var(--btn-fg);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
 }
 
+/* Not brightness: on a light theme these are dark marks on a pale ground, so
+   brightening faded the border towards its ground and the hovered button lost
+   the edge it is meant to gain. The edge is stated instead. */
 .action:hover {
-    filter: brightness(1.08);
+    border-color: var(--btn-fg);
     text-decoration: none;
 }
 
@@ -2490,11 +2497,24 @@ body[data-screen="report"] .shell-footer {
     color: #ffffff;
 }
 
+/* The filled one is the exception the rule above is written against: its face
+   is opaque brand, which brightens the way a lit surface should. */
+.action-filled:hover {
+    border-color: var(--brand);
+    filter: brightness(1.08);
+}
+
 .action-secondary {
     padding: 0 16px;
     border-color: var(--border-2);
     color: var(--text-2);
     font-weight: 500;
+}
+
+/* Its own darker edge rather than the primary's green: this button is the way
+   out of the panel, not the action it recommends. */
+.action-secondary:hover {
+    border-color: var(--text-2);
 }
 
 .outcome-note {

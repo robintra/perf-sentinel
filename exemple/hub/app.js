@@ -1169,6 +1169,10 @@
         ["// what it keeps for readers",
             "Ring buffers behind the query API and the export. Past each one, the oldest goes.",
             ["max_retained_findings", "max_export_findings", "max_retained_traces"]],
+        ["// metrics labels",
+            "How /metrics splits its series. Emptying one folds its label away, which is breaking "
+            + "for whatever already reads it.",
+            ["per_service_labels", "per_grouping_labels"]],
         ["// listeners", "Where it accepts spans, and whether it answers questions at all.",
             ["api_enabled", "listen_addr", "listen_port", "listen_port_grpc", "json_socket"]],
         ["// sub-systems", "Off unless somebody turned them on.",
@@ -1206,6 +1210,11 @@
             + "snapshot counts those and no others.",
         max_retained_traces: "Span trees kept so an export can draw them. Zero keeps none, and every "
             + "finding in that export opens without a tree.",
+        per_service_labels: "Whether the finding, slow-duration and I/O series carry the service "
+            + "they came from. Off empties the label, and every service folds into one series.",
+        per_grouping_labels: "The same for the grouping beside it, the namespace by default. Off "
+            + "empties that label, and past the daemon's own cap on (service, grouping) pairs a "
+            + "grouping folds into `_other` on its own.",
         api_enabled: "Whether the query API is served at all. The Hub reads this daemon through it, "
             + "so a run from here needs it on.",
         listen_addr: "Where the OTLP receivers and /metrics bind. An address outside loopback exposes "
@@ -1983,7 +1992,7 @@
     }
 
     /**
-     * One group, folded. Folded is the useful state: eight headings fit on a
+     * One group, folded. Folded is the useful state: nine headings fit on a
      * glance, and the count of departures on each says which one to open. The
      * gloss lives in the body rather than the heading, or the folded list would
      * be as long as the open one.
