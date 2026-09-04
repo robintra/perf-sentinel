@@ -410,6 +410,12 @@ retained history rather than the slice inside the window. It does not
 undo eviction: a signature the buffer already dropped is gone at any
 bound, which is what `max_retained_findings` governs.
 
+A short page is not proof that the window is drained. Acknowledged rows
+are dropped after `limit` has already truncated, so with the default
+`include_acked=false` a full window can come back with fewer rows than
+the limit. A collector that pages on the row count should send
+`include_acked=true` and read `acknowledged_by` itself.
+
 **Response shape:** array of `StoredFinding`. Each `StoredFinding` has:
 
 - `finding`: the WORST-severity detection of this signature, whole.

@@ -407,7 +407,7 @@ peut donc pas monopoliser la page.
 | `service`       | string  | aucun   | Match exact sur le champ `finding.service`                                                                              |
 | `type`          | string  | aucun   | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
 | `severity`      | string  | aucun   | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
-| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch, incluse                                                         |
+| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                         |
 | `limit`         | integer | `100`   | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
 | `include_acked` | boolean | `false` | Retourne aussi les findings acquittés, chacun annoté d'un `acknowledged_by`                                             |
 
@@ -422,6 +422,13 @@ continuent de rapporter l'historique retenu entier plutôt que la tranche
 comprise dans la fenêtre. Il ne défait pas l'éviction : une signature que
 le buffer a déjà lâchée est perdue quelle que soit la borne, ce que
 gouverne `max_retained_findings`.
+
+Une page courte ne prouve pas que la fenêtre est vidée. Les lignes
+acquittées sont écartées après que `limit` a déjà tronqué, donc avec le
+défaut `include_acked=false` une fenêtre pleine peut revenir avec moins
+de lignes que la limite. Un collecteur qui pagine sur le nombre de lignes
+a intérêt à envoyer `include_acked=true` et à lire `acknowledged_by`
+lui-même.
 
 **Forme de la réponse :** tableau de `StoredFinding`. Chaque
 `StoredFinding` contient :
