@@ -402,16 +402,26 @@ peut donc pas monopoliser la page.
 
 **Paramètres de requête :**
 
-| Nom        | Type    | Défaut | Description                                                                                                             |
-|------------|---------|--------|-------------------------------------------------------------------------------------------------------------------------|
-| `service`  | string  | aucun  | Match exact sur le champ `finding.service`                                                                              |
-| `type`     | string  | aucun  | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
-| `severity` | string  | aucun  | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
-| `limit`    | integer | `100`  | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
+| Nom             | Type    | Défaut  | Description                                                                                                             |
+|-----------------|---------|---------|-------------------------------------------------------------------------------------------------------------------------|
+| `service`       | string  | aucun   | Match exact sur le champ `finding.service`                                                                              |
+| `type`          | string  | aucun   | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
+| `severity`      | string  | aucun   | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
+| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch, incluse                                                         |
+| `limit`         | integer | `100`   | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
+| `include_acked` | boolean | `false` | Retourne aussi les findings acquittés, chacun annoté d'un `acknowledged_by`                                             |
 
 Les paramètres inconnus sont ignorés. Les valeurs malformées (ex.
 `limit=abc`) retournent un HTTP 400 avec un corps d'erreur généré par
 axum.
+
+`since_ms` est la façon dont un collecteur demande un delta au lieu de
+relire tout le buffer. Il s'applique après le repli, contre la détection
+la plus récente de la ligne, donc `first_seen_ms` et `seen_count`
+continuent de rapporter l'historique retenu entier plutôt que la tranche
+comprise dans la fenêtre. Il ne défait pas l'éviction : une signature que
+le buffer a déjà lâchée est perdue quelle que soit la borne, ce que
+gouverne `max_retained_findings`.
 
 **Forme de la réponse :** tableau de `StoredFinding`. Chaque
 `StoredFinding` contient :

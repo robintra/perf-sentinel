@@ -391,15 +391,24 @@ cannot consume the page.
 
 **Query parameters:**
 
-| Name       | Type    | Default | Description                                                                                            |
-|------------|---------|---------|--------------------------------------------------------------------------------------------------------|
-| `service`  | string  | none    | Exact match on the `finding.service` field                                                             |
-| `type`     | string  | none    | Exact match on `finding.type` in snake_case (e.g. `n_plus_one_sql`, `redundant_sql`)                   |
-| `severity` | string  | none    | Exact match on `finding.severity` in snake_case (`critical`, `warning`, `info`)                        |
-| `limit`    | integer | `100`   | Maximum number of entries to return, capped server-side at `1000` (higher values are silently clamped) |
+| Name            | Type    | Default | Description                                                                                            |
+|-----------------|---------|---------|--------------------------------------------------------------------------------------------------------|
+| `service`       | string  | none    | Exact match on the `finding.service` field                                                             |
+| `type`          | string  | none    | Exact match on `finding.type` in snake_case (e.g. `n_plus_one_sql`, `redundant_sql`)                   |
+| `severity`      | string  | none    | Exact match on `finding.severity` in snake_case (`critical`, `warning`, `info`)                        |
+| `since_ms`      | integer | none    | Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive                                   |
+| `limit`         | integer | `100`   | Maximum number of entries to return, capped server-side at `1000` (higher values are silently clamped) |
+| `include_acked` | boolean | `false` | Return acknowledged findings too, each annotated with `acknowledged_by`                                |
 
 Unknown parameters are ignored. Malformed values (e.g. `limit=abc`) return
 HTTP 400 with an axum-generated error body.
+
+`since_ms` is how a poller asks for a delta instead of re-reading the
+whole buffer. It applies after the fold, against the row's most recent
+detection, so `first_seen_ms` and `seen_count` keep reporting the whole
+retained history rather than the slice inside the window. It does not
+undo eviction: a signature the buffer already dropped is gone at any
+bound, which is what `max_retained_findings` governs.
 
 **Response shape:** array of `StoredFinding`. Each `StoredFinding` has:
 
