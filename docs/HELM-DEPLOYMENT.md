@@ -1030,10 +1030,13 @@ operation on which endpoint lives behind the query API.
 A second dashboard reads it directly through the
 [Infinity plugin](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
 (`yesoreyeram-infinity-datasource`, install it first, it does not ship
-with Grafana):
+with Grafana, and pin its version where you provision it):
 
 - [`examples/grafana-infinity-datasource.yaml`](../examples/grafana-infinity-datasource.yaml),
-  the provisioned datasource. Set the namespace in the URL.
+  the provisioned datasource. Set the namespace in the URL, and the port
+  too if you moved `service.ports.otlpHttp.port`: the chart checks that
+  value against `[daemon] listen_port_http`, this file is outside that
+  check.
 - [`examples/grafana-findings-dashboard.json`](../examples/grafana-findings-dashboard.json),
   title `perf-sentinel findings`, uid `perf-sentinel-findings`: the
   daemon's status line, a filterable table of findings, the runtime
@@ -1048,7 +1051,10 @@ cluster.
 Two things to settle before you ship it. First, the daemon has no
 embedded IAM: whoever opens this dashboard's folder reads your SQL
 templates and endpoint names, so scope the folder to the people allowed
-to see them. Second, if `networkPolicy.enabled=true`, add Grafana as a
+to see them, which presumes a folder of its own. In a folder shared with
+the cluster and database dashboards, restricting it restricts those as
+well, so the answer there is a dedicated folder rather than a narrower
+shared one. Second, if `networkPolicy.enabled=true`, add Grafana as a
 peer under `networkPolicy.ingress.fromNamespaceSelectors` or
 `.fromPodSelectors`, otherwise the datasource times out with no useful
 error, because a NetworkPolicy denies silently.
@@ -1066,7 +1072,11 @@ default, so an acked critical is absent with nothing saying so, and
 (`toml` for the CI baseline, `daemon` for the runtime store). The
 dashboard declares the Infinity plugin in `__inputs` and `__requires`,
 so the import dialog asks which Infinity datasource to bind rather than
-importing panels with nothing to query.
+importing panels with nothing to query. The `2.0.0` in `__requires` is
+the floor that dialog checks, not a statement about later majors: after
+a major plugin bump, check that all four tables still fill, since their
+columns come from the backend parser and a parser change empties a table
+without erroring anywhere.
 
 ### Alerting rules (PrometheusRule)
 

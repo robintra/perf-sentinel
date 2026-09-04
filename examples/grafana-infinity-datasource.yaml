@@ -2,6 +2,13 @@
 # (yesoreyeram-infinity-datasource, install it first: it does not ship with
 # Grafana). Pairs with examples/grafana-findings-dashboard.json.
 #
+# PIN THE PLUGIN VERSION where you provision it. The dashboard's `__requires`
+# names 2.0.0, which is the floor Grafana's import dialog checks and not a
+# statement about later majors; the plugin is on 4.x today. After a major bump,
+# open the dashboard and check that all four tables still fill: their columns
+# come from the backend parser, and a parser change empties a table without
+# erroring anywhere.
+#
 # WHY THIS EXISTS. The Prometheus dashboard (examples/grafana-dashboard.json)
 # answers "how many findings and of what kind": `perf_sentinel_findings_total`
 # carries `type`, `severity`, (since 0.18.0) a capped `service` label and
@@ -17,7 +24,11 @@
 #
 # 1. The daemon has no embedded IAM. Anyone who can open this Grafana folder
 #    reads your SQL templates and endpoint names. That is a data-exposure
-#    decision, not a technical one: scope the folder accordingly.
+#    decision, not a technical one: scope the folder accordingly. Which
+#    presumes a folder of its own. Dropped into a shared folder, next to the
+#    cluster and database dashboards, restricting it restricts all of those
+#    too, so the usual answer is a dedicated folder rather than a narrower
+#    shared one.
 # 2. If `networkPolicy.enabled=true` in the Helm chart, add Grafana as a peer
 #    under `networkPolicy.ingress.fromNamespaceSelectors` or
 #    `.fromPodSelectors`. Without it the datasource times out with no useful
@@ -25,10 +36,11 @@
 #
 # IF THE PANEL HANGS AND THEN 503s. Grafana's backend never reached the daemon,
 # and neither the panel nor the response names why. Check the `url` below
-# first: the port is 4318, and the host needs its namespace unless Grafana runs
-# in the same one. A wrong port fails exactly this way, nothing being there to
-# refuse the connection. `allowedHosts` carries the same value and has to be
-# corrected with it. The NetworkPolicy of point 2 is the other cause.
+# first: the port is the chart's `service.ports.otlpHttp.port`, 4318 unless you
+# moved it, and the host needs its namespace unless Grafana runs in the same
+# one. A wrong port fails exactly this way, nothing being there to refuse the
+# connection. `allowedHosts` carries the same value and has to be corrected
+# with it. The NetworkPolicy of point 2 is the other cause.
 apiVersion: 1
 
 datasources:
@@ -37,7 +49,10 @@ datasources:
     type: yesoreyeram-infinity-datasource
     # Base URL of the daemon's HTTP port (OTLP HTTP, query API, /metrics).
     # `perf-sentinel` is the chart's fullname, adjust for a release name or
-    # nameOverride. Replace <ns> with the release namespace.
+    # nameOverride. Replace <ns> with the release namespace, and the port with
+    # `service.ports.otlpHttp.port` if you moved it: the chart cross-checks
+    # that value against `[daemon] listen_port_http`, this file is not in that
+    # check.
     url: http://perf-sentinel.<ns>.svc.cluster.local:4318
     access: proxy
     isDefault: false

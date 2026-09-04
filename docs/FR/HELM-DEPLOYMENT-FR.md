@@ -716,10 +716,13 @@ requête.
 Un second tableau de bord la lit directement par le
 [plugin Infinity](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
 (`yesoreyeram-infinity-datasource`, à installer d'abord, il n'est pas
-livré avec Grafana) :
+livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
 
 - [`examples/grafana-infinity-datasource.yaml`](../../examples/grafana-infinity-datasource.yaml),
-  la datasource provisionnée. Renseignez le namespace dans l'URL.
+  la datasource provisionnée. Renseignez le namespace dans l'URL, et le
+  port aussi si vous avez déplacé `service.ports.otlpHttp.port` : le
+  chart recoupe cette valeur avec `[daemon] listen_port_http`, ce
+  fichier est hors de ce contrôle.
 - [`examples/grafana-findings-dashboard.json`](../../examples/grafana-findings-dashboard.json),
   titre `perf-sentinel findings`, uid `perf-sentinel-findings` : la
   ligne d'état du daemon, une table filtrable des findings, les
@@ -734,7 +737,11 @@ exposé hors du cluster.
 Deux points à régler avant de le mettre en service. D'abord, le daemon
 n'embarque pas d'IAM : qui ouvre le dossier de ce tableau de bord lit
 vos templates SQL et vos noms d'endpoints, réservez donc le dossier aux
-personnes autorisées à les voir. Ensuite, si `networkPolicy.enabled=true`,
+personnes autorisées à les voir, ce qui suppose un dossier à lui. Dans
+un dossier partagé avec les tableaux de bord du cluster et des bases,
+le restreindre restreint aussi tous les autres : la réponse y est un
+dossier dédié plutôt qu'un dossier commun plus fermé. Ensuite, si
+`networkPolicy.enabled=true`,
 ajoutez Grafana comme pair sous `networkPolicy.ingress.fromNamespaceSelectors`
 ou `.fromPodSelectors`, sinon la datasource expire sans erreur utile,
 parce qu'une NetworkPolicy refuse en silence.
@@ -754,7 +761,12 @@ colonne `Acked via` qui nomme la source (`toml` pour la baseline CI,
 `daemon` pour le stockage à chaud). Le tableau de bord déclare le plugin
 Infinity dans `__inputs` et `__requires`, la boîte d'import demande donc
 quelle datasource Infinity lier au lieu d'importer des panneaux qui
-n'ont rien à interroger.
+n'ont rien à interroger. Le `2.0.0` de `__requires` est le plancher que
+vérifie cette boîte d'import, pas une garantie sur les majeures
+suivantes : après une montée de majeur du plugin, vérifiez que les
+quatre tables se remplissent encore, leurs colonnes venant du parseur
+backend et un changement de parseur vidant une table sans erreur nulle
+part.
 
 ### Règles d'alerte (PrometheusRule)
 
