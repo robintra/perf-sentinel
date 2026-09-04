@@ -128,6 +128,10 @@ pub struct FindingsFilter {
     pub finding_type: Option<String>,
     /// Optional severity filter, in `snake_case` (`critical`, `warning`, `info`).
     pub severity: Option<String>,
+    /// Optional lower bound on `stored_at_ms`, in Unix epoch milliseconds,
+    /// inclusive. Keeps what was detected at or after that instant, so a
+    /// poller can ask for a delta instead of re-reading the whole buffer.
+    pub since_ms: Option<u64>,
     /// Maximum number of results to return.
     pub limit: usize,
 }
@@ -229,6 +233,11 @@ impl FindingsStore {
                 {
                     return false;
                 }
+                if let Some(since) = filter.since_ms
+                    && sf.stored_at_ms < since
+                {
+                    return false;
+                }
                 true
             })
             .take(limit)
@@ -250,6 +259,11 @@ impl FindingsStore {
     /// same problem with a different `seen_count` than an unfiltered
     /// call. Service and finding type are invariant within a signature,
     /// so they filter during the pass; namespace is part of the fold key.
+    ///
+    /// `since_ms` lands after the fold for the same reason, against the
+    /// group's most recent detection. Applied to instances first it would
+    /// narrow `first_seen_ms` and `seen_count` to the window, so the same
+    /// row would report a different history depending on the bound.
     pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
         let buf = self.inner.read().await;
         let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
@@ -268,6 +282,9 @@ impl FindingsStore {
         drop(buf);
         if let Some(ref sev) = filter.severity {
             folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
+        }
+        if let Some(since) = filter.since_ms {
+            folded.retain(|sf| sf.stored_at_ms >= since);
         }
         folded.truncate(filter.limit);
         folded
@@ -528,6 +545,44 @@ mod tests {
             filtered[0].seen_count, unfiltered[0].seen_count,
             "the same problem must not report two different counts"
         );
+    }
+
+    #[tokio::test]
+    async fn since_ms_filters_on_the_most_recent_detection() {
+        // A recurring problem must stay visible through a delta query with
+        // the history it really has, not the slice inside the window.
+        let store = FindingsStore::new(100);
+        let mut recurring =
+            make_finding_with_template("svc", FindingType::RedundantSql, "SELECT recurring");
+        enrich_with_signatures(std::slice::from_mut(&mut recurring));
+        store
+            .push_batch(std::slice::from_ref(&recurring), 1000)
+            .await;
+        store.push_batch(&[recurring], 5000).await;
+        let mut quiet = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT quiet");
+        enrich_with_signatures(std::slice::from_mut(&mut quiet));
+        store.push_batch(&[quiet], 1000).await;
+
+        let filter = FindingsFilter {
+            since_ms: Some(5000),
+            limit: 100,
+            ..Default::default()
+        };
+        let folded = store.query_coalesced(&filter).await;
+        assert_eq!(
+            folded.len(),
+            1,
+            "the bound is inclusive, and drops the quiet one"
+        );
+        assert_eq!(
+            folded[0].first_seen_ms, 1000,
+            "history predating the window survives"
+        );
+        assert_eq!(folded[0].seen_count, 2, "so does the count");
+
+        let raw = store.query(&filter).await;
+        assert_eq!(raw.len(), 1, "the unfolded path honours the same bound");
+        assert_eq!(raw[0].stored_at_ms, 5000);
     }
 
     #[tokio::test]
