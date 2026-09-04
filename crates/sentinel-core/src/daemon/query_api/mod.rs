@@ -165,6 +165,8 @@ struct FindingsParams {
     #[serde(rename = "type")]
     finding_type: Option<String>,
     severity: Option<String>,
+    /// Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
+    since_ms: Option<u64>,
     limit: Option<usize>,
     /// Default `false`: filter out findings that are acked (CI TOML
     /// baseline + daemon JSONL store union). `true`: return all
@@ -272,6 +274,7 @@ async fn handle_findings(
         service: params.service,
         finding_type: params.finding_type,
         severity: params.severity,
+        since_ms: params.since_ms,
         limit: params.limit.unwrap_or(100).min(MAX_FINDINGS_LIMIT),
     };
     // Folded: a listing is read by a human, and detection is per trace,
@@ -812,6 +815,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             service: None,
             finding_type: None,
             severity: None,
+            since_ms: None,
             limit: state.daemon_config.max_export_findings,
         })
         .await;

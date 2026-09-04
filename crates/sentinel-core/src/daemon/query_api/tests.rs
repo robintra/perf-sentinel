@@ -253,6 +253,34 @@ async fn findings_filters_by_service() {
 }
 
 #[tokio::test]
+async fn findings_filters_by_since_ms() {
+    let state = make_state();
+    let old = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    let recent = crate::test_helpers::make_finding(
+        detect::FindingType::RedundantSql,
+        detect::Severity::Warning,
+    );
+    state.findings_store.push_batch(&[old], 1000).await;
+    state.findings_store.push_batch(&[recent], 5000).await;
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/findings?since_ms=5000")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let stored: Vec<StoredFinding> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].stored_at_ms, 5000);
+}
+
+#[tokio::test]
 async fn findings_by_trace_id() {
     let state = make_state();
     let mut f1 = crate::test_helpers::make_finding(
