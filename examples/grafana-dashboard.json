@@ -195,7 +195,7 @@
       },
       "targets": [
         {
-          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])))",
+          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0)",
           "legendFormat": "{{type}} ({{severity}})",
           "refId": "A"
         }
@@ -327,7 +327,7 @@
     },
     {
       "title": "Findings distribution by type",
-      "description": "The same findings as the ranking panel, shown as a share of the whole. Answers 'what kind of problem does this system mostly have'. A single type dominating usually points at one framework or one query pattern rather than at a broad problem.",
+      "description": "The same findings as the ranking panel, shown as a share of the whole. Answers 'what kind of problem does this system mostly have'. A single type dominating usually points at one framework or one query pattern rather than at a broad problem. A type missing from the legend had no increase over the range, which is not the same as never emitted: after a deploy, the replaced instance's series would otherwise linger in the legend at zero.",
       "type": "piechart",
       "gridPos": {
         "h": 8,
@@ -341,7 +341,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range]))",
+          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0",
           "legendFormat": "{{type}}",
           "refId": "A"
         }
@@ -497,7 +497,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range]))",
+          "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0",
           "format": "table",
           "instant": true,
           "refId": "A"
