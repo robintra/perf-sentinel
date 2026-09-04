@@ -115,6 +115,24 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
     out
 }
 
+/// Service and finding type are invariant within a signature, so both
+/// read paths screen on them during the buffer pass rather than after
+/// the fold. Shared so a third caller cannot screen on one and not the
+/// other.
+fn matches_service_and_type(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
+    if let Some(ref svc) = filter.service
+        && sf.finding.service != *svc
+    {
+        return false;
+    }
+    if let Some(ref ft) = filter.finding_type
+        && sf.finding.finding_type.as_str() != ft.as_str()
+    {
+        return false;
+    }
+    true
+}
+
 /// Query filter for the findings store.
 /// `#[non_exhaustive]` so a future field stays a minor bump rather than
 /// a breaking change: external crates cannot construct it with a
@@ -218,14 +236,7 @@ impl FindingsStore {
         buf.iter()
             .rev()
             .filter(|sf| {
-                if let Some(ref svc) = filter.service
-                    && sf.finding.service != *svc
-                {
-                    return false;
-                }
-                if let Some(ref ft) = filter.finding_type
-                    && sf.finding.finding_type.as_str() != ft.as_str()
-                {
+                if !matches_service_and_type(sf, filter) {
                     return false;
                 }
                 if let Some(ref sev) = filter.severity
@@ -266,19 +277,11 @@ impl FindingsStore {
     /// row would report a different history depending on the bound.
     pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
         let buf = self.inner.read().await;
-        let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
-            if let Some(ref svc) = filter.service
-                && sf.finding.service != *svc
-            {
-                return false;
-            }
-            if let Some(ref ft) = filter.finding_type
-                && sf.finding.finding_type.as_str() != ft.as_str()
-            {
-                return false;
-            }
-            true
-        }));
+        let mut folded = fold_entries(
+            buf.iter()
+                .rev()
+                .filter(|sf| matches_service_and_type(sf, filter)),
+        );
         drop(buf);
         if let Some(ref sev) = filter.severity {
             folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
@@ -583,6 +586,17 @@ mod tests {
         let raw = store.query(&filter).await;
         assert_eq!(raw.len(), 1, "the unfolded path honours the same bound");
         assert_eq!(raw[0].stored_at_ms, 5000);
+
+        // Both post-fold filters apply, not whichever runs last.
+        let narrowed = store
+            .query_coalesced(&FindingsFilter {
+                since_ms: Some(5000),
+                severity: Some("info".to_string()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert!(narrowed.is_empty(), "severity still applies under a bound");
     }
 
     #[tokio::test]
