@@ -1203,6 +1203,10 @@ enum QueryAction {
         /// Only the incidents of this service (exact match).
         #[arg(long)]
         service: Option<String>,
+        /// Only the incidents of this namespace (exact match), the alert
+        /// label the daemon carries as `namespace`.
+        #[arg(long)]
+        namespace: Option<String>,
         /// Skip this many incidents, to page past the newest.
         #[arg(long, default_value = "0")]
         offset: usize,

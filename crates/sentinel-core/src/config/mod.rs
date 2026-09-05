@@ -428,6 +428,11 @@ pub struct DaemonIncidentsConfig {
     /// `perf_sentinel_kind`. Anything else is `other`, deliberately not
     /// guessed from `alertname`.
     pub kind_label: String,
+    /// Alert label whose value becomes the incident's `namespace`. Default
+    /// `namespace`, the label kube-prometheus alerts carry natively. Read
+    /// for display and filtering only: an alert without it is recorded
+    /// all the same, and the label is never a Prometheus label here.
+    pub namespace_label: String,
     /// Optional newline-delimited JSON file every new incident, close and
     /// settle is appended to, opened at startup. Absent means the ring is
     /// the only record, and the ring dies with the daemon, which a
@@ -445,6 +450,7 @@ impl Default for DaemonIncidentsConfig {
             max_retained: 200,
             service_label: "service".to_string(),
             kind_label: "perf_sentinel_kind".to_string(),
+            namespace_label: "namespace".to_string(),
             archive_path: None,
         }
     }

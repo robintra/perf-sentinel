@@ -538,7 +538,7 @@ async fn a_repeated_alert_keeps_the_first_capture_and_a_resolved_one_closes_it()
     assert_eq!(again["repeated"], 1);
 
     let store = state.incident_store.as_ref().unwrap();
-    let listed = store.list(None, 0, 10).await;
+    let listed = store.list(None, None, 0, 10).await;
     assert_eq!(listed.len(), 1, "a repeat is the same incident");
     assert_eq!(
         listed[0].findings.len(),
@@ -560,7 +560,7 @@ async fn a_repeated_alert_keeps_the_first_capture_and_a_resolved_one_closes_it()
         alert("resolved", "1970-01-01T00:00:00Z"),
     )
     .await;
-    assert_eq!(store.list(None, 0, 10).await[0].ended_at_ms, None);
+    assert_eq!(store.list(None, None, 0, 10).await[0].ended_at_ms, None);
 
     let closed = post(
         Arc::clone(&state),
@@ -568,7 +568,7 @@ async fn a_repeated_alert_keeps_the_first_capture_and_a_resolved_one_closes_it()
     )
     .await;
     assert_eq!(closed["repeated"], 1);
-    let listed = store.list(None, 0, 10).await;
+    let listed = store.list(None, None, 0, 10).await;
     assert_eq!(
         listed[0].ended_at_ms,
         Some(AT_MS + 6 * 60_000),
@@ -712,6 +712,59 @@ async fn the_listing_pages_with_offset_and_caps_the_delivery() {
 }
 
 #[tokio::test]
+async fn the_namespace_label_is_carried_and_filters_the_listing() {
+    let state = make_state();
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::json!([
+            {
+                "status": "firing",
+                "labels": {"service": "cart-svc", "namespace": "shop", "perf_sentinel_kind": "oom_kill"},
+                "startsAt": "2026-09-01T14:03:00Z"
+            },
+            {
+                "status": "firing",
+                "labels": {"service": "auth-svc", "perf_sentinel_kind": "restart"},
+                "startsAt": "2026-09-01T14:04:00Z"
+            }
+        ])))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let all = list_incidents(Arc::clone(&state), "").await;
+    assert_eq!(
+        all.as_array().unwrap().len(),
+        2,
+        "no namespace is not a rejection"
+    );
+    assert_eq!(all[1]["namespace"], "shop");
+    assert!(
+        all[0].get("namespace").is_none(),
+        "an absent namespace is not serialized as null"
+    );
+
+    let shop = list_incidents(Arc::clone(&state), "?namespace=shop").await;
+    assert_eq!(shop.as_array().unwrap().len(), 1);
+    assert_eq!(shop[0]["service"], "cart-svc");
+    assert!(
+        list_incidents(Arc::clone(&state), "?namespace=nowhere")
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        list_incidents(Arc::clone(&state), "?service=cart-svc&namespace=shop")
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "both filters apply"
+    );
+}
+
+#[tokio::test]
 async fn an_alert_without_the_service_label_is_counted_not_recorded() {
     let state = make_state();
     let body = serde_json::json!({
@@ -747,7 +800,7 @@ async fn an_alert_without_the_service_label_is_counted_not_recorded() {
             .incident_store
             .as_ref()
             .unwrap()
-            .list(None, 0, 1)
+            .list(None, None, 0, 1)
             .await
             .is_empty()
     );

@@ -1638,7 +1638,7 @@ fn build_incidents_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled("Incidents", bold)),
         Line::from(Span::styled(
-            "Restarts and memory events posted by your alerting, each with the findings frozen from the window before it.",
+            "Restarts, memory events and deploys posted by your alerting, each with the findings that were already firing before it.",
             dim,
         )),
         Line::from(""),
@@ -1709,8 +1709,9 @@ fn push_incident_lines(lines: &mut Vec<Line<'static>>, inc: &IncidentSlim) {
     }
 }
 
-/// `started · service · kind · ended|firing`, the daemon strings
-/// sanitized and capped.
+/// `started · ns/service · kind · ended|firing`, the daemon strings
+/// sanitized and capped. The 24-cell cap applies to the qualified name,
+/// so a long `ns/service` loses the tail of the service.
 fn incident_summary_row(inc: &IncidentSlim) -> String {
     let ended = inc.ended_at_ms.map_or_else(
         || "firing".to_string(),
@@ -1719,7 +1720,7 @@ fn incident_summary_row(inc: &IncidentSlim) -> String {
     format!(
         "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended}",
         fmt_local_time(inc.at_ms),
-        truncate_cell(&inc.service, 24),
+        truncate_cell(&inc.qualified_service(), 24),
         truncate_cell(&inc.kind, 17)
     )
 }
@@ -2331,6 +2332,7 @@ mod tests {
         r#"{
           "id": "0123456789abcdef0123456789abcdef",
           "service": "cart-svc",
+          "namespace": "shop",
           "kind": "oom_kill",
           "at_ms": 1700000400000,
           "detail": "container exceeded its memory limit",
@@ -2983,6 +2985,7 @@ mod tests {
         let inc = incident();
         assert_eq!(inc.id, "0123456789abcdef0123456789abcdef");
         assert_eq!(inc.service, "cart-svc");
+        assert_eq!(inc.namespace.as_deref(), Some("shop"));
         assert_eq!(inc.kind, "oom_kill");
         assert_eq!(inc.at_ms, 1_700_000_400_000);
         assert_eq!(inc.ended_at_ms, None);
@@ -3010,6 +3013,7 @@ mod tests {
             .lines()
             .find(|l| l.contains("cart-svc \u{00b7} oom_kill"))
             .expect("incident summary row");
+        assert!(row.contains("shop/cart-svc"), "{row}");
         assert!(row.contains("firing"), "{row}");
         // Started as a local calendar stamp, not epoch milliseconds.
         assert!(!row.contains("1700000400000"), "{row}");
