@@ -149,3 +149,13 @@ v0.18.0	5cd07f7	2026-09-02	PASS
 # validate-findings 12/12, plus the new grouping-metrics-split scenario that
 # freezes the split, the sum invariant, the pair caps and the knob.
 v0.19.0	660ceb5	2026-09-03	PASS
+# v0.20.0 PASS is a targeted pass, not verify-all-scenarios in full: the new
+# incident-window-capture scenario (intake, settle merge, idempotence, counted
+# refusals, the NDJSON archive, the read key, until_ms and the last-span gauge),
+# appsec-hardening with its read-key leg, and six regression scenarios on the
+# touched paths (archive-window-drops, archive-integrity-chain,
+# ack-lifecycle-warning, config-fragments, grouping-identity,
+# export-snapshot-scope), all against the local release binary. No cluster run:
+# the in-cluster [daemon.incidents], the Infinity datasource and the hub-*
+# scenarios follow the 0.20.0 image pin.
+v0.20.0	c3854bd	2026-09-05	PASS
