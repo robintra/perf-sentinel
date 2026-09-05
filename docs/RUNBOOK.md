@@ -228,7 +228,9 @@ point an Alertmanager receiver at `POST /api/incidents` and the daemon resolves
 and freezes the window the instant the alert fires, hours before anyone opens a
 terminal. `GET /api/incidents`, with the write key or `[daemon]
 read_api_key` as `X-API-Key`, then returns the incident with its findings
-already attached. See [QUERY-API.md](QUERY-API.md). The ring is in memory, so
+already attached, and `perf-sentinel query incidents --service cart-svc
+--api-key-file <PATH>` prints the same listing from a terminal, the header
+of each incident then its findings. See [QUERY-API.md](QUERY-API.md). The ring is in memory, so
 scrape that endpoint if the record has to outlive the node.
 
 **Detecting the moment without an external alert.** The daemon does not judge

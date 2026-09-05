@@ -1,13 +1,16 @@
 //! `perf-sentinel query monitor`: live operator TUI over the daemon.
 //!
-//! Four tabs cycled with Tab: `Advisor` (the daemon's `warning_details`
+//! Six tabs cycled with Tab: `Advisor` (the daemon's `warning_details`
 //! settings hints), `Energy` (the effective energy/carbon mix per
 //! service and per region), `Trends` (braille charts of the energy and
 //! carbon per window plus runtime gauges as a share of their configured
-//! caps) and `Scrapers` (live health of the energy backends from
-//! `/api/energy`). A background task polls the daemon on a fixed
-//! interval; when it becomes unreachable the last good snapshot stays
-//! on screen with a stale indicator instead of going blank.
+//! caps), `Scrapers` (live health of the energy backends from
+//! `/api/energy`), `Config` (the effective daemon settings) and
+//! `Incidents` (the restarts and memory events the alerting posted, each
+//! with the findings frozen from its window, the one tab that needs an
+//! API key). A background task polls the daemon on a fixed interval.
+//! When it becomes unreachable the last good snapshot stays on screen
+//! with a stale indicator instead of going blank.
 //!
 //! Deliberately separate from the `inspect` drill-down TUI: `inspect`
 //! is the developer's trace/finding browser, this is the operator's
@@ -34,11 +37,16 @@ use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Wrap};
 use sentinel_core::config::DaemonConfig;
+use sentinel_core::daemon::findings_store::StoredFinding;
 use sentinel_core::daemon::query_api::EnergyStatusResponse;
+use sentinel_core::http_client::{API_KEY_HEADER, FetchError};
+use sentinel_core::ingest::auth_header::AuthHeader;
 use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
 use sentinel_core::text_safety::{sanitize_for_terminal, strip_code_ticks};
 use tokio::sync::mpsc;
+
+use crate::query::{IncidentSlim, fired_marker, fmt_local_time};
 
 // `Axis` aliased: ratatui's chart `Axis` is already in scope here.
 use crate::tui_resize::{
@@ -53,6 +61,14 @@ const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Per-request timeout of the background poller.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Incidents fetched per poll tick. Small on purpose: an incident can
+/// carry up to 1000 findings and the client reads at most 8 MiB per
+/// body. Older incidents are one `query incidents --offset` away.
+const INCIDENTS_POLL_LIMIT: usize = 20;
+
+/// Width budget of the dim detail line under an incident row.
+const INCIDENT_DETAIL_MAX_CHARS: usize = 120;
 
 /// Depth of the Trends history ring: one point per successful poll
 /// tick, so the plotted span is `TREND_CAPACITY x --refresh` (20
@@ -85,14 +101,16 @@ enum Tab {
     Trends,
     Scrapers,
     Config,
+    Incidents,
 }
 
-const TABS: [(Tab, &str); 5] = [
+const TABS: [(Tab, &str); 6] = [
     (Tab::Advisor, "Advisor"),
     (Tab::Energy, "Energy"),
     (Tab::Trends, "Trends"),
     (Tab::Scrapers, "Scrapers"),
     (Tab::Config, "Config"),
+    (Tab::Incidents, "Incidents"),
 ];
 
 /// Partial deserialization target for `/api/export/report`: only the
@@ -181,6 +199,10 @@ struct ConfigSlim {
     #[serde(default)]
     ack_api_key_set: bool,
     #[serde(default)]
+    read_api_key_set: bool,
+    #[serde(default)]
+    incidents_enabled: bool,
+    #[serde(default)]
     cors_allowed_origins: Vec<String>,
     #[serde(default)]
     archive_configured: bool,
@@ -200,7 +222,9 @@ struct ConfigSlim {
 
 /// One successful poll tick, reduced to the fields the monitor renders.
 /// `scrapers` and `status` are `None` when their endpoint is
-/// unavailable, independently of the report fetch.
+/// unavailable, independently of the report fetch. `incidents` keeps
+/// its failure reason: a missing key, a disabled store and an old
+/// daemon each read differently on the tab.
 struct Snapshot {
     green_summary: GreenSummary,
     warning_details: Vec<Warning>,
@@ -208,6 +232,7 @@ struct Snapshot {
     scrapers: Option<EnergyStatusResponse>,
     status: Option<StatusSlim>,
     config: Option<ConfigSlim>,
+    incidents: Result<Vec<IncidentSlim>, String>,
 }
 
 /// One sample of the Trends time series, recorded per successful poll
@@ -416,6 +441,7 @@ impl MonitorState {
             0,
             count(build_scrapers_lines(latest)),
             count(build_config_lines(latest)),
+            count(build_incidents_lines(latest)),
         ];
     }
 
@@ -441,6 +467,19 @@ impl MonitorState {
                     && let Some(prev) = self.latest.as_mut().and_then(|p| p.config.take())
                 {
                     s.config = Some(prev);
+                }
+                // The incident list only grows server-side and none of
+                // the three refusals appears after a successful poll (the
+                // key and the store switch are fixed for the daemon's
+                // lifetime), so a failed tick keeps the last list rather
+                // than replacing it with a transport error.
+                if s.incidents.is_err()
+                    && let Some(prev) = self
+                        .latest
+                        .as_mut()
+                        .and_then(|p| p.incidents.as_mut().ok().map(std::mem::take))
+                {
+                    s.incidents = Ok(prev);
                 }
                 // No carry-forward for the trend sample: a tick without
                 // /api/status yields a point with absent percentages
@@ -517,7 +556,11 @@ impl MonitorState {
 /// aborts the poller on exit. Synchronous but must be called inside the
 /// multi-thread tokio runtime: `tokio::spawn` needs a runtime and
 /// `block_in_place` panics on the `current_thread` flavor.
-pub(crate) fn cmd_monitor(base_url: &str, refresh_secs: u64) {
+pub(crate) fn cmd_monitor(base_url: &str, refresh_secs: u64, api_key: Option<&str>) {
+    let auth = auth_header_for(api_key).unwrap_or_else(|e| {
+        eprintln!("Invalid daemon API key: {e}");
+        std::process::exit(1);
+    });
     // Bounded: only the newest snapshot matters, and the UI thread can
     // stall on terminal writes (hung SSH peer). An unbounded queue
     // would then grow by one boxed snapshot per tick without limit.
@@ -525,6 +568,7 @@ pub(crate) fn cmd_monitor(base_url: &str, refresh_secs: u64) {
     let poller = tokio::spawn(poll_loop(
         base_url.to_string(),
         Duration::from_secs(refresh_secs),
+        auth,
         tx,
     ));
     let mut state = MonitorState::new(base_url.to_string(), refresh_secs);
@@ -538,12 +582,27 @@ pub(crate) fn cmd_monitor(base_url: &str, refresh_secs: u64) {
     }
 }
 
+/// The `X-API-Key` header the poller attaches to every request, built
+/// once from the resolved key. `AuthHeader::parse` is the one
+/// constructor reachable from this crate and it rejects a key that
+/// cannot travel in a header (CR, LF, non-visible ASCII).
+fn auth_header_for(api_key: Option<&str>) -> Result<Option<AuthHeader>, &'static str> {
+    api_key
+        .map(|key| AuthHeader::parse(&format!("{API_KEY_HEADER}: {key}")))
+        .transpose()
+}
+
 /// Background poller: fetch, push, sleep, repeat. Exits when the UI side
 /// of the channel is gone.
-async fn poll_loop(base_url: String, refresh: Duration, tx: mpsc::Sender<FetchOutcome>) {
+async fn poll_loop(
+    base_url: String,
+    refresh: Duration,
+    auth: Option<AuthHeader>,
+    tx: mpsc::Sender<FetchOutcome>,
+) {
     let client = sentinel_core::http_client::build_client();
     loop {
-        let outcome = fetch_snapshot(&client, &base_url).await;
+        let outcome = fetch_snapshot(&client, &base_url, auth.as_ref()).await;
         match tx.try_send(outcome) {
             // Full: the UI stalled with a full queue, drop this
             // snapshot, the next tick brings a fresher one anyway.
@@ -557,28 +616,45 @@ async fn poll_loop(base_url: String, refresh: Duration, tx: mpsc::Sender<FetchOu
 async fn fetch_snapshot(
     client: &sentinel_core::http_client::HttpClient,
     base_url: &str,
+    auth: Option<&AuthHeader>,
 ) -> FetchOutcome {
-    // Concurrent: the tick latency is the slowest of the three
+    // Concurrent: the tick latency is the slowest of the five
     // requests, not their sum. The energy and status fetches are
     // best-effort: `None` covers both a daemon predating the endpoint
     // fields and a transient failure; `apply` carries the previous
     // scraper table forward so only the former shows the old-daemon
-    // hint persistently.
-    let (report, scrapers, status, config) = tokio::join!(
+    // hint persistently. Only the report fetch decides the tick: an
+    // incidents refusal is a tab-local hint, never a `[STALE]` daemon.
+    let (report, scrapers, status, config, incidents) = tokio::join!(
         crate::query::fetch_json_reporting::<ReportSlim>(
             client,
             base_url,
             "/api/export/report",
-            FETCH_TIMEOUT
+            FETCH_TIMEOUT,
+            auth
         ),
         crate::query::fetch_json::<EnergyStatusResponse>(
             client,
             base_url,
             "/api/energy",
-            FETCH_TIMEOUT
+            FETCH_TIMEOUT,
+            auth
         ),
-        crate::query::fetch_json::<StatusSlim>(client, base_url, "/api/status", FETCH_TIMEOUT),
-        crate::query::fetch_json::<ConfigSlim>(client, base_url, "/api/config", FETCH_TIMEOUT),
+        crate::query::fetch_json::<StatusSlim>(
+            client,
+            base_url,
+            "/api/status",
+            FETCH_TIMEOUT,
+            auth
+        ),
+        crate::query::fetch_json::<ConfigSlim>(
+            client,
+            base_url,
+            "/api/config",
+            FETCH_TIMEOUT,
+            auth
+        ),
+        fetch_incidents(client, base_url, auth),
     );
     match report {
         Ok(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
@@ -588,8 +664,52 @@ async fn fetch_snapshot(
             scrapers,
             status,
             config,
+            incidents,
         })),
         Err(reason) => FetchOutcome::Unreachable(Some(reason)),
+    }
+}
+
+/// Poll the newest incidents with the key. Keeps the status code
+/// distinguishable, which `fetch_json_reporting` flattens: a 401, a
+/// 503 and a 404 are three different hints on the tab.
+async fn fetch_incidents(
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+    auth: Option<&AuthHeader>,
+) -> Result<Vec<IncidentSlim>, String> {
+    let path = format!("/api/incidents?limit={INCIDENTS_POLL_LIMIT}");
+    let uri = format!("{base_url}{path}")
+        .parse::<sentinel_core::http_client::Uri>()
+        .map_err(|e| format!("invalid URL: {e}"))?;
+    let body = sentinel_core::http_client::fetch_get(
+        client,
+        &uri,
+        "perf-sentinel-query",
+        FETCH_TIMEOUT,
+        auth,
+    )
+    .await
+    .map_err(|e| incidents_fetch_reason(&e))?;
+    serde_json::from_slice(&body).map_err(|e| format!("{path}: malformed response ({e})"))
+}
+
+/// Name the cause of a failed incidents poll: the three refusals get
+/// the wording shared with `query incidents`, a body over the read
+/// limit points at the paging subcommand (not at the export knobs
+/// `fetch_json_reporting` names), anything else is the transport
+/// error verbatim.
+fn incidents_fetch_reason(err: &FetchError) -> String {
+    match err {
+        FetchError::HttpStatus(code) => crate::query::incidents_refusal(*code).map_or_else(
+            || format!("/api/incidents returned HTTP {code}"),
+            str::to_string,
+        ),
+        FetchError::BodyTooLarge(limit) => format!(
+            "/api/incidents over the {} MiB read limit: page with `query incidents --limit`",
+            limit / (1024 * 1024)
+        ),
+        other => other.to_string(),
     }
 }
 
@@ -749,6 +869,12 @@ fn draw(f: &mut Frame, state: &MonitorState) {
             build_config_lines(state.latest.as_ref()),
             true,
         ),
+        // No wrap: the indented finding rows are fixed-width columns.
+        Tab::Incidents => (
+            " Incidents \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
+            build_incidents_lines(state.latest.as_ref()),
+            false,
+        ),
     };
     let block = Block::default()
         .title(title)
@@ -763,17 +889,22 @@ fn draw(f: &mut Frame, state: &MonitorState) {
 
 /// One-line header: tabs, daemon URL, refresh cadence, snapshot age,
 /// and a short stale marker when the daemon stopped answering (or sent
-/// an incompatible response). Kept compact so it fits 80-column
-/// terminals; the key hints live in the body block title.
+/// an incompatible response). The tail after the labels shrinks to what
+/// the terminal width leaves, so six labels and the stale marker still
+/// fit 80 columns, the key hints live in the body block title.
 fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
     let dim = crate::tui::dim_style();
     let mut spans = vec![Span::raw(" ")];
+    let mut used = 1usize;
     for (i, (tab, label)) in TABS.iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled(" \u{00b7} ", dim));
+            used += 3;
         }
+        let text = format!(" {label} ");
+        used += text.chars().count();
         spans.push(Span::styled(
-            format!(" {label} "),
+            text,
             crate::tui::tab_label_style(state.tab == *tab),
         ));
     }
@@ -781,11 +912,12 @@ fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
         || "waiting".to_string(),
         |t| format!("{}s ago", t.elapsed().as_secs()),
     );
+    // The markers are reserved before the tail so they never get cut.
+    let markers = usize::from(state.stale) * " [STALE]".len()
+        + usize::from(state.mouse_mode) * " [MOUSE]".len();
+    let budget = usize::from(area.width).saturating_sub(used + markers);
     spans.push(Span::styled(
-        format!(
-            "  {} \u{00b7} {}s \u{00b7} {age}",
-            state.daemon_url, state.refresh_secs
-        ),
+        header_tail(&state.daemon_url, state.refresh_secs, &age, budget),
         dim,
     ));
     if state.stale {
@@ -808,6 +940,23 @@ fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
         ));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The dim tail after the tab labels, in the most complete form that
+/// fits `budget` columns: daemon URL, refresh cadence and snapshot age,
+/// then without the URL, then the age alone, then nothing. Six labels
+/// leave an 80-column terminal no room for the URL, and the stale
+/// marker matters more than the age.
+fn header_tail(daemon_url: &str, refresh_secs: u64, age: &str, budget: usize) -> String {
+    let candidates = [
+        format!("  {daemon_url} \u{00b7} {refresh_secs}s \u{00b7} {age}"),
+        format!("  {refresh_secs}s \u{00b7} {age}"),
+        format!("  {age}"),
+    ];
+    candidates
+        .into_iter()
+        .find(|c| c.chars().count() <= budget)
+        .unwrap_or_default()
 }
 
 /// Shared tab preamble guard: when no snapshot has arrived yet, push
@@ -1356,6 +1505,24 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     );
     config_row(
         &mut lines,
+        "read_api_key",
+        if c.read_api_key_set { "set" } else { "unset" },
+        "unset",
+        "Whether a read-only X-API-Key opens GET /api/acks and GET /api/incidents without a write key (0.20.0). The Incidents tab and `query incidents` accept it.",
+    );
+    config_row(
+        &mut lines,
+        "incidents",
+        if c.incidents_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        "disabled",
+        "Incident store behind /api/incidents (0.20.0): the alerting posts a restart or memory event, the daemon freezes the findings of the window before it. Feeds the Incidents tab.",
+    );
+    config_row(
+        &mut lines,
         "cors_allowed_origins",
         &if c.cors_allowed_origins.is_empty() {
             "(none)".to_string()
@@ -1425,6 +1592,106 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     );
 
     lines
+}
+
+/// Body of the Incidents tab: the incidents the alerting posted, newest
+/// first, each with the findings frozen from its window. Flat and
+/// scrollable like every other tab: the findings sit indented under
+/// their incident, so scrolling is the drill-down. Degrades to the
+/// named cause when the poll was refused (no key, store disabled, old
+/// daemon).
+fn build_incidents_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
+    let dim = crate::tui::dim_style();
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(Span::styled("Incidents", bold)),
+        Line::from(Span::styled(
+            "Restarts and memory events posted by your alerting, each with the findings frozen from the window before it.",
+            dim,
+        )),
+        Line::from(""),
+    ];
+    let Some(snapshot) = snapshot_or_waiting(latest, &mut lines) else {
+        return lines;
+    };
+    let incidents = match &snapshot.incidents {
+        Ok(incidents) => incidents,
+        Err(reason) => {
+            lines.push(Line::from(Span::styled(
+                sanitize_for_terminal(reason).into_owned(),
+                dim,
+            )));
+            return lines;
+        }
+    };
+    if incidents.is_empty() {
+        lines.push(Line::from(Span::styled("No incidents recorded.", dim)));
+        return lines;
+    }
+    for (i, incident) in incidents.iter().enumerate() {
+        if i > 0 {
+            lines.push(Line::from(""));
+        }
+        push_incident_lines(&mut lines, incident);
+    }
+    lines
+}
+
+/// One incident: its bold summary row, the dim detail line when the
+/// alert carried one, then one indented row per finding.
+fn push_incident_lines(lines: &mut Vec<Line<'static>>, inc: &IncidentSlim) {
+    let dim = crate::tui::dim_style();
+    lines.push(Line::from(Span::styled(
+        incident_summary_row(inc),
+        Style::default().add_modifier(Modifier::BOLD),
+    )));
+    if let Some(detail) = inc.detail.as_deref() {
+        lines.push(Line::from(Span::styled(
+            format!("  {}", truncate_cell(detail, INCIDENT_DETAIL_MAX_CHARS)),
+            dim,
+        )));
+    }
+    if inc.findings.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "    no findings in the window",
+            dim,
+        )));
+    }
+    for sf in &inc.findings {
+        lines.push(Line::from(Span::raw(incident_finding_row(inc.at_ms, sf))));
+    }
+}
+
+/// `started · service · kind · ended|firing · N findings · capture
+/// marker`, the daemon strings sanitized and capped.
+fn incident_summary_row(inc: &IncidentSlim) -> String {
+    let ended = inc.ended_at_ms.map_or_else(
+        || "firing".to_string(),
+        |e| format!("ended {}", fmt_local_time(e)),
+    );
+    format!(
+        "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended} \u{00b7} {} findings \u{00b7} capture {}",
+        fmt_local_time(inc.at_ms),
+        truncate_cell(&inc.service, 24),
+        truncate_cell(&inc.kind, 17),
+        inc.findings.len(),
+        inc.capture_marker()
+    )
+}
+
+/// One finding under its incident: type, severity, endpoint, how many
+/// traces it stood for in the window, and whether it already fired
+/// before the restart or only after it.
+fn incident_finding_row(incident_at_ms: u64, sf: &StoredFinding) -> String {
+    let f = &sf.finding;
+    format!(
+        "    {:<20} {:<9} {:<32} x{:<5} {}",
+        f.finding_type.as_str(),
+        f.severity.as_str(),
+        truncate_cell(&f.source_endpoint, 32),
+        sf.seen_count,
+        fired_marker(incident_at_ms, sf.first_seen_ms)
+    )
 }
 
 /// Chart-ready `(x, y)` series extracted from the trend history. The x
@@ -1987,7 +2254,72 @@ mod tests {
             scrapers: None,
             status: None,
             config: None,
+            incidents: Ok(Vec::new()),
         }
+    }
+
+    /// One incident in the daemon's wire shape (`GET /api/incidents`
+    /// entry): still firing, complete capture, one finding that fired
+    /// before the restart and one only after it.
+    fn incident_payload() -> &'static str {
+        r#"{
+          "id": "0123456789abcdef0123456789abcdef",
+          "service": "cart-svc",
+          "kind": "oom_kill",
+          "at_ms": 1700000400000,
+          "detail": "container exceeded its memory limit",
+          "window_from_ms": 1700000100000,
+          "window_to_ms": 1700000460000,
+          "oldest_finding_ms": 1700000050000,
+          "findings": [
+            {
+              "finding": {
+                "type": "n_plus_one_sql",
+                "severity": "critical",
+                "trace_id": "t1",
+                "service": "cart-svc",
+                "source_endpoint": "GET /cart",
+                "pattern": { "template": "select * from items where id = ?", "occurrences": 40, "window_ms": 100, "distinct_params": 40 },
+                "suggestion": "batch the lookups",
+                "first_timestamp": "2026-09-01T14:00:00Z",
+                "last_timestamp": "2026-09-01T14:02:00Z",
+                "green_impact": { "estimated_extra_io_ops": 39, "io_intensity_score": 2.0, "io_intensity_band": "high" },
+                "confidence": "daemon_production",
+                "signature": "n_plus_one_sql:cart-svc:_cart:0123456789abcdef0123456789abcdef"
+              },
+              "stored_at_ms": 1700000300000,
+              "first_seen_ms": 1700000100000,
+              "seen_count": 12
+            },
+            {
+              "finding": {
+                "type": "slow_sql",
+                "severity": "warning",
+                "trace_id": "t2",
+                "service": "cart-svc",
+                "source_endpoint": "POST /checkout",
+                "pattern": { "template": "update carts set total = ?", "occurrences": 1, "window_ms": 900, "distinct_params": 1 },
+                "suggestion": "add an index",
+                "first_timestamp": "2026-09-01T14:03:01Z",
+                "last_timestamp": "2026-09-01T14:03:01Z",
+                "confidence": "daemon_production"
+              },
+              "stored_at_ms": 1700000400500,
+              "first_seen_ms": 1700000400500,
+              "seen_count": 1
+            }
+          ]
+        }"#
+    }
+
+    fn incident() -> IncidentSlim {
+        serde_json::from_str(incident_payload()).expect("IncidentSlim deserializes")
+    }
+
+    fn snapshot_with_incidents(incidents: Result<Vec<IncidentSlim>, String>) -> Snapshot {
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        snapshot.incidents = incidents;
+        snapshot
     }
 
     /// A populated energy/carbon mix: two services in two regions, one
@@ -2018,6 +2350,7 @@ mod tests {
             scrapers: None,
             status: None,
             config: None,
+            incidents: Ok(Vec::new()),
         }
     }
 
@@ -2220,9 +2553,35 @@ mod tests {
         state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Config);
         state.cycle_tab(true);
+        assert_eq!(state.tab, Tab::Incidents);
+        state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Advisor, "Tab wraps back");
         state.cycle_tab(false);
-        assert_eq!(state.tab, Tab::Config, "Shift-Tab wraps the other way");
+        assert_eq!(state.tab, Tab::Incidents, "Shift-Tab wraps the other way");
+        state.cycle_tab(false);
+        assert_eq!(state.tab, Tab::Config);
+    }
+
+    #[test]
+    fn header_tail_sheds_the_url_then_the_cadence_when_narrow() {
+        let full = header_tail("http://localhost:4318", 5, "12s ago", 120);
+        assert!(full.contains("http://localhost:4318"), "{full}");
+        assert!(full.contains("5s"), "{full}");
+        assert!(full.contains("12s ago"), "{full}");
+        // Six labels take 70 columns of an 80-column terminal: no URL.
+        let narrow = header_tail("http://localhost:4318", 5, "12s ago", 10);
+        assert_eq!(narrow, "  12s ago");
+        let cadence = header_tail("http://localhost:4318", 5, "12s ago", 20);
+        assert_eq!(cadence, "  5s \u{00b7} 12s ago");
+        // The stale marker reserved the rest: nothing, never a cut word.
+        assert_eq!(header_tail("http://localhost:4318", 5, "12s ago", 2), "");
+    }
+
+    #[test]
+    fn auth_header_for_wraps_the_key_and_refuses_an_unsendable_one() {
+        assert!(auth_header_for(None).unwrap().is_none());
+        assert!(auth_header_for(Some("read-key-123456")).unwrap().is_some());
+        assert!(auth_header_for(Some("bad\nkey")).is_err());
     }
 
     fn full_config() -> ConfigSlim {
@@ -2305,6 +2664,38 @@ mod tests {
         let text = line_text(&build_config_lines(Some(&snapshot)));
         assert!(text.contains("ack_api_key = set"), "got: {text}");
         assert!(text.contains("tls = configured"), "got: {text}");
+        assert!(text.contains("read_api_key = unset"), "got: {text}");
+    }
+
+    #[test]
+    fn config_shows_the_read_key_and_the_incident_store_switches() {
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut cfg = full_config();
+        cfg.read_api_key_set = true;
+        cfg.incidents_enabled = true;
+        snapshot.config = Some(cfg);
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        let read = text
+            .lines()
+            .find(|l| l.contains("read_api_key ="))
+            .expect("read_api_key row");
+        assert!(
+            read.contains("= set") && read.contains("modified"),
+            "{read}"
+        );
+        let incidents = text
+            .lines()
+            .find(|l| l.contains("incidents ="))
+            .expect("incidents row");
+        assert!(
+            incidents.contains("= enabled") && incidents.contains("modified"),
+            "{incidents}"
+        );
+        // A pre-0.20.0 daemon omits both fields: serde defaults read as
+        // unset and disabled, unflagged.
+        let old: ConfigSlim = serde_json::from_str(r#"{"listen_port":4318}"#).unwrap();
+        assert!(!old.read_api_key_set);
+        assert!(!old.incidents_enabled);
     }
 
     #[test]
@@ -2384,6 +2775,10 @@ mod tests {
         // Tab advances the active tab without quitting.
         assert!(!handle_key(&mut state, KeyCode::Tab));
         assert_eq!(state.tab, Tab::Energy);
+        // Shift-Tab from the first tab lands on the last one, Incidents.
+        state.tab = Tab::Advisor;
+        assert!(!handle_key(&mut state, KeyCode::BackTab));
+        assert_eq!(state.tab, Tab::Incidents);
 
         // Down scrolls one line, Up scrolls back and clamps at the top.
         state.tab = Tab::Advisor;
@@ -2507,6 +2902,187 @@ mod tests {
             text.contains("Waiting for the first snapshot"),
             "got: {text}"
         );
+    }
+
+    #[test]
+    fn incident_slim_parses_a_daemon_payload() {
+        let inc = incident();
+        assert_eq!(inc.id, "0123456789abcdef0123456789abcdef");
+        assert_eq!(inc.service, "cart-svc");
+        assert_eq!(inc.kind, "oom_kill");
+        assert_eq!(inc.at_ms, 1_700_000_400_000);
+        assert_eq!(inc.ended_at_ms, None);
+        assert_eq!(
+            inc.detail.as_deref(),
+            Some("container exceeded its memory limit")
+        );
+        assert_eq!(inc.oldest_finding_ms, Some(1_700_000_050_000));
+        assert_eq!(inc.findings.len(), 2);
+        assert_eq!(inc.findings[0].seen_count, 12);
+        assert_eq!(inc.findings[1].first_seen_ms, 1_700_000_400_500);
+        // A kind this build does not know still parses (string, not enum).
+        let mut unknown: serde_json::Value = serde_json::from_str(incident_payload()).unwrap();
+        unknown["kind"] = serde_json::Value::String("brownout".into());
+        let parsed: IncidentSlim = serde_json::from_value(unknown).unwrap();
+        assert_eq!(parsed.kind, "brownout");
+    }
+
+    #[test]
+    fn incidents_renders_rows_and_findings() {
+        let snapshot = snapshot_with_incidents(Ok(vec![incident()]));
+        let text = line_text(&build_incidents_lines(Some(&snapshot)));
+        assert!(text.contains("Incidents"), "got: {text}");
+        let row = text
+            .lines()
+            .find(|l| l.contains("cart-svc \u{00b7} oom_kill"))
+            .expect("incident summary row");
+        assert!(row.contains("firing"), "{row}");
+        assert!(row.contains("2 findings"), "{row}");
+        assert!(row.contains("capture complete"), "{row}");
+        // Started as a local calendar stamp, not epoch milliseconds.
+        assert!(!row.contains("1700000400000"), "{row}");
+        assert!(
+            text.contains("container exceeded its memory limit"),
+            "got: {text}"
+        );
+        let first = text
+            .lines()
+            .find(|l| l.contains("n_plus_one_sql"))
+            .expect("first finding row");
+        assert!(first.contains("critical"), "{first}");
+        assert!(first.contains("GET /cart"), "{first}");
+        assert!(first.contains("x12"), "{first}");
+        assert!(first.ends_with("before"), "{first}");
+        let second = text
+            .lines()
+            .find(|l| l.contains("slow_sql"))
+            .expect("second finding row");
+        assert!(second.contains("after the restart"), "{second}");
+    }
+
+    #[test]
+    fn incidents_separates_entries_and_marks_an_ended_one() {
+        let mut ended = incident();
+        ended.ended_at_ms = Some(1_700_000_420_000);
+        ended.findings.clear();
+        let snapshot = snapshot_with_incidents(Ok(vec![incident(), ended]));
+        let text = line_text(&build_incidents_lines(Some(&snapshot)));
+        assert!(text.contains("ended "), "got: {text}");
+        assert!(text.contains("0 findings"), "got: {text}");
+        assert!(text.contains("no findings in the window"), "got: {text}");
+        // A blank line between the two incidents.
+        let lines: Vec<&str> = text.lines().collect();
+        let second_row = lines
+            .iter()
+            .rposition(|l| l.contains("cart-svc \u{00b7} oom_kill"))
+            .expect("second summary row");
+        assert!(lines[second_row - 1].trim().is_empty(), "got: {text}");
+    }
+
+    #[test]
+    fn incidents_flags_a_partial_capture() {
+        let mut partial = incident();
+        partial.oldest_finding_ms = Some(partial.window_from_ms + 1);
+        let mut empty = incident();
+        empty.oldest_finding_ms = None;
+        let snapshot = snapshot_with_incidents(Ok(vec![partial, empty]));
+        let text = line_text(&build_incidents_lines(Some(&snapshot)));
+        assert!(text.contains("capture partial"), "got: {text}");
+        assert!(text.contains("capture empty ring"), "got: {text}");
+        assert!(!text.contains("capture complete"), "got: {text}");
+    }
+
+    #[test]
+    fn incidents_sanitizes_daemon_controlled_strings() {
+        let mut hostile = incident();
+        hostile.service = "cart\u{1b}[31m-svc".to_string();
+        hostile.detail = Some("oom\u{202e}evil".to_string());
+        hostile.findings[0].finding.source_endpoint = "GET /\u{1b}[0m".to_string();
+        let snapshot = snapshot_with_incidents(Ok(vec![hostile]));
+        let text = line_text(&build_incidents_lines(Some(&snapshot)));
+        assert!(!text.contains('\u{1b}'), "ANSI escape leaked: {text:?}");
+        assert!(!text.contains('\u{202e}'), "BiDi override leaked: {text:?}");
+    }
+
+    #[test]
+    fn incidents_names_401_503_and_404() {
+        let unauthorized = incidents_fetch_reason(&FetchError::HttpStatus(401));
+        assert!(unauthorized.contains("--api-key-file"), "{unauthorized}");
+        assert!(
+            unauthorized.contains("PERF_SENTINEL_DAEMON_API_KEY"),
+            "{unauthorized}"
+        );
+        assert!(unauthorized.contains("read_api_key"), "{unauthorized}");
+        let disabled = incidents_fetch_reason(&FetchError::HttpStatus(503));
+        assert!(
+            disabled.contains("[daemon.incidents] enabled = false"),
+            "{disabled}"
+        );
+        let old = incidents_fetch_reason(&FetchError::HttpStatus(404));
+        assert!(old.contains("predates 0.20.0"), "{old}");
+        let other = incidents_fetch_reason(&FetchError::HttpStatus(500));
+        assert!(other.contains("HTTP 500"), "{other}");
+        let big = incidents_fetch_reason(&FetchError::BodyTooLarge(8 * 1024 * 1024));
+        assert!(big.contains("8 MiB"), "{big}");
+        assert!(big.contains("query incidents --limit"), "{big}");
+        // The tab shows the reason where the rows would be.
+        let snapshot = snapshot_with_incidents(Err(unauthorized.clone()));
+        let text = line_text(&build_incidents_lines(Some(&snapshot)));
+        assert!(text.contains("--api-key-file"), "got: {text}");
+        assert!(!text.contains("No incidents recorded"), "got: {text}");
+    }
+
+    #[test]
+    fn incidents_empty_list_says_so() {
+        let snapshot = snapshot_with_incidents(Ok(Vec::new()));
+        let text = line_text(&build_incidents_lines(Some(&snapshot)));
+        assert!(text.contains("No incidents recorded."), "got: {text}");
+    }
+
+    #[test]
+    fn incidents_waits_before_first_snapshot() {
+        let text = line_text(&build_incidents_lines(None));
+        assert!(
+            text.contains("Waiting for the first snapshot"),
+            "got: {text}"
+        );
+    }
+
+    #[test]
+    fn incidents_failure_keeps_last_list_and_never_flips_stale() {
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
+            Ok(vec![incident()]),
+        ))));
+        // Next tick: report fine, the incidents poll timed out.
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
+            Err("request timed out".to_string()),
+        ))));
+        assert!(!state.stale, "an incidents failure is not a stale daemon");
+        let incidents = state
+            .latest
+            .as_ref()
+            .and_then(|s| s.incidents.as_ref().ok())
+            .expect("previous list carried forward");
+        assert_eq!(incidents.len(), 1);
+        // The Incidents entry of the scroll cache follows TABS order.
+        state.tab = Tab::Incidents;
+        assert!(state.line_count() > 3, "cached line count for the new tab");
+    }
+
+    #[test]
+    fn incidents_refusal_shows_when_no_poll_ever_succeeded() {
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
+            Err(incidents_fetch_reason(&FetchError::HttpStatus(503))),
+        ))));
+        assert!(!state.stale);
+        let reason = state
+            .latest
+            .as_ref()
+            .and_then(|s| s.incidents.as_ref().err())
+            .expect("nothing to carry forward, the reason stays");
+        assert!(reason.contains("enabled = false"), "{reason}");
     }
 
     #[test]

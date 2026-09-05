@@ -338,9 +338,9 @@ Deux comportements à connaître avant de dimensionner : l'échantillonnage de t
 
 </details>
 
-Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, quatre onglets cyclés par Tab (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) via `perf-sentinel query --daemon <URL> monitor` :
+Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, six onglets cyclés par Tab (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers, Config, Incidents) via `perf-sentinel query --daemon <URL> monitor` :
 
-![query monitor : quatre onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor : six onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 ### Traitement des données
 
@@ -507,7 +507,7 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 ![TUI inspect, mode Report : 4 panels avec corrélations cross-trace et l'arbre de spans que le rapport porte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
 
-**Moniteur opérateur live** (`perf-sentinel query --daemon <URL> monitor`). Lecture seule, adossé au daemon, quatre onglets cyclés par Tab. Les données qu'il expose (hints de config, provenance des sources, intensités par région) sont catégorielles et à haute cardinalité, exactement ce que la règle des labels bornés garde hors du `/metrics` Prometheus :
+**Moniteur opérateur live** (`perf-sentinel query --daemon <URL> monitor`). Lecture seule, adossé au daemon, six onglets cyclés par Tab (seul l'onglet Incidents prend une clé d'API, celle en lecture seule suffit). Les données qu'il expose (hints de config, provenance des sources, intensités par région) sont catégorielles et à haute cardinalité, exactement ce que la règle des labels bornés garde hors du `/metrics` Prometheus :
 
 ![Onglet Advisor : les hints du conseiller de réglages du daemon, ici une fenêtre de traces proche de son plafond](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
 

@@ -222,6 +222,12 @@ daemon config), the CLI resolves it in priority order:
 3. Interactive `rpassword` prompt (no echo) if the daemon returns 401
    and stdin is a TTY. The pasted value is capped at 1 KiB.
 
+`query inspect`, `query monitor` and `query incidents` take the same
+`--api-key-file <PATH>` and resolve it the same way (steps 1 and 2, no
+prompt). The read key `[daemon] read_api_key` suffices for `query
+monitor` and `query incidents`, `ack` and `query inspect` need the ack
+key.
+
 There is no `--api-key <SECRET>` flag, by design: passing secrets on
 the command line leaks them via the process list and shell history.
 
@@ -256,6 +262,20 @@ Errors are written to stderr with a one-line cause and an actionable
 hint when applicable.
 
 ## Other subcommands
+
+`perf-sentinel query incidents [--service <NAME>] [--offset N] [--limit N]
+[--format text|json] [--api-key-file <PATH>]` lists the incidents the
+alerting posted to the daemon (0.20.0+, `[daemon.incidents]`), newest
+first: one header block per incident (kind, service, start and end as
+local time, the window, a capture marker that says whether the ring
+still held the whole window, how many findings fired only after the
+restart, the alert's detail and the id), then its findings in the
+`query findings` layout. `--limit` defaults to 50, the daemon caps it at
+100, `--offset` pages past the newest. A 401 (pass the key), a 503
+(`[daemon.incidents] enabled = false`) and a 404 (daemon older than
+0.20.0) each exit 1 with their cause named. `query monitor
+--api-key-file <PATH>` hands the same key to the monitor's Incidents
+tab, see [`INSPECT.md`](./INSPECT.md).
 
 For now, see `perf-sentinel <subcommand> --help` for the exhaustive
 option lists of `analyze`, `watch`, `query`, `report`, `diff`,

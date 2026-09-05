@@ -16,6 +16,8 @@ mod explain;
 mod jaeger_query;
 mod mysql_stat;
 mod pg_stat;
+#[cfg(feature = "daemon")]
+mod query;
 mod report;
 mod tempo;
 mod tui;

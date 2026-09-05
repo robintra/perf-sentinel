@@ -979,7 +979,8 @@ once and archive it once.
 
 The recorded incidents, newest first, each with its findings, frozen
 at reception and merged once by the settle pass. The `POST` key or
-`[daemon] read_api_key`.
+`[daemon] read_api_key`. Backs the Incidents tab of `perf-sentinel
+query monitor` and the `perf-sentinel query incidents` subcommand.
 
 **Query parameters:** `service` (exact match), `offset` (default 0),
 `limit` (default 50, capped at 100, each incident carrying up to 1000

@@ -31,18 +31,22 @@ and revoke findings interactively from the terminal.
 
 This TUI is the developer's trace and finding browser. For deployment
 monitoring there is a separate live operator TUI,
-`perf-sentinel query monitor` (since 0.8.8): five tabs cycled with
+`perf-sentinel query monitor` (since 0.8.8): six tabs cycled with
 Tab, **Advisor** (the daemon's settings-advisor hints), **Energy**
 (the effective energy/carbon mix per service and per region),
 **Trends** (live braille charts of the energy/carbon per window and of
 the runtime gauges as a share of their configured caps), **Scrapers**
-(live health of the energy backends from `/api/energy`) and **Config**
+(live health of the energy backends from `/api/energy`), **Config**
 (the read-only daemon parameters with their defaults and a one-line
-explanation each), auto-refreshed from the daemon every `--refresh`
+explanation each) and **Incidents** (the restarts and memory events
+the alerting posted, each with the findings frozen from its window,
+since 0.20.0), auto-refreshed from the daemon every `--refresh`
 seconds (default 5).
 When the daemon becomes unreachable, the last good snapshot stays on
-screen with a stale indicator. Read-only: no acknowledgments, no API
-key needed.
+screen with a stale indicator. Read-only: no acknowledgments. No API
+key is needed except for the Incidents tab, which takes
+`--api-key-file` (or `PERF_SENTINEL_DAEMON_API_KEY`) and accepts the
+read-only `[daemon] read_api_key`.
 
 ![all-in-one TUI: Analyze drills into Inspect then Explain, Esc walks back up](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
@@ -255,7 +259,7 @@ the TOML file. For permanent acks, edit the file via PR review per
 `perf-sentinel query monitor` (since 0.8.8) is the operator-side
 counterpart to the developer's Inspect browser above. It runs against a
 live daemon, polls it on a fixed cadence (`--refresh` seconds, default
-5) and is read-only. `Tab` cycles the five tabs and `BackTab` cycles
+5) and is read-only. `Tab` cycles the six tabs and `BackTab` cycles
 back, `j`/`k` or the arrow keys scroll, `q` or `Esc` quits. On the
 Trends tab, `m` toggles mouse mode to drag-resize the chart borders and
 `r` resets them, the same affordance as the Inspect browser.
@@ -263,7 +267,7 @@ The data each tab surfaces (config hints, source provenance,
 per-region intensities) is categorical and high-cardinality, which is
 exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 
-![query monitor cycles five tabs over a live daemon: Advisor, Energy, Trends, Scrapers, Config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor cycles six tabs over a live daemon: Advisor, Energy, Trends, Scrapers, Config, Incidents](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 - **Advisor** renders the daemon's settings-advisor hints
   (`warning_details`), color-coded by kind. A well-dimensioned daemon
@@ -306,10 +310,32 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
   compiled-in default (computed locally), and a one-line explanation of
   what it does; values that differ from the default are flagged
   `modified`. Secrets are summarized server-side (TLS as
-  configured/not, the ack API key as set/unset) and never shown in
-  clear. Needs a 0.8.8+ daemon; older ones show a hint.
+  configured/not, the ack and read API keys as set/unset, the incident
+  store as enabled/disabled) and never shown in clear. Needs a 0.8.8+
+  daemon, older ones show a hint.
 
   ![Config tab: daemon parameters with current value, default and description; modified values flagged](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/config.png)
+
+- **Incidents** reads `GET /api/incidents` for the restarts and memory
+  events your alerting posted to the daemon (since 0.20.0), newest
+  first, each with the findings frozen from the window before it. One
+  bold row per incident (start as local time, service, kind, `firing`
+  or `ended`, finding count, and a capture marker: `complete`,
+  `partial` when the ring had already evicted part of the window so the
+  list is short of what fired, `empty ring`), the alert's detail below
+  it, then one indented row per finding with its type, severity,
+  endpoint, window tally and whether it fired `before` or only `after
+  the restart`. This is the one tab that needs an API key: pass
+  `--api-key-file <PATH>` (or set `PERF_SENTINEL_DAEMON_API_KEY`), and
+  the read-only `[daemon] read_api_key` suffices. Without a key the tab
+  names the 401 and how to pass one, a daemon running with
+  `[daemon.incidents] enabled = false` reads as a 503 hint, a daemon
+  older than 0.20.0 as a 404 hint. None of those flips `[STALE]`, which
+  tracks the report poll alone, and a transient failure keeps the last
+  list on screen. The monitor polls the 20 newest incidents, `perf-sentinel
+  query incidents --offset` pages further.
+
+  ![Incidents tab: one OOM kill of checkout-svc still firing, its window captured complete, one finding that fired before the restart](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/incidents.png)
 
 When the daemon becomes unreachable, the last good snapshot stays on
 screen with a `[STALE]` indicator instead of going blank.

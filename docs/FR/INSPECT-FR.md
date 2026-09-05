@@ -33,17 +33,22 @@ et de révoquer des findings interactivement depuis le terminal.
 
 Ce TUI est le navigateur de traces et de findings du développeur. Pour
 le monitoring d'exploitation, il existe un TUI opérateur live séparé,
-`perf-sentinel query monitor` (depuis 0.8.8) : cinq onglets cyclés par
+`perf-sentinel query monitor` (depuis 0.8.8) : six onglets cyclés par
 Tab, **Advisor** (les hints du conseiller de réglages du daemon),
 **Energy** (le mix énergie/carbone effectif par service et par région),
 **Trends** (courbes braille live de l'énergie/carbone par fenêtre et
 des gauges runtime en part de leur plafond configuré), **Scrapers**
-(santé live des backends énergie via `/api/energy`) et **Config** (les
+(santé live des backends énergie via `/api/energy`), **Config** (les
 paramètres du daemon en lecture seule, avec leur défaut et une
-explication par paramètre), auto-rafraîchis depuis le daemon toutes les
-`--refresh` secondes (défaut 5). Quand le daemon devient injoignable, le dernier instantané
-valide reste affiché avec un indicateur. Lecture seule : pas
-d'acknowledgment, pas de clé d'API requise.
+explication par paramètre) et **Incidents** (les redémarrages et
+événements mémoire postés par l'alerting, chacun avec les findings
+figés de sa fenêtre, depuis 0.20.0), auto-rafraîchis depuis le daemon
+toutes les `--refresh` secondes (défaut 5). Quand le daemon devient
+injoignable, le dernier instantané valide reste affiché avec un
+indicateur. Lecture seule : pas d'acknowledgment. Aucune clé d'API
+n'est requise sauf pour l'onglet Incidents, qui prend `--api-key-file`
+(ou `PERF_SENTINEL_DAEMON_API_KEY`) et accepte la clé en lecture seule
+`[daemon] read_api_key`.
 
 ![TUI all-in-one : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
@@ -260,7 +265,7 @@ fichier via revue PR comme décrit dans
 `perf-sentinel query monitor` (depuis 0.8.8) est le pendant côté
 exploitation du navigateur Inspect du développeur ci-dessus. Il tourne
 contre un daemon vivant, le sonde à cadence fixe (`--refresh` secondes,
-défaut 5) et fonctionne en lecture seule. `Tab` cycle les cinq
+défaut 5) et fonctionne en lecture seule. `Tab` cycle les six
 onglets et `BackTab` revient en arrière, `j`/`k` ou les flèches
 défilent, `q` ou `Échap` quitte. Sur l'onglet Trends, `m` bascule
 le mode souris pour glisser les bordures des graphes et `r` les
@@ -269,7 +274,7 @@ réinitialise, la même indication visuelle que le navigateur Inspect. Les donn�
 catégorielles et à haute cardinalité, ce que la règle des labels bornés
 garde précisément hors du `/metrics` Prometheus.
 
-![query monitor cycle cinq onglets sur un daemon vivant : Advisor, Energy, Trends, Scrapers, Config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor cycle six onglets sur un daemon vivant : Advisor, Energy, Trends, Scrapers, Config, Incidents](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 - **Advisor** affiche les hints du conseiller de réglages du daemon
   (`warning_details`), colorés par type. Un daemon bien dimensionné ne
@@ -315,10 +320,35 @@ garde précisément hors du `/metrics` Prometheus.
   actuelle, le défaut compilé (calculé localement) et une explication
   d'une ligne de ce qu'il fait ; les valeurs qui diffèrent du défaut
   sont marquées `modified`. Les secrets sont résumés côté serveur (TLS
-  configured/not, clé d'API ack set/unset) et jamais montrés en clair.
+  configured/not, clés d'API ack et de lecture set/unset, store
+  d'incidents enabled/disabled) et jamais montrés en clair.
   Nécessite un daemon 0.8.8+, les plus anciens affichent une indication.
 
   ![Onglet Config : paramètres du daemon avec valeur actuelle, défaut et description ; valeurs modifiées signalées](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/config.png)
+
+- **Incidents** lit `GET /api/incidents` pour les redémarrages et
+  événements mémoire que votre alerting a postés au daemon (depuis
+  0.20.0), du plus récent au plus ancien, chacun avec les findings figés
+  de la fenêtre qui l'a précédé. Une ligne en gras par incident (début
+  en heure locale, service, genre, `firing` ou `ended`, nombre de
+  findings, et un marqueur de capture : `complete`, `partial` quand le
+  ring avait déjà évincé une partie de la fenêtre et que la liste est
+  donc en deçà de ce qui a brûlé, `empty ring`), le détail de l'alerte
+  en dessous, puis une ligne indentée par finding avec son type, sa
+  sévérité, son endpoint, son décompte sur la fenêtre et s'il a brûlé
+  `before` ou seulement `after the restart`. C'est le seul onglet qui
+  demande une clé d'API : passez `--api-key-file <CHEMIN>` (ou posez
+  `PERF_SENTINEL_DAEMON_API_KEY`), et la clé en lecture seule
+  `[daemon] read_api_key` suffit. Sans clé l'onglet nomme le 401 et
+  comment en passer une, un daemon qui tourne avec
+  `[daemon.incidents] enabled = false` se lit comme une indication 503,
+  un daemon antérieur à 0.20.0 comme une indication 404. Aucun des
+  trois ne bascule `[STALE]`, qui ne suit que le sondage du rapport, et
+  un échec passager garde la dernière liste à l'écran. Le moniteur
+  sonde les 20 incidents les plus récents, `perf-sentinel query
+  incidents --offset` pagine au-delà.
+
+  ![Onglet Incidents : un OOM kill de checkout-svc encore actif, sa fenêtre capturée complète, un finding qui brûlait avant le redémarrage](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/incidents.png)
 
 Quand le daemon devient injoignable, le dernier instantané valide reste
 affiché avec un indicateur `[STALE]` au lieu de devenir blanc.

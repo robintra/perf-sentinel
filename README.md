@@ -338,9 +338,9 @@ Two behaviours to know before sizing: upstream trace sampling (head-based vs tai
 
 </details>
 
-Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via `perf-sentinel query --daemon <URL> monitor`:
+Live operator monitor over a running daemon, for DevOps / SRE, six Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health, Config, Incidents) via `perf-sentinel query --daemon <URL> monitor`:
 
-![query monitor: four live tabs cycled with Tab over a running daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor: six live tabs cycled with Tab over a running daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 ### Data handling
 
@@ -507,7 +507,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 ![inspect TUI, Report-mode input: 4 panels with cross-trace correlations and the span tree the report carries](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
 
-**Live operator monitor** (`perf-sentinel query --daemon <URL> monitor`). Read-only, daemon-backed, four Tab-cycled tabs. The data it surfaces (config hints, source provenance, per-region intensities) is categorical and high-cardinality, exactly what the bounded-label rule keeps off Prometheus `/metrics`:
+**Live operator monitor** (`perf-sentinel query --daemon <URL> monitor`). Read-only, daemon-backed, six Tab-cycled tabs (the Incidents tab alone takes an API key, the read-only one suffices). The data it surfaces (config hints, source provenance, per-region intensities) is categorical and high-cardinality, exactly what the bounded-label rule keeps off Prometheus `/metrics`:
 
 ![Advisor tab: the daemon's settings-advisor hints, here a trace window nearing its cap](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
 

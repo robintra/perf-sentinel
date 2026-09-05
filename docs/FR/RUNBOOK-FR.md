@@ -229,7 +229,10 @@ configurée, pointez un receiver Alertmanager sur `POST /api/incidents` et le
 daemon résout et fige la fenêtre à l'instant où l'alerte part, des heures avant
 que quiconque n'ouvre un terminal. `GET /api/incidents`, avec la clé
 d'écriture ou `[daemon] read_api_key` en `X-API-Key`, renvoie ensuite
-l'incident avec ses findings déjà attachés. Voir
+l'incident avec ses findings déjà attachés, et `perf-sentinel query
+incidents --service cart-svc --api-key-file <CHEMIN>` imprime le même
+listing depuis un terminal, l'en-tête de chaque incident puis ses
+findings. Voir
 [QUERY-API-FR.md](QUERY-API-FR.md). Le ring est en mémoire, donc collectez cet
 endpoint si l'enregistrement doit survivre au nœud.
 
