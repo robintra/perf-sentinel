@@ -10,6 +10,43 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.20.0]
+
+### Changed
+
+- **`appVersion` moves to `0.20.0`.** The daemon it ships accepts Alertmanager
+  webhooks on `POST /api/incidents` behind the opt-in `[daemon.incidents]`
+  section, freezes the findings of the window before a restart or a memory
+  event, and lists them on `GET /api/incidents`, with an NDJSON archive under
+  `archive_path` that belongs on the PVC. A new `[daemon] read_api_key` opens
+  `GET /api/acks` and `GET /api/incidents` without the power to write, the key
+  to give Grafana and the Hub, and the daemon refuses it equal to a write key.
+  The environment overrides now apply without a mounted config, where a
+  container started with its keys in the environment alone used to run with
+  its write routes open. The `config.toml` in `values.yaml` gains commented
+  guidance for both, and the ingress comment that said the shared key gates
+  ack writes alone and leaves every read open is corrected: `GET /api/acks`
+  has been gated since 0.9.15. No `values.yaml` key is added or removed, no
+  template changes, and the shipped `PrometheusRule` is unchanged.
+
+### Added
+
+- Four metrics: `perf_sentinel_incidents_total{kind}`,
+  `perf_sentinel_incidents_rejected_total{reason}`, the only signal that an
+  Alertmanager receiver carries the wrong header or a rule the wrong label,
+  `perf_sentinel_incidents_archive_failed_total`, and
+  `perf_sentinel_service_last_span_timestamp_seconds{service}`, the Unix stamp
+  of the last span admitted per service, so `time() - gauge` is an age that
+  survives a daemon restart where every counter resets. The overview dashboard
+  grows to 30 panels (memory pressure, cardinality caps, energy scrape outcome,
+  Hub export, daemon RSS, findings rate by type, service silence) and the
+  findings dashboard on the query API gains two incident tables behind a
+  datasource that carries `PERF_SENTINEL_READ_API_KEY`. Three keys come from
+  Secrets through `extraEnvFrom`, `PERF_SENTINEL_ACK_API_KEY`,
+  `PERF_SENTINEL_INCIDENTS_API_KEY` and `PERF_SENTINEL_READ_API_KEY`, and an
+  enabled `[daemon.incidents]` without its key stops the daemon at startup, so
+  the Secret exists before the section does. No alert ships on any of them.
+
 ## [0.19.0]
 
 ### Changed
