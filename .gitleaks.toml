@@ -20,7 +20,9 @@ title = "perf-sentinel"
 [extend]
 useDefault = true
 
-[allowlist]
+# Two allowlists, the table form the CLI wants: the singular `[allowlist]`
+# is deprecated and cannot sit beside them.
+[[allowlists]]
 description = "Documented finding-signature examples are public, not secrets"
 # `regexTarget = "line"` so the pattern is matched against the full
 # source line, not just the extracted secret. The leading token is
@@ -43,4 +45,19 @@ regexes = [
   # `/` and ` `: alnum, `_`, `-`, `.`. Tighter than `@/` would allow,
   # so a real credential cannot hide as a fake signature.
   '''(?:n_plus_one_sql|n_plus_one_http|n_plus_one_messaging|redundant_sql|redundant_http|slow_sql|slow_http|slow_messaging|excessive_fanout|chatty_service|pool_saturation|serialized_calls):[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[0-9a-f]{16}''',
+]
+
+# The VHS tape that films `query monitor` posts one Alertmanager envelope to
+# the daemon it just started, so the write key travels in a curl header and
+# trips the bundled `curl-auth-header` rule. The value is not a credential:
+# the tape writes the config, starts the daemon on loopback in /tmp, posts,
+# screenshots and kills it, all inside one run, and the same literal sits in
+# the config the tape prints a few lines above. Pinned to that exact string
+# rather than scoped to `tapes/`, so a real key pasted into a tape is still
+# caught. The tape's read key reaches the CLI through a file, which is why
+# only this one needs saying.
+[[allowlists]]
+description = "The demo write key the monitor tape posts with, a throwaway on loopback"
+regexes = [
+  '''demo-incidents-key-0123''',
 ]
