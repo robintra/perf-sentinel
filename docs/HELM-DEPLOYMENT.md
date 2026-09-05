@@ -668,7 +668,7 @@ extraEnvFrom:
 The `PERF_SENTINEL_ACK_API_KEY` env var overrides the config `[daemon.ack]
 api_key`, so the key comes from the Secret, never the ConfigMap; a Secret
 mounted empty is rejected at config load. The key also gates `GET /api/acks`
-(the audit trail), not only the writes. The 16+ character floor still applies.
+(the audit trail), not only the writes. The 12-character floor still applies, 16 recommended.
 
 *Readers that must never write (Grafana, the Hub).* Give them `[daemon]
 read_api_key` through its own Secret, `PERF_SENTINEL_READ_API_KEY` in the

@@ -1026,13 +1026,13 @@ Configuration files must never contain secrets. For sensitive values (API keys, 
 | Variable | Overrides | Read by |
 |----------|-----------|---------|
 | `PERF_SENTINEL_EMAPS_TOKEN` | the Electricity Maps `api_key` | daemon and batch |
-| `PERF_SENTINEL_ACK_API_KEY` | `[daemon.ack] api_key` | daemon |
-| `PERF_SENTINEL_INCIDENTS_API_KEY` | `[daemon.incidents] api_key` | daemon |
-| `PERF_SENTINEL_READ_API_KEY` | `[daemon] read_api_key` | daemon |
+| `PERF_SENTINEL_ACK_API_KEY` | `[daemon.ack] api_key` | daemon and batch |
+| `PERF_SENTINEL_INCIDENTS_API_KEY` | `[daemon.incidents] api_key` | daemon and batch |
+| `PERF_SENTINEL_READ_API_KEY` | `[daemon] read_api_key` | daemon and batch |
 | `PERF_SENTINEL_DAEMON_API_KEY` | the `--api-key-file` of `ack`, `query inspect`, `query monitor` and `query incidents` | CLI, sent as `X-API-Key` |
 | `PERF_SENTINEL_DAEMON_URL` | the `--daemon` URL of the `ack` and `query` commands | CLI |
 
-A variable set to an empty string counts as set: an empty key is rejected at config load rather than silently ignored, so a Secret mounted empty fails the daemon instead of opening the route.
+The overrides apply on every run, batch commands and a run without any config file included, so a job that inherits the daemon's Secret must carry valid values too (the incidents key only counts once `[daemon.incidents] enabled` is set). A variable set to an empty string counts as set: an empty key is rejected at config load rather than silently ignored, so a Secret mounted empty fails every command that loads it, the daemon included, instead of opening the route.
 
 ## Acknowledgments file
 

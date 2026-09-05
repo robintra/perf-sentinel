@@ -532,7 +532,7 @@
     {
       "type": "table",
       "title": "Daemon acknowledgments",
-      "description": "Findings acknowledged at runtime, from GET /api/acks. An entry here is usually why a problem is absent from the table above. Empty when [daemon.ack] is disabled. If the daemon has an ack API key, the datasource needs it too, this endpoint is gated by the same key as the ack writes.",
+      "description": "Findings acknowledged at runtime, from GET /api/acks. An entry here is usually why a problem is absent from the table above. Empty when [daemon.ack] is disabled. If the daemon has an ack API key this endpoint is gated too, and the [daemon] read_api_key the datasource carries opens it without the power to ack.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
