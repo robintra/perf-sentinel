@@ -228,6 +228,44 @@ impl AckFailureReason {
     }
 }
 
+/// `reason` label of `perf_sentinel_incidents_rejected_total`. Bounded
+/// by construction: a delivery or an alert is refused for one of these
+/// and nothing the caller sends reaches the label. Pre-warmed at zero.
+#[cfg(feature = "daemon")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IncidentRejection {
+    /// HTTP 401 on `POST` or `GET`: missing or wrong `X-API-Key`.
+    Unauthorized,
+    /// One alert without the configured service label.
+    NoService,
+    /// One alert whose `startsAt` is not RFC 3339.
+    UnparsableTime,
+    /// One alert past the per-delivery cap.
+    Overflow,
+}
+
+#[cfg(feature = "daemon")]
+impl IncidentRejection {
+    /// Every variant, so the pre-warm loop cannot miss one.
+    pub const ALL: [Self; 4] = [
+        Self::Unauthorized,
+        Self::NoService,
+        Self::UnparsableTime,
+        Self::Overflow,
+    ];
+
+    /// Stable Prometheus label string for this variant.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unauthorized => "unauthorized",
+            Self::NoService => "no_service",
+            Self::UnparsableTime => "unparsable_time",
+            Self::Overflow => "overflow",
+        }
+    }
+}
+
 /// `reason` label of `perf_sentinel_scaphandre_scrape_failed_total`.
 /// Pre-warmed to 0 at startup. No dedicated `invalid_uri` variant:
 /// `ScraperError::InvalidUri` folds into `RequestError` since
@@ -646,6 +684,11 @@ pub struct MetricsState {
     /// this counts durability lost, not data lost.
     #[cfg(feature = "daemon")]
     pub incidents_archive_failed_total: IntCounter,
+    /// Incident requests and alerts the daemon refused, by reason. The intake body carries the same counts, but Alertmanager
+    /// discards it and never retries a 4xx, so this is the only signal
+    /// that a receiver is misconfigured. Pre-warmed at zero.
+    #[cfg(feature = "daemon")]
+    pub incidents_rejected_total: IntCounterVec,
     /// Successful ack and unack operations on the daemon HTTP API,
     /// labeled by `action` (`ack` or `unack`). Pre-warmed to 0 for
     /// both actions at startup so dashboards plot zero-values before
@@ -1229,6 +1272,17 @@ impl MetricsState {
             .register(Box::new(incidents_archive_failed_total.clone()))
             .expect("metric registration should not fail");
         #[cfg(feature = "daemon")]
+        let incidents_rejected_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_incidents_rejected_total",
+            "Incident requests and alerts the daemon refused, by reason",
+            &["reason"],
+        );
+        #[cfg(feature = "daemon")]
+        for reason in IncidentRejection::ALL {
+            let _ = incidents_rejected_total.with_label_values(&[reason.as_str()]);
+        }
+        #[cfg(feature = "daemon")]
         let ack_operations_total = register_int_counter_vec(
             &registry,
             "perf_sentinel_ack_operations_total",
@@ -1449,6 +1503,8 @@ impl MetricsState {
             #[cfg(feature = "daemon")]
             incidents_archive_failed_total,
             #[cfg(feature = "daemon")]
+            incidents_rejected_total,
+            #[cfg(feature = "daemon")]
             ack_operations_total,
             #[cfg(feature = "daemon")]
             ack_operations_failed_total,
@@ -1576,6 +1632,18 @@ impl MetricsState {
         self.ack_operations_failed_total
             .with_label_values(&[action.as_str(), reason.as_str()])
             .inc();
+    }
+
+    /// Add `count` refusals to `perf_sentinel_incidents_rejected_total`
+    /// under `reason`. Zero is a no-op, so a delivery reports its counts
+    /// unconditionally.
+    #[cfg(feature = "daemon")]
+    pub fn record_incident_rejections(&self, reason: IncidentRejection, count: usize) {
+        if count > 0 {
+            self.incidents_rejected_total
+                .with_label_values(&[reason.as_str()])
+                .inc_by(count as u64);
+        }
     }
 
     /// snapshot the per-service I/O op counter.
@@ -3278,6 +3346,29 @@ mod tests {
         state.record_ack_success(AckAction::Unack);
         assert_eq!(state.ack_operations_ack_success.get(), 2);
         assert_eq!(state.ack_operations_unack_success.get(), 1);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn incident_rejections_prewarm_all_reasons_and_skip_zero() {
+        let state = MetricsState::new();
+        let output = state.render();
+        for reason in IncidentRejection::ALL {
+            let line = format!(
+                "perf_sentinel_incidents_rejected_total{{reason=\"{}\"}} 0",
+                reason.as_str()
+            );
+            assert!(output.contains(&line), "missing {line} in: {output}");
+        }
+        state.record_incident_rejections(IncidentRejection::NoService, 0);
+        state.record_incident_rejections(IncidentRejection::NoService, 3);
+        assert_eq!(
+            state
+                .incidents_rejected_total
+                .with_label_values(&["no_service"])
+                .get(),
+            3
+        );
     }
 
     #[cfg(feature = "daemon")]

@@ -951,9 +951,14 @@ refusées, ce dont Alertmanager a besoin pour cesser de réessayer.
 `startsAt` est un RFC 3339 avec n'importe quel décalage, tel que Go le
 sérialise, et tout le reste compte comme `rejected_unparsable_time`. Une
 livraison porte au plus 1000 alertes, le reste compte comme
-`rejected_overflow`. Chaque genre de refus est journalisé. Les valeurs de
-libellés sont nettoyées de leurs espaces, donc une valeur YAML entre
-guillemets avec un espace final se joint quand même.
+`rejected_overflow`. Chaque refus d'alerte est journalisé, et chaque refus
+est compté dans `perf_sentinel_incidents_rejected_total{reason}`, le 401
+compris, parce qu'Alertmanager jette ce corps et ne réessaie jamais un 4xx
+(un groupe encore actif est renvoyé au `group_interval` suivant, donc le
+401 se répète jusqu'à la correction de l'en-tête et la capture est alors
+ce que le ring détient encore). Les valeurs de libellés sont nettoyées de
+leurs espaces, donc une valeur YAML entre guillemets avec un espace final
+se joint quand même.
 
 **La fenêtre se ferme après l'incident, pas dessus.** Un finding est
 horodaté quand sa trace est analysée, ce qui arrive une fois la trace

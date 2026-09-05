@@ -24,7 +24,7 @@ use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator
 use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{self, DetectConfig};
 use crate::explain;
-use crate::report::metrics::{AckFailureReason, MetricsState};
+use crate::report::metrics::{AckFailureReason, IncidentRejection, MetricsState};
 use crate::report::{Analysis, GreenSummary, Report};
 
 /// Upper bound for `?limit=` on `/api/findings`, caps response size
@@ -1146,12 +1146,19 @@ struct IncidentsParams {
 }
 
 /// Auth, then the store, the shape `check_ack_preconditions` gives the
-/// ack routes. `POST` and `GET` share the key.
+/// ack routes. `POST` and `GET` share the key, and a refused key is
+/// counted since Alertmanager only re-sends the group at the next
+/// `group_interval`, without a retry inside the delivery.
 fn check_incident_preconditions<'a>(
     state: &'a QueryApiState,
     headers: &HeaderMap,
 ) -> Result<&'a Arc<super::incidents::IncidentStore>, ErrorResponse> {
-    check_ack_auth(headers, state.daemon_config.incidents.api_key.as_deref())?;
+    if let Err(e) = check_ack_auth(headers, state.daemon_config.incidents.api_key.as_deref()) {
+        state
+            .metrics
+            .record_incident_rejections(IncidentRejection::Unauthorized, 1);
+        return Err(e);
+    }
     state.incident_store.as_ref().ok_or_else(|| {
         ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "incident store disabled")
     })
@@ -1224,6 +1231,37 @@ fn archive_record(state: &QueryApiState, incident: &super::incidents::Incident) 
 /// pass exists to catch. `at_ms` is clamped to now for the arithmetic, so
 /// a `startsAt` in the future cannot park the task, and the wait is
 /// bounded by three TTLs of operator config.
+/// Count and log the alerts one delivery refused.
+fn report_rejections(metrics: &MetricsState, intake: &IncidentIntake, service_label: &str) {
+    if intake.rejected_no_service > 0 {
+        metrics
+            .record_incident_rejections(IncidentRejection::NoService, intake.rejected_no_service);
+        tracing::warn!(
+            rejected = intake.rejected_no_service,
+            label = %service_label,
+            "Incident alerts carried no service label and were refused"
+        );
+    }
+    if intake.rejected_unparsable_time > 0 {
+        metrics.record_incident_rejections(
+            IncidentRejection::UnparsableTime,
+            intake.rejected_unparsable_time,
+        );
+        tracing::warn!(
+            rejected = intake.rejected_unparsable_time,
+            "Incident alerts carried a startsAt that is not RFC 3339 and were refused"
+        );
+    }
+    if intake.rejected_overflow > 0 {
+        metrics.record_incident_rejections(IncidentRejection::Overflow, intake.rejected_overflow);
+        tracing::warn!(
+            rejected = intake.rejected_overflow,
+            cap = MAX_ALERTS_PER_DELIVERY,
+            "Incident delivery exceeded the per-delivery alert cap"
+        );
+    }
+}
+
 fn schedule_settle(state: Arc<QueryApiState>, reqs: Vec<super::incidents::IncidentRequest>) {
     let Some(latest_at) = reqs.iter().map(|r| r.at_ms).max() else {
         return;
@@ -1322,26 +1360,7 @@ async fn handle_post_incidents(
         }
     }
     schedule_settle(Arc::clone(&state), settles);
-    if intake.rejected_no_service > 0 {
-        tracing::warn!(
-            rejected = intake.rejected_no_service,
-            label = %cfg.service_label,
-            "Incident alerts carried no service label and were refused"
-        );
-    }
-    if intake.rejected_unparsable_time > 0 {
-        tracing::warn!(
-            rejected = intake.rejected_unparsable_time,
-            "Incident alerts carried a startsAt that is not RFC 3339 and were refused"
-        );
-    }
-    if intake.rejected_overflow > 0 {
-        tracing::warn!(
-            rejected = intake.rejected_overflow,
-            cap = MAX_ALERTS_PER_DELIVERY,
-            "Incident delivery exceeded the per-delivery alert cap"
-        );
-    }
+    report_rejections(&state.metrics, &intake, &cfg.service_label);
     Ok(Json(intake))
 }
 
