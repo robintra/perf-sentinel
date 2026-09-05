@@ -4389,23 +4389,27 @@ api_key = \"a-long-enough-write-key\"
     );
 }
 
+impl Config {
+    fn cors_wildcard_with_lone_read_key(&mut self) {
+        self.daemon.cors.allowed_origins = vec!["*".to_string()];
+        self.daemon.read_api_key = Some("test-token-12chars".to_string());
+    }
+}
+
 #[test]
 #[allow(clippy::field_reassign_with_default)]
 fn validate_daemon_cors_rejects_wildcard_with_any_key() {
-    // The replay argument holds for every key the daemon compares, not
-    // only the ack one.
-    let setters: [fn(&mut Config); 2] = [
-        |c| c.daemon.incidents.api_key = Some("test-token-12chars".to_string()),
-        |c| c.daemon.read_api_key = Some("test-token-12chars".to_string()),
-    ];
-    for set in setters {
-        let mut cfg = Config::default();
-        cfg.daemon.cors.allowed_origins = vec!["*".to_string()];
-        set(&mut cfg);
-        let err = cfg.validate_daemon_cors().unwrap_err();
-        assert!(
-            err.contains("incompatible with") && err.contains("api_key"),
-            "{err}"
-        );
-    }
+    // The replay argument holds for every write key, not only the ack
+    // one. A read key alone is never compared, so it is not a target.
+    let mut cfg = Config::default();
+    cfg.daemon.cors.allowed_origins = vec!["*".to_string()];
+    cfg.daemon.incidents.api_key = Some("test-token-12chars".to_string());
+    let err = cfg.validate_daemon_cors().unwrap_err();
+    assert!(
+        err.contains("incompatible with") && err.contains("api_key"),
+        "{err}"
+    );
+    let mut lone_read = Config::default();
+    lone_read.cors_wildcard_with_lone_read_key();
+    assert!(lone_read.validate_daemon_cors().is_ok());
 }
