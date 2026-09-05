@@ -525,13 +525,21 @@ impl CappedPairs {
 /// energy scrapers.
 struct ServiceMeter {
     per_grouping_labels: bool,
-    /// Children per effective (service, grouping) pair. Two levels
-    /// rather than a `(String, String)` key: std's `HashMap` cannot
-    /// probe a tuple of `String`s with borrowed `&str`s, and the
-    /// per-event hit path must not allocate.
-    children: HashMap<String, HashMap<String, prometheus::Counter>>,
+    /// Children per admitted service. Two levels rather than a
+    /// `(String, String)` key: std's `HashMap` cannot probe a tuple of
+    /// `String`s with borrowed `&str`s, and the per-event hit path must
+    /// not allocate.
+    children: HashMap<String, ServiceChildren>,
     capped: CappedServices,
     pairs: CappedPairs,
+}
+
+/// What one admitted service owns: when it was last heard from, and one
+/// I/O op counter per effective grouping. The gauge sits here rather
+/// than in a second map so one probe of `children` serves both.
+struct ServiceChildren {
+    last_span: prometheus::Gauge,
+    per_grouping: HashMap<String, prometheus::Counter>,
 }
 
 impl ServiceMeter {
@@ -548,15 +556,21 @@ impl ServiceMeter {
         }
     }
 
-    fn record(&mut self, service: &str, grouping: &str, metrics: &MetricsState) {
+    /// `now_secs` is the batch's own stamp, taken once by the caller: the
+    /// gauge answers to the millisecond either way, and a per-event clock
+    /// read would be paid on the hot path for nothing.
+    fn record(&mut self, service: &str, grouping: &str, metrics: &MetricsState, now_secs: f64) {
         let grouping = if self.per_grouping_labels {
             grouping
         } else {
             ""
         };
-        if let Some(child) = self.children.get(service).and_then(|m| m.get(grouping)) {
-            child.inc();
-            return;
+        if let Some(entry) = self.children.get(service) {
+            entry.last_span.set(now_secs);
+            if let Some(child) = entry.per_grouping.get(grouping) {
+                child.inc();
+                return;
+            }
         }
         let Some(service) = self
             .capped
@@ -574,13 +588,24 @@ impl ServiceMeter {
             .unwrap_or(SERVICE_OVERFLOW_LABEL);
         // Past the pair cap the label is `_other`, minted on the first
         // fold: no `String` per folded event.
-        if let Some(child) = self.children.get(service).and_then(|m| m.get(grouping)) {
+        if let Some(entry) = self.children.get(service)
+            && let Some(child) = entry.per_grouping.get(grouping)
+        {
             child.inc();
             return;
         }
-        self.children
+        let entry = self
+            .children
             .entry(service.to_string())
-            .or_default()
+            .or_insert_with(|| ServiceChildren {
+                last_span: metrics
+                    .service_last_span_timestamp_seconds
+                    .with_label_values(&[service]),
+                per_grouping: HashMap::new(),
+            });
+        entry.last_span.set(now_secs);
+        entry
+            .per_grouping
             .entry(grouping.to_string())
             .or_insert_with(|| {
                 metrics
@@ -873,16 +898,19 @@ async fn ingest_event_batch(
     let event_count = events.len();
     // Normalize OUTSIDE the lock to minimize lock hold time.
     let normalized: Vec<_> = events.into_iter().map(normalize::normalize).collect();
+    let now_ms = current_time_ms();
+    #[allow(clippy::cast_precision_loss)] // epoch millis, exact in f64 until year 287396
+    let now_secs = now_ms as f64 / 1000.0;
     for event in &normalized {
         service_meter.record(
             event.event.service.as_ref(),
             event.event.grouping_value().unwrap_or(""),
             metrics,
+            now_secs,
         );
     }
     let (source_endpoint_groups, source_endpoint_parent_groups) =
         group_source_endpoint_updates(source_endpoint_updates, sampling_rate);
-    let now_ms = current_time_ms();
     let mut lru_evicted = Vec::new();
     let mut source_endpoint_generations = HashMap::new();
     let empty_source_endpoint_groups = HashMap::new();
@@ -3689,8 +3717,8 @@ mod tests {
         let mut meter = ServiceMeter::new(2, true);
 
         for service in ["svc-a", "svc-b", "svc-c"] {
-            meter.record(service, "", &metrics);
-            meter.record(service, "", &metrics);
+            meter.record(service, "", &metrics, 1000.0);
+            meter.record(service, "", &metrics, 1000.0);
         }
 
         // svc-c arrived after the cap: both its ops overflow, the two
@@ -3707,13 +3735,42 @@ mod tests {
     }
 
     #[test]
+    fn last_span_gauge_follows_the_service_cap_and_the_latest_batch() {
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter::new(1, true);
+        meter.record("svc-a", "prod", &metrics, 1_700_000_000.0);
+        // A later batch of the same service moves the stamp forward, which
+        // is the whole point: a frozen gauge would read as an outage.
+        meter.record("svc-a", "prod", &metrics, 1_700_000_042.0);
+        // Refused by the cap, so it mints no series and cannot widen
+        // cardinality past the bound the counter already respects.
+        meter.record("svc-b", "prod", &metrics, 1_700_000_042.0);
+
+        let stamp = metrics
+            .service_last_span_timestamp_seconds
+            .with_label_values(&["svc-a"])
+            .get();
+        assert!((stamp - 1_700_000_042.0).abs() < f64::EPSILON);
+        let output = metrics.render();
+        assert!(
+            output.contains("perf_sentinel_service_last_span_timestamp_seconds{service=\"svc-a\"}"),
+            "the admitted service is exposed: {output}"
+        );
+        assert!(
+            !output
+                .contains("perf_sentinel_service_last_span_timestamp_seconds{service=\"svc-b\"}"),
+            "a capped-out service mints no gauge: {output}"
+        );
+    }
+
+    #[test]
     fn ingest_service_meter_reserves_the_fold_name() {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter::new(2, true);
-        meter.record("svc-a", "", &metrics);
+        meter.record("svc-a", "", &metrics, 1000.0);
 
         // `_other` is reserved: counted, but never taking a cap slot.
-        meter.record(SERVICE_OVERFLOW_LABEL, "", &metrics);
+        meter.record(SERVICE_OVERFLOW_LABEL, "", &metrics, 1000.0);
         assert_eq!(meter.capped.admitted.len(), 1);
         let other = metrics
             .service_io_ops_total
@@ -4282,7 +4339,7 @@ mod tests {
         meter.pairs.cap = 1;
 
         for grouping in ["prod", "prod", "staging", "staging"] {
-            meter.record("svc-a", grouping, &metrics);
+            meter.record("svc-a", grouping, &metrics, 1000.0);
         }
 
         // Only the grouping axis folded; the service axis never overflowed.
@@ -4303,8 +4360,8 @@ mod tests {
     fn ingest_service_meter_reserves_the_grouping_fold_name() {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter::new(2, true);
-        meter.record("svc-a", "prod", &metrics);
-        meter.record("svc-a", SERVICE_OVERFLOW_LABEL, &metrics);
+        meter.record("svc-a", "prod", &metrics, 1000.0);
+        meter.record("svc-a", SERVICE_OVERFLOW_LABEL, &metrics, 1000.0);
 
         assert_eq!(meter.pairs.len, 1);
         let other = metrics
@@ -4320,7 +4377,7 @@ mod tests {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter::new(2, true);
         for grouping in ["prod", "prod", "staging", "staging", "staging", ""] {
-            meter.record("svc-a", grouping, &metrics);
+            meter.record("svc-a", grouping, &metrics, 1000.0);
         }
 
         // What the energy scrapers read: one total per service, the
@@ -4342,7 +4399,7 @@ mod tests {
         let metrics = MetricsState::new();
         // Unlike `per_service_labels`, this knob reaches the I/O counters.
         let mut meter = ServiceMeter::new(2, false);
-        meter.record("svc-a", "prod", &metrics);
+        meter.record("svc-a", "prod", &metrics, 1000.0);
 
         let unlabeled = metrics
             .service_io_ops_total
@@ -4879,8 +4936,8 @@ mod tests {
         let mut meter = ServiceMeter::new(2, true);
         meter.pairs.cap = 1;
 
-        meter.record("svc-a", "prod", &metrics);
-        meter.record("svc-b", "prod", &metrics);
+        meter.record("svc-a", "prod", &metrics, 1000.0);
+        meter.record("svc-b", "prod", &metrics, 1000.0);
 
         let per = |service: &str, grouping: &str| {
             metrics
