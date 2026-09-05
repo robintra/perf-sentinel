@@ -633,6 +633,56 @@ async fn the_settle_pass_merges_the_traces_live_at_the_incident() {
 }
 
 #[tokio::test]
+async fn incident_refusals_are_counted_by_reason() {
+    let mut keyed = make_state().clone_for_test();
+    keyed.daemon_config.incidents.api_key = Some("k".to_string());
+    let state = Arc::new(keyed);
+    let count = |reason: &str| {
+        state
+            .metrics
+            .incidents_rejected_total
+            .with_label_values(&[reason])
+            .get()
+    };
+
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::json!([])))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(count("unauthorized"), 1);
+
+    // With the key: one alert with a bad stamp, then a thousand without a
+    // service, so the cap drops the last one and no alert reaches a fold.
+    let mut alerts = vec![serde_json::json!({
+        "status": "firing",
+        "labels": {"service": "svc", "perf_sentinel_kind": "restart"},
+        "startsAt": "yesterday"
+    })];
+    alerts.extend((0..1000).map(|_| {
+        serde_json::json!({
+            "status": "firing",
+            "labels": {"perf_sentinel_kind": "restart"},
+            "startsAt": "2026-09-01T14:00:00Z"
+        })
+    }));
+    let mut req = post_incidents_request(&serde_json::Value::Array(alerts));
+    req.headers_mut().insert(
+        crate::http_client::API_KEY_HEADER,
+        axum::http::HeaderValue::from_static("k"),
+    );
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(req)
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(count("unparsable_time"), 1);
+    assert_eq!(count("no_service"), 999);
+    assert_eq!(count("overflow"), 1);
+    assert_eq!(count("unauthorized"), 1, "the keyed delivery adds none");
+}
+
+#[tokio::test]
 async fn the_listing_pages_with_offset_and_caps_the_delivery() {
     let state = make_state();
     let mut alerts = Vec::new();

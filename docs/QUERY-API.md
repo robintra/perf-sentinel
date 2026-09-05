@@ -924,8 +924,13 @@ when every alert was refused, which is also what Alertmanager needs to
 stop retrying. `startsAt` is RFC 3339 with any offset, the way Go
 serializes it, and anything else counts as `rejected_unparsable_time`. A
 delivery carries at most 1000 alerts, the rest count as
-`rejected_overflow`. Every rejection kind is logged. Label values are
-trimmed, so a quoted YAML value with a trailing space still joins.
+`rejected_overflow`. Every alert-level rejection is logged, and every
+rejection is counted in `perf_sentinel_incidents_rejected_total{reason}`,
+the 401 included, because Alertmanager discards this body and never
+retries a 4xx (a group still firing is re-sent at the next
+`group_interval`, so the 401 repeats until the header is fixed and the
+capture is then whatever the ring still holds). Label values are trimmed,
+so a quoted YAML value with a trailing space still joins.
 
 **The window closes after the incident, not at it.** A finding is stamped
 when its trace is analysed, which happens once the trace has aged out of
