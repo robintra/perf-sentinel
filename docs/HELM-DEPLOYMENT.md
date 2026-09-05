@@ -1049,7 +1049,8 @@ with Grafana, and pin its version where you provision it):
 - [`examples/grafana-findings-dashboard.json`](../examples/grafana-findings-dashboard.json),
   title `perf-sentinel findings`, uid `perf-sentinel-findings`: the
   daemon's status line, a filterable table of findings, the runtime
-  acknowledgments and the energy backends' health.
+  acknowledgments, the energy backends' health and, since 0.20.0, the
+  incidents your alerting posted with the findings frozen for each.
 
 **No port-forward and no Ingress.** Grafana's backend performs the
 request, so an in-cluster Grafana reaches the Service over the cluster
@@ -1086,6 +1087,36 @@ the floor that dialog checks, not a statement about later majors: after
 a major plugin bump, check that all four tables still fill, since their
 columns come from the backend parser and a parser change empties a table
 without erroring anywhere.
+
+Two tables at the bottom read `GET /api/incidents`, the route that
+`POST /api/incidents` fills from an Alertmanager webhook (opt-in through
+`[daemon.incidents]`, see `docs/QUERY-API.md`). `Incidents` lists them
+newest first with the capture window, how many findings were frozen for
+each, and a `Capture` column that reads `oldest_finding_ms` against the
+window's start the way `docs/RUNBOOK.md` does: `complete` when the ring
+still reached below the window, `partial` when it had already evicted
+part of it, `empty ring` when nothing was retained. Clicking a row sets
+the `Incident` variable, and `Incident findings` then shows the rows
+frozen for that incident, folded over the window alone, with a
+`First seen` column in place of `Acked via`: a first sighting later than
+the incident's start is a row that fired only after the restart. The
+time picker filters neither table, since the route has no time filter:
+the first always shows the 50 most recent incidents and the second
+whichever incident the variable names.
+
+Both routes are gated, so the datasource now sends a key.
+`examples/grafana-infinity-datasource.yaml` puts `[daemon] read_api_key`
+in the `X-API-Key` header (`auth_method: apiKey` in Infinity's terms),
+its value expanded by Grafana from `PERF_SENTINEL_READ_API_KEY` in
+Grafana's own environment through `$__env{}`, so the key comes from a
+Secret mounted into the Grafana pod and never sits in the file. It is
+the read key, never the `[daemon.incidents]` write key: a Grafana folder
+must not be able to fabricate an incident, and the daemon refuses a read
+key equal to a write key at startup. The same header opens
+`GET /api/acks` for the acknowledgments table once `[daemon.ack]
+api_key` is set, and the ungated routes ignore it, so one datasource
+serves every panel. With a header configured Infinity requires
+`allowedHosts`, which the file already pins to the daemon's URL.
 
 ### Alerting rules (PrometheusRule)
 

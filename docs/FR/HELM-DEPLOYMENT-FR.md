@@ -728,7 +728,9 @@ livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
 - [`examples/grafana-findings-dashboard.json`](../../examples/grafana-findings-dashboard.json),
   titre `perf-sentinel findings`, uid `perf-sentinel-findings` : la
   ligne d'état du daemon, une table filtrable des findings, les
-  acquittements à chaud et la santé des backends énergie.
+  acquittements à chaud, la santé des backends énergie et, depuis la
+  0.20.0, les incidents postés par votre alerting avec les findings
+  gelés pour chacun.
 
 **Ni port-forward, ni Ingress.** C'est le backend de Grafana qui fait la
 requête, donc un Grafana dans le cluster atteint le Service par le
@@ -769,6 +771,40 @@ suivantes : après une montée de majeur du plugin, vérifiez que les
 quatre tables se remplissent encore, leurs colonnes venant du parseur
 backend et un changement de parseur vidant une table sans erreur nulle
 part.
+
+Deux tables en bas lisent `GET /api/incidents`, la route que
+`POST /api/incidents` remplit depuis un webhook Alertmanager (activée
+explicitement par `[daemon.incidents]`, voir `docs/FR/QUERY-API-FR.md`).
+`Incidents` les liste du plus récent au plus ancien avec la fenêtre de
+capture, le nombre de findings gelés pour chacun, et une colonne
+`Capture` qui lit `oldest_finding_ms` contre le début de la fenêtre
+comme le fait `docs/FR/RUNBOOK-FR.md` : `complete` quand l'anneau
+atteignait encore en dessous de la fenêtre, `partial` quand il en avait
+déjà évincé une partie, `empty ring` quand rien n'était retenu. Cliquer
+une ligne renseigne la variable `Incident`, et `Incident findings`
+montre alors les lignes gelées pour cet incident, repliées sur la seule
+fenêtre, avec une colonne `First seen` à la place de `Acked via` : une
+première apparition postérieure au début de l'incident est une ligne
+qui n'a tiré qu'après le redémarrage. Le sélecteur de temps ne filtre
+aucune des deux tables, puisque la route n'a pas de filtre temporel :
+la première montre toujours les 50 incidents les plus récents et la
+seconde l'incident que nomme la variable.
+
+Les deux routes sont protégées, la datasource envoie donc désormais une
+clé. `examples/grafana-infinity-datasource.yaml` place
+`[daemon] read_api_key` dans l'en-tête `X-API-Key` (`auth_method:
+apiKey` dans les termes d'Infinity), sa valeur développée par Grafana
+depuis `PERF_SENTINEL_READ_API_KEY` dans l'environnement de Grafana
+lui-même via `$__env{}`, la clé vient donc d'un Secret monté dans le pod
+Grafana et ne figure jamais dans le fichier. C'est la clé de lecture,
+jamais la clé d'écriture de `[daemon.incidents]` : un dossier Grafana ne
+doit pas pouvoir fabriquer un incident, et le daemon refuse au démarrage
+une clé de lecture égale à une clé d'écriture. Le même en-tête ouvre
+`GET /api/acks` pour la table des acquittements dès que `[daemon.ack]
+api_key` est renseignée, et les routes non protégées l'ignorent, une
+seule datasource sert donc tous les panneaux. Avec un en-tête
+configuré, Infinity exige `allowedHosts`, que le fichier épingle déjà
+sur l'URL du daemon.
 
 ### Règles d'alerte (PrometheusRule)
 

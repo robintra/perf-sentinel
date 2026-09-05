@@ -41,6 +41,11 @@
 # one. A wrong port fails exactly this way, nothing being there to refuse the
 # connection. `allowedHosts` carries the same value and has to be corrected
 # with it. The NetworkPolicy of point 2 is the other cause.
+#
+# IF THE INCIDENTS PANELS SAY 401. The key below is not the daemon's
+# `[daemon] read_api_key`, or PERF_SENTINEL_READ_API_KEY is unset in Grafana's
+# own environment. Ungated routes (/api/findings, /api/status, /api/energy)
+# ignore the header, so the rest of the dashboard keeps working.
 apiVersion: 1
 
 datasources:
@@ -57,16 +62,31 @@ datasources:
     access: proxy
     isDefault: false
     jsonData:
-      # No app-layer auth on the daemon: the boundary is the cluster network
-      # plus the NetworkPolicy. Switch to bearerToken or basicAuth if you put
-      # an authenticating proxy in front, and fill secureJsonData accordingly.
-      auth_method: none
-      # Pin the reachable host. Optional while auth_method is `none` (Infinity
-      # then allows every host), required as soon as auth, custom headers or
-      # TLS are configured. Set here from the start so enabling auth later
-      # does not break the datasource.
+      # One header on every request: X-API-Key carrying the READ key of the
+      # daemon (`[daemon] read_api_key`, see secureJsonData below). Ungated
+      # routes ignore it. GET /api/incidents needs it, and GET /api/acks takes
+      # it too once `[daemon.ack] api_key` is set, so one datasource serves
+      # every panel. Keys per the plugin's provisioning schema (Infinity 4.x):
+      # auth_method apiKey, apiKeyKey the header name, apiKeyType header.
+      auth_method: apiKey
+      apiKeyKey: X-API-Key
+      apiKeyType: header
+      # Pin the reachable host. Infinity requires it as soon as auth, custom
+      # headers or TLS are configured, which is the case here, and refuses
+      # every other host. Same value as `url`, corrected together.
       allowedHosts:
         - http://perf-sentinel.<ns>.svc.cluster.local:4318
       # The query API is loopback-fast, but a daemon under ingest pressure
       # answers a 1000-finding page more slowly than Grafana's default patience.
       timeoutInSeconds: 30
+    secureJsonData:
+      # `[daemon] read_api_key` (PERF_SENTINEL_READ_API_KEY on the daemon
+      # side), the key that reads incidents and acks and can never POST,
+      # DELETE or ack. NEVER the `[daemon.incidents] api_key` Alertmanager
+      # posts with, nor the `[daemon.ack] api_key`: a Grafana folder must not
+      # be able to fabricate an incident or ack a finding, and the daemon
+      # refuses a read key equal to a write key at startup anyway. Grafana
+      # expands `$__env{VAR}` from its own environment at provisioning time,
+      # so mount the Secret into the Grafana pod (`envValueFrom` in the
+      # Grafana chart) rather than writing the key into this file.
+      apiKeyValue: $__env{PERF_SENTINEL_READ_API_KEY}

@@ -48,7 +48,7 @@
     "to": "now"
   },
   "refresh": "1m",
-  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names.",
+  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names. Since 0.20.0 an Incidents table lists what the alerting posted to POST /api/incidents and an Incident findings table shows the findings frozen for the incident clicked in it, both behind [daemon] read_api_key, which the datasource sends as X-API-Key, and both outside the time picker, since the route has no time filter.",
   "templating": {
     "list": [
       {
@@ -127,6 +127,20 @@
         "includeAll": false,
         "multi": false,
         "description": "Since 0.5.20 the API leaves acknowledged findings out by default, so a critical problem someone acked is absent from the table with nothing saying so. true asks for them back, and the 'Acked via' column names the source (toml for the CI baseline, daemon for the runtime store), the same union the acknowledgments table below lists."
+      },
+      {
+        "name": "incident",
+        "label": "Incident",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Id of the incident whose findings the Incident findings table shows. Set by clicking a row of the Incidents table, or paste one from GET /api/incidents. Empty leaves that table without data."
       }
     ]
   },
@@ -671,6 +685,494 @@
       "options": {
         "showHeader": true
       }
+    },
+    {
+      "type": "table",
+      "title": "Incidents",
+      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in through [daemon.incidents]. The time picker does not filter this table: the route has no time filter, so it always lists the 50 most recent incidents whatever the range. 'Findings' is how many rows the daemon froze for [Window from, Window to], a window that closes two trace TTLs after the incident so the traces live at the crash are inside it once analysed. 'Capture' reads Ring reached (oldest_finding_ms) against Window from: complete when the ring still reached below the window, partial when it had already evicted part of it (the NDJSON archive may still answer), empty ring when nothing was retained. 'Ended' stays blank while the alert is still firing. Click a row to load its findings in the table below, which sets the Incident variable. The datasource sends [daemon] read_api_key as X-API-Key, never the key Alertmanager posts with. Columns keep this order through an organize transformation.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/incidents?limit=50",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "$map($, function($i) {{\"id\": $i.id, \"service\": $i.service, \"kind\": $i.kind, \"at_ms\": $i.at_ms, \"ended_at_ms\": $i.ended_at_ms, \"window_from_ms\": $i.window_from_ms, \"window_to_ms\": $i.window_to_ms, \"oldest_finding_ms\": $i.oldest_finding_ms, \"findings_count\": $count($i.findings), \"capture\": $exists($i.oldest_finding_ms) ? ($i.oldest_finding_ms <= $i.window_from_ms ? \"complete\" : \"partial\") : \"empty ring\", \"detail\": $i.detail}})",
+          "columns": [
+            {
+              "selector": "at_ms",
+              "text": "Started",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "service",
+              "text": "Service",
+              "type": "string"
+            },
+            {
+              "selector": "kind",
+              "text": "Kind",
+              "type": "string"
+            },
+            {
+              "selector": "ended_at_ms",
+              "text": "Ended",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "window_from_ms",
+              "text": "Window from",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "window_to_ms",
+              "text": "Window to",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "findings_count",
+              "text": "Findings",
+              "type": "number"
+            },
+            {
+              "selector": "oldest_finding_ms",
+              "text": "Ring reached",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "capture",
+              "text": "Capture",
+              "type": "string"
+            },
+            {
+              "selector": "detail",
+              "text": "Detail",
+              "type": "string"
+            },
+            {
+              "selector": "id",
+              "text": "Id",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          },
+          "links": [
+            {
+              "title": "Show this incident's findings",
+              "url": "/d/perf-sentinel-findings?${__url_time_range}&var-DS_INFINITY=${DS_INFINITY}&var-limit=${limit}&var-include_acked=${include_acked}&var-incident=${__data.fields.Id}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Capture"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "complete": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "partial": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "empty ring": {
+                        "color": "text",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Kind"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Findings"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Started",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Started": 0,
+              "Service": 1,
+              "Kind": 2,
+              "Ended": 3,
+              "Window from": 4,
+              "Window to": 5,
+              "Findings": 6,
+              "Ring reached": 7,
+              "Capture": 8,
+              "Detail": 9,
+              "Id": 10
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Incident findings",
+      "description": "The findings frozen for the incident selected above (variable Incident), read from GET /api/incidents with the same limit as the Incidents table, so a clicked row is always found. One row per signature folded over the incident's window alone, so Traces and First seen describe the window and not the whole ring. Frozen at reception and merged once by the settle pass, which can add rows and raise counts but never remove. A First seen later than the incident's Started is a row that fired only after the restart. No data until a row of the Incidents table is clicked or the Incident variable holds an id, and the time picker plays no part in it, the route has no time filter. The datasource sends [daemon] read_api_key as X-API-Key. Est. impact and the column order follow the Findings table above.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/incidents?limit=50",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $[id = \"${incident}\"].findings[] : []",
+          "columns": [
+            {
+              "selector": "finding.severity",
+              "text": "Severity",
+              "type": "string"
+            },
+            {
+              "selector": "finding.type",
+              "text": "Type",
+              "type": "string"
+            },
+            {
+              "selector": "finding.service",
+              "text": "Service",
+              "type": "string"
+            },
+            {
+              "selector": "finding.source_endpoint",
+              "text": "Endpoint",
+              "type": "string"
+            },
+            {
+              "selector": "seen_count",
+              "text": "Traces",
+              "type": "number"
+            },
+            {
+              "selector": "finding.pattern.occurrences",
+              "text": "Occurrences",
+              "type": "number"
+            },
+            {
+              "selector": "finding.green_impact.estimated_extra_io_ops",
+              "text": "Ops/trace",
+              "type": "number"
+            },
+            {
+              "selector": "finding.pattern.template",
+              "text": "Operation",
+              "type": "string"
+            },
+            {
+              "selector": "finding.suggestion",
+              "text": "Suggestion",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen_ms",
+              "text": "First seen",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "finding.trace_id",
+              "text": "Trace",
+              "type": "string"
+            },
+            {
+              "selector": "stored_at_ms",
+              "text": "Last seen",
+              "type": "timestamp_epoch"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Severity"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "warning": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "info": {
+                        "color": "text",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Operation"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traces"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Occurrences"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last seen"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Est. impact (ops)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ops/trace"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "First seen"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Traces",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Traces",
+              "operator": "*",
+              "right": "Ops/trace"
+            },
+            "alias": "Est. impact (ops)"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Severity": 0,
+              "Type": 1,
+              "Service": 2,
+              "Endpoint": 3,
+              "Traces": 4,
+              "Occurrences": 5,
+              "Ops/trace": 6,
+              "Est. impact (ops)": 7,
+              "Operation": 8,
+              "Suggestion": 9,
+              "First seen": 10,
+              "Trace": 11,
+              "Last seen": 12
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     }
   ],
   "links": [
@@ -689,5 +1191,5 @@
       "url": ""
     }
   ],
-  "version": 2
+  "version": 3
 }
