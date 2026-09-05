@@ -275,10 +275,11 @@ pub(super) fn validate_broker_static(
 ///
 /// - `["*"]` mixed with explicit origins is ambiguous and silently degrades to
 ///   wildcard mode in `build_cors_layer`. Reject the mix at config load.
-/// - `["*"]` combined with any daemon API key (`[daemon.ack]`,
-///   `[daemon.incidents]`, `[daemon] read_api_key`) lets any browser origin
-///   replay a captured `X-API-Key` header (header-based auth, not blocked by
-///   `allow_credentials = false`). Reject the combination.
+/// - `["*"]` combined with a write key (`[daemon.ack] api_key` or
+///   `[daemon.incidents] api_key`) lets any browser origin replay a captured
+///   `X-API-Key` header (header-based auth, not blocked by
+///   `allow_credentials = false`). Reject the combination. A lone
+///   `[daemon] read_api_key` is never compared, so it is not a replay target.
 fn validate_cors_wildcard_mode(
     has_wildcard: bool,
     origin_count: usize,
@@ -294,10 +295,10 @@ fn validate_cors_wildcard_mode(
     if has_wildcard && has_api_key {
         return Err(
             "[daemon.cors] allowed_origins = [\"*\"] is incompatible with a daemon \
-             api_key ([daemon.ack], [daemon.incidents] or [daemon] read_api_key), \
-             since X-API-Key is sent on every cross-origin request and would be \
-             replayable from any browser tab. Use an explicit origin list or \
-             unset the keys for development"
+             write api_key ([daemon.ack] or [daemon.incidents]), since X-API-Key \
+             is sent on every cross-origin request and would be replayable from \
+             any browser tab. Use an explicit origin list or unset the keys for \
+             development"
                 .to_string(),
         );
     }
@@ -551,9 +552,7 @@ impl Config {
         validate_cors_wildcard_mode(
             has_wildcard,
             self.daemon.cors.allowed_origins.len(),
-            self.daemon.ack.api_key.is_some()
-                || self.daemon.incidents.api_key.is_some()
-                || self.daemon.read_api_key.is_some(),
+            self.daemon.ack.api_key.is_some() || self.daemon.incidents.api_key.is_some(),
         )?;
         for origin in &self.daemon.cors.allowed_origins {
             validate_cors_origin(origin)?;
