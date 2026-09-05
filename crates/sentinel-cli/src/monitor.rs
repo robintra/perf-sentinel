@@ -1638,7 +1638,7 @@ fn build_incidents_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled("Incidents", bold)),
         Line::from(Span::styled(
-            "Restarts, memory events and deploys posted by your alerting, each with the findings that were already firing before it.",
+            "Restarts, memory events and deploys posted by your alerting, each with the findings already firing before it.",
             dim,
         )),
         Line::from(""),

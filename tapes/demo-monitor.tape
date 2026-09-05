@@ -108,11 +108,16 @@ Type `python3 -c "import socket, json; e=json.load(open('$OLDPWD/tests/fixtures/
 Enter
 Type `python3 "$OLDPWD/scripts/demo-seed-loop.py" /tmp/demo-monitor-dir/perf-sentinel.sock "$OLDPWD/tests/fixtures/demo.json" 1.3 checkout-svc,dashboard-svc,notify-svc > /dev/null 2>&1 &`
 Enter
-# The incident: once the seeded windows have flushed (> trace_ttl_ms),
-# post one Alertmanager envelope with the write key, an OOM kill of
-# checkout-svc starting now, so the daemon freezes the findings the ring
-# holds for that service. The read key file feeds the monitor below.
-Type `sleep 2 && curl -s -o /dev/null -X POST http://127.0.0.1:14318/api/incidents -H 'X-API-Key: demo-incidents-key-0123' -H 'Content-Type: application/json' -d "{\"version\":\"4\",\"status\":\"firing\",\"alerts\":[{\"status\":\"firing\",\"labels\":{\"service\":\"checkout-svc\",\"perf_sentinel_kind\":\"oom_kill\"},\"annotations\":{\"summary\":\"container exceeded its memory limit\"},\"startsAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"endsAt\":\"0001-01-01T00:00:00Z\"}]}"`
+# The incident: post one Alertmanager envelope with the write key, an OOM
+# kill of checkout-svc starting now, so the daemon freezes the findings
+# the ring holds for that service. The wait is on the ring rather than on
+# a duration, a fixed sleep having raced the seed loop and frozen an empty
+# window, and it is bounded at 12 s so a daemon that never answers fails the
+# tape instead of hanging it. The second's margin after it is the one the
+# window needs: `startsAt` is truncated to the second while the window
+# closes at at_ms + 2 x trace_ttl_ms, so a finding stored in the same second
+# as the post can land past the close. The read key file feeds the monitor.
+Type `for i in $(seq 40); do curl -s 'http://127.0.0.1:14318/api/findings?service=checkout-svc' | grep -q signature && break; sleep 0.3; done && sleep 1 && curl -s -o /dev/null -X POST http://127.0.0.1:14318/api/incidents -H 'X-API-Key: demo-incidents-key-0123' -H 'Content-Type: application/json' -d "{\"version\":\"4\",\"status\":\"firing\",\"alerts\":[{\"status\":\"firing\",\"labels\":{\"service\":\"checkout-svc\",\"perf_sentinel_kind\":\"oom_kill\",\"namespace\":\"shop\"},\"annotations\":{\"summary\":\"container exceeded its memory limit\"},\"startsAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"endsAt\":\"0001-01-01T00:00:00Z\"}]}"`
 Enter
 Type `printf 'demo-read-key-0123456' > read-key && chmod 600 read-key`
 Enter
