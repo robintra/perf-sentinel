@@ -319,8 +319,9 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 - **Incidents** reads `GET /api/incidents` for the restarts and memory
   events your alerting posted to the daemon (since 0.20.0), newest
   first, each with the findings frozen from the window before it. One
-  bold row per incident (start as local time, service, kind, `firing`
-  or `ended`, finding count, and a capture marker: `complete`,
+  bold row per incident (start as local time, service as `ns/service`
+  when the alert carried a namespace, kind, `firing` or `ended`, finding
+  count, and a capture marker: `complete`,
   `partial` when the ring had already evicted part of the window so the
   list is short of what fired, `empty ring`), the alert's detail below
   it, then one indented row per finding with its type, severity,
@@ -334,7 +335,8 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
   older than 0.20.0 as a 404 hint. None of those flips `[STALE]`, which
   tracks the report poll alone, and a transient failure keeps the last
   list on screen. The monitor polls the 20 newest incidents, `perf-sentinel
-  query incidents --offset` pages further.
+  query incidents --offset` pages further and `--namespace` narrows the
+  list to one namespace.
 
   ![Incidents tab: one OOM kill of checkout-svc still firing, its window captured complete, one finding that fired before the restart](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/incidents.png)
 

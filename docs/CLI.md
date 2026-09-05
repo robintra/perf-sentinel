@@ -263,15 +263,17 @@ hint when applicable.
 
 ## Other subcommands
 
-`perf-sentinel query incidents [--service <NAME>] [--offset N] [--limit N]
-[--format text|json] [--api-key-file <PATH>]` lists the incidents the
-alerting posted to the daemon (0.20.0+, `[daemon.incidents]`), newest
-first: one header block per incident (kind, service, start and end as
-local time, the window, a capture marker that says whether the ring
-still held the whole window, how many findings fired only after the
-restart, the alert's detail and the id), then its findings in the
-`query findings` layout. `--limit` defaults to 50, the daemon caps it at
-100, `--offset` pages past the newest. A 401 (pass the key), a 503
+`perf-sentinel query incidents [--service <NAME>] [--namespace <NAME>]
+[--offset N] [--limit N] [--format text|json] [--api-key-file <PATH>]`
+lists the incidents the alerting posted to the daemon (0.20.0+,
+`[daemon.incidents]`), newest first: one header block per incident
+(kind, service as `ns/service` when the alert carried a namespace, start
+and end as local time, the window, a capture marker that says whether
+the ring still held the whole window, how many findings fired only after
+the restart, the alert's detail and the id), then its findings in the
+`query findings` layout. `--service` and `--namespace` narrow the list
+to one value each, `--limit` defaults to 50, the daemon caps it at 100,
+`--offset` pages past the newest. A 401 (pass the key), a 503
 (`[daemon.incidents] enabled = false`) and a 404 (daemon older than
 0.20.0) each exit 1 with their cause named. `query monitor
 --api-key-file <PATH>` hands the same key to the monitor's Incidents

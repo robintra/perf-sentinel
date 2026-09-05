@@ -17,9 +17,11 @@ the chart version, to know which daemon image ships.
 - **`appVersion` moves to `0.20.0`.** The daemon it ships accepts Alertmanager
   webhooks on `POST /api/incidents` behind the opt-in `[daemon.incidents]`
   section, freezes the findings of the window before a restart or a memory
-  event, and lists them on `GET /api/incidents`, with an NDJSON archive under
-  `archive_path` that belongs on the PVC. A new `[daemon] read_api_key` opens
-  `GET /api/acks` and `GET /api/incidents` without the power to write, the key
+  event, and lists them on `GET /api/incidents`, each carrying the alert's
+  `namespace` label when it had one and filterable on it, with an NDJSON
+  archive under `archive_path` that belongs on the PVC. A new
+  `[daemon] read_api_key` opens `GET /api/acks` and `GET /api/incidents`
+  without the power to write, the key
   to give Grafana and the Hub, and the daemon refuses it equal to a write key.
   The environment overrides now apply without a mounted config, where a
   container started with its keys in the environment alone used to run with
@@ -40,8 +42,9 @@ the chart version, to know which daemon image ships.
   survives a daemon restart where every counter resets. The overview dashboard
   grows to 30 panels (memory pressure, cardinality caps, energy scrape outcome,
   Hub export, daemon RSS, findings rate by type, service silence) and the
-  findings dashboard on the query API gains two incident tables behind a
-  datasource that carries `PERF_SENTINEL_READ_API_KEY`. Three keys come from
+  findings dashboard on the query API gains two incident tables, with a
+  `Namespace` column, behind a datasource that carries
+  `PERF_SENTINEL_READ_API_KEY`. Three keys come from
   Secrets through `extraEnvFrom`, `PERF_SENTINEL_ACK_API_KEY`,
   `PERF_SENTINEL_INCIDENTS_API_KEY` and `PERF_SENTINEL_READ_API_KEY`, and an
   enabled `[daemon.incidents]` without its key stops the daemon at startup, so

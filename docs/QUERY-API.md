@@ -906,16 +906,20 @@ satisfies the `GET` alone, so Grafana and the Hub never hold the key
 that can `POST`. `http_headers` needs Alertmanager
 0.27 or later, an older one goes through a proxy that sets the header.
 
-Two labels are read, both configurable:
+Three labels are read, all configurable:
 
 | Label                            | Default              | Meaning                                                                                            |
 |----------------------------------|----------------------|----------------------------------------------------------------------------------------------------|
 | `[daemon.incidents] service_label` | `service`          | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused |
 | `[daemon.incidents] kind_label`    | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`     |
+| `[daemon.incidents] namespace_label` | `namespace`        | Optional. Its value is carried on the incident as `namespace` and the `namespace` parameter of `GET /api/incidents` filters on it. Never a reason to refuse an alert |
 
-The kind is read, never guessed. Deriving it from `alertname` by keyword
-would be a heuristic nobody can see failing, so an operator who wants a
-precise kind writes the label on the alerting rule:
+A deploy is posted for the same reason as a restart: to freeze what was
+already firing before the rollout, and so a restart the rollout causes
+is not read as a crash. The kind is read, never guessed. Deriving it
+from `alertname` by keyword would be a heuristic nobody can see failing,
+so an operator who wants a precise kind writes the label on the alerting
+rule:
 
 ```yaml
 - alert: PodOOMKilled
@@ -967,13 +971,14 @@ signature keeps its `first_seen_ms` and gains their count, and a row
 with `first_seen_ms` past `at_ms` fired only after the restart.
 
 Reposting is idempotent and never degrades. The id is `sha2` over
-`service|kind|at_ms`, and Alertmanager repeating a firing alert every
-`repeat_interval` re-resolves a fixed window against a ring that only
-evicts, so the first capture is kept and a repeat can only add an end:
-a `resolved` delivery sets `ended_at_ms`, provided `endsAt` is not before
-`startsAt`. `perf_sentinel_incidents_total{kind}` counts incidents, not
-deliveries. Two deliveries of one new alert racing each other record it
-once and archive it once.
+`service|kind|at_ms`, then `|namespace` when the alert carried one, so a
+record without a namespace keeps its id. Alertmanager repeating a firing
+alert every `repeat_interval` re-resolves a fixed window against a ring
+that only evicts, so the first capture is kept and a repeat can only add
+an end: a `resolved` delivery sets `ended_at_ms`, provided `endsAt` is
+not before `startsAt`. `perf_sentinel_incidents_total{kind}` counts
+incidents, not deliveries. Two deliveries of one new alert racing each
+other record it once and archive it once.
 
 ### GET /api/incidents
 
@@ -982,16 +987,17 @@ at reception and merged once by the settle pass. The `POST` key or
 `[daemon] read_api_key`. Backs the Incidents tab of `perf-sentinel
 query monitor` and the `perf-sentinel query incidents` subcommand.
 
-**Query parameters:** `service` (exact match), `offset` (default 0),
-`limit` (default 50, capped at 100, each incident carrying up to 1000
-findings). Page with `offset` to reach older incidents.
+**Query parameters:** `service` and `namespace` (exact match), `offset`
+(default 0), `limit` (default 50, capped at 100, each incident carrying
+up to 1000 findings). Page with `offset` to reach older incidents.
 
 **Response shape:** array of objects:
 
 | Field               | Type   | Description                                                                                     |
 |---------------------|--------|---------------------------------------------------------------------------------------------------|
-| `id`                | string | 32 hex characters over `service\|kind\|at_ms`                                                    |
+| `id`                | string | 32 hex characters over `service\|kind\|at_ms`, then `\|namespace` when the alert carried one     |
 | `service`           | string | The service the incident is about                                                               |
+| `namespace`         | string | The alert's `namespace_label` value, absent when the alert had none                             |
 | `kind`              | string | One of the five kinds                                                                           |
 | `at_ms`             | number | When it started, Unix epoch milliseconds                                                        |
 | `ended_at_ms`       | number | When it ended, absent while firing                                                              |
