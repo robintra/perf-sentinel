@@ -455,7 +455,7 @@ extraEnvFrom:
       name: perf-sentinel-secrets
 ```
 
-Les valeurs de config adossées à un Secret suivent un seul pattern : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY` pour la clé ack, et les en-têtes d'auth des scrapers). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
+Les valeurs de config adossées à un Secret suivent un seul pattern : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY`, `PERF_SENTINEL_INCIDENTS_API_KEY` et `PERF_SENTINEL_READ_API_KEY` pour les trois clés du daemon, et les en-têtes d'auth des scrapers). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
 
 ### Fichiers de calibration et certificats TLS
 
@@ -493,6 +493,8 @@ extraEnvFrom:
 ```
 
 La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais du ConfigMap ; un Secret monté vide est rejeté au config load. Le daemon hard-rejette aussi les clés de moins de 12 caractères. Quand une clé est définie, elle garde les écritures (`POST` / `DELETE`) **et** `GET /api/acks` (la piste d'audit) ; `GET /api/findings` reste non authentifié.
+
+*Les lecteurs qui ne doivent jamais écrire (Grafana, le Hub).* Donnez-leur `[daemon] read_api_key` par son propre Secret, `PERF_SENTINEL_READ_API_KEY` dans la même liste `extraEnvFrom`. Elle ouvre `GET /api/acks` et `GET /api/incidents` et rien d'autre, et le daemon refuse au démarrage une clé de lecture égale à une clé d'écriture, donc une configuration de dashboard qui fuit ne peut ni acquitter un finding ni fabriquer un incident.
 
 **Les acks runtime ont besoin d'un PVC pour exister tout court.** Sans lui, le chemin de stockage par défaut ne peut pas être résolu dans l'image scratch et les routes d'écriture d'ack renvoient 503. Basculez en mode `StatefulSet` avec `persistence.enabled: true` (cf. ci-dessus), ce qui câble `[daemon.ack] storage_path` sur le PVC pour vous.
 

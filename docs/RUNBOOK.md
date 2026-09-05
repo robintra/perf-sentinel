@@ -226,7 +226,8 @@ the window is gone.
 answerable while the ring still holds it. With `[daemon.incidents]` configured,
 point an Alertmanager receiver at `POST /api/incidents` and the daemon resolves
 and freezes the window the instant the alert fires, hours before anyone opens a
-terminal. `GET /api/incidents` then returns the incident with its findings
+terminal. `GET /api/incidents`, with the write key or `[daemon]
+read_api_key` as `X-API-Key`, then returns the incident with its findings
 already attached. See [QUERY-API.md](QUERY-API.md). The ring is in memory, so
 scrape that endpoint if the record has to outlive the node.
 
@@ -846,7 +847,8 @@ curl -fsS -X DELETE "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
 
 When the daemon is configured with an API key
 (`[daemon.ack] api_key`), add `-H "X-API-Key: <secret>"` to `POST` and
-`DELETE` calls. `GET /api/acks` and `GET /api/findings` stay
+`DELETE` calls. That key also gates `GET /api/acks`, which since 0.20.0
+takes `[daemon] read_api_key` as well. `GET /api/findings` stays
 unauthenticated by design (loopback reads).
 
 The runtime store is JSONL append-only at

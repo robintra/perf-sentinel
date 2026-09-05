@@ -227,7 +227,8 @@ configuré la fenêtre est perdue.
 interrogeable que tant que le ring la détient. Avec `[daemon.incidents]`
 configurée, pointez un receiver Alertmanager sur `POST /api/incidents` et le
 daemon résout et fige la fenêtre à l'instant où l'alerte part, des heures avant
-que quiconque n'ouvre un terminal. `GET /api/incidents` renvoie ensuite
+que quiconque n'ouvre un terminal. `GET /api/incidents`, avec la clé
+d'écriture ou `[daemon] read_api_key` en `X-API-Key`, renvoie ensuite
 l'incident avec ses findings déjà attachés. Voir
 [QUERY-API-FR.md](QUERY-API-FR.md). Le ring est en mémoire, donc collectez cet
 endpoint si l'enregistrement doit survivre au nœud.
@@ -859,8 +860,9 @@ curl -fsS -X DELETE "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
 
 Quand le daemon est configuré avec une clé d'API
 (`[daemon.ack] api_key`), ajouter `-H "X-API-Key: <secret>"` aux
-appels `POST` et `DELETE`. `GET /api/acks` et `GET /api/findings`
-restent non authentifiés par design (lectures loopback).
+appels `POST` et `DELETE`. Cette clé garde aussi `GET /api/acks`, qui
+accepte depuis 0.20.0 `[daemon] read_api_key`. `GET /api/findings` reste
+non authentifié par design (lectures loopback).
 
 Le store runtime est un JSONL append-only à
 `~/.local/share/perf-sentinel/acks.jsonl` par défaut. Le tailer pour
