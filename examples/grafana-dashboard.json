@@ -515,12 +515,46 @@
       }
     },
     {
+      "title": "Service silence (time since last span)",
+      "description": "Seconds since the daemon last received a span for each service. A traffic signal, not a liveness one: a crash, a scale to zero, a rolling deploy and a quiet cron all look the same, so alert on it with a `for:` longer than the service's normal idle gap. Rising here beside a flat findings rate is the shape of a service that stopped, and the window to hand to /api/findings?since_ms=&until_ms=.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "time() - perf_sentinel_service_last_span_timestamp_seconds{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}",
+          "legendFormat": "{{service}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 49
       },
       "panels": [],
       "title": "Daemon health (global)",
@@ -534,7 +568,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 42
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -593,7 +627,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 42
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -620,7 +654,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 42
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -664,7 +698,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 42
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -723,7 +757,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "datasource": {
         "type": "prometheus",
@@ -751,7 +785,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 46
+        "y": 54
       },
       "datasource": {
         "type": "prometheus",
@@ -799,7 +833,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -835,7 +869,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -880,7 +914,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 62
+        "y": 70
       },
       "datasource": {
         "type": "prometheus",
@@ -1103,7 +1137,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 70
+        "y": 78
       },
       "datasource": {
         "type": "prometheus",
@@ -1157,7 +1191,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 78
+        "y": 86
       },
       "datasource": {
         "type": "prometheus",
@@ -1195,7 +1229,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 86
+        "y": 94
       },
       "datasource": {
         "type": "prometheus",
@@ -1271,7 +1305,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 86
+        "y": 94
       },
       "datasource": {
         "type": "prometheus",
@@ -1298,7 +1332,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 94
+        "y": 102
       },
       "datasource": {
         "type": "prometheus",
@@ -1332,7 +1366,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 94
+        "y": 102
       },
       "datasource": {
         "type": "prometheus",
