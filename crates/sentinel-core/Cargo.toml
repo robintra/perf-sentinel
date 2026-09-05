@@ -93,7 +93,7 @@ dirs = { version = "6.0.0", optional = true }
 # Constant-time byte comparison for the optional `[daemon.ack] api_key`
 # header check. Daemon-only (loopback API).
 subtle = { version = "2.6.1", optional = true }
-# `libc::O_NOFOLLOW` for hardened ack-file open. Daemon-only.
+# `libc::O_NOFOLLOW` for `daemon::archive::no_follow`, the opener the analysis archive, the incident archive and the ack store share. Daemon-only.
 libc = { version = "0.2.189", optional = true }
 
 [dev-dependencies]

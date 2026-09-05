@@ -29,7 +29,7 @@ pub enum ArchiveError {
         #[source]
         source: std::io::Error,
     },
-    #[error("archive path {path} is a symlink; refusing to follow")]
+    #[error("archive path {path} is a symlink or another reparse point, refusing to follow")]
     SymlinkRefused { path: String },
 }
 
@@ -76,7 +76,7 @@ pub fn try_send(tx: &Sender<OwnedArchive>, archive: OwnedArchive, metrics: &Metr
 /// # Errors
 ///
 /// [`ArchiveError::Open`] on open failure, [`ArchiveError::SymlinkRefused`]
-/// when the configured path is a symlink (operator must point to a real
+/// when the configured path is a symlink, or on Windows any other reparse point (operator must point to a real
 /// file the daemon owns).
 pub fn spawn(
     cfg: &DaemonArchiveConfig,
@@ -114,16 +114,57 @@ pub(super) fn is_symlink(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
+/// Stop at a symlink on the last path component instead of following
+/// it, so nothing sits between `is_symlink` and the open. `O_NOFOLLOW`
+/// fails the open on Unix. Windows has no such flag: the open lands on
+/// the reparse point itself and `is_reparse_point` judges the handle.
+pub(super) fn no_follow(options: &mut OpenOptions) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        // FILE_FLAG_OPEN_REPARSE_POINT
+        options.custom_flags(0x0020_0000);
+    }
+}
+
+/// Whether the handle `no_follow` opened carries a reparse point. On
+/// Windows that is a symlink or a junction, but also a cloud sync
+/// placeholder, a `compact /exe` file or a dedup stub, all refused: a
+/// handle opened past the owning filter must not be written through.
+/// Always false off Windows, where the open already failed.
+pub(super) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        // FILE_ATTRIBUTE_REPARSE_POINT
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
 fn open_append(path: &Path) -> Result<File, ArchiveError> {
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .append(true)
-        .open(path)
-        .map_err(|source| ArchiveError::Open {
+    let open_error = |source| ArchiveError::Open {
+        path: path.display().to_string(),
+        source,
+    };
+    let mut options = OpenOptions::new();
+    options.create(true).read(true).append(true);
+    no_follow(&mut options);
+    let file = options.open(path).map_err(open_error)?;
+    if is_reparse_point(&file.metadata().map_err(open_error)?) {
+        return Err(ArchiveError::SymlinkRefused {
             path: path.display().to_string(),
-            source,
-        })?;
+        });
+    }
     Ok(file)
 }
 
@@ -634,6 +675,24 @@ mod tests {
         assert!(
             rotated.len() <= 2,
             "pruning should keep at most 2 rotated files, got {rotated:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_follow_fails_the_open_on_a_symlink() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.ndjson");
+        File::create(&real).unwrap();
+        let link = dir.path().join("link.ndjson");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let mut options = OpenOptions::new();
+        options.read(true);
+        no_follow(&mut options);
+        assert!(options.open(&link).is_err(), "the flag refuses the link");
+        assert!(
+            options.open(&real).is_ok(),
+            "and opens the file it points to"
         );
     }
 

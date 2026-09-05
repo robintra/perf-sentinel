@@ -302,9 +302,9 @@ pub fn try_send(
 }
 
 /// Open the archive for appending, with the guards the other appenders
-/// have: no symlink, `O_NOFOLLOW`, owner-only mode on an existing file
-/// since `mode(0o600)` applies on creation only, and a crash-truncated
-/// last line sealed. Append-only, last record of an id wins, no rotation,
+/// have: no symlink, an open that never follows one, owner-only mode on
+/// an existing file since `mode(0o600)` applies on creation only, and a
+/// crash-truncated last line sealed. Append-only, last record of an id wins, no rotation,
 /// point logrotate at it.
 ///
 /// # Errors
@@ -324,13 +324,20 @@ pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        options.mode(0o600);
     }
+    super::archive::no_follow(&mut options);
     let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if super::archive::is_reparse_point(&metadata) {
+        return Err(std::io::Error::other(
+            "incident archive path is a symlink or another reparse point",
+        ));
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let mode = file.metadata()?.permissions().mode() & 0o777;
+        let mode = metadata.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
             return Err(std::io::Error::other(format!(
                 "incident archive has mode {mode:o}, refusing to append detail and templates to it"
