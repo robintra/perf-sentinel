@@ -159,3 +159,7 @@ v0.19.0	660ceb5	2026-09-03	PASS
 # the in-cluster [daemon.incidents], the Infinity datasource and the hub-*
 # scenarios follow the 0.20.0 image pin.
 v0.20.0	c3854bd	2026-09-05	PASS
+# v0.20.0 second targeted pass after the namespace label landed on the incident
+# intake: incident-window-capture rerun with its two namespace legs (the label
+# kept on the record, the read-key filter), against the local release binary.
+v0.20.0	c7fbca7	2026-09-05	PASS
