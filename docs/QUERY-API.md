@@ -879,11 +879,14 @@ receivers:
     webhook_configs:
       - url: http://perf-sentinel:4318/api/incidents
         http_config:
-          authorization: { type: Bearer, credentials: unused }
+          http_headers:
+            X-API-Key:
+              secrets: [ "<the [daemon.incidents] api_key>" ]
 ```
 
 Authentication is the `X-API-Key` header, required, compared in constant
-time. `POST` and `GET` share the key.
+time. `POST` and `GET` share the key. `http_headers` needs Alertmanager
+0.27 or later, an older one goes through a proxy that sets the header.
 
 Two labels are read, both configurable:
 
@@ -909,15 +912,20 @@ precise kind writes the label on the alerting rule:
 shows up as a body rather than as silence.
 
 ```json
-{ "recorded": 1, "rejected_no_service": 0, "rejected_unparsable_time": 0 }
+{ "recorded": 1, "repeated": 0, "rejected_no_service": 0,
+  "rejected_unparsable_time": 0, "rejected_overflow": 0 }
 ```
 
-One delivery carries several alerts and one bad alert must not lose the
-others, so each is counted rather than failing the request. The status is
-`200` even when every alert was refused, which is also what Alertmanager
-needs to stop retrying. `startsAt` is RFC 3339 with any offset, the way
-Go serializes it, and anything else counts as
-`rejected_unparsable_time`. Both rejection kinds are logged.
+`recorded` counts new incidents, `repeated` deliveries of an incident
+already held, whether they closed it or changed nothing. One delivery
+carries several alerts and one bad alert must not lose the others, so
+each is counted rather than failing the request. The status is `200` even
+when every alert was refused, which is also what Alertmanager needs to
+stop retrying. `startsAt` is RFC 3339 with any offset, the way Go
+serializes it, and anything else counts as `rejected_unparsable_time`. A
+delivery carries at most 1000 alerts, the rest count as
+`rejected_overflow`. Every rejection kind is logged. Label values are
+trimmed, so a quoted YAML value with a trailing space still joins.
 
 **The window closes after the incident, not at it.** A finding is stamped
 when its trace is analysed, which happens once the trace has aged out of
@@ -927,23 +935,31 @@ therefore stamped after `startsAt`, so the window is
 `[at_ms - lookback_ms, at_ms + 2 * trace_ttl_ms]`. The first freeze runs
 at reception, usually before those traces have been analysed, and a
 settle pass re-resolves the same window one TTL after it closes, once
-the analysis that stamps those traces has caught up, and keeps the
-result when it is not shorter.
+the analysis that stamps those traces has caught up, and merges the
+result by signature: rows can be added and counts raised, never removed.
+The upper bound is on the analysis clock, so for a `restart` or an
+`oom_kill` whose replacement is serving within `trace_ttl_ms` of
+`startsAt`, its first traces fold into the same rows. A pre-crash
+signature keeps its `first_seen_ms` and gains their count, and a row
+with `first_seen_ms` past `at_ms` fired only after the restart.
 
 Reposting is idempotent and never degrades. The id is `sha2` over
 `service|kind|at_ms`, and Alertmanager repeating a firing alert every
 `repeat_interval` re-resolves a fixed window against a ring that only
 evicts, so the first capture is kept and a repeat can only add an end:
-a `resolved` delivery sets `ended_at_ms`. `perf_sentinel_incidents_total{kind}`
-counts incidents, not deliveries.
+a `resolved` delivery sets `ended_at_ms`, provided `endsAt` is not before
+`startsAt`. `perf_sentinel_incidents_total{kind}` counts incidents, not
+deliveries. Two deliveries of one new alert racing each other record it
+once and archive it once.
 
 ### GET /api/incidents
 
-The recorded incidents, newest first, each with the findings frozen at
-reception. Same key as the `POST`.
+The recorded incidents, newest first, each with its findings, frozen
+at reception and merged once by the settle pass. Same key as the `POST`.
 
-**Query parameters:** `service` (exact match), `limit` (default 50,
-capped at 100, each incident carrying up to 1000 frozen findings).
+**Query parameters:** `service` (exact match), `offset` (default 0),
+`limit` (default 50, capped at 100, each incident carrying up to 1000
+findings). Page with `offset` to reach older incidents.
 
 **Response shape:** array of objects:
 
@@ -958,7 +974,7 @@ capped at 100, each incident carrying up to 1000 frozen findings).
 | `window_from_ms`    | number | `at_ms` minus `[daemon.incidents] lookback_ms`                                                  |
 | `window_to_ms`      | number | `at_ms` plus two `trace_ttl_ms`, see above                                                     |
 | `oldest_finding_ms` | number | Oldest finding the ring held at capture time, absent when it was empty                          |
-| `findings`          | array  | `StoredFinding` objects, folded over the window alone                                           |
+| `findings`          | array  | `StoredFinding` objects, folded over the window alone, merged once by the settle pass           |
 
 **Read `oldest_finding_ms` before trusting a short `findings` array.**
 Below `window_from_ms` the capture is complete. Above it, the ring had
@@ -969,8 +985,9 @@ which the NDJSON archive may still answer. See [RUNBOOK.md](RUNBOOK.md).
 event that kills the observed service often takes a co-located daemon
 with it, so the incident that would explain the outage can be destroyed
 by the outage. Set `[daemon.incidents] archive_path` to append every
-accepted delivery to a newline-delimited JSON file, or scrape this
-endpoint, if the record has to outlive the node.
+new incident, close and settle to a newline-delimited JSON file, opened
+at startup and written by one task so records never interleave, or
+scrape this endpoint, if the record has to outlive the node.
 
 ### TOML and JSONL interop
 
