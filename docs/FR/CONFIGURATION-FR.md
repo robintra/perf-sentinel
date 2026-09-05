@@ -803,7 +803,7 @@ lui-même.
 | `max_retained`  | integer | `200`                | Incidents gardés dans le ring en mémoire, de 1 à 1000, chacun portant jusqu'à 1000 findings figés. Le ring meurt avec le daemon                                                                                                            |
 | `service_label` | string  | `service`            | Libellé d'alerte portant le nom de service perf-sentinel. Une alerte qui ne le porte pas est refusée, c'est la clé de jointure avec les findings                                               |
 | `kind_label`    | string  | `perf_sentinel_kind` | Libellé d'alerte portant le genre : `oom_kill`, `memory_saturation`, `restart`, `deploy` ou `other`. Tout le reste vaut `other`, jamais deviné depuis `alertname`                              |
-| `archive_path`  | string  | *(absent)*           | Ajoute chaque livraison acceptée à ce fichier JSON par lignes. Absent signifie que le ring en mémoire est le seul enregistrement, et un événement mémoire au niveau du nœud qui tue le service observé emporte souvent un daemon colocalisé. Append-only, le dernier enregistrement d'un id fait foi, créé en `0600`, sans rotation |
+| `archive_path`  | string  | *(absent)*           | Ajoute chaque nouvel incident, fermeture et consolidation à ce fichier JSON par lignes, ouvert au démarrage pour qu'un mauvais chemin fasse échouer le daemon. Absent signifie que le ring en mémoire est le seul enregistrement, et un événement mémoire au niveau du nœud qui tue le service observé emporte souvent un daemon colocalisé. Append-only, le dernier enregistrement d'un id fait foi, créé en `0600`, sans rotation |
 
 ```toml
 [daemon.incidents]
@@ -812,10 +812,13 @@ enabled = true
 lookback_ms = 300000
 ```
 
-La fenêtre qu'un incident posté fige est `[at_ms - lookback_ms, at_ms]`,
-résolue avec les deux bornes, donc `seen_count` et `first_seen_ms` des
-findings figés décrivent la fenêtre plutôt que l'historique retenu
-entier.
+La fenêtre qu'un incident posté fige est
+`[at_ms - lookback_ms, at_ms + 2 * trace_ttl_ms]`, résolue avec les deux
+bornes, donc `seen_count` et `first_seen_ms` des findings figés décrivent
+la fenêtre plutôt que l'historique retenu entier. Voir
+[QUERY-API-FR.md](QUERY-API-FR.md) pour la raison de cette fermeture
+après l'incident et pour la passe de consolidation qui en remplit la
+queue.
 
 #### `[daemon.cors]` (optionnel, depuis 0.5.23)
 

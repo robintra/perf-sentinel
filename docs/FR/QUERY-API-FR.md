@@ -904,11 +904,15 @@ receivers:
     webhook_configs:
       - url: http://perf-sentinel:4318/api/incidents
         http_config:
-          authorization: { type: Bearer, credentials: unused }
+          http_headers:
+            X-API-Key:
+              secrets: [ "<la api_key de [daemon.incidents]>" ]
 ```
 
 L'authentification est l'en-tête `X-API-Key`, obligatoire, comparé en
-temps constant. `POST` et `GET` partagent la clé.
+temps constant. `POST` et `GET` partagent la clé. `http_headers` exige
+Alertmanager 0.27 ou plus récent, un plus ancien passe par un proxy qui
+pose l'en-tête.
 
 Deux libellés sont lus, tous deux configurables :
 
@@ -934,16 +938,22 @@ qui veut un genre précis écrit le libellé sur sa règle d'alerte :
 configuré se voie dans un corps plutôt que dans le silence.
 
 ```json
-{ "recorded": 1, "rejected_no_service": 0, "rejected_unparsable_time": 0 }
+{ "recorded": 1, "repeated": 0, "rejected_no_service": 0,
+  "rejected_unparsable_time": 0, "rejected_overflow": 0 }
 ```
 
-Une livraison porte plusieurs alertes et une mauvaise alerte ne doit pas
+`recorded` compte les nouveaux incidents, `repeated` les livraisons d'un
+incident déjà détenu, qu'elles l'aient fermé ou n'aient rien changé. Une
+livraison porte plusieurs alertes et une mauvaise alerte ne doit pas
 faire perdre les autres, donc chacune est comptée plutôt que de faire
 échouer la requête. Le statut est `200` même quand toutes ont été
 refusées, ce dont Alertmanager a besoin pour cesser de réessayer.
 `startsAt` est un RFC 3339 avec n'importe quel décalage, tel que Go le
-sérialise, et tout le reste compte comme `rejected_unparsable_time`. Les
-deux genres de refus sont journalisés.
+sérialise, et tout le reste compte comme `rejected_unparsable_time`. Une
+livraison porte au plus 1000 alertes, le reste compte comme
+`rejected_overflow`. Chaque genre de refus est journalisé. Les valeurs de
+libellés sont nettoyées de leurs espaces, donc une valeur YAML entre
+guillemets avec un espace final se joint quand même.
 
 **La fenêtre se ferme après l'incident, pas dessus.** Un finding est
 horodaté quand sa trace est analysée, ce qui arrive une fois la trace
@@ -954,23 +964,35 @@ plus, sont donc horodatées après `startsAt`, et la fenêtre est
 à la réception, en général avant que ces traces soient analysées, et une
 passe de consolidation résout à nouveau la même fenêtre un TTL après sa
 fermeture, une fois que l'analyse qui horodate ces traces a rattrapé son
-retard, et garde le résultat quand il n'est pas plus court.
+retard, et fusionne le résultat par signature : des lignes peuvent
+s'ajouter et des comptes monter, jamais disparaître. La borne haute est
+sur l'horloge d'analyse, donc pour un `restart` ou un `oom_kill` dont le
+remplaçant sert dans les `trace_ttl_ms` qui suivent `startsAt`, ses
+premières traces se replient dans les mêmes lignes. Une signature
+d'avant le crash garde son `first_seen_ms` et gagne leur compte, et une
+ligne dont le `first_seen_ms` dépasse `at_ms` n'a brûlé qu'après le
+redémarrage.
 
 Le repostage est idempotent et ne dégrade jamais. L'id est un `sha2` sur
 `service|kind|at_ms`, et Alertmanager qui répète une alerte active à
 chaque `repeat_interval` résout à nouveau une fenêtre fixe contre un ring
 qui ne fait qu'évincer, donc la première capture est conservée et une
 répétition ne peut qu'ajouter une fin : une livraison `resolved` pose
-`ended_at_ms`. `perf_sentinel_incidents_total{kind}` compte des
-incidents, pas des livraisons.
+`ended_at_ms`, à condition que `endsAt` ne précède pas `startsAt`.
+`perf_sentinel_incidents_total{kind}` compte des incidents, pas des
+livraisons. Deux livraisons d'une même alerte nouvelle qui se font la
+course l'enregistrent une fois et l'archivent une fois.
 
 ### GET /api/incidents
 
-Les incidents enregistrés, du plus récent au plus ancien, chacun avec les
-findings figés à la réception. Même clé que le `POST`.
+Les incidents enregistrés, du plus récent au plus ancien, chacun avec ses
+findings, figés à la réception et fusionnés une fois par la passe de
+consolidation. Même clé que le `POST`.
 
-**Paramètres de requête :** `service` (match exact), `limit` (défaut 50,
-plafonné à 100, chaque incident portant jusqu'à 1000 findings figés).
+**Paramètres de requête :** `service` (match exact), `offset` (défaut 0),
+`limit` (défaut 50, plafonné à 100, chaque incident portant jusqu'à 1000
+findings). Paginez avec `offset` pour atteindre les incidents plus
+anciens.
 
 **Forme de la réponse :** tableau d'objets :
 
@@ -985,7 +1007,7 @@ plafonné à 100, chaque incident portant jusqu'à 1000 findings figés).
 | `window_from_ms`    | number | `at_ms` moins `[daemon.incidents] lookback_ms`                                                                  |
 | `window_to_ms`      | number | `at_ms` plus deux `trace_ttl_ms`, voir plus haut                                                                |
 | `oldest_finding_ms` | number | Plus ancien finding que le ring détenait à la capture, absent s'il était vide                                   |
-| `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre                                                            |
+| `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre, fusionnés une fois par la consolidation                   |
 
 **Lisez `oldest_finding_ms` avant de faire confiance à un tableau
 `findings` court.** En dessous de `window_from_ms`, la capture est
@@ -997,8 +1019,10 @@ peut encore répondre. Voir [RUNBOOK-FR.md](RUNBOOK-FR.md).
 au niveau du nœud qui tue le service observé emporte souvent un daemon
 colocalisé, donc l'incident qui expliquerait la panne peut être détruit
 par la panne. Posez `[daemon.incidents] archive_path` pour ajouter chaque
-livraison acceptée à un fichier JSON par lignes, ou collectez cet
-endpoint, si l'enregistrement doit survivre au nœud.
+nouvel incident, fermeture et consolidation à un fichier JSON par lignes,
+ouvert au démarrage et écrit par une seule tâche pour que les
+enregistrements ne s'entrelacent jamais, ou collectez cet endpoint, si
+l'enregistrement doit survivre au nœud.
 
 ### Interop TOML et JSONL
 
