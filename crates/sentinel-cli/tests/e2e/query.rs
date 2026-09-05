@@ -193,3 +193,28 @@ fn cli_query_incidents_renders_text_and_json() {
     assert_eq!(json.as_array().map(Vec::len), Some(2));
     assert_eq!(json[1]["kind"], "restart");
 }
+
+#[test]
+fn cli_query_incidents_refuses_a_malformed_body() {
+    // A detector this build does not know, or a proxy's HTML page, must
+    // never read as "No incidents recorded".
+    let (port, _seen) = spawn_mock(
+        200,
+        "OK",
+        Box::leak(
+            TWO_INCIDENTS
+                .replace("n_plus_one_sql", "future_kind")
+                .into_boxed_str(),
+        ),
+    );
+    let output = run_query_incidents(port, &[], None);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stdout:\n{stdout}");
+    assert!(stderr.contains("malformed response"), "stderr:\n{stderr}");
+    assert!(stderr.contains("future_kind"), "stderr:\n{stderr}");
+    assert!(
+        !stdout.contains("No incidents recorded"),
+        "stdout:\n{stdout}"
+    );
+}

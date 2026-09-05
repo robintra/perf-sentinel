@@ -1155,8 +1155,8 @@ enum QueryAction {
     #[cfg(feature = "tui")]
     Inspect {
         /// Path to a file containing the daemon API key (X-API-Key
-        /// header). Falls back to `PERF_SENTINEL_DAEMON_API_KEY` env
-        /// var. Required when the daemon is configured with
+        /// header). `PERF_SENTINEL_DAEMON_API_KEY` wins over it when
+        /// set. Required when the daemon is configured with
         /// `[daemon.ack] api_key`.
         #[arg(long, value_name = "PATH")]
         api_key_file: Option<PathBuf>,
@@ -1178,8 +1178,8 @@ enum QueryAction {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=3600))]
         refresh: u64,
         /// Path to a file containing the daemon API key (X-API-Key
-        /// header). Falls back to `PERF_SENTINEL_DAEMON_API_KEY` env
-        /// var. Only the Incidents tab needs it, and the read-only
+        /// header). `PERF_SENTINEL_DAEMON_API_KEY` wins over it when
+        /// set. Only the Incidents tab needs it, and the read-only
         /// `[daemon] read_api_key` suffices there.
         #[arg(long, value_name = "PATH")]
         api_key_file: Option<PathBuf>,
@@ -1213,8 +1213,8 @@ enum QueryAction {
         #[arg(long, value_enum, default_value = "text")]
         format: QueryOutputFormat,
         /// Path to a file containing the daemon API key (X-API-Key
-        /// header). Falls back to `PERF_SENTINEL_DAEMON_API_KEY` env
-        /// var. The read-only `[daemon] read_api_key` suffices.
+        /// header). `PERF_SENTINEL_DAEMON_API_KEY` wins over it when
+        /// set. The read-only `[daemon] read_api_key` suffices.
         #[arg(long, value_name = "PATH")]
         api_key_file: Option<PathBuf>,
     },
@@ -2093,8 +2093,7 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
     );
 
     match load_config_files(&config_path, path.is_some()) {
-        Ok(Some(config)) => return config,
-        Ok(None) => {}
+        Ok(config) => config,
         Err(error) => {
             if error.starts_with("read ") {
                 eprintln!("Error reading config: {error}");
@@ -2104,13 +2103,9 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
             std::process::exit(EXIT_TOOLING_ERROR);
         }
     }
-    Config::default()
 }
 
-fn load_config_files(
-    config_path: &std::path::Path,
-    require_main: bool,
-) -> Result<Option<Config>, String> {
+fn load_config_files(config_path: &std::path::Path, require_main: bool) -> Result<Config, String> {
     let parent = config_path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -2173,16 +2168,15 @@ fn load_config_files(
         }
         Err(error) => return Err(format!("read {}: {error}", config_path.display())),
     }
-    if documents.is_empty() {
-        return Ok(None);
-    }
+    // No file at all still goes through the parser: the environment
+    // overrides live in the conversion, so a container started with the
+    // keys in its environment and no mounted config gets them applied
+    // and validated instead of running with its write routes open.
     let borrowed: Vec<_> = documents
         .iter()
         .map(|(name, content)| (name.as_str(), content.as_str()))
         .collect();
-    sentinel_core::config::load_from_fragments(&borrowed)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    sentinel_core::config::load_from_fragments(&borrowed).map_err(|error| error.to_string())
 }
 
 fn fragment_priority(name: &str) -> Option<u8> {
@@ -3434,7 +3428,7 @@ mod tests {
         let main = dir.path().join(".perf-sentinel.toml");
         std::fs::write(&main, "[detection]\nn_plus_one_min_occurrences = 13\n").unwrap();
 
-        let config = load_config_files(&main, false).unwrap().unwrap();
+        let config = load_config_files(&main, false).unwrap();
         assert_eq!(config.detection.n_plus_one_threshold, 13);
         assert_eq!(config.green.default_region.as_deref(), Some("eu-west-3"));
     }
@@ -3450,9 +3444,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_config_files(&dir.path().join(".perf-sentinel.toml"), false)
-            .unwrap()
-            .unwrap();
+        let config = load_config_files(&dir.path().join(".perf-sentinel.toml"), false).unwrap();
         assert_eq!(config.detection.n_plus_one_threshold, 9);
     }
 

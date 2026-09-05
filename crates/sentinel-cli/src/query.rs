@@ -201,7 +201,7 @@ fn sort_stored(
 
 fn print_findings_text(body: &[u8], daemon_url: &str, sort: Option<crate::render::FindingsSort>) {
     let mut stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
-        serde_json::from_slice(body).unwrap_or_default();
+        parse_or_exit(body, "GET /api/findings");
     if let Some(mode) = sort {
         sort_stored(&mut stored, mode);
     }
@@ -426,8 +426,10 @@ fn print_status_text(body: &[u8]) {
 /// Client-side view of one `GET /api/incidents` entry. The daemon's
 /// `Incident` is `#[non_exhaustive]` and serializes only, so the CLI
 /// keeps its own shape: `kind` stays a string so a kind this build does
-/// not know still renders, and every field defaults so an older or newer
-/// daemon parses.
+/// not know still renders, and every field of its own defaults so an
+/// older daemon parses. The findings keep the daemon's shape, so a
+/// finding type this build does not know is a parse error, reported
+/// rather than folded into an empty list.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub(crate) struct IncidentSlim {
     #[serde(default)]
@@ -476,16 +478,6 @@ impl IncidentSlim {
     }
 }
 
-/// `before` or `after the restart` for one finding of an incident,
-/// from its first detection against the incident start.
-pub(crate) fn fired_marker(incident_at_ms: u64, first_seen_ms: u64) -> &'static str {
-    if first_seen_ms > incident_at_ms {
-        "after the restart"
-    } else {
-        "before"
-    }
-}
-
 /// Unix epoch milliseconds as local wall-clock time, the form an
 /// operator matches against a pager timeline. The raw number stands in
 /// when the value is out of range.
@@ -503,6 +495,26 @@ pub(crate) fn fmt_local_time(ms: u64) -> String {
         )
 }
 
+/// A 2xx body that does not parse is an error, never an empty list: a
+/// proxy's HTML page or a detector this build does not know must not
+/// read as a clean daemon.
+fn parse_or_exit<T: serde::de::DeserializeOwned>(body: &[u8], route: &str) -> T {
+    serde_json::from_slice(body).unwrap_or_else(|e| {
+        eprintln!("{route}: malformed response ({e})");
+        std::process::exit(1);
+    })
+}
+
+/// A body past the client read limit is a paging problem, not a
+/// network one: the daemon caps a page at 100 incidents of up to 1000
+/// findings each, well past 8 MiB when the ring is busy.
+pub(crate) fn incidents_too_large(limit: usize) -> String {
+    format!(
+        "GET /api/incidents over the {} MiB read limit: lower --limit and page with --offset",
+        limit / (1024 * 1024)
+    )
+}
+
 /// The three refusals `GET /api/incidents` answers with, each named
 /// after its cause so the operator is not sent to the network for a
 /// missing key, a config switch or an old daemon.
@@ -510,7 +522,8 @@ pub(crate) fn incidents_refusal(status: u16) -> Option<&'static str> {
     match status {
         401 => Some(
             "GET /api/incidents refused (401): pass --api-key-file or set \
-             PERF_SENTINEL_DAEMON_API_KEY, the read key [daemon] read_api_key suffices",
+             PERF_SENTINEL_DAEMON_API_KEY (the env var wins when both are set), \
+             the read key [daemon] read_api_key suffices",
         ),
         503 => Some(
             "GET /api/incidents unavailable (503): the daemon runs with \
@@ -547,10 +560,15 @@ async fn fetch_incidents_body(base_url: &str, path: &str, api_key: Option<&str>)
     )
     .await
     .unwrap_or_else(|e| {
-        eprintln!(
-            "Failed to connect to daemon at {base_url}: {e}\n\
-             Is `perf-sentinel watch` running?"
-        );
+        match e {
+            sentinel_core::http_client::FetchError::BodyTooLarge(limit) => {
+                eprintln!("{}", incidents_too_large(limit));
+            }
+            e => eprintln!(
+                "Failed to connect to daemon at {base_url}: {e}\n\
+                 Is `perf-sentinel watch` running?"
+            ),
+        }
         std::process::exit(1);
     });
     if status.is_success() {
@@ -572,7 +590,7 @@ fn render_incidents_response(body: &[u8], format: QueryOutputFormat, daemon_url:
 }
 
 fn print_incidents_text(body: &[u8], daemon_url: &str) {
-    let incidents: Vec<IncidentSlim> = serde_json::from_slice(body).unwrap_or_default();
+    let incidents: Vec<IncidentSlim> = parse_or_exit(body, "GET /api/incidents");
     let colors = ansi_colors(false);
     let AnsiColors {
         bold,
@@ -1027,6 +1045,13 @@ mod tests {
     }
 
     #[test]
+    fn incidents_too_large_names_the_paging_flags() {
+        let msg = incidents_too_large(8 * 1024 * 1024);
+        assert!(msg.contains("8 MiB"), "{msg}");
+        assert!(msg.contains("--limit") && msg.contains("--offset"), "{msg}");
+    }
+
+    #[test]
     fn incidents_refusals_name_their_cause() {
         let unauthorized = incidents_refusal(401).unwrap();
         assert!(unauthorized.contains("--api-key-file"), "{unauthorized}");
@@ -1055,10 +1080,7 @@ mod tests {
     }
 
     #[test]
-    fn fired_marker_splits_on_the_incident_start() {
-        assert_eq!(fired_marker(1_000, 999), "before");
-        assert_eq!(fired_marker(1_000, 1_000), "before");
-        assert_eq!(fired_marker(1_000, 1_001), "after the restart");
+    fn fired_after_restart_counts_the_late_rows() {
         assert_eq!(two_incidents()[0].fired_after_restart(), 1);
     }
 
