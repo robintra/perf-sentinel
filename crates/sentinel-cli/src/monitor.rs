@@ -1327,6 +1327,18 @@ fn config_row(
     lines.push(Line::from(Span::styled(format!("    {desc}"), dim)));
 }
 
+/// The word a boolean reads as on a config row. A helper rather than an
+/// inline `if` per row: the Config tab has a dozen of them, and each one
+/// counted against the function's complexity budget.
+const fn on_off(b: bool, on: &'static str, off: &'static str) -> &'static str {
+    if b { on } else { off }
+}
+
+/// `yes` or `no`, the pair most of the boolean rows use.
+fn yes_no(b: bool) -> String {
+    on_off(b, "yes", "no").to_string()
+}
+
 /// Render a byte count as a compact MiB string for the config view.
 #[allow(clippy::cast_precision_loss)]
 fn fmt_mib(bytes: usize) -> String {
@@ -1363,8 +1375,6 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         return lines;
     };
     let d = DaemonConfig::default();
-
-    let bool_str = |b: bool| if b { "yes" } else { "no" }.to_string();
 
     config_row(
         &mut lines,
@@ -1446,22 +1456,22 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     config_row(
         &mut lines,
         "per_service_labels",
-        &bool_str(c.per_service_labels),
-        &bool_str(d.per_service_labels),
+        &yes_no(c.per_service_labels),
+        &yes_no(d.per_service_labels),
         "Whether findings and slow-span metrics carry a service label (0.18.0). Off restores the pre-0.18 shape.",
     );
     config_row(
         &mut lines,
         "per_grouping_labels",
-        &bool_str(c.per_grouping_labels),
-        &bool_str(d.per_grouping_labels),
+        &yes_no(c.per_grouping_labels),
+        &yes_no(d.per_grouping_labels),
         "Whether the same metrics and the per-service I/O counters carry a grouping label next to service (0.19.0). Off restores the 0.18 shape.",
     );
     config_row(
         &mut lines,
         "api_enabled",
-        &bool_str(c.api_enabled),
-        &bool_str(d.api_enabled),
+        &yes_no(c.api_enabled),
+        &yes_no(d.api_enabled),
         "Whether the daemon query API (/api/*) is served at all.",
     );
     config_row(
@@ -1493,78 +1503,7 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         "Unix domain socket path for native NDJSON event ingestion.",
     );
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Sub-systems", bold)));
-    lines.push(Line::from(""));
-    config_row(
-        &mut lines,
-        "tls",
-        if c.tls_configured {
-            "configured"
-        } else {
-            "not configured"
-        },
-        "not configured",
-        "TLS for the OTLP listeners (cert/key paths summarized; never shown).",
-    );
-    config_row(
-        &mut lines,
-        "ack_enabled",
-        &bool_str(c.ack_enabled),
-        &bool_str(d.ack.enabled),
-        "Daemon-side acknowledgment store (JSONL persistence + ack HTTP routes).",
-    );
-    config_row(
-        &mut lines,
-        "ack_api_key",
-        if c.ack_api_key_set { "set" } else { "unset" },
-        "unset",
-        "Whether the ack mutation routes require an X-API-Key (the key itself is never exposed).",
-    );
-    // Both rows are skipped outright on a daemon that reports neither,
-    // rather than printed as unset and disabled: those would read as
-    // settings left at their default, and the Incidents tab of the same
-    // run is meanwhile saying the daemon predates the feature.
-    if let Some(set) = c.read_api_key_set {
-        config_row(
-            &mut lines,
-            "read_api_key",
-            if set { "set" } else { "unset" },
-            "unset",
-            "Whether a read-only X-API-Key opens GET /api/acks and GET /api/incidents without a write key (0.20.0). The Incidents tab and `query incidents` accept it.",
-        );
-    }
-    if let Some(enabled) = c.incidents_enabled {
-        config_row(
-            &mut lines,
-            "incidents",
-            if enabled { "enabled" } else { "disabled" },
-            "disabled",
-            "Incident store behind /api/incidents (0.20.0): the alerting posts a restart or memory event, the daemon freezes the findings of the window before it. Feeds the Incidents tab.",
-        );
-    }
-    config_row(
-        &mut lines,
-        "cors_allowed_origins",
-        &if c.cors_allowed_origins.is_empty() {
-            "(none)".to_string()
-        } else {
-            c.cors_allowed_origins.join(", ")
-        },
-        "(none)",
-        "Origins allowed by the HTTP API CORS layer; empty emits no CORS headers.",
-    );
-    config_row(
-        &mut lines,
-        "archive",
-        if c.archive_configured {
-            "configured"
-        } else {
-            "not configured"
-        },
-        "not configured",
-        "Per-window Report NDJSON archive writer consumed by `perf-sentinel disclose`.",
-    );
+    push_subsystem_rows(&mut lines, c, &d, bold);
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Correlation", bold)));
@@ -1573,8 +1512,8 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     config_row(
         &mut lines,
         "correlation.enabled",
-        &bool_str(c.correlation_enabled),
-        &bool_str(cd.enabled),
+        &yes_no(c.correlation_enabled),
+        &yes_no(cd.enabled),
         "Whether the cross-trace correlator runs; off by default, the fields below apply only when on.",
     );
     config_row(
@@ -1614,6 +1553,82 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     );
 
     lines
+}
+
+/// The `Sub-systems` block of the Config tab: TLS, the ack store, the two
+/// keys, CORS and the report archive. Split from `build_config_lines`
+/// because almost every row here reads a boolean or an option into a
+/// word, and those branches were most of that function's complexity.
+fn push_subsystem_rows(
+    lines: &mut Vec<Line<'static>>,
+    c: &ConfigSlim,
+    d: &DaemonConfig,
+    bold: Style,
+) {
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Sub-systems", bold)));
+    lines.push(Line::from(""));
+    config_row(
+        lines,
+        "tls",
+        on_off(c.tls_configured, "configured", "not configured"),
+        "not configured",
+        "TLS for the OTLP listeners (cert/key paths summarized; never shown).",
+    );
+    config_row(
+        lines,
+        "ack_enabled",
+        &yes_no(c.ack_enabled),
+        &yes_no(d.ack.enabled),
+        "Daemon-side acknowledgment store (JSONL persistence + ack HTTP routes).",
+    );
+    config_row(
+        lines,
+        "ack_api_key",
+        on_off(c.ack_api_key_set, "set", "unset"),
+        "unset",
+        "Whether the ack mutation routes require an X-API-Key (the key itself is never exposed).",
+    );
+    // Both rows are skipped outright on a daemon that reports neither,
+    // rather than printed as unset and disabled: those would read as
+    // settings left at their default, and the Incidents tab of the same
+    // run is meanwhile saying the daemon predates the feature.
+    if let Some(set) = c.read_api_key_set {
+        config_row(
+            lines,
+            "read_api_key",
+            on_off(set, "set", "unset"),
+            "unset",
+            "Whether a read-only X-API-Key opens GET /api/acks and GET /api/incidents without a write key (0.20.0). The Incidents tab and `query incidents` accept it.",
+        );
+    }
+    if let Some(enabled) = c.incidents_enabled {
+        config_row(
+            lines,
+            "incidents",
+            on_off(enabled, "enabled", "disabled"),
+            "disabled",
+            "Incident store behind /api/incidents (0.20.0): the alerting posts a restart or memory event, the daemon freezes the findings of the window before it. Feeds the Incidents tab.",
+        );
+    }
+    config_row(
+        lines,
+        "cors_allowed_origins",
+        &if c.cors_allowed_origins.is_empty() {
+            "(none)".to_string()
+        } else {
+            c.cors_allowed_origins.join(", ")
+        },
+        "(none)",
+        "Origins allowed by the HTTP API CORS layer; empty emits no CORS headers.",
+    );
+    config_row(
+        lines,
+        "archive",
+        on_off(c.archive_configured, "configured", "not configured"),
+        "not configured",
+        "Per-window Report NDJSON archive writer consumed by `perf-sentinel disclose`.",
+    );
 }
 
 /// Why an incidents poll failed. `refused` marks the three daemon
