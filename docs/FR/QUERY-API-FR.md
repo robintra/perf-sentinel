@@ -230,16 +230,17 @@ ou comme moyen le moins coûteux de vérifier que le daemon est up.
 
 **Forme de la réponse :**
 
-| Champ                     | Type   | Description                                                          |
-|---------------------------|--------|----------------------------------------------------------------------|
-| `version`                 | string | Version du binaire daemon (version du package Cargo)                 |
-| `uptime_seconds`          | number | Secondes depuis le démarrage du processus daemon                     |
-| `active_traces`           | number | Traces actuellement présentes dans la fenêtre de corrélation         |
-| `max_active_traces`       | number | Plafond configuré de la fenêtre de corrélation (depuis 0.8.8)        |
-| `analysis_queue_depth`    | number | Batches en attente dans la file du worker d'analyse (depuis 0.8.8)   |
-| `analysis_queue_capacity` | number | Plafond configuré de cette file (depuis 0.8.8)                       |
-| `stored_findings`         | number | Findings actuellement retenus dans le ring buffer                    |
-| `max_retained_findings`   | number | Plafond configuré de ce ring buffer (depuis 0.8.8)                   |
+| Champ                     | Type   | Description                                                                                    |
+|---------------------------|--------|------------------------------------------------------------------------------------------------|
+| `version`                 | string | Version du binaire daemon (version du package Cargo)                                           |
+| `uptime_seconds`          | number | Secondes depuis le démarrage du processus daemon                                               |
+| `active_traces`           | number | Traces actuellement présentes dans la fenêtre de corrélation                                   |
+| `max_active_traces`       | number | Plafond configuré de la fenêtre de corrélation (depuis 0.8.8)                                  |
+| `analysis_queue_depth`    | number | Batches en attente dans la file du worker d'analyse (depuis 0.8.8)                             |
+| `analysis_queue_capacity` | number | Plafond configuré de cette file (depuis 0.8.8)                                                 |
+| `stored_findings`         | number | Findings actuellement retenus dans le ring buffer                                              |
+| `max_retained_findings`   | number | Plafond configuré de ce ring buffer (depuis 0.8.8)                                             |
+| `oldest_finding_ms`       | number | Instant de détection du plus ancien finding retenu, absent si le ring est vide (depuis 0.20.0) |
 
 Les trois paires gauge/plafond alimentent le graphe Headroom de
 l'onglet Trends de `perf-sentinel query monitor` : chaque paire se lit
@@ -263,7 +264,8 @@ curl -sS http://127.0.0.1:4318/api/status
   "analysis_queue_depth": 0,
   "analysis_queue_capacity": 1024,
   "stored_findings": 5,
-  "max_retained_findings": 10000
+  "max_retained_findings": 10000,
+  "oldest_finding_ms": 1757000400000
 }
 ```
 
@@ -407,7 +409,8 @@ peut donc pas monopoliser la page.
 | `service`       | string  | aucun   | Match exact sur le champ `finding.service`                                                                              |
 | `type`          | string  | aucun   | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
 | `severity`      | string  | aucun   | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
-| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                         |
+| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                    |
+| `until_ms`      | integer | aucun   | Borne haute sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                    |
 | `limit`         | integer | `100`   | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
 | `include_acked` | boolean | `false` | Retourne aussi les findings acquittés, chacun annoté d'un `acknowledged_by`                                             |
 
@@ -422,6 +425,23 @@ continuent de rapporter l'historique retenu entier plutôt que la tranche
 comprise dans la fenêtre. Il ne défait pas l'éviction : une signature que
 le buffer a déjà lâchée est perdue quelle que soit la borne, ce que
 gouverne `max_retained_findings`.
+
+`until_ms` ferme la fenêtre, et la paire est une requête différente
+d'une borne unique, pas son extension symétrique. **Une borne, c'est un
+poll de rattrapage** : la ligne rapporte toujours l'historique retenu
+entier, donc `first_seen_ms` et `seen_count` gardent leur sens
+habituel. **Deux bornes, c'est une fenêtre** : le repli ne porte que
+sur les détections comprises dans la fenêtre, donc `first_seen_ms` et
+`seen_count` décrivent la fenêtre. Sans cela, un pattern chronique qui
+tourne depuis une semaine matcherait toutes les fenêtres d'incident
+jamais demandées, puisque après le repli son enveloppe de vie les
+chevauche toutes.
+
+Une réponse vide à une requête de fenêtre a deux causes, et
+`/api/status` les distingue : comparez la borne basse de la fenêtre à
+`oldest_finding_ms`. À partir d'elle, rien n'a brûlé. Avant elle, le
+ring ne remonte plus si loin et l'archive NDJSON est la route restante,
+voir [RUNBOOK-FR.md](RUNBOOK-FR.md).
 
 Une page courte ne prouve pas que la fenêtre est vidée. Les lignes
 acquittées sont écartées après que `limit` a déjà tronqué, donc avec le
