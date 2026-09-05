@@ -414,15 +414,15 @@ retained history rather than the slice inside the window. It does not
 undo eviction: a signature the buffer already dropped is gone at any
 bound, which is what `max_retained_findings` governs.
 
-`until_ms` closes the window, and the pair is a different query from a
-single bound rather than a symmetric extension of it. **One bound is a
-delta poll**: the row still reports the whole retained history, so
-`first_seen_ms` and `seen_count` mean what they always meant. **Two
-bounds is a window**: the fold runs over the detections inside the
-window alone, so `first_seen_ms` and `seen_count` describe the window.
-Without that, a chronic pattern running all week would match every
-incident window ever asked for, because after the fold its lifetime
-envelope overlaps all of them.
+`until_ms` makes the listing a window, `[since_ms, until_ms]` with
+`since_ms` defaulting to the start of the buffer, and the fold then runs
+over the detections inside the window alone, so `first_seen_ms` and
+`seen_count` describe the window. Without that, a chronic pattern running
+all week would match every incident window ever asked for, because after
+the fold its lifetime envelope overlaps all of them. **`since_ms` alone
+is a delta poll**: applied after the fold, against each row's most recent
+detection, so the row keeps reporting its whole retained history however
+the bound moves.
 
 An empty answer to a window query has two causes, and `/api/status`
 tells them apart: compare the window's lower bound with
@@ -915,13 +915,27 @@ shows up as a body rather than as silence.
 One delivery carries several alerts and one bad alert must not lose the
 others, so each is counted rather than failing the request. The status is
 `200` even when every alert was refused, which is also what Alertmanager
-needs to stop retrying. `startsAt` must be a UTC timestamp ending in
-`Z`; anything else counts as `rejected_unparsable_time`.
+needs to stop retrying. `startsAt` is RFC 3339 with any offset, the way
+Go serializes it, and anything else counts as
+`rejected_unparsable_time`. Both rejection kinds are logged.
 
-Reposting is idempotent. The id is `sha2` over `service|kind|at_ms`, so
-Alertmanager repeating a firing alert every `repeat_interval` replaces
-the record with its later, more complete window rather than appending.
-`perf_sentinel_incidents_total{kind}` counts incidents, not deliveries.
+**The window closes after the incident, not at it.** A finding is stamped
+when its trace is analysed, which happens once the trace has aged out of
+the live window, one `trace_ttl_ms` after its last span. The traces live
+at the moment of the crash, the ones a post-mortem wants most, are
+therefore stamped after `startsAt`, so the window is
+`[at_ms - lookback_ms, at_ms + 2 * trace_ttl_ms]`. The first freeze runs
+at reception, usually before those traces have been analysed, and a
+settle pass re-resolves the same window one TTL after it closes, once
+the analysis that stamps those traces has caught up, and keeps the
+result when it is not shorter.
+
+Reposting is idempotent and never degrades. The id is `sha2` over
+`service|kind|at_ms`, and Alertmanager repeating a firing alert every
+`repeat_interval` re-resolves a fixed window against a ring that only
+evicts, so the first capture is kept and a repeat can only add an end:
+a `resolved` delivery sets `ended_at_ms`. `perf_sentinel_incidents_total{kind}`
+counts incidents, not deliveries.
 
 ### GET /api/incidents
 
@@ -929,7 +943,7 @@ The recorded incidents, newest first, each with the findings frozen at
 reception. Same key as the `POST`.
 
 **Query parameters:** `service` (exact match), `limit` (default 50,
-capped at `[daemon.incidents] max_retained`).
+capped at 100, each incident carrying up to 1000 frozen findings).
 
 **Response shape:** array of objects:
 
@@ -942,7 +956,7 @@ capped at `[daemon.incidents] max_retained`).
 | `ended_at_ms`       | number | When it ended, absent while firing                                                              |
 | `detail`            | string | The alert's `summary` or `description`, sanitized and capped at 512 bytes, absent when neither  |
 | `window_from_ms`    | number | `at_ms` minus `[daemon.incidents] lookback_ms`                                                  |
-| `window_to_ms`      | number | Equal to `at_ms`                                                                                |
+| `window_to_ms`      | number | `at_ms` plus two `trace_ttl_ms`, see above                                                     |
 | `oldest_finding_ms` | number | Oldest finding the ring held at capture time, absent when it was empty                          |
 | `findings`          | array  | `StoredFinding` objects, folded over the window alone                                           |
 
