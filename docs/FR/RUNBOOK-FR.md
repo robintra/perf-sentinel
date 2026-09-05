@@ -233,11 +233,14 @@ l'incident avec ses findings déjà attachés. Voir
 endpoint si l'enregistrement doit survivre au nœud.
 
 **Détecter le moment sans alerte externe.** Le daemon ne juge pas si un service
-est vivant, mais il publie quand il en a entendu parler pour la dernière fois.
-`increase(perf_sentinel_service_io_ops_total{service="cart-svc"}[10m]) == 0` dit
-que perf-sentinel ne reçoit plus de spans. À lire comme un signal de trafic, pas
-de vie : un crash, une mise à l'échelle à zéro, un déploiement progressif et un
-cron silencieux se ressemblent tous, donc toute alerte dessus a besoin d'un `for:`
+est vivant, mais il publie quand il en a entendu parler pour la dernière fois :
+`time() - perf_sentinel_service_last_span_timestamp_seconds{service="cart-svc"} > 120`
+dit que perf-sentinel n'en a plus reçu de span depuis deux minutes, et à la
+différence de `increase(perf_sentinel_service_io_ops_total[10m]) == 0` cela
+survit à un redémarrage du daemon, où tous les compteurs repartent de zéro et se
+lisent comme un arrêt de flotte. À lire comme un signal de trafic, pas de vie :
+un crash, une mise à l'échelle à zéro, un déploiement progressif et un cron
+silencieux se ressemblent tous, donc toute alerte dessus a besoin d'un `for:`
 plus long que l'inactivité normale de ce service.
 
 ## Daemon en cours mais inaccessible depuis les clients

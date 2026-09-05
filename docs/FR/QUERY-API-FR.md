@@ -426,16 +426,16 @@ comprise dans la fenêtre. Il ne défait pas l'éviction : une signature que
 le buffer a déjà lâchée est perdue quelle que soit la borne, ce que
 gouverne `max_retained_findings`.
 
-`until_ms` ferme la fenêtre, et la paire est une requête différente
-d'une borne unique, pas son extension symétrique. **Une borne, c'est un
-poll de rattrapage** : la ligne rapporte toujours l'historique retenu
-entier, donc `first_seen_ms` et `seen_count` gardent leur sens
-habituel. **Deux bornes, c'est une fenêtre** : le repli ne porte que
-sur les détections comprises dans la fenêtre, donc `first_seen_ms` et
-`seen_count` décrivent la fenêtre. Sans cela, un pattern chronique qui
-tourne depuis une semaine matcherait toutes les fenêtres d'incident
-jamais demandées, puisque après le repli son enveloppe de vie les
-chevauche toutes.
+`until_ms` fait du listing une fenêtre, `[since_ms, until_ms]` avec
+`since_ms` valant par défaut le début du buffer, et le repli ne porte
+alors que sur les détections comprises dans la fenêtre, donc
+`first_seen_ms` et `seen_count` décrivent la fenêtre. Sans cela, un
+pattern chronique qui tourne depuis une semaine matcherait toutes les
+fenêtres d'incident jamais demandées, puisque après le repli son
+enveloppe de vie les chevauche toutes. **`since_ms` seul est un poll de
+rattrapage** : appliqué après le repli, contre la détection la plus
+récente de chaque ligne, donc la ligne continue de rapporter son
+historique retenu entier quelle que soit la borne.
 
 Une réponse vide à une requête de fenêtre a deux causes, et
 `/api/status` les distingue : comparez la borne basse de la fenêtre à
@@ -941,13 +941,27 @@ Une livraison porte plusieurs alertes et une mauvaise alerte ne doit pas
 faire perdre les autres, donc chacune est comptée plutôt que de faire
 échouer la requête. Le statut est `200` même quand toutes ont été
 refusées, ce dont Alertmanager a besoin pour cesser de réessayer.
-`startsAt` doit être un timestamp UTC terminé par `Z`, tout le reste
-compte comme `rejected_unparsable_time`.
+`startsAt` est un RFC 3339 avec n'importe quel décalage, tel que Go le
+sérialise, et tout le reste compte comme `rejected_unparsable_time`. Les
+deux genres de refus sont journalisés.
 
-Le repostage est idempotent. L'id est un `sha2` sur `service|kind|at_ms`,
-donc Alertmanager qui répète une alerte active à chaque `repeat_interval`
-remplace l'enregistrement par sa fenêtre plus tardive et plus complète au
-lieu d'en ajouter un. `perf_sentinel_incidents_total{kind}` compte des
+**La fenêtre se ferme après l'incident, pas dessus.** Un finding est
+horodaté quand sa trace est analysée, ce qui arrive une fois la trace
+sortie de la fenêtre vivante, un `trace_ttl_ms` après son dernier span.
+Les traces vivantes au moment du crash, celles qu'un post-mortem veut le
+plus, sont donc horodatées après `startsAt`, et la fenêtre est
+`[at_ms - lookback_ms, at_ms + 2 * trace_ttl_ms]`. Le premier gel a lieu
+à la réception, en général avant que ces traces soient analysées, et une
+passe de consolidation résout à nouveau la même fenêtre un TTL après sa
+fermeture, une fois que l'analyse qui horodate ces traces a rattrapé son
+retard, et garde le résultat quand il n'est pas plus court.
+
+Le repostage est idempotent et ne dégrade jamais. L'id est un `sha2` sur
+`service|kind|at_ms`, et Alertmanager qui répète une alerte active à
+chaque `repeat_interval` résout à nouveau une fenêtre fixe contre un ring
+qui ne fait qu'évincer, donc la première capture est conservée et une
+répétition ne peut qu'ajouter une fin : une livraison `resolved` pose
+`ended_at_ms`. `perf_sentinel_incidents_total{kind}` compte des
 incidents, pas des livraisons.
 
 ### GET /api/incidents
@@ -956,7 +970,7 @@ Les incidents enregistrés, du plus récent au plus ancien, chacun avec les
 findings figés à la réception. Même clé que le `POST`.
 
 **Paramètres de requête :** `service` (match exact), `limit` (défaut 50,
-plafonné à `[daemon.incidents] max_retained`).
+plafonné à 100, chaque incident portant jusqu'à 1000 findings figés).
 
 **Forme de la réponse :** tableau d'objets :
 
@@ -969,7 +983,7 @@ plafonné à `[daemon.incidents] max_retained`).
 | `ended_at_ms`       | number | Fin, absent tant que l'alerte est active                                                                        |
 | `detail`            | string | Le `summary` ou la `description` de l'alerte, assaini et plafonné à 512 octets, absent si aucun des deux         |
 | `window_from_ms`    | number | `at_ms` moins `[daemon.incidents] lookback_ms`                                                                  |
-| `window_to_ms`      | number | Égal à `at_ms`                                                                                                  |
+| `window_to_ms`      | number | `at_ms` plus deux `trace_ttl_ms`, voir plus haut                                                                |
 | `oldest_finding_ms` | number | Plus ancien finding que le ring détenait à la capture, absent s'il était vide                                   |
 | `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre                                                            |
 

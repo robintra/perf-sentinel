@@ -231,12 +231,14 @@ already attached. See [QUERY-API.md](QUERY-API.md). The ring is in memory, so
 scrape that endpoint if the record has to outlive the node.
 
 **Detecting the moment without an external alert.** The daemon does not judge
-whether a service is alive, but it publishes when it last heard from each one.
-`increase(perf_sentinel_service_io_ops_total{service="cart-svc"}[10m]) == 0` says
-perf-sentinel stopped receiving spans. Read it as a traffic signal, not a
-liveness one: a crash, a scale to zero, a rolling deploy and a quiet cron all
-look the same, so any alert on it needs a `for:` longer than that service's
-normal idle gap.
+whether a service is alive, but it publishes when it last heard from each one:
+`time() - perf_sentinel_service_last_span_timestamp_seconds{service="cart-svc"} > 120`
+says perf-sentinel has not received a span from it for two minutes, and unlike
+`increase(perf_sentinel_service_io_ops_total[10m]) == 0` it survives a daemon
+restart, where every counter resets and reads as a fleet-wide stop. Read it as
+a traffic signal, not a liveness one: a crash, a scale to zero, a rolling
+deploy and a quiet cron all look the same, so any alert on it needs a `for:`
+longer than that service's normal idle gap.
 
 ## Daemon running but not reachable from clients
 
