@@ -144,6 +144,15 @@ pub enum DaemonError {
         #[source]
         source: archive::ArchiveError,
     },
+    /// Opening the incident archive file failed at startup.
+    #[error("failed to open incident archive at '{path}'")]
+    IncidentArchiveOpen {
+        /// Operator-configured path that failed to open.
+        path: String,
+        /// Underlying open error.
+        #[source]
+        source: std::io::Error,
+    },
     /// The single analysis worker stopped (e.g. a detector panicked) while
     /// the daemon was running. The daemon exits so a supervisor restarts it
     /// rather than staying up while silently analyzing nothing.
@@ -276,6 +285,22 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // clients never observe the initial value.
     let green_summary_cell = Arc::new(RwLock::new(GreenSummary::disabled(0)));
 
+    // Opened before the listeners so a bad path fails the daemon rather
+    // than the first incident, and drained after the loop like the report
+    // archive: a record handed over is owed to the file.
+    let incident_archive = match &config.daemon.incidents {
+        cfg if cfg.enabled => match &cfg.archive_path {
+            Some(path) => Some(incidents::spawn_archive(path, metrics.clone()).map_err(
+                |source| DaemonError::IncidentArchiveOpen {
+                    path: path.clone(),
+                    source,
+                },
+            )?),
+            None => None,
+        },
+        _ => None,
+    };
+
     let (grpc_handle, http_handle, json_socket_handle) = spawn_listeners(
         &config,
         tx.clone(),
@@ -287,6 +312,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         green_summary_cell.clone(),
         toml_acks,
         ack_store,
+        incident_archive.as_ref().map(|h| h.tx.clone()),
     )
     .await?;
 
@@ -455,6 +481,11 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     }
 
     if let Some(handle) = archive_handle {
+        drop(handle.tx);
+        let _ = handle.join.await;
+    }
+
+    if let Some(handle) = incident_archive {
         drop(handle.tx);
         let _ = handle.join.await;
     }

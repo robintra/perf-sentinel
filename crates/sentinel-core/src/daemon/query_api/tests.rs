@@ -15,6 +15,8 @@ fn make_state_with_correlator(
     Arc::new(QueryApiState {
         findings_store: Arc::new(FindingsStore::new(100)),
         incident_store: Some(Arc::new(crate::daemon::incidents::IncidentStore::new(10))),
+        incident_archive: None,
+        settle_permits: Arc::new(tokio::sync::Semaphore::new(MAX_SETTLES_IN_FLIGHT)),
         traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(50, 1_000)),
         window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
             WindowConfig::default(),
@@ -336,6 +338,42 @@ async fn status_reports_the_oldest_retained_finding() {
     assert_eq!(value["oldest_finding_ms"], 4242);
 }
 
+/// One Alertmanager delivery as the handler receives it.
+fn post_incidents_request(alerts: &serde_json::Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/api/incidents")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({ "version": "4", "alerts": alerts }).to_string(),
+        ))
+        .unwrap()
+}
+
+/// A finding for `service`, of `kind`, stamped `at`.
+async fn push_finding(state: &QueryApiState, service: &str, kind: detect::FindingType, at: u64) {
+    let mut f = crate::test_helpers::make_finding(kind, detect::Severity::Warning);
+    f.service = service.to_string();
+    // Signed, so a settle folds it into the record instead of appending.
+    crate::acknowledgments::enrich_with_signatures(std::slice::from_mut(&mut f));
+    state.findings_store.push_batch(&[f], at).await;
+}
+
+async fn list_incidents(state: Arc<QueryApiState>, query: &str) -> serde_json::Value {
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri(format!("/api/incidents{query}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    serde_json::from_slice(
+        &axum::body::to_bytes(resp.into_body(), 16 * 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap()
+}
+
 #[tokio::test]
 async fn an_incident_webhook_freezes_the_findings_of_its_window() {
     // 2026-09-01T14:03:00Z, the same stamp the webhook carries. In the
@@ -450,39 +488,55 @@ async fn an_incident_webhook_freezes_the_findings_of_its_window() {
 async fn a_repeated_alert_keeps_the_first_capture_and_a_resolved_one_closes_it() {
     const AT_MS: u64 = 1_788_271_380_000;
     let state = make_state();
-    let mut f = crate::test_helpers::make_finding(
+    push_finding(
+        &state,
+        "cart-svc",
         detect::FindingType::NPlusOneSql,
-        detect::Severity::Warning,
-    );
-    f.service = "cart-svc".to_string();
-    state.findings_store.push_batch(&[f], AT_MS - 1_000).await;
+        AT_MS - 1_000,
+    )
+    .await;
 
-    let post = |status: &str, ends_at: &str| {
-        serde_json::json!({
-            "alerts": [{
-                "status": status,
-                "labels": {"service": "cart-svc", "perf_sentinel_kind": "restart"},
-                "startsAt": "2026-09-01T14:03:00Z",
-                "endsAt": ends_at
-            }]
-        })
-        .to_string()
+    let alert = |status: &str, ends_at: &str| {
+        serde_json::json!([{
+            "status": status,
+            "labels": {"service": "cart-svc", "perf_sentinel_kind": "restart"},
+            "startsAt": "2026-09-01T14:03:00Z",
+            "endsAt": ends_at
+        }])
     };
-    for body in [
-        post("firing", "0001-01-01T00:00:00Z"),
-        post("firing", "0001-01-01T00:00:00Z"),
-    ] {
-        let app = query_api_router(Arc::clone(&state));
-        let req = Request::builder()
-            .method("POST")
-            .uri("/api/incidents")
-            .header("content-type", "application/json")
-            .body(Body::from(body))
+    let post = |state: Arc<QueryApiState>, body: serde_json::Value| async move {
+        let resp = query_api_router(state)
+            .oneshot(post_incidents_request(&body))
+            .await
             .unwrap();
-        assert_eq!(app.oneshot(req).await.unwrap().status(), StatusCode::OK);
-    }
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        body
+    };
+
+    let first = post(Arc::clone(&state), alert("firing", "0001-01-01T00:00:00Z")).await;
+    assert_eq!(first["recorded"], 1);
+    assert_eq!(first["repeated"], 0);
+    // A second finding lands inside the window between the two deliveries:
+    // a replacing record would show two, a kept first capture shows one.
+    push_finding(
+        &state,
+        "cart-svc",
+        detect::FindingType::ChattyService,
+        AT_MS + 10_000,
+    )
+    .await;
+    let again = post(Arc::clone(&state), alert("firing", "0001-01-01T00:00:00Z")).await;
+    assert_eq!(again["recorded"], 0, "a repeat records nothing");
+    assert_eq!(again["repeated"], 1);
+
     let store = state.incident_store.as_ref().unwrap();
-    let mut listed = store.list(None, 10).await;
+    let listed = store.list(None, 0, 10).await;
     assert_eq!(listed.len(), 1, "a repeat is the same incident");
     assert_eq!(
         listed[0].findings.len(),
@@ -498,22 +552,111 @@ async fn a_repeated_alert_keeps_the_first_capture_and_a_resolved_one_closes_it()
         1
     );
 
-    let app = query_api_router(Arc::clone(&state));
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/incidents")
-        .header("content-type", "application/json")
-        .body(Body::from(post("resolved", "2026-09-01T14:09:00Z")))
-        .unwrap();
-    assert_eq!(app.oneshot(req).await.unwrap().status(), StatusCode::OK);
-    listed = store.list(None, 10).await;
-    assert_eq!(listed.len(), 1);
+    // An end before the start is not an end.
+    post(
+        Arc::clone(&state),
+        alert("resolved", "1970-01-01T00:00:00Z"),
+    )
+    .await;
+    assert_eq!(store.list(None, 0, 10).await[0].ended_at_ms, None);
+
+    let closed = post(
+        Arc::clone(&state),
+        alert("resolved", "2026-09-01T14:09:00Z"),
+    )
+    .await;
+    assert_eq!(closed["repeated"], 1);
+    let listed = store.list(None, 0, 10).await;
     assert_eq!(
         listed[0].ended_at_ms,
         Some(AT_MS + 6 * 60_000),
         "the resolved delivery closes the incident without re-freezing it"
     );
     assert_eq!(listed[0].findings.len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_settle_pass_merges_the_traces_live_at_the_incident() {
+    let state = make_state();
+    // Delivered promptly, so `startsAt` is now and the settle has to wait.
+    let now = crate::daemon::event_loop::current_time_ms();
+    let starts_at = chrono::DateTime::from_timestamp_millis(i64::try_from(now).unwrap())
+        .unwrap()
+        .to_rfc3339();
+    push_finding(
+        &state,
+        "cart-svc",
+        detect::FindingType::NPlusOneSql,
+        now - 60_000,
+    )
+    .await;
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::json!([{
+            "status": "firing",
+            "labels": {"service": "cart-svc", "perf_sentinel_kind": "oom_kill"},
+            "startsAt": starts_at
+        }])))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let before = list_incidents(Arc::clone(&state), "").await;
+    assert_eq!(before[0]["findings"].as_array().unwrap().len(), 1);
+
+    // The traces live at the crash are analysed one TTL later, after the
+    // reception freeze. Default TTL is 30 s, the settle waits three.
+    push_finding(
+        &state,
+        "cart-svc",
+        detect::FindingType::ChattyService,
+        now + 30_000,
+    )
+    .await;
+    // The pass registers its timer on first poll, which has to happen
+    // before the clock jumps or the sleep starts from the advanced time.
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_millis(3 * 30_000 + 10)).await;
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    let after = list_incidents(Arc::clone(&state), "").await;
+    let frozen = after[0]["findings"].as_array().unwrap();
+    assert_eq!(
+        frozen.len(),
+        2,
+        "the settle merged the live trace into the record: {after}"
+    );
+    assert_eq!(
+        state.settle_permits.available_permits(),
+        MAX_SETTLES_IN_FLIGHT,
+        "the pass released its permit"
+    );
+}
+
+#[tokio::test]
+async fn the_listing_pages_with_offset_and_caps_the_delivery() {
+    let state = make_state();
+    let mut alerts = Vec::new();
+    for i in 0..3u64 {
+        alerts.push(serde_json::json!({
+            "status": "firing",
+            "labels": {"service": format!("svc-{i}"), "perf_sentinel_kind": "restart"},
+            "startsAt": format!("2026-09-01T14:0{i}:00Z")
+        }));
+    }
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::Value::Array(alerts)))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let page = list_incidents(Arc::clone(&state), "?limit=2").await;
+    assert_eq!(page.as_array().unwrap().len(), 2);
+    assert_eq!(page[0]["service"], "svc-2", "newest first");
+    let rest = list_incidents(Arc::clone(&state), "?limit=2&offset=2").await;
+    assert_eq!(rest.as_array().unwrap().len(), 1);
+    assert_eq!(
+        rest[0]["service"], "svc-0",
+        "offset reaches what the cap hid"
+    );
 }
 
 #[tokio::test]
@@ -547,7 +690,15 @@ async fn an_alert_without_the_service_label_is_counted_not_recorded() {
     .unwrap();
     assert_eq!(intake["recorded"], 0);
     assert_eq!(intake["rejected_no_service"], 1);
-    assert!(state.incident_store.as_ref().unwrap().is_empty().await);
+    assert!(
+        state
+            .incident_store
+            .as_ref()
+            .unwrap()
+            .list(None, 0, 1)
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -2027,6 +2178,8 @@ impl QueryApiState {
         Self {
             findings_store: Arc::clone(&self.findings_store),
             incident_store: self.incident_store.clone(),
+            incident_archive: self.incident_archive.clone(),
+            settle_permits: Arc::clone(&self.settle_permits),
             traces_store: Arc::clone(&self.traces_store),
             window: Arc::clone(&self.window),
             detect_config: self.detect_config.clone(),

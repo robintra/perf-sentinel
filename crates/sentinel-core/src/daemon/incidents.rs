@@ -16,8 +16,10 @@
 
 use std::collections::VecDeque;
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 
 use super::findings_store::StoredFinding;
 
@@ -106,9 +108,13 @@ pub struct Incident {
     /// Free text from the alert, sanitized and capped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    /// Lower bound of the window the findings were taken from.
+    /// Lower bound of the window the findings were taken from, `at_ms`
+    /// minus the configured lookback. Stored rather than derived because
+    /// the archive must describe itself after a config change.
     pub window_from_ms: u64,
-    /// Upper bound of that window, equal to `at_ms`.
+    /// Upper bound of that window, past `at_ms` by the settle margin, so
+    /// the traces live at the incident land inside it once analysed. The
+    /// tail can therefore hold the first traces of a restarted process.
     pub window_to_ms: u64,
     /// Detection time of the oldest finding the ring held when the
     /// window was resolved, absent when it was empty. Below
@@ -117,9 +123,10 @@ pub struct Incident {
     /// short of what fired, which the archive may still answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oldest_finding_ms: Option<u64>,
-    /// The findings of the window, frozen at reception. Folded by
-    /// signature over the window alone, so `seen_count` and
-    /// `first_seen_ms` describe the window.
+    /// The findings of the window, folded by signature over the window
+    /// alone, so `seen_count` and `first_seen_ms` describe the window.
+    /// Frozen at reception, then merged once with the settle pass, which
+    /// can add rows and raise counts but never remove.
     pub findings: Vec<StoredFinding>,
 }
 
@@ -154,8 +161,7 @@ impl Incident {
 ///
 /// It lives in memory and dies with the daemon. A node-level memory
 /// event that kills the observed service often takes a co-located daemon
-/// with it, so the durable record is the archive, see
-/// `super::archive`.
+/// with it, so the durable record is the archive, see [`spawn_archive`].
 #[derive(Debug)]
 pub struct IncidentStore {
     inner: RwLock<VecDeque<Incident>>,
@@ -175,10 +181,10 @@ impl IncidentStore {
     /// Record a new incident. Returns `false`, and keeps the existing
     /// record untouched, when the id is already present.
     ///
-    /// Never a replace: a repost re-resolves the same fixed window against
-    /// a ring that only evicts, so the later capture can only be equal or
-    /// smaller. The first one is the good one. What a repost may carry
-    /// that the first did not is an end, see [`Self::close`].
+    /// Never a replace: the first capture is the one taken closest to the
+    /// incident, and a repost has nothing better to offer. What a repost
+    /// may carry is an end, see [`Self::close`], and the settle pass
+    /// merges rather than replaces, see [`Self::merge`].
     pub async fn record(&self, incident: Incident) -> bool {
         if self.max_size == 0 {
             return false;
@@ -212,70 +218,101 @@ impl IncidentStore {
         Some(incident.clone())
     }
 
-    /// Replace a retained incident's capture with a later resolution of
-    /// the same window, only when it is not shorter. The settle pass uses
-    /// it once the traces live at the incident have been analysed, and
-    /// the guard is what keeps an eviction in between from degrading the
-    /// record. Returns the stored record when it changed.
-    pub async fn refresh(&self, incident: Incident) -> Option<Incident> {
+    /// Merge a later resolution of the same window into the retained
+    /// record, by fold key, so it can only grow. The settle pass calls it
+    /// once the traces live at the incident have been analysed. An
+    /// eviction in between cannot degrade the record: rows the later fold
+    /// lost are kept, and `oldest_finding_ms` keeps the earlier stamp.
+    /// Returns the merged record, or `None` when the id is gone.
+    pub async fn merge(&self, later: Incident) -> Option<Incident> {
         let mut buf = self.inner.write().await;
-        let slot = buf.iter_mut().find(|i| i.id == incident.id)?;
-        if incident.findings.len() < slot.findings.len() {
-            return None;
-        }
-        slot.findings = incident.findings;
-        slot.oldest_finding_ms = incident.oldest_finding_ms;
+        let slot = buf.iter_mut().find(|i| i.id == later.id)?;
+        super::findings_store::merge_folded(&mut slot.findings, later.findings);
+        slot.oldest_finding_ms = match (slot.oldest_finding_ms, later.oldest_finding_ms) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         Some(slot.clone())
     }
 
-    /// Recorded incidents, newest first, capped at `limit`.
-    pub async fn list(&self, service: Option<&str>, limit: usize) -> Vec<Incident> {
+    /// Recorded incidents, newest first, skipping `offset` and capped at
+    /// `limit`.
+    pub async fn list(&self, service: Option<&str>, offset: usize, limit: usize) -> Vec<Incident> {
         let buf = self.inner.read().await;
         buf.iter()
             .rev()
             .filter(|i| service.is_none_or(|s| i.service == s))
+            .skip(offset)
             .take(limit)
             .cloned()
             .collect()
     }
-
-    /// How many incidents are retained.
-    pub async fn len(&self) -> usize {
-        self.inner.read().await.len()
-    }
-
-    /// Whether the ring holds nothing.
-    pub async fn is_empty(&self) -> bool {
-        self.inner.read().await.is_empty()
-    }
 }
 
-/// Append already serialized records to a newline-delimited JSON file.
+// ── The archive ───────────────────────────────────────────────────
+
+/// Records waiting for the writer. Incidents are rare, so a full channel
+/// means the disk stalled, and dropping with a count beats blocking a
+/// webhook on it.
+const ARCHIVE_CHANNEL_CAPACITY: usize = 256;
+
+/// The single writer of the incident archive, and the sender the query
+/// API hands records to.
+#[derive(Debug)]
+pub struct ArchiveHandle {
+    pub tx: mpsc::Sender<Vec<u8>>,
+    pub join: tokio::task::JoinHandle<()>,
+}
+
+/// Open the archive and spawn its writer.
 ///
-/// Append-only, last record of an id wins, the shape the ack JSONL uses.
-/// One open per delivery rather than per alert, and the bytes are built
-/// by the caller so nothing here clones an incident.
-///
-/// No rotation: an incident is a rare event against the analysis
-/// archive's several windows a second, so point logrotate at the file if
-/// that ever stops being true. The same guards as the other appenders: a
-/// symlink is refused, a pre-existing file with group or world bits is
-/// refused since `mode(0o600)` applies on creation only, and a
-/// crash-truncated last line is sealed before the next record.
+/// One writer task, on the model of `super::archive`: every record is one
+/// `write` of one line, so two deliveries or a delivery and a settle pass
+/// cannot interleave, and a webhook handler dropped by a timeout has
+/// already handed its record over. The open runs at startup, so a
+/// symlink, a weak mode, a missing directory or a read-only filesystem
+/// fail the daemon rather than the first incident.
 ///
 /// # Errors
 ///
-/// Returns the underlying I/O error. The caller logs and counts it: a
-/// failed archive write must not fail the webhook, or Alertmanager would
-/// retry an incident the ring has already recorded.
-pub fn append_lines(path: &std::path::Path, lines: &[Vec<u8>]) -> std::io::Result<()> {
-    use std::io::Write as _;
+/// The open error, a refused symlink or a refused mode.
+pub fn spawn_archive(
+    path: &str,
+    metrics: Arc<crate::report::metrics::MetricsState>,
+) -> std::io::Result<ArchiveHandle> {
+    let file = open_archive(std::path::Path::new(path))?;
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(ARCHIVE_CHANNEL_CAPACITY);
+    let join = tokio::spawn(run_writer(rx, file, metrics));
+    Ok(ArchiveHandle { tx, join })
+}
 
-    if lines.is_empty() {
-        return Ok(());
+/// Hand one serialized record to the writer without blocking. A full or
+/// closed channel drops it, counted on
+/// `perf_sentinel_incidents_archive_failed_total` and logged. The ring
+/// still holds the incident, durability is what was lost.
+pub fn try_send(
+    tx: &mpsc::Sender<Vec<u8>>,
+    line: Vec<u8>,
+    metrics: &crate::report::metrics::MetricsState,
+) {
+    if let Err(error) = tx.try_send(line) {
+        metrics.incidents_archive_failed_total.inc();
+        tracing::warn!(%error, "Incident archive record dropped, the ring still holds it");
     }
+}
+
+/// Open the archive for appending, with the guards the other appenders
+/// have: no symlink, `O_NOFOLLOW`, owner-only mode on an existing file
+/// since `mode(0o600)` applies on creation only, and a crash-truncated
+/// last line sealed. Append-only, last record of an id wins, no rotation,
+/// point logrotate at it.
+///
+/// # Errors
+///
+/// The underlying I/O error, or a refused symlink or mode.
+pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     if super::archive::is_symlink(path) {
-        return Err(std::io::Error::other("archive path is a symlink"));
+        return Err(std::io::Error::other("incident archive path is a symlink"));
     }
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -296,16 +333,32 @@ pub fn append_lines(path: &std::path::Path, lines: &[Vec<u8>]) -> std::io::Resul
         let mode = file.metadata()?.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
             return Err(std::io::Error::other(format!(
-                "archive file has mode {mode:o}, refusing to append detail and templates to it"
+                "incident archive has mode {mode:o}, refusing to append detail and templates to it"
             )));
         }
     }
     super::archive::terminate_incomplete_line(&mut file)?;
-    for line in lines {
-        file.write_all(line)?;
-        file.write_all(b"\n")?;
+    Ok(file)
+}
+
+/// Drain the channel into the file, one `write` per record.
+async fn run_writer(
+    mut rx: mpsc::Receiver<Vec<u8>>,
+    mut file: std::fs::File,
+    metrics: Arc<crate::report::metrics::MetricsState>,
+) {
+    use std::io::Write as _;
+
+    while let Some(mut line) = rx.recv().await {
+        line.push(b'\n');
+        if let Err(error) = file.write_all(&line) {
+            metrics.incidents_archive_failed_total.inc();
+            tracing::warn!(%error, "Incident archive write failed, the ring still holds it");
+            // A partial line may have landed, seal it so the next record
+            // is not glued to it.
+            let _ = super::archive::terminate_incomplete_line(&mut file);
+        }
     }
-    Ok(())
 }
 
 // ── The Alertmanager webhook envelope ─────────────────────────────
@@ -320,10 +373,10 @@ pub struct WebhookAlert {
     pub labels: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub annotations: std::collections::HashMap<String, String>,
-    /// RFC 3339, UTC.
+    /// RFC 3339, any offset.
     #[serde(rename = "startsAt", default)]
     pub starts_at: String,
-    /// RFC 3339, UTC. Alertmanager sends the zero time while firing.
+    /// RFC 3339, any offset. Alertmanager sends the zero time while firing.
     #[serde(rename = "endsAt", default)]
     pub ends_at: String,
 }
@@ -345,7 +398,7 @@ pub struct Webhook {
 pub enum RejectedAlert {
     /// No `service_label` on the alert, so nothing to join findings to.
     NoService,
-    /// `startsAt` absent or not a UTC timestamp this crate can parse.
+    /// `startsAt` absent or not an RFC 3339 timestamp.
     UnparsableTime,
 }
 
@@ -354,6 +407,8 @@ pub enum RejectedAlert {
 /// the store and testable on its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncidentRequest {
+    /// [`Incident::compute_id`] of the three fields below, computed once.
+    pub id: String,
     pub service: String,
     pub kind: IncidentKind,
     pub at_ms: u64,
@@ -376,29 +431,34 @@ pub fn read_alert(
     service_label: &str,
     kind_label: &str,
 ) -> Result<IncidentRequest, RejectedAlert> {
+    // Labels are trimmed like the stamp is: quoted YAML keeps a trailing
+    // space, and the service is the join key to the findings.
     let service = alert
         .labels
         .get(service_label)
-        .map(|s| crate::text_safety::strip_bidi_and_invisible(s).into_owned())
+        .map(|s| crate::text_safety::strip_bidi_and_invisible(s.trim()).into_owned())
         .filter(|s| !s.is_empty())
         .ok_or(RejectedAlert::NoService)?;
     let at_ms = parse_rfc3339_ms(&alert.starts_at).ok_or(RejectedAlert::UnparsableTime)?;
     // Alertmanager sends the zero time while an alert is firing, which
     // is before 1970 and does not fit a `u64`, so a failure here is
-    // simply "still firing".
+    // simply "still firing". An end before the start is a bad clock or a
+    // bad body, and is treated the same way rather than sealed for good.
     let ended_at_ms = (alert.status == "resolved")
         .then(|| parse_rfc3339_ms(&alert.ends_at))
-        .flatten();
+        .flatten()
+        .filter(|ended| *ended >= at_ms);
     let kind = alert
         .labels
         .get(kind_label)
-        .map_or(IncidentKind::Other, |v| IncidentKind::parse(v));
+        .map_or(IncidentKind::Other, |v| IncidentKind::parse(v.trim()));
     let detail = alert
         .annotations
         .get("summary")
         .or_else(|| alert.annotations.get("description"))
         .map(|d| cap_detail(d));
     Ok(IncidentRequest {
+        id: Incident::compute_id(&service, kind, at_ms),
         service,
         kind,
         at_ms,
@@ -430,6 +490,8 @@ fn parse_rfc3339_ms(raw: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::acknowledgments::enrich_with_signatures;
+    use crate::detect::{FindingType, Severity};
 
     fn alert(labels: &[(&str, &str)], starts_at: &str, status: &str) -> WebhookAlert {
         WebhookAlert {
@@ -456,6 +518,18 @@ mod tests {
             window_to_ms: at_ms,
             oldest_finding_ms: None,
             findings: Vec::new(),
+        }
+    }
+
+    fn stored(template: &str, stamp: u64) -> StoredFinding {
+        let mut f = crate::test_helpers::make_finding(FindingType::RedundantSql, Severity::Warning);
+        f.pattern.template = template.to_string();
+        enrich_with_signatures(std::slice::from_mut(&mut f));
+        StoredFinding {
+            finding: f,
+            stored_at_ms: stamp,
+            first_seen_ms: stamp,
+            seen_count: 1,
         }
     }
 
@@ -487,6 +561,10 @@ mod tests {
         assert_eq!(req.kind, IncidentKind::Other);
         assert_eq!(req.service, "cart-svc");
         assert_eq!(req.at_ms, 1_788_616_980_000);
+        assert_eq!(
+            req.id,
+            Incident::compute_id("cart-svc", IncidentKind::Other, req.at_ms)
+        );
 
         let a = alert(
             &[("service", "cart-svc"), ("perf_sentinel_kind", "oom_kill")],
@@ -499,6 +577,23 @@ mod tests {
                 .kind,
             IncidentKind::OomKill
         );
+    }
+
+    #[test]
+    fn labels_are_trimmed_like_the_stamp_is() {
+        // Quoted YAML keeps a trailing space, and a padded join key would
+        // match no finding while a padded stamp is accepted.
+        let a = alert(
+            &[
+                ("service", " cart-svc "),
+                ("perf_sentinel_kind", "oom_kill "),
+            ],
+            " 2026-09-05T14:03:00Z ",
+            "firing",
+        );
+        let req = read_alert(&a, "service", "perf_sentinel_kind").unwrap();
+        assert_eq!(req.service, "cart-svc");
+        assert_eq!(req.kind, IncidentKind::OomKill);
     }
 
     #[test]
@@ -519,6 +614,28 @@ mod tests {
                 .unwrap()
                 .ended_at_ms,
             Some(1_788_617_340_000)
+        );
+    }
+
+    #[test]
+    fn an_end_before_the_start_is_not_an_end() {
+        // A skewed clock or a hand-rolled body: sealing it would refuse the
+        // corrected resolve that follows.
+        let mut a = alert(&[("service", "svc")], "2026-09-05T14:03:00Z", "resolved");
+        a.ends_at = "1970-01-01T00:00:00Z".to_string();
+        assert_eq!(
+            read_alert(&a, "service", "perf_sentinel_kind")
+                .unwrap()
+                .ended_at_ms,
+            None
+        );
+        a.ends_at = "2026-09-05T14:03:00Z".to_string();
+        assert_eq!(
+            read_alert(&a, "service", "perf_sentinel_kind")
+                .unwrap()
+                .ended_at_ms,
+            Some(1_788_616_980_000),
+            "an end equal to the start is the shortest incident, not a bad one"
         );
     }
 
@@ -578,13 +695,9 @@ mod tests {
             !store.record(degraded).await,
             "a repost is not a second incident, or the counter would climb on its own"
         );
-        let all = store.list(None, 10).await;
+        let all = store.list(None, 0, 10).await;
         assert_eq!(all.len(), 1);
-        assert_eq!(
-            all[0].oldest_finding_ms,
-            Some(1),
-            "the repost re-resolves a window the ring can only have lost from"
-        );
+        assert_eq!(all[0].oldest_finding_ms, Some(1), "the first capture stays");
         assert!(store.contains(&all[0].id).await);
 
         let closed = store.close(&all[0].id, 9000).await;
@@ -597,86 +710,85 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_takes_a_later_resolution_only_when_it_is_not_shorter() {
+    async fn merge_grows_the_record_and_keeps_the_earlier_oldest_stamp() {
         let store = IncidentStore::new(10);
         let mut first = incident("svc", IncidentKind::Restart, 5000);
-        first.findings = Vec::new();
+        first.findings = vec![stored("SELECT a", 1000), stored("SELECT b", 2000)];
+        first.oldest_finding_ms = Some(500);
         store.record(first).await;
         let id = Incident::compute_id("svc", IncidentKind::Restart, 5000);
 
-        let mut fuller = incident("svc", IncidentKind::Restart, 5000);
-        fuller.oldest_finding_ms = Some(42);
-        assert!(
-            store.refresh(fuller).await.is_some(),
-            "an equal or longer capture replaces, the settle pass depends on it"
+        // The settle fold lost A to eviction and gained C, with the ring's
+        // front now past the window start.
+        let mut later = incident("svc", IncidentKind::Restart, 5000);
+        later.findings = vec![stored("SELECT b", 5000), stored("SELECT c", 6000)];
+        later.oldest_finding_ms = Some(4000);
+        let merged = store.merge(later).await.expect("the id is retained");
+        let templates: Vec<&str> = merged
+            .findings
+            .iter()
+            .map(|sf| sf.finding.pattern.template.as_str())
+            .collect();
+        assert_eq!(
+            templates,
+            ["SELECT a", "SELECT b", "SELECT c"],
+            "grows, never loses"
         );
-        assert_eq!(store.list(None, 1).await[0].oldest_finding_ms, Some(42));
+        assert_eq!(
+            merged.oldest_finding_ms,
+            Some(500),
+            "a complete capture is not relabeled incomplete by a later eviction"
+        );
 
         let mut unknown = incident("other", IncidentKind::Restart, 1);
         unknown.id = "not-there".to_string();
-        assert!(store.refresh(unknown).await.is_none());
+        assert!(store.merge(unknown).await.is_none());
         assert!(store.contains(&id).await);
     }
 
     #[tokio::test]
-    async fn the_ring_evicts_oldest_first_and_filters_by_service() {
+    async fn the_ring_evicts_oldest_first_filters_by_service_and_pages() {
         let store = IncidentStore::new(2);
-        store
-            .record(incident("a", IncidentKind::Restart, 1000))
-            .await;
-        store
-            .record(incident("b", IncidentKind::Restart, 2000))
-            .await;
-        store
-            .record(incident("c", IncidentKind::Restart, 3000))
-            .await;
-        let all = store.list(None, 10).await;
+        for (svc, at) in [("a", 1000), ("b", 2000), ("c", 3000)] {
+            assert!(store.record(incident(svc, IncidentKind::Restart, at)).await);
+        }
+        let all = store.list(None, 0, 10).await;
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].service, "c", "newest first");
-        assert_eq!(store.list(Some("b"), 10).await.len(), 1);
-        assert!(store.list(Some("a"), 10).await.is_empty(), "a was evicted");
+        assert_eq!(
+            store.list(None, 1, 10).await[0].service,
+            "b",
+            "offset skips the newest"
+        );
+        assert_eq!(store.list(Some("b"), 0, 10).await.len(), 1);
+        assert!(
+            store.list(Some("a"), 0, 10).await.is_empty(),
+            "a was evicted"
+        );
     }
 
     #[tokio::test]
     async fn a_zero_sized_ring_records_nothing() {
         let store = IncidentStore::new(0);
         assert!(!store.record(incident("svc", IncidentKind::Deploy, 1)).await);
-        assert!(store.is_empty().await);
-        assert_eq!(store.len().await, 0);
+        assert!(store.list(None, 0, 10).await.is_empty());
     }
 
     #[test]
-    fn the_archive_appends_seals_a_torn_line_and_refuses_a_weak_file() {
-        let dir = std::env::temp_dir().join("ps-incident-archive-test");
-        let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join("nested").join("incidents.ndjson");
-
-        let first = incident("svc", IncidentKind::OomKill, 5000);
-        let line = serde_json::to_vec(&first).unwrap();
-        append_lines(&path, std::slice::from_ref(&line)).expect("the parent directory is created");
-        // A crash mid-write leaves a torn line: the next append must not
-        // glue its record onto it.
+    fn the_archive_open_seals_a_torn_line_and_refuses_a_weak_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("incidents.ndjson");
         {
             use std::io::Write as _;
-            let mut torn = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&path)
-                .unwrap();
-            torn.write_all(b"{\"half\":").unwrap();
+            let mut file = open_archive(&path).expect("the parent directory is created");
+            file.write_all(b"{\"a\":1}\n{\"half\":").unwrap();
         }
-        append_lines(&path, std::slice::from_ref(&line)).unwrap();
-        append_lines(&path, &[]).unwrap();
-
+        // A crash mid-write left a torn line: reopening seals it so the next
+        // record is not glued onto it.
+        drop(open_archive(&path).unwrap());
         let body = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = body.lines().collect();
-        assert_eq!(
-            lines.len(),
-            3,
-            "first, the sealed torn line, then the repost"
-        );
-        assert!(serde_json::from_str::<serde_json::Value>(lines[1]).is_err());
-        let last: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
-        assert_eq!(last["id"], first.id);
+        assert_eq!(body.lines().count(), 2);
+        assert!(body.ends_with('\n'));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -688,14 +800,32 @@ mod tests {
             );
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
             assert!(
-                append_lines(&path, std::slice::from_ref(&line)).is_err(),
+                open_archive(&path).is_err(),
                 "mode(0o600) applies on creation only, a weakened file is refused"
             );
-            let link = dir.join("link.ndjson");
+            let link = dir.path().join("link.ndjson");
             std::os::unix::fs::symlink(&path, &link).unwrap();
-            assert!(append_lines(&link, std::slice::from_ref(&line)).is_err());
+            assert!(open_archive(&link).is_err());
         }
-        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn the_writer_appends_one_line_per_record_and_drains_on_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("incidents.ndjson");
+        let metrics = Arc::new(crate::report::metrics::MetricsState::new());
+        let handle = spawn_archive(path.to_str().unwrap(), Arc::clone(&metrics)).unwrap();
+        let first = incident("svc", IncidentKind::OomKill, 5000);
+        try_send(&handle.tx, serde_json::to_vec(&first).unwrap(), &metrics);
+        try_send(&handle.tx, serde_json::to_vec(&first).unwrap(), &metrics);
+        drop(handle.tx);
+        handle.join.await.unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "one line per record, append-only");
+        let last: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(last["id"], first.id);
+        assert_eq!(metrics.incidents_archive_failed_total.get(), 0);
     }
 
     #[test]

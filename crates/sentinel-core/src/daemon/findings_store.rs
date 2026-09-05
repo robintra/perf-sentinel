@@ -133,6 +133,50 @@ fn matches_service_and_type(sf: &StoredFinding, filter: &FindingsFilter) -> bool
     true
 }
 
+/// Merge a later fold of the same window into an earlier one, by the key
+/// [`fold_entries`] uses. Rows present in both keep the larger
+/// `seen_count` rather than the sum, since both folds counted the same
+/// instances, the earliest `first_seen_ms`, the latest `stored_at_ms` and
+/// the worse severity. Rows only the later fold has are appended, rows
+/// only the earlier one has are kept: the record can grow, never lose.
+pub(crate) fn merge_folded(into: &mut Vec<StoredFinding>, later: Vec<StoredFinding>) {
+    let mut index: HashMap<(Option<(String, String)>, String), usize> = into
+        .iter()
+        .enumerate()
+        .filter(|(_, sf)| !sf.finding.signature.is_empty())
+        .map(|(i, sf)| (owned_fold_key(sf), i))
+        .collect();
+    for entry in later {
+        if entry.finding.signature.is_empty() {
+            into.push(entry);
+            continue;
+        }
+        if let Some(&i) = index.get(&owned_fold_key(&entry)) {
+            let kept = &mut into[i];
+            kept.seen_count = kept.seen_count.max(entry.seen_count);
+            kept.first_seen_ms = kept.first_seen_ms.min(entry.first_seen_ms);
+            kept.stored_at_ms = kept.stored_at_ms.max(entry.stored_at_ms);
+            if entry.finding.severity < kept.finding.severity {
+                kept.finding = entry.finding;
+            }
+        } else {
+            index.insert(owned_fold_key(&entry), into.len());
+            into.push(entry);
+        }
+    }
+}
+
+/// The fold key as owned strings, for a map that outlives the borrow of
+/// the vector it indexes into.
+fn owned_fold_key(sf: &StoredFinding) -> (Option<(String, String)>, String) {
+    (
+        sf.finding
+            .grouping_identity()
+            .map(|(k, v)| (k.to_string(), v.to_string())),
+        sf.finding.signature.clone(),
+    )
+}
+
 /// Both bounds on one instance's stamp, inclusive. The cheapest and most
 /// selective screen, so it runs first on the unfolded path.
 fn in_time_bounds(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
@@ -143,17 +187,17 @@ fn in_time_bounds(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
 /// The fold under an already held read guard, see
 /// [`FindingsStore::query_coalesced`] for the two time shapes.
 fn coalesce_locked(buf: &VecDeque<StoredFinding>, filter: &FindingsFilter) -> Vec<StoredFinding> {
-    let window = filter.until_ms.map(|to| (filter.since_ms.unwrap_or(0), to));
+    // `until_ms` makes it a window: both bounds screen each instance during
+    // the pass, cheapest test first. Without it, `since_ms` is a delta poll
+    // and lands after the fold so a row keeps its whole history.
+    let windowed = filter.until_ms.is_some();
     let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
-        matches_service_and_type(sf, filter)
-            && window.is_none_or(|(from, to)| sf.stored_at_ms >= from && sf.stored_at_ms <= to)
+        (!windowed || in_time_bounds(sf, filter)) && matches_service_and_type(sf, filter)
     }));
     if let Some(ref sev) = filter.severity {
         folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
     }
-    if window.is_none()
-        && let Some(since) = filter.since_ms
-    {
+    if !windowed && let Some(since) = filter.since_ms {
         folded.retain(|sf| sf.stored_at_ms >= since);
     }
     folded.truncate(filter.limit);
@@ -178,8 +222,8 @@ pub struct FindingsFilter {
     /// poller can ask for a delta instead of re-reading the whole buffer.
     pub since_ms: Option<u64>,
     /// Optional upper bound on `stored_at_ms`, in Unix epoch milliseconds,
-    /// inclusive. Paired with `since_ms` it closes a window, which is a
-    /// different query from a delta and is folded differently, see
+    /// inclusive. Present, it makes the query a window from `since_ms` or
+    /// the start of the buffer, screened before the fold, see
     /// [`FindingsStore::query_coalesced`].
     pub until_ms: Option<u64>,
     /// Maximum number of results to return.
@@ -699,6 +743,40 @@ mod tests {
             .await;
         assert_eq!(raw.len(), 1, "the unfolded path bounds each instance");
         assert_eq!(raw[0].stored_at_ms, 1000);
+    }
+
+    #[test]
+    fn merge_folded_only_grows_the_earlier_capture() {
+        let mut a = make_finding_with_template("svc", FindingType::RedundantSql, "SELECT a");
+        let mut b = make_finding_with_template("svc", FindingType::RedundantSql, "SELECT b");
+        let mut c = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT c");
+        for f in [&mut a, &mut b, &mut c] {
+            enrich_with_signatures(std::slice::from_mut(f));
+        }
+        let row = |f: &Finding, first: u64, last: u64, seen: u64| StoredFinding {
+            finding: f.clone(),
+            stored_at_ms: last,
+            first_seen_ms: first,
+            seen_count: seen,
+        };
+        // The earlier fold saw A and B; by the later one the ring evicted A
+        // and analysis added C, and B gained one more detection.
+        let mut earlier = vec![row(&a, 1000, 1000, 1), row(&b, 2000, 2000, 2)];
+        let later = vec![row(&b, 2000, 5000, 3), row(&c, 6000, 6000, 1)];
+        merge_folded(&mut earlier, later);
+        let by_template: std::collections::HashMap<&str, &StoredFinding> = earlier
+            .iter()
+            .map(|sf| (sf.finding.pattern.template.as_str(), sf))
+            .collect();
+        assert_eq!(earlier.len(), 3, "A is kept, C is added");
+        assert!(
+            by_template.contains_key("SELECT a"),
+            "an evicted group is not lost"
+        );
+        let b_row = by_template["SELECT b"];
+        assert_eq!(b_row.seen_count, 3, "the larger count, not the sum");
+        assert_eq!(b_row.stored_at_ms, 5000);
+        assert_eq!(b_row.first_seen_ms, 2000);
     }
 
     #[tokio::test]

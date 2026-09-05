@@ -604,12 +604,12 @@ impl Config {
             &1,
             &1_000,
         )?;
-        let texts = [
-            ("service_label", Some(&incidents.service_label)),
-            ("kind_label", Some(&incidents.kind_label)),
-            ("archive_path", incidents.archive_path.as_ref()),
+        let required = [
+            ("service_label", &incidents.service_label),
+            ("kind_label", &incidents.kind_label),
         ];
-        for (name, value) in texts.into_iter().filter_map(|(n, v)| v.map(|v| (n, v))) {
+        let optional = incidents.archive_path.as_ref().map(|p| ("archive_path", p));
+        for (name, value) in required.into_iter().chain(optional) {
             if value.is_empty() {
                 return Err(format!("[daemon.incidents] {name} must not be empty"));
             }

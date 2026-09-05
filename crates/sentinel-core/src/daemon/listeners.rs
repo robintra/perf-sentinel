@@ -71,6 +71,7 @@ pub(super) async fn spawn_listeners(
     green_summary: Arc<RwLock<GreenSummary>>,
     toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     ack_store: Option<Arc<AckStore>>,
+    incident_archive: Option<mpsc::Sender<Vec<u8>>>,
 ) -> Result<
     (
         tokio::task::JoinHandle<()>,
@@ -122,6 +123,7 @@ pub(super) async fn spawn_listeners(
         green_summary,
         toml_acks,
         ack_store,
+        incident_archive,
     );
     let http_handle = spawn_http_listener(http_listener, http_addr, tls_acceptor, http_router);
     let json_socket_handle = spawn_json_socket_listener(config, tx, over_memory);
@@ -401,6 +403,7 @@ fn build_http_router(
     green_summary: Arc<RwLock<GreenSummary>>,
     toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
     ack_store: Option<Arc<AckStore>>,
+    incident_archive: Option<mpsc::Sender<Vec<u8>>>,
 ) -> axum::Router {
     let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics.clone();
     let otlp_router = crate::ingest::otlp::otlp_http_router_for_daemon(
@@ -458,6 +461,10 @@ fn build_http_router(
                     config.daemon.incidents.max_retained,
                 ))
             }),
+            incident_archive,
+            settle_permits: Arc::new(tokio::sync::Semaphore::new(
+                query_api::MAX_SETTLES_IN_FLIGHT,
+            )),
             ack_store,
             toml_acks,
             ack_api_key: config.daemon.ack.api_key.clone(),
