@@ -1153,6 +1153,7 @@ struct IncidentIntake {
 #[derive(Debug, Deserialize, Default)]
 struct IncidentsParams {
     service: Option<String>,
+    namespace: Option<String>,
     offset: Option<usize>,
     limit: Option<usize>,
 }
@@ -1227,6 +1228,7 @@ async fn freeze_window(
     super::incidents::Incident {
         id: req.id.clone(),
         service: req.service.clone(),
+        namespace: req.namespace.clone(),
         kind: req.kind,
         at_ms: req.at_ms,
         ended_at_ms: req.ended_at_ms,
@@ -1346,7 +1348,12 @@ async fn handle_post_incidents(
     };
     let mut settles = Vec::new();
     for alert in body.alerts.iter().take(MAX_ALERTS_PER_DELIVERY) {
-        let req = match super::incidents::read_alert(alert, &cfg.service_label, &cfg.kind_label) {
+        let req = match super::incidents::read_alert(
+            alert,
+            &cfg.service_label,
+            &cfg.kind_label,
+            &cfg.namespace_label,
+        ) {
             Ok(req) => req,
             Err(super::incidents::RejectedAlert::NoService) => {
                 intake.rejected_no_service += 1;
@@ -1402,7 +1409,14 @@ async fn handle_list_incidents(
     let limit = params.limit.unwrap_or(50).min(MAX_INCIDENTS_RESPONSE);
     let offset = params.offset.unwrap_or(0);
     Ok(Json(
-        store.list(params.service.as_deref(), offset, limit).await,
+        store
+            .list(
+                params.service.as_deref(),
+                params.namespace.as_deref(),
+                offset,
+                limit,
+            )
+            .await,
     ))
 }
 

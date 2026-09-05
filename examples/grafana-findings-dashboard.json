@@ -715,12 +715,17 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$map($, function($i) {{\"id\": $i.id, \"service\": $i.service, \"kind\": $i.kind, \"at_ms\": $i.at_ms, \"ended_at_ms\": $i.ended_at_ms, \"window_from_ms\": $i.window_from_ms, \"window_to_ms\": $i.window_to_ms, \"oldest_finding_ms\": $i.oldest_finding_ms, \"findings_count\": $count($i.findings), \"capture\": $exists($i.oldest_finding_ms) ? ($i.oldest_finding_ms <= $i.window_from_ms ? \"complete\" : \"partial\") : \"empty ring\", \"detail\": $i.detail}})",
+          "root_selector": "$map($, function($i) {{\"id\": $i.id, \"service\": $i.service, \"namespace\": $i.namespace, \"kind\": $i.kind, \"at_ms\": $i.at_ms, \"ended_at_ms\": $i.ended_at_ms, \"window_from_ms\": $i.window_from_ms, \"window_to_ms\": $i.window_to_ms, \"oldest_finding_ms\": $i.oldest_finding_ms, \"findings_count\": $count($i.findings), \"capture\": $exists($i.oldest_finding_ms) ? ($i.oldest_finding_ms <= $i.window_from_ms ? \"complete\" : \"partial\") : \"empty ring\", \"detail\": $i.detail}})",
           "columns": [
             {
               "selector": "at_ms",
               "text": "Started",
               "type": "timestamp_epoch"
+            },
+            {
+              "selector": "namespace",
+              "text": "Namespace",
+              "type": "string"
             },
             {
               "selector": "service",
@@ -884,16 +889,17 @@
             "excludeByName": {},
             "indexByName": {
               "Started": 0,
-              "Service": 1,
-              "Kind": 2,
-              "Ended": 3,
-              "Window from": 4,
-              "Window to": 5,
-              "Findings": 6,
-              "Ring reached": 7,
-              "Capture": 8,
-              "Detail": 9,
-              "Id": 10
+              "Namespace": 1,
+              "Service": 2,
+              "Kind": 3,
+              "Ended": 4,
+              "Window from": 5,
+              "Window to": 6,
+              "Findings": 7,
+              "Ring reached": 8,
+              "Capture": 9,
+              "Detail": 10,
+              "Id": 11
             },
             "renameByName": {}
           }

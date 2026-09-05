@@ -4305,15 +4305,35 @@ lookback_ms = 60000
 max_retained = 50
 service_label = \"app\"
 kind_label = \"kind\"
+namespace_label = \"k8s_namespace\"
 archive_path = \"/var/lib/perf-sentinel/incidents.ndjson\"
 ";
     let cfg = load_from_str(full).unwrap();
     assert_eq!(cfg.daemon.incidents.max_retained, 50);
     assert_eq!(cfg.daemon.incidents.service_label, "app");
+    assert_eq!(cfg.daemon.incidents.namespace_label, "k8s_namespace");
     assert_eq!(
         cfg.daemon.incidents.archive_path.as_deref(),
         Some("/var/lib/perf-sentinel/incidents.ndjson")
     );
+}
+
+#[test]
+fn parse_daemon_incidents_namespace_label_defaults_and_refuses_empty() {
+    let cfg = load_from_str("[daemon.incidents]\nenabled = false\n").unwrap();
+    assert_eq!(
+        cfg.daemon.incidents.namespace_label, "namespace",
+        "the label kube-prometheus alerts carry natively"
+    );
+
+    let empty = "
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+namespace_label = \"\"
+";
+    let msg = format!("{}", load_from_str(empty).unwrap_err());
+    assert!(msg.contains("namespace_label must not be empty"), "{msg}");
 }
 
 #[test]

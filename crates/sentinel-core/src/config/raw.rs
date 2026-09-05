@@ -322,6 +322,7 @@ struct DaemonIncidentsSection {
     max_retained: Option<usize>,
     service_label: Option<String>,
     kind_label: Option<String>,
+    namespace_label: Option<String>,
     archive_path: Option<String>,
 }
 
@@ -648,6 +649,11 @@ impl From<RawConfig> for Config {
                         .incidents
                         .kind_label
                         .unwrap_or_else(|| "perf_sentinel_kind".to_string()),
+                    namespace_label: raw
+                        .daemon
+                        .incidents
+                        .namespace_label
+                        .unwrap_or_else(|| "namespace".to_string()),
                     archive_path: raw.daemon.incidents.archive_path,
                 },
                 cors: DaemonCorsConfig {

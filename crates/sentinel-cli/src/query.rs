@@ -108,13 +108,15 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
         }
         QueryAction::Incidents {
             service,
+            namespace,
             offset,
             limit,
             format,
             api_key_file,
         } => {
             let api_key = resolve_api_key_or_exit(api_key_file.as_deref());
-            let path = build_incidents_path(offset, limit, service.as_deref());
+            let path =
+                build_incidents_path(offset, limit, service.as_deref(), namespace.as_deref());
             let body = fetch_incidents_body(&trimmed, &path, api_key.as_deref()).await;
             render_incidents_response(&body, format, &trimmed);
         }
@@ -437,6 +439,8 @@ pub(crate) struct IncidentSlim {
     #[serde(default)]
     pub(crate) service: String,
     #[serde(default)]
+    pub(crate) namespace: Option<String>,
+    #[serde(default)]
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) at_ms: u64,
@@ -455,6 +459,15 @@ pub(crate) struct IncidentSlim {
 }
 
 impl IncidentSlim {
+    /// The service in the `kubectl` form: `ns/service` when the alert
+    /// carried a namespace, the bare service otherwise.
+    pub(crate) fn qualified_service(&self) -> String {
+        self.namespace.as_deref().map_or_else(
+            || self.service.clone(),
+            |ns| format!("{ns}/{}", self.service),
+        )
+    }
+
     /// How much of the window the ring still held when the incident was
     /// captured: `complete` when its oldest finding predates the window,
     /// `partial` when eviction had already eaten into it (the findings
@@ -534,11 +547,19 @@ pub(crate) fn incidents_refusal(status: u16) -> Option<&'static str> {
     }
 }
 
-fn build_incidents_path(offset: usize, limit: usize, service: Option<&str>) -> String {
+fn build_incidents_path(
+    offset: usize,
+    limit: usize,
+    service: Option<&str>,
+    namespace: Option<&str>,
+) -> String {
     use crate::ack::percent_encode_signature_segment as enc;
     let mut params = vec![format!("offset={offset}"), format!("limit={limit}")];
     if let Some(s) = service {
         params.push(format!("service={}", enc(s)));
+    }
+    if let Some(ns) = namespace {
+        params.push(format!("namespace={}", enc(ns)));
     }
     format!("/api/incidents?{}", params.join("&"))
 }
@@ -640,7 +661,7 @@ pub(crate) fn finding_count_label(n: usize) -> String {
     }
 }
 
-/// One incident's header: its kind and service, when it started and
+/// One incident's header: its kind and `ns/service`, when it started and
 /// when, whether it still fires, how much of the window the ring still
 /// held, and how many findings fired only after the restart. Every
 /// daemon string goes through `sanitize_for_terminal`.
@@ -660,7 +681,7 @@ fn incident_header_block(index: usize, inc: &IncidentSlim, colors: AnsiColors) -
         "  {bold}#{} {} \u{b7} {}{reset} \u{b7} started {} \u{b7} {ended}",
         index + 1,
         sanitize_for_terminal(&inc.kind),
-        sanitize_for_terminal(&inc.service),
+        sanitize_for_terminal(&inc.qualified_service()),
         fmt_local_time(inc.at_ms)
     );
     let _ = writeln!(
@@ -1009,6 +1030,7 @@ mod tests {
             {
                 "id": "0123456789abcdef0123456789abcdef",
                 "service": "cart-svc",
+                "namespace": "shop",
                 "kind": "oom_kill",
                 "at_ms": 1_700_000_400_000u64,
                 "detail": "container exceeded its memory limit",
@@ -1033,15 +1055,15 @@ mod tests {
     }
 
     #[test]
-    fn incidents_path_pages_and_encodes_the_service() {
+    fn incidents_path_pages_and_encodes_the_filters() {
         assert_eq!(
-            build_incidents_path(0, 50, None),
+            build_incidents_path(0, 50, None, None),
             "/api/incidents?offset=0&limit=50"
         );
-        let path = build_incidents_path(20, 10, Some("cart&limit=999"));
+        let path = build_incidents_path(20, 10, Some("cart&limit=999"), Some("shop&x"));
         assert_eq!(
             path,
-            "/api/incidents?offset=20&limit=10&service=cart%26limit%3D999"
+            "/api/incidents?offset=20&limit=10&service=cart%26limit%3D999&namespace=shop%26x"
         );
     }
 
@@ -1081,6 +1103,13 @@ mod tests {
     }
 
     #[test]
+    fn qualified_service_takes_the_kubectl_form() {
+        let incidents = two_incidents();
+        assert_eq!(incidents[0].qualified_service(), "shop/cart-svc");
+        assert_eq!(incidents[1].qualified_service(), "gateway-svc");
+    }
+
+    #[test]
     fn fired_after_restart_counts_the_late_rows() {
         assert_eq!(two_incidents()[0].fired_after_restart(), 1);
     }
@@ -1100,7 +1129,10 @@ mod tests {
         let incidents = two_incidents();
         let colors = ansi_colors(false);
         let firing = incident_header_block(0, &incidents[0], colors);
-        assert!(firing.contains("#1 oom_kill \u{b7} cart-svc"), "{firing}");
+        assert!(
+            firing.contains("#1 oom_kill \u{b7} shop/cart-svc"),
+            "{firing}"
+        );
         assert!(firing.contains("firing"), "{firing}");
         assert!(firing.contains("capture complete"), "{firing}");
         assert!(firing.contains("2 findings"), "{firing}");

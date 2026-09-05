@@ -369,6 +369,8 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # kind_label = "perf_sentinel_kind"                # default "perf_sentinel_kind". Its value must be one of
 #                                                  # oom_kill, memory_saturation, restart, deploy, other.
 #                                                  # Anything else is "other", never guessed from alertname
+# namespace_label = "namespace"                    # default "namespace". Carried on the incident and filterable,
+#                                                  # optional on the alert, never a reason to refuse one
 # archive_path = "/var/lib/perf-sentinel/incidents.ndjson"  # default unset: the ring is the only record, and
 #                                                  # it dies with the daemon. A node-level memory event that
 #                                                  # kills the observed service often takes a co-located

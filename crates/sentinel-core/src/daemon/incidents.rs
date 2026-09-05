@@ -90,7 +90,7 @@ impl IncidentKind {
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize)]
 pub struct Incident {
-    /// Content-derived id: `sha2` over `service|kind|at_ms`, 32 hex
+    /// Content-derived id, see [`Incident::compute_id`], 32 hex
     /// characters, the same shape and taste as an acknowledgment
     /// signature. Reposting the same alert is idempotent without a
     /// dedup table and without a server-assigned id round trip.
@@ -98,6 +98,11 @@ pub struct Incident {
     /// The perf-sentinel service the incident is about. This is the join
     /// key to the findings, so an alert without one is refused.
     pub service: String,
+    /// The namespace the alert carried, when it carried one. A label for
+    /// reading and filtering, never a join key: the findings are frozen
+    /// by service alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     /// What happened, as declared.
     pub kind: IncidentKind,
     /// When it started, Unix epoch milliseconds.
@@ -132,9 +137,19 @@ pub struct Incident {
 
 impl Incident {
     /// Content-derived id, so the same alert posted twice is the same
-    /// incident.
+    /// incident: `sha2` over `service|kind|at_ms`, then `|namespace` only
+    /// when one is present. A record without a namespace therefore keeps
+    /// the id it had before the field existed, which archives already
+    /// written and Hub fixtures depend on. The preimage parses back from
+    /// the right (namespace, digits, kind, service) only while the
+    /// namespace carries no `|`, which [`read_alert`] guarantees.
     #[must_use]
-    pub fn compute_id(service: &str, kind: IncidentKind, at_ms: u64) -> String {
+    pub fn compute_id(
+        service: &str,
+        namespace: Option<&str>,
+        kind: IncidentKind,
+        at_ms: u64,
+    ) -> String {
         use sha2::{Digest, Sha256};
         use std::fmt::Write as _;
 
@@ -144,6 +159,10 @@ impl Incident {
         hasher.update(kind.as_str().as_bytes());
         hasher.update(b"|");
         hasher.update(at_ms.to_string().as_bytes());
+        if let Some(ns) = namespace {
+            hasher.update(b"|");
+            hasher.update(ns.as_bytes());
+        }
         let digest = hasher.finalize();
         let mut out = String::with_capacity(32);
         for byte in &digest[..16] {
@@ -236,12 +255,19 @@ impl IncidentStore {
     }
 
     /// Recorded incidents, newest first, skipping `offset` and capped at
-    /// `limit`.
-    pub async fn list(&self, service: Option<&str>, offset: usize, limit: usize) -> Vec<Incident> {
+    /// `limit`. Each filter given must match exactly.
+    pub async fn list(
+        &self,
+        service: Option<&str>,
+        namespace: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Vec<Incident> {
         let buf = self.inner.read().await;
         buf.iter()
             .rev()
             .filter(|i| service.is_none_or(|s| i.service == s))
+            .filter(|i| namespace.is_none_or(|ns| i.namespace.as_deref() == Some(ns)))
             .skip(offset)
             .take(limit)
             .cloned()
@@ -414,9 +440,10 @@ pub enum RejectedAlert {
 /// the store and testable on its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncidentRequest {
-    /// [`Incident::compute_id`] of the three fields below, computed once.
+    /// [`Incident::compute_id`] of the fields below, computed once.
     pub id: String,
     pub service: String,
+    pub namespace: Option<String>,
     pub kind: IncidentKind,
     pub at_ms: u64,
     pub ended_at_ms: Option<u64>,
@@ -425,10 +452,10 @@ pub struct IncidentRequest {
 
 /// Read one alert into an [`IncidentRequest`].
 ///
-/// `service_label` and `kind_label` name the labels to read. A missing
-/// or unrecognized kind is [`IncidentKind::Other`], which is honest,
-/// whereas guessing from `alertname` would be a heuristic nobody can
-/// see failing.
+/// `service_label`, `kind_label` and `namespace_label` name the labels to
+/// read. A missing or unrecognized kind is [`IncidentKind::Other`], which
+/// is honest, whereas guessing from `alertname` would be a heuristic
+/// nobody can see failing. A missing namespace is simply absent.
 ///
 /// # Errors
 ///
@@ -437,15 +464,16 @@ pub fn read_alert(
     alert: &WebhookAlert,
     service_label: &str,
     kind_label: &str,
+    namespace_label: &str,
 ) -> Result<IncidentRequest, RejectedAlert> {
-    // Labels are trimmed like the stamp is: quoted YAML keeps a trailing
-    // space, and the service is the join key to the findings.
-    let service = alert
-        .labels
-        .get(service_label)
-        .map(|s| crate::text_safety::strip_bidi_and_invisible(s.trim()).into_owned())
-        .filter(|s| !s.is_empty())
-        .ok_or(RejectedAlert::NoService)?;
+    let service = read_label(alert, service_label).ok_or(RejectedAlert::NoService)?;
+    // The id separator is dropped from the namespace, otherwise
+    // `a|oom_kill|1000|other|5` reads both as (a, other|5, oom_kill, 1000)
+    // and as (a|oom_kill|1000, none, other, 5). Kubernetes forbids it in
+    // a namespace anyway.
+    let namespace = read_label(alert, namespace_label)
+        .map(|s| s.replace('|', ""))
+        .filter(|s| !s.is_empty());
     let at_ms = parse_rfc3339_ms(&alert.starts_at).ok_or(RejectedAlert::UnparsableTime)?;
     // Alertmanager sends the zero time while an alert is firing, which
     // is before 1970 and does not fit a `u64`, so a failure here is
@@ -465,13 +493,25 @@ pub fn read_alert(
         .or_else(|| alert.annotations.get("description"))
         .map(|d| cap_detail(d));
     Ok(IncidentRequest {
-        id: Incident::compute_id(&service, kind, at_ms),
+        id: Incident::compute_id(&service, namespace.as_deref(), kind, at_ms),
         service,
+        namespace,
         kind,
         at_ms,
         ended_at_ms,
         detail,
     })
+}
+
+/// One label's value, trimmed like the stamp is since quoted YAML keeps
+/// a trailing space, stripped of bidi and invisible characters, and
+/// `None` when missing or empty.
+fn read_label(alert: &WebhookAlert, label: &str) -> Option<String> {
+    alert
+        .labels
+        .get(label)
+        .map(|s| crate::text_safety::strip_bidi_and_invisible(s.trim()).into_owned())
+        .filter(|s| !s.is_empty())
 }
 
 /// Sanitize and cap free text before it can reach a terminal, the HTML
@@ -515,8 +555,9 @@ mod tests {
 
     fn incident(service: &str, kind: IncidentKind, at_ms: u64) -> Incident {
         Incident {
-            id: Incident::compute_id(service, kind, at_ms),
+            id: Incident::compute_id(service, None, kind, at_ms),
             service: service.to_string(),
+            namespace: None,
             kind,
             at_ms,
             ended_at_ms: None,
@@ -548,7 +589,7 @@ mod tests {
             "firing",
         );
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind"),
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace"),
             Err(RejectedAlert::NoService),
             "the service is the join key to the findings, there is no useful fallback"
         );
@@ -564,13 +605,13 @@ mod tests {
             "2026-09-05T14:03:00Z",
             "firing",
         );
-        let req = read_alert(&a, "service", "perf_sentinel_kind").unwrap();
+        let req = read_alert(&a, "service", "perf_sentinel_kind", "namespace").unwrap();
         assert_eq!(req.kind, IncidentKind::Other);
         assert_eq!(req.service, "cart-svc");
         assert_eq!(req.at_ms, 1_788_616_980_000);
         assert_eq!(
             req.id,
-            Incident::compute_id("cart-svc", IncidentKind::Other, req.at_ms)
+            Incident::compute_id("cart-svc", None, IncidentKind::Other, req.at_ms)
         );
 
         let a = alert(
@@ -579,7 +620,7 @@ mod tests {
             "firing",
         );
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind")
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
                 .unwrap()
                 .kind,
             IncidentKind::OomKill
@@ -598,9 +639,77 @@ mod tests {
             " 2026-09-05T14:03:00Z ",
             "firing",
         );
-        let req = read_alert(&a, "service", "perf_sentinel_kind").unwrap();
+        let req = read_alert(&a, "service", "perf_sentinel_kind", "namespace").unwrap();
         assert_eq!(req.service, "cart-svc");
         assert_eq!(req.kind, IncidentKind::OomKill);
+    }
+
+    #[test]
+    fn the_namespace_is_trimmed_and_never_a_reason_to_refuse() {
+        let a = alert(
+            &[("service", "cart-svc"), ("namespace", " shop ")],
+            "2026-09-05T14:03:00Z",
+            "firing",
+        );
+        let req = read_alert(&a, "service", "perf_sentinel_kind", "namespace").unwrap();
+        assert_eq!(req.namespace.as_deref(), Some("shop"));
+        assert_eq!(
+            req.id,
+            Incident::compute_id("cart-svc", Some("shop"), IncidentKind::Other, req.at_ms)
+        );
+
+        let a = alert(
+            &[
+                ("service", "cart-svc"),
+                ("namespace", "\u{202e}shop\u{200b}"),
+            ],
+            "2026-09-05T14:03:00Z",
+            "firing",
+        );
+        assert_eq!(
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
+                .unwrap()
+                .namespace
+                .as_deref(),
+            Some("shop"),
+            "bidi and invisible characters are stripped like on the service"
+        );
+
+        for labels in [
+            &[("service", "cart-svc"), ("namespace", "  ")][..],
+            &[("service", "cart-svc"), ("namespace", "\u{200b}")][..],
+            &[("service", "cart-svc"), ("namespace", "|")][..],
+            &[("service", "cart-svc")][..],
+        ] {
+            let a = alert(labels, "2026-09-05T14:03:00Z", "firing");
+            let req = read_alert(&a, "service", "perf_sentinel_kind", "namespace").unwrap();
+            assert_eq!(req.namespace, None, "empty or missing is simply absent");
+        }
+    }
+
+    #[test]
+    fn a_pipe_in_the_namespace_cannot_make_two_alerts_share_an_id() {
+        // Both would hash `a|oom_kill|1000|other|5` if the separator were
+        // kept, and the second would be counted as a repeat of the first.
+        let forged = alert(
+            &[
+                ("service", "a"),
+                ("perf_sentinel_kind", "oom_kill"),
+                ("namespace", "other|5"),
+            ],
+            "1970-01-01T00:00:01Z",
+            "firing",
+        );
+        let plain = alert(
+            &[("service", "a|oom_kill|1000")],
+            "1970-01-01T00:00:00.005Z",
+            "firing",
+        );
+        let forged = read_alert(&forged, "service", "perf_sentinel_kind", "namespace").unwrap();
+        let plain = read_alert(&plain, "service", "perf_sentinel_kind", "namespace").unwrap();
+        assert_eq!(forged.namespace.as_deref(), Some("other5"));
+        assert_eq!((forged.at_ms, plain.at_ms), (1000, 5));
+        assert_ne!(forged.id, plain.id);
     }
 
     #[test]
@@ -608,7 +717,7 @@ mod tests {
         let mut a = alert(&[("service", "svc")], "2026-09-05T14:03:00Z", "firing");
         a.ends_at = "0001-01-01T00:00:00Z".to_string();
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind")
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
                 .unwrap()
                 .ended_at_ms,
             None
@@ -617,7 +726,7 @@ mod tests {
         let mut a = alert(&[("service", "svc")], "2026-09-05T14:03:00Z", "resolved");
         a.ends_at = "2026-09-05T14:09:00Z".to_string();
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind")
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
                 .unwrap()
                 .ended_at_ms,
             Some(1_788_617_340_000)
@@ -631,14 +740,14 @@ mod tests {
         let mut a = alert(&[("service", "svc")], "2026-09-05T14:03:00Z", "resolved");
         a.ends_at = "1970-01-01T00:00:00Z".to_string();
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind")
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
                 .unwrap()
                 .ended_at_ms,
             None
         );
         a.ends_at = "2026-09-05T14:03:00Z".to_string();
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind")
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
                 .unwrap()
                 .ended_at_ms,
             Some(1_788_616_980_000),
@@ -655,14 +764,14 @@ mod tests {
             "firing",
         );
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind")
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace")
                 .unwrap()
                 .at_ms,
             1_788_616_980_123
         );
         let a = alert(&[("service", "svc")], "not a stamp", "firing");
         assert_eq!(
-            read_alert(&a, "service", "perf_sentinel_kind"),
+            read_alert(&a, "service", "perf_sentinel_kind", "namespace"),
             Err(RejectedAlert::UnparsableTime)
         );
     }
@@ -679,7 +788,7 @@ mod tests {
     fn detail_is_sanitized_and_capped_on_a_character_boundary() {
         let mut a = alert(&[("service", "svc")], "2026-09-05T14:03:00Z", "firing");
         a.annotations.insert("summary".to_string(), "é".repeat(400));
-        let detail = read_alert(&a, "service", "perf_sentinel_kind")
+        let detail = read_alert(&a, "service", "perf_sentinel_kind", "namespace")
             .unwrap()
             .detail
             .unwrap();
@@ -702,7 +811,7 @@ mod tests {
             !store.record(degraded).await,
             "a repost is not a second incident, or the counter would climb on its own"
         );
-        let all = store.list(None, 0, 10).await;
+        let all = store.list(None, None, 0, 10).await;
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].oldest_finding_ms, Some(1), "the first capture stays");
         assert!(store.contains(&all[0].id).await);
@@ -723,7 +832,7 @@ mod tests {
         first.findings = vec![stored("SELECT a", 1000), stored("SELECT b", 2000)];
         first.oldest_finding_ms = Some(500);
         store.record(first).await;
-        let id = Incident::compute_id("svc", IncidentKind::Restart, 5000);
+        let id = Incident::compute_id("svc", None, IncidentKind::Restart, 5000);
 
         // The settle fold lost A to eviction and gained C, with the ring's
         // front now past the window start.
@@ -759,18 +868,29 @@ mod tests {
         for (svc, at) in [("a", 1000), ("b", 2000), ("c", 3000)] {
             assert!(store.record(incident(svc, IncidentKind::Restart, at)).await);
         }
-        let all = store.list(None, 0, 10).await;
+        let all = store.list(None, None, 0, 10).await;
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].service, "c", "newest first");
         assert_eq!(
-            store.list(None, 1, 10).await[0].service,
+            store.list(None, None, 1, 10).await[0].service,
             "b",
             "offset skips the newest"
         );
-        assert_eq!(store.list(Some("b"), 0, 10).await.len(), 1);
+        assert_eq!(store.list(Some("b"), None, 0, 10).await.len(), 1);
         assert!(
-            store.list(Some("a"), 0, 10).await.is_empty(),
+            store.list(Some("a"), None, 0, 10).await.is_empty(),
             "a was evicted"
+        );
+
+        let mut namespaced = incident("d", IncidentKind::Restart, 4000);
+        namespaced.namespace = Some("shop".to_string());
+        namespaced.id = "namespaced".to_string();
+        assert!(store.record(namespaced).await);
+        assert_eq!(store.list(None, Some("shop"), 0, 10).await.len(), 1);
+        assert_eq!(store.list(Some("d"), Some("shop"), 0, 10).await.len(), 1);
+        assert!(
+            store.list(None, Some("nowhere"), 0, 10).await.is_empty(),
+            "a namespace filter matches exactly, and never a record without one"
         );
     }
 
@@ -778,7 +898,7 @@ mod tests {
     async fn a_zero_sized_ring_records_nothing() {
         let store = IncidentStore::new(0);
         assert!(!store.record(incident("svc", IncidentKind::Deploy, 1)).await);
-        assert!(store.list(None, 0, 10).await.is_empty());
+        assert!(store.list(None, None, 0, 10).await.is_empty());
     }
 
     #[test]
@@ -837,19 +957,30 @@ mod tests {
 
     #[test]
     fn the_id_depends_on_every_component() {
-        let base = Incident::compute_id("svc", IncidentKind::OomKill, 1000);
-        assert_eq!(base.len(), 32);
-        assert_ne!(
-            base,
-            Incident::compute_id("other", IncidentKind::OomKill, 1000)
+        let base = Incident::compute_id("svc", None, IncidentKind::OomKill, 1000);
+        assert_eq!(
+            base, "90d231b13c9ddcc28708a10cd8fd4553",
+            "a record without a namespace keeps the id it had before the field existed"
         );
         assert_ne!(
             base,
-            Incident::compute_id("svc", IncidentKind::Restart, 1000)
+            Incident::compute_id("svc", Some("shop"), IncidentKind::OomKill, 1000)
+        );
+        assert_ne!(
+            Incident::compute_id("svc", Some("shop"), IncidentKind::OomKill, 1000),
+            Incident::compute_id("svc", Some("ops"), IncidentKind::OomKill, 1000)
         );
         assert_ne!(
             base,
-            Incident::compute_id("svc", IncidentKind::OomKill, 1001)
+            Incident::compute_id("other", None, IncidentKind::OomKill, 1000)
+        );
+        assert_ne!(
+            base,
+            Incident::compute_id("svc", None, IncidentKind::Restart, 1000)
+        );
+        assert_ne!(
+            base,
+            Incident::compute_id("svc", None, IncidentKind::OomKill, 1001)
         );
     }
 }

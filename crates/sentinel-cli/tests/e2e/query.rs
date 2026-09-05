@@ -120,6 +120,7 @@ fn cli_query_incidents_help_documents_the_key_and_paging() {
         "--offset",
         "--limit",
         "--service",
+        "--namespace",
         "--format",
     ] {
         assert!(
@@ -138,7 +139,14 @@ fn cli_query_incidents_sends_the_key_and_names_a_401() {
     );
     let output = run_query_incidents(
         port,
-        &["--service", "cart-svc", "--limit", "5"],
+        &[
+            "--service",
+            "cart-svc",
+            "--namespace",
+            "shop",
+            "--limit",
+            "5",
+        ],
         Some("read-key-123456"),
     );
     let seen = seen
@@ -147,7 +155,7 @@ fn cli_query_incidents_sends_the_key_and_names_a_401() {
     assert_eq!(seen.api_key.as_deref(), Some("read-key-123456"));
     assert!(
         seen.request_line
-            .starts_with("GET /api/incidents?offset=0&limit=5&service=cart-svc "),
+            .starts_with("GET /api/incidents?offset=0&limit=5&service=cart-svc&namespace=shop "),
         "request line: {}",
         seen.request_line
     );
