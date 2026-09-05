@@ -803,6 +803,7 @@ lui-même.
 | `max_retained`  | integer | `200`                | Incidents gardés dans le ring en mémoire, de 1 à 10000. Le ring meurt avec le daemon                                                                                                            |
 | `service_label` | string  | `service`            | Libellé d'alerte portant le nom de service perf-sentinel. Une alerte qui ne le porte pas est refusée, c'est la clé de jointure avec les findings                                               |
 | `kind_label`    | string  | `perf_sentinel_kind` | Libellé d'alerte portant le genre : `oom_kill`, `memory_saturation`, `restart`, `deploy` ou `other`. Tout le reste vaut `other`, jamais deviné depuis `alertname`                              |
+| `archive_path`  | string  | *(absent)*           | Ajoute chaque livraison acceptée à ce fichier JSON par lignes. Absent signifie que le ring en mémoire est le seul enregistrement, et un événement mémoire au niveau du nœud qui tue le service observé emporte souvent un daemon colocalisé. Append-only, le dernier enregistrement d'un id fait foi, créé en `0600`, sans rotation |
 
 ```toml
 [daemon.incidents]

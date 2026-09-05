@@ -954,8 +954,9 @@ which the NDJSON archive may still answer. See [RUNBOOK.md](RUNBOOK.md).
 **The ring is in memory and dies with the daemon.** A node-level memory
 event that kills the observed service often takes a co-located daemon
 with it, so the incident that would explain the outage can be destroyed
-by the outage. Scrape this endpoint if the record has to outlive the
-node.
+by the outage. Set `[daemon.incidents] archive_path` to append every
+accepted delivery to a newline-delimited JSON file, or scrape this
+endpoint, if the record has to outlive the node.
 
 ### TOML and JSONL interop
 

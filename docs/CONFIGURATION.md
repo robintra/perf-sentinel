@@ -786,6 +786,7 @@ which is the daemon's own cgroup.
 | `max_retained`  | integer | `200`                | Incidents kept in the in-memory ring, 1 to 10000. The ring dies with the daemon                                                                                                   |
 | `service_label` | string  | `service`            | Alert label carrying the perf-sentinel service name. An alert without it is refused, it being the join key to the findings                                                        |
 | `kind_label`    | string  | `perf_sentinel_kind` | Alert label carrying the kind: `oom_kill`, `memory_saturation`, `restart`, `deploy` or `other`. Anything else is `other`, never guessed from `alertname`                          |
+| `archive_path`  | string  | *(absent)*           | Append every accepted delivery to this newline-delimited JSON file. Absent means the in-memory ring is the only record, and a node-level memory event that kills the observed service often takes a co-located daemon with it. Append-only, last record of an id wins, created `0600`, no rotation |
 
 ```toml
 [daemon.incidents]
