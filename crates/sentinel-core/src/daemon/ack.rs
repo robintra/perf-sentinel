@@ -103,7 +103,7 @@ pub enum AckError {
     NotAcked,
     #[error("invalid signature format")]
     InvalidSignature,
-    #[error("ack file at '{path}' is a symlink, refusing to follow")]
+    #[error("ack file at '{path}' is a symlink or another reparse point, refusing to follow")]
     SymlinkRefused { path: String },
     #[error("ack file '{path}' has insecure permissions ({mode:o}), refusing to open")]
     InsecurePermissions { path: String, mode: u32 },
@@ -336,20 +336,28 @@ pub(crate) fn is_expired(entry: &AckEntry, now: DateTime<Utc>) -> bool {
 }
 
 async fn open_append(path: &Path) -> Result<File, AckError> {
-    #[cfg(unix)]
     refuse_if_symlink(path).await?;
-    let mut opts = OpenOptions::new();
+    let mut opts = std::fs::OpenOptions::new();
     opts.create(true).append(true).read(true);
     #[cfg(unix)]
-    opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    let file = opts.open(path).await?;
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    crate::daemon::archive::no_follow(&mut opts);
+    let file = OpenOptions::from(opts).open(path).await?;
+    let metadata = file.metadata().await?;
+    if crate::daemon::archive::is_reparse_point(&metadata) {
+        return Err(AckError::SymlinkRefused {
+            path: path.display().to_string(),
+        });
+    }
     #[cfg(unix)]
     {
         // `mode(0o600)` only applies on creation. If a hostile local
         // user pre-created the file with weaker permissions, refuse
         // to append rather than leak audit data.
         use std::os::unix::fs::PermissionsExt;
-        let metadata = file.metadata().await?;
         let mode = metadata.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
             return Err(AckError::InsecurePermissions {
@@ -513,32 +521,28 @@ async fn tighten_parent_dir_perms(parent: &Path) {
 #[allow(clippy::unused_async)] // must match the `async` Unix signature it mirrors
 async fn tighten_parent_dir_perms(_parent: &Path) {}
 
-#[cfg(unix)]
 async fn open_for_replay(path: &Path) -> Result<File, AckError> {
     refuse_if_symlink(path).await?;
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .await?;
-    Ok(file)
-}
-
-#[cfg(not(unix))]
-async fn open_for_replay(path: &Path) -> Result<File, AckError> {
-    let file = OpenOptions::new().read(true).open(path).await?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    crate::daemon::archive::no_follow(&mut opts);
+    let file = OpenOptions::from(opts).open(path).await?;
+    if crate::daemon::archive::is_reparse_point(&file.metadata().await?) {
+        return Err(AckError::SymlinkRefused {
+            path: path.display().to_string(),
+        });
+    }
     Ok(file)
 }
 
 /// Refuse to follow a symlinked storage path. A hostile local user
 /// could pre-create the leaf as a symlink to `~/.bashrc` or
 /// `~/.ssh/authorized_keys`, and the daemon would happily append JSONL
-/// lines to the target. `O_NOFOLLOW` covers the open path, this
-/// pre-check covers the upstream `symlink_metadata` audit so we can
-/// surface a typed error rather than the kernel's `ELOOP`. The leaf is
-/// the only path component we control, deeper components like
-/// `~/.local/share` are operator-trusted.
-#[cfg(unix)]
+/// lines to the target. The open itself never follows the leaf
+/// (`archive::no_follow`), this pre-check only exists to surface a typed
+/// error rather than the kernel's `ELOOP`. The leaf is the only path
+/// component we control, deeper components like `~/.local/share` are
+/// operator-trusted.
 async fn refuse_if_symlink(path: &Path) -> Result<(), AckError> {
     if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
         && metadata.file_type().is_symlink()
@@ -596,10 +600,13 @@ async fn rewrite_compacted(
     active: &HashMap<String, AckEntry>,
 ) -> Result<(), AckError> {
     let tmp = path.with_extension("jsonl.tmp");
+    // A leftover of an interrupted compaction or a planted link: either
+    // way `create_new` then opens nothing but a fresh file.
+    let _ = tokio::fs::remove_file(&tmp).await;
     let mut opts = OpenOptions::new();
-    opts.create(true).write(true).truncate(true);
+    opts.create_new(true).write(true);
     #[cfg(unix)]
-    opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    opts.mode(0o600);
     let mut tmp_file = opts.open(&tmp).await?;
     for entry in active.values() {
         let mut line = serde_json::to_string(entry).map_err(AckError::Serialize)?;
@@ -611,7 +618,6 @@ async fn rewrite_compacted(
     drop(tmp_file);
     // Re-check just before swap: rename follows target symlinks and the
     // startup-time check does not cover the long compaction window.
-    #[cfg(unix)]
     refuse_if_symlink(path).await?;
     tokio::fs::rename(&tmp, path).await?;
     Ok(())
