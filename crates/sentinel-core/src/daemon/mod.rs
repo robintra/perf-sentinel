@@ -285,21 +285,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // clients never observe the initial value.
     let green_summary_cell = Arc::new(RwLock::new(GreenSummary::disabled(0)));
 
-    // Opened before the listeners so a bad path fails the daemon rather
-    // than the first incident, and drained after the loop like the report
-    // archive: a record handed over is owed to the file.
-    let incident_archive = match &config.daemon.incidents {
-        cfg if cfg.enabled => match &cfg.archive_path {
-            Some(path) => Some(incidents::spawn_archive(path, metrics.clone()).map_err(
-                |source| DaemonError::IncidentArchiveOpen {
-                    path: path.clone(),
-                    source,
-                },
-            )?),
-            None => None,
-        },
-        _ => None,
-    };
+    let incident_archive = open_incident_archive(&config, &metrics)?;
 
     let (grpc_handle, http_handle, json_socket_handle) = spawn_listeners(
         &config,
@@ -379,30 +365,25 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         ctx
     });
     let detect_config = DetectConfig::from(&config);
+    // Green scoring off means score_green never runs: the loop must not
+    // consume (and thus destroy) the accumulated database energy. Read
+    // through `then` rather than three `if`/`else` arms, which is the same
+    // gate said once per field without three branches in this function.
+    let green_on = config.green.enabled;
     let energy_sources = EnergySources {
         base_carbon_ctx,
         alumet_state: alumet.state.as_deref(),
-        // Green scoring off means score_green never runs: the loop must
-        // not consume (and thus destroy) the accumulated database energy.
-        alumet_db_state: if config.green.enabled {
-            alumet_db.as_deref()
-        } else {
-            None
-        },
-        alumet_broker_state: if config.green.enabled {
-            alumet_broker.as_deref()
-        } else {
-            None
-        },
-        static_broker: if config.green.enabled {
-            config
-                .green
-                .broker_static
-                .as_ref()
-                .zip(static_broker_state.as_ref())
-        } else {
-            None
-        },
+        alumet_db_state: green_on.then_some(alumet_db.as_deref()).flatten(),
+        alumet_broker_state: green_on.then_some(alumet_broker.as_deref()).flatten(),
+        static_broker: green_on
+            .then(|| {
+                config
+                    .green
+                    .broker_static
+                    .as_ref()
+                    .zip(static_broker_state.as_ref())
+            })
+            .flatten(),
         alumet_staleness_ms: alumet.staleness_ms,
         scaphandre_state: scaphandre.state.as_deref(),
         scaphandre_staleness_ms: scaphandre.staleness_ms,
@@ -499,6 +480,34 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 
 /// Daemon startup gate for `[reporting] intent = "official"`.
 /// See `docs/design/08-PERIODIC-DISCLOSURE.md`.
+/// The incident archive writer, when `[daemon.incidents]` is enabled and
+/// names a path. Opened before the listeners so a bad path fails the
+/// daemon rather than the first incident, and drained after the loop like
+/// the report archive: a record handed over is owed to the file.
+///
+/// # Errors
+///
+/// The open error, which fails daemon startup.
+fn open_incident_archive(
+    config: &Config,
+    metrics: &Arc<MetricsState>,
+) -> Result<Option<incidents::ArchiveHandle>, DaemonError> {
+    let incidents = &config.daemon.incidents;
+    let Some(path) = incidents
+        .archive_path
+        .as_ref()
+        .filter(|_| incidents.enabled)
+    else {
+        return Ok(None);
+    };
+    incidents::spawn_archive(path, metrics.clone())
+        .map(Some)
+        .map_err(|source| DaemonError::IncidentArchiveOpen {
+            path: path.clone(),
+            source,
+        })
+}
+
 fn validate_official_reporting(config: &Config) -> Result<(), DaemonError> {
     use crate::report::periodic::org_config;
 
