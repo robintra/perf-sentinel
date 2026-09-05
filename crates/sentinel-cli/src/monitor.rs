@@ -46,7 +46,7 @@ use sentinel_core::score::carbon::IntensitySource;
 use sentinel_core::text_safety::{sanitize_for_terminal, strip_code_ticks};
 use tokio::sync::mpsc;
 
-use crate::query::{IncidentSlim, fired_marker, fmt_local_time};
+use crate::query::{IncidentSlim, fmt_local_time};
 
 // `Axis` aliased: ratatui's chart `Axis` is already in scope here.
 use crate::tui_resize::{
@@ -232,7 +232,7 @@ struct Snapshot {
     scrapers: Option<EnergyStatusResponse>,
     status: Option<StatusSlim>,
     config: Option<ConfigSlim>,
-    incidents: Result<Vec<IncidentSlim>, String>,
+    incidents: Result<Vec<IncidentSlim>, IncidentsError>,
 }
 
 /// One sample of the Trends time series, recorded per successful poll
@@ -468,12 +468,13 @@ impl MonitorState {
                 {
                     s.config = Some(prev);
                 }
-                // The incident list only grows server-side and none of
-                // the three refusals appears after a successful poll (the
-                // key and the store switch are fixed for the daemon's
-                // lifetime), so a failed tick keeps the last list rather
-                // than replacing it with a transport error.
-                if s.incidents.is_err()
+                // The incident list only grows server-side, so a tick
+                // lost to the transport keeps the last list rather than
+                // replacing it with the error. A refusal is different: a
+                // restarted daemon can rotate the key or switch the store
+                // off, and the tab must say so rather than show a list
+                // the daemon no longer serves.
+                if s.incidents.as_ref().is_err_and(|e| !e.refused)
                     && let Some(prev) = self
                         .latest
                         .as_mut()
@@ -677,11 +678,11 @@ async fn fetch_incidents(
     client: &sentinel_core::http_client::HttpClient,
     base_url: &str,
     auth: Option<&AuthHeader>,
-) -> Result<Vec<IncidentSlim>, String> {
+) -> Result<Vec<IncidentSlim>, IncidentsError> {
     let path = format!("/api/incidents?limit={INCIDENTS_POLL_LIMIT}");
     let uri = format!("{base_url}{path}")
         .parse::<sentinel_core::http_client::Uri>()
-        .map_err(|e| format!("invalid URL: {e}"))?;
+        .map_err(|e| transient(format!("invalid URL: {e}")))?;
     let body = sentinel_core::http_client::fetch_get(
         client,
         &uri,
@@ -690,8 +691,25 @@ async fn fetch_incidents(
         auth,
     )
     .await
-    .map_err(|e| incidents_fetch_reason(&e))?;
-    serde_json::from_slice(&body).map_err(|e| format!("{path}: malformed response ({e})"))
+    .map_err(|e| incidents_error(&e))?;
+    serde_json::from_slice(&body)
+        .map_err(|e| transient(format!("{path}: malformed response ({e})")))
+}
+
+/// A failure worth retrying silently: the last list stays on screen.
+fn transient(reason: String) -> IncidentsError {
+    IncidentsError {
+        reason,
+        refused: false,
+    }
+}
+
+/// The reason plus whether the daemon refused the poll outright.
+fn incidents_error(err: &FetchError) -> IncidentsError {
+    IncidentsError {
+        reason: incidents_fetch_reason(err),
+        refused: matches!(err, FetchError::HttpStatus(code) if crate::query::incidents_refusal(*code).is_some()),
+    }
 }
 
 /// Name the cause of a failed incidents poll: the three refusals get
@@ -1594,6 +1612,16 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     lines
 }
 
+/// Why an incidents poll failed. `refused` marks the three daemon
+/// answers (401, 503, 404): a state the tab must show, never carried
+/// over from an earlier tick, since a restart can rotate the key or
+/// switch the store off.
+#[derive(Debug, Clone)]
+struct IncidentsError {
+    reason: String,
+    refused: bool,
+}
+
 /// Body of the Incidents tab: the incidents the alerting posted, newest
 /// first, each with the findings frozen from its window. Flat and
 /// scrollable like every other tab: the findings sit indented under
@@ -1616,9 +1644,9 @@ fn build_incidents_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     };
     let incidents = match &snapshot.incidents {
         Ok(incidents) => incidents,
-        Err(reason) => {
+        Err(e) => {
             lines.push(Line::from(Span::styled(
-                sanitize_for_terminal(reason).into_owned(),
+                sanitize_for_terminal(&e.reason).into_owned(),
                 dim,
             )));
             return lines;
@@ -1637,14 +1665,17 @@ fn build_incidents_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     lines
 }
 
-/// One incident: its bold summary row, the dim detail line when the
-/// alert carried one, then one indented row per finding.
+/// One incident: its bold summary row, the dim capture row, the dim
+/// detail line when the alert carried one, then one indented row per
+/// finding. Two lines for the summary so the capture marker never
+/// falls past the 78 columns of an 80-column terminal.
 fn push_incident_lines(lines: &mut Vec<Line<'static>>, inc: &IncidentSlim) {
     let dim = crate::tui::dim_style();
     lines.push(Line::from(Span::styled(
         incident_summary_row(inc),
         Style::default().add_modifier(Modifier::BOLD),
     )));
+    lines.push(Line::from(Span::styled(incident_capture_row(inc), dim)));
     if let Some(detail) = inc.detail.as_deref() {
         lines.push(Line::from(Span::styled(
             format!("  {}", truncate_cell(detail, INCIDENT_DETAIL_MAX_CHARS)),
@@ -1662,35 +1693,54 @@ fn push_incident_lines(lines: &mut Vec<Line<'static>>, inc: &IncidentSlim) {
     }
 }
 
-/// `started · service · kind · ended|firing · N findings · capture
-/// marker`, the daemon strings sanitized and capped.
+/// `started · service · kind · ended|firing`, the daemon strings
+/// sanitized and capped.
 fn incident_summary_row(inc: &IncidentSlim) -> String {
     let ended = inc.ended_at_ms.map_or_else(
         || "firing".to_string(),
         |e| format!("ended {}", fmt_local_time(e)),
     );
     format!(
-        "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended} \u{00b7} {} \u{00b7} capture {}",
+        "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended}",
         fmt_local_time(inc.at_ms),
         truncate_cell(&inc.service, 24),
-        truncate_cell(&inc.kind, 17),
+        truncate_cell(&inc.kind, 17)
+    )
+}
+
+/// `N findings · capture marker`, the reading the tab exists for, on
+/// its own short line so a narrow terminal never clips it.
+fn incident_capture_row(inc: &IncidentSlim) -> String {
+    format!(
+        "  {} \u{00b7} capture {}",
         crate::query::finding_count_label(inc.findings.len()),
         inc.capture_marker()
     )
 }
 
-/// One finding under its incident: type, severity, endpoint, how many
-/// traces it stood for in the window, and whether it already fired
-/// before the restart or only after it.
+/// `before` or `after` the restart, from the first detection against
+/// the incident start. Six columns wide so it leads the finding row.
+fn fired_marker(incident_at_ms: u64, first_seen_ms: u64) -> &'static str {
+    if first_seen_ms > incident_at_ms {
+        "after"
+    } else {
+        "before"
+    }
+}
+
+/// One finding under its incident: whether it fired before or after
+/// the restart first, then type, severity, endpoint and how many
+/// traces it stood for in the window. 72 columns, inside the 78 an
+/// 80-column terminal leaves within the border.
 fn incident_finding_row(incident_at_ms: u64, sf: &StoredFinding) -> String {
     let f = &sf.finding;
     format!(
-        "    {:<20} {:<9} {:<32} x{:<5} {}",
+        "    {:<6} {:<20} {:<9} {:<24} {:>5}",
+        fired_marker(incident_at_ms, sf.first_seen_ms),
         f.finding_type.as_str(),
         f.severity.as_str(),
-        truncate_cell(&f.source_endpoint, 32),
-        sf.seen_count,
-        fired_marker(incident_at_ms, sf.first_seen_ms)
+        truncate_cell(&f.source_endpoint, 24),
+        sf.seen_count
     )
 }
 
@@ -2316,7 +2366,7 @@ mod tests {
         serde_json::from_str(incident_payload()).expect("IncidentSlim deserializes")
     }
 
-    fn snapshot_with_incidents(incidents: Result<Vec<IncidentSlim>, String>) -> Snapshot {
+    fn snapshot_with_incidents(incidents: Result<Vec<IncidentSlim>, IncidentsError>) -> Snapshot {
         let mut snapshot = snapshot_with_warnings(Vec::new());
         snapshot.incidents = incidents;
         snapshot
@@ -2937,10 +2987,14 @@ mod tests {
             .find(|l| l.contains("cart-svc \u{00b7} oom_kill"))
             .expect("incident summary row");
         assert!(row.contains("firing"), "{row}");
-        assert!(row.contains("2 findings"), "{row}");
-        assert!(row.contains("capture complete"), "{row}");
         // Started as a local calendar stamp, not epoch milliseconds.
         assert!(!row.contains("1700000400000"), "{row}");
+        let capture = text
+            .lines()
+            .find(|l| l.contains("capture complete"))
+            .expect("capture row");
+        assert!(capture.contains("2 findings"), "{capture}");
+        assert!(capture.len() <= 78, "fits an 80-column terminal: {capture}");
         assert!(
             text.contains("container exceeded its memory limit"),
             "got: {text}"
@@ -2951,13 +3005,14 @@ mod tests {
             .expect("first finding row");
         assert!(first.contains("critical"), "{first}");
         assert!(first.contains("GET /cart"), "{first}");
-        assert!(first.contains("x12"), "{first}");
-        assert!(first.ends_with("before"), "{first}");
+        assert!(first.trim_end().ends_with("12"), "{first}");
+        assert!(first.trim_start().starts_with("before "), "{first}");
+        assert!(first.len() <= 78, "fits an 80-column terminal: {first}");
         let second = text
             .lines()
             .find(|l| l.contains("slow_sql"))
             .expect("second finding row");
-        assert!(second.contains("after the restart"), "{second}");
+        assert!(second.trim_start().starts_with("after "), "{second}");
     }
 
     #[test]
@@ -3026,7 +3081,7 @@ mod tests {
         assert!(big.contains("8 MiB"), "{big}");
         assert!(big.contains("query incidents --limit"), "{big}");
         // The tab shows the reason where the rows would be.
-        let snapshot = snapshot_with_incidents(Err(unauthorized.clone()));
+        let snapshot = snapshot_with_incidents(Err(incidents_error(&FetchError::HttpStatus(401))));
         let text = line_text(&build_incidents_lines(Some(&snapshot)));
         assert!(text.contains("--api-key-file"), "got: {text}");
         assert!(!text.contains("No incidents recorded"), "got: {text}");
@@ -3056,7 +3111,7 @@ mod tests {
         ))));
         // Next tick: report fine, the incidents poll timed out.
         state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
-            Err("request timed out".to_string()),
+            Err(transient("request timed out".to_string())),
         ))));
         assert!(!state.stale, "an incidents failure is not a stale daemon");
         let incidents = state
@@ -3074,15 +3129,41 @@ mod tests {
     fn incidents_refusal_shows_when_no_poll_ever_succeeded() {
         let mut state = MonitorState::new("http://localhost:4318".into(), 5);
         state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
-            Err(incidents_fetch_reason(&FetchError::HttpStatus(503))),
+            Err(incidents_error(&FetchError::HttpStatus(503))),
         ))));
         assert!(!state.stale);
-        let reason = state
+        let e = state
             .latest
             .as_ref()
             .and_then(|s| s.incidents.as_ref().err())
             .expect("nothing to carry forward, the reason stays");
-        assert!(reason.contains("enabled = false"), "{reason}");
+        assert!(e.reason.contains("enabled = false"), "{}", e.reason);
+    }
+
+    #[test]
+    fn incidents_refusal_after_a_success_replaces_the_list() {
+        // A restarted daemon with a rotated key answers 401: showing the
+        // pre-restart list would be a lie the operator cannot detect.
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
+            Ok(vec![incident()]),
+        ))));
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
+            Err(incidents_error(&FetchError::HttpStatus(401))),
+        ))));
+        assert!(!state.stale);
+        let e = state
+            .latest
+            .as_ref()
+            .and_then(|s| s.incidents.as_ref().err())
+            .expect("a refusal replaces the list");
+        assert!(
+            e.refused && e.reason.contains("--api-key-file"),
+            "{}",
+            e.reason
+        );
+        assert!(!incidents_error(&FetchError::HttpStatus(500)).refused);
+        assert!(!transient("timed out".into()).refused);
     }
 
     #[test]
