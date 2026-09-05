@@ -4315,3 +4315,97 @@ archive_path = \"/var/lib/perf-sentinel/incidents.ndjson\"
         Some("/var/lib/perf-sentinel/incidents.ndjson")
     );
 }
+
+#[test]
+fn parse_daemon_read_api_key() {
+    assert!(Config::default().daemon.read_api_key.is_none());
+    let cfg = load_from_str("[daemon]\nread_api_key = \"a-long-enough-read-key\"").unwrap();
+    assert_eq!(
+        cfg.daemon.read_api_key.as_deref(),
+        Some("a-long-enough-read-key")
+    );
+}
+
+#[test]
+fn validate_daemon_read_api_key_applies_the_key_rules() {
+    let empty = format!(
+        "{}",
+        load_from_str("[daemon]\nread_api_key = \"\"").unwrap_err()
+    );
+    assert!(
+        empty.contains("[daemon] read_api_key must not be empty"),
+        "{empty}"
+    );
+    let short = format!(
+        "{}",
+        load_from_str("[daemon]\nread_api_key = \"shortish\"").unwrap_err()
+    );
+    assert!(
+        short.contains("[daemon] read_api_key is too short"),
+        "{short}"
+    );
+}
+
+#[test]
+fn validate_daemon_read_api_key_must_differ_from_the_write_keys() {
+    let same_as_ack = "
+[daemon]
+read_api_key = \"the-same-long-key\"
+[daemon.ack]
+api_key = \"the-same-long-key\"
+";
+    let msg = format!("{}", load_from_str(same_as_ack).unwrap_err());
+    assert!(
+        msg.contains("must differ from [daemon.ack] api_key"),
+        "{msg}"
+    );
+
+    let same_as_incidents = "
+[daemon]
+read_api_key = \"the-same-long-key\"
+[daemon.incidents]
+enabled = true
+api_key = \"the-same-long-key\"
+";
+    let msg = format!("{}", load_from_str(same_as_incidents).unwrap_err());
+    assert!(
+        msg.contains("must differ from [daemon.incidents] api_key"),
+        "{msg}"
+    );
+
+    let distinct = "
+[daemon]
+read_api_key = \"a-long-enough-read-key\"
+[daemon.ack]
+api_key = \"a-long-enough-ack-key\"
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-enough-write-key\"
+";
+    let cfg = load_from_str(distinct).unwrap();
+    assert_eq!(
+        cfg.daemon.read_api_key.as_deref(),
+        Some("a-long-enough-read-key")
+    );
+}
+
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn validate_daemon_cors_rejects_wildcard_with_any_key() {
+    // The replay argument holds for every key the daemon compares, not
+    // only the ack one.
+    let setters: [fn(&mut Config); 2] = [
+        |c| c.daemon.incidents.api_key = Some("test-token-12chars".to_string()),
+        |c| c.daemon.read_api_key = Some("test-token-12chars".to_string()),
+    ];
+    for set in setters {
+        let mut cfg = Config::default();
+        cfg.daemon.cors.allowed_origins = vec!["*".to_string()];
+        set(&mut cfg);
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(
+            err.contains("incompatible with") && err.contains("api_key"),
+            "{err}"
+        );
+    }
+}
