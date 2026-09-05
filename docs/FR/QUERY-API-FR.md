@@ -933,16 +933,20 @@ détiennent jamais la clé qui peut faire un `POST`. `http_headers` exige
 Alertmanager 0.27 ou plus récent, un plus ancien passe par un proxy qui
 pose l'en-tête.
 
-Deux libellés sont lus, tous deux configurables :
+Trois libellés sont lus, tous configurables :
 
 | Libellé                            | Défaut               | Signification                                                                                                        |
 |------------------------------------|----------------------|------------------------------------------------------------------------------------------------------------------------|
 | `[daemon.incidents] service_label` | `service`            | Le nom de service perf-sentinel. C'est la clé de jointure avec les findings, une alerte qui ne le porte pas est refusée |
 | `[daemon.incidents] kind_label`    | `perf_sentinel_kind` | L'un de `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Tout le reste vaut `other`                       |
+| `[daemon.incidents] namespace_label` | `namespace`        | Optionnel. Sa valeur est portée sur l'incident comme `namespace` et le paramètre `namespace` de `GET /api/incidents` filtre dessus. Jamais un motif de refus |
 
-Le genre est lu, jamais deviné. Le dériver d'`alertname` par mots-clés
-serait une heuristique que personne ne verrait échouer, donc un opérateur
-qui veut un genre précis écrit le libellé sur sa règle d'alerte :
+Un `deploy` est posté pour la même raison qu'un `restart` : figer ce qui
+brûlait déjà avant le déploiement, et pour qu'un redémarrage provoqué par
+le déploiement ne se lise pas comme un crash. Le genre est lu, jamais
+deviné. Le dériver d'`alertname` par mots-clés serait une heuristique que
+personne ne verrait échouer, donc un opérateur qui veut un genre précis
+écrit le libellé sur sa règle d'alerte :
 
 ```yaml
 - alert: PodOOMKilled
@@ -998,11 +1002,13 @@ ligne dont le `first_seen_ms` dépasse `at_ms` n'a brûlé qu'après le
 redémarrage.
 
 Le repostage est idempotent et ne dégrade jamais. L'id est un `sha2` sur
-`service|kind|at_ms`, et Alertmanager qui répète une alerte active à
-chaque `repeat_interval` résout à nouveau une fenêtre fixe contre un ring
-qui ne fait qu'évincer, donc la première capture est conservée et une
-répétition ne peut qu'ajouter une fin : une livraison `resolved` pose
-`ended_at_ms`, à condition que `endsAt` ne précède pas `startsAt`.
+`service|kind|at_ms`, puis `|namespace` quand l'alerte en portait un,
+donc un enregistrement sans namespace garde son id. Alertmanager qui
+répète une alerte active à chaque `repeat_interval` résout à nouveau une
+fenêtre fixe contre un ring qui ne fait qu'évincer, donc la première
+capture est conservée et une répétition ne peut qu'ajouter une fin : une
+livraison `resolved` pose `ended_at_ms`, à condition que `endsAt` ne
+précède pas `startsAt`.
 `perf_sentinel_incidents_total{kind}` compte des incidents, pas des
 livraisons. Deux livraisons d'une même alerte nouvelle qui se font la
 course l'enregistrent une fois et l'archivent une fois.
@@ -1015,17 +1021,18 @@ consolidation. La clé du `POST` ou `[daemon] read_api_key`. Alimente
 l'onglet Incidents de `perf-sentinel query monitor` et la sous-commande
 `perf-sentinel query incidents`.
 
-**Paramètres de requête :** `service` (match exact), `offset` (défaut 0),
-`limit` (défaut 50, plafonné à 100, chaque incident portant jusqu'à 1000
-findings). Paginez avec `offset` pour atteindre les incidents plus
-anciens.
+**Paramètres de requête :** `service` et `namespace` (match exact),
+`offset` (défaut 0), `limit` (défaut 50, plafonné à 100, chaque incident
+portant jusqu'à 1000 findings). Paginez avec `offset` pour atteindre les
+incidents plus anciens.
 
 **Forme de la réponse :** tableau d'objets :
 
 | Champ               | Type   | Description                                                                                                     |
 |---------------------|--------|-------------------------------------------------------------------------------------------------------------------|
-| `id`                | string | 32 caractères hexadécimaux sur `service\|kind\|at_ms`                                                            |
+| `id`                | string | 32 caractères hexadécimaux sur `service\|kind\|at_ms`, puis `\|namespace` quand l'alerte en portait un           |
 | `service`           | string | Le service concerné                                                                                             |
+| `namespace`         | string | La valeur du `namespace_label` de l'alerte, absent quand l'alerte n'en portait pas                              |
 | `kind`              | string | L'un des cinq genres                                                                                            |
 | `at_ms`             | number | Début, en millisecondes epoch Unix                                                                              |
 | `ended_at_ms`       | number | Fin, absent tant que l'alerte est active                                                                        |

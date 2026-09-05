@@ -330,8 +330,9 @@ garde précisément hors du `/metrics` Prometheus.
   événements mémoire que votre alerting a postés au daemon (depuis
   0.20.0), du plus récent au plus ancien, chacun avec les findings figés
   de la fenêtre qui l'a précédé. Une ligne en gras par incident (début
-  en heure locale, service, genre, `firing` ou `ended`, nombre de
-  findings, et un marqueur de capture : `complete`, `partial` quand le
+  en heure locale, service en `ns/service` quand l'alerte portait un
+  namespace, genre, `firing` ou `ended`, nombre de findings, et un
+  marqueur de capture : `complete`, `partial` quand le
   ring avait déjà évincé une partie de la fenêtre et que la liste est
   donc en deçà de ce qui a brûlé, `empty ring`), le détail de l'alerte
   en dessous, puis une ligne indentée par finding avec son type, sa
@@ -347,7 +348,8 @@ garde précisément hors du `/metrics` Prometheus.
   trois ne bascule `[STALE]`, qui ne suit que le sondage du rapport, et
   un échec passager garde la dernière liste à l'écran. Le moniteur
   sonde les 20 incidents les plus récents, `perf-sentinel query
-  incidents --offset` pagine au-delà.
+  incidents --offset` pagine au-delà et `--namespace` restreint la liste
+  à un namespace.
 
   ![Onglet Incidents : un OOM kill de checkout-svc encore actif, sa fenêtre capturée complète, un finding qui brûlait avant le redémarrage](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/incidents.png)
 

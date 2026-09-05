@@ -275,20 +275,22 @@ un hint actionnable quand pertinent.
 
 ## Autres sous-commandes
 
-`perf-sentinel query incidents [--service <NOM>] [--offset N] [--limit N]
-[--format text|json] [--api-key-file <CHEMIN>]` liste les incidents que
-l'alerting a postés au daemon (0.20.0+, `[daemon.incidents]`), du plus
-récent au plus ancien : un bloc d'en-tête par incident (genre, service,
-début et fin en heure locale, la fenêtre, un marqueur de capture qui dit
-si le ring détenait encore toute la fenêtre, combien de findings n'ont
-brûlé qu'après le redémarrage, le détail de l'alerte et l'identifiant),
-puis ses findings dans la mise en page de `query findings`. `--limit`
-vaut 50 par défaut, le daemon le plafonne à 100, `--offset` pagine
-au-delà des plus récents. Un 401 (passez la clé), un 503
-(`[daemon.incidents] enabled = false`) et un 404 (daemon antérieur à
-0.20.0) sortent chacun en 1 avec leur cause nommée. `query monitor
---api-key-file <CHEMIN>` remet la même clé à l'onglet Incidents du
-moniteur, voir [`INSPECT-FR.md`](./INSPECT-FR.md).
+`perf-sentinel query incidents [--service <NOM>] [--namespace <NOM>]
+[--offset N] [--limit N] [--format text|json] [--api-key-file <CHEMIN>]`
+liste les incidents que l'alerting a postés au daemon (0.20.0+,
+`[daemon.incidents]`), du plus récent au plus ancien : un bloc d'en-tête
+par incident (genre, service en `ns/service` quand l'alerte portait un
+namespace, début et fin en heure locale, la fenêtre, un marqueur de
+capture qui dit si le ring détenait encore toute la fenêtre, combien de
+findings n'ont brûlé qu'après le redémarrage, le détail de l'alerte et
+l'identifiant), puis ses findings dans la mise en page de
+`query findings`. `--service` et `--namespace` restreignent la liste à
+une valeur chacun, `--limit` vaut 50 par défaut, le daemon le plafonne à
+100, `--offset` pagine au-delà des plus récents. Un 401 (passez la clé),
+un 503 (`[daemon.incidents] enabled = false`) et un 404 (daemon
+antérieur à 0.20.0) sortent chacun en 1 avec leur cause nommée.
+`query monitor --api-key-file <CHEMIN>` remet la même clé à l'onglet
+Incidents du moniteur, voir [`INSPECT-FR.md`](./INSPECT-FR.md).
 
 Pour l'instant, voir `perf-sentinel <subcommand> --help` pour la
 liste complète des options de `analyze`, `watch`, `query`, `report`,
