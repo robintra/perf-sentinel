@@ -1710,17 +1710,27 @@ fn push_incident_lines(lines: &mut Vec<Line<'static>>, inc: &IncidentSlim) {
 }
 
 /// `started · ns/service · kind · ended|firing`, the daemon strings
-/// sanitized and capped. The 24-cell cap applies to the qualified name,
-/// so a long `ns/service` loses the tail of the service.
+/// sanitized and capped. The two halves of the name are capped apart,
+/// within the same 24 cells: capping the joined form would let a long
+/// namespace eat the service, which is the name an operator reads first.
 fn incident_summary_row(inc: &IncidentSlim) -> String {
     let ended = inc.ended_at_ms.map_or_else(
         || "firing".to_string(),
         |e| format!("ended {}", fmt_local_time(e)),
     );
+    let name = inc.namespace.as_deref().map_or_else(
+        || truncate_cell(&inc.service, 24),
+        |ns| {
+            format!(
+                "{}/{}",
+                truncate_cell(ns, 11),
+                truncate_cell(&inc.service, 12)
+            )
+        },
+    );
     format!(
-        "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended}",
+        "{} \u{00b7} {name} \u{00b7} {} \u{00b7} {ended}",
         fmt_local_time(inc.at_ms),
-        truncate_cell(&inc.qualified_service(), 24),
         truncate_cell(&inc.kind, 17)
     )
 }
@@ -3014,6 +3024,16 @@ mod tests {
             .find(|l| l.contains("cart-svc \u{00b7} oom_kill"))
             .expect("incident summary row");
         assert!(row.contains("shop/cart-svc"), "{row}");
+        // A long namespace never costs the service its name: the two halves
+        // are capped apart, so both survive inside the same 24 cells.
+        let mut wide = incident();
+        wide.namespace = Some("platform-observability".to_string());
+        wide.service = "order-service".to_string();
+        let wide_row = incident_summary_row(&wide);
+        assert!(
+            wide_row.contains("platform-o\u{2026}/order-servi\u{2026}"),
+            "{wide_row}"
+        );
         assert!(row.contains("firing"), "{row}");
         // Started as a local calendar stamp, not epoch milliseconds.
         assert!(!row.contains("1700000400000"), "{row}");
