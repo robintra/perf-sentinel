@@ -35,9 +35,16 @@ surface produit de premier plan, avec un contrat de stabilité.
 | POST    | `/api/findings/{signature}/ack` | Acquitter un finding au runtime (depuis 0.5.20)                                   |
 | DELETE  | `/api/findings/{signature}/ack` | Révoquer un ack runtime                                                           |
 | GET     | `/api/acks`                     | Lister les acks runtime actifs                                                    |
+| POST    | `/api/incidents`                | Enregistrer un incident depuis un webhook Alertmanager et figer sa fenêtre (depuis 0.20.0) |
+| GET     | `/api/incidents`                | Lister les incidents enregistrés avec leurs findings figés (depuis 0.20.0)                 |
 
-Tous les endpoints retournent du `application/json`. Pas
-d'authentification intégrée. Le daemon écoute sur `127.0.0.1` par défaut
+Tous les endpoints retournent du `application/json`. Pas de couche
+d'identité, seulement trois secrets partagés optionnels : `[daemon.ack]
+api_key` et `[daemon.incidents] api_key` gardent leurs écritures et le
+`GET` qui les accompagne, et `[daemon] read_api_key` ouvre ces deux `GET`
+sans le pouvoir d'écrire, donc un dashboard ou le Hub ne détient jamais
+une clé capable d'acquitter ou de fabriquer un incident. Le daemon écoute
+sur `127.0.0.1` par défaut
 (voir `[daemon] listen_address` dans `docs/FR/CONFIGURATION-FR.md`), donc
 l'API n'est joignable que depuis l'hôte qui exécute le daemon, sauf si
 vous élargissez explicitement l'adresse de bind. Élargir vers une adresse
@@ -93,6 +100,7 @@ La règle appliquée par le proxy :
 |---------------------------------------------------------------------------------------------------------|------------------------------|------------------------------|
 | `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`   | tout utilisateur authentifié | sans objet                   |
 | `/api/acks`                                                                                             | groupe privilégié uniquement | sans objet                   |
+| `/api/incidents`                                                                                        | groupe privilégié uniquement | groupe privilégié uniquement |
 | `/api/findings/{signature}/ack`                                                                         | sans objet                   | groupe privilégié uniquement |
 | `/api/export/report`                                                                                    | groupe privilégié uniquement | sans objet                   |
 
@@ -105,8 +113,9 @@ pour le pendant côté CI (qui peut lancer `disclose --intent official`).
 `/api/acks` y figure car il expose la piste d'audit des acks (identités
 des relecteurs, raisons, signatures de findings). Il est aussi protégé
 par le daemon lui-même quand `[daemon.ack] api_key` est défini, donc un
-proxy en amont doit transmettre `X-API-Key` pour les utilisateurs
-authentifiés, sinon le daemon renvoie 401.
+proxy en amont doit transmettre un `X-API-Key` pour les utilisateurs
+authentifiés, la clé d'ack ou `[daemon] read_api_key`, sinon le daemon
+renvoie 401.
 
 ### oauth2-proxy + nginx
 
@@ -207,6 +216,10 @@ server {
 - **Gardez `[daemon.ack] api_key` défini** comme second facteur. Si
   quelqu'un atteint le port du daemon en direct, en contournant le proxy,
   il ne peut toujours pas écrire sans la clé.
+- **Donnez aux dashboards et au Hub `[daemon] read_api_key`**, jamais une
+  clé d'écriture. Une fuite de leur configuration permet alors de lister
+  les acks et les incidents, pas d'acquitter un finding ni de fabriquer un
+  incident.
 - **Le daemon fait confiance à `X-User-Id`** pour le champ d'audit `by`.
   Il est auto-déclaré, ce n'est pas un principal authentifié : sans proxy,
   n'importe quel appelant peut lui donner la valeur de son choix, traitez
@@ -275,9 +288,9 @@ La configuration `[daemon]` effective du daemon, en lecture seule
 (depuis 0.8.8). Alimente l'onglet Config de `perf-sentinel query
 monitor`. Construite en liste blanche explicite, jamais une
 sérialisation brute de la config interne, donc **aucun secret n'est
-exposé** : les chemins de cert/clé TLS et la clé d'API ack sont résumés
-en booléens (`tls_configured`, `ack_api_key_set`) et jamais renvoyés.
-Les valeurs sont figées au démarrage du daemon.
+exposé** : les chemins de cert/clé TLS et les clés d'API sont résumés
+en booléens (`tls_configured`, `ack_api_key_set`, `read_api_key_set`) et
+jamais renvoyés. Les valeurs sont figées au démarrage du daemon.
 
 **Paramètres de requête :** aucun.
 
@@ -288,8 +301,8 @@ Les valeurs sont figées au démarrage du daemon.
 `max_retained_findings`, `max_export_findings`,
 `max_retained_traces`, `memory_high_water_pct`, `ingest_queue_capacity`,
 `analysis_queue_capacity`, `per_service_labels`, `per_grouping_labels`, `api_enabled`), les sous-systèmes résumés
-(`tls_configured`, `ack_enabled`, `ack_api_key_set`,
-`cors_allowed_origins`, `archive_configured`) et le bloc de corrélation
+(`tls_configured`, `ack_enabled`, `ack_api_key_set`, `read_api_key_set`,
+`incidents_enabled`, `cors_allowed_origins`, `archive_configured`) et le bloc de corrélation
 (`correlation_enabled`, `correlation_window_ms`,
 `correlation_lag_threshold_ms`, `correlation_min_co_occurrences`,
 `correlation_min_confidence`, `correlation_max_tracked_pairs`).
@@ -312,6 +325,8 @@ curl -sS http://127.0.0.1:4318/api/config
   "tls_configured": false,
   "ack_enabled": true,
   "ack_api_key_set": false,
+  "read_api_key_set": false,
+  "incidents_enabled": false,
   "cors_allowed_origins": [],
   "archive_configured": false,
   "correlation_enabled": false,
@@ -791,7 +806,8 @@ s'accumuler à l'infini.
 - `X-User-Id: <identifiant>` (optionnel, alimente le champ d'audit
   `by` avec priorité sur le body JSON, fallback sur `"anonymous"`).
 - `X-API-Key: <secret>` (requis uniquement quand `[daemon.ack] api_key`
-  est défini dans la config daemon, comparaison constant-time).
+  est défini dans la config daemon, comparaison constant-time, `[daemon]
+  read_api_key` est refusée ici).
 
 **Body (tous champs optionnels) :**
 
@@ -851,9 +867,10 @@ fichier `.perf-sentinel-acknowledgments.toml` pour être supprimés.
 ### GET /api/acks
 
 Retourne le tableau des acks runtime actifs (post-replay, post-filtre
-d'expiration). Lecture seule, mais protégée par la même clé que les
-écritures d'acks : quand `[daemon.ack] api_key` est défini, cet endpoint
-exige un en-tête `X-API-Key` correspondant et renvoie `401` sans lui. La
+d'expiration). Lecture seule, mais protégée dès que les écritures d'acks
+le sont : quand `[daemon.ack] api_key` est défini, cet endpoint exige un
+en-tête `X-API-Key` correspondant, la clé d'ack ou, depuis 0.20.0,
+`[daemon] read_api_key`, et renvoie `401` sans lui. La
 piste d'audit des acks expose les identités des relecteurs, les raisons
 et les signatures de findings, donc la clé configurée gouverne aussi les
 lectures, pas seulement les `POST`/`DELETE`.
@@ -910,7 +927,9 @@ receivers:
 ```
 
 L'authentification est l'en-tête `X-API-Key`, obligatoire, comparé en
-temps constant. `POST` et `GET` partagent la clé. `http_headers` exige
+temps constant. La clé d'écriture satisfait les deux verbes, `[daemon]
+read_api_key` satisfait le `GET` seul, donc Grafana et le Hub ne
+détiennent jamais la clé qui peut faire un `POST`. `http_headers` exige
 Alertmanager 0.27 ou plus récent, un plus ancien passe par un proxy qui
 pose l'en-tête.
 
@@ -992,7 +1011,7 @@ course l'enregistrent une fois et l'archivent une fois.
 
 Les incidents enregistrés, du plus récent au plus ancien, chacun avec ses
 findings, figés à la réception et fusionnés une fois par la passe de
-consolidation. Même clé que le `POST`.
+consolidation. La clé du `POST` ou `[daemon] read_api_key`.
 
 **Paramètres de requête :** `service` (match exact), `offset` (défaut 0),
 `limit` (défaut 50, plafonné à 100, chaque incident portant jusqu'à 1000

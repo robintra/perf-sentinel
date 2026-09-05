@@ -33,9 +33,16 @@ first-class product surface with a stability contract.
 | POST   | `/api/findings/{signature}/ack` | Acknowledge a finding at runtime (since 0.5.20)                                   |
 | DELETE | `/api/findings/{signature}/ack` | Revoke a runtime ack                                                              |
 | GET    | `/api/acks`                     | List active runtime acks                                                          |
+| POST   | `/api/incidents`                | Record an incident from an Alertmanager webhook and freeze its window (since 0.20.0) |
+| GET    | `/api/incidents`                | List the recorded incidents with their frozen findings (since 0.20.0)                |
 
-All endpoints return `application/json`. No built-in authentication. The
-daemon listens on `127.0.0.1` by default (see `[daemon] listen_address`
+All endpoints return `application/json`. There is no identity layer, only
+three optional shared secrets: `[daemon.ack] api_key` and
+`[daemon.incidents] api_key` gate their writes and the `GET` beside them,
+and `[daemon] read_api_key` opens those two `GET`s without the power to
+write, so a dashboard or the Hub never holds a key that can ack or
+fabricate an incident. The daemon listens on `127.0.0.1` by default (see
+`[daemon] listen_address`
 in `docs/CONFIGURATION.md`), so the API is reachable only from the host
 running the daemon unless you explicitly widen the bind address. Widening
 it to a non-loopback address logs a startup advisory (the endpoints have
@@ -101,7 +108,8 @@ for the CI-side counterpart (who may run `disclose --intent official`).
 `/api/acks` sits there because it exposes the ack audit trail (reviewer
 identities, reasons, finding signatures). It is also gated by the daemon
 itself when `[daemon.ack] api_key` is set, so a proxy in front must
-forward `X-API-Key` for authenticated users, or the daemon returns 401.
+forward an `X-API-Key` for authenticated users, the ack key or `[daemon]
+read_api_key`, or the daemon returns 401.
 
 ### oauth2-proxy + nginx
 
@@ -200,6 +208,9 @@ server {
 - **Keep `[daemon.ack] api_key` set** as a second factor. If someone
   reaches the daemon port directly, bypassing the proxy, they still
   cannot write without the key.
+- **Give dashboards and the Hub `[daemon] read_api_key`**, never a write
+  key. A leak of their configuration can then list acks and incidents,
+  not ack a finding or fabricate an incident.
 - **The daemon trusts `X-User-Id`** for the audit `by` field. It is
   self-attested, not an authenticated principal: without a proxy, any
   caller can set it to any value, so treat `by` as an advisory label
@@ -265,9 +276,10 @@ curl -sS http://127.0.0.1:4318/api/status
 The daemon's effective `[daemon]` configuration, read-only (since
 0.8.8). Backs the Config tab of `perf-sentinel query monitor`. Built as
 an explicit allowlist, never a blanket serialization of the internal
-config, so **no secret is exposed**: TLS cert/key paths and the ack API
-key are summarized to booleans (`tls_configured`, `ack_api_key_set`)
-and never echoed. The values are frozen at daemon startup.
+config, so **no secret is exposed**: TLS cert/key paths and the API keys
+are summarized to booleans (`tls_configured`, `ack_api_key_set`,
+`read_api_key_set`) and never echoed. The values are frozen at daemon
+startup.
 
 **Query parameters:** none.
 
@@ -278,8 +290,8 @@ and never echoed. The values are frozen at daemon startup.
 `max_retained_findings`, `max_export_findings`,
 `max_retained_traces`, `memory_high_water_pct`, `ingest_queue_capacity`,
 `analysis_queue_capacity`, `per_service_labels`, `per_grouping_labels`, `api_enabled`), the summarized sub-systems
-(`tls_configured`, `ack_enabled`, `ack_api_key_set`,
-`cors_allowed_origins`, `archive_configured`), and the correlation
+(`tls_configured`, `ack_enabled`, `ack_api_key_set`, `read_api_key_set`,
+`incidents_enabled`, `cors_allowed_origins`, `archive_configured`), and the correlation
 block (`correlation_enabled`, `correlation_window_ms`,
 `correlation_lag_threshold_ms`, `correlation_min_co_occurrences`,
 `correlation_min_confidence`, `correlation_max_tracked_pairs`).
@@ -302,6 +314,8 @@ curl -sS http://127.0.0.1:4318/api/config
   "tls_configured": false,
   "ack_enabled": true,
   "ack_api_key_set": false,
+  "read_api_key_set": false,
+  "incidents_enabled": false,
   "cors_allowed_origins": [],
   "archive_configured": false,
   "correlation_enabled": false,
@@ -770,7 +784,8 @@ forever.
 - `X-User-Id: <identifier>` (optional, populates the audit `by` field
   with priority over the JSON body, falling back to `"anonymous"`).
 - `X-API-Key: <secret>` (required only when `[daemon.ack] api_key` is
-  set in the daemon config, constant-time compared).
+  set in the daemon config, constant-time compared, `[daemon]
+  read_api_key` is refused here).
 
 **Body (all fields optional):**
 
@@ -829,9 +844,10 @@ read-only at runtime and require a PR against the
 ### GET /api/acks
 
 Returns the array of active runtime acks (post-replay, post-expiry
-filter). Read-only, but gated by the same key as the ack writes: when
+filter). Read-only, but gated when the ack writes are: when
 `[daemon.ack] api_key` is set, this endpoint requires a matching
-`X-API-Key` header and returns `401` without it. The ack audit trail
+`X-API-Key` header, the ack key or, since 0.20.0, `[daemon]
+read_api_key`, and returns `401` without it. The ack audit trail
 exposes reviewer identities, reasons, and finding signatures, so the
 configured key governs reads too, not only `POST`/`DELETE`.
 
@@ -885,7 +901,9 @@ receivers:
 ```
 
 Authentication is the `X-API-Key` header, required, compared in constant
-time. `POST` and `GET` share the key. `http_headers` needs Alertmanager
+time. The write key satisfies both verbs, `[daemon] read_api_key`
+satisfies the `GET` alone, so Grafana and the Hub never hold the key
+that can `POST`. `http_headers` needs Alertmanager
 0.27 or later, an older one goes through a proxy that sets the header.
 
 Two labels are read, both configurable:
@@ -960,7 +978,8 @@ once and archive it once.
 ### GET /api/incidents
 
 The recorded incidents, newest first, each with its findings, frozen
-at reception and merged once by the settle pass. Same key as the `POST`.
+at reception and merged once by the settle pass. The `POST` key or
+`[daemon] read_api_key`.
 
 **Query parameters:** `service` (exact match), `offset` (default 0),
 `limit` (default 50, capped at 100, each incident carrying up to 1000

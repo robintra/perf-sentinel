@@ -604,7 +604,9 @@ extraEnvFrom:
 Secret-backed config values follow one pattern: the Secret goes into the
 pod env, and a dedicated environment variable overrides the matching config
 field when set (`PERF_SENTINEL_EMAPS_TOKEN` for Electricity Maps,
-`PERF_SENTINEL_ACK_API_KEY` for the ack key, and the scraper auth headers).
+`PERF_SENTINEL_ACK_API_KEY`, `PERF_SENTINEL_INCIDENTS_API_KEY` and
+`PERF_SENTINEL_READ_API_KEY` for the three daemon keys, and the scraper
+auth headers).
 See the "Environment variables" section of `docs/CONFIGURATION.md`.
 
 ### Calibration files and TLS certs
@@ -667,6 +669,13 @@ The `PERF_SENTINEL_ACK_API_KEY` env var overrides the config `[daemon.ack]
 api_key`, so the key comes from the Secret, never the ConfigMap; a Secret
 mounted empty is rejected at config load. The key also gates `GET /api/acks`
 (the audit trail), not only the writes. The 16+ character floor still applies.
+
+*Readers that must never write (Grafana, the Hub).* Give them `[daemon]
+read_api_key` through its own Secret, `PERF_SENTINEL_READ_API_KEY` in the
+same `extraEnvFrom` list. It opens `GET /api/acks` and `GET /api/incidents`
+and nothing else, and the daemon refuses a read key equal to a write key at
+startup, so a leaked dashboard configuration cannot ack a finding or
+fabricate an incident.
 
 **Runtime acks need a PVC to exist at all.** Without one the default
 storage path cannot be resolved inside the scratch image and the ack
