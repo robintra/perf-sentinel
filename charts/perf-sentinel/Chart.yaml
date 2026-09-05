@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.19.0
-appVersion: "0.19.0"
+version: 0.20.0
+appVersion: "0.20.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,12 +37,12 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: changed
-      description: "appVersion 0.19.0. perf_sentinel_findings_total, perf_sentinel_slow_duration_seconds and the three per-service I/O counters gain a grouping label next to service, holding the analysed traffic's namespace by default, so a query that matches any of them without aggregating now returns one series per (service, grouping) pair. Wrap it in sum() or sum by (service) to keep the 0.18.0 shape, or set per_grouping_labels = false in the daemon config. The chart itself is unchanged, and its PrometheusRule matches none of the five metrics, so no shipped alert changes."
+      description: "appVersion 0.20.0. The daemon it ships accepts Alertmanager webhooks on POST /api/incidents behind the opt-in [daemon.incidents] section, freezes the findings of the window before a restart or a memory event, and lists them on GET /api/incidents. A new [daemon] read_api_key opens GET /api/acks and GET /api/incidents without the power to write, the key to give Grafana and the Hub, and the environment overrides now apply without a mounted config too. The values.yaml TOML gains commented guidance for both, and its ingress comment no longer claims the shared key leaves every read open. No values.yaml key is added or removed, no template changes, no shipped alert changes."
     - kind: added
-      description: "The daemon config takes per_grouping_labels, default true, the grouping twin of per_service_labels, and exposes three counters that report how many attributions folded into grouping=\"_other\" at the per-run caps on admitted (service, grouping) pairs. No alert ships on any of them, and no values.yaml key is added or removed."
+      description: "Four metrics: perf_sentinel_incidents_total by kind, perf_sentinel_incidents_rejected_total by reason, perf_sentinel_incidents_archive_failed_total, and perf_sentinel_service_last_span_timestamp_seconds per service, the Unix stamp of the last span admitted so time() minus the gauge is an age that survives a daemon restart. The overview dashboard grows to 30 panels and the findings dashboard on the query API gains two incident tables behind a datasource carrying the read key. Three keys come from Secrets through extraEnvFrom, PERF_SENTINEL_ACK_API_KEY, PERF_SENTINEL_INCIDENTS_API_KEY and PERF_SENTINEL_READ_API_KEY, and an enabled [daemon.incidents] without its key stops the daemon at startup, so create the Secret first."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.19.0
+      image: ghcr.io/robintra/perf-sentinel:0.20.0
       platforms:
         - linux/amd64
         - linux/arm64

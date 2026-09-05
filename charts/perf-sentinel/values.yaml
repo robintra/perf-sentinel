@@ -193,9 +193,10 @@ service:
 #   annotations:
 #     nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy/oauth2/auth"
 #     nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy/oauth2/start?rd=$escaped_request_uri"
-# Only the SSO path gives a per-person audit `by` on acknowledgments; the
-# shared-key option (PERF_SENTINEL_ACK_API_KEY) gates ack writes alone and
-# leaves every read open.
+# Only the SSO path gives a per-person audit `by` on acknowledgments. The
+# shared-key option (PERF_SENTINEL_ACK_API_KEY) gates ack writes and the acks
+# listing, and since 0.20.0 [daemon] read_api_key opens that listing and
+# GET /api/incidents without the power to write. Every other read stays open.
 # Terminate TLS at the controller: the daemon speaks plaintext HTTP unless
 # you configure [daemon.tls], and the chart does not wire certificates here.
 ingress:
@@ -366,6 +367,17 @@ config:
     #   - coarse shared key: create a Secret whose PERF_SENTINEL_ACK_API_KEY
     #     entry is your key and expose it via extraEnvFrom (it overrides the
     #     config api_key). See docs/HELM-DEPLOYMENT.md.
+    #   - readers that must never write (Grafana, the Hub): a second Secret
+    #     entry, PERF_SENTINEL_READ_API_KEY, sets [daemon] read_api_key, which
+    #     opens GET /api/acks and GET /api/incidents alone and is refused when
+    #     equal to a write key.
+    # To have your alerting record incidents with the findings of the window
+    # before them frozen on the spot, add a [daemon.incidents] table with
+    # enabled = true at the end of this file and its write key through a
+    # Secret entry named PERF_SENTINEL_INCIDENTS_API_KEY. An enabled table
+    # without its key stops the daemon at startup, so create the Secret first,
+    # and put archive_path on the PVC so the record outlives a restart. See
+    # docs/QUERY-API.md and docs/CONFIGURATION.md.
     # Reject OTLP ingest when cgroup v2 memory crosses this percent of the
     # container limit, bounding RSS against OOM. 0 disables (default), 6 is the
     # minimum non-zero value (5-point hysteresis band). Set
