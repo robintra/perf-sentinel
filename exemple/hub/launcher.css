@@ -410,6 +410,18 @@ button {
     white-space: nowrap;
 }
 
+/* An incident's kind. The kill takes the crit flat and the saturation the warn
+   one; a restart or a deploy is a choice somebody made, and stays neutral. */
+.chip[data-kind="oom_kill"] {
+    background: var(--crit-bg);
+    color: var(--crit-fg);
+}
+
+.chip[data-kind="memory_saturation"] {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+}
+
 /* Declared, not measured. The dashed outline is the design's device for a
    claim the Hub cannot verify, and it belongs wherever such a value appears. */
 .chip-declared {
@@ -1756,6 +1768,12 @@ body[data-screen="report"] .shell-footer {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 61px);
+}
+
+.refresh .pill-button {
+    height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
 }
 
 .report-bar .pill-button {

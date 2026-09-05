@@ -243,12 +243,27 @@
     }
 
     /**
+     * The first segment where two versions differ, and by how much.
+     *
+     * `vcmp` decides the direction on all three segments, so the label has to
+     * name the segment it decided on. Reading the minor alone worded a patch
+     * gap as "0 minor behind" and a major gap in minors.
+     *
      * @param {string | null | undefined} a
      * @param {string | null | undefined} b
-     * @returns {number}
+     * @returns {{count: number, unit: string}}
      */
-    function minorGap(a, b) {
-        return Math.abs((vparts(b)[1] ?? 0) - (vparts(a)[1] ?? 0));
+    function versionGap(a, b) {
+        const units = ["major", "minor", "patch"];
+        const pa = vparts(a);
+        const pb = vparts(b);
+        for (let i = 0; i < units.length; i++) {
+            const d = Math.abs((pb[i] ?? 0) - (pa[i] ?? 0));
+            if (d !== 0) return { count: d, unit: units[i] };
+        }
+        // `vcmp` reads the same three segments, so a caller that already
+        // ruled out equality never lands here.
+        return { count: 0, unit: "patch" };
     }
 
     /**
@@ -268,18 +283,18 @@
         if (!producer || !ENGINE) return null;
         const c = vcmp(producer, ENGINE);
         if (c === 0) return null;
-        const g = minorGap(producer, ENGINE);
+        const g = versionGap(producer, ENGINE);
         return c < 0
             ? {
                 dir: "behind",
-                label: g + " minor behind",
+                label: g.count + " " + g.unit + " behind",
                 fg: "var(--warn-fg)",
                 bg: "var(--warn-bg)",
                 bd: "var(--warn-bd)"
             }
             : {
                 dir: "ahead",
-                label: g + " minor ahead",
+                label: g.count + " " + g.unit + " ahead",
                 fg: "var(--info-fg)",
                 bg: "var(--info-bg)",
                 bd: "var(--info-bd)"
@@ -798,6 +813,112 @@
         });
     }
 
+    /**
+     * The daemon's closed set of incident kinds, as the incidents screen labels
+     * them. Anything else was already folded to `other` by the Hub's parser.
+     * @type {Record<string, string>}
+     */
+    const INCIDENT_KIND_LABEL = {
+        oom_kill: "OOM kill",
+        memory_saturation: "memory saturation",
+        restart: "restart",
+        deploy: "deploy",
+        other: "other"
+    };
+
+    /**
+     * The daemon's own reading of `oldest_finding_ms`: at or below the window's
+     * start the ring still reached the whole window, above it part of the window
+     * had already been evicted when the incident was frozen, and absent means the
+     * ring was empty. The Hub publishes the same verdict as `capture`, this is the
+     * page's copy of the rule for a row it has not asked the Hub about.
+     * @param {{oldest_finding_ms?: number | null, window_from_ms: number}} incident
+     * @returns {"complete" | "partial" | "empty"}
+     */
+    function incidentCapture(incident) {
+        if (incident.oldest_finding_ms == null) return "empty";
+        return incident.oldest_finding_ms <= incident.window_from_ms ? "complete" : "partial";
+    }
+
+    /**
+     * Whether a frozen finding was already burning before the incident or fired
+     * only after it. A finding is stamped when its trace is analysed, one TTL
+     * after its last span, so a stamp past `at_ms` belongs to the replacement.
+     * @param {{first_seen_ms: number}} finding
+     * @param {{at_ms: number}} incident
+     * @returns {"before" | "after"}
+     */
+    function findingPhase(finding, incident) {
+        return finding.first_seen_ms > incident.at_ms ? "after" : "before";
+    }
+
+    /**
+     * What the last incidents read of one daemon came to, in the words the
+     * incidents screen uses under its table. `ok` says nothing beyond the age,
+     * which is already there.
+     * @type {Record<string, string>}
+     */
+    const INCIDENT_READ_STATE = {
+        absent: "it publishes no incidents route",
+        unauthorized: "it refused the Hub's key",
+        error: "the read failed"
+    };
+
+    /**
+     * How fresh the Hub's copy of one daemon's incidents is. The screen lists
+     * one of these per daemon, so a quiet fleet reads differently from a stale
+     * copy: an hour-old read of nothing is not the same answer as no read.
+     * @param {{name: string, incidents_read_ms?: number | null, incidents_state?: string | null}} source
+     * @param {number} nowMs
+     * @returns {string}
+     */
+    function incidentsCopy(source, nowMs) {
+        if (source.incidents_read_ms == null) return source.name + ": never read";
+        const age = source.name + ": read " + dur(Math.max(0, nowMs - source.incidents_read_ms)) + " ago";
+        const state = INCIDENT_READ_STATE[source.incidents_state || ""];
+        return state ? age + ", " + state : age;
+    }
+
+    /**
+     * The route that opens New analysis on an incident's window. The end is held
+     * at now: an incident younger than two TTLs still has a `window_to_ms` in the
+     * future, and the Hub refuses a window that ends there.
+     * @param {{id: string, service: string, window_from_ms: number, window_to_ms: number}} incident
+     * @param {number} nowMs
+     * @returns {string}
+     */
+    function incidentHandoffHash(incident, nowMs) {
+        return "#/new?from=" + incident.window_from_ms
+            + "&to=" + Math.min(incident.window_to_ms, nowMs)
+            + "&service=" + encodeURIComponent(incident.service)
+            + "&incident=" + encodeURIComponent(incident.id);
+    }
+
+    /**
+     * What a `#/new?from=…&to=…&service=…` hash carries for the form, or null
+     * when it carries nothing the form can take: both bounds numbers with the
+     * start before the end, a service name, and the end no later than now, held
+     * there rather than refused since a shared link ages. Any other route, and
+     * the bare `#/new` the tab points at, read as null.
+     * @param {string | null | undefined} hash
+     * @param {number} nowMs
+     * @returns {{fromMs: number, toMs: number, service: string, incidentId: string} | null}
+     */
+    function readHandoff(hash, nowMs) {
+        const text = String(hash || "");
+        if (text.indexOf("#/new?") !== 0) return null;
+        const params = new URLSearchParams(text.slice("#/new?".length));
+        const number = function (key) {
+            const raw = params.get(key);
+            return raw === null || raw.trim() === "" ? NaN : Number(raw);
+        };
+        const fromMs = number("from");
+        const toMs = Math.min(number("to"), nowMs);
+        const service = (params.get("service") || "").trim();
+        if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs || service === "") return null;
+        return {fromMs: fromMs, toMs: toMs, service: service, incidentId: params.get("incident") || ""};
+    }
+
     global.PSL = {
         setVersions,
         get ENGINE() {
@@ -808,11 +929,13 @@
         },
         ERRORS, READ_ERRORS, ERROR_TITLES, KIND_LABEL,
         dur, durPrecise, durMinutes, durParts, splitByKind, clock, parseDur, humanDur, dtLocal, dtHuman, bytes,
-        vparts, vcmp, minorGap, skew, detector, statusKey, argsLine, weightBand,
+        vparts, vcmp, versionGap, skew, detector, statusKey, argsLine, weightBand,
         shq, psq, SHELLS, shellById, defaultShell, exportLine,
         analysisCommand, monitorCommand, detectionToml, quotedForShell,
         lightState, mergeableView, mergeLight, refreshPlan, releaseUrl, openFolds,
         hubReleaseUrl, updateState, knownShell, CHART_PAGE, CHART_COORDINATE,
-        gaugeTone, gaugeMove
+        gaugeTone, gaugeMove,
+        INCIDENT_KIND_LABEL, incidentCapture, findingPhase, INCIDENT_READ_STATE, incidentsCopy,
+        incidentHandoffHash, readHandoff
     };
 })(globalThis);
