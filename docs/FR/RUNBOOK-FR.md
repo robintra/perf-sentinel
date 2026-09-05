@@ -8,6 +8,7 @@ Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-
 
 - [Aide-mémoire diagnostic](#aide-mémoire-diagnostic) : commandes à lancer en premier
 - [Analyser une trace plus ancienne que la fenêtre live](#analyser-une-trace-plus-ancienne-que-la-fenêtre-live) : workflow post-mortem
+- [Ce qui brûlait quand un service est tombé](#ce-qui-brûlait-quand-un-service-est-tombé) : les findings de la fenêtre d'un incident
 - [Daemon en cours mais inaccessible depuis les clients](#daemon-en-cours-mais-inaccessible-depuis-les-clients)
 - [Aucune trace ingérée](#aucune-trace-ingérée)
 - [Chute soudaine du volume d'ingestion](#chute-soudaine-du-volume-dingestion)
@@ -92,9 +93,21 @@ Si le ratio est proche de 1 en trafic normal, les findings sont évincés en que
 
 ```bash
 # Findings d'une fenêtre donnée, directement depuis l'archive
-jq -c 'select(.ts >= "2026-07-27T14:00:00Z" and .ts < "2026-07-27T15:00:00Z") | .report.findings[]' \
+jq -c --arg from 2026-07-27T14:00:00Z --arg to 2026-07-27T15:00:00Z \
+  'select((.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) as $ts
+          | $ts >= ($from | fromdateiso8601) and $ts < ($to | fromdateiso8601))
+   | .report.findings[]' \
   /var/lib/perf-sentinel/archive/*.ndjson
 ```
+
+Comparez des epochs, jamais les chaînes. `ts` est sérialisé avec autant
+de décimales qu'il en faut, et `"2026-07-27T14:00:00.123Z"` trie *en
+dessous* de `"2026-07-27T14:00:00Z"` parce que `.` précède `Z`. Une
+comparaison de chaînes écarte donc les fenêtres de la première seconde
+de la plage et ramasse celles de la première seconde d'après, décalant
+la réponse d'une seconde aux deux bouts sans le dire.
+`fromdateiso8601` exige que la fraction soit retirée d'abord, il ne
+parse que `%Y-%m-%dT%H:%M:%SZ`.
 
 L'archivage est **désactivé par défaut** (`archive` non défini). S'il n'a jamais été configuré, rien n'a été écrit et le rejeu Tempo est la seule voie restante.
 
@@ -177,6 +190,46 @@ max_retained_findings = 50000
 ```
 
 ---
+
+## Ce qui brûlait quand un service est tombé
+
+**Pourquoi vous en avez besoin.** Un service a été tué par l'OOM ou a redémarré à
+14h03, et la question est ce que perf-sentinel rapportait déjà à son sujet.
+perf-sentinel ne détecte pas le crash : il n'a aucun signal mémoire sur un service
+observé, et un service qui sature continue en général d'émettre des spans, plus
+lentement. Votre alerting possède le moment. perf-sentinel possède la fenêtre.
+
+Bornez le listing aux deux bouts. Deux bornes, c'est une requête de fenêtre, donc
+`seen_count` et `first_seen_ms` décrivent la fenêtre plutôt que l'historique
+retenu entier, ce qu'un post-mortem veut.
+
+```bash
+FROM=$(( $(date -u -d '2026-07-27T13:58:00Z' +%s) * 1000 ))   # BSD/macOS : date -j -f
+TO=$((   $(date -u -d '2026-07-27T14:03:00Z' +%s) * 1000 ))
+curl -sf "http://perf-sentinel:4318/api/findings?service=cart-svc&since_ms=$FROM&until_ms=$TO" \
+  | jq -c '.[] | {type: .finding.type, severity: .finding.severity, seen: .seen_count,
+                  template: .finding.pattern.template}'
+```
+
+**Une réponse vide a deux causes, et ce ne sont pas les mêmes.** Vérifiez que le
+ring remonte assez loin avant de conclure que rien ne brûlait :
+
+```bash
+curl -sf http://perf-sentinel:4318/api/status | jq '.oldest_finding_ms'
+```
+
+Si cette valeur est supérieure à la borne basse de votre fenêtre, le ring a déjà
+évincé la fenêtre et la réponse est "inconnu", pas "propre". La recette d'archive
+de la section précédente est alors la voie, et si l'archivage n'a jamais été
+configuré la fenêtre est perdue.
+
+**Détecter le moment sans alerte externe.** Le daemon ne juge pas si un service
+est vivant, mais il publie quand il en a entendu parler pour la dernière fois.
+`increase(perf_sentinel_service_io_ops_total{service="cart-svc"}[10m]) == 0` dit
+que perf-sentinel ne reçoit plus de spans. À lire comme un signal de trafic, pas
+de vie : un crash, une mise à l'échelle à zéro, un déploiement progressif et un
+cron silencieux se ressemblent tous, donc toute alerte dessus a besoin d'un `for:`
+plus long que l'inactivité normale de ce service.
 
 ## Daemon en cours mais inaccessible depuis les clients
 

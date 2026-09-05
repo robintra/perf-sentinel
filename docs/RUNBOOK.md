@@ -8,6 +8,7 @@ If you are setting up perf-sentinel for the first time, see [INTEGRATION.md](INT
 
 - [Diagnostic cheat sheet](#diagnostic-cheat-sheet): commands to run first in any incident
 - [Analyzing a trace older than the live window](#analyzing-a-trace-older-than-the-live-window): post-mortem workflow
+- [What was firing when a service crashed](#what-was-firing-when-a-service-crashed): the findings of an incident's window
 - [Daemon running but not reachable from clients](#daemon-running-but-not-reachable-from-clients)
 - [No traces ingested](#no-traces-ingested)
 - [Sudden drop in ingestion volume](#sudden-drop-in-ingestion-volume)
@@ -92,9 +93,20 @@ If the ratio sits near 1 during normal traffic, findings are being evicted withi
 
 ```bash
 # Findings from a given window, straight out of the archive
-jq -c 'select(.ts >= "2026-07-27T14:00:00Z" and .ts < "2026-07-27T15:00:00Z") | .report.findings[]' \
+jq -c --arg from 2026-07-27T14:00:00Z --arg to 2026-07-27T15:00:00Z \
+  'select((.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) as $ts
+          | $ts >= ($from | fromdateiso8601) and $ts < ($to | fromdateiso8601))
+   | .report.findings[]' \
   /var/lib/perf-sentinel/archive/*.ndjson
 ```
+
+Compare epochs, never the strings. `ts` is serialized with as many
+fractional digits as it needs, and `"2026-07-27T14:00:00.123Z"` sorts
+*below* `"2026-07-27T14:00:00Z"` because `.` precedes `Z`. A string
+comparison therefore drops the windows in the first second of the range
+and picks up the ones in the first second after it, shifting the answer
+by up to a second at both ends without saying so. `fromdateiso8601`
+needs the fraction stripped first, it parses `%Y-%m-%dT%H:%M:%SZ` only.
 
 Archiving is **off by default** (`archive` is unset). If it was never configured, nothing was written and Tempo replay is the only route left.
 
@@ -177,6 +189,46 @@ max_retained_findings = 50000
 ```
 
 ---
+
+## What was firing when a service crashed
+
+**Why you need this.** A service was OOM-killed or restarted at 14:03 and the
+question is what perf-sentinel was already reporting about it. perf-sentinel does
+not detect the crash: it has no memory signal for an observed service, and a
+service that saturates usually keeps emitting spans, more slowly. Your alerting
+owns the moment. perf-sentinel owns the window.
+
+Bound the listing at both ends. Two bounds is a window query, so `seen_count`
+and `first_seen_ms` describe the window rather than the whole retained history,
+which is what a post-mortem wants.
+
+```bash
+FROM=$(( $(date -u -d '2026-07-27T13:58:00Z' +%s) * 1000 ))   # BSD/macOS: date -j -f
+TO=$((   $(date -u -d '2026-07-27T14:03:00Z' +%s) * 1000 ))
+curl -sf "http://perf-sentinel:4318/api/findings?service=cart-svc&since_ms=$FROM&until_ms=$TO" \
+  | jq -c '.[] | {type: .finding.type, severity: .finding.severity, seen: .seen_count,
+                  template: .finding.pattern.template}'
+```
+
+**An empty answer has two causes, and they are not the same.** Check the ring
+reaches back that far before concluding nothing was firing:
+
+```bash
+curl -sf http://perf-sentinel:4318/api/status | jq '.oldest_finding_ms'
+```
+
+If that value is greater than your window's lower bound, the ring has already
+evicted the window and the answer is "unknown", not "clean". The archive recipe
+in the previous section is then the route, and if archiving was never configured
+the window is gone.
+
+**Detecting the moment without an external alert.** The daemon does not judge
+whether a service is alive, but it publishes when it last heard from each one.
+`increase(perf_sentinel_service_io_ops_total{service="cart-svc"}[10m]) == 0` says
+perf-sentinel stopped receiving spans. Read it as a traffic signal, not a
+liveness one: a crash, a scale to zero, a rolling deploy and a quiet cron all
+look the same, so any alert on it needs a `for:` longer than that service's
+normal idle gap.
 
 ## Daemon running but not reachable from clients
 

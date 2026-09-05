@@ -221,16 +221,17 @@ cheapest way to verify the daemon is up.
 
 **Response shape:**
 
-| Field                     | Type   | Description                                                |
-|---------------------------|--------|------------------------------------------------------------|
-| `version`                 | string | Daemon binary version (Cargo package version)              |
-| `uptime_seconds`          | number | Seconds since the daemon process started                   |
-| `active_traces`           | number | Traces currently held in the correlation window            |
-| `max_active_traces`       | number | Configured cap of the correlation window (since 0.8.8)     |
-| `analysis_queue_depth`    | number | Batches waiting in the analysis worker queue (since 0.8.8) |
-| `analysis_queue_capacity` | number | Configured cap of that queue (since 0.8.8)                 |
-| `stored_findings`         | number | Findings currently retained in the query ring buffer       |
-| `max_retained_findings`   | number | Configured cap of that ring buffer (since 0.8.8)           |
+| Field                     | Type   | Description                                                                                 |
+|---------------------------|--------|---------------------------------------------------------------------------------------------|
+| `version`                 | string | Daemon binary version (Cargo package version)                                               |
+| `uptime_seconds`          | number | Seconds since the daemon process started                                                    |
+| `active_traces`           | number | Traces currently held in the correlation window                                             |
+| `max_active_traces`       | number | Configured cap of the correlation window (since 0.8.8)                                      |
+| `analysis_queue_depth`    | number | Batches waiting in the analysis worker queue (since 0.8.8)                                  |
+| `analysis_queue_capacity` | number | Configured cap of that queue (since 0.8.8)                                                  |
+| `stored_findings`         | number | Findings currently retained in the query ring buffer                                        |
+| `max_retained_findings`   | number | Configured cap of that ring buffer (since 0.8.8)                                            |
+| `oldest_finding_ms`       | number | Detection time of the oldest retained finding, absent when the ring is empty (since 0.20.0) |
 
 The three gauge/capacity pairs back the Headroom chart of
 `perf-sentinel query monitor`'s Trends tab: each pair reads as "how
@@ -253,7 +254,8 @@ curl -sS http://127.0.0.1:4318/api/status
   "analysis_queue_depth": 0,
   "analysis_queue_capacity": 1024,
   "stored_findings": 5,
-  "max_retained_findings": 10000
+  "max_retained_findings": 10000,
+  "oldest_finding_ms": 1757000400000
 }
 ```
 
@@ -397,6 +399,7 @@ cannot consume the page.
 | `type`          | string  | none    | Exact match on `finding.type` in snake_case (e.g. `n_plus_one_sql`, `redundant_sql`)                   |
 | `severity`      | string  | none    | Exact match on `finding.severity` in snake_case (`critical`, `warning`, `info`)                        |
 | `since_ms`      | integer | none    | Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive                                   |
+| `until_ms`      | integer | none    | Upper bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive                                   |
 | `limit`         | integer | `100`   | Maximum number of entries to return, capped server-side at `1000` (higher values are silently clamped) |
 | `include_acked` | boolean | `false` | Return acknowledged findings too, each annotated with `acknowledged_by`                                |
 
@@ -409,6 +412,22 @@ detection, so `first_seen_ms` and `seen_count` keep reporting the whole
 retained history rather than the slice inside the window. It does not
 undo eviction: a signature the buffer already dropped is gone at any
 bound, which is what `max_retained_findings` governs.
+
+`until_ms` closes the window, and the pair is a different query from a
+single bound rather than a symmetric extension of it. **One bound is a
+delta poll**: the row still reports the whole retained history, so
+`first_seen_ms` and `seen_count` mean what they always meant. **Two
+bounds is a window**: the fold runs over the detections inside the
+window alone, so `first_seen_ms` and `seen_count` describe the window.
+Without that, a chronic pattern running all week would match every
+incident window ever asked for, because after the fold its lifetime
+envelope overlaps all of them.
+
+An empty answer to a window query has two causes, and `/api/status`
+tells them apart: compare the window's lower bound with
+`oldest_finding_ms`. At or after it, nothing fired. Before it, the ring
+no longer reaches that far back and the NDJSON archive is the remaining
+route, see [RUNBOOK.md](RUNBOOK.md).
 
 A short page is not proof that the window is drained. Acknowledged rows
 are dropped after `limit` has already truncated, so with the default
