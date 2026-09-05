@@ -608,6 +608,16 @@ impl Config {
                 incidents.max_retained
             ));
         }
+        if let Some(path) = &incidents.archive_path {
+            if path.is_empty() {
+                return Err("[daemon.incidents] archive_path must not be empty".to_string());
+            }
+            if has_control_char(path) {
+                return Err(
+                    "[daemon.incidents] archive_path contains control characters".to_string(),
+                );
+            }
+        }
         for (name, value) in [
             ("service_label", &incidents.service_label),
             ("kind_label", &incidents.kind_label),

@@ -666,6 +666,10 @@ pub struct MetricsState {
     /// "none yet" rather than a scrape failure.
     #[cfg(feature = "daemon")]
     pub incidents_total: IntCounterVec,
+    /// Incident deliveries the archive append refused. The incident is
+    /// still in the ring, so this counts durability lost, not data lost.
+    #[cfg(feature = "daemon")]
+    pub incidents_archive_failed_total: IntCounter,
     pub ack_operations_total: IntCounterVec,
     /// Failed ack and unack operations on the daemon HTTP API, labeled
     /// by `action` and `reason`. Pre-warmed to 0 for the 13 documented
@@ -1232,6 +1236,16 @@ impl MetricsState {
         for kind in crate::daemon::incidents::IncidentKind::ALL {
             let _ = incidents_total.with_label_values(&[kind.as_str()]);
         }
+        #[cfg(feature = "daemon")]
+        let incidents_archive_failed_total = IntCounter::new(
+            "perf_sentinel_incidents_archive_failed_total",
+            "Incident deliveries whose archive append failed",
+        )
+        .expect("metric creation should not fail");
+        #[cfg(feature = "daemon")]
+        registry
+            .register(Box::new(incidents_archive_failed_total.clone()))
+            .expect("metric registration should not fail");
         let ack_operations_total = register_int_counter_vec(
             &registry,
             "perf_sentinel_ack_operations_total",
@@ -1450,6 +1464,8 @@ impl MetricsState {
             #[cfg(feature = "daemon")]
             #[cfg(feature = "daemon")]
             incidents_total,
+            #[cfg(feature = "daemon")]
+            incidents_archive_failed_total,
             ack_operations_total,
             #[cfg(feature = "daemon")]
             ack_operations_failed_total,

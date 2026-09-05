@@ -359,6 +359,14 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # kind_label = "perf_sentinel_kind"                # default "perf_sentinel_kind". Its value must be one of
 #                                                  # oom_kill, memory_saturation, restart, deploy, other.
 #                                                  # Anything else is "other", never guessed from alertname
+# archive_path = "/var/lib/perf-sentinel/incidents.ndjson"  # default unset: the ring is the only record, and
+#                                                  # it dies with the daemon. A node-level memory event that
+#                                                  # kills the observed service often takes a co-located
+#                                                  # daemon with it, so the incident that would explain the
+#                                                  # outage is destroyed by the outage. Append-only NDJSON,
+#                                                  # last record of an id wins, no rotation (point logrotate
+#                                                  # at it), created 0600 since detail and query templates
+#                                                  # are not world-readable
 
 # --- /!\ Batched export to PerfSentinelHub /!\ ----------------------------
 # Coalesces repeated signatures and never blocks detection. Mount the API

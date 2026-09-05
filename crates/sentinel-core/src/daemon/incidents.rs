@@ -223,6 +223,48 @@ impl IncidentStore {
     }
 }
 
+/// Append one incident to a newline-delimited JSON file.
+///
+/// Append-only, last record of an id wins, the same shape the ack JSONL
+/// uses. A repost writes another line rather than rewriting the earlier
+/// one, which keeps the writer a single append and costs a few hundred
+/// bytes per `repeat_interval`.
+///
+/// There is no rotation here. An incident is a rare event, a few per day
+/// on a bad week against the analysis archive's several per second, so a
+/// rotating writer with a bounded channel and a drop counter would be
+/// machinery for a file that grows by kilobytes a year. Point logrotate
+/// at it if that ever stops being true.
+///
+/// # Errors
+///
+/// Returns the underlying I/O error. The caller logs and counts it: a
+/// failed archive write must not fail the webhook, or Alertmanager would
+/// retry an incident the ring has already recorded.
+pub fn append_to_archive(path: &std::path::Path, incident: &Incident) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    // `detail` carries operator-supplied text and the findings carry
+    // query templates, so the file is owner-only from creation rather
+    // than chmod'ed after a window where it was world-readable.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    let mut line = serde_json::to_vec(incident)?;
+    line.push(b'\n');
+    file.write_all(&line)
+}
+
 // ── The Alertmanager webhook envelope ─────────────────────────────
 
 /// One alert inside a webhook delivery.
@@ -496,6 +538,40 @@ mod tests {
         assert!(!store.record(incident("svc", IncidentKind::Deploy, 1)).await);
         assert!(store.is_empty().await);
         assert_eq!(store.len().await, 0);
+    }
+
+    #[test]
+    fn the_archive_appends_one_line_per_delivery_and_the_last_one_wins() {
+        let dir = std::env::temp_dir().join("ps-incident-archive-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("nested").join("incidents.ndjson");
+
+        let first = incident("svc", IncidentKind::OomKill, 5000);
+        append_to_archive(&path, &first).expect("the parent directory is created");
+        let mut second = incident("svc", IncidentKind::OomKill, 5000);
+        second.window_from_ms = 1;
+        append_to_archive(&path, &second).unwrap();
+
+        let body = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "append-only, one line per delivery");
+        let last: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(last["id"], first.id, "the same incident, twice");
+        assert_eq!(
+            last["window_from_ms"], 1,
+            "and the last record is the more complete one"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o777,
+                0o600,
+                "detail and templates are not world-readable"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
