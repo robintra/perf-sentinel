@@ -158,6 +158,16 @@ fn open_append(path: &Path) -> Result<File, ArchiveError> {
     };
     let mut options = OpenOptions::new();
     options.create(true).read(true).append(true);
+    // The window Reports hold every finding, endpoint and normalized SQL
+    // shape, so they are no more readable than the acks stored beside them.
+    // Creation only: a file already there keeps the mode its operator gave
+    // it, since tightening one the daemon may not own is how the incident
+    // archive used to fail to start.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
     no_follow(&mut options);
     let file = options.open(path).map_err(open_error)?;
     if is_reparse_point(&file.metadata().map_err(open_error)?) {
@@ -388,10 +398,14 @@ fn rotate(active: &Path, file: &mut File, max_files: u32) -> std::io::Result<()>
     // create_new refuses to open if `active` already exists, which
     // closes the TOCTOU race where a co-resident attacker plants a
     // symlink between the rename and the re-open.
-    let fresh = OpenOptions::new()
-        .create_new(true)
-        .append(true)
-        .open(active)?;
+    let mut fresh_options = OpenOptions::new();
+    fresh_options.create_new(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        fresh_options.mode(0o600);
+    }
+    let fresh = fresh_options.open(active)?;
     *file = fresh;
     prune(active, max_files)?;
     Ok(())
@@ -685,6 +699,36 @@ mod tests {
             "expected rotated archive to carry history"
         );
         assert!(active_lines + rotated_lines >= 30);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_window_archive_and_what_it_rotates_into_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = TempDir::new().unwrap();
+        let handle = spawn(&cfg(&dir, 1, 4), test_metrics()).unwrap();
+        for _ in 0..30 {
+            let mut archive = sample_archive();
+            archive.report.warnings = vec!["x".repeat(60_000)];
+            handle.tx.send(archive).await.unwrap();
+        }
+        drop(handle.tx);
+        handle.join.await.unwrap();
+
+        let mut checked = 0usize;
+        for entry in std::fs::read_dir(dir.path()).unwrap() {
+            let entry = entry.unwrap();
+            let mode = entry.metadata().unwrap().permissions().mode() & 0o777;
+            assert_eq!(
+                mode,
+                0o600,
+                "{} carries every finding and normalized SQL shape of its window, \
+                 mode is {mode:o}",
+                entry.file_name().to_string_lossy()
+            );
+            checked += 1;
+        }
+        assert!(checked >= 2, "expected an active and a rotated archive");
     }
 
     #[tokio::test]
