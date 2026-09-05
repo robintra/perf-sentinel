@@ -785,6 +785,37 @@ une ConfigMap ni dans `.perf-sentinel.toml`. Avec le chart Helm, utilisez
 `extraVolumes` et `extraVolumeMounts` pour exposer la clé au chemin
 `api_key_file` configuré.
 
+#### `[daemon.incidents]` (optionnel, depuis 0.20.0)
+
+Webhooks d'incident entrants, pour qu'une alerte donne au daemon le
+moment où un service est tombé ou a saturé, et que le daemon fige les
+findings de la fenêtre avant que le ring ne les évince. Voir
+[QUERY-API-FR.md](QUERY-API-FR.md) pour les endpoints. Daemon uniquement,
+désactivé par défaut, et à ne pas confondre avec
+`[daemon] memory_high_water_pct`, qui désigne le cgroup du daemon
+lui-même.
+
+| Champ           | Type    | Défaut               | Description                                                                                                                                                                                    |
+|-----------------|---------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`       | boolean | `false`              | Expose `POST` et `GET /api/incidents`. Une surface d'écriture entrante est opt-in. Les deux routes répondent 503 sans elle                                                                      |
+| `api_key`       | string  | *(absent)*           | **Obligatoire quand activé**, sinon erreur de configuration, parce que la route écrit. Comparé en temps constant à `X-API-Key`, 12 caractères minimum. `PERF_SENTINEL_INCIDENTS_API_KEY` prime sur cette valeur |
+| `lookback_ms`   | integer | `300000`             | Profondeur de findings qu'un incident posté fige, de 1000 à 86400000                                                                                                                            |
+| `max_retained`  | integer | `200`                | Incidents gardés dans le ring en mémoire, de 1 à 10000. Le ring meurt avec le daemon                                                                                                            |
+| `service_label` | string  | `service`            | Libellé d'alerte portant le nom de service perf-sentinel. Une alerte qui ne le porte pas est refusée, c'est la clé de jointure avec les findings                                               |
+| `kind_label`    | string  | `perf_sentinel_kind` | Libellé d'alerte portant le genre : `oom_kill`, `memory_saturation`, `restart`, `deploy` ou `other`. Tout le reste vaut `other`, jamais deviné depuis `alertname`                              |
+
+```toml
+[daemon.incidents]
+enabled = true
+# api_key = "<rotate-this>"      # ou PERF_SENTINEL_INCIDENTS_API_KEY
+lookback_ms = 300000
+```
+
+La fenêtre qu'un incident posté fige est `[at_ms - lookback_ms, at_ms]`,
+résolue avec les deux bornes, donc `seen_count` et `first_seen_ms` des
+findings figés décrivent la fenêtre plutôt que l'historique retenu
+entier.
+
 #### `[daemon.cors]` (optionnel, depuis 0.5.23)
 
 Cross-origin resource sharing pour les endpoints `/api/*` du daemon.

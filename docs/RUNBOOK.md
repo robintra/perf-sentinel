@@ -222,6 +222,14 @@ evicted the window and the answer is "unknown", not "clean". The archive recipe
 in the previous section is then the route, and if archiving was never configured
 the window is gone.
 
+**Have the alert capture the window for you.** The window above is only
+answerable while the ring still holds it. With `[daemon.incidents]` configured,
+point an Alertmanager receiver at `POST /api/incidents` and the daemon resolves
+and freezes the window the instant the alert fires, hours before anyone opens a
+terminal. `GET /api/incidents` then returns the incident with its findings
+already attached. See [QUERY-API.md](QUERY-API.md). The ring is in memory, so
+scrape that endpoint if the record has to outlive the node.
+
 **Detecting the moment without an external alert.** The daemon does not judge
 whether a service is alive, but it publishes when it last heard from each one.
 `increase(perf_sentinel_service_io_ops_total{service="cart-svc"}[10m]) == 0` says

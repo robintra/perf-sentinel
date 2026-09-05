@@ -88,6 +88,7 @@ The rule the proxy enforces:
 |---------------------------------------------------------------------------------------------------------|------------------------|-----------------------|
 | `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`   | any authenticated user | not applicable        |
 | `/api/acks`                                                                                             | privileged group only  | not applicable        |
+| `/api/incidents`                                                                                        | privileged group only  | privileged group only |
 | `/api/findings/{signature}/ack`                                                                         | not applicable         | privileged group only |
 | `/api/export/report`                                                                                    | privileged group only  | not applicable        |
 
@@ -853,6 +854,108 @@ This endpoint surfaces only the daemon-side JSONL acks. CI TOML acks
 loaded at startup are not included, query the TOML file directly for
 that view, or call `GET /api/findings?include_acked=true` and inspect
 the `acknowledged_by.source` field to see both sources unified.
+
+### POST /api/incidents
+
+Hand the daemon the moment an observed service crashed or saturated, so
+it freezes the findings of the window that preceded it (since 0.20.0).
+Opt-in through `[daemon.incidents]`, `503` when the section is absent.
+
+**Why this exists.** perf-sentinel does not detect a crash and cannot
+see an observed service's memory: it has no OTLP metrics path, and a
+service that saturates usually keeps emitting spans, more slowly. Your
+alerting owns the moment. What perf-sentinel owns is the findings of a
+period, and it is the only thing that can capture them before the ring
+evicts them, which on a busy fleet takes minutes.
+
+**Body:** the Alertmanager webhook envelope, and only that one. It is
+the only shape an operator cannot produce otherwise, `webhook_config`
+having no body template, whereas any script can emit it with `curl`.
+Point a receiver at this URL and nothing else is needed:
+
+```yaml
+receivers:
+  - name: perf-sentinel
+    webhook_configs:
+      - url: http://perf-sentinel:4318/api/incidents
+        http_config:
+          authorization: { type: Bearer, credentials: unused }
+```
+
+Authentication is the `X-API-Key` header, required, compared in constant
+time. `POST` and `GET` share the key.
+
+Two labels are read, both configurable:
+
+| Label                            | Default              | Meaning                                                                                            |
+|----------------------------------|----------------------|----------------------------------------------------------------------------------------------------|
+| `[daemon.incidents] service_label` | `service`          | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused |
+| `[daemon.incidents] kind_label`    | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`     |
+
+The kind is read, never guessed. Deriving it from `alertname` by keyword
+would be a heuristic nobody can see failing, so an operator who wants a
+precise kind writes the label on the alerting rule:
+
+```yaml
+- alert: PodOOMKilled
+  expr: increase(kube_pod_container_status_restarts_total[5m]) > 0
+        and on(pod) kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+  labels:
+    service: cart-svc
+    perf_sentinel_kind: oom_kill
+```
+
+**Response:** what the delivery did, so a misconfigured `service_label`
+shows up as a body rather than as silence.
+
+```json
+{ "recorded": 1, "rejected_no_service": 0, "rejected_unparsable_time": 0 }
+```
+
+One delivery carries several alerts and one bad alert must not lose the
+others, so each is counted rather than failing the request. The status is
+`200` even when every alert was refused, which is also what Alertmanager
+needs to stop retrying. `startsAt` must be a UTC timestamp ending in
+`Z`; anything else counts as `rejected_unparsable_time`.
+
+Reposting is idempotent. The id is `sha2` over `service|kind|at_ms`, so
+Alertmanager repeating a firing alert every `repeat_interval` replaces
+the record with its later, more complete window rather than appending.
+`perf_sentinel_incidents_total{kind}` counts incidents, not deliveries.
+
+### GET /api/incidents
+
+The recorded incidents, newest first, each with the findings frozen at
+reception. Same key as the `POST`.
+
+**Query parameters:** `service` (exact match), `limit` (default 50,
+capped at `[daemon.incidents] max_retained`).
+
+**Response shape:** array of objects:
+
+| Field               | Type   | Description                                                                                     |
+|---------------------|--------|---------------------------------------------------------------------------------------------------|
+| `id`                | string | 32 hex characters over `service\|kind\|at_ms`                                                    |
+| `service`           | string | The service the incident is about                                                               |
+| `kind`              | string | One of the five kinds                                                                           |
+| `at_ms`             | number | When it started, Unix epoch milliseconds                                                        |
+| `ended_at_ms`       | number | When it ended, absent while firing                                                              |
+| `detail`            | string | The alert's `summary` or `description`, sanitized and capped at 512 bytes, absent when neither  |
+| `window_from_ms`    | number | `at_ms` minus `[daemon.incidents] lookback_ms`                                                  |
+| `window_to_ms`      | number | Equal to `at_ms`                                                                                |
+| `oldest_finding_ms` | number | Oldest finding the ring held at capture time, absent when it was empty                          |
+| `findings`          | array  | `StoredFinding` objects, folded over the window alone                                           |
+
+**Read `oldest_finding_ms` before trusting a short `findings` array.**
+Below `window_from_ms` the capture is complete. Above it, the ring had
+already evicted part of the window and the array is short of what fired,
+which the NDJSON archive may still answer. See [RUNBOOK.md](RUNBOOK.md).
+
+**The ring is in memory and dies with the daemon.** A node-level memory
+event that kills the observed service often takes a co-located daemon
+with it, so the incident that would explain the outage can be destroyed
+by the outage. Scrape this endpoint if the record has to outlive the
+node.
 
 ### TOML and JSONL interop
 

@@ -769,6 +769,36 @@ Mount the API key as a Secret-backed file. Do not put it in a ConfigMap or in
 `.perf-sentinel.toml`. With the Helm chart, use `extraVolumes` and
 `extraVolumeMounts` to expose the key at the configured `api_key_file` path.
 
+#### `[daemon.incidents]` (optional, since 0.20.0)
+
+Inbound incident webhooks, so an alert can hand the daemon the moment a
+service crashed or saturated and the daemon can freeze the findings of
+the window before the ring evicts them. See
+[QUERY-API.md](QUERY-API.md) for the endpoints. Daemon-only, off by
+default, and not to be confused with `[daemon] memory_high_water_pct`,
+which is the daemon's own cgroup.
+
+| Field           | Type    | Default              | Description                                                                                                                                                                       |
+|-----------------|---------|----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`       | boolean | `false`              | Expose `POST` and `GET /api/incidents`. An inbound write surface is opt-in. Both routes answer 503 when absent                                                                     |
+| `api_key`       | string  | *(absent)*           | **Required when enabled**, and a config error otherwise, because the route writes. Constant-time compared against `X-API-Key`, 12 characters minimum. `PERF_SENTINEL_INCIDENTS_API_KEY` wins over this value |
+| `lookback_ms`   | integer | `300000`             | How far back of findings a posted incident freezes, 1000 to 86400000                                                                                                              |
+| `max_retained`  | integer | `200`                | Incidents kept in the in-memory ring, 1 to 10000. The ring dies with the daemon                                                                                                   |
+| `service_label` | string  | `service`            | Alert label carrying the perf-sentinel service name. An alert without it is refused, it being the join key to the findings                                                        |
+| `kind_label`    | string  | `perf_sentinel_kind` | Alert label carrying the kind: `oom_kill`, `memory_saturation`, `restart`, `deploy` or `other`. Anything else is `other`, never guessed from `alertname`                          |
+
+```toml
+[daemon.incidents]
+enabled = true
+# api_key = "<rotate-this>"      # or PERF_SENTINEL_INCIDENTS_API_KEY
+lookback_ms = 300000
+```
+
+The window a posted incident freezes is `[at_ms - lookback_ms, at_ms]`,
+resolved with both bounds, so `seen_count` and `first_seen_ms` on the
+frozen findings describe the window rather than the whole retained
+history.
+
 #### `[daemon.cors]` (optional, since 0.5.23)
 
 Cross-origin resource sharing for the daemon's `/api/*` query
