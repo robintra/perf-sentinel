@@ -324,8 +324,9 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
   `partial` when the ring had already evicted part of the window so the
   list is short of what fired, `empty ring`), the alert's detail below
   it, then one indented row per finding with its type, severity,
-  endpoint, window tally and whether it fired `before` or only `after
-  the restart`. This is the one tab that needs an API key: pass
+  endpoint, window tally and whether it fired `before` or `after` the
+  restart, that marker leading the row so a narrow terminal never clips
+  it. This is the one tab that needs an API key: pass
   `--api-key-file <PATH>` (or set `PERF_SENTINEL_DAEMON_API_KEY`), and
   the read-only `[daemon] read_api_key` suffices. Without a key the tab
   names the 401 and how to pass one, a daemon running with

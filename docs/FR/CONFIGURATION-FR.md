@@ -1053,13 +1053,13 @@ Les fichiers de configuration ne doivent jamais contenir de secrets. Pour les va
 | Variable | Surcharge | Lue par |
 |----------|-----------|---------|
 | `PERF_SENTINEL_EMAPS_TOKEN` | l'`api_key` Electricity Maps | daemon et batch |
-| `PERF_SENTINEL_ACK_API_KEY` | `[daemon.ack] api_key` | daemon |
-| `PERF_SENTINEL_INCIDENTS_API_KEY` | `[daemon.incidents] api_key` | daemon |
-| `PERF_SENTINEL_READ_API_KEY` | `[daemon] read_api_key` | daemon |
+| `PERF_SENTINEL_ACK_API_KEY` | `[daemon.ack] api_key` | daemon et batch |
+| `PERF_SENTINEL_INCIDENTS_API_KEY` | `[daemon.incidents] api_key` | daemon et batch |
+| `PERF_SENTINEL_READ_API_KEY` | `[daemon] read_api_key` | daemon et batch |
 | `PERF_SENTINEL_DAEMON_API_KEY` | le `--api-key-file` de `ack`, `query inspect`, `query monitor` et `query incidents` | CLI, envoyée en `X-API-Key` |
 | `PERF_SENTINEL_DAEMON_URL` | l'URL `--daemon` des commandes `ack` et `query` | CLI |
 
-Une variable définie à la chaîne vide compte comme définie : une clé vide est rejetée au chargement de la config plutôt qu'ignorée en silence, donc un Secret monté vide fait échouer le daemon au lieu d'ouvrir la route.
+Les surcharges s'appliquent à chaque exécution, commandes batch et exécution sans aucun fichier de config comprises, donc un job qui hérite du Secret du daemon doit lui aussi porter des valeurs valides (la clé d'incidents ne compte qu'une fois `[daemon.incidents] enabled` posé). Une variable définie à la chaîne vide compte comme définie : une clé vide est rejetée au chargement de la config plutôt qu'ignorée en silence, donc un Secret monté vide fait échouer toute commande qui la charge, daemon compris, au lieu d'ouvrir la route.
 
 ## Fichier d'acknowledgments
 

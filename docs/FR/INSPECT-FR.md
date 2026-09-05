@@ -336,7 +336,8 @@ garde précisément hors du `/metrics` Prometheus.
   donc en deçà de ce qui a brûlé, `empty ring`), le détail de l'alerte
   en dessous, puis une ligne indentée par finding avec son type, sa
   sévérité, son endpoint, son décompte sur la fenêtre et s'il a brûlé
-  `before` ou seulement `after the restart`. C'est le seul onglet qui
+  `before` ou `after` le redémarrage, ce marqueur ouvrant la ligne pour
+  qu'un terminal étroit ne le coupe jamais. C'est le seul onglet qui
   demande une clé d'API : passez `--api-key-file <CHEMIN>` (ou posez
   `PERF_SENTINEL_DAEMON_API_KEY`), et la clé en lecture seule
   `[daemon] read_api_key` suffit. Sans clé l'onglet nomme le 401 et
