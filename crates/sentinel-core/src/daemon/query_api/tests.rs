@@ -582,7 +582,7 @@ async fn the_settle_pass_merges_the_traces_live_at_the_incident() {
     let state = make_state();
     // Delivered promptly, so `startsAt` is now and the settle has to wait.
     let now = crate::daemon::event_loop::current_time_ms();
-    let starts_at = chrono::DateTime::from_timestamp_millis(i64::try_from(now).unwrap())
+    let starts_at = DateTime::from_timestamp_millis(i64::try_from(now).unwrap())
         .unwrap()
         .to_rfc3339();
     push_finding(
@@ -2423,6 +2423,12 @@ fn tuning_advisor_flags_grouping_folding() {
 }
 
 /// `req` with `key` as `X-API-Key`, or untouched when `None`.
+/// The status one request comes back with, which is all the key tests
+/// read. The router is cloned per call because `oneshot` consumes it.
+async fn status_of(app: &Router, req: Request<Body>) -> StatusCode {
+    app.clone().oneshot(req).await.unwrap().status()
+}
+
 fn keyed(mut req: Request<Body>, key: Option<&str>) -> Request<Body> {
     if let Some(key) = key {
         req.headers_mut().insert(
@@ -2466,34 +2472,30 @@ async fn the_read_key_lists_incidents_and_never_posts_them() {
             .get()
     };
     let app = query_api_router(Arc::clone(&state));
-    let status = |req: Request<Body>| {
-        let app = app.clone();
-        async move { app.oneshot(req).await.unwrap().status() }
-    };
     let read = Some("read-key-long-enough");
     let write = Some("write-key-long-enough");
     let empty = serde_json::json!([]);
 
     assert_eq!(
-        status(keyed(get_request("/api/incidents"), read)).await,
+        status_of(&app, keyed(get_request("/api/incidents"), read)).await,
         StatusCode::OK
     );
     assert_eq!(
-        status(keyed(get_request("/api/incidents"), write)).await,
+        status_of(&app, keyed(get_request("/api/incidents"), write)).await,
         StatusCode::OK
     );
     assert_eq!(
-        status(get_request("/api/incidents")).await,
+        status_of(&app, get_request("/api/incidents")).await,
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        status(keyed(post_incidents_request(&empty), read)).await,
+        status_of(&app, keyed(post_incidents_request(&empty), read)).await,
         StatusCode::UNAUTHORIZED,
         "the read key never posts"
     );
     assert_eq!(unauthorized(), 2, "the bare GET and the read-key POST");
     assert_eq!(
-        status(keyed(post_incidents_request(&empty), write)).await,
+        status_of(&app, keyed(post_incidents_request(&empty), write)).await,
         StatusCode::OK
     );
     assert_eq!(unauthorized(), 2);
@@ -2513,10 +2515,6 @@ async fn the_read_key_opens_the_ack_listing_but_not_the_ack_writes() {
     let state = Arc::new(readable);
     let sig = seed_finding(&state, "order-svc").await;
     let app = query_api_router(Arc::clone(&state));
-    let status = |req: Request<Body>| {
-        let app = app.clone();
-        async move { app.oneshot(req).await.unwrap().status() }
-    };
     let read = Some("read-key-long-enough");
     let failed = |action: &str| {
         state
@@ -2527,21 +2525,25 @@ async fn the_read_key_opens_the_ack_listing_but_not_the_ack_writes() {
     };
 
     assert_eq!(
-        status(keyed(get_request("/api/acks"), read)).await,
+        status_of(&app, keyed(get_request("/api/acks"), read)).await,
         StatusCode::OK
     );
     assert_eq!(
-        status(keyed(post_ack_request(&sig), read)).await,
+        status_of(&app, keyed(post_ack_request(&sig), read)).await,
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        status(keyed(delete_ack_request(&sig), read)).await,
+        status_of(&app, keyed(delete_ack_request(&sig), read)).await,
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(failed("ack"), 1, "a read key on a write is counted");
     assert_eq!(failed("unack"), 1);
     assert_eq!(
-        status(keyed(post_ack_request(&sig), Some("write-key-long-enough"))).await,
+        status_of(
+            &app,
+            keyed(post_ack_request(&sig), Some("write-key-long-enough"))
+        )
+        .await,
         StatusCode::CREATED
     );
 }
@@ -2555,19 +2557,12 @@ async fn a_read_key_alone_gates_nothing() {
     open.incident_store = None;
     let app = query_api_router(Arc::new(open));
     assert_eq!(
-        app.clone()
-            .oneshot(get_request("/api/acks"))
-            .await
-            .unwrap()
-            .status(),
+        status_of(&app, get_request("/api/acks")).await,
         StatusCode::OK,
         "no ack key, the listing stays open"
     );
     assert_eq!(
-        app.oneshot(get_request("/api/incidents"))
-            .await
-            .unwrap()
-            .status(),
+        status_of(&app, get_request("/api/incidents")).await,
         StatusCode::SERVICE_UNAVAILABLE,
         "no incidents key and no store: no 401 appears in front of the 503"
     );

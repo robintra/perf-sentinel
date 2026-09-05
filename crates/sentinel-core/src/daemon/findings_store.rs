@@ -764,7 +764,7 @@ mod tests {
         let mut earlier = vec![row(&a, 1000, 1000, 1), row(&b, 2000, 2000, 2)];
         let later = vec![row(&b, 2000, 5000, 3), row(&c, 6000, 6000, 1)];
         merge_folded(&mut earlier, later);
-        let by_template: std::collections::HashMap<&str, &StoredFinding> = earlier
+        let by_template: HashMap<&str, &StoredFinding> = earlier
             .iter()
             .map(|sf| (sf.finding.pattern.template.as_str(), sf))
             .collect();
