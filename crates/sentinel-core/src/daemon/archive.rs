@@ -168,6 +168,37 @@ fn open_append(path: &Path) -> Result<File, ArchiveError> {
     Ok(file)
 }
 
+/// Bring an existing file back to owner-only, or refuse it.
+///
+/// `mode(0o600)` applies on creation, so a file that was already there can
+/// carry group or world bits. Mounting a Kubernetes volume under an
+/// `fsGroup` adds them to the files already on it, which is not the threat
+/// this guard is for: the daemon created that file and still owns it.
+///
+/// The tightening is an `fchmod` on the handle already opened with
+/// `no_follow`, so no path is resolved a second time and a swap between the
+/// open and the chmod cannot land. It succeeds for the file's owner and fails
+/// for anyone else, which is exactly the line to draw: a file another user
+/// owns is one this daemon must not write its detail and templates into.
+///
+/// # Errors
+///
+/// The mode could not be read, or the file is not ours to tighten.
+#[cfg(unix)]
+pub(super) fn tighten_to_owner_only(file: &File, what: &str) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = file.metadata()?.permissions().mode() & 0o777;
+    if mode & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|source| {
+                std::io::Error::other(format!(
+                    "{what} has mode {mode:o} and is not ours to tighten to 0600: {source}"
+                ))
+            })?;
+    }
+    Ok(())
+}
+
 /// Keep a crash-truncated record from being joined to the next window.
 /// A complete JSON value that only missed its newline stays usable; a
 /// partial value becomes one malformed line that disclosure can skip.
@@ -446,6 +477,29 @@ mod tests {
     #[cfg(unix)]
     use core::assert_matches;
     use tempfile::TempDir;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_the_process_does_not_own_is_refused_rather_than_tightened() {
+        use std::os::unix::fs::MetadataExt as _;
+        let dir = TempDir::new().unwrap();
+        let ours = dir.path().join("ours");
+        std::fs::write(&ours, b"").unwrap();
+        let our_uid = std::fs::metadata(&ours).unwrap().uid();
+        // /dev/null is mode 0666 and owned by root, so it is the one file
+        // every developer and runner has that this process cannot chmod.
+        let theirs = File::open("/dev/null").unwrap();
+        if theirs.metadata().unwrap().uid() == our_uid {
+            // Running as root, where there is no refusal left to observe.
+            return;
+        }
+        let err = tighten_to_owner_only(&theirs, "incident archive").unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("666") && message.contains("incident archive"),
+            "the refusal names the mode and the file: {message}"
+        );
+    }
 
     fn cfg(dir: &TempDir, max_size_mb: u64, max_files: u32) -> DaemonArchiveConfig {
         DaemonArchiveConfig {

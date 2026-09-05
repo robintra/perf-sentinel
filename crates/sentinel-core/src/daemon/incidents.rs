@@ -296,12 +296,13 @@ pub struct ArchiveHandle {
 /// `write` of one line, so two deliveries or a delivery and a settle pass
 /// cannot interleave, and a webhook handler dropped by a timeout has
 /// already handed its record over. The open runs at startup, so a
-/// symlink, a weak mode, a missing directory or a read-only filesystem
-/// fail the daemon rather than the first incident.
+/// symlink, a missing directory or a read-only filesystem fail the
+/// daemon rather than the first incident.
 ///
 /// # Errors
 ///
-/// The open error, a refused symlink or a refused mode.
+/// The open error, a refused symlink, or a weak mode that is not ours
+/// to tighten.
 pub fn spawn_archive(
     path: &str,
     metrics: Arc<crate::report::metrics::MetricsState>,
@@ -328,14 +329,15 @@ pub fn try_send(
 }
 
 /// Open the archive for appending, with the guards the other appenders
-/// have: no symlink, an open that never follows one, owner-only mode on
-/// an existing file since `mode(0o600)` applies on creation only, and a
-/// crash-truncated last line sealed. Append-only, last record of an id wins, no rotation,
+/// have: no symlink, an open that never follows one, owner-only mode
+/// restored on an existing file since `mode(0o600)` applies on creation
+/// only, and a crash-truncated last line sealed. Append-only, last record of an id wins, no rotation,
 /// point logrotate at it.
 ///
 /// # Errors
 ///
-/// The underlying I/O error, or a refused symlink or mode.
+/// The underlying I/O error, a refused symlink, or a file whose mode is
+/// weak and which is not ours to tighten.
 pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     if super::archive::is_symlink(path) {
         return Err(std::io::Error::other("incident archive path is a symlink"));
@@ -360,16 +362,11 @@ pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
             "incident archive path is a symlink or another reparse point",
         ));
     }
+    // Tightened rather than refused. The ack store never meets this because
+    // its startup compaction rewrites its file at 0600 every launch, where the
+    // archive only ever appends to the one it created.
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let mode = metadata.permissions().mode() & 0o777;
-        if mode & 0o077 != 0 {
-            return Err(std::io::Error::other(format!(
-                "incident archive has mode {mode:o}, refusing to append detail and templates to it"
-            )));
-        }
-    }
+    super::archive::tighten_to_owner_only(&file, "incident archive")?;
     super::archive::terminate_incomplete_line(&mut file)?;
     Ok(file)
 }
@@ -902,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn the_archive_open_seals_a_torn_line_and_refuses_a_weak_file() {
+    fn the_archive_open_seals_a_torn_line_and_tightens_a_weakened_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("incidents.ndjson");
         {
@@ -925,10 +922,14 @@ mod tests {
                 0o600,
                 "detail and templates are not world-readable"
             );
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-            assert!(
-                open_archive(&path).is_err(),
-                "mode(0o600) applies on creation only, a weakened file is refused"
+            // What a Kubernetes volume mounted with an `fsGroup` does to
+            // every file it holds, on every remount.
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o660)).unwrap();
+            drop(open_archive(&path).expect("a file we own is tightened, not refused"));
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600,
+                "the group bits the kubelet added are taken back off"
             );
             let link = dir.path().join("link.ndjson");
             std::os::unix::fs::symlink(&path, &link).unwrap();

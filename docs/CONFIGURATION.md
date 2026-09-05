@@ -788,7 +788,7 @@ which is the daemon's own cgroup.
 | `service_label` | string  | `service`            | Alert label carrying the perf-sentinel service name. An alert without it is refused, it being the join key to the findings                                                        |
 | `kind_label`    | string  | `perf_sentinel_kind` | Alert label carrying the kind: `oom_kill`, `memory_saturation`, `restart`, `deploy` or `other`. Anything else is `other`, never guessed from `alertname`                          |
 | `namespace_label` | string | `namespace`         | Alert label carrying the namespace, the one kube-prometheus alerts already carry. Optional, never a reason to refuse: its value is carried on the incident as `namespace` and the `namespace` parameter of `GET /api/incidents` filters on it |
-| `archive_path`  | string  | *(absent)*           | Append every new incident, close and settle to this newline-delimited JSON file, opened at startup so a bad path fails the daemon. Absent means the in-memory ring is the only record, and a node-level memory event that kills the observed service often takes a co-located daemon with it. Append-only, last record of an id wins, created `0600`, no rotation |
+| `archive_path`  | string  | *(absent)*           | Append every new incident, close and settle to this newline-delimited JSON file, opened at startup so a bad path fails the daemon. Absent means the in-memory ring is the only record, and a node-level memory event that kills the observed service often takes a co-located daemon with it. Append-only, last record of an id wins, created `0600` and chmodded back to it when a volume mount weakens the mode, refused when the file is not the daemon's to tighten, no rotation |
 
 ```toml
 [daemon.incidents]

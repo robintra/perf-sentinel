@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `[daemon.incidents] archive_path` no longer leaves the daemon in a `CrashLoopBackOff` it cannot come out of. The archive is created `0600`, but a Kubernetes volume mounted under an `fsGroup` has `g+rw` added to the files already on it, so the file the daemon itself wrote came back `0660` and the startup guard refused it. Nothing in the product could then undo that: the daemon exited before it ever reached a write, every restart met the same mode, and only a human with a `chmod` got it back, which is the worst possible failure for the one file that exists to outlive a crash. The guard was written for a file a hostile local user pre-created, not for a group bit the platform put on a file the daemon owns. It now tells the two apart by acting: an `fchmod` on the handle already opened without following symlinks takes the group and world bits back off, which succeeds for the file's owner and fails for anyone else, so an archive the daemon owns is tightened to `0600` and one owned by another user is still refused, with the mode named in the message. That split is what makes it safe: the kubelet changes the group of the files it finds and never their owner, so the archive stays the daemon's to tighten, while a file planted by another user is exactly the one the `fchmod` cannot touch. The chart's default `podSecurityContext` carries `fsGroup: 65534` and its `values.yaml` advises putting `archive_path` on the PVC, so the recommended deployment reached this on its first restart, and a daemon that had captured incidents was the one that would not come back. The ack store never met it because its startup compaction rewrites its file at `0600` every launch, and the per-window analysis archive carries no such guard.
+
 ## [0.20.0] - 2026-09-05
 
 ### Added

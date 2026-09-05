@@ -683,17 +683,21 @@ write routes return 503. Switch to `StatefulSet` mode with
 `persistence.enabled: true` (see above), which wires `[daemon.ack]
 storage_path` to the PVC for you.
 
-**Mind the `securityContext` floor.** The daemon opens the JSONL with
-`O_NOFOLLOW` and rejects pre-existing files whose mode permits
-group/other access (`mode & 0o077 != 0`). Setting `runAsUser` and
+**Mind the `securityContext` floor.** The daemon opens every durable
+JSONL with `O_NOFOLLOW` and keeps it owner-only. Mounting the PVC under
+an `fsGroup` adds `g+rw` to the files already on it, and both stores
+take that back off on their own: the ack store rewrites its file at
+`0600` through its startup compaction, and the incident archive chmods
+its own open handle back. The case that still fails is a file the daemon
+UID does not own, which it cannot chmod at all: setting `runAsUser` and
 `fsGroup` such that the daemon UID does not own the PVC mount, or
 running under a mutating admission policy (Kyverno, OPA Gatekeeper) that
-rewrites `fsGroup` or `runAsUser` on the pod, will surface as
-`InsecurePermissions` at
-startup and the ack store will be unavailable. The daemon stays up
-without it (the ack write routes return 503, `GET /api/acks` an empty
-list), so this is a soft failure, but check the WARN log line on first
-rollout.
+rewrites `fsGroup` or `runAsUser` on the pod. The ack store then reports
+`InsecurePermissions` and is unavailable while the daemon stays up (the
+ack write routes return 503, `GET /api/acks` an empty list), so that
+half is a soft failure, but `[daemon.incidents] archive_path` is opened
+at startup and fails the daemon outright, with the offending mode named
+in the message. Check the log on first rollout.
 
 **Load the CI TOML baseline from a ConfigMap.** Mount
 `.perf-sentinel-acknowledgments.toml` via `extraVolumes` and point
