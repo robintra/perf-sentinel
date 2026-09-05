@@ -167,6 +167,10 @@ struct FindingsParams {
     severity: Option<String>,
     /// Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
     since_ms: Option<u64>,
+    /// Upper bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
+    /// With `since_ms` it closes a window, which folds differently from a
+    /// one-sided delta, see `docs/QUERY-API.md`.
+    until_ms: Option<u64>,
     limit: Option<usize>,
     /// Default `false`: filter out findings that are acked (CI TOML
     /// baseline + daemon JSONL store union). `true`: return all
@@ -259,6 +263,13 @@ struct StatusResponse {
     analysis_queue_capacity: usize,
     stored_findings: usize,
     max_retained_findings: usize,
+    /// Detection time of the oldest finding still in the ring, absent when
+    /// it is empty. A window query returning nothing means "nothing fired"
+    /// only when the window starts at or after this; earlier than it, the
+    /// ring simply no longer reaches back that far and the archive is the
+    /// remaining route. Additive since 0.20.0.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oldest_finding_ms: Option<u64>,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────
@@ -275,6 +286,7 @@ async fn handle_findings(
         finding_type: params.finding_type,
         severity: params.severity,
         since_ms: params.since_ms,
+        until_ms: params.until_ms,
         limit: params.limit.unwrap_or(100).min(MAX_FINDINGS_LIMIT),
     };
     // Folded: a listing is read by a human, and detection is per trace,
@@ -431,6 +443,7 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
     let uptime = state.start_time.elapsed().as_secs();
     let active_traces = state.window.lock().await.active_traces();
     let stored_findings = state.findings_store.len().await;
+    let oldest_finding_ms = state.findings_store.oldest_ms().await;
     Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION"),
         uptime_seconds: uptime,
@@ -440,6 +453,7 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
         analysis_queue_capacity: state.daemon_config.analysis_queue_capacity,
         stored_findings,
         max_retained_findings: state.daemon_config.max_retained_findings,
+        oldest_finding_ms,
     })
 }
 
@@ -816,6 +830,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             finding_type: None,
             severity: None,
             since_ms: None,
+            until_ms: None,
             limit: state.daemon_config.max_export_findings,
         })
         .await;

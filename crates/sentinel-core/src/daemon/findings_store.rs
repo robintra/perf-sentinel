@@ -150,6 +150,11 @@ pub struct FindingsFilter {
     /// inclusive. Keeps what was detected at or after that instant, so a
     /// poller can ask for a delta instead of re-reading the whole buffer.
     pub since_ms: Option<u64>,
+    /// Optional upper bound on `stored_at_ms`, in Unix epoch milliseconds,
+    /// inclusive. Paired with `since_ms` it closes a window, which is a
+    /// different query from a delta and is folded differently, see
+    /// [`FindingsStore::query_coalesced`].
+    pub until_ms: Option<u64>,
     /// Maximum number of results to return.
     pub limit: usize,
 }
@@ -249,6 +254,11 @@ impl FindingsStore {
                 {
                     return false;
                 }
+                if let Some(until) = filter.until_ms
+                    && sf.stored_at_ms > until
+                {
+                    return false;
+                }
                 true
             })
             .take(limit)
@@ -271,26 +281,51 @@ impl FindingsStore {
     /// call. Service and finding type are invariant within a signature,
     /// so they filter during the pass; namespace is part of the fold key.
     ///
-    /// `since_ms` lands after the fold for the same reason, against the
-    /// group's most recent detection. Applied to instances first it would
-    /// narrow `first_seen_ms` and `seen_count` to the window, so the same
-    /// row would report a different history depending on the bound.
+    /// A single bound, `since_ms` or `until_ms`, lands after the fold for
+    /// the same reason, against the group's most recent detection. A delta
+    /// poller passing one bound must not see a row's history move with it.
+    ///
+    /// Both bounds is the opposite query and screens during the buffer
+    /// pass instead. After the fold `first_seen_ms` is the group's global
+    /// minimum, so an upper bound applied there would select every group
+    /// whose lifetime envelope overlaps the window, and a chronic pattern
+    /// would match every window ever asked for. Inside a window
+    /// `first_seen_ms` and `seen_count` therefore describe the window,
+    /// which is what a post-mortem asks for.
     pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
+        let window = filter.since_ms.zip(filter.until_ms);
         let buf = self.inner.read().await;
-        let mut folded = fold_entries(
-            buf.iter()
-                .rev()
-                .filter(|sf| matches_service_and_type(sf, filter)),
-        );
+        let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
+            matches_service_and_type(sf, filter)
+                && window.is_none_or(|(from, to)| sf.stored_at_ms >= from && sf.stored_at_ms <= to)
+        }));
         drop(buf);
         if let Some(ref sev) = filter.severity {
             folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
         }
-        if let Some(since) = filter.since_ms {
+        if window.is_none()
+            && let Some(since) = filter.since_ms
+        {
             folded.retain(|sf| sf.stored_at_ms >= since);
+        }
+        if window.is_none()
+            && let Some(until) = filter.until_ms
+        {
+            folded.retain(|sf| sf.stored_at_ms <= until);
         }
         folded.truncate(filter.limit);
         folded
+    }
+
+    /// Detection time of the oldest retained finding, `None` when the
+    /// buffer is empty.
+    ///
+    /// Separates "nothing was firing in that window" from "the ring does
+    /// not reach that far back", which are otherwise the same empty answer
+    /// to a window query. The buffer is FIFO and one batch shares one
+    /// stamp, so the front is the oldest.
+    pub async fn oldest_ms(&self) -> Option<u64> {
+        self.inner.read().await.front().map(|sf| sf.stored_at_ms)
     }
 
     /// Get every retained detection for a specific trace, newest first.
@@ -597,6 +632,90 @@ mod tests {
             })
             .await;
         assert!(narrowed.is_empty(), "severity still applies under a bound");
+    }
+
+    #[tokio::test]
+    async fn a_window_scopes_the_history_a_single_bound_leaves_whole() {
+        // The test that separates the correct implementation from the one
+        // that filters after the fold: there, a chronic pattern whose
+        // lifetime envelope straddles the window matches every window ever
+        // asked for, and reports counts from outside it.
+        let store = FindingsStore::new(100);
+        let mut chronic =
+            make_finding_with_template("svc", FindingType::RedundantSql, "SELECT chronic");
+        enrich_with_signatures(std::slice::from_mut(&mut chronic));
+        store.push_batch(std::slice::from_ref(&chronic), 1000).await;
+        store.push_batch(&[chronic], 5000).await;
+
+        let windowed = store
+            .query_coalesced(&FindingsFilter {
+                since_ms: Some(4000),
+                until_ms: Some(6000),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(windowed.len(), 1, "the in-window detection is kept");
+        assert_eq!(
+            windowed[0].seen_count, 1,
+            "a window counts only what fired inside it"
+        );
+        assert_eq!(
+            windowed[0].first_seen_ms, 5000,
+            "and dates the row from inside it"
+        );
+
+        let delta = store
+            .query_coalesced(&FindingsFilter {
+                since_ms: Some(4000),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(delta[0].seen_count, 2, "one bound keeps the whole history");
+        assert_eq!(delta[0].first_seen_ms, 1000);
+
+        let before = store
+            .query_coalesced(&FindingsFilter {
+                until_ms: Some(2000),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert!(
+            before.is_empty(),
+            "an upper bound alone screens the group's most recent detection"
+        );
+
+        let raw = store
+            .query(&FindingsFilter {
+                until_ms: Some(2000),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(raw.len(), 1, "the unfolded path bounds each instance");
+        assert_eq!(raw[0].stored_at_ms, 1000);
+    }
+
+    #[tokio::test]
+    async fn oldest_ms_reports_the_front_of_the_ring() {
+        let store = FindingsStore::new(2);
+        assert_eq!(store.oldest_ms().await, None, "empty ring has no oldest");
+        for (i, stamp) in [1000u64, 2000, 3000].iter().enumerate() {
+            let mut f = make_finding_with_template(
+                "svc",
+                FindingType::RedundantSql,
+                &format!("SELECT {i}"),
+            );
+            enrich_with_signatures(std::slice::from_mut(&mut f));
+            store.push_batch(&[f], *stamp).await;
+        }
+        assert_eq!(
+            store.oldest_ms().await,
+            Some(2000),
+            "eviction moves the front, which is what bounds a window query"
+        );
     }
 
     #[tokio::test]
