@@ -1143,6 +1143,34 @@ async fn freeze_window(
     }
 }
 
+/// Append one incident to its archive, off the reactor.
+///
+/// A failed append never fails the webhook: Alertmanager would retry an
+/// incident the ring has already recorded, and the ring is the answer
+/// the operator reads. Durability is what was lost, not the incident.
+async fn archive_incident(
+    state: &QueryApiState,
+    path: &str,
+    incident: &super::incidents::Incident,
+) {
+    let path = std::path::PathBuf::from(path);
+    let incident = incident.clone();
+    let written =
+        tokio::task::spawn_blocking(move || super::incidents::append_to_archive(&path, &incident))
+            .await;
+    match written {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            state.metrics.incidents_archive_failed_total.inc();
+            tracing::warn!(%error, "Incident archive append failed, the ring still holds it");
+        }
+        Err(error) => {
+            state.metrics.incidents_archive_failed_total.inc();
+            tracing::warn!(%error, "Incident archive task failed, the ring still holds it");
+        }
+    }
+}
+
 /// Receive an Alertmanager webhook delivery.
 ///
 /// One delivery carries several alerts, and one bad alert must not lose
@@ -1174,6 +1202,9 @@ async fn handle_post_incidents(
                 // repeats a firing alert every `repeat_interval`, and a
                 // counter moving on every repeat would report an outage
                 // rate the fleet never had.
+                if let Some(path) = &cfg.archive_path {
+                    archive_incident(&state, path, &incident).await;
+                }
                 if store.record(incident).await {
                     state
                         .metrics

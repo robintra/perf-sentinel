@@ -423,6 +423,11 @@ pub struct DaemonIncidentsConfig {
     /// `perf_sentinel_kind`. Anything else is `other`, deliberately not
     /// guessed from `alertname`.
     pub kind_label: String,
+    /// Optional newline-delimited JSON file every accepted delivery is
+    /// appended to. Absent means the ring is the only record, and the
+    /// ring dies with the daemon, which a node-level memory event often
+    /// takes down along with the service it killed.
+    pub archive_path: Option<String>,
 }
 
 impl Default for DaemonIncidentsConfig {
@@ -434,6 +439,7 @@ impl Default for DaemonIncidentsConfig {
             max_retained: 200,
             service_label: "service".to_string(),
             kind_label: "perf_sentinel_kind".to_string(),
+            archive_path: None,
         }
     }
 }
