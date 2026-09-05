@@ -61,6 +61,20 @@ fn spawn_mock(
     (port, rx)
 }
 
+fn run_query_findings(port: u16) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "query",
+            "--daemon",
+            &format!("http://127.0.0.1:{port}"),
+            "findings",
+        ])
+        .stdin(Stdio::null())
+        .env_remove("PERF_SENTINEL_DAEMON_URL")
+        .output()
+        .expect("failed to execute perf-sentinel")
+}
+
 fn run_query_incidents(port: u16, extra: &[&str], key_env: Option<&str>) -> std::process::Output {
     let url = format!("http://127.0.0.1:{port}");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"));
@@ -217,4 +231,44 @@ fn cli_query_incidents_refuses_a_malformed_body() {
         !stdout.contains("No incidents recorded"),
         "stdout:\n{stdout}"
     );
+}
+
+#[test]
+fn cli_query_findings_refuses_a_malformed_body() {
+    // The same guard as the incidents route, on the older path that shares
+    // it: a proxy's HTML page, or a detector this build does not know, must
+    // never read as a daemon with nothing to report.
+    let (port, _seen) = spawn_mock(200, "OK", "<html>gateway timeout</html>");
+    let output = run_query_findings(port);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stdout:\n{stdout}");
+    assert!(stderr.contains("malformed response"), "stderr:\n{stderr}");
+    assert!(
+        !stdout.contains("No findings from daemon"),
+        "stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn cli_query_incidents_refuses_a_limit_of_zero() {
+    // The daemon would answer an empty array and the renderer would print
+    // the sentence a quiet daemon prints, so the typo is refused at parse
+    // time instead. No daemon is reached, hence no mock.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "query",
+            "--daemon",
+            "http://127.0.0.1:1",
+            "incidents",
+            "--limit",
+            "0",
+        ])
+        .stdin(Stdio::null())
+        .env_remove("PERF_SENTINEL_DAEMON_URL")
+        .output()
+        .expect("failed to execute perf-sentinel");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "stderr:\n{stderr}");
+    assert!(stderr.contains("--limit"), "stderr:\n{stderr}");
 }

@@ -198,10 +198,13 @@ struct ConfigSlim {
     ack_enabled: bool,
     #[serde(default)]
     ack_api_key_set: bool,
+    // Optional, not defaulted: a daemon before 0.20.0 sends neither, and
+    // `false` there would print as a setting it holds rather than one it
+    // does not have.
     #[serde(default)]
-    read_api_key_set: bool,
+    read_api_key_set: Option<bool>,
     #[serde(default)]
-    incidents_enabled: bool,
+    incidents_enabled: Option<bool>,
     #[serde(default)]
     cors_allowed_origins: Vec<String>,
     #[serde(default)]
@@ -723,10 +726,7 @@ fn incidents_fetch_reason(err: &FetchError) -> String {
             || format!("/api/incidents returned HTTP {code}"),
             str::to_string,
         ),
-        FetchError::BodyTooLarge(limit) => format!(
-            "/api/incidents over the {} MiB read limit: page with `query incidents --limit`",
-            limit / (1024 * 1024)
-        ),
+        FetchError::BodyTooLarge(limit) => crate::query::incidents_too_large(*limit),
         other => other.to_string(),
     }
 }
@@ -1521,24 +1521,28 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         "unset",
         "Whether the ack mutation routes require an X-API-Key (the key itself is never exposed).",
     );
-    config_row(
-        &mut lines,
-        "read_api_key",
-        if c.read_api_key_set { "set" } else { "unset" },
-        "unset",
-        "Whether a read-only X-API-Key opens GET /api/acks and GET /api/incidents without a write key (0.20.0). The Incidents tab and `query incidents` accept it.",
-    );
-    config_row(
-        &mut lines,
-        "incidents",
-        if c.incidents_enabled {
-            "enabled"
-        } else {
-            "disabled"
-        },
-        "disabled",
-        "Incident store behind /api/incidents (0.20.0): the alerting posts a restart or memory event, the daemon freezes the findings of the window before it. Feeds the Incidents tab.",
-    );
+    // Both rows are skipped outright on a daemon that reports neither,
+    // rather than printed as unset and disabled: those would read as
+    // settings left at their default, and the Incidents tab of the same
+    // run is meanwhile saying the daemon predates the feature.
+    if let Some(set) = c.read_api_key_set {
+        config_row(
+            &mut lines,
+            "read_api_key",
+            if set { "set" } else { "unset" },
+            "unset",
+            "Whether a read-only X-API-Key opens GET /api/acks and GET /api/incidents without a write key (0.20.0). The Incidents tab and `query incidents` accept it.",
+        );
+    }
+    if let Some(enabled) = c.incidents_enabled {
+        config_row(
+            &mut lines,
+            "incidents",
+            if enabled { "enabled" } else { "disabled" },
+            "disabled",
+            "Incident store behind /api/incidents (0.20.0): the alerting posts a restart or memory event, the daemon freezes the findings of the window before it. Feeds the Incidents tab.",
+        );
+    }
     config_row(
         &mut lines,
         "cors_allowed_origins",
@@ -1662,6 +1666,18 @@ fn build_incidents_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         }
         push_incident_lines(&mut lines, incident);
     }
+    // A tab that cut the list says so: the daemon retains up to
+    // `[daemon.incidents] max_retained`, 200 by default, and a silent
+    // twenty reads as the whole store.
+    if incidents.len() >= INCIDENTS_POLL_LIMIT {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!(
+                "The newest {INCIDENTS_POLL_LIMIT}. `query incidents --limit 100` reads further back."
+            ),
+            dim,
+        )));
+    }
     lines
 }
 
@@ -1735,7 +1751,7 @@ fn fired_marker(incident_at_ms: u64, first_seen_ms: u64) -> &'static str {
 fn incident_finding_row(incident_at_ms: u64, sf: &StoredFinding) -> String {
     let f = &sf.finding;
     format!(
-        "    {:<6} {:<20} {:<9} {:<24} {:>5}",
+        "    {:<6} {:<20} {:<9} {:<24} x{:<4}",
         fired_marker(incident_at_ms, sf.first_seen_ms),
         f.finding_type.as_str(),
         f.severity.as_str(),
@@ -2645,6 +2661,9 @@ mod tests {
             listen_addr: d.listen_addr.clone(),
             per_service_labels: d.per_service_labels,
             per_grouping_labels: d.per_grouping_labels,
+            // A 0.20.0 daemon reports both, at their defaults here.
+            read_api_key_set: Some(d.read_api_key.is_some()),
+            incidents_enabled: Some(d.incidents.enabled),
             ..Default::default()
         }
     }
@@ -2721,8 +2740,8 @@ mod tests {
     fn config_shows_the_read_key_and_the_incident_store_switches() {
         let mut snapshot = snapshot_with_warnings(Vec::new());
         let mut cfg = full_config();
-        cfg.read_api_key_set = true;
-        cfg.incidents_enabled = true;
+        cfg.read_api_key_set = Some(true);
+        cfg.incidents_enabled = Some(true);
         snapshot.config = Some(cfg);
         let text = line_text(&build_config_lines(Some(&snapshot)));
         let read = text
@@ -2741,11 +2760,16 @@ mod tests {
             incidents.contains("= enabled") && incidents.contains("modified"),
             "{incidents}"
         );
-        // A pre-0.20.0 daemon omits both fields: serde defaults read as
-        // unset and disabled, unflagged.
+        // A pre-0.20.0 daemon omits both fields, and the tab omits both
+        // rows rather than printing settings that daemon does not have.
         let old: ConfigSlim = serde_json::from_str(r#"{"listen_port":4318}"#).unwrap();
-        assert!(!old.read_api_key_set);
-        assert!(!old.incidents_enabled);
+        assert!(old.read_api_key_set.is_none());
+        assert!(old.incidents_enabled.is_none());
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        snapshot.config = Some(old);
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        assert!(!text.contains("read_api_key ="), "got: {text}");
+        assert!(!text.contains("incidents ="), "got: {text}");
     }
 
     #[test]
@@ -3079,7 +3103,10 @@ mod tests {
         assert!(other.contains("HTTP 500"), "{other}");
         let big = incidents_fetch_reason(&FetchError::BodyTooLarge(8 * 1024 * 1024));
         assert!(big.contains("8 MiB"), "{big}");
-        assert!(big.contains("query incidents --limit"), "{big}");
+        assert!(
+            big.contains("lower --limit and page with --offset"),
+            "{big}"
+        );
         // The tab shows the reason where the rows would be.
         let snapshot = snapshot_with_incidents(Err(incidents_error(&FetchError::HttpStatus(401))));
         let text = line_text(&build_incidents_lines(Some(&snapshot)));

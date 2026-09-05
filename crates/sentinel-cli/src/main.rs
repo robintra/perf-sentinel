@@ -1207,7 +1207,15 @@ enum QueryAction {
         #[arg(long, default_value = "0")]
         offset: usize,
         /// Maximum number of incidents (default 50, the daemon caps at 100).
-        #[arg(long, default_value = "50")]
+        // Refused at zero rather than forwarded: the daemon would answer an
+        // empty array and the text renderer would print the sentence a quiet
+        // daemon prints. The upper bound stays the daemon's to apply, so a
+        // later release can raise it without a new CLI.
+        #[arg(
+            long,
+            default_value = "50",
+            value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
+        )]
         limit: usize,
         /// Output format: text (colored, default) or json.
         #[arg(long, value_enum, default_value = "text")]
