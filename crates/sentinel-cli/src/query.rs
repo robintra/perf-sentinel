@@ -616,6 +616,15 @@ fn print_incidents_text(body: &[u8], daemon_url: &str) {
 /// when, whether it still fires, how much of the window the ring still
 /// held, and how many findings fired only after the restart. Every
 /// daemon string goes through `sanitize_for_terminal`.
+/// `1 finding`, otherwise `N findings`.
+pub(crate) fn finding_count_label(n: usize) -> String {
+    if n == 1 {
+        "1 finding".to_string()
+    } else {
+        format!("{n} findings")
+    }
+}
+
 fn incident_header_block(index: usize, inc: &IncidentSlim, colors: AnsiColors) -> String {
     use sentinel_core::text_safety::sanitize_for_terminal;
     use std::fmt::Write as _;
@@ -637,11 +646,11 @@ fn incident_header_block(index: usize, inc: &IncidentSlim, colors: AnsiColors) -
     );
     let _ = writeln!(
         out,
-        "    {dim}Window:{reset} {} .. {} \u{b7} capture {} \u{b7} {} finding(s)",
+        "    {dim}Window:{reset} {} .. {} \u{b7} capture {} \u{b7} {}",
         fmt_local_time(inc.window_from_ms),
         fmt_local_time(inc.window_to_ms),
         inc.capture_marker(),
-        inc.findings.len()
+        finding_count_label(inc.findings.len())
     );
     let after = inc.fired_after_restart();
     if after > 0 {
@@ -1071,7 +1080,7 @@ mod tests {
         assert!(firing.contains("#1 oom_kill \u{b7} cart-svc"), "{firing}");
         assert!(firing.contains("firing"), "{firing}");
         assert!(firing.contains("capture complete"), "{firing}");
-        assert!(firing.contains("2 finding(s)"), "{firing}");
+        assert!(firing.contains("2 findings"), "{firing}");
         assert!(
             firing.contains("1 of them fired only after the restart"),
             "{firing}"
@@ -1088,7 +1097,7 @@ mod tests {
         assert!(ended.contains("#2 restart \u{b7} gateway-svc"), "{ended}");
         assert!(ended.contains("ended "), "{ended}");
         assert!(ended.contains("capture partial"), "{ended}");
-        assert!(ended.contains("0 finding(s)"), "{ended}");
+        assert!(ended.contains("0 findings"), "{ended}");
         assert!(!ended.contains("Detail:"), "{ended}");
         assert!(!ended.contains("after the restart"), "{ended}");
     }
@@ -1104,5 +1113,12 @@ mod tests {
             !block.contains('\u{202e}'),
             "BiDi override leaked: {block:?}"
         );
+    }
+
+    #[test]
+    fn finding_count_label_pluralises_past_one() {
+        assert_eq!(finding_count_label(0), "0 findings");
+        assert_eq!(finding_count_label(1), "1 finding");
+        assert_eq!(finding_count_label(2), "2 findings");
     }
 }
