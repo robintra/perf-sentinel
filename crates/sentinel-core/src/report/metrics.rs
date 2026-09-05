@@ -641,8 +641,9 @@ pub struct MetricsState {
     /// ingest meters. Pre-warmed at zero for the five kinds.
     #[cfg(feature = "daemon")]
     pub incidents_total: IntCounterVec,
-    /// Incident deliveries the archive append refused. The incident is
-    /// still in the ring, so this counts durability lost, not data lost.
+    /// Incident records the archive did not keep, on a full writer
+    /// channel or a failed write. The ring still holds the incident, so
+    /// this counts durability lost, not data lost.
     #[cfg(feature = "daemon")]
     pub incidents_archive_failed_total: IntCounter,
     /// Successful ack and unack operations on the daemon HTTP API,
@@ -1220,7 +1221,7 @@ impl MetricsState {
         #[cfg(feature = "daemon")]
         let incidents_archive_failed_total = IntCounter::new(
             "perf_sentinel_incidents_archive_failed_total",
-            "Incident deliveries whose archive append failed",
+            "Incident records the archive writer dropped or failed to write",
         )
         .expect("metric creation should not fail");
         #[cfg(feature = "daemon")]

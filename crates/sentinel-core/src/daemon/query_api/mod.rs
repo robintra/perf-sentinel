@@ -92,6 +92,13 @@ pub struct QueryApiState {
     /// Recorded incidents. `None` when `[daemon.incidents] enabled =
     /// false`, in which case both incident routes return 503.
     pub incident_store: Option<Arc<super::incidents::IncidentStore>>,
+    /// Sender of the incident archive writer, `None` without
+    /// `[daemon.incidents] archive_path`. Opened at startup so a bad path
+    /// fails the daemon, not the first incident.
+    pub incident_archive: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+    /// Bound on settle passes in flight, so an alert storm cannot park an
+    /// unbounded number of tasks each holding this state.
+    pub settle_permits: Arc<tokio::sync::Semaphore>,
     /// Optional API key for ack `POST` / `DELETE`. `None` means no auth
     /// (the documented loopback-only deployment), `Some(key)` enforces
     /// constant-time `X-API-Key` comparison.
@@ -175,8 +182,8 @@ struct FindingsParams {
     /// Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
     since_ms: Option<u64>,
     /// Upper bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
-    /// With `since_ms` it closes a window, which folds differently from a
-    /// one-sided delta, see `docs/QUERY-API.md`.
+    /// Present, it makes the listing a window from `since_ms` or the start
+    /// of the buffer, folded over the window alone, see `docs/QUERY-API.md`.
     until_ms: Option<u64>,
     limit: Option<usize>,
     /// Default `false`: filter out findings that are acked (CI TOML
@@ -1096,35 +1103,45 @@ fn resolve_by(headers: &HeaderMap, body_by: Option<&str>) -> String {
 
 /// Incidents one listing returns at most. Each carries up to
 /// `MAX_FINDINGS_LIMIT` frozen findings, so this is the response cap
-/// the other listings get from `MAX_ACKS_RESPONSE` and friends.
+/// the other listings get from `MAX_ACKS_RESPONSE` and friends. Older
+/// incidents are reached with `offset`.
 const MAX_INCIDENTS_RESPONSE: usize = 100;
+
+/// Alerts one delivery may carry. Alertmanager groups tens, and each new
+/// one costs a fold of the findings ring, so a key holder cannot turn one
+/// request into an unbounded scan.
+const MAX_ALERTS_PER_DELIVERY: usize = 1000;
+
+/// Settle passes allowed in flight at once. Past it the first capture
+/// stands alone, which is what happens on a late delivery anyway.
+pub const MAX_SETTLES_IN_FLIGHT: usize = 64;
 
 /// How long after an incident its window keeps filling, in trace TTLs.
 ///
 /// `stored_at_ms` is stamped at analysis, which happens once a trace has
 /// aged out of the window: one TTL after its last span, plus up to half
-/// a TTL of evict tick. The traces live at the incident, the ones a
-/// post-mortem wants most, are therefore stamped after `at_ms`, and a
-/// window closed there would miss them. Two TTLs covers the worst case
-/// with the analysis queue's own latency.
+/// a TTL of evict tick (`evict_ms = trace_ttl_ms / 2` in `daemon/mod.rs`,
+/// which this constant assumes). The traces live at the incident are
+/// therefore stamped after `at_ms`, and a window closed there would miss
+/// them. Two TTLs covers that with the analysis queue's own latency.
 const SETTLE_TTLS: u64 = 2;
 
-/// Upper bound on how long the settle pass waits, so a `startsAt` in the
-/// future or a drifting clock cannot park a task for hours.
-const MAX_SETTLE_DELAY_MS: u64 = 10 * 60 * 1_000;
-
 /// What one webhook delivery did, so a misconfigured `service_label`
-/// shows up as a body rather than as silence.
+/// shows up as a body rather than as silence. `recorded` counts new
+/// incidents, `repeated` deliveries of a known one, closing or not.
 #[derive(Debug, Serialize)]
 struct IncidentIntake {
     recorded: usize,
+    repeated: usize,
     rejected_no_service: usize,
     rejected_unparsable_time: usize,
+    rejected_overflow: usize,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct IncidentsParams {
     service: Option<String>,
+    offset: Option<usize>,
     limit: Option<usize>,
 }
 
@@ -1151,9 +1168,7 @@ fn window_end_ms(state: &QueryApiState, at_ms: u64) -> u64 {
 ///
 /// Both bounds, so the fold runs over the window alone and `seen_count`
 /// describes it. The oldest stamp is read under the same guard as the
-/// fold, because it is what tells a short answer from an incomplete one
-/// and an eviction between two reads would let it vouch for more than
-/// was captured.
+/// fold, because it is what tells a short answer from an incomplete one.
 async fn freeze_window(
     state: &QueryApiState,
     req: &super::incidents::IncidentRequest,
@@ -1174,7 +1189,7 @@ async fn freeze_window(
         .query_coalesced_with_oldest(&filter)
         .await;
     super::incidents::Incident {
-        id: super::incidents::Incident::compute_id(&req.service, req.kind, req.at_ms),
+        id: req.id.clone(),
         service: req.service.clone(),
         kind: req.kind,
         at_ms: req.at_ms,
@@ -1187,71 +1202,57 @@ async fn freeze_window(
     }
 }
 
-/// Append serialized incident lines, once per delivery and off the
-/// reactor.
-///
-/// A failed append never fails the webhook: Alertmanager would retry an
-/// incident the ring has already recorded, and the ring is the answer
-/// the operator reads. Durability is what was lost, not the incident.
-async fn archive_lines(state: &QueryApiState, lines: Vec<Vec<u8>>) {
-    let Some(path) = &state.daemon_config.incidents.archive_path else {
+/// Hand one record to the archive writer, when there is one. The
+/// serialization is paid only then, and the hand-off is synchronous, so
+/// a handler dropped by a timeout has already delivered what it recorded.
+fn archive_record(state: &QueryApiState, incident: &super::incidents::Incident) {
+    let Some(tx) = &state.incident_archive else {
         return;
     };
-    if lines.is_empty() {
-        return;
-    }
-    let path = std::path::PathBuf::from(path);
-    let written =
-        tokio::task::spawn_blocking(move || super::incidents::append_lines(&path, &lines)).await;
-    let error = match written {
-        Ok(Ok(())) => return,
-        Ok(Err(error)) => error,
-        Err(join) => std::io::Error::other(join),
-    };
-    state.metrics.incidents_archive_failed_total.inc();
-    tracing::warn!(%error, "Incident archive append failed, the ring still holds it");
-}
-
-/// One serialized line, or a counted failure. Serializing on the reactor
-/// is CPU only and lets the archive task move bytes instead of a clone
-/// of every frozen finding.
-fn serialize_line(state: &QueryApiState, incident: &super::incidents::Incident) -> Option<Vec<u8>> {
     match serde_json::to_vec(incident) {
-        Ok(line) => Some(line),
-        Err(error) => {
-            state.metrics.incidents_archive_failed_total.inc();
-            tracing::warn!(%error, "Incident could not be serialized for the archive");
-            None
-        }
+        Ok(line) => super::incidents::try_send(tx, line, &state.metrics),
+        Err(error) => tracing::warn!(%error, "Incident could not be serialized for the archive"),
     }
 }
 
-/// Re-resolve the window once the traces live at the incident have been
-/// analysed, and take the result only if it is not shorter.
+/// Re-resolve each new incident's window once the traces live at it have
+/// been analysed, and merge the result into the record.
 ///
-/// The first freeze runs at reception, which is usually within a minute
-/// of `at_ms`, before those traces have aged out of the window. This
-/// pass runs one TTL after the window closes, not at the close: a stamp
-/// lands at analysis, which is asynchronous to eviction, so reading at
-/// the boundary would race the very findings the pass exists to catch.
-/// The guard in `refresh` keeps an eviction in between from degrading
-/// the record.
-fn schedule_settle(state: Arc<QueryApiState>, req: super::incidents::IncidentRequest) {
-    let due = window_end_ms(&state, req.at_ms).saturating_add(state.daemon_config.trace_ttl_ms);
-    let now = super::event_loop::current_time_ms();
-    if due <= now {
+/// One task per delivery, not per alert, sleeping until one TTL after the
+/// latest window closes: a stamp lands at analysis, which is asynchronous
+/// to eviction, so reading at the close would race the very findings the
+/// pass exists to catch. `at_ms` is clamped to now for the arithmetic, so
+/// a `startsAt` in the future cannot park the task, and the wait is
+/// bounded by three TTLs of operator config.
+fn schedule_settle(state: Arc<QueryApiState>, reqs: Vec<super::incidents::IncidentRequest>) {
+    let Some(latest_at) = reqs.iter().map(|r| r.at_ms).max() else {
         return;
-    }
-    let delay = due.saturating_sub(now).min(MAX_SETTLE_DELAY_MS);
+    };
+    let now = super::event_loop::current_time_ms();
+    let ttl = state.daemon_config.trace_ttl_ms;
+    let due = window_end_ms(&state, latest_at.min(now)).saturating_add(ttl);
+    let Ok(permit) = Arc::clone(&state.settle_permits).try_acquire_owned() else {
+        tracing::warn!(
+            incidents = reqs.len(),
+            "Settle passes in flight at the cap, these incidents keep their first capture"
+        );
+        return;
+    };
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        let _permit = permit;
+        tokio::time::sleep(std::time::Duration::from_millis(due.saturating_sub(now))).await;
         let Some(store) = state.incident_store.as_ref() else {
             return;
         };
-        let settled = freeze_window(&state, &req).await;
-        if let Some(stored) = store.refresh(settled).await {
-            let lines = serialize_line(&state, &stored).into_iter().collect();
-            archive_lines(&state, lines).await;
+        for req in reqs {
+            // Evicted since: the fold would be paid for nothing.
+            if !store.contains(&req.id).await {
+                continue;
+            }
+            let settled = freeze_window(&state, &req).await;
+            if let Some(merged) = store.merge(settled).await {
+                archive_record(&state, &merged);
+            }
         }
     });
 }
@@ -1261,8 +1262,7 @@ fn schedule_settle(state: Arc<QueryApiState>, req: super::incidents::IncidentReq
 /// One delivery carries several alerts, and one bad alert must not lose
 /// the others, so each is counted rather than failing the request. A
 /// 2xx is also what Alertmanager needs to stop retrying. A repeat of a
-/// known incident never re-freezes: the window is fixed and the ring
-/// only evicts, so it could only lose. What a repeat may add is an end.
+/// known incident never re-freezes, it can only close it.
 async fn handle_post_incidents(
     State(state): State<Arc<QueryApiState>>,
     headers: HeaderMap,
@@ -1272,11 +1272,13 @@ async fn handle_post_incidents(
     let cfg = &state.daemon_config.incidents;
     let mut intake = IncidentIntake {
         recorded: 0,
+        repeated: 0,
         rejected_no_service: 0,
         rejected_unparsable_time: 0,
+        rejected_overflow: body.alerts.len().saturating_sub(MAX_ALERTS_PER_DELIVERY),
     };
-    let mut lines = Vec::new();
-    for alert in &body.alerts {
+    let mut settles = Vec::new();
+    for alert in body.alerts.iter().take(MAX_ALERTS_PER_DELIVERY) {
         let req = match super::incidents::read_alert(alert, &cfg.service_label, &cfg.kind_label) {
             Ok(req) => req,
             Err(super::incidents::RejectedAlert::NoService) => {
@@ -1288,27 +1290,38 @@ async fn handle_post_incidents(
                 continue;
             }
         };
-        intake.recorded += 1;
-        let id = super::incidents::Incident::compute_id(&req.service, req.kind, req.at_ms);
-        if store.contains(&id).await {
-            if let Some(ended) = req.ended_at_ms
-                && let Some(closed) = store.close(&id, ended).await
-            {
-                lines.extend(serialize_line(&state, &closed));
+        // Cheap path for the common repeat, before paying a fold. `record`
+        // below is the authoritative gate for the race two deliveries of
+        // one new alert can run.
+        let known = store.contains(&req.id).await;
+        if !known {
+            let incident = freeze_window(&state, &req).await;
+            let line = state
+                .incident_archive
+                .as_ref()
+                .and_then(|_| serde_json::to_vec(&incident).ok());
+            if store.record(incident).await {
+                intake.recorded += 1;
+                state
+                    .metrics
+                    .incidents_total
+                    .with_label_values(&[req.kind.as_str()])
+                    .inc();
+                if let (Some(tx), Some(line)) = (&state.incident_archive, line) {
+                    super::incidents::try_send(tx, line, &state.metrics);
+                }
+                settles.push(req);
+                continue;
             }
-            continue;
         }
-        let incident = freeze_window(&state, &req).await;
-        lines.extend(serialize_line(&state, &incident));
-        if store.record(incident).await {
-            state
-                .metrics
-                .incidents_total
-                .with_label_values(&[req.kind.as_str()])
-                .inc();
-            schedule_settle(Arc::clone(&state), req);
+        intake.repeated += 1;
+        if let Some(ended) = req.ended_at_ms
+            && let Some(closed) = store.close(&req.id, ended).await
+        {
+            archive_record(&state, &closed);
         }
     }
+    schedule_settle(Arc::clone(&state), settles);
     if intake.rejected_no_service > 0 {
         tracing::warn!(
             rejected = intake.rejected_no_service,
@@ -1322,7 +1335,13 @@ async fn handle_post_incidents(
             "Incident alerts carried a startsAt that is not RFC 3339 and were refused"
         );
     }
-    archive_lines(&state, lines).await;
+    if intake.rejected_overflow > 0 {
+        tracing::warn!(
+            rejected = intake.rejected_overflow,
+            cap = MAX_ALERTS_PER_DELIVERY,
+            "Incident delivery exceeded the per-delivery alert cap"
+        );
+    }
     Ok(Json(intake))
 }
 
@@ -1333,7 +1352,10 @@ async fn handle_list_incidents(
 ) -> Result<Json<Vec<super::incidents::Incident>>, ErrorResponse> {
     let store = check_incident_preconditions(&state, &headers)?;
     let limit = params.limit.unwrap_or(50).min(MAX_INCIDENTS_RESPONSE);
-    Ok(Json(store.list(params.service.as_deref(), limit).await))
+    let offset = params.offset.unwrap_or(0);
+    Ok(Json(
+        store.list(params.service.as_deref(), offset, limit).await,
+    ))
 }
 
 /// Validate the optional `X-API-Key` header against the configured

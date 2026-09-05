@@ -405,9 +405,9 @@ pub struct DaemonIncidentsConfig {
     /// Whether `POST /api/incidents` and `GET /api/incidents` exist at
     /// all. Default `false`: an inbound write surface is opt-in.
     pub enabled: bool,
-    /// Shared secret for `POST`, compared in constant time against
-    /// `X-API-Key`. Enabling without one is a config error rather than a
-    /// warning, because the route writes.
+    /// Shared secret for `POST` and `GET`, compared in constant time
+    /// against `X-API-Key`. Enabling without one is a config error rather
+    /// than a warning, because the route writes.
     pub api_key: Option<String>,
     /// How far back of findings a posted incident freezes, in
     /// milliseconds. Default 300000, five minutes.
@@ -423,10 +423,11 @@ pub struct DaemonIncidentsConfig {
     /// `perf_sentinel_kind`. Anything else is `other`, deliberately not
     /// guessed from `alertname`.
     pub kind_label: String,
-    /// Optional newline-delimited JSON file every accepted delivery is
-    /// appended to. Absent means the ring is the only record, and the
-    /// ring dies with the daemon, which a node-level memory event often
-    /// takes down along with the service it killed.
+    /// Optional newline-delimited JSON file every new incident, close and
+    /// settle is appended to, opened at startup. Absent means the ring is
+    /// the only record, and the ring dies with the daemon, which a
+    /// node-level memory event often takes down along with the service
+    /// it killed.
     pub archive_path: Option<String>,
 }
 

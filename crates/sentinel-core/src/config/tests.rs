@@ -4225,3 +4225,93 @@ fn grouping_attributes_past_the_cap_are_dropped_in_order() {
         .collect();
     assert_eq!(config.detection.grouping_attributes, expected);
 }
+
+#[test]
+fn validate_daemon_incidents_requires_a_key_when_enabled() {
+    let toml = "
+[daemon.incidents]
+enabled = true
+";
+    let msg = format!("{}", load_from_str(toml).unwrap_err());
+    assert!(msg.contains("requires an api_key"), "{msg}");
+    assert!(
+        !msg.contains("  set it"),
+        "the message is one line, not a lost continuation: {msg}"
+    );
+}
+
+#[test]
+fn validate_daemon_incidents_bounds_the_ring_and_the_lookback() {
+    let over = "
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+max_retained = 1001
+";
+    let msg = format!("{}", load_from_str(over).unwrap_err());
+    assert!(msg.contains("max_retained must be <= 1000"), "{msg}");
+
+    let short = "
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+lookback_ms = 999
+";
+    let msg = format!("{}", load_from_str(short).unwrap_err());
+    assert!(msg.contains("lookback_ms must be >= 1000"), "{msg}");
+}
+
+#[test]
+fn validate_daemon_incidents_refuses_control_characters_in_labels_and_path() {
+    let bad_label = "
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+service_label = \"svc\\u0007\"
+";
+    let msg = format!("{}", load_from_str(bad_label).unwrap_err());
+    assert!(
+        msg.contains("service_label contains control characters"),
+        "{msg}"
+    );
+
+    let empty_path = "
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+archive_path = \"\"
+";
+    let msg = format!("{}", load_from_str(empty_path).unwrap_err());
+    assert!(msg.contains("archive_path must not be empty"), "{msg}");
+}
+
+#[test]
+fn validate_daemon_incidents_is_silent_when_disabled_and_accepts_a_full_section() {
+    let disabled = "
+[daemon.incidents]
+enabled = false
+max_retained = 99999
+";
+    assert!(
+        load_from_str(disabled).is_ok(),
+        "a disabled section is not validated"
+    );
+
+    let full = "
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+lookback_ms = 60000
+max_retained = 50
+service_label = \"app\"
+kind_label = \"kind\"
+archive_path = \"/var/lib/perf-sentinel/incidents.ndjson\"
+";
+    let cfg = load_from_str(full).unwrap();
+    assert_eq!(cfg.daemon.incidents.max_retained, 50);
+    assert_eq!(cfg.daemon.incidents.service_label, "app");
+    assert_eq!(
+        cfg.daemon.incidents.archive_path.as_deref(),
+        Some("/var/lib/perf-sentinel/incidents.ndjson")
+    );
+}
