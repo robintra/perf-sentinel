@@ -1670,11 +1670,11 @@ fn incident_summary_row(inc: &IncidentSlim) -> String {
         |e| format!("ended {}", fmt_local_time(e)),
     );
     format!(
-        "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended} \u{00b7} {} findings \u{00b7} capture {}",
+        "{} \u{00b7} {} \u{00b7} {} \u{00b7} {ended} \u{00b7} {} \u{00b7} capture {}",
         fmt_local_time(inc.at_ms),
         truncate_cell(&inc.service, 24),
         truncate_cell(&inc.kind, 17),
-        inc.findings.len(),
+        crate::query::finding_count_label(inc.findings.len()),
         inc.capture_marker()
     )
 }
