@@ -163,3 +163,10 @@ v0.20.0	c3854bd	2026-09-05	PASS
 # intake: incident-window-capture rerun with its two namespace legs (the label
 # kept on the record, the read-key filter), against the local release binary.
 v0.20.0	c7fbca7	2026-09-05	PASS
+# v0.20.1 targeted pass on the scope the patch touches rather than the full
+# suite: hub-incidents-mirror end to end against a local binary carrying the
+# archive permission fix, 13 verdicts over its six legs. The daemon was first
+# put back into the failure the release repairs, an incident archive left at
+# mode 660 by an fsGroup mount, and it came up on its own with the file back
+# at 0600 where 0.20.0 stayed in CrashLoopBackOff on the same state.
+v0.20.1	dadd839	2026-09-05	PASS

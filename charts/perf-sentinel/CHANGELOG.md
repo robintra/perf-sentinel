@@ -10,6 +10,22 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.20.1]
+
+### Fixed
+
+- **`appVersion` moves to `0.20.1`.** The daemon it ships no longer refuses to
+  start when the incident archive on a persistent volume comes back with a
+  group bit. Mounting a volume under an `fsGroup` adds `g+rw` to the files
+  already on it, and this chart's default `podSecurityContext` carries
+  `fsGroup: 65534`, so a daemon that had captured incidents met a mode it
+  rejected on its next start and stayed in `CrashLoopBackOff` with nothing but
+  a manual `chmod` to get it out. It now chmods an archive it owns back to
+  `0600` and still refuses one owned by another user. The per-window analysis
+  archive and what it rotates into are also created `0600` rather than at the
+  container umask, which left them world-readable at `0644`. No `values.yaml`
+  key is added or removed, no template changes, no shipped alert changes.
+
 ## [0.20.0]
 
 ### Changed

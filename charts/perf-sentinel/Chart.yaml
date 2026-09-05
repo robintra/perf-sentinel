@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.20.0
-appVersion: "0.20.0"
+version: 0.20.1
+appVersion: "0.20.1"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,13 +36,11 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: changed
-      description: "appVersion 0.20.0. The daemon it ships accepts Alertmanager webhooks on POST /api/incidents behind the opt-in [daemon.incidents] section, freezes the findings of the window before a restart or a memory event, and lists them on GET /api/incidents, each carrying the alert's namespace label when it had one and filterable on it. A new [daemon] read_api_key opens GET /api/acks and GET /api/incidents without the power to write, the key to give Grafana and the Hub, and the environment overrides now apply without a mounted config too. The values.yaml TOML gains commented guidance for both, and its ingress comment no longer claims the shared key leaves every read open. No values.yaml key is added or removed, no template changes, no shipped alert changes."
-    - kind: added
-      description: "Four metrics: perf_sentinel_incidents_total by kind, perf_sentinel_incidents_rejected_total by reason, perf_sentinel_incidents_archive_failed_total, and perf_sentinel_service_last_span_timestamp_seconds per service, the Unix stamp of the last span admitted so time() minus the gauge is an age that survives a daemon restart. The overview dashboard grows to 30 panels and the findings dashboard on the query API gains two incident tables, with a Namespace column, behind a datasource carrying the read key. Three keys come from Secrets through extraEnvFrom, PERF_SENTINEL_ACK_API_KEY, PERF_SENTINEL_INCIDENTS_API_KEY and PERF_SENTINEL_READ_API_KEY, and an enabled [daemon.incidents] without its key stops the daemon at startup, so create the Secret first."
+    - kind: fixed
+      description: "appVersion 0.20.1. The daemon it ships no longer refuses to start when the incident archive on a persistent volume comes back with a group bit. Mounting a volume under an fsGroup adds g+rw to the files already on it, and this chart sets fsGroup 65534 by default, so a daemon that had captured incidents met a mode it rejected on its next start and stayed in CrashLoopBackOff with no way out but a manual chmod. It now chmods an archive it owns back to 0600 and still refuses one owned by another user. The per-window analysis archive and what it rotates into are also created 0600 instead of at the container umask, which left them world-readable at 0644. No values.yaml key is added or removed, no template changes, no shipped alert changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.20.0
+      image: ghcr.io/robintra/perf-sentinel:0.20.1
       platforms:
         - linux/amd64
         - linux/arm64
