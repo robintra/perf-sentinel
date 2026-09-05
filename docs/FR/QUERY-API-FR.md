@@ -982,8 +982,9 @@ peut encore répondre. Voir [RUNBOOK-FR.md](RUNBOOK-FR.md).
 **Le ring est en mémoire et meurt avec le daemon.** Un événement mémoire
 au niveau du nœud qui tue le service observé emporte souvent un daemon
 colocalisé, donc l'incident qui expliquerait la panne peut être détruit
-par la panne. Collectez cet endpoint si l'enregistrement doit survivre au
-nœud.
+par la panne. Posez `[daemon.incidents] archive_path` pour ajouter chaque
+livraison acceptée à un fichier JSON par lignes, ou collectez cet
+endpoint, si l'enregistrement doit survivre au nœud.
 
 ### Interop TOML et JSONL
 
