@@ -133,6 +133,33 @@ fn matches_service_and_type(sf: &StoredFinding, filter: &FindingsFilter) -> bool
     true
 }
 
+/// Both bounds on one instance's stamp, inclusive. The cheapest and most
+/// selective screen, so it runs first on the unfolded path.
+fn in_time_bounds(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
+    filter.since_ms.is_none_or(|s| sf.stored_at_ms >= s)
+        && filter.until_ms.is_none_or(|u| sf.stored_at_ms <= u)
+}
+
+/// The fold under an already held read guard, see
+/// [`FindingsStore::query_coalesced`] for the two time shapes.
+fn coalesce_locked(buf: &VecDeque<StoredFinding>, filter: &FindingsFilter) -> Vec<StoredFinding> {
+    let window = filter.until_ms.map(|to| (filter.since_ms.unwrap_or(0), to));
+    let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
+        matches_service_and_type(sf, filter)
+            && window.is_none_or(|(from, to)| sf.stored_at_ms >= from && sf.stored_at_ms <= to)
+    }));
+    if let Some(ref sev) = filter.severity {
+        folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
+    }
+    if window.is_none()
+        && let Some(since) = filter.since_ms
+    {
+        folded.retain(|sf| sf.stored_at_ms >= since);
+    }
+    folded.truncate(filter.limit);
+    folded
+}
+
 /// Query filter for the findings store.
 /// `#[non_exhaustive]` so a future field stays a minor bump rather than
 /// a breaking change: external crates cannot construct it with a
@@ -241,25 +268,12 @@ impl FindingsStore {
         buf.iter()
             .rev()
             .filter(|sf| {
-                if !matches_service_and_type(sf, filter) {
-                    return false;
-                }
-                if let Some(ref sev) = filter.severity
-                    && sf.finding.severity.as_str() != sev.as_str()
-                {
-                    return false;
-                }
-                if let Some(since) = filter.since_ms
-                    && sf.stored_at_ms < since
-                {
-                    return false;
-                }
-                if let Some(until) = filter.until_ms
-                    && sf.stored_at_ms > until
-                {
-                    return false;
-                }
-                true
+                in_time_bounds(sf, filter)
+                    && matches_service_and_type(sf, filter)
+                    && filter
+                        .severity
+                        .as_ref()
+                        .is_none_or(|sev| sf.finding.severity.as_str() == sev.as_str())
             })
             .take(limit)
             .cloned()
@@ -271,50 +285,34 @@ impl FindingsStore {
     ///
     /// The limit lands after the fold on purpose: applied before, a
     /// pattern recurring on 100 traces would consume the whole page and
-    /// hide every other problem behind it. The fold runs straight off
-    /// the buffer, so the read lock is held for one pass and only one
-    /// entry per distinct signature is cloned, not the whole buffer.
+    /// hide every other problem behind it. Severity is filtered after the
+    /// fold too, against the group's worst, so `?severity=critical` cannot
+    /// report the same problem with a different `seen_count`.
     ///
-    /// Severity is filtered AFTER folding, against the group's worst:
-    /// applied to instances first, `?severity=critical` would report the
-    /// same problem with a different `seen_count` than an unfiltered
-    /// call. Service and finding type are invariant within a signature,
-    /// so they filter during the pass; namespace is part of the fold key.
-    ///
-    /// A single bound, `since_ms` or `until_ms`, lands after the fold for
-    /// the same reason, against the group's most recent detection. A delta
-    /// poller passing one bound must not see a row's history move with it.
-    ///
-    /// Both bounds is the opposite query and screens during the buffer
-    /// pass instead. After the fold `first_seen_ms` is the group's global
-    /// minimum, so an upper bound applied there would select every group
-    /// whose lifetime envelope overlaps the window, and a chronic pattern
-    /// would match every window ever asked for. Inside a window
-    /// `first_seen_ms` and `seen_count` therefore describe the window,
-    /// which is what a post-mortem asks for.
+    /// Two time shapes. `until_ms` makes it a window, `[since_ms, until_ms]`
+    /// with `since_ms` defaulting to the start of the buffer, screened
+    /// during the buffer pass so `first_seen_ms` and `seen_count` describe
+    /// the window: after the fold a group's stamp is its most recent
+    /// detection, and an upper bound applied there would keep only the
+    /// groups that had gone quiet by then. `since_ms` alone is a delta
+    /// poll, applied after the fold against that most recent detection,
+    /// so a row's history stays whole however the bound moves.
     pub async fn query_coalesced(&self, filter: &FindingsFilter) -> Vec<StoredFinding> {
-        let window = filter.since_ms.zip(filter.until_ms);
         let buf = self.inner.read().await;
-        let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
-            matches_service_and_type(sf, filter)
-                && window.is_none_or(|(from, to)| sf.stored_at_ms >= from && sf.stored_at_ms <= to)
-        }));
-        drop(buf);
-        if let Some(ref sev) = filter.severity {
-            folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
-        }
-        if window.is_none()
-            && let Some(since) = filter.since_ms
-        {
-            folded.retain(|sf| sf.stored_at_ms >= since);
-        }
-        if window.is_none()
-            && let Some(until) = filter.until_ms
-        {
-            folded.retain(|sf| sf.stored_at_ms <= until);
-        }
-        folded.truncate(filter.limit);
-        folded
+        coalesce_locked(&buf, filter)
+    }
+
+    /// [`Self::query_coalesced`] plus the ring's oldest stamp, read under
+    /// the same guard, so the completeness marker describes the very pass
+    /// that produced the rows and an eviction in between cannot make it
+    /// vouch for more than was captured.
+    pub async fn query_coalesced_with_oldest(
+        &self,
+        filter: &FindingsFilter,
+    ) -> (Vec<StoredFinding>, Option<u64>) {
+        let buf = self.inner.read().await;
+        let oldest = buf.front().map(|sf| sf.stored_at_ms);
+        (coalesce_locked(&buf, filter), oldest)
     }
 
     /// Detection time of the oldest retained finding, `None` when the
@@ -682,9 +680,14 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        assert!(
-            before.is_empty(),
-            "an upper bound alone screens the group's most recent detection"
+        assert_eq!(
+            before.len(),
+            1,
+            "an upper bound alone is a window from the start"
+        );
+        assert_eq!(
+            before[0].seen_count, 1,
+            "and it does not report the detection that came after it"
         );
 
         let raw = store

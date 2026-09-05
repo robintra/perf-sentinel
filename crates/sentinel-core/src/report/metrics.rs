@@ -436,25 +436,10 @@ pub struct MetricsState {
     /// to 0 on every successful scrape. The label set is the five
     /// compile-time backend names, so cardinality stays bounded.
     pub energy_backend_configured: GaugeVec,
-    /// Unix timestamp of the last span the daemon received for a service.
-    ///
-    /// A timestamp rather than an age, on the `process_start_time_seconds`
-    /// convention: `time() - gauge` is the age, and a scrape gap cannot
-    /// make it lie. It answers "when did we last hear from this service",
-    /// which is what a post-mortem needs to place an incident against the
-    /// findings of its window, and which a monotonic counter cannot give
-    /// once it stops advancing.
-    ///
-    /// It is a traffic signal, not a liveness one: a crash, a scale to
-    /// zero, a rolling deploy and a quiet cron all read the same. It is
-    /// also post-sampling, so a low-rate service under `sampling_rate < 1`
-    /// can read stale while healthy.
-    ///
-    /// Cardinality rides on the existing service cap: a series exists only
-    /// for a service `CappedServices` admitted. No series is ever removed,
-    /// so a permanently dead service keeps a frozen timestamp, which reads
-    /// as an ever-growing age. That is the correct answer, and inventing a
-    /// removal lifecycle here would be the wrong place for it.
+    /// Unix timestamp of the last span received for a service, a traffic
+    /// signal rather than a liveness one. Cardinality rides on the service
+    /// cap and no series is ever removed, so a dead service keeps a frozen
+    /// stamp that reads as a growing age, which is the correct answer.
     pub service_last_span_timestamp_seconds: GaugeVec,
     /// Cumulative I/O waste ratio since daemon start.
     /// Use Prometheus `rate()` on `total_io_ops` and `avoidable_io_ops` for windowed ratios.
@@ -650,6 +635,16 @@ pub struct MetricsState {
     /// request with aggregated counts (not per span), so no hot-path
     /// child caching is needed.
     pub otlp_spans_filtered_total: IntCounterVec,
+    /// Incidents recorded through `POST /api/incidents`, by kind. No
+    /// `service` label: a POST body is caller-controlled, where the
+    /// sanctioned exception covers services that came through the capped
+    /// ingest meters. Pre-warmed at zero for the five kinds.
+    #[cfg(feature = "daemon")]
+    pub incidents_total: IntCounterVec,
+    /// Incident deliveries the archive append refused. The incident is
+    /// still in the ring, so this counts durability lost, not data lost.
+    #[cfg(feature = "daemon")]
+    pub incidents_archive_failed_total: IntCounter,
     /// Successful ack and unack operations on the daemon HTTP API,
     /// labeled by `action` (`ack` or `unack`). Pre-warmed to 0 for
     /// both actions at startup so dashboards plot zero-values before
@@ -657,19 +652,6 @@ pub struct MetricsState {
     /// `IntCounter` fields below cache the labeled children for the
     /// hot path.
     #[cfg(feature = "daemon")]
-    /// Incidents recorded through `POST /api/incidents`, by kind.
-    ///
-    /// No `service` label: the sanctioned high-cardinality exception
-    /// covers services that came through the capped ingest meters, and a
-    /// POST body is caller-controlled and unbounded. The five kinds are
-    /// a compile-time set, pre-warmed at zero so a dashboard reads
-    /// "none yet" rather than a scrape failure.
-    #[cfg(feature = "daemon")]
-    pub incidents_total: IntCounterVec,
-    /// Incident deliveries the archive append refused. The incident is
-    /// still in the ring, so this counts durability lost, not data lost.
-    #[cfg(feature = "daemon")]
-    pub incidents_archive_failed_total: IntCounter,
     pub ack_operations_total: IntCounterVec,
     /// Failed ack and unack operations on the daemon HTTP API, labeled
     /// by `action` and `reason`. Pre-warmed to 0 for the 13 documented
@@ -1225,7 +1207,6 @@ impl MetricsState {
         }
 
         #[cfg(feature = "daemon")]
-        #[cfg(feature = "daemon")]
         let incidents_total = register_int_counter_vec(
             &registry,
             "perf_sentinel_incidents_total",
@@ -1246,6 +1227,7 @@ impl MetricsState {
         registry
             .register(Box::new(incidents_archive_failed_total.clone()))
             .expect("metric registration should not fail");
+        #[cfg(feature = "daemon")]
         let ack_operations_total = register_int_counter_vec(
             &registry,
             "perf_sentinel_ack_operations_total",
@@ -1462,10 +1444,10 @@ impl MetricsState {
             otlp_spans_received_total,
             otlp_spans_filtered_total,
             #[cfg(feature = "daemon")]
-            #[cfg(feature = "daemon")]
             incidents_total,
             #[cfg(feature = "daemon")]
             incidents_archive_failed_total,
+            #[cfg(feature = "daemon")]
             ack_operations_total,
             #[cfg(feature = "daemon")]
             ack_operations_failed_total,

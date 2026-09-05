@@ -100,12 +100,18 @@ pub fn spawn(
 }
 
 fn refuse_symlink(path: &Path) -> Result<(), ArchiveError> {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => Err(ArchiveError::SymlinkRefused {
+    if is_symlink(path) {
+        return Err(ArchiveError::SymlinkRefused {
             path: path.display().to_string(),
-        }),
-        Ok(_) | Err(_) => Ok(()),
+        });
     }
+    Ok(())
+}
+
+/// Whether `path` is a symlink, without following it. Shared with the
+/// incident appender, which refuses the same thing under its own error.
+pub(super) fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
 fn open_append(path: &Path) -> Result<File, ArchiveError> {
@@ -124,7 +130,7 @@ fn open_append(path: &Path) -> Result<File, ArchiveError> {
 /// Keep a crash-truncated record from being joined to the next window.
 /// A complete JSON value that only missed its newline stays usable; a
 /// partial value becomes one malformed line that disclosure can skip.
-fn terminate_incomplete_line(file: &mut File) -> std::io::Result<()> {
+pub(super) fn terminate_incomplete_line(file: &mut File) -> std::io::Result<()> {
     let len = file.metadata()?.len();
     if len == 0 {
         return Ok(());

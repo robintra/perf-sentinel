@@ -272,7 +272,7 @@ struct StatusResponse {
     max_retained_findings: usize,
     /// Detection time of the oldest finding still in the ring, absent when
     /// it is empty. A window query returning nothing means "nothing fired"
-    /// only when the window starts at or after this; earlier than it, the
+    /// only when the window starts at or after this. Earlier than it, the
     /// ring simply no longer reaches back that far and the archive is the
     /// remaining route. Additive since 0.20.0.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1094,8 +1094,25 @@ fn resolve_by(headers: &HeaderMap, body_by: Option<&str>) -> String {
     crate::text_safety::strip_bidi_and_invisible(&raw).into_owned()
 }
 
-/// Validate the optional `X-API-Key` header against the configured
-/// secret using a constant-time comparison.
+/// Incidents one listing returns at most. Each carries up to
+/// `MAX_FINDINGS_LIMIT` frozen findings, so this is the response cap
+/// the other listings get from `MAX_ACKS_RESPONSE` and friends.
+const MAX_INCIDENTS_RESPONSE: usize = 100;
+
+/// How long after an incident its window keeps filling, in trace TTLs.
+///
+/// `stored_at_ms` is stamped at analysis, which happens once a trace has
+/// aged out of the window: one TTL after its last span, plus up to half
+/// a TTL of evict tick. The traces live at the incident, the ones a
+/// post-mortem wants most, are therefore stamped after `at_ms`, and a
+/// window closed there would miss them. Two TTLs covers the worst case
+/// with the analysis queue's own latency.
+const SETTLE_TTLS: u64 = 2;
+
+/// Upper bound on how long the settle pass waits, so a `startsAt` in the
+/// future or a drifting clock cannot park a task for hours.
+const MAX_SETTLE_DELAY_MS: u64 = 10 * 60 * 1_000;
+
 /// What one webhook delivery did, so a misconfigured `service_label`
 /// shows up as a body rather than as silence.
 #[derive(Debug, Serialize)]
@@ -1111,24 +1128,51 @@ struct IncidentsParams {
     limit: Option<usize>,
 }
 
+/// Auth, then the store, the shape `check_ack_preconditions` gives the
+/// ack routes. `POST` and `GET` share the key.
+fn check_incident_preconditions<'a>(
+    state: &'a QueryApiState,
+    headers: &HeaderMap,
+) -> Result<&'a Arc<super::incidents::IncidentStore>, ErrorResponse> {
+    check_ack_auth(headers, state.daemon_config.incidents.api_key.as_deref())?;
+    state.incident_store.as_ref().ok_or_else(|| {
+        ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "incident store disabled")
+    })
+}
+
+/// Where a request's window closes: past the incident by the settle
+/// margin, so the traces live at that moment land inside it once
+/// analysed.
+fn window_end_ms(state: &QueryApiState, at_ms: u64) -> u64 {
+    at_ms.saturating_add(state.daemon_config.trace_ttl_ms.saturating_mul(SETTLE_TTLS))
+}
+
 /// Freeze the findings of one incident's window.
 ///
 /// Both bounds, so the fold runs over the window alone and `seen_count`
-/// describes it. `oldest_finding_ms` rides along because a short answer
-/// has two causes and only that field tells them apart.
+/// describes it. The oldest stamp is read under the same guard as the
+/// fold, because it is what tells a short answer from an incomplete one
+/// and an eviction between two reads would let it vouch for more than
+/// was captured.
 async fn freeze_window(
     state: &QueryApiState,
     req: &super::incidents::IncidentRequest,
 ) -> super::incidents::Incident {
-    let lookback = state.daemon_config.incidents.lookback_ms;
-    let from = req.at_ms.saturating_sub(lookback);
+    let from = req
+        .at_ms
+        .saturating_sub(state.daemon_config.incidents.lookback_ms);
+    let to = window_end_ms(state, req.at_ms);
     let filter = FindingsFilter {
         service: Some(req.service.clone()),
         since_ms: Some(from),
-        until_ms: Some(req.at_ms),
+        until_ms: Some(to),
         limit: MAX_FINDINGS_LIMIT,
         ..Default::default()
     };
+    let (findings, oldest_finding_ms) = state
+        .findings_store
+        .query_coalesced_with_oldest(&filter)
+        .await;
     super::incidents::Incident {
         id: super::incidents::Incident::compute_id(&req.service, req.kind, req.at_ms),
         service: req.service.clone(),
@@ -1137,87 +1181,132 @@ async fn freeze_window(
         ended_at_ms: req.ended_at_ms,
         detail: req.detail.clone(),
         window_from_ms: from,
-        window_to_ms: req.at_ms,
-        oldest_finding_ms: state.findings_store.oldest_ms().await,
-        findings: state.findings_store.query_coalesced(&filter).await,
+        window_to_ms: to,
+        oldest_finding_ms,
+        findings,
     }
 }
 
-/// Append one incident to its archive, off the reactor.
+/// Append serialized incident lines, once per delivery and off the
+/// reactor.
 ///
 /// A failed append never fails the webhook: Alertmanager would retry an
 /// incident the ring has already recorded, and the ring is the answer
 /// the operator reads. Durability is what was lost, not the incident.
-async fn archive_incident(
-    state: &QueryApiState,
-    path: &str,
-    incident: &super::incidents::Incident,
-) {
+async fn archive_lines(state: &QueryApiState, lines: Vec<Vec<u8>>) {
+    let Some(path) = &state.daemon_config.incidents.archive_path else {
+        return;
+    };
+    if lines.is_empty() {
+        return;
+    }
     let path = std::path::PathBuf::from(path);
-    let incident = incident.clone();
     let written =
-        tokio::task::spawn_blocking(move || super::incidents::append_to_archive(&path, &incident))
-            .await;
-    match written {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            state.metrics.incidents_archive_failed_total.inc();
-            tracing::warn!(%error, "Incident archive append failed, the ring still holds it");
-        }
+        tokio::task::spawn_blocking(move || super::incidents::append_lines(&path, &lines)).await;
+    let error = match written {
+        Ok(Ok(())) => return,
+        Ok(Err(error)) => error,
+        Err(join) => std::io::Error::other(join),
+    };
+    state.metrics.incidents_archive_failed_total.inc();
+    tracing::warn!(%error, "Incident archive append failed, the ring still holds it");
+}
+
+/// One serialized line, or a counted failure. Serializing on the reactor
+/// is CPU only and lets the archive task move bytes instead of a clone
+/// of every frozen finding.
+fn serialize_line(state: &QueryApiState, incident: &super::incidents::Incident) -> Option<Vec<u8>> {
+    match serde_json::to_vec(incident) {
+        Ok(line) => Some(line),
         Err(error) => {
             state.metrics.incidents_archive_failed_total.inc();
-            tracing::warn!(%error, "Incident archive task failed, the ring still holds it");
+            tracing::warn!(%error, "Incident could not be serialized for the archive");
+            None
         }
     }
+}
+
+/// Re-resolve the window once the traces live at the incident have been
+/// analysed, and take the result only if it is not shorter.
+///
+/// The first freeze runs at reception, which is usually within a minute
+/// of `at_ms`, before those traces have aged out of the window. This
+/// pass runs one TTL after the window closes, not at the close: a stamp
+/// lands at analysis, which is asynchronous to eviction, so reading at
+/// the boundary would race the very findings the pass exists to catch.
+/// The guard in `refresh` keeps an eviction in between from degrading
+/// the record.
+fn schedule_settle(state: Arc<QueryApiState>, req: super::incidents::IncidentRequest) {
+    let due = window_end_ms(&state, req.at_ms).saturating_add(state.daemon_config.trace_ttl_ms);
+    let now = super::event_loop::current_time_ms();
+    if due <= now {
+        return;
+    }
+    let delay = due.saturating_sub(now).min(MAX_SETTLE_DELAY_MS);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        let Some(store) = state.incident_store.as_ref() else {
+            return;
+        };
+        let settled = freeze_window(&state, &req).await;
+        if let Some(stored) = store.refresh(settled).await {
+            let lines = serialize_line(&state, &stored).into_iter().collect();
+            archive_lines(&state, lines).await;
+        }
+    });
 }
 
 /// Receive an Alertmanager webhook delivery.
 ///
 /// One delivery carries several alerts, and one bad alert must not lose
 /// the others, so each is counted rather than failing the request. A
-/// 2xx is also what Alertmanager needs to stop retrying.
+/// 2xx is also what Alertmanager needs to stop retrying. A repeat of a
+/// known incident never re-freezes: the window is fixed and the ring
+/// only evicts, so it could only lose. What a repeat may add is an end.
 async fn handle_post_incidents(
     State(state): State<Arc<QueryApiState>>,
     headers: HeaderMap,
     Json(body): Json<super::incidents::Webhook>,
 ) -> Result<Json<IncidentIntake>, ErrorResponse> {
-    check_ack_auth(&headers, state.daemon_config.incidents.api_key.as_deref())?;
-    let Some(store) = state.incident_store.as_ref() else {
-        return Err(ErrorResponse::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "incident store disabled",
-        ));
-    };
+    let store = check_incident_preconditions(&state, &headers)?;
     let cfg = &state.daemon_config.incidents;
     let mut intake = IncidentIntake {
         recorded: 0,
         rejected_no_service: 0,
         rejected_unparsable_time: 0,
     };
+    let mut lines = Vec::new();
     for alert in &body.alerts {
-        match super::incidents::read_alert(alert, &cfg.service_label, &cfg.kind_label) {
-            Ok(req) => {
-                let incident = freeze_window(&state, &req).await;
-                // Counted only when it is a new incident: Alertmanager
-                // repeats a firing alert every `repeat_interval`, and a
-                // counter moving on every repeat would report an outage
-                // rate the fleet never had.
-                if let Some(path) = &cfg.archive_path {
-                    archive_incident(&state, path, &incident).await;
-                }
-                if store.record(incident).await {
-                    state
-                        .metrics
-                        .incidents_total
-                        .with_label_values(&[req.kind.as_str()])
-                        .inc();
-                }
-                intake.recorded += 1;
+        let req = match super::incidents::read_alert(alert, &cfg.service_label, &cfg.kind_label) {
+            Ok(req) => req,
+            Err(super::incidents::RejectedAlert::NoService) => {
+                intake.rejected_no_service += 1;
+                continue;
             }
-            Err(super::incidents::RejectedAlert::NoService) => intake.rejected_no_service += 1,
             Err(super::incidents::RejectedAlert::UnparsableTime) => {
                 intake.rejected_unparsable_time += 1;
+                continue;
             }
+        };
+        intake.recorded += 1;
+        let id = super::incidents::Incident::compute_id(&req.service, req.kind, req.at_ms);
+        if store.contains(&id).await {
+            if let Some(ended) = req.ended_at_ms
+                && let Some(closed) = store.close(&id, ended).await
+            {
+                lines.extend(serialize_line(&state, &closed));
+            }
+            continue;
+        }
+        let incident = freeze_window(&state, &req).await;
+        lines.extend(serialize_line(&state, &incident));
+        if store.record(incident).await {
+            state
+                .metrics
+                .incidents_total
+                .with_label_values(&[req.kind.as_str()])
+                .inc();
+            schedule_settle(Arc::clone(&state), req);
         }
     }
     if intake.rejected_no_service > 0 {
@@ -1227,6 +1316,13 @@ async fn handle_post_incidents(
             "Incident alerts carried no service label and were refused"
         );
     }
+    if intake.rejected_unparsable_time > 0 {
+        tracing::warn!(
+            rejected = intake.rejected_unparsable_time,
+            "Incident alerts carried a startsAt that is not RFC 3339 and were refused"
+        );
+    }
+    archive_lines(&state, lines).await;
     Ok(Json(intake))
 }
 
@@ -1235,20 +1331,13 @@ async fn handle_list_incidents(
     headers: HeaderMap,
     Query(params): Query<IncidentsParams>,
 ) -> Result<Json<Vec<super::incidents::Incident>>, ErrorResponse> {
-    check_ack_auth(&headers, state.daemon_config.incidents.api_key.as_deref())?;
-    let Some(store) = state.incident_store.as_ref() else {
-        return Err(ErrorResponse::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "incident store disabled",
-        ));
-    };
-    let limit = params
-        .limit
-        .unwrap_or(50)
-        .min(state.daemon_config.incidents.max_retained);
+    let store = check_incident_preconditions(&state, &headers)?;
+    let limit = params.limit.unwrap_or(50).min(MAX_INCIDENTS_RESPONSE);
     Ok(Json(store.list(params.service.as_deref(), limit).await))
 }
 
+/// Validate the optional `X-API-Key` header against the configured
+/// secret using a constant-time comparison.
 fn check_ack_auth(headers: &HeaderMap, expected: Option<&str>) -> Result<(), ErrorResponse> {
     use subtle::ConstantTimeEq;
     let Some(expected_key) = expected else {

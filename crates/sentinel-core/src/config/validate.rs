@@ -11,6 +11,36 @@ use crate::score::scaphandre::ScaphandreConfig;
 
 use super::{Config, RESERVED_DISCLOSE_OUTPUT_PATH_VERSION};
 
+/// The shared-secret floor for every write route on the daemon API.
+///
+/// Hard reject below 12: the threat model is a co-resident local attacker
+/// hitting the loopback API at line rate with no rate limiting, and
+/// 36^12 is past the brute-force horizon for any realistic deployment.
+/// 16 stays the recommended production floor, warned rather than refused.
+fn check_api_key(section: &str, key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err(format!("{section} api_key must not be empty"));
+    }
+    if has_control_char(key) {
+        return Err(format!("{section} api_key contains control characters"));
+    }
+    if key.len() < 12 {
+        return Err(format!(
+            "{section} api_key is too short ({} chars), \
+             use at least 12 characters (16 recommended)",
+            key.len()
+        ));
+    }
+    if key.len() < 16 {
+        tracing::warn!(
+            len = key.len(),
+            "{section} api_key is shorter than 16 characters, \
+             consider a longer secret to resist brute-force attempts"
+        );
+    }
+    Ok(())
+}
+
 fn check_range<T: PartialOrd + std::fmt::Display>(
     name: &str,
     val: &T,
@@ -529,32 +559,7 @@ impl Config {
     /// Validate `[daemon.ack]` settings.
     pub(super) fn validate_daemon_ack(&self) -> Result<(), String> {
         if let Some(key) = &self.daemon.ack.api_key {
-            if key.is_empty() {
-                return Err("[daemon.ack] api_key must not be empty".to_string());
-            }
-            if has_control_char(key) {
-                return Err("[daemon.ack] api_key contains control characters".to_string());
-            }
-            // Hard reject obviously-broken keys. The threat model is a
-            // co-resident local attacker hitting the loopback API at
-            // line rate, with no rate limiting on the daemon side.
-            // 36^12 ~= 4.7e18 is well past the brute-force horizon for
-            // any realistic deployment, 16+ remains the recommended
-            // floor for production.
-            if key.len() < 12 {
-                return Err(format!(
-                    "[daemon.ack] api_key is too short ({} chars), \
-                     use at least 12 characters (16 recommended)",
-                    key.len()
-                ));
-            }
-            if key.len() < 16 {
-                tracing::warn!(
-                    len = key.len(),
-                    "[daemon.ack] api_key is shorter than 16 characters, \
-                     consider a longer secret to resist brute-force attempts"
-                );
-            }
+            check_api_key("[daemon.ack]", key)?;
         }
         if let Some(path) = &self.daemon.ack.storage_path
             && has_control_char(path)
@@ -579,49 +584,32 @@ impl Config {
             return Ok(());
         }
         let Some(key) = &incidents.api_key else {
-            return Err("[daemon.incidents] enabled requires an api_key,                         set it or PERF_SENTINEL_INCIDENTS_API_KEY"
+            return Err("[daemon.incidents] enabled requires an api_key, \
+                        set it or PERF_SENTINEL_INCIDENTS_API_KEY"
                 .to_string());
         };
-        if key.is_empty() {
-            return Err("[daemon.incidents] api_key must not be empty".to_string());
-        }
-        if has_control_char(key) {
-            return Err("[daemon.incidents] api_key contains control characters".to_string());
-        }
-        // Same floor and same reasoning as [daemon.ack] api_key.
-        if key.len() < 12 {
-            return Err(format!(
-                "[daemon.incidents] api_key is too short ({} chars), \
-                 use at least 12 characters (16 recommended)",
-                key.len()
-            ));
-        }
-        if !(1_000..=86_400_000).contains(&incidents.lookback_ms) {
-            return Err(format!(
-                "[daemon.incidents] lookback_ms is {}, expected 1000 to 86400000",
-                incidents.lookback_ms
-            ));
-        }
-        if !(1..=10_000).contains(&incidents.max_retained) {
-            return Err(format!(
-                "[daemon.incidents] max_retained is {}, expected 1 to 10000",
-                incidents.max_retained
-            ));
-        }
-        if let Some(path) = &incidents.archive_path {
-            if path.is_empty() {
-                return Err("[daemon.incidents] archive_path must not be empty".to_string());
-            }
-            if has_control_char(path) {
-                return Err(
-                    "[daemon.incidents] archive_path contains control characters".to_string(),
-                );
-            }
-        }
-        for (name, value) in [
-            ("service_label", &incidents.service_label),
-            ("kind_label", &incidents.kind_label),
-        ] {
+        check_api_key("[daemon.incidents]", key)?;
+        check_range(
+            "[daemon.incidents] lookback_ms",
+            &incidents.lookback_ms,
+            &1_000,
+            &86_400_000,
+        )?;
+        // Each incident carries up to `MAX_FINDINGS_LIMIT` frozen findings,
+        // so the ring's memory is this times that, and 1000 already allows
+        // more than a year of a daily incident.
+        check_range(
+            "[daemon.incidents] max_retained",
+            &incidents.max_retained,
+            &1,
+            &1_000,
+        )?;
+        let texts = [
+            ("service_label", Some(&incidents.service_label)),
+            ("kind_label", Some(&incidents.kind_label)),
+            ("archive_path", incidents.archive_path.as_ref()),
+        ];
+        for (name, value) in texts.into_iter().filter_map(|(n, v)| v.map(|v| (n, v))) {
             if value.is_empty() {
                 return Err(format!("[daemon.incidents] {name} must not be empty"));
             }
