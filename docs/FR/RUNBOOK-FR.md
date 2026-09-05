@@ -223,6 +223,15 @@ Si cette valeur est supérieure à la borne basse de votre fenêtre, le ring a d
 de la section précédente est alors la voie, et si l'archivage n'a jamais été
 configuré la fenêtre est perdue.
 
+**Faire capturer la fenêtre par l'alerte.** La fenêtre ci-dessus n'est
+interrogeable que tant que le ring la détient. Avec `[daemon.incidents]`
+configurée, pointez un receiver Alertmanager sur `POST /api/incidents` et le
+daemon résout et fige la fenêtre à l'instant où l'alerte part, des heures avant
+que quiconque n'ouvre un terminal. `GET /api/incidents` renvoie ensuite
+l'incident avec ses findings déjà attachés. Voir
+[QUERY-API-FR.md](QUERY-API-FR.md). Le ring est en mémoire, donc collectez cet
+endpoint si l'enregistrement doit survivre au nœud.
+
 **Détecter le moment sans alerte externe.** Le daemon ne juge pas si un service
 est vivant, mais il publie quand il en a entendu parler pour la dernière fois.
 `increase(perf_sentinel_service_io_ops_total{service="cart-svc"}[10m]) == 0` dit

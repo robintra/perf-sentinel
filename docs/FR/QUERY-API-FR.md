@@ -879,6 +879,112 @@ directement pour cette vue, ou appeler
 `GET /api/findings?include_acked=true` et inspecter le champ
 `acknowledged_by.source` pour voir les deux sources unifiées.
 
+### POST /api/incidents
+
+Donner au daemon le moment où un service observé est tombé ou a saturé,
+pour qu'il fige les findings de la fenêtre qui a précédé (depuis 0.20.0).
+Opt-in via `[daemon.incidents]`, `503` quand la section est absente.
+
+**Pourquoi cela existe.** perf-sentinel ne détecte pas un crash et ne
+peut pas voir la mémoire d'un service observé : il n'a aucun chemin
+d'ingestion de métriques OTLP, et un service qui sature continue en
+général d'émettre des spans, plus lentement. Votre alerting possède le
+moment. Ce que perf-sentinel possède, ce sont les findings d'une période,
+et il est le seul à pouvoir les capturer avant que le ring ne les évince,
+ce qui prend quelques minutes sur une flotte chargée.
+
+**Corps :** l'enveloppe webhook d'Alertmanager, et elle seule. C'est la
+seule forme qu'un opérateur ne peut pas produire autrement,
+`webhook_config` n'ayant aucun modèle de corps, alors que n'importe quel
+script l'émet avec `curl`. Pointer un receiver sur cette URL suffit :
+
+```yaml
+receivers:
+  - name: perf-sentinel
+    webhook_configs:
+      - url: http://perf-sentinel:4318/api/incidents
+        http_config:
+          authorization: { type: Bearer, credentials: unused }
+```
+
+L'authentification est l'en-tête `X-API-Key`, obligatoire, comparé en
+temps constant. `POST` et `GET` partagent la clé.
+
+Deux libellés sont lus, tous deux configurables :
+
+| Libellé                            | Défaut               | Signification                                                                                                        |
+|------------------------------------|----------------------|------------------------------------------------------------------------------------------------------------------------|
+| `[daemon.incidents] service_label` | `service`            | Le nom de service perf-sentinel. C'est la clé de jointure avec les findings, une alerte qui ne le porte pas est refusée |
+| `[daemon.incidents] kind_label`    | `perf_sentinel_kind` | L'un de `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Tout le reste vaut `other`                       |
+
+Le genre est lu, jamais deviné. Le dériver d'`alertname` par mots-clés
+serait une heuristique que personne ne verrait échouer, donc un opérateur
+qui veut un genre précis écrit le libellé sur sa règle d'alerte :
+
+```yaml
+- alert: PodOOMKilled
+  expr: increase(kube_pod_container_status_restarts_total[5m]) > 0
+        and on(pod) kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+  labels:
+    service: cart-svc
+    perf_sentinel_kind: oom_kill
+```
+
+**Réponse :** ce qu'a fait la livraison, pour qu'un `service_label` mal
+configuré se voie dans un corps plutôt que dans le silence.
+
+```json
+{ "recorded": 1, "rejected_no_service": 0, "rejected_unparsable_time": 0 }
+```
+
+Une livraison porte plusieurs alertes et une mauvaise alerte ne doit pas
+faire perdre les autres, donc chacune est comptée plutôt que de faire
+échouer la requête. Le statut est `200` même quand toutes ont été
+refusées, ce dont Alertmanager a besoin pour cesser de réessayer.
+`startsAt` doit être un timestamp UTC terminé par `Z`, tout le reste
+compte comme `rejected_unparsable_time`.
+
+Le repostage est idempotent. L'id est un `sha2` sur `service|kind|at_ms`,
+donc Alertmanager qui répète une alerte active à chaque `repeat_interval`
+remplace l'enregistrement par sa fenêtre plus tardive et plus complète au
+lieu d'en ajouter un. `perf_sentinel_incidents_total{kind}` compte des
+incidents, pas des livraisons.
+
+### GET /api/incidents
+
+Les incidents enregistrés, du plus récent au plus ancien, chacun avec les
+findings figés à la réception. Même clé que le `POST`.
+
+**Paramètres de requête :** `service` (match exact), `limit` (défaut 50,
+plafonné à `[daemon.incidents] max_retained`).
+
+**Forme de la réponse :** tableau d'objets :
+
+| Champ               | Type   | Description                                                                                                     |
+|---------------------|--------|-------------------------------------------------------------------------------------------------------------------|
+| `id`                | string | 32 caractères hexadécimaux sur `service\|kind\|at_ms`                                                            |
+| `service`           | string | Le service concerné                                                                                             |
+| `kind`              | string | L'un des cinq genres                                                                                            |
+| `at_ms`             | number | Début, en millisecondes epoch Unix                                                                              |
+| `ended_at_ms`       | number | Fin, absent tant que l'alerte est active                                                                        |
+| `detail`            | string | Le `summary` ou la `description` de l'alerte, assaini et plafonné à 512 octets, absent si aucun des deux         |
+| `window_from_ms`    | number | `at_ms` moins `[daemon.incidents] lookback_ms`                                                                  |
+| `window_to_ms`      | number | Égal à `at_ms`                                                                                                  |
+| `oldest_finding_ms` | number | Plus ancien finding que le ring détenait à la capture, absent s'il était vide                                   |
+| `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre                                                            |
+
+**Lisez `oldest_finding_ms` avant de faire confiance à un tableau
+`findings` court.** En dessous de `window_from_ms`, la capture est
+complète. Au-dessus, le ring avait déjà évincé une partie de la fenêtre
+et le tableau est en deçà de ce qui a brûlé, ce à quoi l'archive NDJSON
+peut encore répondre. Voir [RUNBOOK-FR.md](RUNBOOK-FR.md).
+
+**Le ring est en mémoire et meurt avec le daemon.** Un événement mémoire
+au niveau du nœud qui tue le service observé emporte souvent un daemon
+colocalisé, donc l'incident qui expliquerait la panne peut être détruit
+par la panne. Collectez cet endpoint si l'enregistrement doit survivre au
+nœud.
+
 ### Interop TOML et JSONL
 
 Le daemon lit `.perf-sentinel-acknowledgments.toml` (chemin
