@@ -17,16 +17,16 @@ use super::{Config, RESERVED_DISCLOSE_OUTPUT_PATH_VERSION};
 /// hitting the loopback API at line rate with no rate limiting, and
 /// 36^12 is past the brute-force horizon for any realistic deployment.
 /// 16 stays the recommended production floor, warned rather than refused.
-fn check_api_key(section: &str, key: &str) -> Result<(), String> {
+fn check_api_key(field: &str, key: &str) -> Result<(), String> {
     if key.is_empty() {
-        return Err(format!("{section} api_key must not be empty"));
+        return Err(format!("{field} must not be empty"));
     }
     if has_control_char(key) {
-        return Err(format!("{section} api_key contains control characters"));
+        return Err(format!("{field} contains control characters"));
     }
     if key.len() < 12 {
         return Err(format!(
-            "{section} api_key is too short ({} chars), \
+            "{field} is too short ({} chars), \
              use at least 12 characters (16 recommended)",
             key.len()
         ));
@@ -34,7 +34,7 @@ fn check_api_key(section: &str, key: &str) -> Result<(), String> {
     if key.len() < 16 {
         tracing::warn!(
             len = key.len(),
-            "{section} api_key is shorter than 16 characters, \
+            "{field} is shorter than 16 characters, \
              consider a longer secret to resist brute-force attempts"
         );
     }
@@ -275,7 +275,8 @@ pub(super) fn validate_broker_static(
 ///
 /// - `["*"]` mixed with explicit origins is ambiguous and silently degrades to
 ///   wildcard mode in `build_cors_layer`. Reject the mix at config load.
-/// - `["*"]` combined with `[daemon.ack] api_key` lets any browser origin
+/// - `["*"]` combined with any daemon API key (`[daemon.ack]`,
+///   `[daemon.incidents]`, `[daemon] read_api_key`) lets any browser origin
 ///   replay a captured `X-API-Key` header (header-based auth, not blocked by
 ///   `allow_credentials = false`). Reject the combination.
 fn validate_cors_wildcard_mode(
@@ -292,10 +293,11 @@ fn validate_cors_wildcard_mode(
     }
     if has_wildcard && has_api_key {
         return Err(
-            "[daemon.cors] allowed_origins = [\"*\"] is incompatible with \
-             [daemon.ack] api_key, since X-API-Key is sent on every cross-origin \
-             request and would be replayable from any browser tab. \
-             Use an explicit origin list or unset api_key for development"
+            "[daemon.cors] allowed_origins = [\"*\"] is incompatible with a daemon \
+             api_key ([daemon.ack], [daemon.incidents] or [daemon] read_api_key), \
+             since X-API-Key is sent on every cross-origin request and would be \
+             replayable from any browser tab. Use an explicit origin list or \
+             unset the keys for development"
                 .to_string(),
         );
     }
@@ -390,6 +392,7 @@ impl Config {
         self.validate_green()?;
         self.validate_daemon_ack()?;
         self.validate_daemon_incidents()?;
+        self.validate_daemon_read_key()?;
         self.validate_daemon_cors()?;
         self.validate_daemon_archive()?;
         self.validate_daemon_hub_export()?;
@@ -548,7 +551,9 @@ impl Config {
         validate_cors_wildcard_mode(
             has_wildcard,
             self.daemon.cors.allowed_origins.len(),
-            self.daemon.ack.api_key.is_some(),
+            self.daemon.ack.api_key.is_some()
+                || self.daemon.incidents.api_key.is_some()
+                || self.daemon.read_api_key.is_some(),
         )?;
         for origin in &self.daemon.cors.allowed_origins {
             validate_cors_origin(origin)?;
@@ -559,7 +564,7 @@ impl Config {
     /// Validate `[daemon.ack]` settings.
     pub(super) fn validate_daemon_ack(&self) -> Result<(), String> {
         if let Some(key) = &self.daemon.ack.api_key {
-            check_api_key("[daemon.ack]", key)?;
+            check_api_key("[daemon.ack] api_key", key)?;
         }
         if let Some(path) = &self.daemon.ack.storage_path
             && has_control_char(path)
@@ -570,6 +575,25 @@ impl Config {
             && has_control_char(path)
         {
             return Err("[daemon.ack] toml_path contains control characters".to_string());
+        }
+        Ok(())
+    }
+
+    /// `[daemon] read_api_key` opens the GETs a write key gates without
+    /// the power to write, which only holds while it differs from both
+    /// write keys: equal to one of them, it is that key.
+    fn validate_daemon_read_key(&self) -> Result<(), String> {
+        let Some(key) = &self.daemon.read_api_key else {
+            return Ok(());
+        };
+        check_api_key("[daemon] read_api_key", key)?;
+        if self.daemon.ack.api_key.as_deref() == Some(key) {
+            return Err("[daemon] read_api_key must differ from [daemon.ack] api_key".to_string());
+        }
+        if self.daemon.incidents.api_key.as_deref() == Some(key) {
+            return Err(
+                "[daemon] read_api_key must differ from [daemon.incidents] api_key".to_string(),
+            );
         }
         Ok(())
     }
@@ -588,7 +612,7 @@ impl Config {
                         set it or PERF_SENTINEL_INCIDENTS_API_KEY"
                 .to_string());
         };
-        check_api_key("[daemon.incidents]", key)?;
+        check_api_key("[daemon.incidents] api_key", key)?;
         check_range(
             "[daemon.incidents] lookback_ms",
             &incidents.lookback_ms,

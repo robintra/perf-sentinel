@@ -141,6 +141,8 @@ async fn config_exposes_daemon_params_without_secrets() {
     // or path fields exist on the response at all.
     assert_eq!(cfg["tls_configured"], false);
     assert_eq!(cfg["ack_api_key_set"], false);
+    assert_eq!(cfg["read_api_key_set"], false);
+    assert_eq!(cfg["incidents_enabled"], false);
     assert!(cfg.get("api_key").is_none());
     assert!(cfg.get("cert_path").is_none());
     assert!(cfg.get("key_path").is_none());
@@ -2364,5 +2366,156 @@ fn tuning_advisor_flags_grouping_folding() {
             && msgs[0].contains("grouping_attributes"),
         "got: {}",
         msgs[0]
+    );
+}
+
+/// `req` with `key` as `X-API-Key`, or untouched when `None`.
+fn keyed(mut req: Request<Body>, key: Option<&str>) -> Request<Body> {
+    if let Some(key) = key {
+        req.headers_mut().insert(
+            crate::http_client::API_KEY_HEADER,
+            axum::http::HeaderValue::from_str(key).unwrap(),
+        );
+    }
+    req
+}
+
+#[tokio::test]
+async fn config_summarises_the_read_key_to_a_boolean() {
+    let mut keyed_state = make_state().clone_for_test();
+    keyed_state.daemon_config.read_api_key = Some("read-key-long-enough".to_string());
+    keyed_state.daemon_config.incidents.enabled = true;
+    let resp = query_api_router(Arc::new(keyed_state))
+        .oneshot(get_request("/api/config"))
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(!text.contains("read-key-long-enough"), "{text}");
+    let cfg: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(cfg["read_api_key_set"], true);
+    assert_eq!(cfg["incidents_enabled"], true);
+}
+
+#[tokio::test]
+async fn the_read_key_lists_incidents_and_never_posts_them() {
+    let mut keyed_state = make_state().clone_for_test();
+    keyed_state.daemon_config.incidents.api_key = Some("write-key-long-enough".to_string());
+    keyed_state.daemon_config.read_api_key = Some("read-key-long-enough".to_string());
+    let state = Arc::new(keyed_state);
+    let unauthorized = || {
+        state
+            .metrics
+            .incidents_rejected_total
+            .with_label_values(&["unauthorized"])
+            .get()
+    };
+    let app = query_api_router(Arc::clone(&state));
+    let status = |req: Request<Body>| {
+        let app = app.clone();
+        async move { app.oneshot(req).await.unwrap().status() }
+    };
+    let read = Some("read-key-long-enough");
+    let write = Some("write-key-long-enough");
+    let empty = serde_json::json!([]);
+
+    assert_eq!(
+        status(keyed(get_request("/api/incidents"), read)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(keyed(get_request("/api/incidents"), write)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(get_request("/api/incidents")).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        status(keyed(post_incidents_request(&empty), read)).await,
+        StatusCode::UNAUTHORIZED,
+        "the read key never posts"
+    );
+    assert_eq!(unauthorized(), 2, "the bare GET and the read-key POST");
+    assert_eq!(
+        status(keyed(post_incidents_request(&empty), write)).await,
+        StatusCode::OK
+    );
+    assert_eq!(unauthorized(), 2);
+}
+
+#[tokio::test]
+async fn the_read_key_opens_the_ack_listing_but_not_the_ack_writes() {
+    let (_dir, store) = fresh_ack_store().await;
+    let base = make_state_with_acks(
+        Some(store),
+        HashMap::new(),
+        Some("write-key-long-enough".to_string()),
+    )
+    .await;
+    let mut readable = (*base).clone_for_test();
+    readable.daemon_config.read_api_key = Some("read-key-long-enough".to_string());
+    let state = Arc::new(readable);
+    let sig = seed_finding(&state, "order-svc").await;
+    let app = query_api_router(Arc::clone(&state));
+    let status = |req: Request<Body>| {
+        let app = app.clone();
+        async move { app.oneshot(req).await.unwrap().status() }
+    };
+    let read = Some("read-key-long-enough");
+    let failed = |action: &str| {
+        state
+            .metrics
+            .ack_operations_failed_total
+            .with_label_values(&[action, "unauthorized"])
+            .get()
+    };
+
+    assert_eq!(
+        status(keyed(get_request("/api/acks"), read)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(keyed(post_ack_request(&sig), read)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        status(keyed(delete_ack_request(&sig), read)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(failed("ack"), 1, "a read key on a write is counted");
+    assert_eq!(failed("unack"), 1);
+    assert_eq!(
+        status(keyed(post_ack_request(&sig), Some("write-key-long-enough"))).await,
+        StatusCode::CREATED
+    );
+}
+
+#[tokio::test]
+async fn a_read_key_alone_gates_nothing() {
+    let (_dir, store) = fresh_ack_store().await;
+    let base = make_state_with_acks(Some(store), HashMap::new(), None).await;
+    let mut open = (*base).clone_for_test();
+    open.daemon_config.read_api_key = Some("read-key-long-enough".to_string());
+    open.incident_store = None;
+    let app = query_api_router(Arc::new(open));
+    assert_eq!(
+        app.clone()
+            .oneshot(get_request("/api/acks"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK,
+        "no ack key, the listing stays open"
+    );
+    assert_eq!(
+        app.oneshot(get_request("/api/incidents"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "no incidents key and no store: no 401 appears in front of the 503"
     );
 }

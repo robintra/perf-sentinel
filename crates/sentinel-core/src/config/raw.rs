@@ -269,6 +269,7 @@ pub(super) struct DaemonSection {
     per_grouping_labels: Option<bool>,
     memory_high_water_pct: Option<u8>,
     api_enabled: Option<bool>,
+    read_api_key: Option<String>,
     correlation: CorrelationSection,
     ack: DaemonAckSection,
     incidents: DaemonIncidentsSection,
@@ -615,6 +616,9 @@ impl From<RawConfig> for Config {
                     .daemon
                     .api_enabled
                     .unwrap_or(daemon_defaults.api_enabled),
+                read_api_key: resolve_ack_api_key(raw.daemon.read_api_key, || {
+                    std::env::var("PERF_SENTINEL_READ_API_KEY").ok()
+                }),
                 tls: DaemonTlsConfig {
                     cert_path: raw.daemon.tls_cert_path,
                     key_path: raw.daemon.tls_key_path,
@@ -1256,13 +1260,11 @@ pub(super) fn convert_electricity_maps_section_with_env(
     })
 }
 
-/// Resolve an `env:VAR` indirection on the daemon ack `api_key`.
-///
-/// A plain string passes through; `env:VAR` is replaced by the named env
-/// var's value, or `None` when it is unset (fail-closed: the auth gate then
-/// refuses a non-loopback bind). Lets operators feed the key from a
-/// Kubernetes Secret instead of the committed config. The env lookup is a
-/// closure so tests avoid mutating the global process env.
+/// Resolve one of the daemon API keys (`[daemon.ack] api_key`,
+/// `[daemon.incidents] api_key`, `[daemon] read_api_key`): the
+/// environment override wins over the config value, so the key can come
+/// from a Kubernetes Secret instead of the committed config. The env
+/// lookup is a closure so tests avoid mutating the global process env.
 pub(super) fn resolve_ack_api_key(
     config_value: Option<String>,
     env_lookup: impl FnOnce() -> Option<String>,

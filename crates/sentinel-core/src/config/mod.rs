@@ -330,6 +330,11 @@ pub struct DaemonConfig {
     /// guard (default). Linux/cgroup-v2 only, inert elsewhere.
     pub memory_high_water_pct: u8,
     pub api_enabled: bool,
+    /// Read-only key for the GETs a write key gates, `GET /api/acks` and
+    /// `GET /api/incidents`. Never satisfies a POST or DELETE, never adds
+    /// a gate where no write key is set, and must differ from both write
+    /// keys. `PERF_SENTINEL_READ_API_KEY` wins over this value.
+    pub read_api_key: Option<String>,
     /// TLS material for the OTLP listeners. When `cert_path` and
     /// `key_path` are both `Some`, both gRPC and HTTP listen TLS; when
     /// both are `None`, plain TCP (default).
@@ -575,6 +580,7 @@ impl Default for DaemonConfig {
             per_grouping_labels: true,
             memory_high_water_pct: 0,
             api_enabled: true,
+            read_api_key: None,
             tls: DaemonTlsConfig::default(),
             ack: DaemonAckConfig::default(),
             incidents: DaemonIncidentsConfig::default(),

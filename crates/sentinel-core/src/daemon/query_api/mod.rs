@@ -514,6 +514,12 @@ struct ConfigResponse {
     /// True when an ack API key is configured (the key itself never
     /// exposed).
     ack_api_key_set: bool,
+    /// True when `[daemon] read_api_key` is set (the key itself never
+    /// exposed).
+    read_api_key_set: bool,
+    /// True when `[daemon.incidents]` is enabled, so a client knows
+    /// whether `GET /api/incidents` has anything behind it.
+    incidents_enabled: bool,
     cors_allowed_origins: Vec<String>,
     archive_configured: bool,
     correlation_enabled: bool,
@@ -549,6 +555,8 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
         tls_configured: d.tls.cert_path.is_some() && d.tls.key_path.is_some(),
         ack_enabled: d.ack.enabled,
         ack_api_key_set: d.ack.api_key.is_some(),
+        read_api_key_set: d.read_api_key.is_some(),
+        incidents_enabled: d.incidents.enabled,
         cors_allowed_origins: d.cors.allowed_origins.clone(),
         archive_configured: d.archive.is_some(),
         correlation_enabled: d.correlation.enabled,
@@ -1072,14 +1080,18 @@ async fn handle_list_acks(
     State(state): State<Arc<QueryApiState>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<AckEntry>>, ErrorResponse> {
-    // Gate reads with the same key as the ack write handlers. The ack audit
+    // Gate reads with the ack key or `[daemon] read_api_key`. The ack audit
     // trail exposes reviewer identities, reasons, and finding signatures, so
     // when a key is configured it must govern this endpoint too, not just
     // POST/DELETE. Auth-only (not `check_ack_preconditions`): a disabled
     // store still returns an empty list rather than 503. No metric is recorded
     // on failure: a read denial is not an ack mutation, and AckAction has no
     // List variant to record it under without polluting the write counter.
-    check_ack_auth(&headers, state.ack_api_key.as_deref())?;
+    check_read_auth(
+        &headers,
+        state.ack_api_key.as_deref(),
+        state.daemon_config.read_api_key.as_deref(),
+    )?;
     let mut all = match &state.ack_store {
         Some(s) => s.list_active().await,
         None => Vec::new(),
@@ -1145,15 +1157,32 @@ struct IncidentsParams {
     limit: Option<usize>,
 }
 
+/// Which key a request to the incident routes has to present.
+#[derive(Clone, Copy)]
+enum IncidentAccess {
+    /// `GET`: the write key or `[daemon] read_api_key`.
+    Read,
+    /// `POST`: the write key alone.
+    Write,
+}
+
 /// Auth, then the store, the shape `check_ack_preconditions` gives the
-/// ack routes. `POST` and `GET` share the key, and a refused key is
-/// counted since Alertmanager only re-sends the group at the next
-/// `group_interval`, without a retry inside the delivery.
+/// ack routes. A refused key is counted since Alertmanager only re-sends
+/// the group at the next `group_interval`, without a retry inside the
+/// delivery.
 fn check_incident_preconditions<'a>(
     state: &'a QueryApiState,
     headers: &HeaderMap,
+    access: IncidentAccess,
 ) -> Result<&'a Arc<super::incidents::IncidentStore>, ErrorResponse> {
-    if let Err(e) = check_ack_auth(headers, state.daemon_config.incidents.api_key.as_deref()) {
+    let write = state.daemon_config.incidents.api_key.as_deref();
+    let checked = match access {
+        IncidentAccess::Read => {
+            check_read_auth(headers, write, state.daemon_config.read_api_key.as_deref())
+        }
+        IncidentAccess::Write => check_ack_auth(headers, write),
+    };
+    if let Err(e) = checked {
         state
             .metrics
             .record_incident_rejections(IncidentRejection::Unauthorized, 1);
@@ -1306,7 +1335,7 @@ async fn handle_post_incidents(
     headers: HeaderMap,
     Json(body): Json<super::incidents::Webhook>,
 ) -> Result<Json<IncidentIntake>, ErrorResponse> {
-    let store = check_incident_preconditions(&state, &headers)?;
+    let store = check_incident_preconditions(&state, &headers, IncidentAccess::Write)?;
     let cfg = &state.daemon_config.incidents;
     let mut intake = IncidentIntake {
         recorded: 0,
@@ -1369,12 +1398,28 @@ async fn handle_list_incidents(
     headers: HeaderMap,
     Query(params): Query<IncidentsParams>,
 ) -> Result<Json<Vec<super::incidents::Incident>>, ErrorResponse> {
-    let store = check_incident_preconditions(&state, &headers)?;
+    let store = check_incident_preconditions(&state, &headers, IncidentAccess::Read)?;
     let limit = params.limit.unwrap_or(50).min(MAX_INCIDENTS_RESPONSE);
     let offset = params.offset.unwrap_or(0);
     Ok(Json(
         store.list(params.service.as_deref(), offset, limit).await,
     ))
+}
+
+/// A key-gated `GET`: the write key that gates the route, or `[daemon]
+/// read_api_key`. Never the reverse, every write keeps `check_ack_auth`
+/// with the write key alone. No write key means the gate is open and the
+/// read key is ignored, so it never adds a gate.
+fn check_read_auth(
+    headers: &HeaderMap,
+    write: Option<&str>,
+    read: Option<&str>,
+) -> Result<(), ErrorResponse> {
+    match (check_ack_auth(headers, write), read) {
+        (Ok(()), _) => Ok(()),
+        (Err(e), None) => Err(e),
+        (Err(e), Some(read)) => check_ack_auth(headers, Some(read)).map_err(|_| e),
+    }
 }
 
 /// Validate the optional `X-API-Key` header against the configured

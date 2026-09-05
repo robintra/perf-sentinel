@@ -242,6 +242,14 @@ environment = "production"         # default "staging"
 # live mode.
 api_enabled = true                 # default true
 
+# Read-only key for the two GETs a write key gates, `/api/acks` and
+# `/api/incidents`. Never satisfies a POST or DELETE, adds no gate where no
+# write key is set, and must differ from both write keys. Hand it to
+# Grafana and the Hub so nothing that only reads holds a key that can ack
+# or fabricate an incident.
+# read_api_key = "a-long-random-string"            # default unset, 12 chars min, 16 recommended
+#                                                  # PERF_SENTINEL_READ_API_KEY wins over this line
+
 # -------------------------------------------------------------------------- #
 #        /!\ Change these only if you know what you are doing /!\            #
 # -------------------------------------------------------------------------- #
@@ -335,7 +343,8 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # api_key = "a-long-random-string"                 # default unset (NO AUTH), 12 chars min, 16 recommended
 #                                                  # PERF_SENTINEL_ACK_API_KEY wins over this line, and is
 #                                                  # how you keep the secret out of the file. There is no
-#                                                  # "env:VAR" indirection, such a value is taken literally
+#                                                  # "env:VAR" indirection, such a value is taken literally.
+#                                                  # GET /api/acks also takes [daemon] read_api_key
 # toml_path = ".perf-sentinel-acknowledgments.toml"   # default .perf-sentinel-acknowledgments.toml
 
 # --- /!\ Inbound incident webhooks /!\ -----------------------------------
@@ -351,7 +360,8 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # [daemon.incidents]
 # enabled = true                                   # default false, an inbound write surface is opt-in
 # api_key = "a-long-random-string"                 # REQUIRED when enabled, 12 chars min, 16 recommended
-#                                                  # PERF_SENTINEL_INCIDENTS_API_KEY wins over this line
+#                                                  # PERF_SENTINEL_INCIDENTS_API_KEY wins over this line.
+#                                                  # GET /api/incidents also takes [daemon] read_api_key
 # lookback_ms = 300000                             # default 300000, how far back of findings a POST freezes
 # max_retained = 200                               # default 200, incidents kept in the in-memory ring
 # service_label = "service"                        # default "service", the alert label naming the service.
