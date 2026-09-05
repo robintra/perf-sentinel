@@ -436,6 +436,26 @@ pub struct MetricsState {
     /// to 0 on every successful scrape. The label set is the five
     /// compile-time backend names, so cardinality stays bounded.
     pub energy_backend_configured: GaugeVec,
+    /// Unix timestamp of the last span the daemon received for a service.
+    ///
+    /// A timestamp rather than an age, on the `process_start_time_seconds`
+    /// convention: `time() - gauge` is the age, and a scrape gap cannot
+    /// make it lie. It answers "when did we last hear from this service",
+    /// which is what a post-mortem needs to place an incident against the
+    /// findings of its window, and which a monotonic counter cannot give
+    /// once it stops advancing.
+    ///
+    /// It is a traffic signal, not a liveness one: a crash, a scale to
+    /// zero, a rolling deploy and a quiet cron all read the same. It is
+    /// also post-sampling, so a low-rate service under `sampling_rate < 1`
+    /// can read stale while healthy.
+    ///
+    /// Cardinality rides on the existing service cap: a series exists only
+    /// for a service `CappedServices` admitted. No series is ever removed,
+    /// so a permanently dead service keeps a frozen timestamp, which reads
+    /// as an ever-growing age. That is the correct answer, and inventing a
+    /// removal lifecycle here would be the wrong place for it.
+    pub service_last_span_timestamp_seconds: GaugeVec,
     /// Cumulative I/O waste ratio since daemon start.
     /// Use Prometheus `rate()` on `total_io_ops` and `avoidable_io_ops` for windowed ratios.
     pub io_waste_ratio: Gauge,
@@ -760,6 +780,15 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let service_last_span_timestamp_seconds = GaugeVec::new(
+            Opts::new(
+                "perf_sentinel_service_last_span_timestamp_seconds",
+                "Unix timestamp of the last span received for each service",
+            ),
+            &["service"],
+        )
+        .expect("metric creation should not fail");
+
         let io_waste_ratio = Gauge::new(
             "perf_sentinel_io_waste_ratio",
             "Cumulative I/O waste ratio since daemon start",
@@ -951,6 +980,9 @@ impl MetricsState {
 
         registry
             .register(Box::new(energy_backend_configured.clone()))
+            .expect("metric registration should not fail");
+        registry
+            .register(Box::new(service_last_span_timestamp_seconds.clone()))
             .expect("metric registration should not fail");
         registry
             .register(Box::new(findings_total.clone()))
@@ -1353,6 +1385,7 @@ impl MetricsState {
             registry,
             findings_total,
             energy_backend_configured,
+            service_last_span_timestamp_seconds,
             io_waste_ratio,
             energy_kwh,
             carbon_gco2,
