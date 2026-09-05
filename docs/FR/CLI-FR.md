@@ -233,6 +233,12 @@ config), le CLI la résout dans cet ordre :
 3. Prompt interactif `rpassword` (sans écho) si le daemon retourne
    401 et stdin est un TTY. La valeur collée est plafonnée à 1 KiB.
 
+`query inspect`, `query monitor` et `query incidents` prennent le même
+`--api-key-file <CHEMIN>` et le résolvent de la même façon (étapes 1 et
+2, pas de prompt). La clé de lecture `[daemon] read_api_key` suffit pour
+`query monitor` et `query incidents`, `ack` et `query inspect` ont
+besoin de la clé d'ack.
+
 Il n'y a pas de flag `--api-key <SECRET>` direct, par design : passer
 des secrets en ligne de commande les expose via la liste des
 processus et l'historique du shell.
@@ -268,6 +274,21 @@ Les erreurs sont écrites sur stderr avec une cause sur une ligne et
 un hint actionnable quand pertinent.
 
 ## Autres sous-commandes
+
+`perf-sentinel query incidents [--service <NOM>] [--offset N] [--limit N]
+[--format text|json] [--api-key-file <CHEMIN>]` liste les incidents que
+l'alerting a postés au daemon (0.20.0+, `[daemon.incidents]`), du plus
+récent au plus ancien : un bloc d'en-tête par incident (genre, service,
+début et fin en heure locale, la fenêtre, un marqueur de capture qui dit
+si le ring détenait encore toute la fenêtre, combien de findings n'ont
+brûlé qu'après le redémarrage, le détail de l'alerte et l'identifiant),
+puis ses findings dans la mise en page de `query findings`. `--limit`
+vaut 50 par défaut, le daemon le plafonne à 100, `--offset` pagine
+au-delà des plus récents. Un 401 (passez la clé), un 503
+(`[daemon.incidents] enabled = false`) et un 404 (daemon antérieur à
+0.20.0) sortent chacun en 1 avec leur cause nommée. `query monitor
+--api-key-file <CHEMIN>` remet la même clé à l'onglet Incidents du
+moniteur, voir [`INSPECT-FR.md`](./INSPECT-FR.md).
 
 Pour l'instant, voir `perf-sentinel <subcommand> --help` pour la
 liste complète des options de `analyze`, `watch`, `query`, `report`,

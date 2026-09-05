@@ -1167,15 +1167,22 @@ enum QueryAction {
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
     },
-    /// Live operator monitor: the daemon's settings-advisor hints and
-    /// the effective energy/carbon mix (source per service, grid
-    /// intensity per region), refreshed on an interval. Read-only,
-    /// complements `inspect` (the developer's trace browser).
+    /// Live operator monitor: the daemon's settings-advisor hints, the
+    /// effective energy/carbon mix (source per service, grid intensity
+    /// per region), scraper health, the daemon config and the recorded
+    /// incidents, refreshed on an interval. Read-only, complements
+    /// `inspect` (the developer's trace browser).
     #[cfg(feature = "tui")]
     Monitor {
         /// Refresh interval in seconds.
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=3600))]
         refresh: u64,
+        /// Path to a file containing the daemon API key (X-API-Key
+        /// header). Falls back to `PERF_SENTINEL_DAEMON_API_KEY` env
+        /// var. Only the Incidents tab needs it, and the read-only
+        /// `[daemon] read_api_key` suffices there.
+        #[arg(long, value_name = "PATH")]
+        api_key_file: Option<PathBuf>,
     },
     /// Show active cross-trace correlations.
     Correlations {
@@ -1188,6 +1195,28 @@ enum QueryAction {
         /// Output format: text (colored, default) or json.
         #[arg(long, value_enum, default_value = "text")]
         format: QueryOutputFormat,
+    },
+    /// List the incidents the alerting posted to the daemon, newest
+    /// first, each with the findings frozen from the window before it
+    /// (daemon 0.20.0+, `[daemon.incidents] enabled = true`).
+    Incidents {
+        /// Only the incidents of this service (exact match).
+        #[arg(long)]
+        service: Option<String>,
+        /// Skip this many incidents, to page past the newest.
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Maximum number of incidents (default 50, the daemon caps at 100).
+        #[arg(long, default_value = "50")]
+        limit: usize,
+        /// Output format: text (colored, default) or json.
+        #[arg(long, value_enum, default_value = "text")]
+        format: QueryOutputFormat,
+        /// Path to a file containing the daemon API key (X-API-Key
+        /// header). Falls back to `PERF_SENTINEL_DAEMON_API_KEY` env
+        /// var. The read-only `[daemon] read_api_key` suffices.
+        #[arg(long, value_name = "PATH")]
+        api_key_file: Option<PathBuf>,
     },
 }
 
@@ -1291,7 +1320,10 @@ mod help_examples {
   perf-sentinel query status
 
   # Live operator monitor (advisor hints, energy mix, scraper health)
-  perf-sentinel query monitor --refresh 5";
+  perf-sentinel query monitor --refresh 5
+
+  # The incidents the alerting posted, with the findings of their window
+  perf-sentinel query incidents --service cart-svc --api-key-file /run/secrets/read-key";
 
     #[cfg(all(feature = "daemon", not(feature = "tui")))]
     pub const QUERY: &str = "Examples:
@@ -1299,7 +1331,10 @@ mod help_examples {
   perf-sentinel query findings --service order-svc
 
   # Show daemon status
-  perf-sentinel query status";
+  perf-sentinel query status
+
+  # The incidents the alerting posted, with the findings of their window
+  perf-sentinel query incidents --service cart-svc --api-key-file /run/secrets/read-key";
 
     #[cfg(feature = "daemon")]
     pub const ACK: &str = "Examples:

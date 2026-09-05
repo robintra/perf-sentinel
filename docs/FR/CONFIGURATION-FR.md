@@ -1056,7 +1056,7 @@ Les fichiers de configuration ne doivent jamais contenir de secrets. Pour les va
 | `PERF_SENTINEL_ACK_API_KEY` | `[daemon.ack] api_key` | daemon |
 | `PERF_SENTINEL_INCIDENTS_API_KEY` | `[daemon.incidents] api_key` | daemon |
 | `PERF_SENTINEL_READ_API_KEY` | `[daemon] read_api_key` | daemon |
-| `PERF_SENTINEL_DAEMON_API_KEY` | le `--api-key-file` de `ack` et `query inspect` | CLI, envoyée en `X-API-Key` |
+| `PERF_SENTINEL_DAEMON_API_KEY` | le `--api-key-file` de `ack`, `query inspect`, `query monitor` et `query incidents` | CLI, envoyée en `X-API-Key` |
 | `PERF_SENTINEL_DAEMON_URL` | l'URL `--daemon` des commandes `ack` et `query` | CLI |
 
 Une variable définie à la chaîne vide compte comme définie : une clé vide est rejetée au chargement de la config plutôt qu'ignorée en silence, donc un Secret monté vide fait échouer le daemon au lieu d'ouvrir la route.

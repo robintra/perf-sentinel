@@ -1029,7 +1029,7 @@ Configuration files must never contain secrets. For sensitive values (API keys, 
 | `PERF_SENTINEL_ACK_API_KEY` | `[daemon.ack] api_key` | daemon |
 | `PERF_SENTINEL_INCIDENTS_API_KEY` | `[daemon.incidents] api_key` | daemon |
 | `PERF_SENTINEL_READ_API_KEY` | `[daemon] read_api_key` | daemon |
-| `PERF_SENTINEL_DAEMON_API_KEY` | the `--api-key-file` of `ack` and `query inspect` | CLI, sent as `X-API-Key` |
+| `PERF_SENTINEL_DAEMON_API_KEY` | the `--api-key-file` of `ack`, `query inspect`, `query monitor` and `query incidents` | CLI, sent as `X-API-Key` |
 | `PERF_SENTINEL_DAEMON_URL` | the `--daemon` URL of the `ack` and `query` commands | CLI |
 
 A variable set to an empty string counts as set: an empty key is rejected at config load rather than silently ignored, so a Secret mounted empty fails the daemon instead of opening the route.

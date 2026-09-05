@@ -1011,7 +1011,9 @@ course l'enregistrent une fois et l'archivent une fois.
 
 Les incidents enregistrés, du plus récent au plus ancien, chacun avec ses
 findings, figés à la réception et fusionnés une fois par la passe de
-consolidation. La clé du `POST` ou `[daemon] read_api_key`.
+consolidation. La clé du `POST` ou `[daemon] read_api_key`. Alimente
+l'onglet Incidents de `perf-sentinel query monitor` et la sous-commande
+`perf-sentinel query incidents`.
 
 **Paramètres de requête :** `service` (match exact), `offset` (défaut 0),
 `limit` (défaut 50, plafonné à 100, chaque incident portant jusqu'à 1000
