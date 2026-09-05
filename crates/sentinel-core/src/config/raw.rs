@@ -19,8 +19,9 @@ use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use super::validate::has_control_char;
 use super::{
     Config, DEFAULT_FULCIO_URL, DEFAULT_REKOR_URL, DaemonAckConfig, DaemonArchiveConfig,
-    DaemonConfig, DaemonCorsConfig, DaemonEnvironment, DaemonHubExportConfig, DaemonTlsConfig,
-    DetectionConfig, GreenConfig, ReportingConfig, SigstoreConfig, ThresholdsConfig,
+    DaemonConfig, DaemonCorsConfig, DaemonEnvironment, DaemonHubExportConfig,
+    DaemonIncidentsConfig, DaemonTlsConfig, DetectionConfig, GreenConfig, ReportingConfig,
+    SigstoreConfig, ThresholdsConfig,
 };
 
 #[derive(Deserialize, Default)]
@@ -270,6 +271,7 @@ pub(super) struct DaemonSection {
     api_enabled: Option<bool>,
     correlation: CorrelationSection,
     ack: DaemonAckSection,
+    incidents: DaemonIncidentsSection,
     cors: DaemonCorsSection,
     archive: ArchiveSection,
     hub_export: HubExportSection,
@@ -307,6 +309,18 @@ struct DaemonAckSection {
     storage_path: Option<String>,
     api_key: Option<String>,
     toml_path: Option<String>,
+}
+
+/// Raw deserialization target for `[daemon.incidents]`.
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+struct DaemonIncidentsSection {
+    enabled: Option<bool>,
+    api_key: Option<String>,
+    lookback_ms: Option<u64>,
+    max_retained: Option<usize>,
+    service_label: Option<String>,
+    kind_label: Option<String>,
 }
 
 /// Raw deserialization target for `[daemon.cors]`.
@@ -611,6 +625,24 @@ impl From<RawConfig> for Config {
                         std::env::var("PERF_SENTINEL_ACK_API_KEY").ok()
                     }),
                     toml_path: raw.daemon.ack.toml_path,
+                },
+                incidents: DaemonIncidentsConfig {
+                    enabled: raw.daemon.incidents.enabled.unwrap_or(false),
+                    api_key: resolve_ack_api_key(raw.daemon.incidents.api_key, || {
+                        std::env::var("PERF_SENTINEL_INCIDENTS_API_KEY").ok()
+                    }),
+                    lookback_ms: raw.daemon.incidents.lookback_ms.unwrap_or(300_000),
+                    max_retained: raw.daemon.incidents.max_retained.unwrap_or(200),
+                    service_label: raw
+                        .daemon
+                        .incidents
+                        .service_label
+                        .unwrap_or_else(|| "service".to_string()),
+                    kind_label: raw
+                        .daemon
+                        .incidents
+                        .kind_label
+                        .unwrap_or_else(|| "perf_sentinel_kind".to_string()),
                 },
                 cors: DaemonCorsConfig {
                     allowed_origins: raw.daemon.cors.allowed_origins,

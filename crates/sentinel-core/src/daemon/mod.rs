@@ -9,6 +9,7 @@ pub mod ack_toml_state;
 pub mod archive;
 pub mod findings_store;
 pub mod health;
+pub mod incidents;
 pub mod query_api;
 pub mod traces_store;
 

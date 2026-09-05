@@ -359,6 +359,7 @@ impl Config {
         self.validate_tls()?;
         self.validate_green()?;
         self.validate_daemon_ack()?;
+        self.validate_daemon_incidents()?;
         self.validate_daemon_cors()?;
         self.validate_daemon_archive()?;
         self.validate_daemon_hub_export()?;
@@ -564,6 +565,61 @@ impl Config {
             && has_control_char(path)
         {
             return Err("[daemon.ack] toml_path contains control characters".to_string());
+        }
+        Ok(())
+    }
+
+    /// `[daemon.incidents]` is an inbound WRITE surface, so an enabled
+    /// section without a resolvable key is a hard error rather than a
+    /// warning: the alternative is an unauthenticated POST that anyone
+    /// reaching the port can use to fabricate an incident record.
+    pub(super) fn validate_daemon_incidents(&self) -> Result<(), String> {
+        let incidents = &self.daemon.incidents;
+        if !incidents.enabled {
+            return Ok(());
+        }
+        let Some(key) = &incidents.api_key else {
+            return Err("[daemon.incidents] enabled requires an api_key,                         set it or PERF_SENTINEL_INCIDENTS_API_KEY"
+                .to_string());
+        };
+        if key.is_empty() {
+            return Err("[daemon.incidents] api_key must not be empty".to_string());
+        }
+        if has_control_char(key) {
+            return Err("[daemon.incidents] api_key contains control characters".to_string());
+        }
+        // Same floor and same reasoning as [daemon.ack] api_key.
+        if key.len() < 12 {
+            return Err(format!(
+                "[daemon.incidents] api_key is too short ({} chars), \
+                 use at least 12 characters (16 recommended)",
+                key.len()
+            ));
+        }
+        if !(1_000..=86_400_000).contains(&incidents.lookback_ms) {
+            return Err(format!(
+                "[daemon.incidents] lookback_ms is {}, expected 1000 to 86400000",
+                incidents.lookback_ms
+            ));
+        }
+        if !(1..=10_000).contains(&incidents.max_retained) {
+            return Err(format!(
+                "[daemon.incidents] max_retained is {}, expected 1 to 10000",
+                incidents.max_retained
+            ));
+        }
+        for (name, value) in [
+            ("service_label", &incidents.service_label),
+            ("kind_label", &incidents.kind_label),
+        ] {
+            if value.is_empty() {
+                return Err(format!("[daemon.incidents] {name} must not be empty"));
+            }
+            if has_control_char(value) {
+                return Err(format!(
+                    "[daemon.incidents] {name} contains control characters"
+                ));
+            }
         }
         Ok(())
     }

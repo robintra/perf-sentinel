@@ -14,6 +14,7 @@ fn make_state_with_correlator(
 
     Arc::new(QueryApiState {
         findings_store: Arc::new(FindingsStore::new(100)),
+        incident_store: Some(Arc::new(crate::daemon::incidents::IncidentStore::new(10))),
         traces_store: Arc::new(crate::daemon::traces_store::TracesStore::new(50, 1_000)),
         window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
             WindowConfig::default(),
@@ -333,6 +334,129 @@ async fn status_reports_the_oldest_retained_finding() {
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(value["oldest_finding_ms"], 4242);
+}
+
+#[tokio::test]
+async fn an_incident_webhook_freezes_the_findings_of_its_window() {
+    // 2026-09-05T14:03:00Z, the same stamp the webhook carries.
+    const AT_MS: u64 = 1_788_616_980_000;
+    let state = make_state();
+    let mut inside = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Critical,
+    );
+    inside.service = "cart-svc".to_string();
+    let mut stale = crate::test_helpers::make_finding(
+        detect::FindingType::RedundantSql,
+        detect::Severity::Warning,
+    );
+    stale.service = "cart-svc".to_string();
+    // Default lookback is five minutes, so this one predates the window.
+    state
+        .findings_store
+        .push_batch(&[stale], AT_MS - 400_000)
+        .await;
+    state
+        .findings_store
+        .push_batch(&[inside], AT_MS - 60_000)
+        .await;
+
+    let body = serde_json::json!({
+        "version": "4",
+        "status": "firing",
+        "alerts": [{
+            "status": "firing",
+            "labels": {"service": "cart-svc", "perf_sentinel_kind": "oom_kill"},
+            "annotations": {"summary": "container exceeded its memory limit"},
+            "startsAt": "2026-09-05T14:03:00Z",
+            "endsAt": "0001-01-01T00:00:00Z"
+        }]
+    });
+    let app = query_api_router(Arc::clone(&state));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/incidents")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let intake: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(intake["recorded"], 1);
+    assert_eq!(intake["rejected_no_service"], 0);
+
+    let app = query_api_router(state);
+    let req = Request::builder()
+        .uri("/api/incidents")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let listed: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    let incident = &listed[0];
+    assert_eq!(incident["kind"], "oom_kill");
+    assert_eq!(incident["at_ms"], AT_MS);
+    assert_eq!(incident["window_from_ms"], AT_MS - 300_000);
+    assert!(
+        incident["ended_at_ms"].is_null(),
+        "a firing alert has no end"
+    );
+    let frozen = incident["findings"].as_array().unwrap();
+    assert_eq!(
+        frozen.len(),
+        1,
+        "only what fired inside the window is frozen: {incident}"
+    );
+    assert_eq!(frozen[0]["finding"]["type"], "n_plus_one_sql");
+    assert_eq!(
+        incident["oldest_finding_ms"],
+        AT_MS - 400_000,
+        "the ring reached back past the window, so the capture is complete"
+    );
+}
+
+#[tokio::test]
+async fn an_alert_without_the_service_label_is_counted_not_recorded() {
+    let state = make_state();
+    let body = serde_json::json!({
+        "alerts": [{
+            "status": "firing",
+            "labels": {"alertname": "KubePodOOMKilled"},
+            "startsAt": "2026-09-05T14:03:00Z"
+        }]
+    });
+    let app = query_api_router(Arc::clone(&state));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/incidents")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "one bad alert is not a bad request"
+    );
+    let intake: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(intake["recorded"], 0);
+    assert_eq!(intake["rejected_no_service"], 1);
+    assert!(state.incident_store.as_ref().unwrap().is_empty().await);
 }
 
 #[tokio::test]
@@ -1811,6 +1935,7 @@ impl QueryApiState {
     fn clone_for_test(&self) -> Self {
         Self {
             findings_store: Arc::clone(&self.findings_store),
+            incident_store: self.incident_store.clone(),
             traces_store: Arc::clone(&self.traces_store),
             window: Arc::clone(&self.window),
             detect_config: self.detect_config.clone(),
