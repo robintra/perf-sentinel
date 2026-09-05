@@ -631,9 +631,6 @@ fn print_incidents_text(body: &[u8], daemon_url: &str) {
 }
 
 /// The header block of one incident: what happened to which service and
-/// when, whether it still fires, how much of the window the ring still
-/// held, and how many findings fired only after the restart. Every
-/// daemon string goes through `sanitize_for_terminal`.
 /// `1 finding`, otherwise `N findings`.
 pub(crate) fn finding_count_label(n: usize) -> String {
     if n == 1 {
@@ -643,6 +640,10 @@ pub(crate) fn finding_count_label(n: usize) -> String {
     }
 }
 
+/// One incident's header: its kind and service, when it started and
+/// when, whether it still fires, how much of the window the ring still
+/// held, and how many findings fired only after the restart. Every
+/// daemon string goes through `sanitize_for_terminal`.
 fn incident_header_block(index: usize, inc: &IncidentSlim, colors: AnsiColors) -> String {
     use sentinel_core::text_safety::sanitize_for_terminal;
     use std::fmt::Write as _;
