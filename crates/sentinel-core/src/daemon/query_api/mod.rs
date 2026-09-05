@@ -89,6 +89,9 @@ pub struct QueryApiState {
     /// The `expires_at` string is pre-parsed at startup into a
     /// [`ResolvedTomlAck`] so the hot query path does no chrono parse.
     pub toml_acks: Arc<crate::daemon::ack_toml_state::AckTomlState>,
+    /// Recorded incidents. `None` when `[daemon.incidents] enabled =
+    /// false`, in which case both incident routes return 503.
+    pub incident_store: Option<Arc<super::incidents::IncidentStore>>,
     /// Optional API key for ack `POST` / `DELETE`. `None` means no auth
     /// (the documented loopback-only deployment), `Some(key)` enforces
     /// constant-time `X-API-Key` comparison.
@@ -154,6 +157,10 @@ pub fn query_api_router(state: Arc<QueryApiState>) -> Router {
             post(handle_ack).delete(handle_unack),
         )
         .route("/api/acks", get(handle_list_acks))
+        .route(
+            "/api/incidents",
+            post(handle_post_incidents).get(handle_list_incidents),
+        )
         .with_state(state)
 }
 
@@ -1089,6 +1096,128 @@ fn resolve_by(headers: &HeaderMap, body_by: Option<&str>) -> String {
 
 /// Validate the optional `X-API-Key` header against the configured
 /// secret using a constant-time comparison.
+/// What one webhook delivery did, so a misconfigured `service_label`
+/// shows up as a body rather than as silence.
+#[derive(Debug, Serialize)]
+struct IncidentIntake {
+    recorded: usize,
+    rejected_no_service: usize,
+    rejected_unparsable_time: usize,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct IncidentsParams {
+    service: Option<String>,
+    limit: Option<usize>,
+}
+
+/// Freeze the findings of one incident's window.
+///
+/// Both bounds, so the fold runs over the window alone and `seen_count`
+/// describes it. `oldest_finding_ms` rides along because a short answer
+/// has two causes and only that field tells them apart.
+async fn freeze_window(
+    state: &QueryApiState,
+    req: &super::incidents::IncidentRequest,
+) -> super::incidents::Incident {
+    let lookback = state.daemon_config.incidents.lookback_ms;
+    let from = req.at_ms.saturating_sub(lookback);
+    let filter = FindingsFilter {
+        service: Some(req.service.clone()),
+        since_ms: Some(from),
+        until_ms: Some(req.at_ms),
+        limit: MAX_FINDINGS_LIMIT,
+        ..Default::default()
+    };
+    super::incidents::Incident {
+        id: super::incidents::Incident::compute_id(&req.service, req.kind, req.at_ms),
+        service: req.service.clone(),
+        kind: req.kind,
+        at_ms: req.at_ms,
+        ended_at_ms: req.ended_at_ms,
+        detail: req.detail.clone(),
+        window_from_ms: from,
+        window_to_ms: req.at_ms,
+        oldest_finding_ms: state.findings_store.oldest_ms().await,
+        findings: state.findings_store.query_coalesced(&filter).await,
+    }
+}
+
+/// Receive an Alertmanager webhook delivery.
+///
+/// One delivery carries several alerts, and one bad alert must not lose
+/// the others, so each is counted rather than failing the request. A
+/// 2xx is also what Alertmanager needs to stop retrying.
+async fn handle_post_incidents(
+    State(state): State<Arc<QueryApiState>>,
+    headers: HeaderMap,
+    Json(body): Json<super::incidents::Webhook>,
+) -> Result<Json<IncidentIntake>, ErrorResponse> {
+    check_ack_auth(&headers, state.daemon_config.incidents.api_key.as_deref())?;
+    let Some(store) = state.incident_store.as_ref() else {
+        return Err(ErrorResponse::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "incident store disabled",
+        ));
+    };
+    let cfg = &state.daemon_config.incidents;
+    let mut intake = IncidentIntake {
+        recorded: 0,
+        rejected_no_service: 0,
+        rejected_unparsable_time: 0,
+    };
+    for alert in &body.alerts {
+        match super::incidents::read_alert(alert, &cfg.service_label, &cfg.kind_label) {
+            Ok(req) => {
+                let incident = freeze_window(&state, &req).await;
+                // Counted only when it is a new incident: Alertmanager
+                // repeats a firing alert every `repeat_interval`, and a
+                // counter moving on every repeat would report an outage
+                // rate the fleet never had.
+                if store.record(incident).await {
+                    state
+                        .metrics
+                        .incidents_total
+                        .with_label_values(&[req.kind.as_str()])
+                        .inc();
+                }
+                intake.recorded += 1;
+            }
+            Err(super::incidents::RejectedAlert::NoService) => intake.rejected_no_service += 1,
+            Err(super::incidents::RejectedAlert::UnparsableTime) => {
+                intake.rejected_unparsable_time += 1;
+            }
+        }
+    }
+    if intake.rejected_no_service > 0 {
+        tracing::warn!(
+            rejected = intake.rejected_no_service,
+            label = %cfg.service_label,
+            "Incident alerts carried no service label and were refused"
+        );
+    }
+    Ok(Json(intake))
+}
+
+async fn handle_list_incidents(
+    State(state): State<Arc<QueryApiState>>,
+    headers: HeaderMap,
+    Query(params): Query<IncidentsParams>,
+) -> Result<Json<Vec<super::incidents::Incident>>, ErrorResponse> {
+    check_ack_auth(&headers, state.daemon_config.incidents.api_key.as_deref())?;
+    let Some(store) = state.incident_store.as_ref() else {
+        return Err(ErrorResponse::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "incident store disabled",
+        ));
+    };
+    let limit = params
+        .limit
+        .unwrap_or(50)
+        .min(state.daemon_config.incidents.max_retained);
+    Ok(Json(store.list(params.service.as_deref(), limit).await))
+}
+
 fn check_ack_auth(headers: &HeaderMap, expected: Option<&str>) -> Result<(), ErrorResponse> {
     use subtle::ConstantTimeEq;
     let Some(expected_key) = expected else {

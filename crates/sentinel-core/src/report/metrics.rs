@@ -657,6 +657,15 @@ pub struct MetricsState {
     /// `IntCounter` fields below cache the labeled children for the
     /// hot path.
     #[cfg(feature = "daemon")]
+    /// Incidents recorded through `POST /api/incidents`, by kind.
+    ///
+    /// No `service` label: the sanctioned high-cardinality exception
+    /// covers services that came through the capped ingest meters, and a
+    /// POST body is caller-controlled and unbounded. The five kinds are
+    /// a compile-time set, pre-warmed at zero so a dashboard reads
+    /// "none yet" rather than a scrape failure.
+    #[cfg(feature = "daemon")]
+    pub incidents_total: IntCounterVec,
     pub ack_operations_total: IntCounterVec,
     /// Failed ack and unack operations on the daemon HTTP API, labeled
     /// by `action` and `reason`. Pre-warmed to 0 for the 13 documented
@@ -1212,6 +1221,17 @@ impl MetricsState {
         }
 
         #[cfg(feature = "daemon")]
+        #[cfg(feature = "daemon")]
+        let incidents_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_incidents_total",
+            "Incidents recorded through the daemon incident webhook, by kind",
+            &["kind"],
+        );
+        #[cfg(feature = "daemon")]
+        for kind in crate::daemon::incidents::IncidentKind::ALL {
+            let _ = incidents_total.with_label_values(&[kind.as_str()]);
+        }
         let ack_operations_total = register_int_counter_vec(
             &registry,
             "perf_sentinel_ack_operations_total",
@@ -1428,6 +1448,8 @@ impl MetricsState {
             otlp_spans_received_total,
             otlp_spans_filtered_total,
             #[cfg(feature = "daemon")]
+            #[cfg(feature = "daemon")]
+            incidents_total,
             ack_operations_total,
             #[cfg(feature = "daemon")]
             ack_operations_failed_total,

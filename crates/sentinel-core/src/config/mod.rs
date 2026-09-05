@@ -337,6 +337,8 @@ pub struct DaemonConfig {
     /// Daemon-side ack store (JSONL persistence + HTTP API).
     pub ack: DaemonAckConfig,
     /// CORS layer for the daemon HTTP API.
+    /// Inbound incident webhooks, opt-in and disabled by default.
+    pub incidents: DaemonIncidentsConfig,
     pub cors: DaemonCorsConfig,
     /// Cross-trace correlation. `enabled = false` by default; the
     /// daemon never wires the correlator when off, so the other fields
@@ -390,6 +392,50 @@ pub struct DaemonAckConfig {
     /// Optional override for the CI ack TOML file path read at daemon
     /// startup. Default `.perf-sentinel-acknowledgments.toml` in CWD.
     pub toml_path: Option<String>,
+}
+
+/// Inbound incident webhook config, `[daemon.incidents]`.
+///
+/// perf-sentinel does not detect a crash and cannot see an observed
+/// service's memory. This is how the operator's alerting hands over the
+/// moment, so the daemon can freeze the findings of its window before
+/// the ring evicts them.
+#[derive(Debug, Clone)]
+pub struct DaemonIncidentsConfig {
+    /// Whether `POST /api/incidents` and `GET /api/incidents` exist at
+    /// all. Default `false`: an inbound write surface is opt-in.
+    pub enabled: bool,
+    /// Shared secret for `POST`, compared in constant time against
+    /// `X-API-Key`. Enabling without one is a config error rather than a
+    /// warning, because the route writes.
+    pub api_key: Option<String>,
+    /// How far back of findings a posted incident freezes, in
+    /// milliseconds. Default 300000, five minutes.
+    pub lookback_ms: u64,
+    /// Incidents kept in the ring. Default 200.
+    pub max_retained: usize,
+    /// Alert label carrying the perf-sentinel service name. Default
+    /// `service`. Without it an alert cannot be joined to findings and
+    /// is refused.
+    pub service_label: String,
+    /// Alert label carrying the incident kind, one of `oom_kill`,
+    /// `memory_saturation`, `restart`, `deploy`, `other`. Default
+    /// `perf_sentinel_kind`. Anything else is `other`, deliberately not
+    /// guessed from `alertname`.
+    pub kind_label: String,
+}
+
+impl Default for DaemonIncidentsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: None,
+            lookback_ms: 300_000,
+            max_retained: 200,
+            service_label: "service".to_string(),
+            kind_label: "perf_sentinel_kind".to_string(),
+        }
+    }
 }
 
 /// Daemon HTTP API CORS layer config.
@@ -524,6 +570,7 @@ impl Default for DaemonConfig {
             api_enabled: true,
             tls: DaemonTlsConfig::default(),
             ack: DaemonAckConfig::default(),
+            incidents: DaemonIncidentsConfig::default(),
             cors: DaemonCorsConfig::default(),
             correlation: crate::detect::correlate_cross::CorrelationConfig::default(),
             archive: None,

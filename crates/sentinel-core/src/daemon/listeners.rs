@@ -452,6 +452,12 @@ fn build_http_router(
             scoring_config: (config.green.enabled || config.green.electricity_maps.is_some())
                 .then(|| config.scoring_config()),
             green_summary,
+            // Opt-in: no section, no ring, and both routes answer 503.
+            incident_store: config.daemon.incidents.enabled.then(|| {
+                Arc::new(super::incidents::IncidentStore::new(
+                    config.daemon.incidents.max_retained,
+                ))
+            }),
             ack_store,
             toml_acks,
             ack_api_key: config.daemon.ack.api_key.clone(),

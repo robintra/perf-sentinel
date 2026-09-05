@@ -338,6 +338,28 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #                                                  # "env:VAR" indirection, such a value is taken literally
 # toml_path = ".perf-sentinel-acknowledgments.toml"   # default .perf-sentinel-acknowledgments.toml
 
+# --- /!\ Inbound incident webhooks /!\ -----------------------------------
+# perf-sentinel does not detect a crash and cannot see an observed service's
+# memory: it has no OTLP metrics path, and a service that saturates usually
+# keeps emitting spans, more slowly. Your alerting owns the moment. This is
+# how it hands the moment over, so the daemon can freeze the findings of the
+# window BEFORE the ring evicts them, which on a busy fleet takes minutes.
+#
+# The body shape is the Alertmanager webhook envelope, and only that one: it
+# is the only shape an operator cannot produce otherwise, `webhook_config`
+# having no body template. Any script can emit it with curl.
+# [daemon.incidents]
+# enabled = true                                   # default false, an inbound write surface is opt-in
+# api_key = "a-long-random-string"                 # REQUIRED when enabled, 12 chars min, 16 recommended
+#                                                  # PERF_SENTINEL_INCIDENTS_API_KEY wins over this line
+# lookback_ms = 300000                             # default 300000, how far back of findings a POST freezes
+# max_retained = 200                               # default 200, incidents kept in the in-memory ring
+# service_label = "service"                        # default "service", the alert label naming the service.
+#                                                  # An alert without it is refused: it is the join key
+# kind_label = "perf_sentinel_kind"                # default "perf_sentinel_kind". Its value must be one of
+#                                                  # oom_kill, memory_saturation, restart, deploy, other.
+#                                                  # Anything else is "other", never guessed from alertname
+
 # --- /!\ Batched export to PerfSentinelHub /!\ ----------------------------
 # Coalesces repeated signatures and never blocks detection. Mount the API
 # key as a Secret-backed file; never put its value in this TOML file.
