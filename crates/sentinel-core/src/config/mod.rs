@@ -337,9 +337,9 @@ pub struct DaemonConfig {
     /// Daemon-side ack store (JSONL persistence + HTTP API).
     pub ack: DaemonAckConfig,
     /// CORS layer for the daemon HTTP API.
+    pub cors: DaemonCorsConfig,
     /// Inbound incident webhooks, opt-in and disabled by default.
     pub incidents: DaemonIncidentsConfig,
-    pub cors: DaemonCorsConfig,
     /// Cross-trace correlation. `enabled = false` by default; the
     /// daemon never wires the correlator when off, so the other fields
     /// only apply when `enabled = true`.

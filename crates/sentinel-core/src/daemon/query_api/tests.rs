@@ -338,8 +338,9 @@ async fn status_reports_the_oldest_retained_finding() {
 
 #[tokio::test]
 async fn an_incident_webhook_freezes_the_findings_of_its_window() {
-    // 2026-09-05T14:03:00Z, the same stamp the webhook carries.
-    const AT_MS: u64 = 1_788_616_980_000;
+    // 2026-09-01T14:03:00Z, the same stamp the webhook carries. In the
+    // past, so the settle pass has nothing to wait for.
+    const AT_MS: u64 = 1_788_271_380_000;
     let state = make_state();
     let mut inside = crate::test_helpers::make_finding(
         detect::FindingType::NPlusOneSql,
@@ -351,6 +352,13 @@ async fn an_incident_webhook_freezes_the_findings_of_its_window() {
         detect::Severity::Warning,
     );
     stale.service = "cart-svc".to_string();
+    // Stamped after the incident, as every trace live at the crash is:
+    // analysed only once it aged out of the window, one TTL later.
+    let mut live = crate::test_helpers::make_finding(
+        detect::FindingType::ChattyService,
+        detect::Severity::Warning,
+    );
+    live.service = "cart-svc".to_string();
     // Default lookback is five minutes, so this one predates the window.
     state
         .findings_store
@@ -360,6 +368,10 @@ async fn an_incident_webhook_freezes_the_findings_of_its_window() {
         .findings_store
         .push_batch(&[inside], AT_MS - 60_000)
         .await;
+    state
+        .findings_store
+        .push_batch(&[live], AT_MS + 30_000)
+        .await;
 
     let body = serde_json::json!({
         "version": "4",
@@ -368,7 +380,7 @@ async fn an_incident_webhook_freezes_the_findings_of_its_window() {
             "status": "firing",
             "labels": {"service": "cart-svc", "perf_sentinel_kind": "oom_kill"},
             "annotations": {"summary": "container exceeded its memory limit"},
-            "startsAt": "2026-09-05T14:03:00Z",
+            "startsAt": "2026-09-01T14:03:00Z",
             "endsAt": "0001-01-01T00:00:00Z"
         }]
     });
@@ -411,18 +423,97 @@ async fn an_incident_webhook_freezes_the_findings_of_its_window() {
         incident["ended_at_ms"].is_null(),
         "a firing alert has no end"
     );
-    let frozen = incident["findings"].as_array().unwrap();
     assert_eq!(
-        frozen.len(),
-        1,
-        "only what fired inside the window is frozen: {incident}"
+        incident["window_to_ms"],
+        AT_MS + 2 * 30_000,
+        "the window closes two default TTLs after the incident"
     );
-    assert_eq!(frozen[0]["finding"]["type"], "n_plus_one_sql");
+    let frozen = incident["findings"].as_array().unwrap();
+    let mut types: Vec<&str> = frozen
+        .iter()
+        .map(|f| f["finding"]["type"].as_str().unwrap())
+        .collect();
+    types.sort_unstable();
+    assert_eq!(
+        types,
+        ["chatty_service", "n_plus_one_sql"],
+        "the window keeps what fired before and what was live at the crash: {incident}"
+    );
     assert_eq!(
         incident["oldest_finding_ms"],
         AT_MS - 400_000,
         "the ring reached back past the window, so the capture is complete"
     );
+}
+
+#[tokio::test]
+async fn a_repeated_alert_keeps_the_first_capture_and_a_resolved_one_closes_it() {
+    const AT_MS: u64 = 1_788_271_380_000;
+    let state = make_state();
+    let mut f = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    f.service = "cart-svc".to_string();
+    state.findings_store.push_batch(&[f], AT_MS - 1_000).await;
+
+    let post = |status: &str, ends_at: &str| {
+        serde_json::json!({
+            "alerts": [{
+                "status": status,
+                "labels": {"service": "cart-svc", "perf_sentinel_kind": "restart"},
+                "startsAt": "2026-09-01T14:03:00Z",
+                "endsAt": ends_at
+            }]
+        })
+        .to_string()
+    };
+    for body in [
+        post("firing", "0001-01-01T00:00:00Z"),
+        post("firing", "0001-01-01T00:00:00Z"),
+    ] {
+        let app = query_api_router(Arc::clone(&state));
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/incidents")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        assert_eq!(app.oneshot(req).await.unwrap().status(), StatusCode::OK);
+    }
+    let store = state.incident_store.as_ref().unwrap();
+    let mut listed = store.list(None, 10).await;
+    assert_eq!(listed.len(), 1, "a repeat is the same incident");
+    assert_eq!(
+        listed[0].findings.len(),
+        1,
+        "and it keeps the first capture"
+    );
+    assert_eq!(
+        state
+            .metrics
+            .incidents_total
+            .with_label_values(&["restart"])
+            .get(),
+        1
+    );
+
+    let app = query_api_router(Arc::clone(&state));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/incidents")
+        .header("content-type", "application/json")
+        .body(Body::from(post("resolved", "2026-09-01T14:09:00Z")))
+        .unwrap();
+    assert_eq!(app.oneshot(req).await.unwrap().status(), StatusCode::OK);
+    listed = store.list(None, 10).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        listed[0].ended_at_ms,
+        Some(AT_MS + 6 * 60_000),
+        "the resolved delivery closes the incident without re-freezing it"
+    );
+    assert_eq!(listed[0].findings.len(), 1);
 }
 
 #[tokio::test]
@@ -432,7 +523,7 @@ async fn an_alert_without_the_service_label_is_counted_not_recorded() {
         "alerts": [{
             "status": "firing",
             "labels": {"alertname": "KubePodOOMKilled"},
-            "startsAt": "2026-09-05T14:03:00Z"
+            "startsAt": "2026-09-01T14:03:00Z"
         }]
     });
     let app = query_api_router(Arc::clone(&state));

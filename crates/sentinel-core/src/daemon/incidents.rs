@@ -74,13 +74,10 @@ impl IncidentKind {
     /// everything else is honestly `Other` instead of silently guessed.
     #[must_use]
     pub fn parse(raw: &str) -> Self {
-        match raw {
-            "oom_kill" => Self::OomKill,
-            "memory_saturation" => Self::MemorySaturation,
-            "restart" => Self::Restart,
-            "deploy" => Self::Deploy,
-            _ => Self::Other,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|k| k.as_str() == raw)
+            .unwrap_or(Self::Other)
     }
 }
 
@@ -175,23 +172,19 @@ impl IncidentStore {
         }
     }
 
-    /// Record one incident, replacing any earlier one with the same id.
-    /// Returns whether it was new.
+    /// Record a new incident. Returns `false`, and keeps the existing
+    /// record untouched, when the id is already present.
     ///
-    /// Replacing rather than appending is what makes a repost idempotent:
-    /// Alertmanager repeats a firing alert every `repeat_interval`, and
-    /// the later delivery carries a window resolved later, which is the
-    /// more complete one. The return value is what keeps
-    /// `perf_sentinel_incidents_total` counting incidents rather than
-    /// deliveries, which would otherwise climb on its own with nothing
-    /// having happened.
+    /// Never a replace: a repost re-resolves the same fixed window against
+    /// a ring that only evicts, so the later capture can only be equal or
+    /// smaller. The first one is the good one. What a repost may carry
+    /// that the first did not is an end, see [`Self::close`].
     pub async fn record(&self, incident: Incident) -> bool {
         if self.max_size == 0 {
             return false;
         }
         let mut buf = self.inner.write().await;
-        if let Some(pos) = buf.iter().position(|i| i.id == incident.id) {
-            buf[pos] = incident;
+        if buf.iter().any(|i| i.id == incident.id) {
             return false;
         }
         buf.push_back(incident);
@@ -199,6 +192,40 @@ impl IncidentStore {
             buf.pop_front();
         }
         true
+    }
+
+    /// Whether an incident with this id is retained.
+    pub async fn contains(&self, id: &str) -> bool {
+        self.inner.read().await.iter().any(|i| i.id == id)
+    }
+
+    /// Set the end of a retained incident that had none. Returns the
+    /// updated record when that transition happened, so the caller can
+    /// archive the closed line, and `None` otherwise.
+    pub async fn close(&self, id: &str, ended_at_ms: u64) -> Option<Incident> {
+        let mut buf = self.inner.write().await;
+        let incident = buf.iter_mut().find(|i| i.id == id)?;
+        if incident.ended_at_ms.is_some() {
+            return None;
+        }
+        incident.ended_at_ms = Some(ended_at_ms);
+        Some(incident.clone())
+    }
+
+    /// Replace a retained incident's capture with a later resolution of
+    /// the same window, only when it is not shorter. The settle pass uses
+    /// it once the traces live at the incident have been analysed, and
+    /// the guard is what keeps an eviction in between from degrading the
+    /// record. Returns the stored record when it changed.
+    pub async fn refresh(&self, incident: Incident) -> Option<Incident> {
+        let mut buf = self.inner.write().await;
+        let slot = buf.iter_mut().find(|i| i.id == incident.id)?;
+        if incident.findings.len() < slot.findings.len() {
+            return None;
+        }
+        slot.findings = incident.findings;
+        slot.oldest_finding_ms = incident.oldest_finding_ms;
+        Some(slot.clone())
     }
 
     /// Recorded incidents, newest first, capped at `limit`.
@@ -223,46 +250,62 @@ impl IncidentStore {
     }
 }
 
-/// Append one incident to a newline-delimited JSON file.
+/// Append already serialized records to a newline-delimited JSON file.
 ///
-/// Append-only, last record of an id wins, the same shape the ack JSONL
-/// uses. A repost writes another line rather than rewriting the earlier
-/// one, which keeps the writer a single append and costs a few hundred
-/// bytes per `repeat_interval`.
+/// Append-only, last record of an id wins, the shape the ack JSONL uses.
+/// One open per delivery rather than per alert, and the bytes are built
+/// by the caller so nothing here clones an incident.
 ///
-/// There is no rotation here. An incident is a rare event, a few per day
-/// on a bad week against the analysis archive's several per second, so a
-/// rotating writer with a bounded channel and a drop counter would be
-/// machinery for a file that grows by kilobytes a year. Point logrotate
-/// at it if that ever stops being true.
+/// No rotation: an incident is a rare event against the analysis
+/// archive's several windows a second, so point logrotate at the file if
+/// that ever stops being true. The same guards as the other appenders: a
+/// symlink is refused, a pre-existing file with group or world bits is
+/// refused since `mode(0o600)` applies on creation only, and a
+/// crash-truncated last line is sealed before the next record.
 ///
 /// # Errors
 ///
 /// Returns the underlying I/O error. The caller logs and counts it: a
 /// failed archive write must not fail the webhook, or Alertmanager would
 /// retry an incident the ring has already recorded.
-pub fn append_to_archive(path: &std::path::Path, incident: &Incident) -> std::io::Result<()> {
+pub fn append_lines(path: &std::path::Path, lines: &[Vec<u8>]) -> std::io::Result<()> {
     use std::io::Write as _;
 
+    if lines.is_empty() {
+        return Ok(());
+    }
+    if super::archive::is_symlink(path) {
+        return Err(std::io::Error::other("archive path is a symlink"));
+    }
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
         std::fs::create_dir_all(parent)?;
     }
     let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
-    // `detail` carries operator-supplied text and the findings carry
-    // query templates, so the file is owner-only from creation rather
-    // than chmod'ed after a window where it was world-readable.
+    options.create(true).read(true).append(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let mut file = options.open(path)?;
-    let mut line = serde_json::to_vec(incident)?;
-    line.push(b'\n');
-    file.write_all(&line)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = file.metadata()?.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return Err(std::io::Error::other(format!(
+                "archive file has mode {mode:o}, refusing to append detail and templates to it"
+            )));
+        }
+    }
+    super::archive::terminate_incomplete_line(&mut file)?;
+    for line in lines {
+        file.write_all(line)?;
+        file.write_all(b"\n")?;
+    }
+    Ok(())
 }
 
 // ── The Alertmanager webhook envelope ─────────────────────────────
@@ -339,13 +382,12 @@ pub fn read_alert(
         .map(|s| crate::text_safety::strip_bidi_and_invisible(s).into_owned())
         .filter(|s| !s.is_empty())
         .ok_or(RejectedAlert::NoService)?;
-    let at_ms = crate::time::parse_iso8601_utc_to_ms(&alert.starts_at)
-        .map_err(|_| RejectedAlert::UnparsableTime)?;
+    let at_ms = parse_rfc3339_ms(&alert.starts_at).ok_or(RejectedAlert::UnparsableTime)?;
     // Alertmanager sends the zero time while an alert is firing, which
-    // parses as a year before 1970 and is rejected by the parser, so a
-    // failure here is simply "still firing".
+    // is before 1970 and does not fit a `u64`, so a failure here is
+    // simply "still firing".
     let ended_at_ms = (alert.status == "resolved")
-        .then(|| crate::time::parse_iso8601_utc_to_ms(&alert.ends_at).ok())
+        .then(|| parse_rfc3339_ms(&alert.ends_at))
         .flatten();
     let kind = alert
         .labels
@@ -369,15 +411,20 @@ pub fn read_alert(
 /// sink or the Hub. A count cap alone is not enough on a string derived
 /// from a stack trace, and a byte cap alone could split a character.
 fn cap_detail(raw: &str) -> String {
-    let safe = crate::text_safety::sanitize_for_terminal(raw);
-    if safe.len() <= MAX_DETAIL_BYTES {
-        return safe.into_owned();
-    }
-    let mut end = MAX_DETAIL_BYTES;
-    while end > 0 && !safe.is_char_boundary(end) {
-        end -= 1;
-    }
-    safe[..end].to_string()
+    let mut safe = crate::text_safety::sanitize_for_terminal(raw).into_owned();
+    crate::event::truncate_field(&mut safe, MAX_DETAIL_BYTES);
+    safe
+}
+
+/// Epoch milliseconds from an RFC 3339 stamp with any offset.
+///
+/// Alertmanager serializes with Go's `time.Time`, in the process's own
+/// zone, so `+02:00` is the common case and the crate's `Z`-only span
+/// parser, kept strict for the hot path, would refuse every alert from a
+/// non-UTC deployment.
+fn parse_rfc3339_ms(raw: &str) -> Option<u64> {
+    let stamp = chrono::DateTime::parse_from_rfc3339(raw.trim()).ok()?;
+    u64::try_from(stamp.timestamp_millis()).ok()
 }
 
 #[cfg(test)]
@@ -476,6 +523,35 @@ mod tests {
     }
 
     #[test]
+    fn a_non_utc_alertmanager_stamp_is_read_not_refused() {
+        // Go serializes in the process zone, so this is the common case.
+        let a = alert(
+            &[("service", "svc")],
+            "2026-09-05T16:03:00.123456789+02:00",
+            "firing",
+        );
+        assert_eq!(
+            read_alert(&a, "service", "perf_sentinel_kind")
+                .unwrap()
+                .at_ms,
+            1_788_616_980_123
+        );
+        let a = alert(&[("service", "svc")], "not a stamp", "firing");
+        assert_eq!(
+            read_alert(&a, "service", "perf_sentinel_kind"),
+            Err(RejectedAlert::UnparsableTime)
+        );
+    }
+
+    #[test]
+    fn every_kind_round_trips_through_its_label() {
+        for kind in IncidentKind::ALL {
+            assert_eq!(IncidentKind::parse(kind.as_str()), kind);
+        }
+        assert_eq!(IncidentKind::parse("KubePodOOMKilled"), IncidentKind::Other);
+    }
+
+    #[test]
     fn detail_is_sanitized_and_capped_on_a_character_boundary() {
         let mut a = alert(&[("service", "svc")], "2026-09-05T14:03:00Z", "firing");
         a.annotations.insert("summary".to_string(), "é".repeat(400));
@@ -491,26 +567,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reposting_the_same_alert_replaces_rather_than_appends() {
+    async fn a_repost_keeps_the_first_capture_and_can_only_close_it() {
         let store = IncidentStore::new(10);
+        let mut first = incident("svc", IncidentKind::OomKill, 5000);
+        first.oldest_finding_ms = Some(1);
+        assert!(store.record(first).await, "the first delivery is new");
+        let mut degraded = incident("svc", IncidentKind::OomKill, 5000);
+        degraded.oldest_finding_ms = Some(4999);
         assert!(
-            store
-                .record(incident("svc", IncidentKind::OomKill, 5000))
-                .await,
-            "the first delivery is a new incident"
-        );
-        let mut second = incident("svc", IncidentKind::OomKill, 5000);
-        second.window_from_ms = 1;
-        assert!(
-            !store.record(second).await,
+            !store.record(degraded).await,
             "a repost is not a second incident, or the counter would climb on its own"
         );
         let all = store.list(None, 10).await;
-        assert_eq!(all.len(), 1, "the same alert is the same incident");
+        assert_eq!(all.len(), 1);
         assert_eq!(
-            all[0].window_from_ms, 1,
-            "and the later delivery wins, its window being the more complete"
+            all[0].oldest_finding_ms,
+            Some(1),
+            "the repost re-resolves a window the ring can only have lost from"
         );
+        assert!(store.contains(&all[0].id).await);
+
+        let closed = store.close(&all[0].id, 9000).await;
+        assert_eq!(closed.map(|i| i.ended_at_ms), Some(Some(9000)));
+        assert!(
+            store.close(&all[0].id, 9500).await.is_none(),
+            "closing twice is not a second transition to archive"
+        );
+        assert!(store.close("missing", 1).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn refresh_takes_a_later_resolution_only_when_it_is_not_shorter() {
+        let store = IncidentStore::new(10);
+        let mut first = incident("svc", IncidentKind::Restart, 5000);
+        first.findings = Vec::new();
+        store.record(first).await;
+        let id = Incident::compute_id("svc", IncidentKind::Restart, 5000);
+
+        let mut fuller = incident("svc", IncidentKind::Restart, 5000);
+        fuller.oldest_finding_ms = Some(42);
+        assert!(
+            store.refresh(fuller).await.is_some(),
+            "an equal or longer capture replaces, the settle pass depends on it"
+        );
+        assert_eq!(store.list(None, 1).await[0].oldest_finding_ms, Some(42));
+
+        let mut unknown = incident("other", IncidentKind::Restart, 1);
+        unknown.id = "not-there".to_string();
+        assert!(store.refresh(unknown).await.is_none());
+        assert!(store.contains(&id).await);
     }
 
     #[tokio::test]
@@ -541,26 +646,37 @@ mod tests {
     }
 
     #[test]
-    fn the_archive_appends_one_line_per_delivery_and_the_last_one_wins() {
+    fn the_archive_appends_seals_a_torn_line_and_refuses_a_weak_file() {
         let dir = std::env::temp_dir().join("ps-incident-archive-test");
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("nested").join("incidents.ndjson");
 
         let first = incident("svc", IncidentKind::OomKill, 5000);
-        append_to_archive(&path, &first).expect("the parent directory is created");
-        let mut second = incident("svc", IncidentKind::OomKill, 5000);
-        second.window_from_ms = 1;
-        append_to_archive(&path, &second).unwrap();
+        let line = serde_json::to_vec(&first).unwrap();
+        append_lines(&path, std::slice::from_ref(&line)).expect("the parent directory is created");
+        // A crash mid-write leaves a torn line: the next append must not
+        // glue its record onto it.
+        {
+            use std::io::Write as _;
+            let mut torn = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            torn.write_all(b"{\"half\":").unwrap();
+        }
+        append_lines(&path, std::slice::from_ref(&line)).unwrap();
+        append_lines(&path, &[]).unwrap();
 
         let body = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = body.lines().collect();
-        assert_eq!(lines.len(), 2, "append-only, one line per delivery");
-        let last: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(last["id"], first.id, "the same incident, twice");
         assert_eq!(
-            last["window_from_ms"], 1,
-            "and the last record is the more complete one"
+            lines.len(),
+            3,
+            "first, the sealed torn line, then the repost"
         );
+        assert!(serde_json::from_str::<serde_json::Value>(lines[1]).is_err());
+        let last: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(last["id"], first.id);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -570,6 +686,14 @@ mod tests {
                 0o600,
                 "detail and templates are not world-readable"
             );
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(
+                append_lines(&path, std::slice::from_ref(&line)).is_err(),
+                "mode(0o600) applies on creation only, a weakened file is refused"
+            );
+            let link = dir.join("link.ndjson");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            assert!(append_lines(&link, std::slice::from_ref(&line)).is_err());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
