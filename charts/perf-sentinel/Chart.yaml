@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.20.1
-appVersion: "0.20.1"
+version: 0.20.2
+appVersion: "0.20.2"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,10 +37,10 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: fixed
-      description: "appVersion 0.20.1. The daemon it ships no longer refuses to start when the incident archive on a persistent volume comes back with a group bit. Mounting a volume under an fsGroup adds g+rw to the files already on it, and this chart sets fsGroup 65534 by default, so a daemon that had captured incidents met a mode it rejected on its next start and stayed in CrashLoopBackOff with no way out but a manual chmod. It now chmods an archive it owns back to 0600 and still refuses one owned by another user. The per-window analysis archive and what it rotates into are also created 0600 instead of at the container umask, which left them world-readable at 0644. No values.yaml key is added or removed, no template changes, no shipped alert changes."
+      description: "appVersion 0.20.2. A value too long for its card in the daemon's HTML report is no longer lost behind an ellipsis: the endpoint, the service and each grouping attribute wrap instead, and two rows that keep their single line gained the tooltip carrying the whole value. Report rendering only, nothing in the daemon's behaviour, routes or metrics moves. No values.yaml key is added or removed, no template changes, no shipped alert changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.20.1
+      image: ghcr.io/robintra/perf-sentinel:0.20.2
       platforms:
         - linux/amd64
         - linux/arm64

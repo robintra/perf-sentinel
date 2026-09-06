@@ -10,6 +10,19 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.20.2]
+
+### Fixed
+
+- **`appVersion` moves to `0.20.2`.** A value too long for its card in the
+  daemon's HTML report is no longer cut at an ellipsis a reader can neither
+  finish nor select. The endpoint, the service and each grouping attribute of a
+  finding wrap in their cards instead, and the two rows that keep their single
+  line, a `diff` row's endpoint and the overview banner's gate rule, gained the
+  tooltip that carries the whole value. This is report rendering alone: no
+  daemon behaviour, route, metric or alert changes, and no `values.yaml` key is
+  added or removed.
+
 ## [0.20.1]
 
 ### Fixed

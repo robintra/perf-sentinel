@@ -170,3 +170,14 @@ v0.20.0	c7fbca7	2026-09-05	PASS
 # mode 660 by an fsGroup mount, and it came up on its own with the file back
 # at 0600 where 0.20.0 stayed in CrashLoopBackOff on the same state.
 v0.20.1	dadd839	2026-09-05	PASS
+# v0.20.2 carries the v0.20.1 lab evidence above, on the same lab commit, and
+# runs no pass of its own. Everything this tag adds renders the HTML report:
+# the detail cards wrap a long value instead of cutting it at an ellipsis, and
+# two rows that keep their single line gained a title. No daemon path moves.
+# Five scenarios do load a report in headless Chrome, and none can tell the
+# two builds apart: the three ci-e2e ones only judge RENDERED against BLANK
+# under a CSP header, and browser-check.sh reads innerText, which is the same
+# string whether or not CSS truncated it, without ever opening a finding's
+# detail panel where these cards live. The lab holds no reference to
+# ps-meta-cell, text-overflow or getComputedStyle.
+v0.20.2	dadd839	2026-09-06	PASS
