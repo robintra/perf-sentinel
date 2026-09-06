@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- A value too long for its place in the HTML dashboard is no longer lost behind an ellipsis. The endpoint, the service and each grouping attribute of a finding sit in cards of their own in the detail panel, and the mono ones cut at `...` as soon as a route template outgrew a grid track near 150 pixels, which is most of them. The text was there in the DOM the whole time, selectable but invisible, which is the worst of both: nothing to read and nothing an operator can trust they copied. Those cards now wrap instead, the way the service card beside them already did, and a long path breaks on the `overflow-wrap: anywhere` the parent rule already carried. The grid stretches its cards to a common height anyway, so the taller value costs no layout. Two rows that ellipsize to hold their single line, the endpoint of a `diff` row and the gate rule of the overview banner, keep the ellipsis and gain the `title` the findings row and the span row have carried for a while, so every truncated value in the dashboard now leads back to the whole one. The trace id is untouched: it is shortened in the text rather than by CSS, and its own tooltip and copy button have always carried the full 32 characters.
+
 ## [0.20.1] - 2026-09-05
 
 ### Changed

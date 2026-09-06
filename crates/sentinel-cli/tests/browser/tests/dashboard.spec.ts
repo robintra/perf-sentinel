@@ -1021,3 +1021,56 @@ test("40. long SQL templates wrap instead of scrolling the pg_stat table sideway
     .evaluate((td) => getComputedStyle(td as HTMLElement).overflowWrap);
   expect(wrap).toBe("anywhere");
 });
+
+test("41. a long endpoint wraps in its meta card instead of ellipsizing", async ({ page }) => {
+  // The card is the one place the endpoint is read in full, and a value cut
+  // at "..." can be neither read nor selected. The grid tracks sit near
+  // 150px, so a real route template runs out of room immediately.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loadDashboard(page, "#findings");
+  await page.locator("#findings-list .ps-row").first().click();
+  const value = page.locator("#explain-detail-head .ps-meta-cell-value.mono").first();
+  await expect(value).toBeVisible();
+
+  // The demo dataset has no route long enough to trigger it, so plant one.
+  const overflow = await value.evaluate((el) => {
+    el.textContent =
+      "GET /api/v2/commerce/checkout/cart/{cartId}/items/{itemId}/enrichment/details/expanded";
+    const cell = (el as HTMLElement).closest(".ps-meta-cell") as HTMLElement;
+    return cell.scrollWidth - cell.clientWidth;
+  });
+  expect(overflow).toBe(0);
+
+  // The card grows in height rather than clipping: nowrap is what used to
+  // force the ellipsis, and the parent's overflow-wrap does the breaking.
+  const style = await value.evaluate((el) => {
+    const cs = getComputedStyle(el as HTMLElement);
+    return { whiteSpace: cs.whiteSpace, textOverflow: cs.textOverflow, overflowWrap: cs.overflowWrap };
+  });
+  expect(style.whiteSpace).toBe("normal");
+  expect(style.textOverflow).toBe("clip");
+  expect(style.overflowWrap).toBe("anywhere");
+});
+
+test("42. rows that ellipsize carry their full value on the title", async ({ page }) => {
+  // A dense row keeps its single line, so the tooltip is the only way back to
+  // the whole value. The findings row and the span row already did this, the
+  // gate rule and the diff row did not.
+  await loadDashboard(page, "#overview");
+  const ruleName = page.locator(".ps-hero-rule-name").first();
+  await expect(ruleName).toBeVisible();
+  expect(await ruleName.getAttribute("title")).toBe(
+    (await ruleName.textContent())?.trim()
+  );
+
+  // This fixture carries no diff payload, so the tab does not render and the
+  // row cannot be asserted against. Guard rather than skip the whole test:
+  // the gate rule above is the half that is real here, and the diff half
+  // starts covering itself the day a diff lands in the fixture.
+  const diffEndpoint = page.locator(".ps-diff-endpoint").first();
+  if (await diffEndpoint.count() > 0) {
+    expect(await diffEndpoint.getAttribute("title")).toBe(
+      (await diffEndpoint.textContent())?.trim()
+    );
+  }
+});

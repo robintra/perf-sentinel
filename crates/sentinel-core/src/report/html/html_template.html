@@ -400,7 +400,10 @@
   .ps-meta-cell { min-width: 0; border: 0; border-radius: 10px; background: var(--surface-2); padding: 11px 12px; }
   .ps-meta-cell-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); }
   .ps-meta-cell-value { font-size: 12.5px; font-weight: 500; color: var(--text); margin-top: 5px; overflow-wrap: anywhere; }
-  .ps-meta-cell-value.mono { font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* No nowrap here, unlike the mono cells in a dense row: a card has the
+     height to spare, and an endpoint cut at "..." can be neither read nor
+     selected. The parent's overflow-wrap: anywhere breaks a long path. */
+  .ps-meta-cell-value.mono { font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; }
   .ps-meta-cell-value.brand { color: var(--brand-text); }
   .ps-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-3); }
   .ps-eyebrow.brand { color: var(--brand-text); }
@@ -2245,7 +2248,12 @@
         chip.appendChild(iconSvg(10, r.passed ? "M5 12l4.5 4.5L19 6" : "M6 6l12 12M18 6L6 18"));
         item.appendChild(chip);
         var txt = el("div", "ps-hero-rule-text");
-        txt.appendChild(el("span", "ps-hero-rule-name", humanizeGateRule(r.rule)));
+        var ruleName = humanizeGateRule(r.rule);
+        var ruleNameEl = el("span", "ps-hero-rule-name", ruleName);
+        // Ellipsizes to hold the banner's height, so the full rule is on the
+        // tooltip.
+        setAttr(ruleNameEl, "title", ruleName);
+        txt.appendChild(ruleNameEl);
         txt.appendChild(
           el("span", "ps-hero-rule-detail",
             formatRuleNumber(r.actual) + " / " + formatRuleNumber(r.threshold))
@@ -4438,6 +4446,9 @@
     row.appendChild(el("span", "ps-diff-type", typeLabel(f.type || f.finding_type)));
     var diffEp = el("span", "ps-diff-endpoint");
     highlightEndpoint(diffEp, f.source_endpoint || "-");
+    // The row ellipsizes to keep its one line, so the whole endpoint lives
+    // in the tooltip.
+    setAttr(diffEp, "title", f.source_endpoint || "-");
     row.appendChild(diffEp);
     // Keep service + normalized template searchable (the diff search filters
     // on row.textContent and advertises both), without showing them.
