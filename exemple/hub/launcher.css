@@ -385,7 +385,6 @@ button {
     font-size: 13.5px;
     line-height: 1.55;
     color: var(--text-2);
-    max-width: 120ch;
 }
 
 .card {
@@ -722,7 +721,6 @@ button {
     margin-top: 14px;
     font-size: 12px;
     color: var(--text-3);
-    max-width: 120ch;
 }
 
 .skeleton-stack {
@@ -3517,6 +3515,12 @@ body[data-screen="report"] .shell-footer {
     gap: 9px;
     flex-wrap: wrap;
     margin-bottom: 12px;
+}
+
+/* A banner carries no margin of its own, so the filter line under one would
+   sit flush against it. Matches the margin the line already has below. */
+.banner + .refresh {
+    margin-top: 12px;
 }
 
 .refresh-next {
