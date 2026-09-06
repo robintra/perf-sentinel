@@ -410,7 +410,9 @@ button {
 }
 
 /* An incident's kind. The kill takes the crit flat and the saturation the warn
-   one; a restart or a deploy is a choice somebody made, and stays neutral. */
+   one. A restart and a deploy are events someone can name, so they take the
+   info flat, which leaves the neutral chip to `other`: the bucket the parser
+   folds a kind it does not know into, and the one row worth telling apart. */
 .chip[data-kind="oom_kill"] {
     background: var(--crit-bg);
     color: var(--crit-fg);
@@ -419,6 +421,31 @@ button {
 .chip[data-kind="memory_saturation"] {
     background: var(--warn-bg);
     color: var(--warn-fg);
+}
+
+.chip[data-kind="restart"],
+.chip[data-kind="deploy"] {
+    background: var(--info-bg);
+    color: var(--info-fg);
+}
+
+/* A finding's severity, on the engine's own three tones. The attribute takes
+   the wire value rather than a short code: the dashboard shortens it because
+   its pills sit in a dense list, a table column has the room. Anything else
+   keeps the neutral chip. */
+.chip[data-sev="critical"] {
+    background: var(--crit-bg);
+    color: var(--crit-fg);
+}
+
+.chip[data-sev="warning"] {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+}
+
+.chip[data-sev="info"] {
+    background: var(--info-bg);
+    color: var(--info-fg);
 }
 
 /* Declared, not measured. The dashed outline is the design's device for a

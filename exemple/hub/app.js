@@ -4649,8 +4649,14 @@
             const finding = row.finding || {};
             const phase = PSL.findingPhase(row, incident);
             return el("tr", {}, [
-                el("td", {class: "table-mono", text: finding.type || "?"}),
-                el("td", {}, [el("span", {class: "chip", text: finding.severity || "?"})]),
+                // Not table-mono: this reads as a label now, not as the
+                // identifier the API filters on, which is untouched.
+                el("td", {text: PSL.FINDING_TYPE_LABEL[finding.type] || finding.type || "?"}),
+                el("td", {}, [el("span", {
+                    class: "chip",
+                    "data-sev": finding.severity || null,
+                    text: finding.severity || "?"
+                })]),
                 el("td", {class: "table-mono", text: finding.source_endpoint || "?"}),
                 el("td", {"data-align": "right", text: String(row.seen_count == null ? "?" : row.seen_count)}),
                 el("td", {

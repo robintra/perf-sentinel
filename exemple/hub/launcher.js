@@ -4,7 +4,8 @@
  * Classic script, no module syntax, no build step: the page loads it with a plain
  * <script src> and reads it off `window.PSL`. Brief §3.5 forbids a build stage in
  * the shipped app, so this file is authored as runnable JavaScript and type-checked
- * separately with `tsc --noEmit` against `types.d.ts`.
+ * separately with `tsc --noEmit` against `types.d.ts`, which `npm run typecheck`
+ * at the repository root runs.
  *
  * Everything here is a pure function or a frozen table. Rendering, state and DOM
  * live in the page.
@@ -595,7 +596,8 @@
      * copy should not contradict the screen they copied it from.
      *
      * @param {any} source
-     * @param {number} [refreshSeconds] omitted, or 0, leaves the engine's own default
+     * @param {number | undefined} refreshSeconds omitted, or 0, leaves the engine's own default
+     * @param {string} shellId
      * @returns {string}
      */
     function monitorCommand(source, refreshSeconds, shellId) {
@@ -827,6 +829,32 @@
     };
 
     /**
+     * The engine's twelve finding types, worded as its own dashboard words them.
+     * Kept as a display map and nothing else: `finding_type` is a stored column,
+     * an index key and a public query parameter of `/api/findings`, so the raw
+     * string has to survive everywhere but the cell a person reads.
+     *
+     * The fallback is load-bearing rather than defensive. The Hub accepts any
+     * string on ingest, so a newer engine or another producer can send a
+     * thirteenth type, and it belongs on screen as itself.
+     * @type {Record<string, string>}
+     */
+    const FINDING_TYPE_LABEL = {
+        n_plus_one_sql: "N+1 SQL",
+        n_plus_one_http: "N+1 HTTP",
+        n_plus_one_messaging: "N+1 messaging",
+        redundant_sql: "Redundant SQL",
+        redundant_http: "Redundant HTTP",
+        slow_sql: "Slow SQL",
+        slow_http: "Slow HTTP",
+        slow_messaging: "Slow messaging",
+        excessive_fanout: "Excessive fanout",
+        chatty_service: "Chatty service",
+        pool_saturation: "Pool saturation",
+        serialized_calls: "Serialized calls"
+    };
+
+    /**
      * The daemon's own reading of `oldest_finding_ms`: at or below the window's
      * start the ring still reached the whole window, above it part of the window
      * had already been evicted when the incident was frozen, and absent means the
@@ -935,7 +963,7 @@
         lightState, mergeableView, mergeLight, refreshPlan, releaseUrl, openFolds,
         hubReleaseUrl, updateState, knownShell, CHART_PAGE, CHART_COORDINATE,
         gaugeTone, gaugeMove,
-        INCIDENT_KIND_LABEL, incidentCapture, findingPhase, INCIDENT_READ_STATE, incidentsCopy,
+        INCIDENT_KIND_LABEL, FINDING_TYPE_LABEL, incidentCapture, findingPhase, INCIDENT_READ_STATE, incidentsCopy,
         incidentHandoffHash, readHandoff
     };
 })(globalThis);
