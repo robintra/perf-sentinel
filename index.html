@@ -414,8 +414,8 @@
           </div>
         
           <div data-dc-tpl="259" style="background: var(--surface); padding: 20px 22px;">
-            <div data-dc-tpl="260" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">~17 MB</span></div>
-            <div data-dc-tpl="261" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">daemon RSS at rest (≈190 MB under ~1M evts/s)</span></div>
+            <div data-dc-tpl="260" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">17 MB → 980 MB</span></div>
+            <div data-dc-tpl="261" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">daemon RSS: idle, then set by max_retained_findings (7-day production median at 100k)</span></div>
           </div>
         
           <div data-dc-tpl="259" style="background: var(--surface); padding: 20px 22px;">
@@ -475,7 +475,7 @@
           <div data-dc-tpl="302" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
             <div data-dc-tpl="303" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Runtime footprint</span></div>
             <div data-dc-tpl="304" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Agent ~100–150 MB RSS</span></div>
-            <div data-dc-tpl="305" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Standalone binary &lt;20 MB RSS</span></div>
+            <div data-dc-tpl="305" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Single binary, 17 MB idle, RSS then set by max_retained_findings</span></div>
           </div>
         
           <div data-dc-tpl="302" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">

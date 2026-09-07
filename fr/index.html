@@ -414,8 +414,8 @@
           </div>
         
           <div data-dc-tpl="259" style="background: var(--surface); padding: 20px 22px;">
-            <div data-dc-tpl="260" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">~17 Mo</span></div>
-            <div data-dc-tpl="261" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">RSS daemon au repos (≈190 Mo sous ~1M évts/s)</span></div>
+            <div data-dc-tpl="260" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; color: var(--rust); letter-spacing: -0.01em;"><span class="sc-interp">17 Mo → 980 Mo</span></div>
+            <div data-dc-tpl="261" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">RSS daemon : au repos, puis fixé par max_retained_findings (médiane 7 j en production à 100k)</span></div>
           </div>
         
           <div data-dc-tpl="259" style="background: var(--surface); padding: 20px 22px;">
@@ -475,7 +475,7 @@
           <div data-dc-tpl="302" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
             <div data-dc-tpl="303" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Empreinte runtime</span></div>
             <div data-dc-tpl="304" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Agent ~100–150 Mo RSS</span></div>
-            <div data-dc-tpl="305" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Binaire autonome &lt;20 Mo RSS</span></div>
+            <div data-dc-tpl="305" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Binaire unique, 17 Mo au repos, RSS fixé par max_retained_findings</span></div>
           </div>
         
           <div data-dc-tpl="302" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
@@ -1594,7 +1594,7 @@ class Component extends DCLogic {
         perfStats: [
           { value: '576k–1.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
           { value: '0.8–1.9 µs', label: 'per event, p50 to p99' },
-          { value: '~17 MB', label: 'daemon RSS at rest (≈190 MB under ~1M evts/s)' },
+          { value: '17 MB → 980 MB', label: 'daemon RSS: idle, then set by max_retained_findings (7-day production median at 100k)' },
           { value: 'Rust 2024', label: 'with a static musl binary and a FROM scratch image' },
         ],
         goEyebrow: '// greenops',
@@ -1611,7 +1611,7 @@ class Component extends DCLogic {
         cmpT1: 'Lightweight, agnostic, CI-native, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capability', cmpHApm: 'Typical commercial APM',
         compare: [
-          { cap: 'Runtime footprint', apm: 'Agent ~100–150 MB RSS', ps: 'Standalone binary <20 MB RSS' },
+          { cap: 'Runtime footprint', apm: 'Agent ~100–150 MB RSS', ps: 'Single binary, 17 MB idle, RSS then set by max_retained_findings' },
           { cap: 'Language coverage', apm: 'Per-language agents or SDK', ps: 'Any OTel-instrumented runtime' },
           { cap: 'N+1 SQL & HTTP detection', apm: 'Yes, agent-bound', ps: 'Yes, protocol-level' },
           { cap: 'Cross-service correlation', apm: 'Yes', ps: 'Yes, via trace ID' },
@@ -1751,7 +1751,7 @@ class Component extends DCLogic {
         perfStats: [
           { value: '576k–1.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
           { value: '0.8–1.9 µs', label: 'par évènement, p50 à p99' },
-          { value: '~17 Mo', label: 'RSS daemon au repos (≈190 Mo sous ~1M évts/s)' },
+          { value: '17 Mo → 980 Mo', label: 'RSS daemon : au repos, puis fixé par max_retained_findings (médiane 7 j en production à 100k)' },
           { value: 'Rust 2024', label: 'avec binaire statique musl et image FROM scratch' },
         ],
         goEyebrow: '// greenops',
@@ -1768,7 +1768,7 @@ class Component extends DCLogic {
         cmpT1: 'Léger, agnostique, CI-natif, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capacité', cmpHApm: 'APM commercial type',
         compare: [
-          { cap: 'Empreinte runtime', apm: 'Agent ~100–150 Mo RSS', ps: 'Binaire autonome <20 Mo RSS' },
+          { cap: 'Empreinte runtime', apm: 'Agent ~100–150 Mo RSS', ps: 'Binaire unique, 17 Mo au repos, RSS fixé par max_retained_findings' },
           { cap: 'Couverture langages', apm: 'Agents par langage ou SDK', ps: 'Tout runtime instrumenté OTel' },
           { cap: 'Détection N+1 SQL & HTTP', apm: 'Oui, liée à l\u2019agent', ps: 'Oui, au niveau protocole' },
           { cap: 'Corrélation cross-service', apm: 'Oui', ps: 'Oui, via trace ID' },
