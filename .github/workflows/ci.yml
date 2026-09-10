@@ -226,7 +226,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       # The target must land on the toolchain `rust-toolchain.toml` pins
-      # (1.97.1), otherwise the build fails with `error[E0463]: can't find
+      # (1.98.1), otherwise the build fails with `error[E0463]: can't find
       # crate for core`. `rustup target add` applies to the active toolchain.
       - name: Add musl target to the pinned toolchain
         run: |
