@@ -346,7 +346,7 @@
 <p class="ps-p">Linux release binaries target <code class="ps-ic">x86_64-unknown-linux-musl</code> and <code class="ps-ic">aarch64-unknown-linux-musl</code> so the artifact is fully static and runs on any distribution regardless of host glibc version. The musl libc ships its own allocator, which is simple and small but noticeably slower than glibc's under allocator contention: on v0.4.6 the musl default allocator ran the bench at roughly 70% of the glibc build's throughput, the sole real cost of choosing musl over glibc.</p>
 <p class="ps-p">Rather than resurrect a dual glibc/musl release matrix to recover the gap, the CLI crate declares <code class="ps-ic">mimalloc</code> as a target-gated dependency:</p>
 <div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[target.'cfg(target_env = "musl")'.dependencies]</span>
-<span style="color:var(--code-sub)">mimalloc </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> "0.1.49"</span></code></pre></div>
+<span style="color:var(--code-sub)">mimalloc </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> "0.1.52"</span></code></pre></div>
 <p class="ps-p">and swaps the global allocator in <code class="ps-ic">main.rs</code> behind the same cfg:</p>
 <div class="ps-code"><div class="ps-code-lang">rust</div><pre><code><span style="color:var(--term-comment)">#[cfg(target_env = "musl")]</span>
 <span style="color:var(--term-comment)">#[global_allocator]</span>
