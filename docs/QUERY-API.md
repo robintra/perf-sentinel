@@ -413,13 +413,32 @@ cannot consume the page.
 | `service`       | string  | none    | Exact match on the `finding.service` field                                                             |
 | `type`          | string  | none    | Exact match on `finding.type` in snake_case (e.g. `n_plus_one_sql`, `redundant_sql`)                   |
 | `severity`      | string  | none    | Exact match on `finding.severity` in snake_case (`critical`, `warning`, `info`)                        |
+| `grouping`      | string  | none    | Exact match on the finding's effective grouping value, the one its `grouping` Prometheus label carries |
 | `since_ms`      | integer | none    | Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive                                   |
 | `until_ms`      | integer | none    | Upper bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive                                   |
+| `offset`        | integer | `0`     | Folded rows to skip before `limit` applies, the pages before this one                                  |
 | `limit`         | integer | `100`   | Maximum number of entries to return, capped server-side at `1000` (higher values are silently clamped) |
 | `include_acked` | boolean | `false` | Return acknowledged findings too, each annotated with `acknowledged_by`                                |
 
 Unknown parameters are ignored. Malformed values (e.g. `limit=abc`) return
-HTTP 400 with an axum-generated error body.
+HTTP 400 with an axum-generated error body. An empty or blank value is
+an absent one: `?grouping=&service=%20` lists everything, which is what
+a Grafana variable needs, since Grafana ignores an empty `allValue` and
+the shipped dashboard sends a single space for `All`.
+
+`grouping` matches the finding's effective grouping value: the first
+`[detection] grouping_attributes` captured on its spans, and the value
+the `grouping` label carries on `perf_sentinel_findings_total`, so a
+Grafana variable fed by `label_values(..., grouping)` drives this API
+without conversion. It screens during the buffer pass, like `service`.
+
+`offset` skips folded rows, after the severity screen and the delta
+bound, on the newest-first order, so a listing past the 1000 cap is read
+page by page: `?limit=1000`, then `?limit=1000&offset=1000`. The ring
+keeps evicting and inserting between two pages, so a row can cross a
+page boundary. A reader that needs a stable set narrows with `grouping`
+and `service` first, which is also what makes most pages fit under the
+cap.
 
 `since_ms` is how a poller asks for a delta instead of re-reading the
 whole buffer. It applies after the fold, against the row's most recent

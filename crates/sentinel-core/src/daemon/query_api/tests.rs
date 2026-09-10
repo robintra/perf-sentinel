@@ -257,6 +257,108 @@ async fn findings_filters_by_service() {
     assert_eq!(stored[0].finding.service, "order-svc");
 }
 
+fn grouped(value: &str) -> Vec<crate::event::GroupingAttribute> {
+    vec![crate::event::GroupingAttribute {
+        key: "k8s.namespace.name".into(),
+        value: value.into(),
+    }]
+}
+
+async fn read_findings(app: Router, uri: &str) -> Vec<StoredFinding> {
+    let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn findings_filters_by_grouping() {
+    let state = make_state();
+    let mut tenant_a = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    tenant_a.grouping = grouped("tenant-a");
+    let mut tenant_b = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    tenant_b.grouping = grouped("tenant-b");
+    state
+        .findings_store
+        .push_batch(&[tenant_a, tenant_b], 1000)
+        .await;
+
+    let app = query_api_router(state);
+    let stored = read_findings(app.clone(), "/api/findings?grouping=tenant-a").await;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].finding.grouping_value(), Some("tenant-a"));
+
+    // Combined with service, both must hold.
+    let stored = read_findings(
+        app.clone(),
+        "/api/findings?grouping=tenant-a&service=payment-svc",
+    )
+    .await;
+    assert!(stored.is_empty());
+    let stored = read_findings(app, "/api/findings?grouping=tenant-a&service=order-svc").await;
+    assert_eq!(stored.len(), 1);
+}
+
+#[tokio::test]
+async fn findings_empty_filter_value_is_no_filter() {
+    // A dashboard variable whose `All` renders empty must not turn into an
+    // exact match on "" that empties the table.
+    let state = make_state();
+    let mut f = crate::test_helpers::make_finding(
+        detect::FindingType::NPlusOneSql,
+        detect::Severity::Warning,
+    );
+    f.grouping = grouped("tenant-a");
+    state.findings_store.push_batch(&[f], 1000).await;
+
+    let app = query_api_router(state);
+    let stored = read_findings(
+        app.clone(),
+        "/api/findings?grouping=&service=&type=&severity=",
+    )
+    .await;
+    assert_eq!(stored.len(), 1);
+    // Grafana ignores an empty allValue, so the dashboard sends a space.
+    let stored = read_findings(app, "/api/findings?grouping=%20&service=+").await;
+    assert_eq!(stored.len(), 1);
+}
+
+#[tokio::test]
+async fn findings_offset_pages_the_folded_rows() {
+    let state = make_state();
+    // Unsigned test findings never fold together, so three pushes are
+    // three rows, newest first: 3000, 2000, 1000.
+    for ts in [1000u64, 2000, 3000] {
+        let f = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Warning,
+        );
+        state.findings_store.push_batch(&[f], ts).await;
+    }
+
+    let app = query_api_router(state);
+    let page1 = read_findings(app.clone(), "/api/findings?limit=2").await;
+    assert_eq!(
+        page1.iter().map(|s| s.stored_at_ms).collect::<Vec<_>>(),
+        [3000, 2000]
+    );
+    let page2 = read_findings(app.clone(), "/api/findings?limit=2&offset=2").await;
+    assert_eq!(
+        page2.iter().map(|s| s.stored_at_ms).collect::<Vec<_>>(),
+        [1000]
+    );
+    let past_the_end = read_findings(app, "/api/findings?offset=10").await;
+    assert!(past_the_end.is_empty());
+}
+
 #[tokio::test]
 async fn findings_filters_by_since_ms() {
     let state = make_state();
@@ -1979,6 +2081,60 @@ async fn unack_endpoint_makes_finding_reappear() {
         .unwrap();
     let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
     assert_eq!(list.len(), 1);
+}
+
+#[tokio::test]
+async fn a_page_shortened_by_the_ack_screen_is_not_the_last_page() {
+    // The ack screen runs after `offset` and `limit` have already cut the
+    // page, so a page holding an acked row comes back short of `limit`
+    // with more pages behind it. `docs/QUERY-API.md` tells a collector to
+    // page until a request returns nothing rather than until one returns
+    // fewer rows than it asked for; this is what makes that true.
+    let (_dir, store) = fresh_ack_store().await;
+    let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+    // Unsigned findings never fold together, so three pushes are three
+    // rows, newest first. Only the middle one is acked.
+    let mut signatures = Vec::new();
+    for (ts, service) in [(1000u64, "a-svc"), (2000, "b-svc"), (3000, "c-svc")] {
+        let mut f = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Warning,
+        );
+        f.service = service.to_string();
+        signatures.push(compute_signature(&f));
+        state.findings_store.push_batch(&[f], ts).await;
+    }
+    let app = query_api_router(Arc::clone(&state));
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/findings/{}/ack", signatures[1]))
+                .header("Content-Type", "application/json")
+                .header("X-User-Id", "alice")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    let page1 = read_findings(app.clone(), "/api/findings?limit=2&offset=0").await;
+    assert_eq!(
+        page1.len(),
+        1,
+        "the acked row is dropped after the page was cut, so the first \
+         page of two comes back with one row"
+    );
+    let page2 = read_findings(app, "/api/findings?limit=2&offset=2").await;
+    assert_eq!(
+        page2.len(),
+        1,
+        "and the short page was not the last one: the oldest row is still \
+         behind it"
+    );
 }
 
 #[tokio::test]

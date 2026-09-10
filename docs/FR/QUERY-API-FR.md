@@ -424,14 +424,35 @@ peut donc pas monopoliser la page.
 | `service`       | string  | aucun   | Match exact sur le champ `finding.service`                                                                              |
 | `type`          | string  | aucun   | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
 | `severity`      | string  | aucun   | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
+| `grouping`      | string  | aucun   | Match exact sur la valeur de grouping effective du finding, celle que porte son label Prometheus `grouping`             |
 | `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                    |
 | `until_ms`      | integer | aucun   | Borne haute sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                    |
+| `offset`        | integer | `0`     | Lignes repliées à sauter avant que `limit` s'applique, les pages qui précèdent celle-ci                                 |
 | `limit`         | integer | `100`   | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
 | `include_acked` | boolean | `false` | Retourne aussi les findings acquittés, chacun annoté d'un `acknowledged_by`                                             |
 
 Les paramètres inconnus sont ignorés. Les valeurs malformées (ex.
 `limit=abc`) retournent un HTTP 400 avec un corps d'erreur généré par
-axum.
+axum. Une valeur vide ou blanche vaut une valeur absente :
+`?grouping=&service=%20` liste tout, ce dont a besoin une variable
+Grafana, puisque Grafana ignore une `allValue` vide et que le dashboard
+livré envoie un simple espace pour `All`.
+
+`grouping` compare la valeur de grouping effective du finding : le
+premier `[detection] grouping_attributes` capturé sur ses spans, et la
+valeur que porte le label `grouping` de `perf_sentinel_findings_total`,
+si bien qu'une variable Grafana alimentée par
+`label_values(..., grouping)` pilote cette API sans conversion. Il filtre
+pendant le parcours du buffer, comme `service`.
+
+`offset` saute des lignes repliées, après le filtre de sévérité et la
+borne de delta, dans l'ordre du plus récent au plus ancien, si bien qu'un
+listing au-delà du plafond de 1000 se lit page par page : `?limit=1000`,
+puis `?limit=1000&offset=1000`. Le ring continue d'évincer et d'insérer
+entre deux pages, une ligne peut donc franchir une frontière de page. Un
+lecteur qui veut un ensemble stable resserre d'abord avec `grouping` et
+`service`, ce qui est aussi ce qui fait tenir la plupart des pages sous
+le plafond.
 
 `since_ms` est la façon dont un collecteur demande un delta au lieu de
 relire tout le buffer. Il s'applique après le repli, contre la détection

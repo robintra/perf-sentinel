@@ -2,6 +2,17 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `GET /api/findings` accepts `grouping`, an exact match on the finding's effective grouping value, the one its `grouping` Prometheus label has carried since 0.19.0, and `offset`, the folded rows to skip before `limit`. A fleet whose distinct signatures outgrow the 1000-row cap could only ever read its newest thousand: measured on one production daemon, ten tenants and nine services folded into more than 4300 signatures, so the findings dashboard showed less than a quarter of them and no way to say which tenant a row belonged to, while the overview dashboard filtered by `grouping` and `service` two clicks away. Both filters screen during the buffer pass like `service`, `offset` lands after the fold, the severity screen and the delta bound, on the newest-first order, and an empty filter value now means no filter, where an exact match on `""` returned nothing, so a Grafana variable whose `All` option renders empty can drive the URL. The same `label_values(..., grouping)` that feeds the overview dashboard therefore feeds this API without conversion. The ring keeps moving between two pages, so a row can cross a boundary, the caveat `/api/incidents` already carries. `docs/QUERY-API.md` and its French mirror describe both.
+- The findings dashboard gains `Grouping` and `Service` variables, a `Grouping` column in its two findings tables and a `Skip rows` variable. The variables list the `label_values` of `perf_sentinel_findings_total` from a Prometheus datasource the dashboard now binds in `__inputs` and `__requires`, so they offer exactly what the overview dashboard filters on and reach the API as `grouping` and `service`, narrowing on the daemon rather than on a page that may already be truncated. Their `All` sends a single space, because Grafana ignores an empty `allValue` and a regex of every option is not something an exact-match API can take; the API reads a blank as no filter. `Skip rows` is the `offset`. The column reads the first grouping attribute of each row, the same value the variable filters on. Dashboard `version` 4, and `docs/HELM-DEPLOYMENT.md` with its French mirror describe the four variables that change the request.
+
+### Fixed
+
+- A `serialized_calls` suggestion no longer lists every call of the sequence. On a run of 121 sequential Hibernate selects of four kilobytes each the sentence weighed 480 KB, and three such rows were 72 % of a 5 MB `/api/findings` page, which is what made the page cap look too small before the cap was. The suggestion now names the first three distinct templates, each cut at 120 characters, and ends in `-> ...` when the block holds more; the count, the total and the parallel estimate are unchanged, and every template is whole in the trace the row points at.
+
 ## [0.20.2] - 2026-09-06
 
 ### Fixed

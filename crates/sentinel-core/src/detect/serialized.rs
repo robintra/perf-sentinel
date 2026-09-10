@@ -112,6 +112,21 @@ fn serialized_impl<'a>(
     findings
 }
 
+/// How many distinct templates a `serialized_calls` suggestion names, and
+/// how long each may be. The sentence ends in `-> ...` whenever the block
+/// holds more calls than it names, repeats included: the point is to
+/// recognise the block, and every call is one click away in the trace.
+const SUGGESTION_MAX_TEMPLATES: usize = 3;
+const SUGGESTION_TEMPLATE_CHARS: usize = 120;
+
+/// The first `SUGGESTION_TEMPLATE_CHARS` characters, cut on a char boundary.
+fn shorten(template: &str) -> String {
+    match template.char_indices().nth(SUGGESTION_TEMPLATE_CHARS) {
+        Some((cut, _)) => format!("{}...", &template[..cut]),
+        None => template.to_string(),
+    }
+}
+
 /// Parse the sibling timestamps into intervals. Two kinds of sibling are
 /// dropped: a span whose timestamp does not parse, which cannot be placed
 /// on the timeline, and a SQL session command, which is not parallelizable
@@ -295,15 +310,29 @@ fn evaluate_sequence(
     let total_ms = total_sequential_us / 1000;
     let parallel_ms = max_duration_us / 1000;
 
-    let calls_str: String = seq
+    // The suggestion names the block, it does not carry it. Listing every
+    // call once produced a 480 KB sentence for a run of 121 Hibernate
+    // selects, and three such rows were most of a 5 MB `/api/findings`
+    // page. The first few distinct templates, each cut short, say what
+    // the block is; the trace holds the rest.
+    let mut named: HashSet<&str> = HashSet::new();
+    let shown: Vec<String> = seq
         .iter()
-        .map(|&i| {
-            let s = &timed[i];
-            let dur_ms = s.duration_us / 1000;
-            format!("{} ({dur_ms}ms)", s.template)
-        })
-        .collect::<Vec<_>>()
-        .join(" -> ");
+        .map(|&i| &timed[i])
+        .filter(|s| named.insert(s.template))
+        .take(SUGGESTION_MAX_TEMPLATES)
+        .map(|s| format!("{} ({}ms)", shorten(s.template), s.duration_us / 1000))
+        .collect();
+    // Elide on the calls, not on the distinct templates: the sentence
+    // opens with the block's real count, so a reader who sees three
+    // named calls after "10 sequential ... calls" needs to know the
+    // seven it cannot see are in the trace, whether or not they repeat
+    // a template already named.
+    let calls_str = if seq.len() > shown.len() {
+        format!("{} -> ...", shown.join(" -> "))
+    } else {
+        shown.join(" -> ")
+    };
 
     // Parent endpoint and service
     let parent_span = span_index.get(parent_id).map(|&i| &trace.spans[i]);
@@ -621,6 +650,71 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn suggestion_names_the_block_without_carrying_it() {
+        use std::fmt::Write as _;
+        // Forty distinct selects of four kilobytes each, strictly
+        // sequential: listed whole, the sentence weighed 160 KB.
+        let mut events = Vec::new();
+        let mut root = make_http_event_with_duration(
+            "trace-1",
+            "root",
+            "http://gateway/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            1_000_000,
+        );
+        root.parent_span_id = None;
+        events.push(root);
+        let mut predicates = String::new();
+        for c in 0..400 {
+            write!(predicates, " AND t.col_{c:04} = {c}").unwrap();
+        }
+        for i in 0..40 {
+            let mut child = make_sql_event_with_duration(
+                "trace-1",
+                &format!("child-{i}"),
+                &format!("SELECT t.id FROM table_{i} t WHERE t.id = {i}{predicates}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", 100 + i * 10),
+                5_000,
+            );
+            child.parent_span_id = Some("root".to_string());
+            events.push(child);
+        }
+        let trace = make_trace(events);
+
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
+        assert_eq!(findings.len(), 1);
+        let suggestion = &findings[0].suggestion;
+        assert!(
+            suggestion.len() < 1_000,
+            "suggestion is {} chars: {suggestion}",
+            suggestion.len()
+        );
+        assert!(suggestion.contains("40 sequential independent calls"));
+        assert!(
+            suggestion.contains(" -> ..."),
+            "the elision is said: {suggestion}"
+        );
+        assert!(
+            suggestion.contains("table_0 "),
+            "the first call is named: {suggestion}"
+        );
+        assert!(
+            !suggestion.contains("table_3 "),
+            "the fourth is not: {suggestion}"
+        );
+    }
+
+    #[test]
+    fn shorten_keeps_the_limit_whole_and_cuts_on_a_char_boundary() {
+        let exact = "x".repeat(SUGGESTION_TEMPLATE_CHARS);
+        assert_eq!(shorten(&exact), exact, "no ellipsis at exactly the limit");
+        let accented = "é".repeat(SUGGESTION_TEMPLATE_CHARS + 5);
+        let cut = shorten(&accented);
+        assert!(cut.ends_with("..."));
+        assert_eq!(cut.chars().count(), SUGGESTION_TEMPLATE_CHARS + 3);
     }
 
     #[test]
