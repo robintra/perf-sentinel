@@ -181,3 +181,4 @@ v0.20.1	dadd839	2026-09-05	PASS
 # detail panel where these cards live. The lab holds no reference to
 # ps-meta-cell, text-overflow or getComputedStyle.
 v0.20.2	dadd839	2026-09-06	PASS
+v0.21.0	070998a	2026-09-10	PASS
