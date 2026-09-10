@@ -426,7 +426,7 @@ Rather than resurrect a dual glibc/musl release matrix to recover the gap, the C
 
 ```toml
 [target.'cfg(target_env = "musl")'.dependencies]
-mimalloc = "0.1.49"
+mimalloc = "0.1.52"
 ```
 
 and swaps the global allocator in `main.rs` behind the same cfg:

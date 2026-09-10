@@ -395,7 +395,7 @@ Plutôt que de ressusciter une matrice de release dual glibc/musl pour combler l
 
 ```toml
 [target.'cfg(target_env = "musl")'.dependencies]
-mimalloc = "0.1.49"
+mimalloc = "0.1.52"
 ```
 
 et swap l'allocateur global dans `main.rs` derrière le même cfg :
