@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Changed
+
+- The Grafana overview's `I/O waste ratio` and `Avoidable I/O ops rate` say which findings feed them: the five avoidable-I/O types, `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql` and `redundant_http`, one avoidable operation per repeat beyond the first call, deduplicated per trace, template and endpoint, and that slow spans, chatty services, fanout, serialized calls and pool saturation add nothing to either. A reader watching the ratio climb while only `slow_sql` findings appeared had no way to tell the two were unrelated. Dashboard `version` 7.
+
 ### Added
 
 - `GET /api/findings` accepts `grouping`, an exact match on the finding's effective grouping value, the one its `grouping` Prometheus label has carried since 0.19.0, and `offset`, the folded rows to skip before `limit`. A fleet whose distinct signatures outgrow the 1000-row cap could only ever read its newest thousand: measured on one production daemon, ten tenants and nine services folded into more than 4300 signatures, so the findings dashboard showed less than a quarter of them and no way to say which tenant a row belonged to, while the overview dashboard filtered by `grouping` and `service` two clicks away. Both filters screen during the buffer pass like `service`, `offset` lands after the fold, the severity screen and the delta bound, on the newest-first order, and an empty filter value now means no filter, where an exact match on `""` returned nothing, so a Grafana variable whose `All` option renders empty can drive the URL. The same `label_values(..., grouping)` that feeds the overview dashboard therefore feeds this API without conversion. The ring keeps moving between two pages, so a row can cross a boundary, the caveat `/api/incidents` already carries. `docs/QUERY-API.md` and its French mirror describe both.
