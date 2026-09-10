@@ -236,7 +236,7 @@
     },
     {
       "title": "I/O waste ratio",
-      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Both counters are analysis-side, from the same scoring pass and under the same 128-service cap (overflow folds into service=\"_other\", both silent when green scoring is off) and the same 512-pair cap on (service, grouping) pairs (grouping=\"_other\"), so the ratio never mixes populations. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero.",
+      "description": "Share of I/O operations attributed to avoidable anti-patterns, over the selected time range and summed across every replica. Both counters are analysis-side, from the same scoring pass and under the same 128-service cap (overflow folds into service=\"_other\", both silent when green scoring is off) and the same 512-pair cap on (service, grouping) pairs (grouping=\"_other\"), so the ratio never mixes populations. Derived from the two counters rather than read off the `perf_sentinel_io_waste_ratio` gauge: that gauge is a ratio of lifetime counters, so it ignores the time picker, dilutes a current problem in everything since the pod started, and renders one dial per replica. Two decimals because a fleet doing 1% avoidable I/O on a million operations is worth seeing, and integer percent would round it to zero. Five finding types feed the numerator, each counting its repeats beyond the first call: n_plus_one_sql, n_plus_one_http, n_plus_one_messaging, redundant_sql and redundant_http, deduplicated per trace, template and endpoint so two detectors covering the same calls do not count them twice. Slow spans, chatty services, fanout, serialized calls and pool saturation add nothing here: necessary operations that happen to be slow or badly arranged, not operations that could have been skipped.",
       "type": "gauge",
       "gridPos": {
         "h": 8,
@@ -426,7 +426,7 @@
     },
     {
       "title": "Avoidable I/O ops rate",
-      "description": "Operations per second that the analyzer marked as avoidable, meaning the same result could have been obtained with fewer calls. This is the GreenOps trend signal: unlike the cumulative waste ratio it reacts immediately, so it is the panel that shows an optimisation PR landing.",
+      "description": "Operations per second that the analyzer marked as avoidable, meaning the same result could have been obtained with fewer calls. This is the GreenOps trend signal: unlike the cumulative waste ratio it reacts immediately, so it is the panel that shows an optimisation PR landing. Fed by the same five types as the waste ratio, n_plus_one_sql, n_plus_one_http, n_plus_one_messaging, redundant_sql and redundant_http, one avoidable operation per repeat beyond the first call. A rise here under a flat findings rate means an existing pattern grew, more repeats per trace, not that a new one appeared.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -1535,6 +1535,6 @@
   "timezone": "utc",
   "title": "perf-sentinel overview",
   "uid": "perf-sentinel-overview",
-  "version": 6,
+  "version": 7,
   "refresh": "1m"
 }
