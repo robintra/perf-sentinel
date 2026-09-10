@@ -10,6 +10,43 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.21.0]
+
+### Added
+
+- **`appVersion` moves to `0.21.0`.** `GET /api/findings` accepts two new
+  parameters. `grouping` is an exact match on the finding's effective
+  grouping, the value its `grouping` Prometheus label has carried since
+  0.19.0, so one Grafana variable now drives both shipped dashboards; and
+  `offset` skips folded rows, so a fleet whose distinct signatures outgrow
+  the 1000-row cap is readable past its newest thousand instead of only that
+  page. An empty filter value now means no filter on all four string filters,
+  which is what lets a Grafana `All` option reach an exact-match API: it
+  previously matched the empty string and returned nothing, so a collector
+  sending `?severity=` gets the whole listing where it used to get none.
+- The shipped findings dashboard gains `Grouping`, `Service` and `Skip rows`
+  variables and a `Grouping` column, and binds a Prometheus datasource in
+  `__inputs` for the two `label_values` queries behind them. The overview
+  dashboard names the five finding types that feed its `I/O waste ratio` and
+  `Avoidable I/O ops rate` panels, so a reader watching the ratio climb while
+  only `slow_sql` fires can tell the two are unrelated. Dashboard `version` 7
+  for the overview and 4 for the findings one.
+
+### Fixed
+
+- A `serialized_calls` suggestion names the block instead of carrying it: at
+  most three distinct templates, each cut at 120 characters, ending in
+  `-> ...` when more follows, with the count, total and parallel estimate
+  unchanged. On one measured run of 121 sequential Hibernate selects the
+  sentence weighed 480 KB, and three such rows were 72 % of a 5 MB
+  `/api/findings` page.
+- A page of `GET /api/findings` no longer clones every folded row before
+  cutting it, so a one-row read of a ring holding 100 000 instances stops
+  paying for 4300 clones under the read lock the write path waits behind.
+
+Nothing in the chart's own surface moves: no `values.yaml` key is added or
+removed, no template changes, and the shipped alerts are untouched.
+
 ## [0.20.2]
 
 ### Fixed
