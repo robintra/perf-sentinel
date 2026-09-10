@@ -666,19 +666,25 @@ mod tests {
         assert_eq!(lines[1]["drops"], 1);
     }
 
-    #[tokio::test]
-    async fn writer_rotates_at_size_cap_and_preserves_history() {
-        let dir = TempDir::new().unwrap();
-        let handle = spawn(&cfg(&dir, 1, 4), test_metrics()).unwrap();
+    /// Push enough oversized envelopes to cross the 1 MB cap, then close
+    /// the channel and wait for the writer to drain. Each report
+    /// serialises to a few hundred bytes on its own, so the warning is
+    /// what makes a handful of sends rotate.
+    async fn push_until_rotation(handle: ArchiveHandle) {
         for _ in 0..30 {
-            // Each report serialises to a few hundred bytes; force rotation
-            // by pushing enough envelopes to cross the 1 MB cap.
             let mut archive = sample_archive();
             archive.report.warnings = vec!["x".repeat(60_000)];
             handle.tx.send(archive).await.unwrap();
         }
         drop(handle.tx);
         handle.join.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn writer_rotates_at_size_cap_and_preserves_history() {
+        let dir = TempDir::new().unwrap();
+        let handle = spawn(&cfg(&dir, 1, 4), test_metrics()).unwrap();
+        push_until_rotation(handle).await;
 
         let mut active_lines = 0usize;
         let mut rotated_lines = 0usize;
@@ -707,13 +713,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         let dir = TempDir::new().unwrap();
         let handle = spawn(&cfg(&dir, 1, 4), test_metrics()).unwrap();
-        for _ in 0..30 {
-            let mut archive = sample_archive();
-            archive.report.warnings = vec!["x".repeat(60_000)];
-            handle.tx.send(archive).await.unwrap();
-        }
-        drop(handle.tx);
-        handle.join.await.unwrap();
+        push_until_rotation(handle).await;
 
         let mut checked = 0usize;
         for entry in std::fs::read_dir(dir.path()).unwrap() {
