@@ -31,8 +31,9 @@ type FoldKey<'a> = (Option<(&'a str, &'a str)>, &'a str);
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct StoredFinding {
-    /// The detected finding. On a coalesced entry, the most recent
-    /// instance, carrying the worst severity seen.
+    /// The detected finding. On a coalesced entry, the worst-severity
+    /// instance of the group, the newest on ties, see
+    /// [`coalesce_by_signature`].
     pub finding: Finding,
     /// Monotonic timestamp (ms) of this detection, or of the most
     /// recent one on a coalesced entry.
@@ -73,43 +74,87 @@ fn default_seen_count() -> u64 {
 /// keep the newest. `seen_count` counts the fold and `first_seen_ms` is
 /// the oldest detection retained, both group metadata rather than
 /// properties of the representative.
+///
+/// `entries` must be newest first, the order the store reads its ring
+/// in. The fold keeps the first instance it meets at a given severity,
+/// so on a tie that is the newest one only when the caller has ordered
+/// them that way, and the rows come back in the order their groups were
+/// first met.
 #[must_use]
 pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
     fold_entries(entries.iter())
+        .iter()
+        .map(Folded::materialize)
+        .collect()
 }
 
-/// [`coalesce_by_signature`] over any iterator, so the store can fold
-/// straight off the buffer under the read lock and clone once per
-/// distinct signature instead of once per retained detection.
-fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<StoredFinding> {
-    let mut out: Vec<StoredFinding> = Vec::new();
-    let mut index: HashMap<FoldKey<'_>, usize> = HashMap::new();
+/// One folded row before it is materialised: the representative is
+/// borrowed from the buffer and only the group metadata is accumulated,
+/// so nothing is cloned until the page is cut. A listing that keeps a
+/// page of the folded rows then clones that page, template and
+/// suggestion included, rather than every row and then dropping the
+/// rest. `benches/findings_store.rs` measures it.
+struct Folded<'a> {
+    /// The worst-severity instance of the group, the newest on ties.
+    rep: &'a StoredFinding,
+    seen_count: u64,
+    first_seen_ms: u64,
+    stored_at_ms: u64,
+}
+
+impl<'a> Folded<'a> {
+    fn new(rep: &'a StoredFinding) -> Self {
+        Self {
+            rep,
+            seen_count: rep.seen_count,
+            first_seen_ms: rep.first_seen_ms,
+            stored_at_ms: rep.stored_at_ms,
+        }
+    }
+
+    /// The row a reader gets: the representative's finding under the
+    /// group's metadata. A struct literal on purpose, so a field added to
+    /// `StoredFinding` fails to compile here and gets an explicit answer
+    /// to "whose value?" rather than inheriting the representative's.
+    fn materialize(&self) -> StoredFinding {
+        StoredFinding {
+            finding: self.rep.finding.clone(),
+            stored_at_ms: self.stored_at_ms,
+            first_seen_ms: self.first_seen_ms,
+            seen_count: self.seen_count,
+        }
+    }
+}
+
+/// [`coalesce_by_signature`] over any iterator, borrowing: the store
+/// folds straight off the buffer under the read lock, and the caller
+/// clones only the rows it keeps, see [`Folded`].
+fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Folded<'a>> {
+    let mut out: Vec<Folded<'a>> = Vec::new();
+    let mut index: HashMap<FoldKey<'a>, usize> = HashMap::new();
     for entry in entries {
         // An unsigned finding cannot be keyed, so it stays its own row
         // rather than folding every unsigned finding into one.
         if entry.finding.signature.is_empty() {
-            out.push(entry.clone());
+            out.push(Folded::new(entry));
             continue;
         }
         let grouping = entry.finding.grouping_identity();
         let key = (grouping, entry.finding.signature.as_str());
         if let Some(&i) = index.get(&key) {
-            let kept: &mut StoredFinding = &mut out[i];
-            let seen = kept.seen_count + entry.seen_count;
-            let first = kept.first_seen_ms.min(entry.first_seen_ms);
-            let last = kept.stored_at_ms.max(entry.stored_at_ms);
+            let kept = &mut out[i];
+            kept.seen_count += entry.seen_count;
+            kept.first_seen_ms = kept.first_seen_ms.min(entry.first_seen_ms);
+            kept.stored_at_ms = kept.stored_at_ms.max(entry.stored_at_ms);
             // Severity is ordered Critical < Warning < Info, so a
             // strictly smaller severity is a worse one. Take the whole
             // instance with it, evidence included.
-            if entry.finding.severity < kept.finding.severity {
-                kept.finding = entry.finding.clone();
+            if entry.finding.severity < kept.rep.finding.severity {
+                kept.rep = entry;
             }
-            kept.seen_count = seen;
-            kept.first_seen_ms = first;
-            kept.stored_at_ms = last;
         } else {
             index.insert(key, out.len());
-            out.push(entry.clone());
+            out.push(Folded::new(entry));
         }
     }
     out
@@ -203,17 +248,21 @@ fn coalesce_locked(buf: &VecDeque<StoredFinding>, filter: &FindingsFilter) -> Ve
         (!windowed || in_time_bounds(sf, filter)) && matches_buffer_pass_filters(sf, filter)
     }));
     if let Some(ref sev) = filter.severity {
-        folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
+        folded.retain(|row| row.rep.finding.severity.as_str() == sev.as_str());
     }
     if !windowed && let Some(since) = filter.since_ms {
-        folded.retain(|sf| sf.stored_at_ms >= since);
+        folded.retain(|row| row.stored_at_ms >= since);
     }
-    // A page past the cap: skip on the folded, ordered rows, then cut.
-    // The ring keeps evicting and inserting between two pages, so a row
-    // can cross a boundary, the same caveat `/api/incidents` carries.
-    folded.drain(..filter.offset.min(folded.len()));
-    folded.truncate(filter.limit);
+    // A page past the cap: skip on the folded, ordered rows, cut, and only
+    // then clone. The ring keeps evicting and inserting between two pages,
+    // so a row can cross a boundary, the same caveat `/api/incidents`
+    // carries.
     folded
+        .iter()
+        .skip(filter.offset)
+        .take(filter.limit)
+        .map(Folded::materialize)
+        .collect()
 }
 
 /// Query filter for the findings store.
@@ -348,8 +397,9 @@ impl FindingsStore {
             .collect()
     }
 
-    /// Fold per-trace detections into one entry per effective namespace and
-    /// signature, then apply `filter.limit` to the FOLDED rows.
+    /// Fold per-trace detections into one entry per effective grouping and
+    /// signature, then apply `filter.offset` and `filter.limit` to the
+    /// FOLDED rows.
     ///
     /// The limit lands after the fold on purpose: applied before, a
     /// pattern recurring on 100 traces would consume the whole page and
@@ -671,6 +721,131 @@ mod tests {
             filtered[0].seen_count, unfiltered[0].seen_count,
             "the same problem must not report two different counts"
         );
+    }
+
+    #[tokio::test]
+    async fn since_bound_reads_the_group_stamp_not_the_representative() {
+        // The representative is the critical instance at 1000; the group's
+        // most recent detection is the warning at 5000. A delta poll from
+        // 5000 keeps the row, and the row shows the critical evidence under
+        // the group's stamps, which are two different instances' values.
+        let mut critical = make_finding("svc", FindingType::NPlusOneSql);
+        critical.severity = Severity::Critical;
+        critical.trace_id = "trace-hot".to_string();
+        let mut warning = make_finding("svc", FindingType::NPlusOneSql);
+        warning.severity = Severity::Warning;
+        warning.trace_id = "trace-quiet".to_string();
+        enrich_with_signatures(std::slice::from_mut(&mut critical));
+        enrich_with_signatures(std::slice::from_mut(&mut warning));
+
+        let store = FindingsStore::new(100);
+        store.push_batch(&[critical], 1000).await;
+        store.push_batch(&[warning], 5000).await;
+
+        let folded = store
+            .query_coalesced(&FindingsFilter {
+                since_ms: Some(5000),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(folded.len(), 1, "the group's newest stamp is in bound");
+        let row = &folded[0];
+        assert_eq!(row.finding.trace_id, "trace-hot");
+        assert_eq!(row.finding.severity, Severity::Critical);
+        assert_eq!(row.stored_at_ms, 5000);
+        assert_eq!(row.first_seen_ms, 1000);
+        assert_eq!(row.seen_count, 2);
+    }
+
+    #[tokio::test]
+    async fn offset_skips_folded_rows_after_the_severity_screen() {
+        // Three signed groups, newest first once folded: C (critical),
+        // B (warning), A (critical, three instances). Paging skips folded
+        // rows, and only the rows the severity screen kept.
+        let mut a = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT a");
+        a.severity = Severity::Critical;
+        let mut b = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT b");
+        b.severity = Severity::Warning;
+        let mut c = make_finding_with_template("svc", FindingType::NPlusOneSql, "SELECT c");
+        c.severity = Severity::Critical;
+        for f in [&mut a, &mut b, &mut c] {
+            enrich_with_signatures(std::slice::from_mut(f));
+        }
+        let store = FindingsStore::new(100);
+        store.push_batch(&[a.clone(), a.clone(), a], 1000).await;
+        store.push_batch(&[b], 2000).await;
+        store.push_batch(&[c], 3000).await;
+
+        let second_critical = store
+            .query_coalesced(&FindingsFilter {
+                severity: Some("critical".to_string()),
+                offset: 1,
+                limit: 1,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(second_critical.len(), 1);
+        assert_eq!(
+            second_critical[0].finding.pattern.template, "SELECT a",
+            "C is skipped on the screened, folded rows"
+        );
+        assert_eq!(
+            second_critical[0].seen_count, 3,
+            "A's instances are one row"
+        );
+
+        let all_but_newest = store
+            .query_coalesced(&FindingsFilter {
+                offset: 1,
+                limit: 10,
+                ..Default::default()
+            })
+            .await;
+        let templates: Vec<&str> = all_but_newest
+            .iter()
+            .map(|row| row.finding.pattern.template.as_str())
+            .collect();
+        assert_eq!(templates, ["SELECT b", "SELECT a"]);
+    }
+
+    #[test]
+    fn coalesce_by_signature_materialises_the_group() {
+        // The public fold: newest first in, one row per signature out, the
+        // worse instance's finding under the group's metadata.
+        let mut older = make_finding("svc", FindingType::RedundantSql);
+        older.severity = Severity::Critical;
+        older.trace_id = "trace-hot".to_string();
+        let mut newer = make_finding("svc", FindingType::RedundantSql);
+        newer.severity = Severity::Warning;
+        newer.trace_id = "trace-quiet".to_string();
+        enrich_with_signatures(std::slice::from_mut(&mut older));
+        enrich_with_signatures(std::slice::from_mut(&mut newer));
+        let entries = [
+            StoredFinding {
+                finding: newer,
+                stored_at_ms: 2000,
+                first_seen_ms: 2000,
+                seen_count: 2,
+            },
+            StoredFinding {
+                finding: older,
+                stored_at_ms: 1000,
+                first_seen_ms: 1000,
+                seen_count: 1,
+            },
+        ];
+
+        let folded = coalesce_by_signature(&entries);
+        assert_eq!(folded.len(), 1);
+        let row = &folded[0];
+        assert_eq!(
+            row.finding.trace_id, "trace-hot",
+            "the worse instance represents"
+        );
+        assert_eq!(row.seen_count, 3);
+        assert_eq!(row.first_seen_ms, 1000);
+        assert_eq!(row.stored_at_ms, 2000);
     }
 
     #[tokio::test]

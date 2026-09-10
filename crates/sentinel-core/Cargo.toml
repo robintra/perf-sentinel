@@ -109,3 +109,8 @@ tokio = { version = "1.53.1", features = ["test-util"] }
 [[bench]]
 name = "pipeline"
 harness = false
+
+[[bench]]
+name = "findings_store"
+harness = false
+required-features = ["daemon"]
