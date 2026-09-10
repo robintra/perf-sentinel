@@ -755,22 +755,35 @@ détection, puisque `/api/findings` replie par la signature qu'utilisent
 les acquittements, et sa colonne `Traces` est le compte de ce repli. Il
 compte les détections encore retenues dans le tampon circulaire du
 daemon, il baisse donc quand les plus anciennes expirent et repart de
-zéro au redémarrage du daemon. Le filtrage se fait par les en-têtes de
-colonne plutôt que par une variable de tableau de bord, ainsi aucune
-requête ne peut demander à l'API une sévérité qu'elle ne connaît pas. La
-seule variable qui change la requête est `Include acked` : l'API laisse
-par défaut les findings acquittés de côté, un critique acquitté est donc
+zéro au redémarrage du daemon. La sévérité et le type se filtrent par
+les en-têtes de colonne, ainsi aucune requête ne peut demander à l'API
+une sévérité qu'elle ne connaît pas. Outre `Max rows`, quatre variables changent la
+requête. `Grouping` et `Service` la resserrent côté daemon par les
+paramètres `grouping` et `service`, et leurs valeurs sont les
+`label_values` de `perf_sentinel_findings_total`, raison pour laquelle
+le tableau de bord lie aussi une datasource Prometheus : les mêmes labels
+que filtre le tableau de bord d'aperçu, listés depuis Prometheus plutôt
+que lus sur une page peut-être déjà tronquée. Leur `All` envoie un
+blanc, que l'API lit comme une absence de filtre. `Skip rows` est
+l'`offset` de l'API, un listing au-delà du plafond de 1000 lignes se lit
+donc par tranches, 0 puis le `Max rows` de la page précédente ; l'anneau
+continue de bouger entre deux requêtes, une ligne peut donc franchir une
+frontière de tranche, et resserrer d'abord est ce qui fait tenir la
+plupart des pages sous le plafond. `Include acked` : l'API laisse par
+défaut les findings acquittés de côté, un critique acquitté est donc
 absent sans que rien ne le dise, et `true` les redemande avec une
 colonne `Acked via` qui nomme la source (`toml` pour la baseline CI,
-`daemon` pour le stockage à chaud). Le tableau de bord déclare le plugin
-Infinity dans `__inputs` et `__requires`, la boîte d'import demande donc
-quelle datasource Infinity lier au lieu d'importer des panneaux qui
-n'ont rien à interroger. Le `2.0.0` de `__requires` est le plancher que
-vérifie cette boîte d'import, pas une garantie sur les majeures
-suivantes : après une montée de majeur du plugin, vérifiez que les
-quatre tables se remplissent encore, leurs colonnes venant du parseur
-backend et un changement de parseur vidant une table sans erreur nulle
-part.
+`daemon` pour le stockage à chaud). Une colonne `Grouping` nomme le
+déploiement auquel appartient chaque ligne, le premier `[detection]
+grouping_attributes` que portaient ses spans. Le tableau de bord déclare
+le plugin Infinity et la datasource Prometheus dans `__inputs` et
+`__requires`, la boîte d'import demande donc laquelle de chaque lier au
+lieu d'importer des panneaux qui n'ont rien à interroger. Le `2.0.0` de
+`__requires` est le plancher que vérifie cette boîte d'import, pas une
+garantie sur les majeures suivantes : après une montée de majeur du
+plugin, vérifiez que toutes les tables se remplissent encore, leurs
+colonnes venant du parseur backend et un changement de parseur vidant
+une table sans erreur nulle part.
 
 Deux tables en bas lisent `GET /api/incidents`, la route que
 `POST /api/incidents` remplit depuis un webhook Alertmanager (activée

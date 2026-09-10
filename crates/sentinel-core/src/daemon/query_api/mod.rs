@@ -179,12 +179,18 @@ struct FindingsParams {
     #[serde(rename = "type")]
     finding_type: Option<String>,
     severity: Option<String>,
+    /// Effective grouping value, the one the `grouping` Prometheus label
+    /// carries, so the same dashboard variable drives both dashboards.
+    grouping: Option<String>,
     /// Lower bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
     since_ms: Option<u64>,
     /// Upper bound on `stored_at_ms`, in Unix epoch milliseconds, inclusive.
     /// Present, it makes the listing a window from `since_ms` or the start
     /// of the buffer, folded over the window alone, see `docs/QUERY-API.md`.
     until_ms: Option<u64>,
+    /// Folded rows to skip, the page before this one. `limit` still caps
+    /// each page at `MAX_FINDINGS_LIMIT`.
+    offset: Option<usize>,
     limit: Option<usize>,
     /// Default `false`: filter out findings that are acked (CI TOML
     /// baseline + daemon JSONL store union). `true`: return all
@@ -296,11 +302,13 @@ async fn handle_findings(
     // (large JSON serialization under an unauthenticated loopback API).
     let include_acked = params.include_acked;
     let filter = FindingsFilter {
-        service: params.service,
-        finding_type: params.finding_type,
-        severity: params.severity,
+        service: non_empty(params.service),
+        finding_type: non_empty(params.finding_type),
+        severity: non_empty(params.severity),
+        grouping: non_empty(params.grouping),
         since_ms: params.since_ms,
         until_ms: params.until_ms,
+        offset: params.offset.unwrap_or(0),
         limit: params.limit.unwrap_or(100).min(MAX_FINDINGS_LIMIT),
     };
     // Folded: a listing is read by a human, and detection is per trace,
@@ -348,6 +356,16 @@ async fn handle_findings(
         })
         .collect();
     Json(result)
+}
+
+/// An empty or blank filter value is an absent one. A Grafana variable
+/// ignores an empty `allValue`, so a dashboard whose `All` must reach
+/// the API sends a single space, `?grouping=%20`, and gets the whole
+/// listing, where an exact match on `" "` returned nothing.
+fn non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Resolve the active acknowledgment for a signature, TOML first.
@@ -851,8 +869,10 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             service: None,
             finding_type: None,
             severity: None,
+            grouping: None,
             since_ms: None,
             until_ms: None,
+            offset: 0,
             limit: state.daemon_config.max_export_findings,
         })
         .await;

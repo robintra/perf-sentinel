@@ -7,6 +7,14 @@
       "type": "datasource",
       "pluginId": "yesoreyeram-infinity-datasource",
       "pluginName": "Infinity"
+    },
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "The Prometheus instance scraping the daemon's /metrics. It feeds the Grouping and Service variables alone, from the labels of perf_sentinel_findings_total, the same ones the overview dashboard filters on; every table reads the daemon through DS_INFINITY.",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
     }
   ],
   "__requires": [
@@ -21,6 +29,12 @@
       "id": "yesoreyeram-infinity-datasource",
       "name": "Infinity",
       "version": "2.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
     },
     {
       "type": "panel",
@@ -48,7 +62,7 @@
     "to": "now"
   },
   "refresh": "1m",
-  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names. Since 0.20.0 an Incidents table lists what the alerting posted to POST /api/incidents and an Incident findings table shows the findings frozen for the incident clicked in it, both behind [daemon] read_api_key, which the datasource sends as X-API-Key, and both outside the time picker, since the route has no time filter.",
+  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names. Since 0.20.0 an Incidents table lists what the alerting posted to POST /api/incidents and an Incident findings table shows the findings frozen for the incident clicked in it, both behind [daemon] read_api_key, which the datasource sends as X-API-Key, and both outside the time picker, since the route has no time filter. Grouping and Service are the same labels the overview dashboard filters on, listed from Prometheus and sent to the API as exact matches, and Skip rows pages past the 1000-row cap.",
   "templating": {
     "list": [
       {
@@ -60,6 +74,70 @@
         "hide": 0,
         "includeAll": false,
         "multi": false
+      },
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "grouping",
+        "label": "Grouping",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_findings_total, grouping)",
+        "query": {
+          "query": "label_values(perf_sentinel_findings_total, grouping)",
+          "refId": "grouping"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Effective grouping of the analysed traffic: the first attribute present from [detection] grouping_attributes (k8s.namespace.name, then service.namespace, by default), so on Kubernetes the namespace the workloads run in. Listed from the grouping label of perf_sentinel_findings_total, so it offers exactly what the overview dashboard filters on. Sent to the API as an exact match. All sends a single space, which the API reads as no filter: Grafana ignores an empty allValue, so a blank is the only value that reaches the request. The Prometheus datasource serves this list and the Service list, nothing else. grouping=\"_other\" is the metrics' fold bucket for pairs past the per-run caps, not a value a finding carries: picking it yields an empty table, the rows it stands for sit under their real grouping."
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_findings_total, service)",
+        "query": {
+          "query": "label_values(perf_sentinel_findings_total, service)",
+          "refId": "service"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Analysed service (OTLP service.name), listed from the service label of perf_sentinel_findings_total. Sent to the API as an exact match. All sends a single space, which the API reads as no filter: Grafana ignores an empty allValue, so a blank is the only value that reaches the request. Not narrowed by Grouping: a service absent from the chosen grouping yields an empty table."
       },
       {
         "name": "limit",
@@ -100,7 +178,68 @@
         "hide": 0,
         "includeAll": false,
         "multi": false,
-        "description": "Server-side cap, applied after the API folds findings by signature. The daemon refuses anything above 1000."
+        "description": "Server-side cap, applied after the API folds findings by signature. The daemon refuses anything above 1000. Pair with Skip rows to read past it."
+      },
+      {
+        "name": "offset",
+        "label": "Skip rows",
+        "type": "custom",
+        "query": "0,200,400,600,800,1000,2000,3000,4000",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "400",
+            "value": "400"
+          },
+          {
+            "selected": false,
+            "text": "600",
+            "value": "600"
+          },
+          {
+            "selected": false,
+            "text": "800",
+            "value": "800"
+          },
+          {
+            "selected": false,
+            "text": "1000",
+            "value": "1000"
+          },
+          {
+            "selected": false,
+            "text": "2000",
+            "value": "2000"
+          },
+          {
+            "selected": false,
+            "text": "3000",
+            "value": "3000"
+          },
+          {
+            "selected": false,
+            "text": "4000",
+            "value": "4000"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "The API's offset: folded rows skipped before the page starts, so a listing past the 1000-row cap is read in slices. Add Max rows each time: 0, then 200, 400 at the default, or 0, 1000, 2000 at the cap. The ring keeps moving between two requests, so a row can cross a slice boundary; narrowing with Grouping and Service first is what makes most pages fit under the cap."
       },
       {
         "name": "include_acked",
@@ -258,7 +397,7 @@
     {
       "type": "table",
       "title": "Findings",
-      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. Click that header to rank by it. The default order stays Traces desc, which ranks every row: findings that waste no I/O (the slow_* family) have no Ops/trace, so their impact cell is blank and sorting on it would place them arbitrarily.\n\nColumns keep this order through an organize transformation, since the Infinity backend parser returns them alphabetically. 'Acked via' is empty unless the Include acked variable is true, and then names where the ack came from: toml for the CI baseline file, daemon for the runtime store.",
+      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. Click that header to rank by it. The default order stays Traces desc, which ranks every row: findings that waste no I/O (the slow_* family) have no Ops/trace, so their impact cell is blank and sorting on it would place them arbitrarily.\n\nColumns keep this order through an organize transformation, since the Infinity backend parser returns them alphabetically. 'Acked via' is empty unless the Include acked variable is true, and then names where the ack came from: toml for the CI baseline file, daemon for the runtime store. Grouping and Service narrow the request on the daemon, not the page, so a tenant filtered here is complete up to Max rows; Skip rows reads the next slice; the Grouping column names the deployment each row belongs to.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -280,7 +419,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/findings?limit=${limit}&include_acked=${include_acked}",
+          "url": "/api/findings?limit=${limit}&offset=${offset}&grouping=${grouping}&service=${service}&include_acked=${include_acked}",
           "url_options": {
             "method": "GET"
           },
@@ -299,6 +438,11 @@
             {
               "selector": "finding.service",
               "text": "Service",
+              "type": "string"
+            },
+            {
+              "selector": "finding.grouping.0.value",
+              "text": "Grouping",
               "type": "string"
             },
             {
@@ -513,16 +657,17 @@
               "Severity": 0,
               "Type": 1,
               "Service": 2,
-              "Endpoint": 3,
-              "Traces": 4,
-              "Occurrences": 5,
-              "Ops/trace": 6,
-              "Est. impact (ops)": 7,
-              "Operation": 8,
-              "Suggestion": 9,
-              "Acked via": 10,
-              "Trace": 11,
-              "Last seen": 12
+              "Grouping": 3,
+              "Endpoint": 4,
+              "Traces": 5,
+              "Occurrences": 6,
+              "Ops/trace": 7,
+              "Est. impact (ops)": 8,
+              "Operation": 9,
+              "Suggestion": 10,
+              "Acked via": 11,
+              "Trace": 12,
+              "Last seen": 13
             },
             "renameByName": {}
           }
@@ -953,6 +1098,11 @@
               "type": "string"
             },
             {
+              "selector": "finding.grouping.0.value",
+              "text": "Grouping",
+              "type": "string"
+            },
+            {
               "selector": "finding.source_endpoint",
               "text": "Endpoint",
               "type": "string"
@@ -1164,16 +1314,17 @@
               "Severity": 0,
               "Type": 1,
               "Service": 2,
-              "Endpoint": 3,
-              "Traces": 4,
-              "Occurrences": 5,
-              "Ops/trace": 6,
-              "Est. impact (ops)": 7,
-              "Operation": 8,
-              "Suggestion": 9,
-              "First seen": 10,
-              "Trace": 11,
-              "Last seen": 12
+              "Grouping": 3,
+              "Endpoint": 4,
+              "Traces": 5,
+              "Occurrences": 6,
+              "Ops/trace": 7,
+              "Est. impact (ops)": 8,
+              "Operation": 9,
+              "Suggestion": 10,
+              "First seen": 11,
+              "Trace": 12,
+              "Last seen": 13
             },
             "renameByName": {}
           }
@@ -1197,5 +1348,5 @@
       "url": ""
     }
   ],
-  "version": 3
+  "version": 4
 }

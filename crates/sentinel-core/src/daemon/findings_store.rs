@@ -115,13 +115,21 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Sto
     out
 }
 
-/// Service and finding type are invariant within a signature, so both
-/// read paths screen on them during the buffer pass rather than after
-/// the fold. Shared so a third caller cannot screen on one and not the
-/// other.
-fn matches_service_and_type(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
+/// The three screens that run during the buffer pass: service, finding
+/// type and grouping. All three are invariant within a folded row, the
+/// first two through the signature and the third through the fold key,
+/// so both read paths apply them before folding rather than after.
+/// Shared so a third caller cannot screen on one and not the others.
+/// Severity is deliberately absent: it is a property of the group's
+/// worst instance, so it can only be judged after the fold.
+fn matches_buffer_pass_filters(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
     if let Some(ref svc) = filter.service
         && sf.finding.service != *svc
+    {
+        return false;
+    }
+    if let Some(ref grouping) = filter.grouping
+        && sf.finding.grouping_value() != Some(grouping.as_str())
     {
         return false;
     }
@@ -192,7 +200,7 @@ fn coalesce_locked(buf: &VecDeque<StoredFinding>, filter: &FindingsFilter) -> Ve
     // and lands after the fold so a row keeps its whole history.
     let windowed = filter.until_ms.is_some();
     let mut folded = fold_entries(buf.iter().rev().filter(|sf| {
-        (!windowed || in_time_bounds(sf, filter)) && matches_service_and_type(sf, filter)
+        (!windowed || in_time_bounds(sf, filter)) && matches_buffer_pass_filters(sf, filter)
     }));
     if let Some(ref sev) = filter.severity {
         folded.retain(|sf| sf.finding.severity.as_str() == sev.as_str());
@@ -200,6 +208,10 @@ fn coalesce_locked(buf: &VecDeque<StoredFinding>, filter: &FindingsFilter) -> Ve
     if !windowed && let Some(since) = filter.since_ms {
         folded.retain(|sf| sf.stored_at_ms >= since);
     }
+    // A page past the cap: skip on the folded, ordered rows, then cut.
+    // The ring keeps evicting and inserting between two pages, so a row
+    // can cross a boundary, the same caveat `/api/incidents` carries.
+    folded.drain(..filter.offset.min(folded.len()));
     folded.truncate(filter.limit);
     folded
 }
@@ -226,6 +238,17 @@ pub struct FindingsFilter {
     /// the start of the buffer, screened before the fold, see
     /// [`FindingsStore::query_coalesced`].
     pub until_ms: Option<u64>,
+    /// Optional filter on the finding's effective grouping value, the
+    /// `grouping_value()` that also labels its Prometheus series, so a
+    /// dashboard variable fed by `label_values(..., grouping)` filters
+    /// the API without conversion. Screened during the buffer pass, like
+    /// `service`.
+    pub grouping: Option<String>,
+    /// Rows to skip before `limit` applies, so a listing past the cap is
+    /// read a page at a time. On the folded listing it lands after the
+    /// fold, the severity screen and the delta bound; on the raw
+    /// [`FindingsStore::query`] it skips instances. Newest first on both.
+    pub offset: usize,
     /// Maximum number of results to return.
     pub limit: usize,
 }
@@ -313,12 +336,13 @@ impl FindingsStore {
             .rev()
             .filter(|sf| {
                 in_time_bounds(sf, filter)
-                    && matches_service_and_type(sf, filter)
+                    && matches_buffer_pass_filters(sf, filter)
                     && filter
                         .severity
                         .as_ref()
                         .is_none_or(|sev| sf.finding.severity.as_str() == sev.as_str())
             })
+            .skip(filter.offset)
             .take(limit)
             .cloned()
             .collect()
@@ -475,6 +499,28 @@ mod tests {
         assert!(trace_ids.contains(&"trace-3"));
         assert!(trace_ids.contains(&"trace-2"));
         assert!(!trace_ids.contains(&"trace-0"));
+    }
+
+    #[tokio::test]
+    async fn query_offset_skips_instances_newest_first() {
+        let store = FindingsStore::new(100);
+        for (trace, ts) in [("trace-a", 1000u64), ("trace-b", 2000), ("trace-c", 3000)] {
+            let mut f = make_finding("svc", FindingType::RedundantSql);
+            f.trace_id = trace.to_string();
+            store.push_batch(&[f], ts).await;
+        }
+        let page = store
+            .query(&FindingsFilter {
+                offset: 1,
+                limit: 1,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(page.len(), 1);
+        assert_eq!(
+            page[0].finding.trace_id, "trace-b",
+            "newest first, one skipped"
+        );
     }
 
     #[tokio::test]

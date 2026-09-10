@@ -1077,20 +1077,32 @@ The table shows one row per distinct problem rather than one per
 detection, since `/api/findings` folds by the signature acknowledgments
 use, and its `Traces` column is that fold's count. It counts detections
 still held in the daemon's ring buffer, so it falls as older ones age out
-and resets when the daemon restarts. Filtering is done with the column
-headers rather than a dashboard variable, so no request can ask the API
-for a severity it does not know. The one variable that does change the
-request is `Include acked`: the API leaves acknowledged findings out by
-default, so an acked critical is absent with nothing saying so, and
-`true` asks for them back with an `Acked via` column naming the source
-(`toml` for the CI baseline, `daemon` for the runtime store). The
-dashboard declares the Infinity plugin in `__inputs` and `__requires`,
-so the import dialog asks which Infinity datasource to bind rather than
-importing panels with nothing to query. The `2.0.0` in `__requires` is
-the floor that dialog checks, not a statement about later majors: after
-a major plugin bump, check that all four tables still fill, since their
-columns come from the backend parser and a parser change empties a table
-without erroring anywhere.
+and resets when the daemon restarts. Severity and type are filtered with
+the column headers, so no request can ask the API for a severity it does
+not know. Besides `Max rows`, four variables change the request. `Grouping` and `Service`
+narrow it on the daemon through the `grouping` and `service` parameters,
+and their values are the `label_values` of `perf_sentinel_findings_total`,
+which is why the dashboard also binds a Prometheus datasource: the same
+labels the overview dashboard filters on, listed from Prometheus rather
+than read off a page that may already be truncated. Their `All` sends a
+blank, which the API reads as no filter. `Skip rows` is the API's
+`offset`, so a listing past the 1000-row cap is read in slices, 0 and
+then the previous page's `Max rows`; the ring keeps moving between two
+requests, so a row can cross a slice boundary, and narrowing first is
+what makes most pages fit under the cap. `Include acked`: the API leaves
+acknowledged findings out by default, so an acked critical is absent
+with nothing saying so, and `true` asks for them back with an
+`Acked via` column naming the source (`toml` for the CI baseline,
+`daemon` for the runtime store). A `Grouping` column names the
+deployment each row belongs to, the first `[detection]
+grouping_attributes` its spans carried. The dashboard declares the
+Infinity plugin and the Prometheus datasource in `__inputs` and
+`__requires`, so the import dialog asks which of each to bind rather
+than importing panels with nothing to query. The `2.0.0` in `__requires`
+is the floor that dialog checks, not a statement about later majors:
+after a major plugin bump, check that every table still fills, since
+their columns come from the backend parser and a parser change empties a
+table without erroring anywhere.
 
 Two tables at the bottom read `GET /api/incidents`, the route that
 `POST /api/incidents` fills from an Alertmanager webhook (opt-in through
