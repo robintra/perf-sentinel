@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.20.2
-appVersion: "0.20.2"
+version: 0.21.0
+appVersion: "0.21.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,11 +36,11 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "appVersion 0.20.2. A value too long for its card in the daemon's HTML report is no longer lost behind an ellipsis: the endpoint, the service and each grouping attribute wrap instead, and two rows that keep their single line gained the tooltip carrying the whole value. Report rendering only, nothing in the daemon's behaviour, routes or metrics moves. No values.yaml key is added or removed, no template changes, no shipped alert changes."
+    - kind: added
+      description: "appVersion 0.21.0. GET /api/findings accepts grouping, an exact match on the value the grouping Prometheus label already carries, and offset, so a fleet whose distinct signatures outgrow the 1000-row cap is readable past its newest thousand. An empty filter value now means no filter, which is what lets a Grafana All option reach an exact-match API, where it previously matched the empty string and returned nothing. The shipped findings dashboard gains Grouping, Service and Skip rows variables and a Grouping column, and the overview dashboard names the finding types behind its two avoidable-I/O panels. A serialized_calls suggestion names the block instead of carrying it, which cut one measured page from 5 MB. No values.yaml key is added or removed, no template changes, no shipped alert changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.20.2
+      image: ghcr.io/robintra/perf-sentinel:0.21.0
       platforms:
         - linux/amd64
         - linux/arm64
