@@ -472,7 +472,8 @@ impl Capture {
         // inode, so every count above is real while the path holds nothing.
         // Reporting success there would send the next step to a file that
         // was never going to be readable.
-        let output_matches = std::fs::metadata(&self.output)
+        let output_matches = tokio::fs::metadata(&self.output)
+            .await
             .is_ok_and(|metadata| output_identity(&metadata) == self.output_identity);
         if !output_matches {
             return Err(CaptureError::Output {

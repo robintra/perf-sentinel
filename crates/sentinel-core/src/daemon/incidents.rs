@@ -309,7 +309,7 @@ pub fn spawn_archive(
 ) -> std::io::Result<ArchiveHandle> {
     let file = open_archive(std::path::Path::new(path))?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>(ARCHIVE_CHANNEL_CAPACITY);
-    let join = tokio::spawn(run_writer(rx, file, metrics));
+    let join = tokio::task::spawn_blocking(move || run_writer(rx, file, &metrics));
     Ok(ArchiveHandle { tx, join })
 }
 
@@ -372,14 +372,17 @@ pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Drain the channel into the file, one `write` per record.
-async fn run_writer(
+///
+/// On a blocking thread, not a runtime worker: the write and the recovery
+/// that follows a partial one both park the caller.
+fn run_writer(
     mut rx: mpsc::Receiver<Vec<u8>>,
     mut file: std::fs::File,
-    metrics: Arc<crate::report::metrics::MetricsState>,
+    metrics: &Arc<crate::report::metrics::MetricsState>,
 ) {
     use std::io::Write as _;
 
-    while let Some(mut line) = rx.recv().await {
+    while let Some(mut line) = rx.blocking_recv() {
         line.push(b'\n');
         if let Err(error) = file.write_all(&line) {
             metrics.incidents_archive_failed_total.inc();

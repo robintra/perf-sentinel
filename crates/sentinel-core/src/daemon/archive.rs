@@ -93,8 +93,16 @@ pub fn spawn(
     let cap_bytes = cfg.max_size_mb.saturating_mul(1_048_576);
     let max_files = cfg.max_files;
     let (tx, rx) = mpsc::channel::<OwnedArchive>(CHANNEL_CAPACITY);
-    let join = tokio::spawn(async move {
-        run_writer(rx, path, file, bytes_written, cap_bytes, max_files, metrics).await;
+    let join = tokio::task::spawn_blocking(move || {
+        run_writer(
+            rx,
+            &path,
+            file,
+            bytes_written,
+            cap_bytes,
+            max_files,
+            &metrics,
+        );
     });
     Ok(ArchiveHandle { tx, join })
 }
@@ -230,22 +238,25 @@ fn metadata_len(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |m| m.len())
 }
 
-// Synchronous buffered I/O on a dedicated task, intentional: producers
-// drop-on-full via try_send so a stalled filesystem never blocks the
-// analysis path, and rotation runs once per cap_bytes (rare).
-async fn run_writer(
+// Synchronous buffered I/O on a dedicated blocking thread, intentional:
+// producers drop-on-full via try_send so a stalled filesystem never blocks
+// the analysis path, and rotation runs once per cap_bytes (rare). It is a
+// blocking thread rather than a runtime worker because every call in here
+// parks the caller, a truncation and a rotation included, and a worker
+// parked on a slow disk stops polling every other task it holds.
+fn run_writer(
     mut rx: Receiver<OwnedArchive>,
-    path: PathBuf,
+    path: &Path,
     initial_file: File,
     initial_bytes: u64,
     cap_bytes: u64,
     max_files: u32,
-    metrics: Arc<MetricsState>,
+    metrics: &Arc<MetricsState>,
 ) {
     let mut file = initial_file;
     let mut bytes_written = initial_bytes;
-    let (mut prev, mut seq) = resume_chain(&path);
-    while let Some(archive) = rx.recv().await {
+    let (mut prev, mut seq) = resume_chain(path);
+    while let Some(archive) = rx.blocking_recv() {
         let line = match serialize_envelope(&archive, &prev, seq, metrics.archive_drops_total()) {
             Ok(line) => line,
             Err(err) => {
@@ -285,7 +296,7 @@ async fn run_writer(
         seq = seq.saturating_add(1);
         bytes_written = bytes_written.saturating_add(line.len() as u64 + 1);
         if cap_bytes > 0 && bytes_written >= cap_bytes {
-            match rotate(&path, &mut file, max_files) {
+            match rotate(path, &mut file, max_files) {
                 // A rotated file opens a fresh chain: the reader treats a
                 // seed-rooted first line as a start, not as a break.
                 Ok(()) => {

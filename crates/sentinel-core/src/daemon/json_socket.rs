@@ -32,7 +32,7 @@ pub(super) async fn run_json_socket(
     // the daemon user owns) and the `remove_file` on the next line
     // would follow the symlink and delete the target. `symlink_metadata`
     // does NOT follow symlinks, so we can detect and refuse safely.
-    match std::fs::symlink_metadata(path) {
+    match tokio::fs::symlink_metadata(path).await {
         Ok(meta) if meta.file_type().is_symlink() => {
             tracing::error!(
                 "Refusing to bind Unix socket at {path}: path is a \
@@ -46,7 +46,7 @@ pub(super) async fn run_json_socket(
 
     // Clean up stale socket file (now verified to be a regular file or
     // absent).
-    let _ = std::fs::remove_file(path);
+    let _ = tokio::fs::remove_file(path).await;
 
     let listener = match UnixListener::bind(path) {
         Ok(l) => l,
@@ -73,11 +73,13 @@ pub(super) async fn run_json_socket(
     // Restrict socket permissions to owner-only (prevent other local users from injecting events)
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+        if let Err(e) =
+            tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await
+        {
             tracing::error!(
                 "Failed to set socket permissions on {path}: {e}, refusing to listen on insecure socket"
             );
-            let _ = std::fs::remove_file(path);
+            let _ = tokio::fs::remove_file(path).await;
             return;
         }
     }
