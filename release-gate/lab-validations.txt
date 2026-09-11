@@ -182,3 +182,26 @@ v0.20.1	dadd839	2026-09-05	PASS
 # ps-meta-cell, text-overflow or getComputedStyle.
 v0.20.2	dadd839	2026-09-06	PASS
 v0.21.0	070998a	2026-09-10	PASS
+
+# v0.22.0, 2026-09-11. Targeted pass, not `verify-all-scenarios`, and the
+# reasoning is worth contesting. The runtime diff is 11 lines in
+# `check_ack_auth` plus a 4-line `bearer_matches`, already covered by 109 lines
+# of unit tests; `ingest/`, `normalize/`, `detect/`, `score/` and the batch
+# path are untouched, so most of the suite would re-establish that code
+# identical to 0.21.0 still behaves like 0.21.0. What had NO coverage anywhere
+# is the other half of the branch: two example files whose alert rules and
+# receiver live in Kubernetes, where three of the four links (the CRD schema,
+# the operator that renders it, the Alertmanager that delivers it) sit outside
+# the product repo. docs/SCENARIOS.md listed "Alertmanager itself" under what
+# the lab deliberately does not assert.
+#
+# So the pass built that coverage instead: a new lab scenario
+# `incident-alerting-chain` (11 PASS / 0 FAIL / 1 deliberate SKIP), plus the
+# bearer gate asserted on both route families by extending
+# `incident-window-capture` and `appsec-hardening`, both re-run green with
+# every pre-existing leg. The shipped PrometheusRule was applied byte for byte
+# against a real Prometheus, a real Alertmanager delivered with a bearer
+# credential, and the released 0.21.0 running beside it under the same
+# ConfigMap and the same receiver refused the same delivery at the same
+# instant. `make validate` ok, 3508 product tests green.
+v0.22.0	05ae8d8	2026-09-11	PASS
