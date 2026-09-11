@@ -4,6 +4,8 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-09-11
+
 ### Fixed
 
 - Nine blocking file operations ran on runtime workers inside `async` functions. The two archive writers, for analysis windows and for incidents, move to `tokio::task::spawn_blocking` and read their channel with `blocking_recv`, which keeps the synchronous buffered I/O those writers deliberately use and stops it from parking a worker that holds other tasks. Their bodies are unchanged, so the chain hashing, the rotation and the recovery after a partial write behave exactly as before. The remaining seven are one-shot setup and teardown calls, in the JSON socket listener, the daemon shutdown path and `capture finish`, and move to `tokio::fs`. No behaviour changes anywhere, and no configuration, route or metric moves.

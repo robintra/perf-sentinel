@@ -10,6 +10,22 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.22.1]
+
+### Changed
+
+- **`appVersion` moves to `0.22.1`.** The daemon no longer runs blocking file
+  operations on its runtime workers. The two archive writers, for analysis
+  windows and for incidents, move to a blocking thread and keep the synchronous
+  buffered I/O they deliberately use, so a slow or stalled disk parks a thread
+  dedicated to writing instead of a worker that polls every other task. The
+  seven remaining calls are one-shot setup and teardown and use the async file
+  API. Nothing observable changes: the archive chain hashing, the rotation and
+  the recovery after a partial write are byte-identical.
+
+No `values.yaml` key is added or removed, no template changes, and the shipped
+alerts are unchanged.
+
 ## [0.22.0]
 
 ### Changed
