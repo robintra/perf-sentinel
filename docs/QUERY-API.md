@@ -924,7 +924,9 @@ Authentication is the `X-API-Key` header or `Authorization: Bearer`
 carrying the same key, either one, compared in constant time. The write
 key satisfies both verbs, `[daemon] read_api_key` satisfies the `GET`
 alone, so Grafana and the Hub never hold the key that can `POST`.
-`http_headers` needs Alertmanager 0.27 or later.
+`http_headers` needs Alertmanager 0.27 or later. Below it, the same raw
+configuration carries the key as `http_config.authorization` instead,
+which this route accepts.
 
 Bearer is for server-to-server callers. The CORS layer advertises
 `x-api-key` and deliberately not `authorization`, so a cross-origin
@@ -932,8 +934,8 @@ browser client is refused at preflight and keeps using the header.
 
 Bearer exists for the two Kubernetes operators that generate a receiver,
 because neither can send an arbitrary header. prometheus-operator's
-`AlertmanagerConfig` has none as of 0.86; the VictoriaMetrics
-operator's `VMAlertmanagerConfig` gained `http_headers` in 0.75.0, and an
+`AlertmanagerConfig` has none as of 0.86, and the VictoriaMetrics
+operator's `VMAlertmanagerConfig` gained `http_headers` in 0.75.0, where an
 older API server prunes the block in silence, so the webhook goes out
 with no credential and every delivery 401s where nothing says why. Both
 CRDs carry a bearer token. Ready-made rules and receivers for both are in
