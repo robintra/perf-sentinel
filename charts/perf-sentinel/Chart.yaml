@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.21.0
-appVersion: "0.21.0"
+version: 0.22.0
+appVersion: "0.22.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,10 +37,10 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: added
-      description: "appVersion 0.21.0. GET /api/findings accepts grouping, an exact match on the value the grouping Prometheus label already carries, and offset, so a fleet whose distinct signatures outgrow the 1000-row cap is readable past its newest thousand. An empty filter value now means no filter, which is what lets a Grafana All option reach an exact-match API, where it previously matched the empty string and returned nothing. The shipped findings dashboard gains Grouping, Service and Skip rows variables and a Grouping column, and the overview dashboard names the finding types behind its two avoidable-I/O panels. A serialized_calls suggestion names the block instead of carrying it, which cut one measured page from 5 MB. No values.yaml key is added or removed, no template changes, no shipped alert changes."
+      description: "appVersion 0.22.0. Every key-gated route accepts `Authorization: Bearer <key>` beside `X-API-Key`, either one, the same key and the same constant-time comparison. It matters to operators because neither Kubernetes operator that generates an Alertmanager receiver can send an arbitrary header, so `X-API-Key` was out of reach from a generated receiver: `AlertmanagerConfig` has no field for one, and `VMAlertmanagerConfig` declares its `http_config` as an open object where the operator renders only the fields it knows. Both carry a bearer token. Ready-made alert rules and receivers for both operators now ship under `examples/`, carrying the `service`, `perf_sentinel_kind` and `namespace` labels `POST /api/incidents` reads, with the fleet-wide service derivation they need. No values.yaml key is added or removed, no template changes, no shipped alert changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.21.0
+      image: ghcr.io/robintra/perf-sentinel:0.22.0
       platforms:
         - linux/amd64
         - linux/arm64

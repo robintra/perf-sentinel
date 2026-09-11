@@ -10,6 +10,25 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.22.0]
+
+### Changed
+
+- **`appVersion` moves to `0.22.0`.** Every key-gated route of the daemon now
+  accepts `Authorization: Bearer <key>` beside `X-API-Key`, either one, the
+  same key and the same constant-time comparison. It matters to operators
+  because neither Kubernetes operator that generates an Alertmanager receiver
+  can send an arbitrary header, so `X-API-Key` was out of reach from a
+  generated receiver: `AlertmanagerConfig` has no field for one, and
+  `VMAlertmanagerConfig` declares its `http_config` as an open object where the
+  operator renders only the fields it knows. Both carry a bearer token.
+  Ready-made alert rules and receivers for both operators now ship under
+  `examples/`, with the fleet-wide `service` derivation the three labels
+  `POST /api/incidents` reads require.
+
+No `values.yaml` key is added or removed, no template changes, and the shipped
+alerts are unchanged.
+
 ## [0.21.0]
 
 ### Added

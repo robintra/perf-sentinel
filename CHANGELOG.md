@@ -4,6 +4,8 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-11
+
 ### Added
 
 - Every key-gated route accepts `Authorization: Bearer <key>` beside `X-API-Key`, either one, the same key and the same constant-time comparison. It exists because neither Kubernetes operator that generates an Alertmanager receiver can send an arbitrary header: prometheus-operator's `AlertmanagerConfig` has none as of 0.86, and the VictoriaMetrics operator's `VMAlertmanagerConfig` names no header field at all: its `http_config` is an open object, so the API server takes whatever is written there and the operator renders only what it knows, leaving a webhook that goes out with no credential and a `POST /api/incidents` that 401s where Alertmanager never retries. Both CRDs carry a bearer token. Bearer is checked only after `X-API-Key` failed, so an existing deployment's header keeps deciding on its own, and the scheme is matched case-insensitively per RFC 7235 while the credential is compared byte for byte.
