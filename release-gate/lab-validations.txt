@@ -205,3 +205,21 @@ v0.21.0	070998a	2026-09-10	PASS
 # ConfigMap and the same receiver refused the same delivery at the same
 # instant. `make validate` ok, 3508 product tests green.
 v0.22.0	05ae8d8	2026-09-11	PASS
+
+# v0.22.1, 2026-09-11. Targeted pass, and narrower than the one above it. The
+# diff is nine blocking file operations moved off the runtime workers, so the
+# scope is the daemon's write paths and nothing else: no detector, no ingest,
+# no scoring, no route, no wire format. The two archive writers keep their
+# bodies byte for byte and only change the kind of thread they run on.
+#
+# Run locally, no cluster, all five green: archive-integrity-chain (the chain
+# hashing and the writer), archive-window-drops (rotation and drops),
+# incident-window-capture (the incident archive writer), java-ci-capture
+# (capture finish) and appsec-hardening (the JSON socket and the ack routes).
+# Those cover eight of the nine changed call sites.
+#
+# NOT exercised, and stated rather than glossed: the socket `remove_file` on
+# the daemon shutdown path, which daemon-sigterm-drain owns and which needs a
+# cluster. It is the most trivial of the nine, a one-shot unlink of a Unix
+# socket during teardown. Operator accepted that gap on 2026-09-11.
+v0.22.1	05ae8d8	2026-09-11	PASS
