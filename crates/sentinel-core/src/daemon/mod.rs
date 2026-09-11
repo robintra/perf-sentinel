@@ -473,7 +473,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 
     #[cfg(unix)]
     {
-        let _ = std::fs::remove_file(&config.daemon.json_socket);
+        let _ = tokio::fs::remove_file(&config.daemon.json_socket).await;
     }
     loop_result
 }
