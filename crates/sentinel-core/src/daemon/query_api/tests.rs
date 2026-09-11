@@ -2595,6 +2595,115 @@ fn keyed(mut req: Request<Body>, key: Option<&str>) -> Request<Body> {
     req
 }
 
+/// `req` with a raw `Authorization` value, the header the two operators
+/// can generate where neither can set an arbitrary one.
+fn authorized(mut req: Request<Body>, value: &str) -> Request<Body> {
+    req.headers_mut().insert(
+        axum::http::header::AUTHORIZATION,
+        axum::http::HeaderValue::from_str(value).unwrap(),
+    );
+    req
+}
+
+#[tokio::test]
+async fn a_bearer_token_carries_the_key_where_a_header_cannot() {
+    let mut keyed_state = make_state().clone_for_test();
+    keyed_state.daemon_config.incidents.api_key = Some("write-key-long-enough".to_string());
+    keyed_state.daemon_config.read_api_key = Some("read-key-long-enough".to_string());
+    let state = Arc::new(keyed_state);
+    let app = query_api_router(Arc::clone(&state));
+    let empty = serde_json::json!([]);
+    let post = || post_incidents_request(&empty);
+
+    // The write key as a bearer token posts, exactly as X-API-Key does.
+    assert_eq!(
+        status_of(&app, authorized(post(), "Bearer write-key-long-enough")).await,
+        StatusCode::OK
+    );
+    // RFC 7235 makes the scheme case-insensitive.
+    assert_eq!(
+        status_of(&app, authorized(post(), "bearer write-key-long-enough")).await,
+        StatusCode::OK
+    );
+    // The read key opens the GET and still never posts.
+    assert_eq!(
+        status_of(
+            &app,
+            authorized(get_request("/api/incidents"), "Bearer read-key-long-enough")
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_of(&app, authorized(post(), "Bearer read-key-long-enough")).await,
+        StatusCode::UNAUTHORIZED,
+        "a bearer read key is still a read key"
+    );
+
+    // Everything else is refused: wrong key, another scheme, no scheme.
+    for value in [
+        "Bearer wrong-key-long-enough",
+        "Basic write-key-long-enough",
+        "write-key-long-enough",
+        "Bearer",
+        "Bearer ",
+    ] {
+        assert_eq!(
+            status_of(&app, authorized(post(), value)).await,
+            StatusCode::UNAUTHORIZED,
+            "accepted {value:?}"
+        );
+    }
+
+    // One right header is enough, whichever it is.
+    assert_eq!(
+        status_of(
+            &app,
+            keyed(
+                authorized(post(), "Bearer wrong-key-long-enough"),
+                Some("write-key-long-enough")
+            )
+        )
+        .await,
+        StatusCode::OK,
+        "a valid X-API-Key decides even next to a wrong bearer"
+    );
+}
+
+#[tokio::test]
+async fn no_configured_key_ignores_a_bearer_token() {
+    // The gate stays open where no key is set, and a bearer token that
+    // matches nothing cannot close it. Both routes are key-GATED, unlike
+    // `/api/findings`, which never reaches the gate and would pass this
+    // test with the whole auth module deleted.
+    let state = Arc::new(make_state().clone_for_test());
+    assert!(state.ack_api_key.is_none());
+    assert!(state.daemon_config.read_api_key.is_none());
+    assert!(state.daemon_config.incidents.api_key.is_none());
+    let app = query_api_router(Arc::clone(&state));
+    assert_eq!(
+        status_of(
+            &app,
+            authorized(get_request("/api/acks"), "Bearer anything-at-all")
+        )
+        .await,
+        StatusCode::OK,
+        "a gated GET with no key configured stays open"
+    );
+    assert_eq!(
+        status_of(
+            &app,
+            authorized(
+                post_incidents_request(&serde_json::json!([])),
+                "Bearer anything-at-all"
+            )
+        )
+        .await,
+        StatusCode::OK,
+        "and so does the write"
+    );
+}
+
 #[tokio::test]
 async fn config_summarises_the_read_key_to_a_boolean() {
     let mut keyed_state = make_state().clone_for_test();

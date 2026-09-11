@@ -135,7 +135,7 @@ fn cli_query_incidents_sends_the_key_and_names_a_401() {
     let (port, seen) = spawn_mock(
         401,
         "Unauthorized",
-        r#"{"error":"missing or invalid X-API-Key"}"#,
+        r#"{"error":"missing or invalid X-API-Key or Authorization: Bearer"}"#,
     );
     let output = run_query_incidents(
         port,

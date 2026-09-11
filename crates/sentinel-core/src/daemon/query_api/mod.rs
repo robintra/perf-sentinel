@@ -1456,25 +1456,69 @@ fn check_read_auth(
     }
 }
 
-/// Validate the optional `X-API-Key` header against the configured
-/// secret using a constant-time comparison.
+/// Validate the configured secret against `X-API-Key`, or against
+/// `Authorization: Bearer` carrying the same key.
+///
+/// Both headers are accepted because the two Kubernetes operators that
+/// generate an Alertmanager receiver cannot send an arbitrary header:
+/// `AlertmanagerConfig`'s `HTTPConfig` (prometheus-operator) has none as
+/// of 0.86, and `VMAlertmanagerConfig`'s gained one only in
+/// `VictoriaMetrics` operator 0.75.0, which the API server prunes in
+/// silence on anything older, so the webhook goes out with no key and
+/// every delivery 401s. Both CRDs do carry a bearer token. Raw
+/// `alertmanager.yml` keeps `http_headers` and is unaffected.
+///
+/// Bearer is checked only when `X-API-Key` did not match, so the header
+/// an existing deployment sends keeps deciding on its own, and a request
+/// carrying both is accepted when either is right.
+///
+/// Server to server only in practice: the CORS layer advertises
+/// `x-api-key` and deliberately not `authorization`, so a cross-origin
+/// browser caller is refused at preflight and keeps using `X-API-Key`.
+/// See `listeners.rs`.
 fn check_ack_auth(headers: &HeaderMap, expected: Option<&str>) -> Result<(), ErrorResponse> {
-    use subtle::ConstantTimeEq;
     let Some(expected_key) = expected else {
         return Ok(());
     };
-    let provided = headers
+    let api_key = headers
         .get(crate::http_client::API_KEY_HEADER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if provided.as_bytes().ct_eq(expected_key.as_bytes()).into() {
+    if secret_eq(api_key, expected_key) || bearer_matches(headers, expected_key) {
         Ok(())
     } else {
         Err(ErrorResponse::new(
             StatusCode::UNAUTHORIZED,
-            "missing or invalid X-API-Key",
+            "missing or invalid X-API-Key or Authorization: Bearer",
         ))
     }
+}
+
+/// The `Authorization` header, when it carries `Bearer <key>`. The scheme
+/// is matched case-insensitively, as RFC 7235 requires, the credential
+/// through [`secret_eq`].
+fn bearer_matches(headers: &HeaderMap, expected_key: &str) -> bool {
+    let Some(value) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return false;
+    };
+    let Some((scheme, credential)) = value.split_once(' ') else {
+        return false;
+    };
+    scheme.eq_ignore_ascii_case("bearer") && secret_eq(credential.trim_start(), expected_key)
+}
+
+/// Constant-time in the credential's CONTENT, not in its length:
+/// `subtle`'s slice `ct_eq` short-circuits when the two lengths differ,
+/// so a timing oracle recovers the key's length and nothing else. That
+/// was already true of the `X-API-Key` path this widens, and what the
+/// brute-force argument rests on is the 12-character floor
+/// `check_api_key` enforces on every key.
+fn secret_eq(provided: &str, expected: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    provided.as_bytes().ct_eq(expected.as_bytes()).into()
 }
 
 struct ErrorResponse {

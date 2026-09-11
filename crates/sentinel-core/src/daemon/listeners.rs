@@ -550,6 +550,11 @@ fn build_cors_layer(origins: &[String]) -> Option<tower_http::cors::CorsLayer> {
             // Keep the allow-list narrow to what the daemon actually
             // consumes: Content-Type for POST bodies and X-API-Key for
             // ack auth.
+            // `authorization` is deliberately absent: the key-gated routes also
+            // accept `Authorization: Bearer`, but that path exists for the
+            // Alertmanager receivers two Kubernetes operators generate, which
+            // are server to server and never preflight. Advertising it here
+            // would hand a browser tab a second replayable credential.
             .allow_headers([CONTENT_TYPE, HeaderName::from_static("x-api-key")])
             // 2 minutes preflight cache. Long enough to amortize the
             // OPTIONS roundtrip across a typical user interaction (open

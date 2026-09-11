@@ -802,9 +802,10 @@ forever.
 - `Content-Type: application/json` (required, even with an empty body).
 - `X-User-Id: <identifier>` (optional, populates the audit `by` field
   with priority over the JSON body, falling back to `"anonymous"`).
-- `X-API-Key: <secret>` (required only when `[daemon.ack] api_key` is
-  set in the daemon config, constant-time compared, `[daemon]
-  read_api_key` is refused here).
+- `X-API-Key: <secret>`, or `Authorization: Bearer <secret>` carrying
+  the same key (required only when `[daemon.ack] api_key` is set in the
+  daemon config, constant-time compared, `[daemon] read_api_key` is
+  refused here).
 
 **Body (all fields optional):**
 
@@ -865,8 +866,8 @@ read-only at runtime and require a PR against the
 Returns the array of active runtime acks (post-replay, post-expiry
 filter). Read-only, but gated when the ack writes are: when
 `[daemon.ack] api_key` is set, this endpoint requires a matching
-`X-API-Key` header, the ack key or, since 0.20.0, `[daemon]
-read_api_key`, and returns `401` without it. The ack audit trail
+`X-API-Key` header or `Authorization: Bearer`, carrying the ack key or,
+since 0.20.0, `[daemon] read_api_key`, and returns `401` without it. The ack audit trail
 exposes reviewer identities, reasons, and finding signatures, so the
 configured key governs reads too, not only `POST`/`DELETE`.
 
@@ -919,19 +920,34 @@ receivers:
               secrets: [ "<the [daemon.incidents] api_key>" ]
 ```
 
-Authentication is the `X-API-Key` header, required, compared in constant
-time. The write key satisfies both verbs, `[daemon] read_api_key`
-satisfies the `GET` alone, so Grafana and the Hub never hold the key
-that can `POST`. `http_headers` needs Alertmanager
-0.27 or later, an older one goes through a proxy that sets the header.
+Authentication is the `X-API-Key` header or `Authorization: Bearer`
+carrying the same key, either one, compared in constant time. The write
+key satisfies both verbs, `[daemon] read_api_key` satisfies the `GET`
+alone, so Grafana and the Hub never hold the key that can `POST`.
+`http_headers` needs Alertmanager 0.27 or later.
+
+Bearer is for server-to-server callers. The CORS layer advertises
+`x-api-key` and deliberately not `authorization`, so a cross-origin
+browser client is refused at preflight and keeps using the header.
+
+Bearer exists for the two Kubernetes operators that generate a receiver,
+because neither can send an arbitrary header. prometheus-operator's
+`AlertmanagerConfig` has none as of 0.86; the VictoriaMetrics
+operator's `VMAlertmanagerConfig` gained `http_headers` in 0.75.0, and an
+older API server prunes the block in silence, so the webhook goes out
+with no credential and every delivery 401s where nothing says why. Both
+CRDs carry a bearer token. Ready-made rules and receivers for both are in
+[`examples/incident-alerts-prometheus-operator.yaml`](../examples/incident-alerts-prometheus-operator.yaml)
+and [`examples/incident-alerts-victoriametrics-operator.yaml`](../examples/incident-alerts-victoriametrics-operator.yaml),
+with the fleet-wide `service` derivation these three labels need.
 
 Three labels are read, all configurable:
 
-| Label                            | Default              | Meaning                                                                                            |
-|----------------------------------|----------------------|----------------------------------------------------------------------------------------------------|
-| `[daemon.incidents] service_label` | `service`          | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused |
-| `[daemon.incidents] kind_label`    | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`     |
-| `[daemon.incidents] namespace_label` | `namespace`        | Optional. Its value is carried on the incident as `namespace` and the `namespace` parameter of `GET /api/incidents` filters on it. Never a reason to refuse an alert |
+| Label                                | Default              | Meaning                                                                                                                                                              |
+|--------------------------------------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `[daemon.incidents] service_label`   | `service`            | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused                                                              |
+| `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`                                                                       |
+| `[daemon.incidents] namespace_label` | `namespace`          | Optional. Its value is carried on the incident as `namespace` and the `namespace` parameter of `GET /api/incidents` filters on it. Never a reason to refuse an alert |
 
 A deploy is posted for the same reason as a restart: to freeze what was
 already firing before the rollout, and so a restart the rollout causes

@@ -1106,7 +1106,10 @@ table without erroring anywhere.
 
 Two tables at the bottom read `GET /api/incidents`, the route that
 `POST /api/incidents` fills from an Alertmanager webhook (opt-in through
-`[daemon.incidents]`, see `docs/QUERY-API.md`). `Incidents` lists them
+`[daemon.incidents]`, see `docs/QUERY-API.md`, and
+`examples/incident-alerts-prometheus-operator.yaml` or
+`examples/incident-alerts-victoriametrics-operator.yaml` for rules and a
+receiver ready to copy). `Incidents` lists them
 newest first with the capture window, how many findings were frozen for
 each, and a `Capture` column that reads `oldest_finding_ms` against the
 window's start the way `docs/RUNBOOK.md` does: `complete` when the ring
