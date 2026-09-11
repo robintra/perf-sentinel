@@ -1463,10 +1463,11 @@ fn check_read_auth(
 /// Both headers are accepted because the two Kubernetes operators that
 /// generate an Alertmanager receiver cannot send an arbitrary header:
 /// `AlertmanagerConfig`'s `HTTPConfig` (prometheus-operator) has none as
-/// of 0.86, and `VMAlertmanagerConfig`'s gained one only in
-/// `VictoriaMetrics` operator 0.75.0, which the API server prunes in
-/// silence on anything older, so the webhook goes out with no key and
-/// every delivery 401s. Both CRDs do carry a bearer token. Raw
+/// of 0.86, and `VMAlertmanagerConfig` does not name one either: its
+/// `http_config` is an open object, so the API server accepts whatever
+/// is written there and the operator renders only the fields it knows,
+/// leaving a webhook that goes out with no key and 401s on every
+/// delivery. Both CRDs do carry a bearer token. Raw
 /// `alertmanager.yml` keeps `http_headers` from Alertmanager 0.27 on,
 /// and `http_config.authorization` below it, which this same path
 /// accepts.

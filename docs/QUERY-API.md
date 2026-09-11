@@ -935,9 +935,10 @@ browser client is refused at preflight and keeps using the header.
 Bearer exists for the two Kubernetes operators that generate a receiver,
 because neither can send an arbitrary header. prometheus-operator's
 `AlertmanagerConfig` has none as of 0.86, and the VictoriaMetrics
-operator's `VMAlertmanagerConfig` gained `http_headers` in 0.75.0, where an
-older API server prunes the block in silence, so the webhook goes out
-with no credential and every delivery 401s where nothing says why. Both
+operator's `VMAlertmanagerConfig` names none either: its `http_config` is an
+open object, so the API server takes whatever is written there and the
+operator renders only the fields it knows, which leaves a webhook going out
+with no credential and a delivery that 401s where nothing says why. Both
 CRDs carry a bearer token. Ready-made rules and receivers for both are in
 [`examples/incident-alerts-prometheus-operator.yaml`](../examples/incident-alerts-prometheus-operator.yaml)
 and [`examples/incident-alerts-victoriametrics-operator.yaml`](../examples/incident-alerts-victoriametrics-operator.yaml),
