@@ -938,9 +938,10 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
 }
 
 /// Validate the two preconditions every ack endpoint shares: a valid
-/// `X-API-Key` when `[daemon.ack] api_key` is set, and an enabled
-/// store. Records the matching `AckFailureReason` before returning so
-/// every error path is observable in `/metrics`.
+/// credential when `[daemon.ack] api_key` is set, `X-API-Key` or
+/// `Authorization: Bearer` as [`check_ack_auth`] takes them, and an
+/// enabled store. Records the matching `AckFailureReason` before
+/// returning so every error path is observable in `/metrics`.
 fn check_ack_preconditions<'a>(
     state: &'a Arc<QueryApiState>,
     headers: &HeaderMap,
@@ -1466,7 +1467,9 @@ fn check_read_auth(
 /// `VictoriaMetrics` operator 0.75.0, which the API server prunes in
 /// silence on anything older, so the webhook goes out with no key and
 /// every delivery 401s. Both CRDs do carry a bearer token. Raw
-/// `alertmanager.yml` keeps `http_headers` and is unaffected.
+/// `alertmanager.yml` keeps `http_headers` from Alertmanager 0.27 on,
+/// and `http_config.authorization` below it, which this same path
+/// accepts.
 ///
 /// Bearer is checked only when `X-API-Key` did not match, so the header
 /// an existing deployment sends keeps deciding on its own, and a request

@@ -203,8 +203,9 @@ startup are not counted, no operations occur after the initial load.
 - `not_acked` (HTTP 404, `action=unack` only): signature has no
   active daemon ack record.
 - `unauthorized` (HTTP 401): `[daemon.ack] api_key` is set and the
-  request is missing or has an invalid `X-API-Key` header, `[daemon]
-  read_api_key` on a write included. The
+  request carries no valid credential in either `X-API-Key` or
+  `Authorization: Bearer`, `[daemon] read_api_key` on a write
+  included. The
   series is pre-warmed at zero, so a non-zero value confirms
   `api_key` is configured (the counter only ever increments when
   auth is enforced).

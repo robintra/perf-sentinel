@@ -954,7 +954,8 @@ portant la même clé, l'un ou l'autre, comparé en temps constant. La clé
 d'écriture satisfait les deux verbes, `[daemon] read_api_key` satisfait
 le `GET` seul, donc Grafana et le Hub ne détiennent jamais la clé qui
 peut faire un `POST`. `http_headers` exige Alertmanager 0.27 ou plus
-récent.
+récent. En dessous, la même configuration brute porte la clé en
+`http_config.authorization`, que cette route accepte.
 
 Le Bearer s'adresse aux appelants serveur à serveur. La couche CORS
 annonce `x-api-key` et délibérément pas `authorization`, donc un client
@@ -963,9 +964,9 @@ d'utiliser l'en-tête.
 
 Le Bearer existe pour les deux opérateurs Kubernetes qui génèrent un
 receiver, parce qu'aucun ne sait envoyer un en-tête libre. Le
-`AlertmanagerConfig` de prometheus-operator n'en a aucun en 0.86 ;
+`AlertmanagerConfig` de prometheus-operator n'en a aucun en 0.86, et
 le `VMAlertmanagerConfig` de l'opérateur VictoriaMetrics a reçu
-`http_headers` en 0.75.0, et un serveur d'API plus ancien élague le bloc
+`http_headers` en 0.75.0, où un serveur d'API plus ancien élague le bloc
 en silence, donc le webhook part sans identifiant et chaque livraison
 répond 401 sans que rien ne le dise. Les deux CRD portent en revanche un
 jeton Bearer. Des règles et des receivers prêts à l'emploi pour les deux

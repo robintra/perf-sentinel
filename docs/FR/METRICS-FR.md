@@ -209,8 +209,9 @@ Valeurs du label `reason` :
 - `not_acked` (HTTP 404, `action=unack` uniquement) : la signature
   n'a pas d'ack daemon actif.
 - `unauthorized` (HTTP 401) : `[daemon.ack] api_key` est défini et
-  la requête est sans header `X-API-Key` ou avec un header invalide,
-  `[daemon] read_api_key` sur une écriture compris.
+  la requête ne porte d'identifiant valide ni en `X-API-Key` ni en
+  `Authorization: Bearer`, `[daemon] read_api_key` sur une écriture
+  compris.
   La série est pré-chauffée à zéro, donc une valeur non nulle
   confirme que `api_key` est configurée (le counter n'incrémente
   que quand l'auth est appliquée).
