@@ -103,14 +103,17 @@ spec:
 ---
 # THE RECEIVER, and the two operator behaviours that decide whether it works.
 #
-# 1. DO NOT USE `http_headers` HERE unless your operator is recent enough. The
-#    field reached the CRD in VictoriaMetrics operator 0.75.0, and its own
-#    documentation adds that Alertmanager ignores it below 0.28.0. On an older
-#    operator the API server prunes the block without a word, the webhook
-#    leaves with no credential, and every delivery gets a 401 that Alertmanager
-#    never retries. `bearer_token_secret` below is in the CRD of every version
-#    that has this resource, and the daemon accepts `Authorization: Bearer
-#    <key>` as an equivalent of `X-API-Key` on every key-gated route for
+# 1. DO NOT USE `http_headers` HERE. The CRD does not name it, and it does not
+#    name anything else in there either: `http_config` is declared as an open
+#    object (`x-kubernetes-preserve-unknown-fields`), checked against the
+#    v0.74.1 CRD bundle. So the API server accepts whatever you write and
+#    validates none of it, the operator renders only the fields it knows, and
+#    Alertmanager ignores `http_headers` below 0.28.0 on top of that. A typo or
+#    an unsupported field therefore costs you a webhook that leaves with no
+#    credential and a 401 Alertmanager never retries, with nothing refusing it
+#    anywhere along the way. `bearer_token_secret` below is a field the
+#    operator has always rendered, and the daemon accepts `Authorization:
+#    Bearer <key>` as an equivalent of `X-API-Key` on every key-gated route for
 #    exactly this reason.
 #
 # 2. THE NAMESPACE MATCHER. The operator adds a `namespace="<this resource's

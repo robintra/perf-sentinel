@@ -965,10 +965,11 @@ d'utiliser l'en-tête.
 Le Bearer existe pour les deux opérateurs Kubernetes qui génèrent un
 receiver, parce qu'aucun ne sait envoyer un en-tête libre. Le
 `AlertmanagerConfig` de prometheus-operator n'en a aucun en 0.86, et
-le `VMAlertmanagerConfig` de l'opérateur VictoriaMetrics a reçu
-`http_headers` en 0.75.0, où un serveur d'API plus ancien élague le bloc
-en silence, donc le webhook part sans identifiant et chaque livraison
-répond 401 sans que rien ne le dise. Les deux CRD portent en revanche un
+le `VMAlertmanagerConfig` de l'opérateur VictoriaMetrics n'en nomme aucun
+non plus : son `http_config` est un objet ouvert, donc le serveur d'API
+accepte ce qu'on y écrit et l'opérateur ne rend que les champs qu'il
+connaît, ce qui laisse partir un webhook sans identifiant et une livraison
+qui répond 401 sans que rien ne le dise. Les deux CRD portent en revanche un
 jeton Bearer. Des règles et des receivers prêts à l'emploi pour les deux
 vivent dans
 [`examples/incident-alerts-prometheus-operator.yaml`](../../examples/incident-alerts-prometheus-operator.yaml)
