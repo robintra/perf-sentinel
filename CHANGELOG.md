@@ -7,6 +7,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Fixed
 
 - Nine blocking file operations ran on runtime workers inside `async` functions. The two archive writers, for analysis windows and for incidents, move to `tokio::task::spawn_blocking` and read their channel with `blocking_recv`, which keeps the synchronous buffered I/O those writers deliberately use and stops it from parking a worker that holds other tasks. Their bodies are unchanged, so the chain hashing, the rotation and the recovery after a partial write behave exactly as before. The remaining seven are one-shot setup and teardown calls, in the JSON socket listener, the daemon shutdown path and `capture finish`, and move to `tokio::fs`. No behaviour changes anywhere, and no configuration, route or metric moves.
+- The SonarCloud scan now passes `sonar.projectVersion`. Without it the service kept the last version it had ever seen, so the "previous version" new-code period stopped moving and reached back six months, which is how a newly activated rule came to redden the quality gate over untouched code.
 
 ## [0.22.0] - 2026-09-11
 

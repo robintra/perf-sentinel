@@ -180,6 +180,15 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
+      # Without a version, SonarCloud keeps the last one it ever saw and the
+      # "previous version" new-code period stops moving: on 2026-09-11 it still
+      # reached back to March, so a newly activated rule reddened the gate over
+      # six months of untouched code.
+      - name: Read the workspace version
+        id: workspace_version
+        run: |
+          echo "value=$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
         # The 40-hex value below is the action's git SHA pin (Dependabot-managed),
@@ -191,6 +200,8 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: -Dsonar.projectVersion=${{ steps.workspace_version.outputs.value }}
 
   # Smoke-test the musl release target so glibc/musl regressions (new C-FFI
   # crate, ring toolchain break, missing musl-tools) surface on PRs instead
