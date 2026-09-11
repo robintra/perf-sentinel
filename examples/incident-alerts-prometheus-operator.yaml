@@ -110,6 +110,10 @@ spec:
         # `for: 5m` because a single scrape above the line is a garbage
         # collection, not a saturation.
         #
+        # It needs a memory LIMIT on the container: without one there is no
+        # `kube_pod_container_resource_limits` series, the division matches
+        # nothing, and this rule stays silent forever without saying so.
+        #
         # Both sides of the division are aggregated to the same label set
         # first. One-to-one matching needs exactly one series per group on each
         # side, and neither source guarantees it: cAdvisor keeps the previous
@@ -149,13 +153,24 @@ spec:
         # Here `service` comes from the Deployment's own name, so it is always
         # set. The `and on` keeps the alert to services that actually run the
         # traced container.
+        #
+        # Both sides of the `group_left` are aggregated first, for the reason
+        # the saturation rule states: a second kube-state-metrics replica, or
+        # the overlap of one rolling over, gives the owner series two instances
+        # per ReplicaSet. A many-to-one match refuses duplicates on its "one"
+        # side, so without the `max by` the rule does not post a late deploy,
+        # it fails to evaluate and posts nothing at all.
         - alert: PerfSentinelDeploy
           expr: |
             max by (namespace, service) (
               label_replace(
-                (time() - kube_replicaset_created < 300)
+                max by (namespace, replicaset) (
+                  time() - kube_replicaset_created < 300
+                )
                 * on (namespace, replicaset) group_left (owner_name)
-                kube_replicaset_owner{owner_kind="Deployment"},
+                max by (namespace, replicaset, owner_name) (
+                  kube_replicaset_owner{owner_kind="Deployment"}
+                ),
                 "service", "$1", "owner_name", "(.*)")
             )
             and on (namespace, service)
