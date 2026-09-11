@@ -1,0 +1,243 @@
+# Alerting that hands perf-sentinel the moment an incident happened, for a
+# cluster running prometheus-operator. The VictoriaMetrics twin of this file is
+# examples/incident-alerts-victoriametrics-operator.yaml: the rules are the
+# same, the CRDs and the operator traps are not.
+#
+# WHY THIS EXISTS. perf-sentinel does not detect a crash and cannot see an
+# observed service's memory: it has no OTLP metrics path, and a service that
+# saturates usually keeps emitting spans, more slowly. Your alerting owns the
+# moment. What perf-sentinel owns is the findings of a period, and it is the
+# only thing that can capture them before the ring evicts them, which on a busy
+# fleet takes minutes. `POST /api/incidents` is that handover, opt-in through
+# `[daemon.incidents]`. See docs/QUERY-API.md.
+#
+# WHAT THE DAEMON READS, and why the shipped kube-prometheus rules are not
+# enough on their own. Three labels, all configurable:
+#
+#   service             REQUIRED, the join key to the findings. An alert
+#                       without it is refused and counted in
+#                       perf_sentinel_incidents_rejected_total.
+#   perf_sentinel_kind  one of oom_kill, memory_saturation, restart, deploy,
+#                       other. Read, never guessed from alertname.
+#   namespace           optional, carried on the incident and filterable on
+#                       GET /api/incidents.
+#
+# kube-prometheus alerts carry `namespace` and `pod`, never `service` and never
+# a kind, which is why these rules exist rather than a route over the existing
+# ones.
+#
+# THE TWO ASSUMPTIONS TO CHECK BEFORE COPYING. Both are about your cluster, not
+# about perf-sentinel, and both are one edit away:
+#
+#   1. `container="app"` below selects the workloads perf-sentinel traces.
+#      Replace it with your own container name, or with a namespace or label
+#      selector if your fleet does not share one. A service the daemon does not
+#      trace produces an empty capture, which costs nothing.
+#   2. The Deployment name equals the OTLP `service.name`, and a pod is named
+#      `<deployment>-<replicaset hash>-<pod hash>`, so the service is the pod
+#      name minus its last two segments. That is what the `label_replace`
+#      regex does, and it only fits that shape: a StatefulSet pod
+#      (`<name>-<ordinal>`), a DaemonSet pod (one suffix) or a bare pod does
+#      not match it, and a Job pod matches it wrongly. Adapt the regex, or
+#      write `service` as a literal label when one rule covers one service.
+#
+# Each rule aggregates with `max by (namespace, pod)` BEFORE deriving the
+# service. That is not cosmetic: kube-state-metrics series carry their own
+# scrape target labels, `service="kube-state-metrics"` among them, and
+# `label_replace` leaves a label alone when the regex does not match. Without
+# the aggregation, a pod whose name does not fit assumption 2 would reach the
+# daemon carrying kube-state-metrics as its service, and be accepted. Dropping
+# every label but the two the rule needs is what makes the "refused for want of
+# a service" safety net real.
+#
+# These rules need kube-state-metrics. The memory-saturation one also needs
+# cAdvisor (`container_memory_working_set_bytes`), which kubelet exposes.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: perf-sentinel-incidents
+  namespace: observability
+  labels:
+    # Match whatever your Prometheus selects rules with
+    # (`spec.ruleSelector`).
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: perf-sentinel-incidents
+      rules:
+        # The crash. `increase() > 0` over five minutes is an event, so no
+        # `for:` here: a restart that already happened does not become truer by
+        # waiting, and the window the daemon freezes is anchored on `startsAt`.
+        - alert: PerfSentinelOomKill
+          expr: |
+            label_replace(
+              max by (namespace, pod) (
+                (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
+                and on (namespace, pod)
+                (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+              ),
+              "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+          labels:
+            # `severity: info` is what keeps these off the routes that page a
+            # human. It is not what routes them here, see the receiver below.
+            severity: info
+            perf_sentinel_kind: oom_kill
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: container OOM-killed ({{ $labels.pod }})"
+        # Any other restart. `unless` keeps an OOM from firing both rules.
+        # Usually: the restart counter and the termination reason are two
+        # kube-state-metrics series that need not land in the same scrape, so
+        # an OOM can briefly post a restart too. The daemon takes that calmly,
+        # two incidents on one window freeze the same findings.
+        - alert: PerfSentinelRestart
+          expr: |
+            label_replace(
+              max by (namespace, pod) (
+                (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
+                unless on (namespace, pod)
+                (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+              ),
+              "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+          labels:
+            severity: info
+            perf_sentinel_kind: restart
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: container restarted ({{ $labels.pod }})"
+        # The one that fires BEFORE the crash, which is when freezing findings
+        # is worth most: the findings that explain a saturation are still in
+        # the ring, where an OOM capture often arrives after the eviction.
+        # `for: 5m` because a single scrape above the line is a garbage
+        # collection, not a saturation.
+        #
+        # Both sides of the division are aggregated to the same label set
+        # first. One-to-one matching needs exactly one series per group on each
+        # side, and neither source guarantees it: cAdvisor keeps the previous
+        # container of a restarted pod for a scrape or two, and a second
+        # kube-state-metrics replica doubles the limits series. Without the
+        # `max by`, the rule does not alert late, it fails to evaluate.
+        - alert: PerfSentinelMemorySaturation
+          expr: |
+            label_replace(
+              max by (namespace, pod) (
+                max by (namespace, pod, container) (
+                  container_memory_working_set_bytes{container="app", image!=""}
+                )
+                / on (namespace, pod, container)
+                max by (namespace, pod, container) (
+                  kube_pod_container_resource_limits{container="app", resource="memory"}
+                )
+                > 0.9
+              ),
+              "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+          for: 5m
+          labels:
+            severity: info
+            perf_sentinel_kind: memory_saturation
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: working set above 90% of its memory limit"
+        # A deploy is posted for the same reason as a restart: to freeze what
+        # was already firing before the rollout, and so a restart the rollout
+        # causes is not read as a crash.
+        #
+        # A deploy is a NEW ReplicaSet. Do not key this on
+        # `kube_deployment_status_observed_generation`: the generation also
+        # advances when the HPA writes `spec.replicas`, so every autoscale
+        # would post a deploy incident. A rollback onto an existing ReplicaSet
+        # is not seen, which is rare and deliberate.
+        #
+        # Here `service` comes from the Deployment's own name, so it is always
+        # set. The `and on` keeps the alert to services that actually run the
+        # traced container.
+        - alert: PerfSentinelDeploy
+          expr: |
+            max by (namespace, service) (
+              label_replace(
+                (time() - kube_replicaset_created < 300)
+                * on (namespace, replicaset) group_left (owner_name)
+                kube_replicaset_owner{owner_kind="Deployment"},
+                "service", "$1", "owner_name", "(.*)")
+            )
+            and on (namespace, service)
+            count by (namespace, service) (
+              label_replace(
+                max by (namespace, pod) (kube_pod_container_info{container="app"}),
+                "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            )
+          labels:
+            severity: info
+            perf_sentinel_kind: deploy
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: new deployment"
+---
+# THE RECEIVER, and the two things that decide whether it ever fires.
+#
+# 1. THE NAMESPACE MATCHER. prometheus-operator adds a
+#    `namespace="<this resource's namespace>"` matcher to every route it builds
+#    from an AlertmanagerConfig, under `alertmanagerConfigMatcherStrategy`,
+#    whose default is `OnNamespace`. These alerts carry the namespace of the
+#    OBSERVED workload, not the one this resource lives in, so with that
+#    default the route matches nothing at all and no incident is ever posted.
+#    Set `alertmanagerConfigMatcherStrategy.type: None` on the Alertmanager CR
+#    (`alertmanager.alertmanagerSpec.alertmanagerConfigMatcherStrategy.type` in
+#    kube-prometheus-stack), or drop the `namespace` label from these alerts
+#    and let the daemon record incidents without one.
+#
+# 2. ROUTE ORDER. The operator APPENDS the routes it builds from an
+#    AlertmanagerConfig to the ones already in the Alertmanager configuration,
+#    so any earlier sub-route that matches these alerts wins first. A
+#    catch-all, or a route on `severity="info"`, swallows them unless it
+#    carries `continue: true`. Check the rendered configuration with
+#    `amtool config routes show` before concluding the daemon is at fault.
+#
+# THE CREDENTIAL. `AlertmanagerConfig`'s `HTTPConfig` has no field for an
+# arbitrary header, so it cannot send `X-API-Key`. It does carry
+# `authorization`, and the daemon accepts `Authorization: Bearer <key>` as an
+# equivalent on every key-gated route for exactly this reason. Raw
+# `alertmanager.yml` keeps `http_headers` if you prefer it, see
+# docs/QUERY-API.md.
+#
+# The credential is the `[daemon.incidents] api_key`, the WRITE key. Never hand
+# it to Grafana or to a dashboard: `[daemon] read_api_key` opens the two GETs
+# without the power to post, and the daemon refuses at startup a read key equal
+# to a write key.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: perf-sentinel-incidents
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+spec:
+  route:
+    receiver: perf-sentinel-incidents
+    # Everything this file emits, and nothing else.
+    matchers:
+      - name: perf_sentinel_kind
+        matchType: "=~"
+        value: ".+"
+    # One delivery per service and per namespace: those are the two labels the
+    # daemon joins on, so a group mixing them would tell it nothing more.
+    groupBy: [namespace, service]
+    groupWait: 10s
+    groupInterval: 1m
+    repeatInterval: 1h
+    # Let the alert carry on to whatever routes follow this one.
+    continue: true
+  receivers:
+    - name: perf-sentinel-incidents
+      webhookConfigs:
+        # `perf-sentinel` is the chart's fullname, `<ns>` its namespace, 4318
+        # the `service.ports.otlpHttp.port`.
+        - url: http://perf-sentinel.<ns>.svc.cluster.local:4318/api/incidents
+          # A resolved delivery closes the incident without taking anything
+          # away from it.
+          sendResolved: true
+          # The daemon's own per-delivery cap.
+          maxAlerts: 1000
+          httpConfig:
+            authorization:
+              type: Bearer
+              credentials:
+                name: perf-sentinel-incidents-key
+                key: api-key

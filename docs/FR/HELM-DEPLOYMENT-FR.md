@@ -787,7 +787,10 @@ une table sans erreur nulle part.
 
 Deux tables en bas lisent `GET /api/incidents`, la route que
 `POST /api/incidents` remplit depuis un webhook Alertmanager (activée
-explicitement par `[daemon.incidents]`, voir `docs/FR/QUERY-API-FR.md`).
+explicitement par `[daemon.incidents]`, voir `docs/FR/QUERY-API-FR.md`, et
+`examples/incident-alerts-prometheus-operator.yaml` ou
+`examples/incident-alerts-victoriametrics-operator.yaml` pour des règles et un
+receiver prêts à copier).
 `Incidents` les liste du plus récent au plus ancien avec la fenêtre de
 capture, le nombre de findings gelés pour chacun, et une colonne
 `Capture` qui lit `oldest_finding_ms` contre le début de la fenêtre

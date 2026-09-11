@@ -1,0 +1,150 @@
+# Alerting that hands perf-sentinel the moment an incident happened, for a
+# cluster running the VictoriaMetrics operator. The prometheus-operator twin of
+# this file is examples/incident-alerts-prometheus-operator.yaml, and it opens
+# with the same explanation of why this exists, which three labels the daemon
+# reads, the two cluster assumptions to check before copying (the
+# `container="app"` selector, and deriving `service` from the pod name) and why
+# every rule aggregates before deriving that service. Read that file first,
+# this one repeats only what differs.
+#
+# The VictoriaMetrics operator also converts a `PrometheusRule` into a `VMRule`
+# on its own, so the twin file's rules work here too. This one is for fleets
+# that write VM CRDs directly.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: perf-sentinel-incidents
+  namespace: observability
+spec:
+  groups:
+    - name: perf-sentinel-incidents
+      rules:
+        - alert: PerfSentinelOomKill
+          expr: |
+            label_replace(
+              max by (namespace, pod) (
+                (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
+                and on (namespace, pod)
+                (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+              ),
+              "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+          labels:
+            severity: info
+            perf_sentinel_kind: oom_kill
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: container OOM-killed ({{ $labels.pod }})"
+        - alert: PerfSentinelRestart
+          expr: |
+            label_replace(
+              max by (namespace, pod) (
+                (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
+                unless on (namespace, pod)
+                (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+              ),
+              "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+          labels:
+            severity: info
+            perf_sentinel_kind: restart
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: container restarted ({{ $labels.pod }})"
+        # Both sides of the division are aggregated to the same label set
+        # first, or one-to-one matching fails outright on a restarted pod or a
+        # second kube-state-metrics replica.
+        - alert: PerfSentinelMemorySaturation
+          expr: |
+            label_replace(
+              max by (namespace, pod) (
+                max by (namespace, pod, container) (
+                  container_memory_working_set_bytes{container="app", image!=""}
+                )
+                / on (namespace, pod, container)
+                max by (namespace, pod, container) (
+                  kube_pod_container_resource_limits{container="app", resource="memory"}
+                )
+                > 0.9
+              ),
+              "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+          for: 5m
+          labels:
+            severity: info
+            perf_sentinel_kind: memory_saturation
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: working set above 90% of its memory limit"
+        # A deploy is a NEW ReplicaSet, never the Deployment's generation: the
+        # HPA advances that one too, so every autoscale would post an incident.
+        - alert: PerfSentinelDeploy
+          expr: |
+            max by (namespace, service) (
+              label_replace(
+                (time() - kube_replicaset_created < 300)
+                * on (namespace, replicaset) group_left (owner_name)
+                kube_replicaset_owner{owner_kind="Deployment"},
+                "service", "$1", "owner_name", "(.*)")
+            )
+            and on (namespace, service)
+            count by (namespace, service) (
+              label_replace(
+                max by (namespace, pod) (kube_pod_container_info{container="app"}),
+                "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            )
+          labels:
+            severity: info
+            perf_sentinel_kind: deploy
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.service }}: new deployment"
+---
+# THE RECEIVER, and the two operator behaviours that decide whether it works.
+#
+# 1. DO NOT USE `http_headers` HERE unless your operator is recent enough. The
+#    field reached the CRD in VictoriaMetrics operator 0.75.0, and its own
+#    documentation adds that Alertmanager ignores it below 0.28.0. On an older
+#    operator the API server prunes the block without a word, the webhook
+#    leaves with no credential, and every delivery gets a 401 that Alertmanager
+#    never retries. `bearer_token_secret` below is in the CRD of every version
+#    that has this resource, and the daemon accepts `Authorization: Bearer
+#    <key>` as an equivalent of `X-API-Key` on every key-gated route for
+#    exactly this reason.
+#
+# 2. THE NAMESPACE MATCHER. The operator adds a `namespace="<this resource's
+#    namespace>"` matcher to the route by default. These alerts carry the
+#    namespace of the OBSERVED workload, not the one this resource lives in, so
+#    with that matcher nothing ever matches. Set `disableNamespaceMatcher: true`
+#    on the VMAlertmanager (`alertmanager.spec` of the k8s-stack chart), or put
+#    this resource in the namespace the alerts carry. prometheus-operator has
+#    the same trap under another name, see the twin file.
+#
+# The operator forces `continue: true` on the route it builds, so the alert
+# carries on to the routes of the raw configuration afterwards, which is what
+# you want. The explicit `true` below only states the intent.
+#
+# The credential is the `[daemon.incidents] api_key`, the WRITE key. Never hand
+# it to Grafana: `[daemon] read_api_key` opens the two GETs without the power
+# to post.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlertmanagerConfig
+metadata:
+  name: perf-sentinel-incidents
+  namespace: observability
+spec:
+  route:
+    receiver: perf-sentinel-incidents
+    matchers:
+      - perf_sentinel_kind =~ ".+"
+    group_by: [namespace, service]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 1h
+    continue: true
+  receivers:
+    - name: perf-sentinel-incidents
+      webhook_configs:
+        # `perf-sentinel` is the chart's fullname, `<ns>` its namespace, 4318
+        # the `service.ports.otlpHttp.port`.
+        - url: http://perf-sentinel.<ns>.svc.cluster.local:4318/api/incidents
+          send_resolved: true
+          max_alerts: 1000
+          http_config:
+            bearer_token_secret:
+              name: perf-sentinel-incidents-key
+              key: api-key

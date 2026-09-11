@@ -226,7 +226,7 @@ the window is gone.
 answerable while the ring still holds it. With `[daemon.incidents]` configured,
 point an Alertmanager receiver at `POST /api/incidents` and the daemon resolves
 and freezes the window the instant the alert fires, hours before anyone opens a
-terminal. `GET /api/incidents`, with the write key or `[daemon]
+terminal. Ready-made rules and receivers for both Kubernetes operators are in [`examples/incident-alerts-prometheus-operator.yaml`](../examples/incident-alerts-prometheus-operator.yaml) and [`examples/incident-alerts-victoriametrics-operator.yaml`](../examples/incident-alerts-victoriametrics-operator.yaml). `GET /api/incidents`, with the write key or `[daemon]
 read_api_key` as `X-API-Key`, then returns the incident with its findings
 already attached, and `perf-sentinel query incidents --service cart-svc
 --api-key-file <PATH>` prints the same listing from a terminal, the header

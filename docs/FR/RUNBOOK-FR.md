@@ -227,7 +227,10 @@ configuré la fenêtre est perdue.
 interrogeable que tant que le ring la détient. Avec `[daemon.incidents]`
 configurée, pointez un receiver Alertmanager sur `POST /api/incidents` et le
 daemon résout et fige la fenêtre à l'instant où l'alerte part, des heures avant
-que quiconque n'ouvre un terminal. `GET /api/incidents`, avec la clé
+que quiconque n'ouvre un terminal. Des règles et des receivers prêts à l'emploi
+pour les deux opérateurs Kubernetes vivent dans
+[`examples/incident-alerts-prometheus-operator.yaml`](../../examples/incident-alerts-prometheus-operator.yaml)
+et [`examples/incident-alerts-victoriametrics-operator.yaml`](../../examples/incident-alerts-victoriametrics-operator.yaml). `GET /api/incidents`, avec la clé
 d'écriture ou `[daemon] read_api_key` en `X-API-Key`, renvoie ensuite
 l'incident avec ses findings déjà attachés, et `perf-sentinel query
 incidents --service cart-svc --api-key-file <CHEMIN>` imprime le même
