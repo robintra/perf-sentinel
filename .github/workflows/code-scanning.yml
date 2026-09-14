@@ -30,7 +30,7 @@ jobs:
       # No `toolchain:` input so the action installs what `rust-toolchain.toml`
       # declares (passing one makes it ignore the file). Empty rustflags keeps
       # its RUSTFLAGS=-D warnings default from applying.
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           components: clippy
           rustflags: ""
@@ -41,7 +41,7 @@ jobs:
           matcher: false
 
       - name: Install clippy-sarif and sarif-fmt
-        uses: taiki-e/install-action@5bf6ce016fd2e72eefc647cbca1e4213f65955b8 # v2.87.5
+        uses: taiki-e/install-action@9534c84618278caac52cb373bb164ed464dbd8af # v2.87.11
         with:
           tool: clippy-sarif,sarif-fmt
 
