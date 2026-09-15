@@ -41,9 +41,11 @@ impl Default for WindowConfig {
 struct ResolvedEndpoint {
     endpoint: String,
     depth: usize,
-    /// Read from a consumer destination, the walk's last resort. Never cached
-    /// as an ancestor resolution, where it would outrank a nearer route.
-    consumer: bool,
+    /// Retained context proved it: a route root, or a chain reaching one.
+    /// An endpoint the converter spelled on an event and no route confirmed
+    /// (a code frame, a consumer destination) is cached unproven: it names
+    /// what nothing proven does, and never outranks a nearer route.
+    proven: bool,
 }
 
 #[derive(Clone)]
@@ -578,22 +580,19 @@ fn resolve_and_index_event(
     }
     let source = event.event.source.endpoint.trim();
     // The chain resolution the event now carries, if any: its depth counts
-    // from there. An endpoint kept from the converter sits at depth 0.
+    // from there, and a proven one proves the event. An endpoint kept from
+    // the converter sits at depth 0 and stays unproven.
     let adopted = parent_resolution
         .as_ref()
         .filter(|(parent, _)| parent.endpoint == source);
-    let from_consumer = adopted.is_some_and(|(parent, _)| parent.consumer);
-    let resolution = if !from_consumer && !source.is_empty() && source != "unknown" {
-        Some(ResolvedEndpoint {
-            endpoint: event.event.source.endpoint.clone(),
-            depth: adopted.map_or(0, |(parent, _)| {
-                parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
-            }),
-            consumer: false,
-        })
-    } else {
-        None
-    };
+    let resolution = (!source.is_empty() && source != "unknown").then(|| ResolvedEndpoint {
+        endpoint: event.event.source.endpoint.clone(),
+        depth: adopted.map_or(0, |(parent, _)| {
+            parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
+        }),
+        proven: own_root_endpoint.is_some_and(|endpoint| endpoint == source)
+            || adopted.is_some_and(|(parent, _)| parent.proven),
+    });
     cache_ancestry_entry(
         resolved_ancestry,
         resolved_ancestry_cap,
@@ -666,7 +665,7 @@ fn resolve_parent_endpoint(
             nearest_consumer = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
-                consumer: true,
+                proven: false,
             });
         }
         if let Some(endpoint) =
@@ -676,7 +675,7 @@ fn resolve_parent_endpoint(
             outermost = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
-                consumer: false,
+                proven: true,
             });
             below_outermost = traversed.len();
             let Some(Some(parent_span_id)) =
@@ -697,13 +696,15 @@ fn resolve_parent_endpoint(
             break;
         };
         if let Some(resolution) = entry.resolution {
-            let depth = resolution.depth.saturating_add(distance);
             matches_source |= resolution.endpoint == source;
-            outermost = Some(ResolvedEndpoint {
-                depth,
-                ..resolution
-            });
-            below_outermost = traversed.len();
+            // An unproven resolution answers only where nothing else has.
+            if resolution.proven || outermost.is_none() {
+                outermost = Some(ResolvedEndpoint {
+                    depth: resolution.depth.saturating_add(distance),
+                    ..resolution
+                });
+                below_outermost = traversed.len();
+            }
         }
         traversed.push(key);
         let Some(parent_span_id) = entry.parent_span_id else {
@@ -712,13 +713,7 @@ fn resolve_parent_endpoint(
         current_span_id = parent_span_id;
     }
     if let Some(resolution) = &outermost {
-        compress_ancestry_path(
-            resolved_ancestry,
-            &traversed,
-            below_outermost,
-            &resolution.endpoint,
-            resolution.depth,
-        );
+        compress_ancestry_path(resolved_ancestry, &traversed, below_outermost, resolution);
     }
     outermost
         .or(nearest_consumer)
@@ -742,7 +737,7 @@ fn sole_root_endpoint(
     Some(ResolvedEndpoint {
         endpoint: roots.values().next()?.clone(),
         depth,
-        consumer: false,
+        proven: true,
     })
 }
 
@@ -752,8 +747,7 @@ fn compress_ancestry_path(
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     traversed: &[(Arc<str>, String)],
     below_outermost: usize,
-    endpoint: &str,
-    immediate_parent_depth: usize,
+    outermost: &ResolvedEndpoint,
 ) {
     let Some(ancestry) = resolved_ancestry else {
         return;
@@ -761,11 +755,12 @@ fn compress_ancestry_path(
     for (offset, key) in traversed[..below_outermost].iter().enumerate() {
         if let Some(entry) = ancestry.get_mut(key) {
             entry.resolution = Some(ResolvedEndpoint {
-                endpoint: endpoint.to_string(),
-                depth: immediate_parent_depth
+                endpoint: outermost.endpoint.clone(),
+                depth: outermost
+                    .depth
                     .saturating_sub(offset)
                     .min(ANCESTOR_WALK_MAX_DEPTH),
-                consumer: false,
+                proven: outermost.proven,
             });
         }
     }
@@ -860,7 +855,7 @@ fn peek_parent_endpoint(
             nearest_consumer = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
-                consumer: true,
+                proven: false,
             });
         }
         if let Some(endpoint) =
@@ -870,7 +865,7 @@ fn peek_parent_endpoint(
             outermost = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
-                consumer: false,
+                proven: true,
             });
             let Some(Some(parent_span_id)) =
                 root_parents.and_then(|parents| parents.get(&current_span_id))
@@ -887,11 +882,14 @@ fn peek_parent_endpoint(
         };
         if let Some(resolution) = &entry.resolution {
             matches_source |= resolution.endpoint == source;
-            outermost = Some(ResolvedEndpoint {
-                endpoint: resolution.endpoint.clone(),
-                depth: resolution.depth.saturating_add(distance),
-                consumer: false,
-            });
+            // An unproven resolution answers only where nothing else has.
+            if resolution.proven || outermost.is_none() {
+                outermost = Some(ResolvedEndpoint {
+                    endpoint: resolution.endpoint.clone(),
+                    depth: resolution.depth.saturating_add(distance),
+                    proven: resolution.proven,
+                });
+            }
         }
         let Some(parent_span_id) = entry.parent_span_id.as_deref() else {
             guessed_root = guess_sole_root(distance);
@@ -1479,6 +1477,110 @@ mod tests {
         assert_eq!(endpoint_for(&t1, "SELECT 1"), "rabbitmq crm.orders");
         assert_eq!(endpoint_for(&t1, "SELECT 2"), "/api/x");
         assert_eq!(endpoint_for(&t1, "SELECT 3"), "rabbitmq crm.orders");
+    }
+
+    #[test]
+    fn unproven_endpoint_never_outranks_a_nearer_route() {
+        // A listener calling its own API through a framed self-call: the
+        // frame the converter spelled on the client span is cached unproven
+        // and names nothing under the SERVER span's own route.
+        let svc = Arc::<str>::from("svc-a");
+        let mut w = TraceWindow::new(WindowConfig::default());
+        let roots = HashMap::from([(
+            Arc::clone(&svc),
+            HashMap::from([("route".to_string(), "/api/x".to_string())]),
+        )]);
+        let parents: SourceEndpointParentGroups = HashMap::from([(
+            svc,
+            HashMap::from([
+                ("listener".to_string(), None),
+                ("http-out".to_string(), Some("listener".to_string())),
+                ("route".to_string(), Some("http-out".to_string())),
+            ]),
+        )]);
+        w.retain_source_endpoint_context_groups("t1", &roots, &parents, &HashMap::new(), 0);
+        w.push(
+            make_child(
+                "t1",
+                "svc-a",
+                "http-out",
+                "listener",
+                "self-call",
+                "com.foo.DossierListener.onDossier",
+            ),
+            0,
+        );
+        w.push(
+            make_child("t1", "svc-a", "sql-routed", "route", "SELECT 2", "/api/x"),
+            0,
+        );
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(
+            endpoint_for(&t1, "self-call"),
+            "com.foo.DossierListener.onDossier"
+        );
+        assert_eq!(endpoint_for(&t1, "SELECT 2"), "/api/x");
+    }
+
+    #[test]
+    fn unretained_consumer_destination_never_outranks_a_nearer_route() {
+        // The consumer cap was reached before the listener's span arrived:
+        // its self-call still carries the destination the converter spelled,
+        // unproven, so the route of the SERVER span below it wins.
+        let svc = || Arc::<str>::from("svc-a");
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 2,
+            ..WindowConfig::default()
+        });
+        let fillers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([
+                ("c-a".to_string(), "rabbitmq a".to_string()),
+                ("c-b".to_string(), "rabbitmq b".to_string()),
+            ]),
+        )]);
+        w.retain_source_endpoint_context_groups(
+            "t1",
+            &HashMap::new(),
+            &HashMap::new(),
+            &fillers,
+            0,
+        );
+        let roots = HashMap::from([(
+            svc(),
+            HashMap::from([("route".to_string(), "/api/x".to_string())]),
+        )]);
+        let parents: SourceEndpointParentGroups = HashMap::from([(
+            svc(),
+            HashMap::from([
+                ("consumer".to_string(), None),
+                ("http-out".to_string(), Some("consumer".to_string())),
+                ("route".to_string(), Some("http-out".to_string())),
+            ]),
+        )]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("consumer".to_string(), "rabbitmq crm.orders".to_string())]),
+        )]);
+        w.retain_source_endpoint_context_groups("t1", &roots, &parents, &consumers, 0);
+        w.push(
+            make_child(
+                "t1",
+                "svc-a",
+                "http-out",
+                "consumer",
+                "self-call",
+                "rabbitmq crm.orders",
+            ),
+            0,
+        );
+        w.push(
+            make_child("t1", "svc-a", "sql-routed", "route", "SELECT 2", "/api/x"),
+            0,
+        );
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(endpoint_for(&t1, "self-call"), "rabbitmq crm.orders");
+        assert_eq!(endpoint_for(&t1, "SELECT 2"), "/api/x");
     }
 
     #[test]

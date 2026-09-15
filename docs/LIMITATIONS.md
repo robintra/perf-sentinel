@@ -211,7 +211,6 @@ the latter alone collides again under that name. A destination flagged
 temporary or anonymous, a server-named `amq.gen-*` or `spring.gen-*` queue, or
 one holding `?`, `#` or `@` names no stable origin and leaves `"unknown"`,
 though the Java agent sets neither flag by default. Jaeger and Zipkin follow
-the same order.
 
 In daemon mode, valid sampled OTLP span ids, parent links, inbound routes and
 consumer destinations from explicitly named services are also retained in the
@@ -222,8 +221,10 @@ children it wraps, without creating a synthetic event or incrementing I/O
 metrics. The event ring, retained route contexts, retained consumer
 destinations and ancestry index are each capped by `max_events_per_trace`, and
 all share the trace LRU and TTL. A retained consumer destination only fills
-what no route and no resolved ancestor answers, and is never cached as a
-resolved ancestor itself. Frames on spans without I/O are not retained across
+what no route and no resolved ancestor answers. An endpoint an I/O event
+carries that no retained route confirmed, a frame or a destination, is cached
+unproven: it names what nothing proven does and never outranks a nearer route.
+Frames on spans without I/O are not retained across
 exports, so a trace split across exports may show a destination where a single
 export would show a frame. Every ancestor walk stops after exactly eight hops.
 
