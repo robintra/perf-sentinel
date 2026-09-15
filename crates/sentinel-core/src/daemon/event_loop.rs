@@ -864,35 +864,37 @@ fn group_source_endpoint_updates(
     updates: Vec<super::SourceEndpointUpdate>,
     sampling_rate: f64,
 ) -> BatchSourceContext {
-    let mut roots = HashMap::new();
-    let mut parents = HashMap::new();
-    let mut consumers = HashMap::new();
+    let mut roots: TraceSourceEndpointGroups<String> = HashMap::new();
+    let mut parents: TraceSourceEndpointGroups<Option<String>> = HashMap::new();
+    let mut consumers: TraceSourceEndpointGroups<String> = HashMap::new();
     for update in updates
         .into_iter()
         .filter(|update| should_sample(&update.trace_id, sampling_rate))
     {
-        parents
-            .entry(update.trace_id.clone())
-            .or_insert_with(HashMap::new)
-            .entry(Arc::clone(&update.service))
-            .or_insert_with(HashMap::new)
-            .insert(update.span_id.clone(), update.parent_span_id);
         if let Some(consumer_endpoint) = update.consumer_endpoint {
             consumers
                 .entry(update.trace_id.clone())
-                .or_insert_with(HashMap::new)
+                .or_default()
                 .entry(Arc::clone(&update.service))
-                .or_insert_with(HashMap::new)
+                .or_default()
                 .insert(update.span_id.clone(), consumer_endpoint);
         }
         if let Some(endpoint) = update.endpoint {
             roots
-                .entry(update.trace_id)
-                .or_insert_with(HashMap::new)
-                .entry(update.service)
-                .or_insert_with(HashMap::new)
-                .insert(update.span_id, endpoint);
+                .entry(update.trace_id.clone())
+                .or_default()
+                .entry(Arc::clone(&update.service))
+                .or_default()
+                .insert(update.span_id.clone(), endpoint);
         }
+        // Unconditional, and last, so the common child span moves its
+        // strings here instead of cloning them.
+        parents
+            .entry(update.trace_id)
+            .or_default()
+            .entry(update.service)
+            .or_default()
+            .insert(update.span_id, update.parent_span_id);
     }
     BatchSourceContext {
         roots,
