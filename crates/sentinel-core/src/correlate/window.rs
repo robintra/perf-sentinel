@@ -197,7 +197,10 @@ impl TraceWindow {
         service_consumer_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
-        if service_root_endpoints.is_empty() && service_root_parents.is_empty() {
+        if service_root_endpoints.is_empty()
+            && service_root_parents.is_empty()
+            && service_consumer_endpoints.is_empty()
+        {
             return None;
         }
         let root_cap = self.config.max_events_per_trace;
