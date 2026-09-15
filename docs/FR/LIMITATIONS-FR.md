@@ -294,7 +294,8 @@ destination de consumer retenue ne remplit que ce qu'aucune route ni aucun
 ancêtre résolu ne résout. Un endpoint porté par un événement I/O qu'aucune
 route retenue n'a confirmé, cadre ou destination, est mis en cache comme non
 prouvé : il nomme ce que rien de prouvé ne nomme et ne l'emporte jamais sur une
-route plus proche. Les cadres portés par des
+route plus proche. Avec un plafond d'ascendance de un, une destination retenue
+empêche aussi de deviner la seule route retenue. Les cadres portés par des
 spans sans I/O ne sont pas retenus d'un
 export à l'autre, donc une trace répartie sur plusieurs exports peut afficher
 une destination là où un seul export afficherait un cadre. Toute remontée

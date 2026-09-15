@@ -224,7 +224,8 @@ all share the trace LRU and TTL. A retained consumer destination only fills
 what no route and no resolved ancestor answers. An endpoint an I/O event
 carries that no retained route confirmed, a frame or a destination, is cached
 unproven: it names what nothing proven does and never outranks a nearer route.
-Frames on spans without I/O are not retained across
+At an ancestry cap of one, a retained destination also stops the sole retained
+route from being guessed. Frames on spans without I/O are not retained across
 exports, so a trace split across exports may show a destination where a single
 export would show a frame. Every ancestor walk stops after exactly eight hops.
 
