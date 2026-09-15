@@ -203,7 +203,93 @@
       "options": {
         "orientation": "horizontal",
         "displayMode": "gradient"
-      }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_sql(.*)$",
+            "renamePattern": "N+1 SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_http(.*)$",
+            "renamePattern": "N+1 HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_messaging(.*)$",
+            "renamePattern": "N+1 messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_sql(.*)$",
+            "renamePattern": "Redundant SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_http(.*)$",
+            "renamePattern": "Redundant HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_sql(.*)$",
+            "renamePattern": "Slow SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_http(.*)$",
+            "renamePattern": "Slow HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_messaging(.*)$",
+            "renamePattern": "Slow messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^excessive_fanout(.*)$",
+            "renamePattern": "Excessive fanout$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^chatty_service(.*)$",
+            "renamePattern": "Chatty service$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^pool_saturation(.*)$",
+            "renamePattern": "Pool saturation$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^serialized_calls(.*)$",
+            "renamePattern": "Serialized calls$1"
+          }
+        }
+      ]
     },
     {
       "title": "Slow span duration distribution",
@@ -345,6 +431,92 @@
           "legendFormat": "{{type}}",
           "refId": "A"
         }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_sql(.*)$",
+            "renamePattern": "N+1 SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_http(.*)$",
+            "renamePattern": "N+1 HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_messaging(.*)$",
+            "renamePattern": "N+1 messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_sql(.*)$",
+            "renamePattern": "Redundant SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_http(.*)$",
+            "renamePattern": "Redundant HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_sql(.*)$",
+            "renamePattern": "Slow SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_http(.*)$",
+            "renamePattern": "Slow HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_messaging(.*)$",
+            "renamePattern": "Slow messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^excessive_fanout(.*)$",
+            "renamePattern": "Excessive fanout$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^chatty_service(.*)$",
+            "renamePattern": "Chatty service$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^pool_saturation(.*)$",
+            "renamePattern": "Pool saturation$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^serialized_calls(.*)$",
+            "renamePattern": "Serialized calls$1"
+          }
+        }
       ]
     },
     {
@@ -479,7 +651,93 @@
           "min": 0
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_sql(.*)$",
+            "renamePattern": "N+1 SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_http(.*)$",
+            "renamePattern": "N+1 HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_messaging(.*)$",
+            "renamePattern": "N+1 messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_sql(.*)$",
+            "renamePattern": "Redundant SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_http(.*)$",
+            "renamePattern": "Redundant HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_sql(.*)$",
+            "renamePattern": "Slow SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_http(.*)$",
+            "renamePattern": "Slow HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_messaging(.*)$",
+            "renamePattern": "Slow messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^excessive_fanout(.*)$",
+            "renamePattern": "Excessive fanout$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^chatty_service(.*)$",
+            "renamePattern": "Chatty service$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^pool_saturation(.*)$",
+            "renamePattern": "Pool saturation$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^serialized_calls(.*)$",
+            "renamePattern": "Serialized calls$1"
+          }
+        }
+      ]
     },
     {
       "title": "Findings detail by type and severity",
@@ -511,7 +769,74 @@
             "align": "left"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "Redundant SQL",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "Redundant HTTP",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "Slow SQL",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "Slow HTTP",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Slow messaging",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Excessive fanout",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Chatty service",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Pool saturation",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Serialized calls",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     },
     {

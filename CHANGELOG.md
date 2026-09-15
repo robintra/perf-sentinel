@@ -7,6 +7,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - Every panel description on the two Grafana dashboards is rewritten shorter and in paragraphs, so the help behind a panel's title reads as two to four short blocks rather than one wall of text, and names finding types by their labels (`N+1 SQL`, `Pool saturation`) instead of their identifiers. Overview dashboard `version` 8.
+- Both Grafana dashboards show finding types by their labels: value mappings on every `Type` column of the findings dashboard and on the overview's detail table, and a rename per type on the overview's legends, so `n_plus_one_sql` reads `N+1 SQL` everywhere the data does, the same labels `perf-sentinel query` and the HTML report use.
 
 ### Added
 
