@@ -41,6 +41,9 @@ impl Default for WindowConfig {
 struct ResolvedEndpoint {
     endpoint: String,
     depth: usize,
+    /// Read from a consumer destination, the walk's last resort. Never cached
+    /// as an ancestor resolution, where it would outrank a nearer route.
+    consumer: bool,
 }
 
 #[derive(Clone)]
@@ -571,7 +574,10 @@ fn resolve_and_index_event(
         updated = true;
     }
     let source = event.event.source.endpoint.trim();
-    let resolution = if !source.is_empty() && source != "unknown" {
+    let from_consumer = parent_resolution
+        .as_ref()
+        .is_some_and(|(parent, _)| parent.consumer && parent.endpoint == source);
+    let resolution = if !from_consumer && !source.is_empty() && source != "unknown" {
         let depth = if own_root_endpoint.is_some() {
             0
         } else {
@@ -582,6 +588,7 @@ fn resolve_and_index_event(
         Some(ResolvedEndpoint {
             endpoint: event.event.source.endpoint.clone(),
             depth,
+            consumer: false,
         })
     } else {
         None
@@ -658,6 +665,7 @@ fn resolve_parent_endpoint(
             nearest_consumer = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
+                consumer: true,
             });
         }
         if let Some(endpoint) =
@@ -667,6 +675,7 @@ fn resolve_parent_endpoint(
             outermost = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
+                consumer: false,
             });
             below_outermost = traversed.len();
             let Some(Some(parent_span_id)) =
@@ -690,8 +699,8 @@ fn resolve_parent_endpoint(
             let depth = resolution.depth.saturating_add(distance);
             matches_source |= resolution.endpoint == source;
             outermost = Some(ResolvedEndpoint {
-                endpoint: resolution.endpoint,
                 depth,
+                ..resolution
             });
             below_outermost = traversed.len();
         }
@@ -732,6 +741,7 @@ fn sole_root_endpoint(
     Some(ResolvedEndpoint {
         endpoint: roots.values().next()?.clone(),
         depth,
+        consumer: false,
     })
 }
 
@@ -754,6 +764,7 @@ fn compress_ancestry_path(
                 depth: immediate_parent_depth
                     .saturating_sub(offset)
                     .min(ANCESTOR_WALK_MAX_DEPTH),
+                consumer: false,
             });
         }
     }
@@ -838,6 +849,7 @@ fn peek_parent_endpoint(
             nearest_consumer = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
+                consumer: true,
             });
         }
         if let Some(endpoint) =
@@ -847,6 +859,7 @@ fn peek_parent_endpoint(
             outermost = Some(ResolvedEndpoint {
                 endpoint: endpoint.clone(),
                 depth: distance,
+                consumer: false,
             });
             let Some(Some(parent_span_id)) =
                 root_parents.and_then(|parents| parents.get(&current_span_id))
@@ -878,6 +891,7 @@ fn peek_parent_endpoint(
             outermost = Some(ResolvedEndpoint {
                 endpoint: resolution.endpoint.clone(),
                 depth: resolution.depth.saturating_add(distance),
+                consumer: false,
             });
         }
         let Some(parent_span_id) = entry.parent_span_id.as_deref() else {
@@ -1410,6 +1424,70 @@ mod tests {
         let t2 = w.peek_clone("t2").expect("trace remains active");
         assert_eq!(endpoint_for(&t2, "late-io"), "/api/orders");
         assert_eq!(endpoint_for(&t2, "provisional-io"), "/api/orders");
+    }
+
+    #[test]
+    fn consumer_destination_never_outranks_a_route_below_it() {
+        // A listener that calls its own API: CONSUMER C -> HTTP client H (an
+        // I/O event under C) -> SERVER X (route) -> SQL E, plus SQL spans
+        // directly under C. H and the direct children take the destination,
+        // E keeps the route, and neither the destination cached on H nor the
+        // route found from E may leak onto the other branch.
+        let svc = Arc::<str>::from("svc-a");
+        let mut w = TraceWindow::new(WindowConfig::default());
+        w.push(
+            make_child(
+                "t1",
+                "svc-a",
+                "http-out",
+                "consumer",
+                "self-call",
+                "unknown",
+            ),
+            0,
+        );
+        w.push(
+            make_child(
+                "t1",
+                "svc-a",
+                "sql-early",
+                "consumer",
+                "SELECT 1",
+                "unknown",
+            ),
+            0,
+        );
+        w.push(
+            make_child("t1", "svc-a", "sql-routed", "route", "SELECT 2", "/api/x"),
+            0,
+        );
+        let parents: SourceEndpointParentGroups = HashMap::from([(
+            Arc::clone(&svc),
+            HashMap::from([
+                ("consumer".to_string(), None),
+                ("http-out".to_string(), Some("consumer".to_string())),
+                ("route".to_string(), Some("http-out".to_string())),
+            ]),
+        )]);
+        let roots = HashMap::from([(
+            Arc::clone(&svc),
+            HashMap::from([("route".to_string(), "/api/x".to_string())]),
+        )]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            Arc::clone(&svc),
+            HashMap::from([("consumer".to_string(), "rabbitmq crm.orders".to_string())]),
+        )]);
+        w.retain_source_endpoint_context_groups("t1", &roots, &parents, &consumers, 0);
+        // A sibling pushed after the walk from E cached its path.
+        w.push(
+            make_child("t1", "svc-a", "sql-late", "consumer", "SELECT 3", "unknown"),
+            1,
+        );
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(endpoint_for(&t1, "self-call"), "rabbitmq crm.orders");
+        assert_eq!(endpoint_for(&t1, "SELECT 1"), "rabbitmq crm.orders");
+        assert_eq!(endpoint_for(&t1, "SELECT 2"), "/api/x");
+        assert_eq!(endpoint_for(&t1, "SELECT 3"), "rabbitmq crm.orders");
     }
 
     #[test]
