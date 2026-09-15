@@ -202,29 +202,30 @@ the same service and therefore uses only the nearest route in its own block.
 With no route on that chain, the outermost application `code.*` frame names the
 entry point, and with no frame either, the destination of the nearest CONSUMER
 span does, as `<messaging.system> <destination>` (`rabbitmq crm.dossiers`),
-`messaging.destination.template` before the name. What the destination holds
-depends on the instrumentation: under its default messaging conventions, the
-OpenTelemetry Java agent's `spring-rabbit` consumer spans carry the routing key, its `amqp-client` delivery spans only the
-exchange, so a service reading one exchange through the latter alone collides
-again under that name. A destination flagged temporary or anonymous, a
-server-named `amq.gen-*` or `spring.gen-*` queue, or one holding `?`, `#` or
-`@` names no stable origin and leaves `"unknown"`, though the Java agent sets
-neither flag by default. Jaeger and Zipkin follow the same order.
+`messaging.destination.template` before the name and the system spelling
+lowercased. What the destination holds depends on the instrumentation: under
+its default messaging conventions, the OpenTelemetry Java agent's
+`spring-rabbit` consumer spans carry the routing key, its `amqp-client`
+delivery spans only the exchange, so a service reading one exchange through
+the latter alone collides again under that name. A destination flagged
+temporary or anonymous, a server-named `amq.gen-*` or `spring.gen-*` queue, or
+one holding `?`, `#` or `@` names no stable origin and leaves `"unknown"`,
+though the Java agent sets neither flag by default. Jaeger and Zipkin follow
+the same order.
 
-In daemon mode, valid sampled OTLP span ids, parent links and inbound routes
-and consumer destinations from explicitly named services are also retained in
-the `TraceWindow`.
-Anonymous context is not retained across exports. This bounded context lets a route or a
-consumer span that arrives in a later export repair an earlier I/O event, the
-usual case for a consumer, which ends after the children it wraps, without creating a
-synthetic event or incrementing I/O metrics. The event ring, retained route
-contexts, retained consumer destinations and ancestry index are each capped by
-`max_events_per_trace`; all share the trace LRU and TTL. A retained consumer
-destination only fills what no route and no resolved ancestor answers. Frames on
-spans without I/O are not retained across exports, and a destination an outer
-I/O span already resolved to can outrank a nearer one, so a trace split across
-exports may show a destination where a single export would show a frame or a
-nearer destination. Every ancestor walk stops after exactly eight hops.
+In daemon mode, valid sampled OTLP span ids, parent links, inbound routes and
+consumer destinations from explicitly named services are also retained in the
+`TraceWindow`. Anonymous context is not retained across exports. This bounded
+context lets a route or a consumer span that arrives in a later export repair
+an earlier I/O event, the usual case for a consumer, which ends after the
+children it wraps, without creating a synthetic event or incrementing I/O
+metrics. The event ring, retained route contexts, retained consumer
+destinations and ancestry index are each capped by `max_events_per_trace`, and
+all share the trace LRU and TTL. A retained consumer destination only fills
+what no route and no resolved ancestor answers, and is never cached as a
+resolved ancestor itself. Frames on spans without I/O are not retained across
+exports, so a trace split across exports may show a destination where a single
+export would show a frame. Every ancestor walk stops after exactly eight hops.
 
 Attribution can therefore still degrade to the nearest proven route or
 `"unknown"` after invalid identifiers, a missing `service.name`, sampling, the
