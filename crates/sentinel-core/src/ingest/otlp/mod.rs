@@ -456,42 +456,6 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
     out
 }
 
-/// Single-pass `code.*` extractor for parent-span walks.
-///
-/// Same precedence rules as `ClassifiedAttrs::code_attrs`. We do not
-/// classify the full attribute set on parents because only `code.*`
-/// matters for ancestor frames.
-fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
-    let mut function_name_stable = None;
-    let mut function_name_legacy = None;
-    let mut filepath_stable = None;
-    let mut filepath_legacy = None;
-    let mut lineno_stable = None;
-    let mut lineno_legacy = None;
-    let mut namespace_explicit = None;
-    for kv in attrs {
-        let value = kv.value.as_ref().and_then(|v| v.value.as_ref());
-        match kv.key.as_str() {
-            "code.function.name" => function_name_stable = any_value_as_str(value),
-            "code.function" => function_name_legacy = any_value_as_str(value),
-            "code.file.path" => filepath_stable = any_value_as_str(value),
-            "code.filepath" => filepath_legacy = any_value_as_str(value),
-            "code.line.number" => lineno_stable = any_value_as_int(value),
-            "code.lineno" => lineno_legacy = any_value_as_int(value),
-            "code.namespace" => namespace_explicit = any_value_as_str(value),
-            _ => {}
-        }
-    }
-    let namespace = namespace_explicit
-        .or_else(|| function_name_stable.and_then(super::namespace_from_qualified_name));
-    CodeAttrs {
-        function_name: function_name_stable.or(function_name_legacy),
-        filepath: filepath_stable.or(filepath_legacy),
-        lineno: lineno_stable.or(lineno_legacy),
-        namespace,
-    }
-}
-
 /// Walk parent span chain to find the nearest span carrying any code.* attribute.
 ///
 /// Caller passes the leaf's already-extracted code attributes and the
@@ -512,7 +476,7 @@ fn walk_parents_for_code_attrs<'a>(
         let Some(parent) = span_index.get(&(trace_id, current_parent_id)) else {
             return CodeAttrs::default();
         };
-        let attrs = read_code_attrs(&parent.attributes);
+        let attrs = classify_span_attrs(&parent.attributes).code_attrs();
         if attrs.has_any() {
             return attrs;
         }
