@@ -118,10 +118,11 @@ Socket unix JSON       /                               |
 ```
 
 - Les événements sont normalisés en dehors du verrou TraceWindow pour minimiser le temps de détention du verrou.
-- Les routes et liens parent OTLP valides et échantillonnés de services nommés sont conservés avec
+- Les routes, liens parent et destinations de consumer OTLP valides et échantillonnés de services nommés sont conservés avec
   les événements, afin que la fenêtre puisse résoudre une route d'entrée
-  externe du même service arrivée dans un export ultérieur. Les contextes
-  d'endpoint et entrées d'ascendance sont plafonnés séparément par
+  externe du même service, ou un span consumer, arrivé dans un export ultérieur.
+  Les contextes d'endpoint, destinations de consumer et entrées d'ascendance
+  sont plafonnés séparément par
   `max_events_per_trace`, partagent le LRU et le TTL de la trace et ne comptent
   jamais comme événements I/O.
 - Les traces sont évincées lorsque le cache LRU est plein (`max_active_traces`) ou lorsque le TTL expire (`trace_ttl_ms`).

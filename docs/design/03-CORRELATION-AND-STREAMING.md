@@ -59,7 +59,9 @@ struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_parent_groups: HashMap<Arc<str>, HashMap<String, Option<String>>>,
+    source_consumer_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_count: usize,
+    source_consumer_count: usize,
     resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
     last_seen_ms: u64,
@@ -83,8 +85,8 @@ arrive in a later batch. Each endpoint context carries its parent link, and
 intermediate non-I/O spans enter the same span-ancestry LRU that retains an
 event's parent link and optional proven route after rotation. This repairs
 parent-after-child and split-export arrival with an exact eight-hop lookup,
-without adding synthetic events or I/O metrics. Events, endpoint contexts and
-ancestry entries are separate collections, and **each** is capped at
+without adding synthetic events or I/O metrics. Events, endpoint contexts,
+consumer destinations and ancestry entries are separate collections, and **each** is capped at
 `max_events_per_trace`. The ancestry LRU allocates
 progressively rather than reserving the configured cap for every trace.
 At the valid minimum cap of one, rotation may replace the sole parent entry;
@@ -156,10 +158,10 @@ max_memory = max_active_traces × max_events_per_trace
              × (avg_event_size + avg_endpoint_context_size + avg_ancestry_entry_size)
 ```
 
-The three per-trace collections can each reach their cap. With the defaults,
+The four per-trace collections can each reach their cap. With the defaults,
 the event portion alone is about 5 GB at the theoretical maximum
 (10,000 × 1,000 × ~500 bytes), plus the separately bounded endpoint contexts
-(route plus parent map) and span-ancestry entries.
+(route plus parent map), consumer destinations and span-ancestry entries.
 
 In practice, most traces have far fewer events than the cap. With typical
 traces of 10-50 events, the event portion is approximately:

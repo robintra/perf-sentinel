@@ -59,7 +59,9 @@ struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_parent_groups: HashMap<Arc<str>, HashMap<String, Option<String>>>,
+    source_consumer_groups: HashMap<Arc<str>, HashMap<String, String>>,
     source_endpoint_count: usize,
+    source_consumer_count: usize,
     resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
     last_seen_ms: u64,
@@ -84,8 +86,8 @@ lien parent, et les spans intermédiaires non-I/O entrent dans le même LRU
 d'ascendance qui conserve le lien parent d'un événement et sa route prouvée
 facultative après rotation. Cela répare l'arrivée parent-après-enfant et les
 exports scindés par une recherche de huit sauts exactement, sans événement ni
-métrique I/O synthétique. Les événements, contextes d'endpoint et entrées
-d'ascendance forment trois collections distinctes, **chacune** plafonnée par
+métrique I/O synthétique. Les événements, contextes d'endpoint, destinations de
+consumer et entrées d'ascendance forment quatre collections distinctes, **chacune** plafonnée par
 `max_events_per_trace`. Le LRU d'ascendance alloue sa
 mémoire progressivement au lieu de réserver le plafond configuré pour chaque
 trace. Au plafond minimal valide de un, la rotation peut remplacer l'unique
@@ -161,11 +163,11 @@ mémoire_max = max_active_traces × max_events_per_trace
                  + taille_moyenne_entrée_ascendance)
 ```
 
-Les trois collections par trace peuvent chacune atteindre leur plafond. Avec les
+Les quatre collections par trace peuvent chacune atteindre leur plafond. Avec les
 valeurs par défaut, la seule partie événements représente environ 5 Go au
 maximum théorique (10 000 × 1 000 × ~500 octets), auxquels s'ajoutent les
-contextes d'endpoint (route plus table des parents) et entrées d'ascendance
-bornés séparément.
+contextes d'endpoint (route plus table des parents), destinations de consumer
+et entrées d'ascendance bornés séparément.
 
 En pratique, la plupart des traces ont bien moins d'événements que le cap. Pour
 des traces typiques de 10 à 50 événements, la seule partie événements vaut
