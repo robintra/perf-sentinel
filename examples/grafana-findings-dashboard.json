@@ -544,6 +544,72 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "Redundant SQL",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "Redundant HTTP",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "Slow SQL",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "Slow HTTP",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Slow messaging",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Excessive fanout",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Chatty service",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Pool saturation",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Serialized calls",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Operation"
             },
             "properties": [
@@ -786,6 +852,138 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "Redundant SQL",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "Redundant HTTP",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "Slow SQL",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "Slow HTTP",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Slow messaging",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Excessive fanout",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Chatty service",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Pool saturation",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Serialized calls",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "Redundant SQL",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "Redundant HTTP",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "Slow SQL",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "Slow HTTP",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Slow messaging",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Excessive fanout",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Chatty service",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Pool saturation",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Serialized calls",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -1452,6 +1650,72 @@
                 "value": {
                   "type": "color-text"
                 }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "Redundant SQL",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "Redundant HTTP",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "Slow SQL",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "Slow HTTP",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Slow messaging",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Excessive fanout",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Chatty service",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Pool saturation",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Serialized calls",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
               }
             ]
           },
