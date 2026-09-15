@@ -10,6 +10,32 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.22.2]
+
+### Fixed
+
+- **`appVersion` moves to `0.22.2`.** A trace rooted in a message consumer
+  no longer reports `unknown` as its endpoint when no application code frame
+  sits above the I/O, the usual shape of a Spring AMQP or Kafka listener under
+  the OpenTelemetry Java agent. The endpoint falls back to the destination of
+  the nearest consumer span, `<messaging.system> <destination>`, on OTLP,
+  Jaeger and Zipkin, and the daemon retains consumer destinations across
+  exports, since a consumer span closes after the children it wraps and
+  usually arrives in a later export. Every finding of every listener in a
+  service had shared one endpoint, so acking one hid the others.
+
+### Changed
+
+- The two example Grafana dashboards under `examples/` move to `version` 8
+  for the overview and 5 for the findings one: a `Correlations` table on
+  `GET /api/correlations`, finding types shown by their labels everywhere,
+  a `Suggestion` column carrying the technology-specific fix with a `Fix for`
+  column naming it, and shorter panel descriptions. Neither ships in the
+  chart, re-import them where they are provisioned.
+
+No `values.yaml` key is added or removed, no template changes, and the shipped
+alerts are unchanged.
+
 ## [0.22.1]
 
 ### Changed

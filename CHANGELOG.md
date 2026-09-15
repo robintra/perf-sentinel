@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-09-15
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)` and the carbon table on `ember-2025`, both audited under step 2.5 of the release procedure and found inside their window. Nothing in 0.22.2 touches a scoring path, so the next `refresh-datasets` run lands them in a later release rather than here.
+
 ### Changed
 
 - Every panel description on the two Grafana dashboards is rewritten shorter and in paragraphs, so the help behind a panel's title reads as two to four short blocks rather than one wall of text, and names finding types by their labels (`N+1 SQL`, `Pool saturation`) instead of their identifiers. Overview dashboard `version` 8.

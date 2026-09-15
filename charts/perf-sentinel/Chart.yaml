@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.22.1
-appVersion: "0.22.1"
+version: 0.22.2
+appVersion: "0.22.2"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,10 +37,10 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: fixed
-      description: "appVersion 0.22.1. Nine blocking file operations that ran on runtime workers inside async functions are fixed. The two archive writers, for analysis windows and for incidents, move to a blocking thread and keep the synchronous buffered I/O they deliberately use, so a slow disk no longer parks a worker that polls other tasks. The remaining seven are one-shot setup and teardown calls in the JSON socket listener, the shutdown path and capture finish, and use the async file API. No behaviour changes, the chain hashing and the rotation are byte-identical. No values.yaml key is added or removed, no template changes, no shipped alert changes."
+      description: "appVersion 0.22.2. A trace rooted in a message consumer no longer reports `unknown` as its endpoint when no application code frame sits above the I/O, the usual shape of a Spring AMQP or Kafka listener under the OpenTelemetry Java agent. The endpoint falls back to the destination of the nearest consumer span, `<messaging.system> <destination>`, on OTLP, Jaeger and Zipkin, and the daemon retains consumer destinations across exports so a consumer span that closes after its children still names them. Every finding of every listener in a service had shared one endpoint, so acking one hid the others. The two example Grafana dashboards move to version 8 (overview) and 5 (findings, with a Correlations table on GET /api/correlations). No values.yaml key is added or removed, no template changes, no shipped alert changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.22.1
+      image: ghcr.io/robintra/perf-sentinel:0.22.2
       platforms:
         - linux/amd64
         - linux/arm64
