@@ -402,9 +402,12 @@ pub(crate) fn consumer_entry_endpoint(
         .and_then(usable_code_frame_part)
         .or_else(|| name.and_then(usable_code_frame_part))
         .or_else(|| legacy_name.and_then(usable_code_frame_part))?;
+    // `<default>` is what instrumentations emit for a default exchange,
+    // which every direct-to-queue delivery would share.
     if GENERATED_DESTINATION_PREFIXES
         .iter()
         .any(|prefix| destination.starts_with(prefix))
+        || (destination.starts_with('<') && destination.ends_with('>'))
         || system.contains(['?', '#', '@'])
         || destination.contains(['?', '#', '@'])
     {
@@ -481,6 +484,13 @@ mod tests {
                 false,
                 false,
                 "server-generated",
+            ),
+            (
+                rabbitmq,
+                "<default>",
+                false,
+                false,
+                "default exchange placeholder",
             ),
             (
                 rabbitmq,

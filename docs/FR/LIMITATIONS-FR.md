@@ -275,10 +275,12 @@ consumer `spring-rabbit` de l'agent Java OpenTelemetry portent la clé de
 routage, ses spans de livraison `amqp-client` seulement l'exchange, donc un
 service qui lit un seul exchange par ces derniers uniquement collisionne de
 nouveau sous ce nom. Une destination marquée temporaire ou anonyme, une file
-nommée par le serveur (`amq.gen-*`, `spring.gen-*`) ou une destination
-contenant `?`, `#` ou `@` ne nomme aucune origine stable et laisse
-`"unknown"`, sachant que l'agent Java ne pose aucun des deux indicateurs par
-défaut. Jaeger et Zipkin suivent le même ordre.
+nommée par le serveur (`amq.gen-*`, `spring.gen-*`), un substitut entre
+chevrons tel que `<default>`, qu'une instrumentation émet pour un exchange
+par défaut, ou une destination contenant `?`, `#` ou `@` ne nomme aucune
+origine stable et laisse `"unknown"`, sachant que l'agent Java ne pose aucun
+des deux indicateurs par défaut. Jaeger et Zipkin
+suivent le même ordre.
 
 En mode daemon, les ids OTLP valides et échantillonnés, leurs liens parent,
 leurs routes entrantes et leurs destinations de consumer issus de services
