@@ -4891,16 +4891,9 @@ fn blank_db_statement_falls_through_to_db_query_text() {
 // ── Endpoint fallback on the consumer destination (message-driven entry points) ──
 
 fn make_consumer_span(span_id: &[u8], kind: i32, attributes: Vec<KeyValue>) -> Span {
-    Span {
-        trace_id: vec![1; 16],
-        span_id: span_id.to_vec(),
-        name: "crm.dossiers process".to_string(),
-        kind,
-        start_time_unix_nano: 0,
-        end_time_unix_nano: 1_000_000_000,
-        attributes,
-        ..Default::default()
-    }
+    let mut span = make_bare_span(span_id, attributes);
+    span.kind = kind;
+    span
 }
 
 fn rabbitmq_destination(name: &str) -> Vec<KeyValue> {
@@ -4962,16 +4955,15 @@ fn endpoint_code_frame_wins_over_consumer_destination() {
         SPAN_KIND_CONSUMER,
         rabbitmq_destination("crm.dossiers"),
     );
-    let listener = Span {
-        trace_id: vec![1; 16],
-        span_id: vec![20; 8],
-        parent_span_id: vec![10; 8],
-        attributes: vec![
+    let listener = make_span_with_code_attrs(
+        &[20; 8],
+        &[10; 8],
+        "listener",
+        vec![
             make_kv("code.function", "onDossier"),
             make_kv("code.namespace", "com.foo.DossierListener"),
         ],
-        ..Default::default()
-    };
+    );
     let sql = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
     assert_eq!(
         sql_endpoint(vec![consumer, listener, sql]),
