@@ -7,7 +7,8 @@
 //!
 //! `source.endpoint` walks the `parentId` chain with the same rules as the
 //! OTLP path: outermost inbound HTTP route in the event service first,
-//! otherwise the outermost application `code.*` frame, otherwise `"unknown"`.
+//! otherwise the outermost application `code.*` frame, otherwise the
+//! destination of the nearest CONSUMER span, otherwise `"unknown"`.
 
 use crate::event::{EventSource, SpanEvent};
 use crate::ingest::IngestSource;
@@ -180,6 +181,27 @@ fn tag_code_frame(span: &ZipkinSpan) -> Option<String> {
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function)
 }
 
+/// Message-driven entry endpoint of a CONSUMER span, see
+/// [`crate::ingest::consumer_entry_endpoint`].
+fn consumer_entry_endpoint(span: &ZipkinSpan) -> Option<String> {
+    if span.kind.as_deref() != Some("CONSUMER") {
+        return None;
+    }
+    let tag = |key: &str| {
+        span.tags
+            .as_ref()
+            .and_then(|t| t.get(key).map(String::as_str))
+    };
+    crate::ingest::consumer_entry_endpoint(
+        tag("messaging.system"),
+        tag("messaging.destination.template"),
+        tag("messaging.destination.name"),
+        tag("messaging.destination"),
+        tag("messaging.destination.temporary") == Some("true"),
+        tag("messaging.destination.anonymous") == Some("true"),
+    )
+}
+
 fn zipkin_service_name(span: &ZipkinSpan) -> Option<&str> {
     span.local_endpoint
         .as_ref()
@@ -207,7 +229,8 @@ fn walk_stops_at(anonymous_service: bool, leaf: &ZipkinSpan, parent: &ZipkinSpan
 
 /// Walk the contiguous same-service `parentId` chain: the outermost inbound
 /// HTTP route wins, otherwise the outermost usable code frame (starting from
-/// the leaf's own), otherwise `"unknown"`. Same depth bound as the OTLP path.
+/// the leaf's own), otherwise the nearest consumer destination, otherwise
+/// `"unknown"`. Same depth bound as the OTLP path.
 fn resolve_source_endpoint(
     own_endpoint: Option<String>,
     leaf: &ZipkinSpan,
@@ -219,6 +242,7 @@ fn resolve_source_endpoint(
     }
     let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame = tag_code_frame(leaf);
+    let mut nearest_consumer = None;
     let mut current = leaf.parent_id.as_deref();
     for _ in 0..crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
         let Some(pid) = current else {
@@ -241,10 +265,14 @@ fn resolve_source_endpoint(
         {
             outermost_frame = Some(frame);
         }
+        if nearest_consumer.is_none() {
+            nearest_consumer = consumer_entry_endpoint(parent);
+        }
         current = parent.parent_id.as_deref();
     }
     outermost_endpoint
         .or(outermost_frame)
+        .or(nearest_consumer)
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -873,6 +901,74 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
+    }
+
+    #[test]
+    fn endpoint_falls_back_to_consumer_destination() {
+        // Tags are strings on Zipkin, so the temporary flag reads "true".
+        let json = r#"[
+            {
+                "traceId": "named",
+                "id": "c1",
+                "kind": "CONSUMER",
+                "name": "crm.dossiers process",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "web-crm" },
+                "tags": {
+                    "messaging.system": "rabbitmq",
+                    "messaging.destination.name": "crm.dossiers"
+                }
+            },
+            {
+                "traceId": "named",
+                "id": "q1",
+                "parentId": "c1",
+                "name": "query",
+                "timestamp": 1720621921123100,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "web-crm" },
+                "tags": { "db.statement": "SELECT 1", "db.system": "postgresql" }
+            },
+            {
+                "traceId": "temporary",
+                "id": "c2",
+                "kind": "CONSUMER",
+                "name": "reply process",
+                "timestamp": 1720621921123000,
+                "duration": 5000,
+                "localEndpoint": { "serviceName": "web-crm" },
+                "tags": {
+                    "messaging.system": "rabbitmq",
+                    "messaging.destination.name": "reply.queue",
+                    "messaging.destination.temporary": "true"
+                }
+            },
+            {
+                "traceId": "temporary",
+                "id": "q2",
+                "parentId": "c2",
+                "name": "query",
+                "timestamp": 1720621921123100,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "web-crm" },
+                "tags": { "db.statement": "SELECT 1", "db.system": "postgresql" }
+            }
+        ]"#;
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        let endpoint_for = |trace_id: &str| {
+            events
+                .iter()
+                .find(|e| e.trace_id == trace_id && e.event_type == EventType::Sql)
+                .expect("sql leaf present")
+                .source
+                .endpoint
+                .clone()
+        };
+        assert_eq!(endpoint_for("named"), "rabbitmq crm.dossiers");
+        assert_eq!(endpoint_for("temporary"), "unknown");
     }
 
     #[test]

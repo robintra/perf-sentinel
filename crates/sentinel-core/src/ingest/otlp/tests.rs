@@ -4887,3 +4887,142 @@ fn blank_db_statement_falls_through_to_db_query_text() {
     assert_eq!(events[0].target, "SELECT 1");
     assert_eq!(stats.filtered_missing_db_statement, 0);
 }
+
+// ── Endpoint fallback on the consumer destination (message-driven entry points) ──
+
+fn make_consumer_span(span_id: &[u8], kind: i32, attributes: Vec<KeyValue>) -> Span {
+    Span {
+        trace_id: vec![1; 16],
+        span_id: span_id.to_vec(),
+        name: "crm.dossiers process".to_string(),
+        kind,
+        start_time_unix_nano: 0,
+        end_time_unix_nano: 1_000_000_000,
+        attributes,
+        ..Default::default()
+    }
+}
+
+fn rabbitmq_destination(name: &str) -> Vec<KeyValue> {
+    vec![
+        make_kv("messaging.system", "rabbitmq"),
+        make_kv("messaging.destination.name", name),
+    ]
+}
+
+fn sql_endpoint(spans: Vec<Span>) -> String {
+    convert_otlp_request(&make_request("web-crm", spans))
+        .into_iter()
+        .find(|e| e.event_type == EventType::Sql)
+        .expect("sql event present")
+        .source
+        .endpoint
+}
+
+#[test]
+fn endpoint_falls_back_to_consumer_destination() {
+    // Spring AMQP under the Java agent: the CONSUMER span is the trace root
+    // and the repository frames are siblings of the I/O, never ancestors.
+    let consumer = make_consumer_span(
+        &[10; 8],
+        SPAN_KIND_CONSUMER,
+        rabbitmq_destination("crm.dossiers"),
+    );
+    let sql = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    assert_eq!(sql_endpoint(vec![consumer, sql]), "rabbitmq crm.dossiers");
+}
+
+#[test]
+fn endpoint_prefers_the_nearest_consumer() {
+    // A listener span nested in an amqp-client delivery span, which names
+    // only the exchange, as when the publisher propagates no context.
+    let delivery = make_consumer_span(
+        &[10; 8],
+        SPAN_KIND_CONSUMER,
+        rabbitmq_destination("orders.topic"),
+    );
+    let mut listener = make_consumer_span(
+        &[20; 8],
+        SPAN_KIND_CONSUMER,
+        rabbitmq_destination("crm.dossiers"),
+    );
+    listener.parent_span_id = vec![10; 8];
+    let sql = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+    assert_eq!(
+        sql_endpoint(vec![delivery, listener, sql]),
+        "rabbitmq crm.dossiers"
+    );
+}
+
+#[test]
+fn endpoint_code_frame_wins_over_consumer_destination() {
+    // The destination ranks last: a frame on the chain wins.
+    let consumer = make_consumer_span(
+        &[10; 8],
+        SPAN_KIND_CONSUMER,
+        rabbitmq_destination("crm.dossiers"),
+    );
+    let listener = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![20; 8],
+        parent_span_id: vec![10; 8],
+        attributes: vec![
+            make_kv("code.function", "onDossier"),
+            make_kv("code.namespace", "com.foo.DossierListener"),
+        ],
+        ..Default::default()
+    };
+    let sql = make_sql_span(&[1; 16], &[30; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+    assert_eq!(
+        sql_endpoint(vec![consumer, listener, sql]),
+        "com.foo.DossierListener.onDossier"
+    );
+}
+
+#[test]
+fn producer_span_is_not_a_consumer_entry_point() {
+    let producer = make_consumer_span(
+        &[10; 8],
+        SPAN_KIND_PRODUCER,
+        rabbitmq_destination("crm.dossiers"),
+    );
+    let sql = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    assert_eq!(sql_endpoint(vec![producer, sql]), "unknown");
+}
+
+#[test]
+fn temporary_consumer_destination_stays_unknown() {
+    let mut attributes = rabbitmq_destination("reply.queue");
+    attributes.push(KeyValue {
+        key: "messaging.destination.temporary".to_string(),
+        value: Some(AnyValue {
+            value: Some(any_value::Value::BoolValue(true)),
+        }),
+        ..Default::default()
+    });
+    let consumer = make_consumer_span(&[10; 8], SPAN_KIND_CONSUMER, attributes);
+    let sql = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+    assert_eq!(sql_endpoint(vec![consumer, sql]), "unknown");
+}
+
+#[cfg(feature = "daemon")]
+#[test]
+fn source_context_retains_consumer_entry_points() {
+    // A CONSUMER span ends after its children, so it usually arrives in a
+    // later export: the daemon must retain it to repair those children.
+    let consumer = make_consumer_span(
+        &[10; 8],
+        SPAN_KIND_CONSUMER,
+        rabbitmq_destination("crm.dossiers"),
+    );
+    let updates = source_endpoint_updates(&make_request("web-crm", vec![consumer]));
+    let consumer = updates
+        .iter()
+        .find(|update| update.span_id == bytes_to_hex(&[10; 8]))
+        .expect("consumer context present");
+    assert!(consumer.endpoint.is_none(), "a destination is never a root");
+    assert_eq!(
+        consumer.consumer_endpoint.as_deref(),
+        Some("rabbitmq crm.dossiers")
+    );
+}
