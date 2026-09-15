@@ -434,14 +434,16 @@ fn merge_source_endpoint_groups(
 ) {
     index_incoming_ancestry(buffer, incoming_parents);
     merge_incoming_roots(buffer, incoming, incoming_parents, root_cap);
-    merge_incoming_consumers(buffer, incoming_consumers, root_cap);
+    merge_incoming_consumers(buffer, incoming_consumers, incoming_parents, root_cap);
 }
 
 /// Fold the batch's consumer destinations in under a cap of their own, so
-/// they neither crowd out a route root nor make a service ambiguous.
+/// they neither crowd out a route root nor make a service ambiguous. Their
+/// parent links are carried like a root's, so they outlive the ancestry LRU.
 fn merge_incoming_consumers(
     buffer: &mut TraceBuffer,
     incoming: &SourceEndpointGroups,
+    incoming_parents: &SourceEndpointParentGroups,
     root_cap: usize,
 ) {
     for (service, consumers) in incoming {
@@ -452,6 +454,7 @@ fn merge_incoming_consumers(
                 .and_then(|retained| retained.get_mut(span_id))
             {
                 existing.clone_from(endpoint);
+                carry_incoming_parent(buffer, incoming_parents, service, span_id);
                 continue;
             }
             if buffer.source_consumer_count >= root_cap {
@@ -462,6 +465,7 @@ fn merge_incoming_consumers(
                 .entry(Arc::clone(service))
                 .or_default()
                 .insert(span_id.clone(), endpoint.clone());
+            carry_incoming_parent(buffer, incoming_parents, service, span_id);
             buffer.source_consumer_count += 1;
         }
     }
@@ -693,7 +697,14 @@ fn resolve_parent_endpoint(
             .and_then(|ancestry| ancestry.get(&key))
             .cloned()
         else {
-            break;
+            // A retained link (a consumer's) outlives the ancestry LRU.
+            let Some(Some(parent_span_id)) = root_parents.and_then(|parents| parents.get(&key.1))
+            else {
+                break;
+            };
+            current_span_id = key.1;
+            current_span_id.clone_from(parent_span_id);
+            continue;
         };
         if let Some(resolution) = entry.resolution {
             matches_source |= resolution.endpoint == source;
@@ -877,8 +888,15 @@ fn peek_parent_endpoint(
         }
         let key = (Arc::clone(service), current_span_id);
         let Some(entry) = resolved_ancestry.and_then(|ancestry| ancestry.peek(&key)) else {
-            guess_at = Some(distance);
-            break;
+            // A retained link (a consumer's) outlives the ancestry LRU.
+            let Some(Some(parent_span_id)) = root_parents.and_then(|parents| parents.get(&key.1))
+            else {
+                guess_at = Some(distance);
+                break;
+            };
+            current_span_id = key.1;
+            current_span_id.clone_from(parent_span_id);
+            continue;
         };
         if let Some(resolution) = &entry.resolution {
             matches_source |= resolution.endpoint == source;
@@ -1628,6 +1646,61 @@ mod tests {
         assert_eq!(endpoint_for(&t1, "self-call"), "com.foo.Listener.on");
         assert_eq!(endpoint_for(&t1, "SELECT 1"), "com.foo.Listener.on");
     }
+
+    #[test]
+    fn consumer_link_outlives_the_ancestry_lru() {
+        // Two SQL spans under one listener that sits under a route: the
+        // second arrives after other spans' links evicted the listener's
+        // ancestry entry, and follows the retained link to the same route.
+        let svc = || Arc::<str>::from("svc-a");
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 4,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            svc(),
+            HashMap::from([("route".to_string(), "/api/r".to_string())]),
+        )]);
+        let parents: SourceEndpointParentGroups = HashMap::from([(
+            svc(),
+            HashMap::from([
+                ("route".to_string(), None),
+                ("consumer".to_string(), Some("route".to_string())),
+            ]),
+        )]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("consumer".to_string(), "rabbitmq x".to_string())]),
+        )]);
+        w.retain_source_endpoint_context_groups("t1", &roots, &parents, &consumers, 0);
+        w.push(
+            make_child("t1", "svc-a", "sql-1", "consumer", "SELECT 1", "unknown"),
+            0,
+        );
+        let fillers: SourceEndpointParentGroups = HashMap::from([(
+            Arc::from("svc-b"),
+            HashMap::from([
+                ("b1".to_string(), None),
+                ("b2".to_string(), None),
+                ("b3".to_string(), None),
+            ]),
+        )]);
+        w.retain_source_endpoint_context_groups(
+            "t1",
+            &HashMap::new(),
+            &fillers,
+            &HashMap::new(),
+            0,
+        );
+        w.push(
+            make_child("t1", "svc-a", "sql-2", "consumer", "SELECT 2", "unknown"),
+            0,
+        );
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(endpoint_for(&t1, "SELECT 1"), "/api/r");
+        assert_eq!(endpoint_for(&t1, "SELECT 2"), "/api/r");
+    }
+
     #[test]
     fn root_first_context_resolves_the_event_with_the_same_span_id() {
         let mut w = TraceWindow::new(WindowConfig::default());
