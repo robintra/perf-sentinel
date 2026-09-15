@@ -677,21 +677,21 @@ Cross-trace temporal correlation in daemon mode. When enabled, the daemon detect
 |----------------------|---------|---------|---------------------------------------------------------------------------------------------------------------------------|
 | `enabled`            | boolean | `false` | Enable cross-trace correlation. Requires `watch` daemon mode with sustained traffic to produce useful results             |
 | `window_minutes`     | integer | `10`    | Rolling window in minutes over which co-occurrences are tracked                                                           |
-| `lag_threshold_ms`   | integer | `2000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                                       |
-| `min_co_occurrences` | integer | `3`     | Minimum number of co-occurrences before a correlation is reported                                                         |
-| `min_confidence`     | float   | `0.5`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
+| `lag_threshold_ms`   | integer | `5000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                                       |
+| `min_co_occurrences` | integer | `5`     | Minimum number of co-occurrences before a correlation is reported                                                         |
+| `min_confidence`     | float   | `0.7`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
 | `max_tracked_pairs`  | integer | `10000` | Maximum number of finding pairs retained simultaneously. It bounds what the correlator keeps, not what one batch walks: a wide topology scans the cross product of the incoming findings and the lag window whatever this is set to, so lowering it makes the daemon refuse more rather than allocate less. Pairs scale with finding types times services, so a handful of services can overrun the default; past the cap `/api/correlations` returns an arbitrary subset with nothing on the output saying so. `perf_sentinel_correlator_pairs_evicted_total` is the signal, and the daemon logs a warning on the first eviction. Not comfort-zone checked at startup |
 
 ```toml
 [daemon.correlation]
 enabled = true
 window_minutes = 10
-lag_threshold_ms = 2000
-min_co_occurrences = 3
-min_confidence = 0.5
+lag_threshold_ms = 5000
+min_co_occurrences = 5
+min_confidence = 0.7
 ```
 
-Correlations are exposed via `GET /api/correlations` (when `api_enabled = true`) and emitted as NDJSON on the daemon's stdout stream.
+Correlations are exposed via `GET /api/correlations` (when `api_enabled = true`) and snapshotted under `correlations` in `GET /api/export/report`. The daemon's stdout stream never carries them.
 
 #### `[daemon.ack]` (optional, since 0.5.20)
 
@@ -981,7 +981,7 @@ memory_high_water_pct = 0
 # [daemon.correlation]
 # enabled = true
 # window_minutes = 10
-# lag_threshold_ms = 2000
+# lag_threshold_ms = 5000
 ```
 
 ## Migration from 0.5.x
