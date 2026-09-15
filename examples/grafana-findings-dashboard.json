@@ -62,7 +62,7 @@
     "to": "now"
   },
   "refresh": "1m",
-  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names. Since 0.20.0 an Incidents table lists what the alerting posted to POST /api/incidents and an Incident findings table shows the findings frozen for the incident clicked in it, both behind [daemon] read_api_key, which the datasource sends as X-API-Key, and both outside the time picker, since the route has no time filter. A Correlations table under the findings lists the cross-service pairs GET /api/correlations keeps while [daemon.correlation] is enabled, outside the variables since that route has no filter. Grouping and Service are the same labels the overview dashboard filters on, listed from Prometheus and sent to the API as exact matches, and Skip rows pages past the 1000-row cap.",
+  "description": "Findings from the perf-sentinel query API through the Infinity datasource in examples/grafana-infinity-datasource.yaml. 'perf-sentinel overview' counts findings by kind from Prometheus, this one names the operation and endpoint.\n\nNo embedded IAM on the API: scope the folder to people allowed to see your SQL templates and endpoint names.\n\nIncidents and Incident findings ignore the time picker and need [daemon] read_api_key, sent as X-API-Key. Correlations needs [daemon.correlation] enabled and ignores the variables.\n\nGrouping and Service are the overview dashboard's labels, sent as exact matches. Skip rows pages past the 1000-row cap.",
   "templating": {
     "list": [
       {
@@ -287,7 +287,7 @@
     {
       "type": "stat",
       "title": "Daemon status",
-      "description": "GET /api/status, the daemon's own liveness object: binary version, seconds since the process started, and the three runtime gauges each followed by its configured cap (correlation window, analysis queue, findings ring buffer). The Prometheus dashboard plots the same three pairs as headroom over time, this is the current value from the daemon itself, with the version Prometheus does not carry. Uptime resetting is a restart, which also empties the acknowledgments table below unless [daemon.ack] persists to disk.",
+      "description": "GET /api/status, the daemon's own liveness object: binary version, seconds since start, and three runtime gauges each followed by its cap (correlation window, analysis queue, findings ring buffer).\n\nAn uptime reset is a restart, which also empties the acknowledgments table below unless [daemon.ack] persists to disk.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -397,7 +397,7 @@
     {
       "type": "table",
       "title": "Findings",
-      "description": "One row per distinct problem, not per detection: the API folds by the same signature acknowledgments use. Filter by severity, service or type with the column headers (every column is filterable) rather than a dashboard variable, so no request can ask the API for a severity it does not know.\n\n'Traces' is how many retained per-trace detections a row stands for: it falls as older ones age out of the daemon's ring buffer and resets when the daemon restarts, so read it as how present a problem is in the retained window, never as a lifetime total. 'Occurrences' is a different number, the repeats of that operation inside the single trace shown.\n\n'Est. impact (ops)' estimates each problem's aggregate avoidable I/O as Traces x Ops/trace, the same figure `query findings --sort impact` and the dashboard's impact sort rank by: an estimate, because the API folds detections and keeps one representative per signature. Click that header to rank by it. The default order stays Traces desc, which ranks every row: findings that waste no I/O (the slow_* family) have no Ops/trace, so their impact cell is blank and sorting on it would place them arbitrarily.\n\nColumns keep this order through an organize transformation, since the Infinity backend parser returns them alphabetically. 'Acked via' is empty unless the Include acked variable is true, and then names where the ack came from: toml for the CI baseline file, daemon for the runtime store. Grouping and Service narrow the request on the daemon, not the page, so a tenant filtered here is complete up to Max rows; Skip rows reads the next slice; the Grouping column names the deployment each row belongs to.",
+      "description": "One row per distinct problem, folded by the signature acknowledgments use. Filter with the column headers.\n\n'Traces' counts retained detections: it falls as they age out and resets on restart, so it measures presence, not a lifetime total. 'Occurrences' is the repeats inside the trace shown. 'Est. impact (ops)' is Traces x Ops/trace, the avoidable I/O to rank by, 0 for the types that waste none.\n\n'Suggestion' is the fix for the framework or broker inferred from the trace when there is one, the generic hint otherwise, and 'Fix for' names that technology, blank when the hint is generic.\n\n'Acked via' needs Include acked true: toml is the CI baseline file, daemon the runtime store. Grouping and Service narrow the request, so a tenant is complete up to Max rows, and Skip rows reads on.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -677,7 +677,7 @@
     {
       "type": "table",
       "title": "Correlations",
-      "description": "GET /api/correlations, one row per directional pair of findings the daemon saw fire together across services: the source fired first and the target followed within [daemon.correlation] lag_threshold_ms, in the same grouping. Empty while [daemon.correlation] enabled is false, the default, and a pair is ephemeral: nothing persists it, so it vanishes one window_minutes after its last co-occurrence and with every daemon restart. Co-occurrences is how often the two fired together over the rolling window, Source total how often the source fired at all, and Confidence their ratio, so 100% means the target followed every time. Median lag is the typical delay from source to target. The two operation columns are the SQL or HTTP templates of the findings, not routes, and Trace is the most recent trace on the target side, the one to hand to /api/explain. The route takes no parameter, so Grouping and Service do not narrow this table, the column headers filter instead, and it stops at 1000 rows, highest confidence first.",
+      "description": "GET /api/correlations: source-target pairs of findings fired together across services in the same grouping, the target within lag_threshold_ms of the source. Empty until [daemon.correlation] enabled is true. Pairs are not persisted: gone window_minutes after the last co-occurrence and on restart.\n\nConfidence is Co-occurrences over Source total, 100% when the target always followed. Median lag is the typical delay. Operation columns are SQL or HTTP templates, not routes. Trace is the latest target-side trace, for /api/explain.\n\nGrouping and Service do not narrow this table, the headers do. Capped at 1000 rows, highest confidence first.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -934,7 +934,7 @@
     {
       "type": "table",
       "title": "Daemon acknowledgments",
-      "description": "Findings acknowledged at runtime, from GET /api/acks. An entry here is usually why a problem is absent from the table above. Empty when [daemon.ack] is disabled. If the daemon has an ack API key this endpoint is gated too, and the [daemon] read_api_key the datasource carries opens it without the power to ack.",
+      "description": "Findings acknowledged at runtime, from GET /api/acks, usually why a problem is absent from the table above. Empty when [daemon.ack] is disabled. If the ack API is keyed, [daemon] read_api_key opens this route without the power to ack.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1019,7 +1019,7 @@
     {
       "type": "table",
       "title": "Energy backends",
-      "description": "GET /api/energy, one row per energy or intensity backend in precedence order: whether it is configured from the [green] section frozen at startup, seconds since its last successful scrape, and its success and failure counts since daemon start. The age and the counts are omitted rather than zeroed for a backend that is not configured or not scraped (cloud_energy, electricity_maps), so an empty cell means not applicable and a 0 means fresh. A configured backend reads age 0 with 0 successes during its first scrape interval: not scraped yet, not fresh. With every row unconfigured, carbon figures come from the built-in I/O proxy.",
+      "description": "GET /api/energy, one row per energy or intensity backend in precedence order: configured (from [green], frozen at startup), seconds since the last successful scrape, and scrape successes and failures since daemon start.\n\nBlank age and counts mean not applicable (unconfigured or never scraped, as cloud_energy and electricity_maps), 0 means fresh, and age 0 with 0 successes is a first scrape interval still pending. With every row unconfigured, carbon figures come from the built-in I/O proxy.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1091,7 +1091,7 @@
     {
       "type": "table",
       "title": "Incidents",
-      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in through [daemon.incidents]. The time picker does not filter this table: the route has no time filter, so it always lists the 50 most recent incidents whatever the range. 'Findings' is how many rows the daemon froze for [Window from, Window to], a window that closes two trace TTLs after the incident so the traces live at the crash are inside it once analysed. 'Capture' reads Ring reached (oldest_finding_ms) against Window from: complete when the ring still reached below the window, partial when it had already evicted part of it (the NDJSON archive may still answer), empty ring when nothing was retained. 'Ended' stays blank while the alert is still firing. Click a row to load its findings in the table below, which sets the Incident variable. The datasource sends [daemon] read_api_key as X-API-Key, never the key Alertmanager posts with. Columns keep this order through an organize transformation.",
+      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. Always the 50 most recent, the time picker does not apply.\n\n'Findings' counts the rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1311,7 +1311,7 @@
     {
       "type": "table",
       "title": "Incident findings",
-      "description": "The findings frozen for the incident selected above (variable Incident), read from GET /api/incidents with the same limit as the Incidents table, so a clicked row is always found. One row per signature folded over the incident's window alone, so Traces and First seen describe the window and not the whole ring. Frozen at reception and merged once by the settle pass, which can add rows and raise counts but never remove. A First seen later than the incident's Started is a row that fired only after the restart. No data until a row of the Incidents table is clicked or the Incident variable holds an id, and the time picker plays no part in it, the route has no time filter. The datasource sends [daemon] read_api_key as X-API-Key. Est. impact and the column order follow the Findings table above.",
+      "description": "The findings frozen for the incident selected above, from GET /api/incidents with the Incidents table's limit, so a clicked row is always found. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for and the column order follow the Findings table above.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
