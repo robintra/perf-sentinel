@@ -843,7 +843,7 @@ fn peek_parent_endpoint(
     let mut current_span_id = parent_span_id.to_string();
     let mut outermost = None;
     let mut nearest_consumer = None;
-    let mut guessed_root = None;
+    let mut guess_at = None;
     let mut matches_source = false;
     for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
         // An endpoint equal to the nearest destination came from it, so any
@@ -877,7 +877,7 @@ fn peek_parent_endpoint(
         }
         let key = (Arc::clone(service), current_span_id);
         let Some(entry) = resolved_ancestry.and_then(|ancestry| ancestry.peek(&key)) else {
-            guessed_root = guess_sole_root(distance);
+            guess_at = Some(distance);
             break;
         };
         if let Some(resolution) = &entry.resolution {
@@ -892,7 +892,7 @@ fn peek_parent_endpoint(
             }
         }
         let Some(parent_span_id) = entry.parent_span_id.as_deref() else {
-            guessed_root = guess_sole_root(distance);
+            guess_at = Some(distance);
             break;
         };
         current_span_id = parent_span_id.to_string();
@@ -900,7 +900,7 @@ fn peek_parent_endpoint(
     // A destination proven on the chain outranks a guessed sole root.
     outermost
         .or(nearest_consumer)
-        .or(guessed_root)
+        .or_else(|| guess_at.and_then(guess_sole_root))
         .map(|resolution| (resolution, matches_source))
 }
 
