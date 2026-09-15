@@ -223,3 +223,43 @@ v0.22.0	05ae8d8	2026-09-11	PASS
 # cluster. It is the most trivial of the nine, a one-shot unlink of a Unix
 # socket during teardown. Operator accepted that gap on 2026-09-11.
 v0.22.1	05ae8d8	2026-09-11	PASS
+
+# v0.22.2, 2026-09-15. Targeted pass, not `verify-all-scenarios`, on the model
+# of the two rows above. The runtime diff is the consumer-destination
+# endpoint fallback in `ingest/` on OTLP, Jaeger and Zipkin, and the
+# daemon's TraceWindow retaining consumer destinations across exports with
+# their parent links. No detector, no scoring, no route and no wire format
+# moves, so the untouched families (limit-*, multistack, energy backends,
+# resilience, hub-*) were not re-run.
+#
+# What ran, all green, against perf-sentinel:0.22.1-8fb14548 built by
+# seed-daemon-local from product 8fb14548, the last commit before the
+# version bump, and confirmed on every node with k3d-image.sh
+# verify_k3d_image_on_all_nodes:
+# - endpoint-resolution with its new family F, 53/53 assertions on synthetic
+#   CONSUMER roots against the local release binary: template, name and
+#   legacy destination keys, the nearest consumer when they nest, a route
+#   and a code frame outranking a destination, and every rejected shape
+#   (temporary flag as bool and as the string "true", amq.gen-*, <default>
+#   in angle brackets, a "?" in the name). The 0.22.1 binary gives 47/53,
+#   the six differences being the shapes the release names.
+# - consumer-endpoint, new, 4/4 on a real Spring AMQP listener added to
+#   notification-service under the OpenTelemetry Java agent 2.30.0: the N+1
+#   behind the listener reports `rabbitmq order-service`, the received
+#   routing key, instead of `unknown`, on the daemon path, while the two
+#   messaging rows of validate-findings keep their HTTP route.
+# - correlation-finding: 198 pairs, all above the confidence floor and inside one
+#   grouping, the top ones on the new consumer path (the order-service publish
+#   ahead of the notification-service N+1).
+# - verify-grafana-dashboard with both dashboards resynced from upstream
+#   (overview version 8, findings version 5, parity byte for byte after
+#   jq --sort-keys), the alert rules, and the new Infinity leg: the lab now
+#   provisions the Infinity datasource with the daemon's read key, and the
+#   Findings, Correlations, Daemon status and Daemon acknowledgments
+#   targets answer through POST /api/ds/query, Findings 200 rows with a `Fix for` of `java jpa` on the
+#   listener's N+1, an empty selection with no error, Correlations 206 rows on
+#   the 14 columns. The cluster ran kube-prometheus-stack 90.0.0, the Renovate
+#   bump to 91.3.0 landed on the lab's main during the pass and templates clean
+#   with the same values.
+# make validate ok, product fmt, clippy and 3527 tests green.
+v0.22.2	f3ea3fe	2026-09-15	PASS
