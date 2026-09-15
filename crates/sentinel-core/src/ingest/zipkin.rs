@@ -143,41 +143,44 @@ fn own_inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
     http_endpoint(span, span.kind.as_deref() == Some("SERVER"))
 }
 
+/// One tag's value, `None` when the span carries no tags or not this one.
+fn tag<'a>(span: &'a ZipkinSpan, key: &str) -> Option<&'a str> {
+    span.tags
+        .as_ref()
+        .and_then(|t| t.get(key).map(String::as_str))
+}
+
 fn http_endpoint(span: &ZipkinSpan, allow_url_fallback: bool) -> Option<String> {
-    let tag = |key: &str| {
-        span.tags
-            .as_ref()
-            .and_then(|t| t.get(key).map(String::as_str))
-            .filter(|s| !s.trim().is_empty())
-    };
-    crate::ingest::http_route_endpoint(tag("http.route"), tag("url.path"), allow_url_fallback)
-        .or_else(|| {
-            if !allow_url_fallback {
-                return None;
-            }
-            tag("http.target")
-                .or_else(|| tag("http.url"))
-                .or_else(|| tag("url.full"))
-                .or_else(|| tag("url.path"))
-                .map(ToString::to_string)
-        })
+    let present = |key: &str| tag(span, key).filter(|s| !s.trim().is_empty());
+    crate::ingest::http_route_endpoint(
+        present("http.route"),
+        present("url.path"),
+        allow_url_fallback,
+    )
+    .or_else(|| {
+        if !allow_url_fallback {
+            return None;
+        }
+        present("http.target")
+            .or_else(|| present("http.url"))
+            .or_else(|| present("url.full"))
+            .or_else(|| present("url.path"))
+            .map(ToString::to_string)
+    })
 }
 
 /// Code-frame endpoint carried by this span's own tags, stable spellings
 /// first, namespace derived from the qualified name as the OTLP path does.
 fn tag_code_frame(span: &ZipkinSpan) -> Option<String> {
-    let tag = |key: &str| {
-        span.tags
-            .as_ref()
-            .and_then(|t| t.get(key).map(String::as_str))
-    };
-    let function_name = tag("code.function.name");
-    let function = function_name.or_else(|| tag("code.function"));
-    let namespace = tag("code.namespace").map(ToString::to_string).or_else(|| {
-        function_name
-            .and_then(crate::ingest::namespace_from_qualified_name)
-            .map(ToString::to_string)
-    });
+    let function_name = tag(span, "code.function.name");
+    let function = function_name.or_else(|| tag(span, "code.function"));
+    let namespace = tag(span, "code.namespace")
+        .map(ToString::to_string)
+        .or_else(|| {
+            function_name
+                .and_then(crate::ingest::namespace_from_qualified_name)
+                .map(ToString::to_string)
+        });
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function)
 }
 
@@ -187,18 +190,13 @@ fn consumer_entry_endpoint(span: &ZipkinSpan) -> Option<String> {
     if span.kind.as_deref() != Some("CONSUMER") {
         return None;
     }
-    let tag = |key: &str| {
-        span.tags
-            .as_ref()
-            .and_then(|t| t.get(key).map(String::as_str))
-    };
     crate::ingest::consumer_entry_endpoint(
-        tag("messaging.system"),
-        tag("messaging.destination.template"),
-        tag("messaging.destination.name"),
-        tag("messaging.destination"),
-        tag("messaging.destination.temporary") == Some("true"),
-        tag("messaging.destination.anonymous") == Some("true"),
+        tag(span, "messaging.system"),
+        tag(span, "messaging.destination.template"),
+        tag(span, "messaging.destination.name"),
+        tag(span, "messaging.destination"),
+        tag(span, "messaging.destination.temporary") == Some("true"),
+        tag(span, "messaging.destination.anonymous") == Some("true"),
     )
 }
 
@@ -281,9 +279,7 @@ fn convert_zipkin_span(
     span_index: &HashMap<(&str, &str), &ZipkinSpan>,
     grouping_attributes: Option<&[Arc<str>]>,
 ) -> Option<SpanEvent> {
-    let tags = span.tags.as_ref();
-
-    let get_tag = |key: &str| -> Option<&str> { tags.and_then(|t| t.get(key).map(String::as_str)) };
+    let get_tag = |key: &str| tag(span, key);
 
     // Determine event type from tags. Read the stable db.system.name before the
     // older db.system (matching the OTLP path) and canonicalize, so the same
