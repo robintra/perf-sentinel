@@ -423,7 +423,7 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "",
+          "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
           "columns": [
             {
               "selector": "finding.severity",
@@ -471,8 +471,13 @@
               "type": "string"
             },
             {
-              "selector": "finding.suggestion",
+              "selector": "fix",
               "text": "Suggestion",
+              "type": "string"
+            },
+            {
+              "selector": "fix_for",
+              "text": "Fix for",
               "type": "string"
             },
             {
@@ -690,6 +695,18 @@
                 "value": 90
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fix for"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
           }
         ]
       },
@@ -731,9 +748,10 @@
               "Est. impact (ops)": 8,
               "Operation": 9,
               "Suggestion": 10,
-              "Acked via": 11,
-              "Trace": 12,
-              "Last seen": 13
+              "Fix for": 11,
+              "Acked via": 12,
+              "Trace": 13,
+              "Last seen": 14
             },
             "renameByName": {}
           }
@@ -1535,7 +1553,7 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $[id = \"${incident}\"].findings[] : []",
+          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $map($[id = \"${incident}\"].findings[], function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
           "columns": [
             {
               "selector": "finding.severity",
@@ -1583,8 +1601,13 @@
               "type": "string"
             },
             {
-              "selector": "finding.suggestion",
+              "selector": "fix",
               "text": "Suggestion",
+              "type": "string"
+            },
+            {
+              "selector": "fix_for",
+              "text": "Fix for",
               "type": "string"
             },
             {
@@ -1802,6 +1825,18 @@
                 "value": 180
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fix for"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
           }
         ]
       },
@@ -1843,9 +1878,10 @@
               "Est. impact (ops)": 8,
               "Operation": 9,
               "Suggestion": 10,
-              "First seen": 11,
-              "Trace": 12,
-              "Last seen": 13
+              "Fix for": 11,
+              "First seen": 12,
+              "Trace": 13,
+              "Last seen": 14
             },
             "renameByName": {}
           }
