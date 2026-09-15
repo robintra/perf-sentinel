@@ -774,7 +774,12 @@ plupart des pages sous le plafond. `Include acked` : l'API laisse par
 défaut les findings acquittés de côté, un critique acquitté est donc
 absent sans que rien ne le dise, et `true` les redemande avec une
 colonne `Acked via` qui nomme la source (`toml` pour la baseline CI,
-`daemon` pour le stockage à chaud). Une colonne `Grouping` nomme le
+`daemon` pour le stockage à chaud). `Suggestion` est le correctif propre
+au cadriciel ou au courtier que le daemon a déduit de la trace quand il
+y en a un, l'indication générique sinon, et `Fix for` nomme cette
+technologie, vide quand l'indication est générique. Les types s'affichent
+par leur libellé, `N+1 SQL` plutôt que `n_plus_one_sql`, sur les deux
+tableaux de bord. Une colonne `Grouping` nomme le
 déploiement auquel appartient chaque ligne, le premier `[detection]
 grouping_attributes` que portaient ses spans. Le tableau de bord déclare
 le plugin Infinity et la datasource Prometheus dans `__inputs` et
