@@ -259,13 +259,14 @@ fn consumer_entry_endpoint(tags: &[JaegerTag]) -> Option<String> {
     if find_tag(tags, "span.kind").as_deref() != Some("consumer") {
         return None;
     }
+    let flag = |key| find_tag(tags, key).is_some_and(|v| v.eq_ignore_ascii_case("true"));
     crate::ingest::consumer_entry_endpoint(
         find_tag(tags, "messaging.system").as_deref(),
         find_tag(tags, "messaging.destination.template").as_deref(),
         find_tag(tags, "messaging.destination.name").as_deref(),
         find_tag(tags, "messaging.destination").as_deref(),
-        find_tag(tags, "messaging.destination.temporary").as_deref() == Some("true"),
-        find_tag(tags, "messaging.destination.anonymous").as_deref() == Some("true"),
+        flag("messaging.destination.temporary"),
+        flag("messaging.destination.anonymous"),
     )
 }
 
