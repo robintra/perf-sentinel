@@ -748,6 +748,7 @@ entrée contient :
 | `median_lag_ms`            | number  | Lag médian entre `source` et `target`                                             |
 | `first_seen`               | string  | Timestamp ISO 8601 de la première co-occurrence                                   |
 | `last_seen`                | string  | Timestamp ISO 8601 de la co-occurrence la plus récente                            |
+| `sample_trace_id`          | string  | Optionnel : dernier id de trace côté cible, omis en batch et baseline rejouée     |
 
 **Exemple :**
 
@@ -772,12 +773,13 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
       "grouping_key": "k8s.namespace.name",
       "grouping_value": "prod-eu"
     },
-    "co_occurrence_count": 2,
-    "source_total_occurrences": 1,
-    "confidence": 2.0,
-    "median_lag_ms": 0.0,
-    "first_seen": "2026-04-16T14:36:02.450Z",
-    "last_seen": "2026-04-16T14:36:02.450Z"
+    "co_occurrence_count": 6,
+    "source_total_occurrences": 8,
+    "confidence": 0.75,
+    "median_lag_ms": 1250.0,
+    "first_seen": "2026-04-16T14:31:40.120Z",
+    "last_seen": "2026-04-16T14:36:02.450Z",
+    "sample_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
   }
 ]
 ```
