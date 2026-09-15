@@ -1095,7 +1095,11 @@ what makes most pages fit under the cap. `Include acked`: the API leaves
 acknowledged findings out by default, so an acked critical is absent
 with nothing saying so, and `true` asks for them back with an
 `Acked via` column naming the source (`toml` for the CI baseline,
-`daemon` for the runtime store). A `Grouping` column names the
+`daemon` for the runtime store). `Suggestion` is the fix for the
+framework or broker the daemon inferred from the trace when there is
+one, the generic hint otherwise, and `Fix for` names that technology,
+blank when the hint is generic. Types read as their labels, `N+1 SQL`
+rather than `n_plus_one_sql`, on both dashboards. A `Grouping` column names the
 deployment each row belongs to, the first `[detection]
 grouping_attributes` its spans carried. The dashboard declares the
 Infinity plugin and the Prometheus datasource in `__inputs` and
