@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Changed
+
+- Every panel description on the two Grafana dashboards is rewritten shorter and in paragraphs, so the help behind a panel's title reads as two to four short blocks rather than one wall of text, and names finding types by their labels (`N+1 SQL`, `Pool saturation`) instead of their identifiers. Overview dashboard `version` 8.
+
 ### Added
 
 - The findings dashboard gains a `Correlations` table reading `GET /api/correlations`, one row per directional pair of findings that fired together across services while `[daemon.correlation]` is enabled: `Source service`, `Source type`, `Target service`, `Target type`, `Confidence`, `Co-occurrences`, `Source total`, `Median lag`, `Grouping`, the two operation templates, `First seen`, `Last seen` and the `Trace` of the most recent target-side finding. The daemon has computed these pairs since the correlator shipped, but nothing in Grafana read them, so an operator who enabled the section polled the route by hand to learn which N+1 drags which pool saturation behind it, and had to do so within one window of the last co-occurrence, since nothing persists a pair and a restart drops them all. The table honours neither `Grouping` nor `Service`, the route has no filter, and the column headers filter instead, like the acknowledgments and incidents tables. `Confidence` renders as a percentage and `Median lag` in milliseconds, `First seen` and `Last seen` are parsed from the route's ISO 8601 strings, and the columns keep their order through an organize transformation since the Infinity backend parser returns them alphabetically. Dashboard `version` 5, and `docs/HELM-DEPLOYMENT.md` with its French mirror name the table and what empties it.
