@@ -828,7 +828,7 @@ fn reconcile_cloned_events(
             event.event.source.endpoint = parent.endpoint;
         }
     }
-    reconcile_event_source_endpoint_groups(events, context.roots);
+    reconcile_event_source_endpoint_groups(events, context);
 }
 
 fn peek_parent_endpoint(
@@ -947,10 +947,11 @@ fn finish_trace_buffer(
     (!events.is_empty()).then_some((trace_id, events))
 }
 
-/// Fill unresolved source endpoints in one trace's event slice.
-pub(crate) fn reconcile_event_source_endpoint_groups(
+/// Fill unresolved source endpoints in one trace's event slice: the nearest
+/// route on the in-slice parent chain, else the nearest consumer destination.
+fn reconcile_event_source_endpoint_groups(
     events: &mut [NormalizedEvent],
-    service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
+    context: SourceContext<'_>,
 ) -> usize {
     let parents: HashMap<(&str, &str), Option<&str>> = events
         .iter()
@@ -970,8 +971,12 @@ pub(crate) fn reconcile_event_source_endpoint_groups(
                 return None;
             }
             let service = event.event.service.as_ref();
-            let root_endpoints = service_root_endpoints.get(service)?;
-            parent_chain_source_endpoint(&parents, service, root_endpoints, event)
+            let roots = context.roots.get(service);
+            let consumers = context.consumers.get(service);
+            if roots.is_none() && consumers.is_none() {
+                return None;
+            }
+            parent_chain_source_endpoint(&parents, service, roots, consumers, event)
                 .map(|endpoint| (event_index, endpoint))
         })
         .collect();
@@ -990,21 +995,29 @@ pub(crate) fn reconcile_event_source_endpoint_groups(
 fn parent_chain_source_endpoint<'a>(
     parents: &HashMap<(&str, &str), Option<&str>>,
     service: &str,
-    root_endpoints: &'a HashMap<String, String>,
+    roots: Option<&'a HashMap<String, String>>,
+    consumers: Option<&'a HashMap<String, String>>,
     event: &NormalizedEvent,
 ) -> Option<&'a String> {
-    if let Some(endpoint) = root_endpoints.get(&event.event.span_id) {
+    let route = |span_id: &str| roots.and_then(|root_endpoints| root_endpoints.get(span_id));
+    if let Some(endpoint) = route(&event.event.span_id) {
         return Some(endpoint);
     }
+    let mut nearest_consumer = None;
     let mut parent_span_id = event.event.parent_span_id.as_deref();
     for _ in 0..ANCESTOR_WALK_MAX_DEPTH {
-        let parent = parent_span_id?;
-        if let Some(endpoint) = root_endpoints.get(parent) {
+        let Some(parent) = parent_span_id else {
+            break;
+        };
+        if let Some(endpoint) = route(parent) {
             return Some(endpoint);
+        }
+        if nearest_consumer.is_none() {
+            nearest_consumer = consumers.and_then(|entries| entries.get(parent));
         }
         parent_span_id = parents.get(&(service, parent)).copied().flatten();
     }
-    None
+    nearest_consumer
 }
 
 #[cfg(test)]
@@ -1744,11 +1757,62 @@ mod tests {
             HashMap::from([("root".to_string(), "/api/orders".to_string())]),
         )]);
 
+        let context = SourceContext {
+            roots: &roots,
+            parents: &HashMap::new(),
+            consumers: &HashMap::new(),
+        };
         assert_eq!(
-            reconcile_event_source_endpoint_groups(std::slice::from_mut(&mut root), &roots),
+            reconcile_event_source_endpoint_groups(std::slice::from_mut(&mut root), context),
             1
         );
         assert_eq!(root.event.source.endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn detached_reconciliation_falls_back_to_the_nearest_consumer() {
+        // A consumer-only service: the in-slice chain reaches the
+        // destination where no route answers, and a route on it still wins.
+        let svc = || Arc::<str>::from("svc-a");
+        let mut events = vec![
+            make_child("t1", "svc-a", "p", "top", "SELECT 1", "unknown"),
+            make_child("t1", "svc-a", "e", "p", "SELECT 2", "unknown"),
+        ];
+        let empty = HashMap::new();
+        let no_parents = HashMap::new();
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("top".to_string(), "rabbitmq orders".to_string())]),
+        )]);
+        let context = SourceContext {
+            roots: &empty,
+            parents: &no_parents,
+            consumers: &consumers,
+        };
+        assert_eq!(
+            reconcile_event_source_endpoint_groups(&mut events, context),
+            2
+        );
+        assert_eq!(endpoint_for(&events, "SELECT 2"), "rabbitmq orders");
+
+        for event in &mut events {
+            event.event.source.endpoint = "unknown".to_string();
+        }
+        let roots = HashMap::from([(
+            svc(),
+            HashMap::from([("top".to_string(), "/api/x".to_string())]),
+        )]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("p".to_string(), "rabbitmq orders".to_string())]),
+        )]);
+        let context = SourceContext {
+            roots: &roots,
+            parents: &no_parents,
+            consumers: &consumers,
+        };
+        reconcile_event_source_endpoint_groups(&mut events, context);
+        assert_eq!(endpoint_for(&events, "SELECT 2"), "/api/x");
     }
 
     #[test]
