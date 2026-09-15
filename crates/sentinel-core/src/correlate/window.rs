@@ -261,7 +261,8 @@ impl TraceWindow {
     /// Builds one parent index and scans each unresolved event once, with the
     /// same bounded ancestor walk as OTLP conversion. A missing intermediary
     /// stays unknown when multiple roots could match. At the valid minimum
-    /// ancestry cap of one, a sole retained root is the only safe fallback.
+    /// ancestry cap of one, a sole retained root is the only safe fallback,
+    /// and none once a consumer destination is retained beside it.
     pub fn reconcile_source_endpoint_groups(
         &mut self,
         trace_id: &str,
@@ -842,13 +843,14 @@ fn peek_parent_endpoint(
     let roots = context.roots.get(service.as_ref());
     let root_parents = context.parents.get(service.as_ref());
     let consumers = context.consumers.get(service.as_ref());
+    // A retained consumer is a second entry point, so the guess is off.
     let guess_sole_root = |distance| {
         sole_root_endpoint(
             roots,
             distance,
             resolved_ancestry,
             resolved_ancestry_cap,
-            ambiguous_source_endpoint_services.contains(service),
+            consumers.is_some() || ambiguous_source_endpoint_services.contains(service),
         )
     };
     let mut current_span_id = parent_span_id.to_string();
@@ -2235,6 +2237,43 @@ mod tests {
         assert_eq!(preview[0].event.source.endpoint, "rabbitmq crm.orders");
         let (_, events) = w.drain_all().pop().expect("one finished trace");
         assert_eq!(events[0].event.source.endpoint, "rabbitmq crm.orders");
+    }
+
+    #[test]
+    fn capacity_one_retained_consumer_blocks_the_sole_root_guess() {
+        // The listener's SQL reaches it through a span nothing retained: at
+        // cap 1 the chain breaks there, and the retained destination, a
+        // second entry point, keeps the handler's route from being guessed.
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let svc = || Arc::<str>::from("svc-a");
+        let roots = HashMap::from([(
+            svc(),
+            HashMap::from([("handler".to_string(), "/api/publish".to_string())]),
+        )]);
+        let parents: SourceEndpointParentGroups = HashMap::from([(
+            svc(),
+            HashMap::from([
+                ("handler".to_string(), None),
+                ("consumer".to_string(), None),
+            ]),
+        )]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("consumer".to_string(), "rabbitmq crm.orders".to_string())]),
+        )]);
+        w.retain_source_endpoint_context_groups("t1", &roots, &parents, &consumers, 0);
+        w.push(
+            make_child("t1", "svc-a", "sql", "tx", "SELECT 1", "unknown"),
+            1,
+        );
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(preview[0].event.source.endpoint, "unknown");
+        let (_, events) = w.drain_all().pop().expect("one finished trace");
+        assert_eq!(events[0].event.source.endpoint, "unknown");
     }
 
     #[test]
