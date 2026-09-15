@@ -845,14 +845,11 @@ fn retain_source_endpoint_context(
     lru_evicted: &mut Vec<(String, Vec<normalize::NormalizedEvent>)>,
     source_endpoint_generations: &mut HashMap<String, u64>,
 ) {
-    let Some(service_root_parents) = context.parents.get(trace_id) else {
-        return;
-    };
     let empty = HashMap::new();
     if let Some(evicted) = window.retain_source_endpoint_context_groups(
         trace_id,
         context.roots.get(trace_id).unwrap_or(&empty),
-        service_root_parents,
+        &context.parents[trace_id],
         context.consumers.get(trace_id).unwrap_or(&empty),
         now_ms,
     ) {
