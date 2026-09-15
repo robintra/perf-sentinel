@@ -8,7 +8,7 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::{Duration, interval};
 
 use crate::correlate::Trace;
-use crate::correlate::window::{SourceEndpointParentGroups, TraceWindow};
+use crate::correlate::window::TraceWindow;
 use crate::detect;
 use crate::normalize;
 use crate::report::metrics::MetricsState;
@@ -827,20 +827,32 @@ impl AnalysisServiceMeter {
     }
 }
 
+/// A batch's grouped endpoint context: route roots, parent links and consumer
+/// destinations, each keyed by trace id.
+type BatchSourceContext<'a> = (
+    &'a TraceSourceEndpointGroups<String>,
+    &'a TraceSourceEndpointGroups<Option<String>>,
+    &'a TraceSourceEndpointGroups<String>,
+);
+
 /// Merge one trace's sampled endpoint context and collect any LRU eviction.
 fn retain_source_endpoint_context(
     window: &mut TraceWindow,
     trace_id: &str,
-    service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
-    service_root_parents: &SourceEndpointParentGroups,
+    (roots, parents, consumers): BatchSourceContext<'_>,
     now_ms: u64,
     lru_evicted: &mut Vec<(String, Vec<normalize::NormalizedEvent>)>,
     source_endpoint_generations: &mut HashMap<String, u64>,
 ) {
+    let Some(service_root_parents) = parents.get(trace_id) else {
+        return;
+    };
+    let empty = HashMap::new();
     if let Some(evicted) = window.retain_source_endpoint_context_groups(
         trace_id,
-        service_root_endpoints,
+        roots.get(trace_id).unwrap_or(&empty),
         service_root_parents,
+        consumers.get(trace_id).unwrap_or(&empty),
         now_ms,
     ) {
         lru_evicted.push(evicted);
@@ -856,8 +868,10 @@ fn group_source_endpoint_updates(
 ) -> (
     TraceSourceEndpointGroups<String>,
     TraceSourceEndpointGroups<Option<String>>,
+    TraceSourceEndpointGroups<String>,
 ) {
     let mut endpoints = HashMap::new();
+    let mut consumers = HashMap::new();
     let mut parents = HashMap::new();
     for update in updates
         .into_iter()
@@ -869,6 +883,14 @@ fn group_source_endpoint_updates(
             .entry(Arc::clone(&update.service))
             .or_insert_with(HashMap::new)
             .insert(update.span_id.clone(), update.parent_span_id);
+        if let Some(consumer_endpoint) = update.consumer_endpoint {
+            consumers
+                .entry(update.trace_id.clone())
+                .or_insert_with(HashMap::new)
+                .entry(Arc::clone(&update.service))
+                .or_insert_with(HashMap::new)
+                .insert(update.span_id.clone(), consumer_endpoint);
+        }
         if let Some(endpoint) = update.endpoint {
             endpoints
                 .entry(update.trace_id)
@@ -878,7 +900,7 @@ fn group_source_endpoint_updates(
                 .insert(update.span_id, endpoint);
         }
     }
-    (endpoints, parents)
+    (endpoints, parents, consumers)
 }
 
 /// Sample, normalize, meter, and push a batch of events into the window.
@@ -909,11 +931,15 @@ async fn ingest_event_batch(
             now_secs,
         );
     }
-    let (source_endpoint_groups, source_endpoint_parent_groups) =
+    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
         group_source_endpoint_updates(source_endpoint_updates, sampling_rate);
+    let source_context = (
+        &source_endpoint_groups,
+        &source_endpoint_parent_groups,
+        &source_consumer_groups,
+    );
     let mut lru_evicted = Vec::new();
     let mut source_endpoint_generations = HashMap::new();
-    let empty_source_endpoint_groups = HashMap::new();
     {
         // Each push performs at most the fixed ancestor-depth bound of lookups;
         // payload and queue caps bound work held behind this lock.
@@ -929,10 +955,7 @@ async fn ingest_event_batch(
             retain_source_endpoint_context(
                 &mut w,
                 trace_id,
-                source_endpoint_groups
-                    .get(trace_id)
-                    .unwrap_or(&empty_source_endpoint_groups),
-                &source_endpoint_parent_groups[trace_id],
+                source_context,
                 now_ms,
                 &mut lru_evicted,
                 &mut source_endpoint_generations,
@@ -947,10 +970,7 @@ async fn ingest_event_batch(
             retain_source_endpoint_context(
                 &mut w,
                 trace_id,
-                source_endpoint_groups
-                    .get(trace_id)
-                    .unwrap_or(&empty_source_endpoint_groups),
-                &source_endpoint_parent_groups[trace_id],
+                source_context,
                 now_ms,
                 &mut lru_evicted,
                 &mut source_endpoint_generations,
@@ -958,7 +978,7 @@ async fn ingest_event_batch(
         }
         for event in normalized {
             let trace_id = event.event.trace_id.as_str();
-            if let Some(service_root_parents) = source_endpoint_parent_groups.get(trace_id) {
+            if source_endpoint_parent_groups.contains_key(trace_id) {
                 let expected_generation = source_endpoint_generations.get(trace_id).copied();
                 if expected_generation.is_none()
                     || w.source_endpoint_generation(trace_id) != expected_generation
@@ -966,10 +986,7 @@ async fn ingest_event_batch(
                     retain_source_endpoint_context(
                         &mut w,
                         trace_id,
-                        source_endpoint_groups
-                            .get(trace_id)
-                            .unwrap_or(&empty_source_endpoint_groups),
-                        service_root_parents,
+                        source_context,
                         now_ms,
                         &mut lru_evicted,
                         &mut source_endpoint_generations,
@@ -1989,6 +2006,7 @@ mod tests {
             super::super::IngestBatch {
                 events: Vec::new(),
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root-1".to_string(),
@@ -2023,6 +2041,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn consumer_context_batch_names_an_unknown_event() {
+        let metrics = MetricsState::new();
+        let window = test_window();
+        let mut event = make_normalized_for_service("trace-1", "orders-svc", "SELECT 1");
+        event.event.source.endpoint = "unknown".to_string();
+        event.event.parent_span_id = Some("consumer-1".to_string());
+        window.lock().await.push(event, current_time_ms());
+        let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
+
+        let evicted = ingest_event_batch(
+            super::super::IngestBatch {
+                events: Vec::new(),
+                source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    trace_id: "trace-1".to_string(),
+                    service: Arc::from("orders-svc"),
+                    span_id: "consumer-1".to_string(),
+                    parent_span_id: None,
+                    endpoint: None,
+                    consumer_endpoint: Some("rabbitmq crm.dossiers".to_string()),
+                }],
+            },
+            1.0,
+            &window,
+            &metrics,
+            &mut service_meter,
+        )
+        .await;
+
+        assert!(evicted.is_empty());
+        let trace = window
+            .lock()
+            .await
+            .peek_clone("trace-1")
+            .expect("active trace remains");
+        assert_eq!(trace[0].event.source.endpoint, "rabbitmq crm.dossiers");
+    }
+
+    #[tokio::test]
     async fn late_outer_server_replaces_known_nested_route_within_service() {
         let metrics = MetricsState::new();
         let window = test_window();
@@ -2035,6 +2091,7 @@ mod tests {
         let first = super::super::IngestBatch {
             events: vec![nested_sql.event],
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                consumer_endpoint: None,
                 trace_id: "trace-nested".to_string(),
                 service: Arc::from("laravel-svc"),
                 span_id: "nested-server".to_string(),
@@ -2062,6 +2119,7 @@ mod tests {
         let outer = super::super::IngestBatch {
             events: Vec::new(),
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                consumer_endpoint: None,
                 trace_id: "trace-nested".to_string(),
                 service: Arc::from("laravel-svc"),
                 span_id: "outer-server".to_string(),
@@ -2103,6 +2161,7 @@ mod tests {
             events: vec![nested_sql.event],
             source_endpoint_updates: vec![
                 super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-internal".to_string(),
                     service: Arc::from("laravel-svc"),
                     span_id: "inner-server".to_string(),
@@ -2110,6 +2169,7 @@ mod tests {
                     endpoint: Some("/api/payments/history".to_string()),
                 },
                 super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-internal".to_string(),
                     service: Arc::from("laravel-svc"),
                     span_id: "internal".to_string(),
@@ -2128,6 +2188,7 @@ mod tests {
         let outer = super::super::IngestBatch {
             events: Vec::new(),
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                consumer_endpoint: None,
                 trace_id: "trace-internal".to_string(),
                 service: Arc::from("laravel-svc"),
                 span_id: "outer".to_string(),
@@ -2170,6 +2231,7 @@ mod tests {
                 super::super::IngestBatch {
                     events: vec![callee_sql.event],
                     source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                        consumer_endpoint: None,
                         trace_id: "trace-cross".to_string(),
                         service: Arc::from("payments-svc"),
                         span_id: "callee-server".to_string(),
@@ -2190,6 +2252,7 @@ mod tests {
                 super::super::IngestBatch {
                     events: Vec::new(),
                     source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                        consumer_endpoint: None,
                         trace_id: "trace-cross".to_string(),
                         service: Arc::from("orders-svc"),
                         span_id: "caller-server".to_string(),
@@ -2236,6 +2299,7 @@ mod tests {
             super::super::IngestBatch {
                 events: Vec::new(),
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "dropped".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root".to_string(),
@@ -2279,6 +2343,7 @@ mod tests {
         let root_batch = |trace_id: &str, endpoint: &str| super::super::IngestBatch {
             events: Vec::new(),
             source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                consumer_endpoint: None,
                 trace_id: trace_id.to_string(),
                 service: Arc::from("orders-svc"),
                 span_id: "root".to_string(),
@@ -2337,6 +2402,7 @@ mod tests {
             super::super::IngestBatch {
                 events,
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-new".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root-new".to_string(),
@@ -2386,6 +2452,7 @@ mod tests {
             super::super::IngestBatch {
                 events: vec![event],
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root-1".to_string(),
@@ -2432,6 +2499,7 @@ mod tests {
             super::super::IngestBatch {
                 events,
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-a".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root-a".to_string(),
@@ -2479,6 +2547,7 @@ mod tests {
             super::super::IngestBatch {
                 events,
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root-1".to_string(),
@@ -2530,6 +2599,7 @@ mod tests {
             .collect();
         let source_endpoint_updates = (0..=CAP)
             .map(|index| super::super::SourceEndpointUpdate {
+                consumer_endpoint: None,
                 trace_id: "trace-1".to_string(),
                 service: Arc::from("orders-svc"),
                 span_id: format!("root-{index}"),
@@ -2571,6 +2641,7 @@ mod tests {
             super::super::IngestBatch {
                 events: Vec::new(),
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-1".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root".to_string(),
@@ -2656,6 +2727,7 @@ mod tests {
             super::super::IngestBatch {
                 events: vec![trace_b],
                 source_endpoint_updates: vec![super::super::SourceEndpointUpdate {
+                    consumer_endpoint: None,
                     trace_id: "trace-a".to_string(),
                     service: Arc::from("orders-svc"),
                     span_id: "root-a".to_string(),

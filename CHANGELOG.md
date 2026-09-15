@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- A trace rooted in a message consumer reported `unknown` as its endpoint whenever no application `code.*` frame sat on the chain above the I/O, which is the usual shape of a Spring AMQP or Kafka listener under the OpenTelemetry Java agent: the CONSUMER span is the root and the repository frames are siblings of the calls, not ancestors. Every finding of every consumer in a service then shared one endpoint, so acking one hid the others. The endpoint now falls back to the destination of the nearest CONSUMER span, `<messaging.system> <destination>`, reading `messaging.destination.template`, then `messaging.destination.name`, then the legacy `messaging.destination`, after the inbound route and the code frame, on OTLP, Jaeger and Zipkin. The nearest one, because when consumer spans nest the inner one is the listener that ran the work, where an outer `amqp-client` delivery span names only the exchange. A destination flagged temporary or anonymous, a server-named `amq.gen-*` or `spring.gen-*` queue, or one holding `?`, `#` or `@`, which the endpoint sanitizer would truncate, stays `unknown`, though the Java agent sets neither flag by default. The daemon retains consumer destinations apart from route roots, under their own `max_events_per_trace` cap, because a CONSUMER span ends after the children it wraps and usually arrives in a later export, and reads them only where no route and no resolved ancestor answers.
+
 ## [0.22.1] - 2026-09-11
 
 ### Fixed

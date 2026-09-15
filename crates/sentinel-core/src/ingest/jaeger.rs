@@ -7,7 +7,8 @@
 //!
 //! `source.endpoint` walks the `CHILD_OF` chain with the same rules as the
 //! OTLP path: outermost inbound HTTP route in the event service first,
-//! otherwise the outermost application `code.*` frame, otherwise `"unknown"`.
+//! otherwise the outermost application `code.*` frame, otherwise the
+//! destination of the nearest CONSUMER span, otherwise `"unknown"`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -252,6 +253,22 @@ fn tag_code_frame(tags: &[JaegerTag]) -> Option<String> {
     crate::ingest::code_frame_endpoint(namespace.as_deref(), function.as_deref())
 }
 
+/// Message-driven entry endpoint of a CONSUMER span, see
+/// [`crate::ingest::consumer_entry_endpoint`].
+fn consumer_entry_endpoint(tags: &[JaegerTag]) -> Option<String> {
+    if find_tag(tags, "span.kind").as_deref() != Some("consumer") {
+        return None;
+    }
+    crate::ingest::consumer_entry_endpoint(
+        find_tag(tags, "messaging.system").as_deref(),
+        find_tag(tags, "messaging.destination.template").as_deref(),
+        find_tag(tags, "messaging.destination.name").as_deref(),
+        find_tag(tags, "messaging.destination").as_deref(),
+        find_tag(tags, "messaging.destination.temporary").as_deref() == Some("true"),
+        find_tag(tags, "messaging.destination.anonymous").as_deref() == Some("true"),
+    )
+}
+
 fn same_jaeger_service(
     leaf: &JaegerSpan,
     ancestor: &JaegerSpan,
@@ -277,7 +294,8 @@ fn same_jaeger_service(
 
 /// Walk the contiguous same-service `CHILD_OF` chain: the outermost inbound
 /// HTTP route wins, otherwise the outermost usable code frame (starting from
-/// the leaf's own), otherwise `"unknown"`. Same depth bound as the OTLP path.
+/// the leaf's own), otherwise the nearest consumer destination, otherwise
+/// `"unknown"`. Same depth bound as the OTLP path.
 fn resolve_source_endpoint(
     own_endpoint: Option<String>,
     leaf_frame: Option<String>,
@@ -287,6 +305,7 @@ fn resolve_source_endpoint(
 ) -> String {
     let mut outermost_endpoint = own_endpoint;
     let mut outermost_frame = leaf_frame;
+    let mut nearest_consumer = None;
     let mut current = child_of(leaf);
     for _ in 0..crate::ingest::ANCESTOR_WALK_MAX_DEPTH {
         let Some(pid) = current else {
@@ -304,10 +323,14 @@ fn resolve_source_endpoint(
         if let Some(frame) = tag_code_frame(&parent.tags) {
             outermost_frame = Some(frame);
         }
+        if nearest_consumer.is_none() {
+            nearest_consumer = consumer_entry_endpoint(&parent.tags);
+        }
         current = child_of(parent);
     }
     outermost_endpoint
         .or(outermost_frame)
+        .or(nearest_consumer)
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -1034,6 +1057,72 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source.endpoint, "com.foo.PurgeJob.execute");
+    }
+
+    #[test]
+    fn endpoint_falls_back_to_consumer_destination() {
+        // A boolean tag keeps its JSON type on Jaeger.
+        let trace = |trace_id: &str, destination_tags: &str| {
+            format!(
+                r#"{{
+                    "traceID": "{trace_id}",
+                    "spans": [
+                        {{
+                            "spanID": "c1",
+                            "operationName": "process",
+                            "references": [],
+                            "startTime": 1720621921123000,
+                            "duration": 5000,
+                            "processID": "p1",
+                            "tags": [
+                                {{ "key": "span.kind", "value": "consumer" }},
+                                {{ "key": "messaging.system", "value": "rabbitmq" }},
+                                {destination_tags}
+                            ]
+                        }},
+                        {{
+                            "spanID": "q1",
+                            "operationName": "query",
+                            "references": [{{ "refType": "CHILD_OF", "spanID": "c1" }}],
+                            "startTime": 1720621921123100,
+                            "duration": 500,
+                            "processID": "p1",
+                            "tags": [
+                                {{ "key": "db.statement", "value": "SELECT 1" }},
+                                {{ "key": "db.system", "value": "postgresql" }}
+                            ]
+                        }}
+                    ],
+                    "processes": {{ "p1": {{ "serviceName": "web-crm" }} }}
+                }}"#
+            )
+        };
+        let json = format!(
+            r#"{{ "data": [{}, {}] }}"#,
+            trace(
+                "named",
+                r#"{ "key": "messaging.destination.name", "value": "crm.dossiers" }"#
+            ),
+            trace(
+                "anonymous",
+                r#"{ "key": "messaging.destination.name", "value": "crm.dossiers" },
+                   { "key": "messaging.destination.anonymous", "value": true }"#
+            ),
+        );
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+        let endpoint_for = |trace_id: &str| {
+            events
+                .iter()
+                .find(|e| e.trace_id == trace_id && e.event_type == EventType::Sql)
+                .expect("sql leaf present")
+                .source
+                .endpoint
+                .clone()
+        };
+        assert_eq!(endpoint_for("named"), "rabbitmq crm.dossiers");
+        assert_eq!(endpoint_for("anonymous"), "unknown");
     }
 
     #[test]

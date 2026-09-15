@@ -51,17 +51,25 @@ struct AncestryEntry {
 
 type SourceEndpointGroups = HashMap<Arc<str>, HashMap<String, String>>;
 pub(crate) type SourceEndpointParentGroups = HashMap<Arc<str>, HashMap<String, Option<String>>>;
-type SourceEndpointContext<'a> = (&'a SourceEndpointGroups, &'a SourceEndpointParentGroups);
+type SourceEndpointContext<'a> = (
+    &'a SourceEndpointGroups,
+    &'a SourceEndpointParentGroups,
+    &'a SourceEndpointGroups,
+);
 
 /// Buffer for a single trace.
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     source_endpoint_groups: SourceEndpointGroups,
     source_endpoint_parent_groups: SourceEndpointParentGroups,
+    /// CONSUMER destinations by service and span id, apart from the roots: an
+    /// ancestor walk reads the nearest one only where nothing else answers.
+    source_consumer_groups: SourceEndpointGroups,
     /// Services for which a distinct root was observed after one was retained.
     /// Every entry therefore also exists in `source_endpoint_groups`.
     ambiguous_source_endpoint_services: HashSet<Arc<str>>,
     source_endpoint_count: usize,
+    source_consumer_count: usize,
     resolved_ancestry: Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
     needs_reconciliation: bool,
@@ -112,6 +120,7 @@ impl TraceWindow {
                 (
                     &buf.source_endpoint_groups,
                     &buf.source_endpoint_parent_groups,
+                    &buf.source_consumer_groups,
                 ),
                 &mut buf.resolved_ancestry,
                 buf.resolved_ancestry_cap,
@@ -133,6 +142,7 @@ impl TraceWindow {
             (
                 &buffer.source_endpoint_groups,
                 &buffer.source_endpoint_parent_groups,
+                &buffer.source_consumer_groups,
             ),
             &mut buffer.resolved_ancestry,
             buffer.resolved_ancestry_cap,
@@ -167,6 +177,7 @@ impl TraceWindow {
             trace_id,
             service_root_endpoints,
             &HashMap::new(),
+            &HashMap::new(),
             now_ms,
         )
     }
@@ -176,6 +187,7 @@ impl TraceWindow {
         trace_id: &str,
         service_root_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
         service_root_parents: &SourceEndpointParentGroups,
+        service_consumer_endpoints: &HashMap<Arc<str>, HashMap<String, String>>,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
         if service_root_endpoints.is_empty() && service_root_parents.is_empty() {
@@ -189,6 +201,7 @@ impl TraceWindow {
                 buf,
                 service_root_endpoints,
                 service_root_parents,
+                service_consumer_endpoints,
                 root_cap,
             );
             buf.source_endpoint_generation = source_endpoint_generation;
@@ -205,9 +218,11 @@ impl TraceWindow {
             &mut buf,
             service_root_endpoints,
             service_root_parents,
+            service_consumer_endpoints,
             root_cap,
         );
         if buf.source_endpoint_count == 0
+            && buf.source_consumer_count == 0
             && buf
                 .resolved_ancestry
                 .as_ref()
@@ -247,7 +262,13 @@ impl TraceWindow {
         let Some(buf) = self.traces.peek_mut(trace_id) else {
             return 0;
         };
-        merge_source_endpoint_groups(buf, service_root_endpoints, &HashMap::new(), root_cap);
+        merge_source_endpoint_groups(
+            buf,
+            service_root_endpoints,
+            &HashMap::new(),
+            &HashMap::new(),
+            root_cap,
+        );
         #[cfg(all(test, feature = "daemon"))]
         {
             self.reconciliation_passes += 1;
@@ -344,6 +365,7 @@ impl TraceWindow {
                 (
                     &buf.source_endpoint_groups,
                     &buf.source_endpoint_parent_groups,
+                    &buf.source_consumer_groups,
                 ),
                 &buf.ambiguous_source_endpoint_services,
                 buf.resolved_ancestry.as_ref(),
@@ -359,8 +381,10 @@ fn new_trace_buffer(now_ms: u64, per_trace_cap: usize) -> TraceBuffer {
         events: VecDeque::with_capacity(8),
         source_endpoint_groups: HashMap::new(),
         source_endpoint_parent_groups: HashMap::new(),
+        source_consumer_groups: HashMap::new(),
         ambiguous_source_endpoint_services: HashSet::new(),
         source_endpoint_count: 0,
+        source_consumer_count: 0,
         resolved_ancestry: NonZeroUsize::new(per_trace_cap).map(|_| LruCache::unbounded()),
         resolved_ancestry_cap: per_trace_cap,
         needs_reconciliation: false,
@@ -393,10 +417,42 @@ fn merge_source_endpoint_groups(
     buffer: &mut TraceBuffer,
     incoming: &HashMap<Arc<str>, HashMap<String, String>>,
     incoming_parents: &SourceEndpointParentGroups,
+    incoming_consumers: &SourceEndpointGroups,
     root_cap: usize,
 ) {
     index_incoming_ancestry(buffer, incoming_parents);
     merge_incoming_roots(buffer, incoming, incoming_parents, root_cap);
+    merge_incoming_consumers(buffer, incoming_consumers, root_cap);
+}
+
+/// Fold the batch's consumer destinations in under a cap of their own, so
+/// they neither crowd out a route root nor make a service ambiguous.
+fn merge_incoming_consumers(
+    buffer: &mut TraceBuffer,
+    incoming: &SourceEndpointGroups,
+    root_cap: usize,
+) {
+    for (service, consumers) in incoming {
+        for (span_id, endpoint) in consumers {
+            if let Some(existing) = buffer
+                .source_consumer_groups
+                .get_mut(service)
+                .and_then(|retained| retained.get_mut(span_id))
+            {
+                existing.clone_from(endpoint);
+                continue;
+            }
+            if buffer.source_consumer_count >= root_cap {
+                continue;
+            }
+            buffer
+                .source_consumer_groups
+                .entry(Arc::clone(service))
+                .or_default()
+                .insert(span_id.clone(), endpoint.clone());
+            buffer.source_consumer_count += 1;
+        }
+    }
 }
 
 /// Record the batch's parent links in the ancestry cache, refreshing an
@@ -477,7 +533,8 @@ fn resolve_and_index_event(
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
 ) -> bool {
-    let (source_endpoint_groups, source_endpoint_parent_groups) = source_endpoint_context;
+    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
+        source_endpoint_context;
     let mut updated = false;
     let source = event.event.source.endpoint.trim();
     let source_was_unknown = source.is_empty() || source == "unknown";
@@ -487,7 +544,11 @@ fn resolve_and_index_event(
         resolve_parent_endpoint(
             &event.event.service,
             event.event.parent_span_id.as_deref(),
-            (source_endpoint_groups, source_endpoint_parent_groups),
+            (
+                source_endpoint_groups,
+                source_endpoint_parent_groups,
+                source_consumer_groups,
+            ),
             resolved_ancestry,
             source,
         )
@@ -547,6 +608,7 @@ fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
         events,
         source_endpoint_groups,
         source_endpoint_parent_groups,
+        source_consumer_groups,
         resolved_ancestry,
         resolved_ancestry_cap,
         ..
@@ -555,7 +617,11 @@ fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
     for event in events.iter_mut() {
         updated += usize::from(resolve_and_index_event(
             event,
-            (source_endpoint_groups, source_endpoint_parent_groups),
+            (
+                source_endpoint_groups,
+                source_endpoint_parent_groups,
+                source_consumer_groups,
+            ),
             resolved_ancestry,
             *resolved_ancestry_cap,
         ));
@@ -571,15 +637,29 @@ fn resolve_parent_endpoint(
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     source: &str,
 ) -> Option<(ResolvedEndpoint, bool)> {
-    let (source_endpoint_groups, source_endpoint_parent_groups) = source_endpoint_context;
+    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
+        source_endpoint_context;
     let roots = source_endpoint_groups.get(service.as_ref());
     let root_parents = source_endpoint_parent_groups.get(service.as_ref());
+    let consumers = source_consumer_groups.get(service.as_ref());
     let mut current_span_id = parent_span_id?.to_string();
     let mut traversed = Vec::new();
     let mut outermost = None;
+    let mut nearest_consumer = None;
     let mut matches_source = false;
 
     for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
+        // An endpoint equal to the nearest destination came from it, so any
+        // route or resolved ancestor further out still replaces it.
+        if nearest_consumer.is_none()
+            && let Some(endpoint) = consumers.and_then(|entries| entries.get(&current_span_id))
+        {
+            matches_source |= endpoint == source;
+            nearest_consumer = Some(ResolvedEndpoint {
+                endpoint: endpoint.clone(),
+                depth: distance,
+            });
+        }
         if let Some(endpoint) =
             roots.and_then(|root_endpoints| root_endpoints.get(&current_span_id))
         {
@@ -627,7 +707,9 @@ fn resolve_parent_endpoint(
             resolution.depth,
         );
     }
-    outermost.map(|resolution| (resolution, matches_source))
+    outermost
+        .or(nearest_consumer)
+        .map(|resolution| (resolution, matches_source))
 }
 
 fn sole_root_endpoint(
@@ -695,11 +777,14 @@ fn reconcile_cloned_events(
     resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
 ) {
-    let (source_endpoint_groups, source_endpoint_parent_groups) = source_endpoint_context;
+    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
+        source_endpoint_context;
     for event in events.iter_mut() {
         let source = event.event.source.endpoint.trim();
         let source_was_unknown = source.is_empty() || source == "unknown";
-        if !source_was_unknown && !source_endpoint_groups.contains_key(event.event.service.as_ref())
+        if !source_was_unknown
+            && !source_endpoint_groups.contains_key(event.event.service.as_ref())
+            && !source_consumer_groups.contains_key(event.event.service.as_ref())
         {
             continue;
         }
@@ -709,7 +794,11 @@ fn reconcile_cloned_events(
         if let Some((parent, matches_source)) = peek_parent_endpoint(
             &event.event.service,
             parent_span_id,
-            (source_endpoint_groups, source_endpoint_parent_groups),
+            (
+                source_endpoint_groups,
+                source_endpoint_parent_groups,
+                source_consumer_groups,
+            ),
             ambiguous_source_endpoint_services,
             resolved_ancestry,
             resolved_ancestry_cap,
@@ -732,13 +821,27 @@ fn peek_parent_endpoint(
     resolved_ancestry_cap: usize,
     source: &str,
 ) -> Option<(ResolvedEndpoint, bool)> {
-    let (source_endpoint_groups, source_endpoint_parent_groups) = source_endpoint_context;
+    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
+        source_endpoint_context;
     let roots = source_endpoint_groups.get(service.as_ref());
     let root_parents = source_endpoint_parent_groups.get(service.as_ref());
+    let consumers = source_consumer_groups.get(service.as_ref());
     let mut current_span_id = parent_span_id.to_string();
     let mut outermost = None;
+    let mut nearest_consumer = None;
     let mut matches_source = false;
     for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
+        // An endpoint equal to the nearest destination came from it, so any
+        // route or resolved ancestor further out still replaces it.
+        if nearest_consumer.is_none()
+            && let Some(endpoint) = consumers.and_then(|entries| entries.get(&current_span_id))
+        {
+            matches_source |= endpoint == source;
+            nearest_consumer = Some(ResolvedEndpoint {
+                endpoint: endpoint.clone(),
+                depth: distance,
+            });
+        }
         if let Some(endpoint) =
             roots.and_then(|root_endpoints| root_endpoints.get(&current_span_id))
         {
@@ -750,7 +853,9 @@ fn peek_parent_endpoint(
             let Some(Some(parent_span_id)) =
                 root_parents.and_then(|parents| parents.get(&current_span_id))
             else {
-                return outermost.map(|resolution| (resolution, matches_source));
+                return outermost
+                    .or(nearest_consumer)
+                    .map(|resolution| (resolution, matches_source));
             };
             current_span_id.clone_from(parent_span_id);
             continue;
@@ -767,6 +872,7 @@ fn peek_parent_endpoint(
                         ambiguous_source_endpoint_services.contains(service),
                     )
                 })
+                .or(nearest_consumer)
                 .map(|resolution| (resolution, matches_source));
         };
         if let Some(resolution) = &entry.resolution {
@@ -787,11 +893,14 @@ fn peek_parent_endpoint(
                         ambiguous_source_endpoint_services.contains(service),
                     )
                 })
+                .or(nearest_consumer)
                 .map(|resolution| (resolution, matches_source));
         };
         current_span_id = parent_span_id.to_string();
     }
-    outermost.map(|resolution| (resolution, matches_source))
+    outermost
+        .or(nearest_consumer)
+        .map(|resolution| (resolution, matches_source))
 }
 
 fn finish_trace_buffer(
@@ -807,6 +916,7 @@ fn finish_trace_buffer(
             (
                 &buffer.source_endpoint_groups,
                 &buffer.source_endpoint_parent_groups,
+                &buffer.source_consumer_groups,
             ),
             &buffer.ambiguous_source_endpoint_services,
             buffer.resolved_ancestry.as_ref(),
@@ -1218,6 +1328,90 @@ mod tests {
                 .endpoint,
             "unknown"
         );
+    }
+
+    #[test]
+    fn consumer_context_resolves_only_what_nothing_else_does() {
+        let svc = || Arc::<str>::from("svc-a");
+        let context = |edges: &[(&str, Option<&str>)], consumers: &[(&str, &str)]| {
+            let parents: SourceEndpointParentGroups = HashMap::from([(
+                svc(),
+                edges
+                    .iter()
+                    .map(|(span, parent)| (span.to_string(), parent.map(str::to_string)))
+                    .collect(),
+            )]);
+            let consumers: SourceEndpointGroups = HashMap::from([(
+                svc(),
+                consumers
+                    .iter()
+                    .map(|(span, endpoint)| (span.to_string(), endpoint.to_string()))
+                    .collect(),
+            )]);
+            (parents, consumers)
+        };
+        let mut w = TraceWindow::new(WindowConfig::default());
+
+        // The consumer spans end after their children, so their context lands last.
+        w.push(
+            make_child("t1", "svc-a", "io-1", "listener", "unknown-io", "unknown"),
+            0,
+        );
+        w.push(
+            make_child(
+                "t1",
+                "svc-a",
+                "io-2",
+                "listener",
+                "framed-io",
+                "com.foo.DossierListener.onDossier",
+            ),
+            0,
+        );
+        let (parents, consumers) = context(
+            &[("delivery", None), ("listener", Some("delivery"))],
+            &[
+                ("delivery", "rabbitmq orders.topic"),
+                ("listener", "rabbitmq crm.dossiers"),
+            ],
+        );
+        w.retain_source_endpoint_context_groups("t1", &HashMap::new(), &parents, &consumers, 0);
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(endpoint_for(&t1, "unknown-io"), "rabbitmq crm.dossiers");
+        assert_eq!(
+            endpoint_for(&t1, "framed-io"),
+            "com.foo.DossierListener.onDossier"
+        );
+
+        // A route above the consumer outranks it, even where the conversion
+        // already wrote the destination.
+        w.push(
+            make_child("t2", "svc-a", "io-3", "consumer", "late-io", "unknown"),
+            0,
+        );
+        w.push(
+            make_child(
+                "t2",
+                "svc-a",
+                "io-4",
+                "consumer",
+                "provisional-io",
+                "rabbitmq crm.dossiers",
+            ),
+            0,
+        );
+        let (parents, consumers) = context(
+            &[("route", None), ("consumer", Some("route"))],
+            &[("consumer", "rabbitmq crm.dossiers")],
+        );
+        let roots = HashMap::from([(
+            svc(),
+            HashMap::from([("route".to_string(), "/api/orders".to_string())]),
+        )]);
+        w.retain_source_endpoint_context_groups("t2", &roots, &parents, &consumers, 0);
+        let t2 = w.peek_clone("t2").expect("trace remains active");
+        assert_eq!(endpoint_for(&t2, "late-io"), "/api/orders");
+        assert_eq!(endpoint_for(&t2, "provisional-io"), "/api/orders");
     }
 
     #[test]
@@ -2005,7 +2199,7 @@ mod tests {
         )]);
 
         assert!(
-            w.retain_source_endpoint_context_groups("t1", &roots, &parents, 0)
+            w.retain_source_endpoint_context_groups("t1", &roots, &parents, &HashMap::new(), 0)
                 .is_none()
         );
         let buffer = w.traces.peek("t1").expect("trace remains active");
@@ -2035,8 +2229,14 @@ mod tests {
         )]);
 
         assert!(
-            w.retain_source_endpoint_context_groups("t1", &HashMap::new(), &parents, 0)
-                .is_none()
+            w.retain_source_endpoint_context_groups(
+                "t1",
+                &HashMap::new(),
+                &parents,
+                &HashMap::new(),
+                0
+            )
+            .is_none()
         );
         let buffer = w.traces.peek("t1").expect("context-only trace retained");
         assert_eq!(buffer.source_endpoint_count, 0);
@@ -2064,7 +2264,7 @@ mod tests {
                 ("root-b".to_string(), Some("root-a".to_string())),
             ]),
         )]);
-        w.retain_source_endpoint_context_groups("t1", &roots, &parents, 0);
+        w.retain_source_endpoint_context_groups("t1", &roots, &parents, &HashMap::new(), 0);
         w.push(
             make_child("t1", "svc-a", "sql", "root-a", "SELECT 1", "unknown"),
             1,

@@ -238,6 +238,15 @@ fn any_value_as_int(value: Option<&any_value::Value>) -> Option<i64> {
     }
 }
 
+/// Extract the boolean variant of an OTLP `AnyValue`.
+#[inline]
+fn any_value_as_bool(value: Option<&any_value::Value>) -> Option<bool> {
+    match value {
+        Some(any_value::Value::BoolValue(b)) => Some(*b),
+        _ => None,
+    }
+}
+
 /// Lookup a string attribute by key (one linear scan).
 ///
 /// Used at the resource level (`service.name`, resource-level
@@ -333,6 +342,10 @@ struct ClassifiedAttrs<'a> {
     messaging_destination_name: Option<&'a str>,
     // Pre-1.21 spelling, still emitted by older agents.
     messaging_destination: Option<&'a str>,
+    // Read on CONSUMER spans only, to name a message-driven entry point.
+    messaging_destination_template: Option<&'a str>,
+    messaging_destination_temporary: Option<bool>,
+    messaging_destination_anonymous: Option<bool>,
     messaging_body_size: Option<i64>,
     http_status_code: Option<i64>,
     http_response_status_code: Option<i64>,
@@ -409,6 +422,15 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
                 out.messaging_destination_name = any_value_as_str(value);
             }
             "messaging.destination" => out.messaging_destination = any_value_as_str(value),
+            "messaging.destination.template" => {
+                out.messaging_destination_template = any_value_as_str(value);
+            }
+            "messaging.destination.temporary" => {
+                out.messaging_destination_temporary = any_value_as_bool(value);
+            }
+            "messaging.destination.anonymous" => {
+                out.messaging_destination_anonymous = any_value_as_bool(value);
+            }
             "messaging.message.body.size" => out.messaging_body_size = any_value_as_int(value),
             "http.status_code" => out.http_status_code = any_value_as_int(value),
             "http.response.status_code" => out.http_response_status_code = any_value_as_int(value),
@@ -659,11 +681,27 @@ fn index_linked_consumers<'a>(
 /// under an outbound call would be attributed to the third party the caller
 /// reached rather than to the route being served. Kinds left unspecified stay
 /// eligible, which is what manual and legacy instrumentation emits.
-fn inbound_http_endpoint(span: &Span) -> Option<String> {
-    let classified = classify_span_attrs(&span.attributes);
+fn inbound_http_endpoint(classified: &ClassifiedAttrs<'_>, span_kind: i32) -> Option<String> {
     classified_inbound_http_endpoint(
-        &classified,
-        span.kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32,
+        classified,
+        span_kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32,
+    )
+}
+
+/// Message-driven entry endpoint a CONSUMER span carries, see
+/// [`crate::ingest::consumer_entry_endpoint`]. Any other kind yields `None`:
+/// a PRODUCER span is an outbound publish, not the start of the work.
+fn consumer_entry_endpoint(classified: &ClassifiedAttrs<'_>, span_kind: i32) -> Option<String> {
+    if span_kind != opentelemetry_proto::tonic::trace::v1::span::SpanKind::Consumer as i32 {
+        return None;
+    }
+    crate::ingest::consumer_entry_endpoint(
+        classified.messaging_system,
+        classified.messaging_destination_template,
+        classified.messaging_destination_name,
+        classified.messaging_destination,
+        classified.messaging_destination_temporary == Some(true),
+        classified.messaging_destination_anonymous == Some(true),
     )
 }
 
@@ -695,12 +733,17 @@ fn classified_inbound_http_endpoint(
 
 /// Resolve `source.endpoint`: the outermost inbound HTTP route in this
 /// service's parent chain, then the outermost `code.*` frame for entry points
-/// that have none (scheduled jobs, message consumers), then `"unknown"`.
+/// that have none (scheduled jobs, message consumers), then the destination
+/// of the nearest CONSUMER span, then `"unknown"`.
 ///
-/// One walk serves both. The frame kept is the outermost usable one, not
+/// One walk serves all three. The frame kept is the outermost usable one, not
 /// the nearest: on a layered stack the nearest is the DAO every caller
 /// shares, which collides in the ack signature exactly as `"unknown"` did.
-/// A route always wins, since only an entry point carries one.
+/// A route always wins, since only an entry point carries one. The consumer
+/// destination ranks last, so it only names what would otherwise be
+/// `"unknown"`. It is the nearest consumer, not the outermost: when consumer
+/// spans nest, the inner one is the listener that ran the work and the outer
+/// one may name only the exchange.
 fn resolve_source_endpoint<'a>(
     own_endpoint: Option<String>,
     leaf: CodeAttrs<'a>,
@@ -713,6 +756,7 @@ fn resolve_source_endpoint<'a>(
         return endpoint;
     }
     let mut outermost_endpoint = own_endpoint;
+    let mut nearest_consumer = None;
     let mut outermost_frame =
         crate::ingest::code_frame_endpoint(leaf.namespace, leaf.function_name);
     let mut current_parent_id = parent_span_id;
@@ -723,13 +767,17 @@ fn resolve_source_endpoint<'a>(
         let Some(parent) = span_index.get(&(trace_id, current_parent_id)) else {
             break;
         };
-        if let Some(route) = inbound_http_endpoint(parent) {
+        let classified = classify_span_attrs(&parent.attributes);
+        if let Some(route) = inbound_http_endpoint(&classified, parent.kind) {
             if !outermost_same_service {
                 return route;
             }
             outermost_endpoint = Some(route);
         }
-        let attrs = read_code_attrs(&parent.attributes);
+        if nearest_consumer.is_none() {
+            nearest_consumer = consumer_entry_endpoint(&classified, parent.kind);
+        }
+        let attrs = classified.code_attrs();
         if let Some(frame) =
             crate::ingest::code_frame_endpoint(attrs.namespace, attrs.function_name)
             && (outermost_same_service || outermost_frame.is_none())
@@ -740,6 +788,7 @@ fn resolve_source_endpoint<'a>(
     }
     outermost_endpoint
         .or(outermost_frame)
+        .or(nearest_consumer)
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -1517,7 +1566,8 @@ fn span_endpoint_update<'a>(
     {
         return None;
     }
-    let mut endpoint = inbound_http_endpoint(span).map(|own_endpoint| {
+    let classified = classify_span_attrs(&span.attributes);
+    let mut endpoint = inbound_http_endpoint(&classified, span.kind).map(|own_endpoint| {
         resolve_source_endpoint(
             Some(own_endpoint),
             CodeAttrs::default(),
@@ -1536,9 +1586,16 @@ fn span_endpoint_update<'a>(
     {
         endpoint = None;
     }
+    // A consumer span usually exports after the children it wraps, so its
+    // destination is retained too, apart from routes: the window only reads
+    // it where no route and no resolved ancestor answers.
+    let mut consumer_endpoint = consumer_entry_endpoint(&classified, span.kind);
+    if let Some(consumer_endpoint) = &mut consumer_endpoint {
+        crate::event::sanitize_source_endpoint(consumer_endpoint);
+    }
     let parent_span_id =
         (!span.parent_span_id.is_empty()).then(|| bytes_to_hex(&span.parent_span_id));
-    if endpoint.is_none() && parent_span_id.is_none() {
+    if endpoint.is_none() && parent_span_id.is_none() && consumer_endpoint.is_none() {
         return None;
     }
     Some(crate::daemon::SourceEndpointUpdate {
@@ -1547,6 +1604,7 @@ fn span_endpoint_update<'a>(
         span_id: bytes_to_hex(&span.span_id),
         parent_span_id,
         endpoint,
+        consumer_endpoint,
     })
 }
 

@@ -53,6 +53,8 @@ pub(crate) struct SourceEndpointUpdate {
     pub(crate) span_id: String,
     pub(crate) parent_span_id: Option<String>,
     pub(crate) endpoint: Option<String>,
+    /// CONSUMER destination, read only where no route answers.
+    pub(crate) consumer_endpoint: Option<String>,
 }
 
 /// One bounded daemon ingest message. JSON batches carry only `events`;

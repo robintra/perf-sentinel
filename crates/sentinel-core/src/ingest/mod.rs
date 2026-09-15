@@ -368,12 +368,127 @@ pub trait IngestSource {
     fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error>;
 }
 
+/// Server-generated queue names, `amq.gen-<random>` from the broker and
+/// `spring.gen-<random>` from Spring AMQP's `AnonymousQueue`: a new name per
+/// declaration, so as an endpoint one would mint one signature per consumer
+/// restart rather than name an origin.
+const GENERATED_DESTINATION_PREFIXES: &[&str] = &["amq.gen-", "spring.gen-"];
+
+/// Endpoint of a message-driven entry point, `<system> <destination>`, read
+/// from the nearest CONSUMER span above the I/O. It names traces rooted in a
+/// queue or a topic rather than in an HTTP request, which would otherwise
+/// report `"unknown"` when no application `code.*` frame sits on the chain.
+///
+/// `messaging.destination.template` wins over the name: the semantic
+/// conventions define it as the low-cardinality form of a name that embeds an
+/// id. A temporary, anonymous or server-generated destination names no stable
+/// origin and yields `None`, so it cannot mint one signature per queue. So
+/// does one holding `?`, `#` or `@`, which `strip_endpoint_secrets` would
+/// truncate into a colliding spelling.
+#[must_use]
+pub(crate) fn consumer_entry_endpoint(
+    system: Option<&str>,
+    template: Option<&str>,
+    name: Option<&str>,
+    legacy_name: Option<&str>,
+    temporary: bool,
+    anonymous: bool,
+) -> Option<String> {
+    if temporary || anonymous {
+        return None;
+    }
+    let system = system.and_then(usable_code_frame_part)?;
+    let destination = template
+        .and_then(usable_code_frame_part)
+        .or_else(|| name.and_then(usable_code_frame_part))
+        .or_else(|| legacy_name.and_then(usable_code_frame_part))?;
+    if GENERATED_DESTINATION_PREFIXES
+        .iter()
+        .any(|prefix| destination.starts_with(prefix))
+    {
+        return None;
+    }
+    let endpoint = format!("{system} {destination}");
+    (!endpoint.contains(['?', '#', '@'])).then_some(endpoint)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         NON_SQL_DB_SYSTEMS, SQL_DB_SYSTEMS, canonical_db_system, canonical_http_route,
-        code_frame_endpoint, http_route_endpoint, is_non_sql_db_system, is_sql_db_system,
+        code_frame_endpoint, consumer_entry_endpoint, http_route_endpoint, is_non_sql_db_system,
+        is_sql_db_system,
     };
+
+    #[test]
+    fn consumer_entry_endpoint_names_stable_destinations_only() {
+        let rabbitmq = Some("rabbitmq");
+        let endpoint = |system, template, name, legacy, temporary, anonymous| {
+            consumer_entry_endpoint(system, template, name, legacy, temporary, anonymous)
+        };
+        assert_eq!(
+            endpoint(rabbitmq, None, Some("crm.dossiers"), None, false, false).as_deref(),
+            Some("rabbitmq crm.dossiers")
+        );
+        assert_eq!(
+            endpoint(
+                Some("kafka"),
+                Some("orders.{tenant}"),
+                Some("orders.acme"),
+                None,
+                false,
+                false
+            )
+            .as_deref(),
+            Some("kafka orders.{tenant}"),
+            "the template is the low-cardinality form"
+        );
+        assert_eq!(
+            endpoint(
+                rabbitmq,
+                None,
+                Some(" "),
+                Some("legacy.queue"),
+                false,
+                false
+            )
+            .as_deref(),
+            Some("rabbitmq legacy.queue"),
+            "a blank name falls through to the legacy spelling"
+        );
+        for (system, name, temporary, anonymous, why) in [
+            (rabbitmq, "reply.queue", true, false, "temporary"),
+            (rabbitmq, "crm.dossiers", false, true, "anonymous"),
+            (
+                rabbitmq,
+                "amq.gen-JzTY20BRgKO-HjmUJj0wLg",
+                false,
+                false,
+                "server-generated",
+            ),
+            (
+                rabbitmq,
+                "orders?v2",
+                false,
+                false,
+                "truncated by the sanitizer",
+            ),
+            (
+                rabbitmq,
+                "ops@orders",
+                false,
+                false,
+                "userinfo stripped by the sanitizer",
+            ),
+            (None, "crm.dossiers", false, false, "no messaging system"),
+        ] {
+            assert_eq!(
+                endpoint(system, None, Some(name), None, temporary, anonymous),
+                None,
+                "{why}"
+            );
+        }
+    }
 
     #[test]
     fn canonical_http_route_only_prefixes_slashless_templates() {
