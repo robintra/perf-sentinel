@@ -190,13 +190,14 @@ fn consumer_entry_endpoint(span: &ZipkinSpan) -> Option<String> {
     if span.kind.as_deref() != Some("CONSUMER") {
         return None;
     }
+    let flag = |key| tag(span, key).is_some_and(|v| v.eq_ignore_ascii_case("true"));
     crate::ingest::consumer_entry_endpoint(
         tag(span, "messaging.system"),
         tag(span, "messaging.destination.template"),
         tag(span, "messaging.destination.name"),
         tag(span, "messaging.destination"),
-        tag(span, "messaging.destination.temporary") == Some("true"),
-        tag(span, "messaging.destination.anonymous") == Some("true"),
+        flag("messaging.destination.temporary"),
+        flag("messaging.destination.anonymous"),
     )
 }
 
