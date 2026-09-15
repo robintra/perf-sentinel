@@ -238,11 +238,15 @@ fn any_value_as_int(value: Option<&any_value::Value>) -> Option<i64> {
     }
 }
 
-/// Extract the boolean variant of an OTLP `AnyValue`.
+/// Extract the boolean variant of an OTLP `AnyValue`, or its stringified
+/// spelling, which a Zipkin receiver or a string-only SDK emits and which the
+/// Jaeger and Zipkin paths already accept.
 #[inline]
 fn any_value_as_bool(value: Option<&any_value::Value>) -> Option<bool> {
     match value {
         Some(any_value::Value::BoolValue(b)) => Some(*b),
+        Some(any_value::Value::StringValue(s)) if s.eq_ignore_ascii_case("true") => Some(true),
+        Some(any_value::Value::StringValue(s)) if s.eq_ignore_ascii_case("false") => Some(false),
         _ => None,
     }
 }
