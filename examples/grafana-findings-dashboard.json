@@ -62,7 +62,7 @@
     "to": "now"
   },
   "refresh": "1m",
-  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names. Since 0.20.0 an Incidents table lists what the alerting posted to POST /api/incidents and an Incident findings table shows the findings frozen for the incident clicked in it, both behind [daemon] read_api_key, which the datasource sends as X-API-Key, and both outside the time picker, since the route has no time filter. Grouping and Service are the same labels the overview dashboard filters on, listed from Prometheus and sent to the API as exact matches, and Skip rows pages past the 1000-row cap.",
+  "description": "Findings read from the perf-sentinel query API through the Infinity plugin (yesoreyeram-infinity-datasource), provisioned by examples/grafana-infinity-datasource.yaml. Companion to 'perf-sentinel overview', which reads Prometheus: that one answers how many findings and of what kind, this one answers which operation on which endpoint. The API it reads has no embedded IAM, so scope this dashboard's folder to the people allowed to see your SQL templates and endpoint names. Since 0.20.0 an Incidents table lists what the alerting posted to POST /api/incidents and an Incident findings table shows the findings frozen for the incident clicked in it, both behind [daemon] read_api_key, which the datasource sends as X-API-Key, and both outside the time picker, since the route has no time filter. A Correlations table under the findings lists the cross-service pairs GET /api/correlations keeps while [daemon.correlation] is enabled, outside the variables since that route has no filter. Grouping and Service are the same labels the overview dashboard filters on, listed from Prometheus and sent to the API as exact matches, and Skip rows pages past the 1000-row cap.",
   "templating": {
     "list": [
       {
@@ -676,6 +676,263 @@
     },
     {
       "type": "table",
+      "title": "Correlations",
+      "description": "GET /api/correlations, one row per directional pair of findings the daemon saw fire together across services: the source fired first and the target followed within [daemon.correlation] lag_threshold_ms, in the same grouping. Empty while [daemon.correlation] enabled is false, the default, and a pair is ephemeral: nothing persists it, so it vanishes one window_minutes after its last co-occurrence and with every daemon restart. Co-occurrences is how often the two fired together over the rolling window, Source total how often the source fired at all, and Confidence their ratio, so 100% means the target followed every time. Median lag is the typical delay from source to target. The two operation columns are the SQL or HTTP templates of the findings, not routes, and Trace is the most recent trace on the target side, the one to hand to /api/explain. The route takes no parameter, so Grouping and Service do not narrow this table, the column headers filter instead, and it stops at 1000 rows, highest confidence first.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/correlations",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "source.service",
+              "text": "Source service",
+              "type": "string"
+            },
+            {
+              "selector": "source.finding_type",
+              "text": "Source type",
+              "type": "string"
+            },
+            {
+              "selector": "target.service",
+              "text": "Target service",
+              "type": "string"
+            },
+            {
+              "selector": "target.finding_type",
+              "text": "Target type",
+              "type": "string"
+            },
+            {
+              "selector": "confidence",
+              "text": "Confidence",
+              "type": "number"
+            },
+            {
+              "selector": "co_occurrence_count",
+              "text": "Co-occurrences",
+              "type": "number"
+            },
+            {
+              "selector": "source_total_occurrences",
+              "text": "Source total",
+              "type": "number"
+            },
+            {
+              "selector": "median_lag_ms",
+              "text": "Median lag",
+              "type": "number"
+            },
+            {
+              "selector": "source.grouping_value",
+              "text": "Grouping",
+              "type": "string"
+            },
+            {
+              "selector": "source.template",
+              "text": "Source operation",
+              "type": "string"
+            },
+            {
+              "selector": "target.template",
+              "text": "Target operation",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen",
+              "text": "First seen",
+              "type": "timestamp"
+            },
+            {
+              "selector": "last_seen",
+              "text": "Last seen",
+              "type": "timestamp"
+            },
+            {
+              "selector": "sample_trace_id",
+              "text": "Trace",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Confidence"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Median lag"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Co-occurrences"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source total"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source operation"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target operation"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "First seen"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last seen"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Confidence",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Source service": 0,
+              "Source type": 1,
+              "Target service": 2,
+              "Target type": 3,
+              "Confidence": 4,
+              "Co-occurrences": 5,
+              "Source total": 6,
+              "Median lag": 7,
+              "Grouping": 8,
+              "Source operation": 9,
+              "Target operation": 10,
+              "First seen": 11,
+              "Last seen": 12,
+              "Trace": 13
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
       "title": "Daemon acknowledgments",
       "description": "Findings acknowledged at runtime, from GET /api/acks. An entry here is usually why a problem is absent from the table above. Empty when [daemon.ack] is disabled. If the daemon has an ack API key this endpoint is gated too, and the [daemon] read_api_key the datasource carries opens it without the power to ack.",
       "datasource": {
@@ -686,7 +943,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 32
       },
       "targets": [
         {
@@ -771,7 +1028,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 40
       },
       "targets": [
         {
@@ -843,7 +1100,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 48
       },
       "targets": [
         {
@@ -1063,7 +1320,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 56
       },
       "targets": [
         {
@@ -1348,5 +1605,5 @@
       "url": ""
     }
   ],
-  "version": 4
+  "version": 5
 }
