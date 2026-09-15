@@ -278,9 +278,10 @@ nouveau sous ce nom. Une destination marquée temporaire ou anonyme, une file
 nommée par le serveur (`amq.gen-*`, `spring.gen-*`), un substitut entre
 chevrons tel que `<default>`, qu'une instrumentation émet pour un exchange
 par défaut, ou une destination contenant `?`, `#` ou `@` ne nomme aucune
-origine stable et laisse `"unknown"`, sachant que l'agent Java ne pose aucun
-des deux indicateurs par défaut. Jaeger et Zipkin
-suivent le même ordre.
+origine stable et laisse `"unknown"`, sachant qu'une instrumentation peut ne
+poser aucun des deux indicateurs, l'agent Java OpenTelemetry entre autres,
+raison pour laquelle les noms générés par le serveur sont aussi filtrés.
+Jaeger et Zipkin suivent le même ordre.
 
 En mode daemon, les ids OTLP valides et échantillonnés, leurs liens parent,
 leurs routes entrantes et leurs destinations de consumer issus de services

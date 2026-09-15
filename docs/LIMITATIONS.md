@@ -211,8 +211,10 @@ the latter alone collides again under that name. A destination flagged
 temporary or anonymous, a server-named `amq.gen-*` or `spring.gen-*` queue,
 a placeholder in angle brackets such as `<default>`, which instrumentations
 emit for a default exchange, or one holding `?`, `#` or `@` names no stable
-origin and leaves `"unknown"`, though the Java agent sets neither flag by
-default. Jaeger and Zipkin follow the same order.
+origin and leaves `"unknown"`, though an instrumentation may set neither
+flag, the OpenTelemetry Java agent among them, which is why the
+server-generated names are filtered as well. Jaeger and Zipkin follow the
+same order.
 
 In daemon mode, valid sampled OTLP span ids, parent links, inbound routes and
 consumer destinations from explicitly named services are also retained in the
