@@ -405,11 +405,14 @@ pub(crate) fn consumer_entry_endpoint(
     if GENERATED_DESTINATION_PREFIXES
         .iter()
         .any(|prefix| destination.starts_with(prefix))
+        || system.contains(['?', '#', '@'])
+        || destination.contains(['?', '#', '@'])
     {
         return None;
     }
-    let endpoint = format!("{system} {destination}");
-    (!endpoint.contains(['?', '#', '@'])).then_some(endpoint)
+    // Well-known `messaging.system` values are lowercase, so a hand-written
+    // `RabbitMQ` names the same origin as the agent's `rabbitmq`.
+    Some(format!("{} {destination}", system.to_ascii_lowercase()))
 }
 
 #[cfg(test)]
@@ -429,6 +432,19 @@ mod tests {
         assert_eq!(
             endpoint(rabbitmq, None, Some("crm.dossiers"), None, false, false).as_deref(),
             Some("rabbitmq crm.dossiers")
+        );
+        assert_eq!(
+            endpoint(
+                Some("RabbitMQ"),
+                None,
+                Some("crm.dossiers"),
+                None,
+                false,
+                false
+            )
+            .as_deref(),
+            Some("rabbitmq crm.dossiers"),
+            "the system spelling is lowercased"
         );
         assert_eq!(
             endpoint(
