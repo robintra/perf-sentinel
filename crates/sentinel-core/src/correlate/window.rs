@@ -835,9 +835,19 @@ fn peek_parent_endpoint(
     let roots = context.roots.get(service.as_ref());
     let root_parents = context.parents.get(service.as_ref());
     let consumers = context.consumers.get(service.as_ref());
+    let guess_sole_root = |distance| {
+        sole_root_endpoint(
+            roots,
+            distance,
+            resolved_ancestry,
+            resolved_ancestry_cap,
+            ambiguous_source_endpoint_services.contains(service),
+        )
+    };
     let mut current_span_id = parent_span_id.to_string();
     let mut outermost = None;
     let mut nearest_consumer = None;
+    let mut guessed_root = None;
     let mut matches_source = false;
     for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
         // An endpoint equal to the nearest destination came from it, so any
@@ -864,27 +874,15 @@ fn peek_parent_endpoint(
             let Some(Some(parent_span_id)) =
                 root_parents.and_then(|parents| parents.get(&current_span_id))
             else {
-                return outermost
-                    .or(nearest_consumer)
-                    .map(|resolution| (resolution, matches_source));
+                break;
             };
             current_span_id.clone_from(parent_span_id);
             continue;
         }
         let key = (Arc::clone(service), current_span_id);
         let Some(entry) = resolved_ancestry.and_then(|ancestry| ancestry.peek(&key)) else {
-            return outermost
-                .or_else(|| {
-                    sole_root_endpoint(
-                        roots,
-                        distance,
-                        resolved_ancestry,
-                        resolved_ancestry_cap,
-                        ambiguous_source_endpoint_services.contains(service),
-                    )
-                })
-                .or(nearest_consumer)
-                .map(|resolution| (resolution, matches_source));
+            guessed_root = guess_sole_root(distance);
+            break;
         };
         if let Some(resolution) = &entry.resolution {
             matches_source |= resolution.endpoint == source;
@@ -895,23 +893,15 @@ fn peek_parent_endpoint(
             });
         }
         let Some(parent_span_id) = entry.parent_span_id.as_deref() else {
-            return outermost
-                .or_else(|| {
-                    sole_root_endpoint(
-                        roots,
-                        distance,
-                        resolved_ancestry,
-                        resolved_ancestry_cap,
-                        ambiguous_source_endpoint_services.contains(service),
-                    )
-                })
-                .or(nearest_consumer)
-                .map(|resolution| (resolution, matches_source));
+            guessed_root = guess_sole_root(distance);
+            break;
         };
         current_span_id = parent_span_id.to_string();
     }
+    // A destination proven on the chain outranks a guessed sole root.
     outermost
         .or(nearest_consumer)
+        .or(guessed_root)
         .map(|resolution| (resolution, matches_source))
 }
 
@@ -1981,6 +1971,49 @@ mod tests {
             crate::detect::slow::detect_slow(&crate::correlate::Trace { trace_id, spans }, 0, 3);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].source_endpoint, "/api/orders");
+    }
+
+    #[test]
+    fn capacity_one_proven_consumer_outranks_the_guessed_sole_root() {
+        // A handler root and a listener root in one trace, the usual Java agent
+        // shape where the CONSUMER span is a root of its own: the sole retained
+        // root is the handler, the SQL sits under the consumer, and the guess
+        // must not override what the chain proves. When the listener instead
+        // sits under the handler's PRODUCER span, cap 1 cannot walk that far
+        // and reports the destination where a larger cap reports the route.
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1,
+            ..WindowConfig::default()
+        });
+        let svc = || Arc::<str>::from("svc-a");
+        let roots = HashMap::from([(
+            svc(),
+            HashMap::from([("handler".to_string(), "/api/publish".to_string())]),
+        )]);
+        let parents: SourceEndpointParentGroups = HashMap::from([(
+            svc(),
+            HashMap::from([
+                ("handler".to_string(), None),
+                ("consumer".to_string(), None),
+            ]),
+        )]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("consumer".to_string(), "rabbitmq crm.orders".to_string())]),
+        )]);
+        assert!(
+            w.retain_source_endpoint_context_groups("t1", &roots, &parents, &consumers, 0)
+                .is_none()
+        );
+        w.push(
+            make_child("t1", "svc-a", "sql", "consumer", "SELECT 1", "unknown"),
+            1,
+        );
+
+        let preview = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(preview[0].event.source.endpoint, "rabbitmq crm.orders");
+        let (_, events) = w.drain_all().pop().expect("one finished trace");
+        assert_eq!(events[0].event.source.endpoint, "rabbitmq crm.orders");
     }
 
     #[test]
