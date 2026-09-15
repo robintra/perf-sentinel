@@ -268,35 +268,34 @@ route la plus proche de son propre bloc.
 Sans route sur cette chaîne, le cadre `code.*` applicatif le plus externe nomme
 le point d'entrée, et sans cadre non plus, la destination du span CONSUMER le
 plus proche le nomme, sous la forme `<messaging.system> <destination>`
-(`rabbitmq crm.dossiers`), `messaging.destination.template` avant le nom. Ce
-que porte la destination dépend de l'instrumentation : avec ses conventions de messaging par défaut, les
-spans consumer `spring-rabbit` de l'agent Java OpenTelemetry portent la routing
-key, ses spans
-de livraison `amqp-client` seulement l'exchange, donc un service qui lit un seul
-exchange par ces derniers uniquement collisionne de nouveau sous ce nom. Une
-destination marquée temporaire ou anonyme, une file nommée par le serveur
-(`amq.gen-*`, `spring.gen-*`) ou une destination contenant `?`, `#` ou `@` ne
-nomme aucune origine stable et laisse `"unknown"`, sachant que l'agent Java ne
-pose aucun des deux indicateurs par défaut. Jaeger et Zipkin suivent le même
-ordre.
+(`rabbitmq crm.dossiers`), `messaging.destination.template` avant le nom et le
+nom du système en minuscules. Ce que porte la destination dépend de
+l'instrumentation : avec ses conventions de messagerie par défaut, les spans
+consumer `spring-rabbit` de l'agent Java OpenTelemetry portent la clé de
+routage, ses spans de livraison `amqp-client` seulement l'exchange, donc un
+service qui lit un seul exchange par ces derniers uniquement collisionne de
+nouveau sous ce nom. Une destination marquée temporaire ou anonyme, une file
+nommée par le serveur (`amq.gen-*`, `spring.gen-*`) ou une destination
+contenant `?`, `#` ou `@` ne nomme aucune origine stable et laisse
+`"unknown"`, sachant que l'agent Java ne pose aucun des deux indicateurs par
+défaut. Jaeger et Zipkin suivent le même ordre.
 
-En mode daemon, les ids OTLP valides et échantillonnés, leurs liens parent et
-leurs routes entrantes et destinations de consumer issus de services
-explicitement nommés sont aussi
-retenus dans la `TraceWindow`. Le contexte anonyme n'est pas conservé entre
-exports. Ce contexte
-borné permet à une route ou à un span consumer arrivé dans un export ultérieur
-de réparer un événement I/O antérieur, le cas habituel d'un consumer, qui se
-termine après les enfants qu'il englobe, sans événement synthétique ni incrément des métriques
-I/O. Le ring d'événements, les contextes de route, les destinations de consumer
+En mode daemon, les ids OTLP valides et échantillonnés, leurs liens parent,
+leurs routes entrantes et leurs destinations de consumer issus de services
+explicitement nommés sont aussi retenus dans la `TraceWindow`. Le contexte
+anonyme n'est pas conservé entre exports. Ce contexte borné permet à une route
+ou à un span consumer arrivé dans un export ultérieur de réparer un événement
+I/O antérieur, le cas habituel d'un consumer, qui se termine après les enfants
+qu'il englobe, sans événement synthétique ni incrément des métriques I/O. Le
+ring d'événements, les contextes de route, les destinations de consumer
 retenues et l'index d'ascendance sont chacun plafonnés par
 `max_events_per_trace` et partagent le LRU et le TTL des traces. Une
 destination de consumer retenue ne remplit que ce qu'aucune route ni aucun
-ancêtre résolu ne résout. Les cadres portés par des spans sans I/O ne sont pas
-retenus d'un export à l'autre, et une destination déjà résolue sur un span I/O
-plus externe peut l'emporter sur une plus proche, donc une trace répartie sur
-plusieurs exports peut afficher une destination là où un seul export
-afficherait un cadre ou une destination plus proche. Toute remontée s'arrête après exactement huit sauts.
+ancêtre résolu ne résout, et n'est jamais mise en cache comme ancêtre résolu
+elle-même. Les cadres portés par des spans sans I/O ne sont pas retenus d'un
+export à l'autre, donc une trace répartie sur plusieurs exports peut afficher
+une destination là où un seul export afficherait un cadre. Toute remontée
+s'arrête après exactement huit sauts.
 
 L'attribution peut donc encore se dégrader vers la route prouvée la plus proche
 ou `"unknown"` après des identifiants invalides, un `service.name` absent,
