@@ -238,16 +238,15 @@ fn any_value_as_int(value: Option<&any_value::Value>) -> Option<i64> {
     }
 }
 
-/// Extract the boolean variant of an OTLP `AnyValue`, or its stringified
+/// Whether an OTLP `AnyValue` holds `true`, as a boolean or as its stringified
 /// spelling, which a Zipkin receiver or a string-only SDK emits and which the
-/// Jaeger and Zipkin paths already accept.
+/// Jaeger and Zipkin paths accept the same way.
 #[inline]
-fn any_value_as_bool(value: Option<&any_value::Value>) -> Option<bool> {
+fn any_value_is_true(value: Option<&any_value::Value>) -> bool {
     match value {
-        Some(any_value::Value::BoolValue(b)) => Some(*b),
-        Some(any_value::Value::StringValue(s)) if s.eq_ignore_ascii_case("true") => Some(true),
-        Some(any_value::Value::StringValue(s)) if s.eq_ignore_ascii_case("false") => Some(false),
-        _ => None,
+        Some(any_value::Value::BoolValue(b)) => *b,
+        Some(any_value::Value::StringValue(s)) => s.eq_ignore_ascii_case("true"),
+        _ => false,
     }
 }
 
@@ -348,8 +347,8 @@ struct ClassifiedAttrs<'a> {
     messaging_destination: Option<&'a str>,
     // Read on CONSUMER spans only, to name a message-driven entry point.
     messaging_destination_template: Option<&'a str>,
-    messaging_destination_temporary: Option<bool>,
-    messaging_destination_anonymous: Option<bool>,
+    messaging_destination_temporary: bool,
+    messaging_destination_anonymous: bool,
     messaging_body_size: Option<i64>,
     http_status_code: Option<i64>,
     http_response_status_code: Option<i64>,
@@ -430,10 +429,10 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
                 out.messaging_destination_template = any_value_as_str(value);
             }
             "messaging.destination.temporary" => {
-                out.messaging_destination_temporary = any_value_as_bool(value);
+                out.messaging_destination_temporary = any_value_is_true(value);
             }
             "messaging.destination.anonymous" => {
-                out.messaging_destination_anonymous = any_value_as_bool(value);
+                out.messaging_destination_anonymous = any_value_is_true(value);
             }
             "messaging.message.body.size" => out.messaging_body_size = any_value_as_int(value),
             "http.status_code" => out.http_status_code = any_value_as_int(value),
@@ -668,8 +667,8 @@ fn consumer_entry_endpoint(classified: &ClassifiedAttrs<'_>, span_kind: i32) -> 
         classified.messaging_destination_template,
         classified.messaging_destination_name,
         classified.messaging_destination,
-        classified.messaging_destination_temporary == Some(true),
-        classified.messaging_destination_anonymous == Some(true),
+        classified.messaging_destination_temporary,
+        classified.messaging_destination_anonymous,
     )
 }
 
