@@ -1052,9 +1052,11 @@ with Grafana, and pin its version where you provision it):
   check.
 - [`examples/grafana-findings-dashboard.json`](../examples/grafana-findings-dashboard.json),
   title `perf-sentinel findings`, uid `perf-sentinel-findings`: the
-  daemon's status line, a filterable table of findings, the runtime
-  acknowledgments, the energy backends' health and, since 0.20.0, the
-  incidents your alerting posted with the findings frozen for each.
+  daemon's status line, a filterable table of findings, the cross-service
+  correlations the daemon keeps while `[daemon.correlation]` is enabled,
+  the runtime acknowledgments, the energy backends' health and, since
+  0.20.0, the incidents your alerting posted with the findings frozen for
+  each.
 
 **No port-forward and no Ingress.** Grafana's backend performs the
 request, so an in-cluster Grafana reaches the Service over the cluster
@@ -1103,6 +1105,17 @@ is the floor that dialog checks, not a statement about later majors:
 after a major plugin bump, check that every table still fills, since
 their columns come from the backend parser and a parser change empties a
 table without erroring anywhere.
+
+The `Correlations` table under the findings reads `GET /api/correlations`:
+one row per directional pair of findings that fired together across
+services, the source first and the target within
+`[daemon.correlation] lag_threshold_ms`, with the ratio `Confidence`,
+the two counts behind it, the median lag and the most recent trace on
+the target side. It stays empty until `[daemon.correlation] enabled =
+true`, and a pair lives one `window_minutes` past its last
+co-occurrence, nothing persists it, so a restart empties the table. The
+route takes no parameter, so `Grouping` and `Service` do not narrow it
+and the column headers filter instead.
 
 Two tables at the bottom read `GET /api/incidents`, the route that
 `POST /api/incidents` fills from an Alertmanager webhook (opt-in through

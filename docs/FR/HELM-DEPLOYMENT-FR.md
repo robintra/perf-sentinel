@@ -728,9 +728,10 @@ livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
 - [`examples/grafana-findings-dashboard.json`](../../examples/grafana-findings-dashboard.json),
   titre `perf-sentinel findings`, uid `perf-sentinel-findings` : la
   ligne d'état du daemon, une table filtrable des findings, les
-  acquittements à chaud, la santé des backends énergie et, depuis la
-  0.20.0, les incidents postés par votre alerting avec les findings
-  gelés pour chacun.
+  corrélations entre services que le daemon garde tant que
+  `[daemon.correlation]` est activé, les acquittements à chaud, la santé
+  des backends énergie et, depuis la 0.20.0, les incidents postés par
+  votre alerting avec les findings gelés pour chacun.
 
 **Ni port-forward, ni Ingress.** C'est le backend de Grafana qui fait la
 requête, donc un Grafana dans le cluster atteint le Service par le
@@ -784,6 +785,18 @@ garantie sur les majeures suivantes : après une montée de majeur du
 plugin, vérifiez que toutes les tables se remplissent encore, leurs
 colonnes venant du parseur backend et un changement de parseur vidant
 une table sans erreur nulle part.
+
+La table `Correlations` sous les findings lit `GET /api/correlations` :
+une ligne par paire orientée de findings qui se sont déclenchés ensemble
+entre services, la source d'abord et la cible dans les
+`[daemon.correlation] lag_threshold_ms`, avec le ratio `Confidence`, les
+deux comptes qui le fondent, le décalage médian et la trace la plus
+récente côté cible. Elle reste vide tant que `[daemon.correlation]
+enabled` n'est pas à `true`, et une paire vit une fenêtre
+(`window_minutes`) après sa dernière co-occurrence, rien ne la persiste,
+un redémarrage vide donc la table. La route ne prend aucun paramètre,
+`Grouping` et `Service` ne la resserrent donc pas et ce sont les
+en-têtes de colonne qui filtrent.
 
 Deux tables en bas lisent `GET /api/incidents`, la route que
 `POST /api/incidents` remplit depuis un webhook Alertmanager (activée
