@@ -828,31 +828,32 @@ impl AnalysisServiceMeter {
 }
 
 /// A batch's grouped endpoint context: route roots, parent links and consumer
-/// destinations, each keyed by trace id.
-type BatchSourceContext<'a> = (
-    &'a TraceSourceEndpointGroups<String>,
-    &'a TraceSourceEndpointGroups<Option<String>>,
-    &'a TraceSourceEndpointGroups<String>,
-);
+/// destinations, each keyed by trace id. Every update writes a parent link,
+/// so `parents` holds every trace id the other two do.
+struct BatchSourceContext {
+    roots: TraceSourceEndpointGroups<String>,
+    parents: TraceSourceEndpointGroups<Option<String>>,
+    consumers: TraceSourceEndpointGroups<String>,
+}
 
 /// Merge one trace's sampled endpoint context and collect any LRU eviction.
 fn retain_source_endpoint_context(
     window: &mut TraceWindow,
     trace_id: &str,
-    (roots, parents, consumers): BatchSourceContext<'_>,
+    context: &BatchSourceContext,
     now_ms: u64,
     lru_evicted: &mut Vec<(String, Vec<normalize::NormalizedEvent>)>,
     source_endpoint_generations: &mut HashMap<String, u64>,
 ) {
-    let Some(service_root_parents) = parents.get(trace_id) else {
+    let Some(service_root_parents) = context.parents.get(trace_id) else {
         return;
     };
     let empty = HashMap::new();
     if let Some(evicted) = window.retain_source_endpoint_context_groups(
         trace_id,
-        roots.get(trace_id).unwrap_or(&empty),
+        context.roots.get(trace_id).unwrap_or(&empty),
         service_root_parents,
-        consumers.get(trace_id).unwrap_or(&empty),
+        context.consumers.get(trace_id).unwrap_or(&empty),
         now_ms,
     ) {
         lru_evicted.push(evicted);
@@ -865,14 +866,10 @@ fn retain_source_endpoint_context(
 fn group_source_endpoint_updates(
     updates: Vec<super::SourceEndpointUpdate>,
     sampling_rate: f64,
-) -> (
-    TraceSourceEndpointGroups<String>,
-    TraceSourceEndpointGroups<Option<String>>,
-    TraceSourceEndpointGroups<String>,
-) {
-    let mut endpoints = HashMap::new();
-    let mut consumers = HashMap::new();
+) -> BatchSourceContext {
+    let mut roots = HashMap::new();
     let mut parents = HashMap::new();
+    let mut consumers = HashMap::new();
     for update in updates
         .into_iter()
         .filter(|update| should_sample(&update.trace_id, sampling_rate))
@@ -892,7 +889,7 @@ fn group_source_endpoint_updates(
                 .insert(update.span_id.clone(), consumer_endpoint);
         }
         if let Some(endpoint) = update.endpoint {
-            endpoints
+            roots
                 .entry(update.trace_id)
                 .or_insert_with(HashMap::new)
                 .entry(update.service)
@@ -900,7 +897,11 @@ fn group_source_endpoint_updates(
                 .insert(update.span_id, endpoint);
         }
     }
-    (endpoints, parents, consumers)
+    BatchSourceContext {
+        roots,
+        parents,
+        consumers,
+    }
 }
 
 /// Sample, normalize, meter, and push a batch of events into the window.
@@ -931,13 +932,7 @@ async fn ingest_event_batch(
             now_secs,
         );
     }
-    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
-        group_source_endpoint_updates(source_endpoint_updates, sampling_rate);
-    let source_context = (
-        &source_endpoint_groups,
-        &source_endpoint_parent_groups,
-        &source_consumer_groups,
-    );
+    let source_context = group_source_endpoint_updates(source_endpoint_updates, sampling_rate);
     let mut lru_evicted = Vec::new();
     let mut source_endpoint_generations = HashMap::new();
     {
@@ -946,7 +941,8 @@ async fn ingest_event_batch(
         let mut w = window.lock().await;
         // Repair existing traces before a new context-only trace can evict them;
         // the second pass retains context that preceded the first I/O event.
-        let existing_update_ids: Vec<_> = source_endpoint_parent_groups
+        let existing_update_ids: Vec<_> = source_context
+            .parents
             .keys()
             .filter(|trace_id| w.contains_trace(trace_id))
             .cloned()
@@ -955,13 +951,14 @@ async fn ingest_event_batch(
             retain_source_endpoint_context(
                 &mut w,
                 trace_id,
-                source_context,
+                &source_context,
                 now_ms,
                 &mut lru_evicted,
                 &mut source_endpoint_generations,
             );
         }
-        let missing_update_ids: Vec<_> = source_endpoint_parent_groups
+        let missing_update_ids: Vec<_> = source_context
+            .parents
             .keys()
             .filter(|trace_id| !w.contains_trace(trace_id))
             .cloned()
@@ -970,7 +967,7 @@ async fn ingest_event_batch(
             retain_source_endpoint_context(
                 &mut w,
                 trace_id,
-                source_context,
+                &source_context,
                 now_ms,
                 &mut lru_evicted,
                 &mut source_endpoint_generations,
@@ -978,7 +975,7 @@ async fn ingest_event_batch(
         }
         for event in normalized {
             let trace_id = event.event.trace_id.as_str();
-            if source_endpoint_parent_groups.contains_key(trace_id) {
+            if source_context.parents.contains_key(trace_id) {
                 let expected_generation = source_endpoint_generations.get(trace_id).copied();
                 if expected_generation.is_none()
                     || w.source_endpoint_generation(trace_id) != expected_generation
@@ -986,7 +983,7 @@ async fn ingest_event_batch(
                     retain_source_endpoint_context(
                         &mut w,
                         trace_id,
-                        source_context,
+                        &source_context,
                         now_ms,
                         &mut lru_evicted,
                         &mut source_endpoint_generations,
