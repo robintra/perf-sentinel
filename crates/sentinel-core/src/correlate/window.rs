@@ -577,20 +577,18 @@ fn resolve_and_index_event(
         updated = true;
     }
     let source = event.event.source.endpoint.trim();
-    let from_consumer = parent_resolution
+    // The chain resolution the event now carries, if any: its depth counts
+    // from there. An endpoint kept from the converter sits at depth 0.
+    let adopted = parent_resolution
         .as_ref()
-        .is_some_and(|(parent, _)| parent.consumer && parent.endpoint == source);
+        .filter(|(parent, _)| parent.endpoint == source);
+    let from_consumer = adopted.is_some_and(|(parent, _)| parent.consumer);
     let resolution = if !from_consumer && !source.is_empty() && source != "unknown" {
-        let depth = if own_root_endpoint.is_some() {
-            0
-        } else {
-            parent_resolution.as_ref().map_or(0, |(parent, _)| {
-                parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
-            })
-        };
         Some(ResolvedEndpoint {
             endpoint: event.event.source.endpoint.clone(),
-            depth,
+            depth: adopted.map_or(0, |(parent, _)| {
+                parent.depth.saturating_add(1).min(ANCESTOR_WALK_MAX_DEPTH)
+            }),
             consumer: false,
         })
     } else {
@@ -1483,6 +1481,51 @@ mod tests {
         assert_eq!(endpoint_for(&t1, "SELECT 3"), "rabbitmq crm.orders");
     }
 
+    #[test]
+    fn kept_endpoint_is_cached_at_its_own_depth() {
+        // A client span keeping its frame under a far consumer: its cached
+        // depth counts from itself, not from the destination it did not
+        // adopt, so a child under a route-less SERVER span still inherits it.
+        let mut links: HashMap<String, Option<String>> = (1..=7)
+            .map(|index| {
+                let parent = if index == 7 {
+                    "consumer".to_string()
+                } else {
+                    format!("p{}", index + 1)
+                };
+                (format!("p{index}"), Some(parent))
+            })
+            .collect();
+        links.insert("consumer".to_string(), None);
+        links.insert("http-out".to_string(), Some("p1".to_string()));
+        links.insert("x".to_string(), Some("http-out".to_string()));
+        let svc = || Arc::<str>::from("svc-a");
+        let parents: SourceEndpointParentGroups = HashMap::from([(svc(), links)]);
+        let consumers: SourceEndpointGroups = HashMap::from([(
+            svc(),
+            HashMap::from([("consumer".to_string(), "rabbitmq orders".to_string())]),
+        )]);
+        let mut w = TraceWindow::new(WindowConfig::default());
+        w.retain_source_endpoint_context_groups("t1", &HashMap::new(), &parents, &consumers, 0);
+        w.push(
+            make_child(
+                "t1",
+                "svc-a",
+                "http-out",
+                "p1",
+                "self-call",
+                "com.foo.Listener.on",
+            ),
+            0,
+        );
+        w.push(
+            make_child("t1", "svc-a", "sql", "x", "SELECT 1", "unknown"),
+            0,
+        );
+        let t1 = w.peek_clone("t1").expect("trace remains active");
+        assert_eq!(endpoint_for(&t1, "self-call"), "com.foo.Listener.on");
+        assert_eq!(endpoint_for(&t1, "SELECT 1"), "com.foo.Listener.on");
+    }
     #[test]
     fn root_first_context_resolves_the_event_with_the_same_span_id() {
         let mut w = TraceWindow::new(WindowConfig::default());
