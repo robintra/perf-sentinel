@@ -642,6 +642,9 @@ fn resolve_parent_endpoint(
     let mut current_span_id = parent_span_id?.to_string();
     let mut traversed = Vec::new();
     let mut outermost = None;
+    // Entries walked before `outermost` was found sit below it. Those above
+    // it serve their own branches and must not be stamped with its endpoint.
+    let mut below_outermost = 0;
     let mut nearest_consumer = None;
     let mut matches_source = false;
 
@@ -665,6 +668,7 @@ fn resolve_parent_endpoint(
                 endpoint: endpoint.clone(),
                 depth: distance,
             });
+            below_outermost = traversed.len();
             let Some(Some(parent_span_id)) =
                 root_parents.and_then(|parents| parents.get(&current_span_id))
             else {
@@ -689,6 +693,7 @@ fn resolve_parent_endpoint(
                 endpoint: resolution.endpoint,
                 depth,
             });
+            below_outermost = traversed.len();
         }
         traversed.push(key);
         let Some(parent_span_id) = entry.parent_span_id else {
@@ -700,6 +705,7 @@ fn resolve_parent_endpoint(
         compress_ancestry_path(
             resolved_ancestry,
             &traversed,
+            below_outermost,
             &resolution.endpoint,
             resolution.depth,
         );
@@ -729,16 +735,19 @@ fn sole_root_endpoint(
     })
 }
 
+/// Stamp the first `below_outermost` traversed entries with the resolution
+/// found above them, and keep the immediate parent warm in the LRU.
 fn compress_ancestry_path(
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     traversed: &[(Arc<str>, String)],
+    below_outermost: usize,
     endpoint: &str,
     immediate_parent_depth: usize,
 ) {
     let Some(ancestry) = resolved_ancestry else {
         return;
     };
-    for (offset, key) in traversed.iter().enumerate() {
+    for (offset, key) in traversed[..below_outermost].iter().enumerate() {
         if let Some(entry) = ancestry.get_mut(key) {
             entry.resolution = Some(ResolvedEndpoint {
                 endpoint: endpoint.to_string(),
