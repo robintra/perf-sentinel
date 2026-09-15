@@ -8,6 +8,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 - Every panel description on the two Grafana dashboards is rewritten shorter and in paragraphs, so the help behind a panel's title reads as two to four short blocks rather than one wall of text, and names finding types by their labels (`N+1 SQL`, `Pool saturation`) instead of their identifiers. Overview dashboard `version` 8.
 - Both Grafana dashboards show finding types by their labels: value mappings on every `Type` column of the findings dashboard and on the overview's detail table, and a rename per type on the overview's legends, so `n_plus_one_sql` reads `N+1 SQL` everywhere the data does, the same labels `perf-sentinel query` and the HTML report use.
+- The findings dashboard's `Suggestion` column shows the technology-specific fix when the daemon inferred a framework or broker from the trace and the generic hint otherwise, as the HTML report's detail pane does, and a `Fix for` column names that technology, blank when the hint is generic. Both findings tables build their rows through JSONata for it, with the empty-result ternary the incident tables already use. `docs/HELM-DEPLOYMENT.md` and its French mirror describe the two columns.
 
 ### Added
 
