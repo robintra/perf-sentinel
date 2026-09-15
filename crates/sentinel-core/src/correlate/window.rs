@@ -50,12 +50,16 @@ struct AncestryEntry {
 }
 
 type SourceEndpointGroups = HashMap<Arc<str>, HashMap<String, String>>;
-pub(crate) type SourceEndpointParentGroups = HashMap<Arc<str>, HashMap<String, Option<String>>>;
-type SourceEndpointContext<'a> = (
-    &'a SourceEndpointGroups,
-    &'a SourceEndpointParentGroups,
-    &'a SourceEndpointGroups,
-);
+type SourceEndpointParentGroups = HashMap<Arc<str>, HashMap<String, Option<String>>>;
+
+/// One trace's retained endpoint context, borrowed for a walk. Named fields,
+/// so the two same-typed maps cannot swap places at a call site.
+#[derive(Clone, Copy)]
+struct SourceContext<'a> {
+    roots: &'a SourceEndpointGroups,
+    parents: &'a SourceEndpointParentGroups,
+    consumers: &'a SourceEndpointGroups,
+}
 
 /// Buffer for a single trace.
 struct TraceBuffer {
@@ -117,11 +121,11 @@ impl TraceWindow {
             buf.last_seen_ms = now_ms;
             resolve_and_index_event(
                 &mut event,
-                (
-                    &buf.source_endpoint_groups,
-                    &buf.source_endpoint_parent_groups,
-                    &buf.source_consumer_groups,
-                ),
+                SourceContext {
+                    roots: &buf.source_endpoint_groups,
+                    parents: &buf.source_endpoint_parent_groups,
+                    consumers: &buf.source_consumer_groups,
+                },
                 &mut buf.resolved_ancestry,
                 buf.resolved_ancestry_cap,
             );
@@ -139,11 +143,11 @@ impl TraceWindow {
         let mut buffer = new_trace_buffer(now_ms, self.config.max_events_per_trace);
         resolve_and_index_event(
             &mut event,
-            (
-                &buffer.source_endpoint_groups,
-                &buffer.source_endpoint_parent_groups,
-                &buffer.source_consumer_groups,
-            ),
+            SourceContext {
+                roots: &buffer.source_endpoint_groups,
+                parents: &buffer.source_endpoint_parent_groups,
+                consumers: &buffer.source_consumer_groups,
+            },
             &mut buffer.resolved_ancestry,
             buffer.resolved_ancestry_cap,
         );
@@ -362,11 +366,11 @@ impl TraceWindow {
             let mut events: Vec<_> = buf.events.iter().cloned().collect();
             reconcile_cloned_events(
                 &mut events,
-                (
-                    &buf.source_endpoint_groups,
-                    &buf.source_endpoint_parent_groups,
-                    &buf.source_consumer_groups,
-                ),
+                SourceContext {
+                    roots: &buf.source_endpoint_groups,
+                    parents: &buf.source_endpoint_parent_groups,
+                    consumers: &buf.source_consumer_groups,
+                },
                 &buf.ambiguous_source_endpoint_services,
                 buf.resolved_ancestry.as_ref(),
                 buf.resolved_ancestry_cap,
@@ -529,26 +533,20 @@ fn merge_incoming_roots(
 
 fn resolve_and_index_event(
     event: &mut NormalizedEvent,
-    source_endpoint_context: SourceEndpointContext<'_>,
+    context: SourceContext<'_>,
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
 ) -> bool {
-    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
-        source_endpoint_context;
     let mut updated = false;
     let source = event.event.source.endpoint.trim();
     let source_was_unknown = source.is_empty() || source == "unknown";
-    let service_roots = source_endpoint_groups.get(event.event.service.as_ref());
+    let service_roots = context.roots.get(event.event.service.as_ref());
     let own_root_endpoint = service_roots.and_then(|roots| roots.get(&event.event.span_id));
     let parent_resolution = if own_root_endpoint.is_none() {
         resolve_parent_endpoint(
             &event.event.service,
             event.event.parent_span_id.as_deref(),
-            (
-                source_endpoint_groups,
-                source_endpoint_parent_groups,
-                source_consumer_groups,
-            ),
+            context,
             resolved_ancestry,
             source,
         )
@@ -613,15 +611,16 @@ fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
         resolved_ancestry_cap,
         ..
     } = buffer;
+    let context = SourceContext {
+        roots: source_endpoint_groups,
+        parents: source_endpoint_parent_groups,
+        consumers: source_consumer_groups,
+    };
     let mut updated = 0;
     for event in events.iter_mut() {
         updated += usize::from(resolve_and_index_event(
             event,
-            (
-                source_endpoint_groups,
-                source_endpoint_parent_groups,
-                source_consumer_groups,
-            ),
+            context,
             resolved_ancestry,
             *resolved_ancestry_cap,
         ));
@@ -633,15 +632,13 @@ fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
 fn resolve_parent_endpoint(
     service: &Arc<str>,
     parent_span_id: Option<&str>,
-    source_endpoint_context: SourceEndpointContext<'_>,
+    context: SourceContext<'_>,
     resolved_ancestry: &mut Option<LruCache<(Arc<str>, String), AncestryEntry>>,
     source: &str,
 ) -> Option<(ResolvedEndpoint, bool)> {
-    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
-        source_endpoint_context;
-    let roots = source_endpoint_groups.get(service.as_ref());
-    let root_parents = source_endpoint_parent_groups.get(service.as_ref());
-    let consumers = source_consumer_groups.get(service.as_ref());
+    let roots = context.roots.get(service.as_ref());
+    let root_parents = context.parents.get(service.as_ref());
+    let consumers = context.consumers.get(service.as_ref());
     let mut current_span_id = parent_span_id?.to_string();
     let mut traversed = Vec::new();
     let mut outermost = None;
@@ -772,19 +769,17 @@ fn cache_ancestry_entry(
 
 fn reconcile_cloned_events(
     events: &mut [NormalizedEvent],
-    source_endpoint_context: SourceEndpointContext<'_>,
+    context: SourceContext<'_>,
     ambiguous_source_endpoint_services: &HashSet<Arc<str>>,
     resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
 ) {
-    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
-        source_endpoint_context;
     for event in events.iter_mut() {
         let source = event.event.source.endpoint.trim();
         let source_was_unknown = source.is_empty() || source == "unknown";
         if !source_was_unknown
-            && !source_endpoint_groups.contains_key(event.event.service.as_ref())
-            && !source_consumer_groups.contains_key(event.event.service.as_ref())
+            && !context.roots.contains_key(event.event.service.as_ref())
+            && !context.consumers.contains_key(event.event.service.as_ref())
         {
             continue;
         }
@@ -794,11 +789,7 @@ fn reconcile_cloned_events(
         if let Some((parent, matches_source)) = peek_parent_endpoint(
             &event.event.service,
             parent_span_id,
-            (
-                source_endpoint_groups,
-                source_endpoint_parent_groups,
-                source_consumer_groups,
-            ),
+            context,
             ambiguous_source_endpoint_services,
             resolved_ancestry,
             resolved_ancestry_cap,
@@ -809,23 +800,21 @@ fn reconcile_cloned_events(
             event.event.source.endpoint = parent.endpoint;
         }
     }
-    reconcile_event_source_endpoint_groups(events, source_endpoint_groups);
+    reconcile_event_source_endpoint_groups(events, context.roots);
 }
 
 fn peek_parent_endpoint(
     service: &Arc<str>,
     parent_span_id: &str,
-    source_endpoint_context: SourceEndpointContext<'_>,
+    context: SourceContext<'_>,
     ambiguous_source_endpoint_services: &HashSet<Arc<str>>,
     resolved_ancestry: Option<&LruCache<(Arc<str>, String), AncestryEntry>>,
     resolved_ancestry_cap: usize,
     source: &str,
 ) -> Option<(ResolvedEndpoint, bool)> {
-    let (source_endpoint_groups, source_endpoint_parent_groups, source_consumer_groups) =
-        source_endpoint_context;
-    let roots = source_endpoint_groups.get(service.as_ref());
-    let root_parents = source_endpoint_parent_groups.get(service.as_ref());
-    let consumers = source_consumer_groups.get(service.as_ref());
+    let roots = context.roots.get(service.as_ref());
+    let root_parents = context.parents.get(service.as_ref());
+    let consumers = context.consumers.get(service.as_ref());
     let mut current_span_id = parent_span_id.to_string();
     let mut outermost = None;
     let mut nearest_consumer = None;
@@ -913,11 +902,11 @@ fn finish_trace_buffer(
     if buffer.resolved_ancestry_cap == 1 {
         reconcile_cloned_events(
             &mut events,
-            (
-                &buffer.source_endpoint_groups,
-                &buffer.source_endpoint_parent_groups,
-                &buffer.source_consumer_groups,
-            ),
+            SourceContext {
+                roots: &buffer.source_endpoint_groups,
+                parents: &buffer.source_endpoint_parent_groups,
+                consumers: &buffer.source_consumer_groups,
+            },
             &buffer.ambiguous_source_endpoint_services,
             buffer.resolved_ancestry.as_ref(),
             buffer.resolved_ancestry_cap,
