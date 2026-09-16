@@ -26,12 +26,13 @@ the chart version, to know which daemon image ships.
 
 ### Changed
 
-- The two example Grafana dashboards under `examples/` move to `version` 8
-  for the overview and 5 for the findings one: a `Correlations` table on
+- The two example Grafana dashboards under `examples/` move to `version` 9
+  for the overview and 6 for the findings one: a `Correlations` table on
   `GET /api/correlations`, finding types shown by their labels everywhere,
   a `Suggestion` column carrying the technology-specific fix with a `Fix for`
-  column naming it, and shorter panel descriptions. Neither ships in the
-  chart, re-import them where they are provisioned.
+  column naming it, shorter panel descriptions, and a `Compatibility` badge
+  on each that says when the daemon feeding it is older than its panels
+  need. Neither ships in the chart, re-import them where they are provisioned.
 
 No `values.yaml` key is added or removed, no template changes, and the shipped
 alerts are unchanged.
