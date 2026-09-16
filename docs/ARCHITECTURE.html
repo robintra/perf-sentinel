@@ -180,7 +180,7 @@ JSON unix socket       /                               |
                                               Prometheus /metrics</code></pre></div>
 <ul>
 <li>Events are normalized outside the TraceWindow lock to minimize lock hold time.</li>
-<li>Valid sampled OTLP route and parent context from named services is retained alongside events, so the window can resolve an outer same-service entry route that arrives in a later export. Endpoint contexts and ancestry entries are independently bounded by <code class="ps-ic">max_events_per_trace</code>; they share the trace LRU and TTL and never count as I/O events.</li>
+<li>Valid sampled OTLP route, parent and consumer-destination context from named services is retained alongside events, so the window can resolve an outer same-service entry route, or a consumer span, that arrives in a later export. Endpoint contexts, consumer destinations and ancestry entries are independently bounded by <code class="ps-ic">max_events_per_trace</code>, they share the trace LRU and TTL and never count as I/O events.</li>
 <li>Traces are evicted when the LRU cache is full (<code class="ps-ic">max_active_traces</code>) or when TTL expires (<code class="ps-ic">trace_ttl_ms</code>).</li>
 <li>On eviction, the trace is analyzed through detect and score stages.</li>
 <li>Findings are emitted as newline-delimited JSON to stdout.</li>

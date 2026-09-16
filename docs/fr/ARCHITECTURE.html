@@ -180,7 +180,7 @@ Socket unix JSON       /                               |
                                               Prometheus /metrics</code></pre></div>
 <ul>
 <li>Les événements sont normalisés en dehors du verrou TraceWindow pour minimiser le temps de détention du verrou.</li>
-<li>Les routes et liens parent OTLP valides et échantillonnés de services nommés sont conservés avec les événements, afin que la fenêtre puisse résoudre une route d'entrée externe du même service arrivée dans un export ultérieur. Les contextes d'endpoint et entrées d'ascendance sont plafonnés séparément par <code class="ps-ic">max_events_per_trace</code>, partagent le LRU et le TTL de la trace et ne comptent jamais comme événements I/O.</li>
+<li>Les routes, liens parent et destinations de consumer OTLP valides et échantillonnés de services nommés sont conservés avec les événements, afin que la fenêtre puisse résoudre une route d'entrée externe du même service, ou un span consumer, arrivé dans un export ultérieur. Les contextes d'endpoint, destinations de consumer et entrées d'ascendance sont plafonnés séparément par <code class="ps-ic">max_events_per_trace</code>, partagent le LRU et le TTL de la trace et ne comptent jamais comme événements I/O.</li>
 <li>Les traces sont évincées lorsque le cache LRU est plein (<code class="ps-ic">max_active_traces</code>) ou lorsque le TTL expire (<code class="ps-ic">trace_ttl_ms</code>).</li>
 <li>À l'éviction, la trace est analysée via les étapes detect et score.</li>
 <li>Les findings sont émis en JSON délimité par des sauts de ligne sur stdout.</li>
