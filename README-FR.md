@@ -578,6 +578,18 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
   <img alt="dashboard report : modal cheatsheet listant la table complète des raccourcis clavier" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet.png">
 </picture>
 
+**Tableaux de bord Grafana** ([`examples/grafana-dashboard.json`](examples/grafana-dashboard.json) au-dessus du `/metrics` Prometheus, [`examples/grafana-findings-dashboard.json`](examples/grafana-findings-dashboard.json) au-dessus de l'API de query par le greffon Infinity). Aucun des deux n'est embarqué dans le chart Helm, importez-les dans le Grafana que vous exploitez déjà. Une pastille `Compatibility` sur chacun dit quand le daemon qui l'alimente est plus ancien que ce que ses panneaux demandent :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">
+  <img alt="tableau de bord Grafana d'aperçu : la pastille Compatibility en fin de première ligne, les débits d'E/S par service, les types de findings par sévérité et la jauge de gaspillage" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
+  <img alt="tableau de bord Grafana findings : la ligne d'état du daemon avec sa pastille Compatibility, la table des findings qui nomme l'opération et l'endpoint, et les corrélations entre services" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+</picture>
+
 </details>
 
 ## Documentation
