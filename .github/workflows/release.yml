@@ -68,10 +68,17 @@ jobs:
 
       # No `toolchain:` input so the action installs what `rust-toolchain.toml`
       # declares (passing one makes it ignore the file). Empty rustflags keeps
-      # its RUSTFLAGS=-D warnings default from applying.
+      # its RUSTFLAGS=-D warnings default from applying, and empty
+      # build-warnings does the same for the CARGO_BUILD_WARNINGS=deny that
+      # v2.0.0 added: the action only exports either one when the input is not
+      # empty. Denying build warnings breaks the macOS build, where Apple's ld
+      # reports on stderr that the object cargo-auditable embeds carries no
+      # platform load command, rustc's `linker_messages` lint turns that into a
+      # warning, and deny turns it into a failed release.
       - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           rustflags: ""
+          build-warnings: ""
           # No cache on the release path. A cache entry written by any other
           # branch can be restored here, and this job produces the binaries
           # that get published, signed and attested: a poisoned cache would
@@ -227,9 +234,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Empty build-warnings for the same reason as the build job above:
+      # `cargo publish` verifies by building, and a denied warning there fails
+      # the publish.
       - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           rustflags: ""
+          build-warnings: ""
           cache: false
 
       # Strict publish: succeed on a real upload, succeed on an idempotent
