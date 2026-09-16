@@ -286,6 +286,93 @@
   "panels": [
     {
       "type": "stat",
+      "title": "Compatibility",
+      "description": "Whether the daemon answering the query API is recent enough for this dashboard. It reads `version` from `GET /api/status`, which every daemon since 0.4.0 returns.\n\nBelow 0.21.0 this dashboard misreads rather than degrades. `grouping` and `offset` did not exist as query parameters, and the API ignores what it does not know, so the Grouping pill names one tenant while the table lists every one of them and 'Skip rows' returns the same page at every value. The 'All' option sends a single space, which such a daemon takes as an exact match and answers with nothing.\n\nEmpty columns on a current daemon are configuration, not age: `[daemon.correlation]` off empties Correlations, no `[daemon.incidents]` answers 503 on both incident panels, and green scoring off empties 'Ops/trace'.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/status",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "version",
+              "text": "Compatibility",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^(0\\.(?:[0-9]|1[0-9]|20)\\..*)$",
+                "result": {
+                  "text": "Daemon $1 too old",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^(.+)$",
+                "result": {
+                  "text": "Compatible, $1",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
       "title": "Daemon status",
       "description": "GET /api/status, the daemon's own liveness object: binary version, seconds since start, and three runtime gauges each followed by its cap (correlation window, analysis queue, findings ring buffer).\n\nAn uptime reset is a restart, which also empties the acknowledgments table below unless [daemon.ack] persists to disk.",
       "datasource": {
@@ -294,7 +381,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 24,
+        "w": 20,
         "x": 0,
         "y": 0
       },
@@ -1905,5 +1992,5 @@
       "url": ""
     }
   ],
-  "version": 5
+  "version": 6
 }
