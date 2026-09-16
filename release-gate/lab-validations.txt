@@ -263,3 +263,29 @@ v0.22.1	05ae8d8	2026-09-11	PASS
 #   with the same values.
 # make validate ok, product fmt, clippy and 3527 tests green.
 v0.22.2	f3ea3fe	2026-09-15	PASS
+
+# v0.22.2, second entry, 2026-09-16. Targeted re-validation after the release
+# commit: the two Grafana dashboards gained a `Compatibility` badge, the
+# `I/O waste ratio` gauge lost the `or vector(0)` that made it paint a green
+# zero with nothing to divide, the yellow band moved to `semi-dark-yellow`
+# and `rustls` went to 0.23.45 against RUSTSEC-2026-0285. No detector,
+# scoring path, route or wire format moved, so only `grafana-dashboard` ran,
+# with `SKIP_TRIGGER_TEST=1`.
+# Green: both lab dashboards byte-identical to upstream after `jq --sort-keys`
+#   (overview 9, findings 6), 29 panels checked and 0 empty, 44 referenced
+#   metrics with 0 broken references, the five PrometheusRules loaded, the
+#   Infinity leg with Findings 200 rows carrying `Fix for` and Correlations
+#   205 rows on the 14 columns, and a new leg running the `Compatibility`
+#   badge of each dashboard through Grafana's own datasources: the findings
+#   one reads `0.22.1` from `/api/status`, the overview one reads state 0.
+# The daemon under test is the published `0.22.1` image, the release changes
+#   nothing in the binary beyond the rustls bump, and a daemon older than the
+#   branch is what the badges are for.
+# Found and fixed in the lab: nothing let Grafana reach Prometheus, so every
+#   panel of the overview dashboard timed out from inside the cluster while
+#   the scenario kept passing, because its own panel check queries Prometheus
+#   over a port-forward. `grafana-prometheus-egress` and
+#   `prometheus-allow-grafana` close it, and the new badge leg is the check
+#   that would have caught it.
+# make validate ok, product fmt and 3527 tests green.
+v0.22.2	f4eda0f	2026-09-16	PASS
