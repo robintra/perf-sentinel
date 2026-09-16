@@ -114,12 +114,102 @@
       "type": "row"
     },
     {
+      "title": "Compatibility",
+      "description": "Whether the daemon feeding this dashboard is recent enough for its panels. It reads the presence of two metrics the panels depend on rather than a version number, because no perf-sentinel metric carries one.\n\n`perf_sentinel_incidents_total` arrived in 0.20.0 and `perf_sentinel_analysis_service_overflow_total` in 0.18.0. Both are published from daemon start whatever the configuration, so their absence dates the binary. Dropping either one in a scrape relabel rule reads here as an old daemon.\n\nPartly compatible means 'Service silence' stays empty. Not compatible means the Service and Grouping pickers offer names the findings panels cannot honour, so a filtered view reads as a clean service.\n\nEmpty panels on a current daemon are configuration, not age: `[green] enabled = false` silences the waste ratio and the avoidable counters, and `[daemon] per_service_labels = false` or `per_grouping_labels = false` empty the two pickers.",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "(absent_over_time(perf_sentinel_incidents_total{job=~\"$job\", namespace=~\"$namespace\"}[10m]) or vector(0))\n+ (absent_over_time(perf_sentinel_analysis_service_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[10m]) or vector(0))\nand on() (count(up{job=~\"$job\", namespace=~\"$namespace\"} == 1) > 0)",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "Dashboard compatibility"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Compatible",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Partly compatible",
+                  "color": "orange",
+                  "index": 1
+                },
+                "2": {
+                  "text": "Not compatible",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
       "title": "I/O ops rate by service",
       "description": "Database queries and outbound HTTP calls made by each instrumented service, per second: the raw workload, before any judgement about whether the calls were needed.\n\nA service that is loud here and also appears in the findings panels is where optimisation pays most.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 10,
         "x": 0,
         "y": 1
       },
@@ -147,8 +237,8 @@
       "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 10,
+        "x": 10,
         "y": 1
       },
       "datasource": {
@@ -1860,6 +1950,6 @@
   "timezone": "utc",
   "title": "perf-sentinel overview",
   "uid": "perf-sentinel-overview",
-  "version": 8,
+  "version": 9,
   "refresh": "1m"
 }
