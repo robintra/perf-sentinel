@@ -444,7 +444,7 @@
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "semi-dark-yellow",
                 "value": 0.15
               },
               {
@@ -641,7 +641,7 @@
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "semi-dark-yellow",
                 "value": 100
               },
               {
@@ -1092,7 +1092,7 @@
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "semi-dark-yellow",
                 "value": 5000
               },
               {
@@ -1501,7 +1501,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "yellow"
+                  "fixedColor": "semi-dark-yellow"
                 }
               }
             ]
