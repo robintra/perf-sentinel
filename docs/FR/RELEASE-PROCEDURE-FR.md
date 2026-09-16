@@ -259,6 +259,19 @@ règle `[thresholds]` dont le panneau de gate manquerait. Les deux
 viennent de l'application et non du chart, lisez donc le CHANGELOG du
 binaire plutôt que celui du chart pour trancher.
 
+Une release qui donne une nouvelle dépendance à l'un des deux dashboards
+déplace aussi son plancher de compatibilité, et rien ne le vérifie à
+votre place. Sur `examples/grafana-dashboard.json`, la pastille
+`Compatibility` nomme deux métriques dont la présence date le
+daemon : un panneau qui se met à lire une métrique ajoutée par cette
+release réclame cette métrique comme nouvelle sentinelle haute. Sur
+`examples/grafana-findings-dashboard.json`, la même pastille porte le
+plancher sous forme d'expression régulière sur les mineures inférieures,
+raison pour laquelle l'oublier peint un daemon compatible plutôt que
+cassé. Ne le déplacez que si la dépendance est réelle, une route, un
+paramètre de requête, un champ ou un label dont les panneaux ne peuvent
+pas se passer, jamais à chaque release.
+
 ## Ce que fait le workflow de release
 
 À titre de référence, voici ce que `release.yml` exécute à chaque push de tag `v*` :

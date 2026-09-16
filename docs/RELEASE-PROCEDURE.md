@@ -254,6 +254,17 @@ whose gate panel would otherwise be missing. Both come from the
 application, not from the chart, so read the binary CHANGELOG rather than
 the chart one to decide.
 
+A release that gives either dashboard a new dependency also moves that
+dashboard's compatibility floor, and nothing checks this for you. On
+`examples/grafana-dashboard.json` the `Compatibility` badge
+names two metrics whose presence dates the daemon, so a panel that starts
+reading a metric added this release wants that metric as the new upper
+sentinel. On `examples/grafana-findings-dashboard.json` the same badge
+carries the floor as a version regex over the minors below it, which is
+why forgetting it paints a daemon compatible rather than broken. Move it
+only when the dependency is real, a route, a query parameter, a field or
+a label the panels cannot do without, never on every release.
+
 ## What the release workflow does
 
 For reference, here is what `release.yml` runs on every `v*` tag push:
