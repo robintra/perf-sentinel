@@ -56,6 +56,7 @@ jobs:
         with:
           components: rustfmt
           rustflags: ""
+          build-warnings: ""
           cache-on-failure: false
 
       # The generators emit plain rows; rustfmt owns the final layout

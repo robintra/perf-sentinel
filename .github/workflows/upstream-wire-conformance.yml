@@ -74,6 +74,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           rustflags: ""
+          build-warnings: ""
           cache-shared-key: upstream-wire-conformance
           # Four jobs share this key, and this action defaults cache-on-failure
           # to true, so one failing job would overwrite the cache for all four.
@@ -388,6 +389,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           rustflags: ""
+          build-warnings: ""
           cache-shared-key: upstream-wire-conformance
           # Four jobs share this key, and this action defaults cache-on-failure
           # to true, so one failing job would overwrite the cache for all four.
@@ -593,6 +595,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           rustflags: ""
+          build-warnings: ""
           cache-shared-key: upstream-wire-conformance
           # Four jobs share this key, and this action defaults cache-on-failure
           # to true, so one failing job would overwrite the cache for all four.
@@ -936,6 +939,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           rustflags: ""
+          build-warnings: ""
           cache-shared-key: upstream-wire-conformance
           # Four jobs share this key, and this action defaults cache-on-failure
           # to true, so one failing job would overwrite the cache for all four.

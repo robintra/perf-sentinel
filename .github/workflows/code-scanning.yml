@@ -34,6 +34,7 @@ jobs:
         with:
           components: clippy
           rustflags: ""
+          build-warnings: ""
           # Both restore the pre-migration behavior: this action defaults
           # cache-on-failure to true and installs a problem matcher that would
           # double-report the lints already uploaded as SARIF below.
