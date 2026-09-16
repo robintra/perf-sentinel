@@ -426,7 +426,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) / (sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0) or vector(0)",
+          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) / (sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0)",
           "refId": "A",
           "legendFormat": "waste ratio"
         }
