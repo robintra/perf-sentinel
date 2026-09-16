@@ -36,6 +36,14 @@ the chart version, to know which daemon image ships.
 No `values.yaml` key is added or removed, no template changes, and the shipped
 alerts are unchanged.
 
+### Security
+
+- The daemon image picks up `rustls` 0.23.45 against RUSTSEC-2026-0285, where a
+  TLS 1.3 handshake message that followed a key change inside the same record was
+  accepted at the wrong encryption level. It reaches the image through the daemon's
+  own TLS listeners and through the shared outbound HTTP client. Nothing in the chart
+  changes, the fixed library ships with the new `appVersion`.
+
 ## [0.22.1]
 
 ### Changed
