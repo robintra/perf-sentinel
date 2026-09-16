@@ -589,7 +589,7 @@ Les compteurs `/metrics` (`perf_sentinel_findings_total`, `perf_sentinel_io_wast
 
 Un tableau de bord prêt à l'emploi est fourni dans le dépôt à
 [`examples/grafana-dashboard.json`](../../examples/grafana-dashboard.json)
-(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 27 panneaux :
+(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 29 panneaux :
 opérations d'E/S et ratio de gaspillage, types de findings par sévérité
 et dans le temps, p95 des requêtes lentes, traces actives, santé du
 daemon, pression mémoire, plafonds de cardinalité, scrapes énergie et
@@ -598,14 +598,34 @@ issues des compteurs `/metrics` scrapés ci-dessus). Le chart ne l'embarque pas,
 n'embarque pas de collecteur : un tableau de bord figé dans le chart dérive
 du Grafana que vous exploitez déjà. Importez-le de deux façons.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">
+  <img alt="tableau de bord d'aperçu perf-sentinel : la pastille Compatibility en fin de première ligne, les débits d'E/S par service, les types de findings par sévérité et la jauge de gaspillage" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview.png">
+</picture>
+
 Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
 JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
+
+**Une pastille `Compatibility`** termine la première ligne de panneaux. Elle passe à
+l'orange quand le daemon est antérieur à la 0.20.0, où `Service silence`
+n'a rien à tracer, et au rouge sous la 0.18.0, où les sélecteurs
+`Service` et `Grouping` proposent encore des noms que les panneaux de
+findings ne peuvent honorer, si bien qu'une vue filtrée se lit comme un
+service propre. Il juge le daemon sur la présence de deux métriques dont
+les panneaux dépendent, `perf_sentinel_incidents_total` et
+`perf_sentinel_analysis_service_overflow_total`, plutôt que sur un numéro
+de version, parce qu'aucune métrique perf-sentinel n'en porte. Il affiche
+`Unknown` quand rien ne répond pour les `Job` et `Namespace` choisis, ce
+qui est un daemon éteint ou un label de job qui ne correspond pas, jamais
+un verdict sur la version. Des panneaux vides sur un daemon à jour
+relèvent de la configuration et non de l'âge, et la description de la
+pastille nomme les trois interrupteurs qui les vident.
 
 **Quatre variables de template** surmontent les panneaux. `Job` choisit les
 jobs Prometheus à lire, `All` par défaut, ce qui compte quand plusieurs
 daemons sont scrapés par le même Prometheus, staging et production par
 exemple : n'en garder qu'un les sépare. `Namespace`
-restreint les vingt-sept panneaux à un ou plusieurs namespaces
+restreint les vingt-neuf panneaux à un ou plusieurs namespaces
 Kubernetes, et vaut `All` par défaut, la vue globale que le tableau de
 bord offrait jusqu'ici. Le namespace est celui où tourne chaque daemon,
 pas celui des charges qu'il analyse, la variable choisit donc une
@@ -731,7 +751,20 @@ livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
   corrélations entre services que le daemon garde tant que
   `[daemon.correlation]` est activé, les acquittements à chaud, la santé
   des backends énergie et, depuis la 0.20.0, les incidents postés par
-  votre alerting avec les findings gelés pour chacun.
+  votre alerting avec les findings gelés pour chacun. Une pastille
+  `Compatibility` à côté de la ligne d'état passe au rouge sous la
+  0.21.0, où ce tableau de bord se trompe au lieu de se dégrader :
+  `grouping` et `offset` n'existaient pas comme paramètres de requête, et
+  l'API ignore ce qu'elle ne connaît pas, si bien que le sélecteur
+  `Grouping` nomme un déploiement pendant que la table les liste tous et
+  que `Skip rows` renvoie la même page à chaque valeur. Elle lit la
+  `version` que le daemon déclare, que `GET /api/status` renvoie depuis
+  la 0.4.0.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
+  <img alt="tableau de bord findings perf-sentinel : la ligne d'état du daemon avec sa pastille Compatibility, la table des findings qui nomme l'opération et l'endpoint, et les corrélations entre services" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+</picture>
 
 **Ni port-forward, ni Ingress.** C'est le backend de Grafana qui fait la
 requête, donc un Grafana dans le cluster atteint le Service par le
