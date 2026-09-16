@@ -67,4 +67,4 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 | [`schemas/`](schemas/)           | JSON Schema and examples for the disclosure report          |
 | [`diagrams/`](diagrams/)         | Architecture diagrams                                       |
 | [`examples/`](examples/)         | Example configurations and outputs                          |
-| [`img/`](img/)                   | Generated terminal GIFs and PNGs (VHS tapes)                |
+| [`img/`](img/)                   | Generated terminal GIFs and PNGs (VHS tapes), plus the Grafana dashboard captures under `img/grafana/` |
