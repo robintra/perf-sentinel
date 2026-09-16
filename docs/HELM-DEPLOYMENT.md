@@ -920,7 +920,7 @@ detection events without any ack filter.
 
 A ready-made dashboard ships in the repo at
 [`examples/grafana-dashboard.json`](../examples/grafana-dashboard.json)
-(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 27 panels:
+(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 29 panels:
 I/O ops and waste ratio, finding types by severity and over time,
 slow-query p95, active traces, daemon health, memory pressure,
 cardinality caps, energy scrapes and Hub export, plus the energy,
@@ -930,14 +930,33 @@ does not bundle it, for the same reason it does not bundle a collector:
 a dashboard pinned in the chart drifts from the Grafana you already run.
 Import it one of two ways.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">
+  <img alt="perf-sentinel overview dashboard: the Compatibility badge ending the first panel line, I/O rates by service, finding types by severity and the waste ratio gauge" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview.png">
+</picture>
+
 Manual import: in Grafana open Dashboards then Import, upload the JSON,
 and map the `DS_PROMETHEUS` input to your Prometheus datasource.
+
+**A `Compatibility` badge** ends the first panel line. It turns orange when
+the daemon predates 0.20.0, where `Service silence` has nothing to draw,
+and red below 0.18.0, where the `Service` and `Grouping` pickers still
+offer names the findings panels cannot honour, so a filtered view reads
+as a clean service. It grades the daemon by the presence of two metrics
+the panels depend on, `perf_sentinel_incidents_total` and
+`perf_sentinel_analysis_service_overflow_total`, rather than by a version
+number, because no perf-sentinel metric carries one. It reads `Unknown`
+when nothing answers for the selected `Job` and `Namespace`, which is a
+daemon that is down or a job label that does not match, never a verdict
+on the version. Empty panels on a current daemon are configuration
+rather than age, and the badge's own description names the three
+switches that do it.
 
 **Four template variables** sit above the panels. `Job` selects which
 Prometheus jobs to read, `All` by default, which matters when several
 daemons are scraped by the same Prometheus, staging and production for
 instance: pick one to keep them apart.
-`Namespace` narrows all twenty-seven panels to one or more Kubernetes
+`Namespace` narrows all twenty-nine panels to one or more Kubernetes
 namespaces, and defaults to `All`, the fleet-wide view the dashboard
 had before. The namespace is the one each daemon runs in, not the one
 its analysed workloads run in, so the variable picks an install rather
@@ -1056,7 +1075,18 @@ with Grafana, and pin its version where you provision it):
   correlations the daemon keeps while `[daemon.correlation]` is enabled,
   the runtime acknowledgments, the energy backends' health and, since
   0.20.0, the incidents your alerting posted with the findings frozen for
-  each.
+  each. A `Compatibility` badge beside the status line turns red below
+  0.21.0, where this dashboard misreads rather than degrades: `grouping`
+  and `offset` did not exist as query parameters, and the API ignores what
+  it does not know, so the `Grouping` pill names one deployment while the
+  table lists every one of them and `Skip rows` returns the same page at
+  every value. It reads the daemon's own `version`, which
+  `GET /api/status` has returned since 0.4.0.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
+  <img alt="perf-sentinel findings dashboard: the daemon status line with its Compatibility badge, the findings table naming operation and endpoint, and the cross-service correlations" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+</picture>
 
 **No port-forward and no Ingress.** Grafana's backend performs the
 request, so an in-cluster Grafana reaches the Service over the cluster
