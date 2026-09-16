@@ -578,6 +578,18 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
   <img alt="report dashboard: cheatsheet modal listing the full keyboard shortcut table" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet.png">
 </picture>
 
+**Grafana dashboards** ([`examples/grafana-dashboard.json`](examples/grafana-dashboard.json) over Prometheus `/metrics`, [`examples/grafana-findings-dashboard.json`](examples/grafana-findings-dashboard.json) over the query API through the Infinity plugin). Neither ships in the Helm chart, import them into the Grafana you already run. A `Compatibility` badge on each says when the daemon feeding it is older than its panels need:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">
+  <img alt="Grafana overview dashboard: the Compatibility badge ending the first panel line, I/O rates by service, finding types by severity and the waste ratio gauge" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
+  <img alt="Grafana findings dashboard: the daemon status line with its Compatibility badge, the findings table naming operation and endpoint, and the cross-service correlations" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+</picture>
+
 </details>
 
 ## Documentation
