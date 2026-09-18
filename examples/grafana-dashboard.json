@@ -1947,9 +1947,9 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "utc",
+  "timezone": "browser",
   "title": "perf-sentinel overview",
   "uid": "perf-sentinel-overview",
-  "version": 9,
+  "version": 10,
   "refresh": "1m"
 }
