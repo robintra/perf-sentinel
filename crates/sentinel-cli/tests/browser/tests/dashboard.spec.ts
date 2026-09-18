@@ -660,8 +660,25 @@ test("30. occurrence timestamps accept short fractional seconds", async ({ page 
   await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
   await page.locator("#findings-list .ps-row").first().click();
 
+  // 10:00:00.01Z in Europe/Paris, the zone pinned in playwright.config.ts.
   await expect(page.locator("#explain-tree .ps-span.hilite .ps-span-time").first())
-    .toHaveText("10:00:00.01 UTC");
+    .toHaveText("12:00:00.01");
+});
+
+test("30b. the finding footer dates a window that crosses local midnight", async ({ page }) => {
+  // Same UTC day, but 23:59 and 00:01 in Paris: the dates must show.
+  await page.route("**/dashboard.html", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text())
+      .replace(/"first_timestamp":"[^"]*"/g, '"first_timestamp":"2026-04-20T21:59:00Z"')
+      .replace(/"last_timestamp":"[^"]*"/g, '"last_timestamp":"2026-04-20T22:01:00Z"');
+    await route.fulfill({ response, body });
+  });
+  await loadDashboard(page, `#findings&type=n_plus_one_sql&grouping=${encodeURIComponent(K8S_PROD_EU)}`);
+  await page.locator("#findings-list .ps-row").first().click();
+
+  await expect(page.locator("#explain-foot"))
+    .toContainText("seen first 2026-04-20 23:59:00 · last 2026-04-21 00:01:00");
 });
 
 test("31. HTTP N+1 help describes heuristic and forced classification", async ({ page }) => {
@@ -1073,4 +1090,14 @@ test("42. rows that ellipsize carry their full value on the title", async ({ pag
       (await diffEndpoint.textContent())?.trim()
     );
   }
+});
+
+test("43. the acks table shows expiry in the viewer's local time", async ({ page }) => {
+  await page.goto("/dashboard-demo.html#acknowledgments");
+  await page.waitForSelector("[role=tablist]");
+  test.skip(await page.locator("#acks-table").count() === 0, "demo fixture is not in live mode");
+
+  // 2026-05-09T09:14:22Z in Europe/Paris.
+  await expect(page.locator("#acks-table")).toContainText("2026-05-09 11:14:22");
+  await expect(page.locator("#acks-table")).toContainText("never");
 });

@@ -35,6 +35,11 @@ l'en-tête navigateur qui déclare quels scripts et ressources la page a
 le droit de charger) reste stricte (`default-src 'none'`),
 aucun `fetch()` n'est émis vers un host quelconque.
 
+Les heures affichées sur la page (fenêtre d'un finding, heure des spans
+dans l'arbre Explain, expiration des acks en mode live) sont dans le
+fuseau horaire local du lecteur, et l'infobulle d'un span garde son
+horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
+
 ### Onglets de statistiques base de données
 
 - `--pg-stat <FICHIER>` embarque un export `pg_stat_statements` CSV ou

@@ -346,10 +346,9 @@ fn detail_panel_shows_timing_classification_window_and_confidence() {
     );
     // n+1 family, so the classification question applies.
     assert!(text.contains("direct"), "classification missing: {text}");
-    assert!(
-        text.contains("2025-07-10T14:32:01.000Z"),
-        "window start missing"
-    );
+    let start =
+        crate::render::fmt_local_iso("2025-07-10T14:32:01.000Z", crate::render::LOCAL_TIME_FORMAT);
+    assert!(text.contains(&start), "window start missing: {text}");
     assert!(
         text.contains("daemon_production"),
         "confidence missing: {text}"

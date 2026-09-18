@@ -16,6 +16,9 @@ export default defineConfig({
   globalSetup: "./global-setup.ts",
   globalTeardown: "./global-teardown.ts",
   use: {
+    // Pinned so local-time displays are deterministic.
+    timezoneId: "Europe/Paris",
+    locale: "en-US",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     baseURL: process.env.PS_BASE_URL || "http://127.0.0.1:4123"
