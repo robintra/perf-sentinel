@@ -501,7 +501,7 @@ pub(crate) fn fmt_local_time(ms: u64) -> String {
         .map_or_else(
             || ms.to_string(),
             |t| {
-                t.with_timezone(&chrono::Local)
+                crate::render::to_local(&t)
                     .format(crate::render::LOCAL_TIME_FORMAT)
                     .to_string()
             },

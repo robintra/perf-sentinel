@@ -20,7 +20,7 @@ use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::QueryOutputFormat;
@@ -664,7 +664,7 @@ fn print_create_summary(
             let pretty = format_relative(delta);
             println!(
                 "  {dim}Expires:{reset}   {} ({})",
-                dt.with_timezone(&Local).format(LOCAL_TIME_FORMAT),
+                crate::render::to_local(&dt).format(LOCAL_TIME_FORMAT),
                 pretty
             );
         }
@@ -740,14 +740,11 @@ fn format_ack_table(entries: &[AckListEntry], colored: bool) -> String {
         .map(|e| Row {
             signature: sanitize_for_terminal(&e.signature).into_owned(),
             by: sanitize_for_terminal(&e.by).into_owned(),
-            at: e
-                .at
-                .with_timezone(&Local)
+            at: crate::render::to_local(&e.at)
                 .format("%Y-%m-%d %H:%M")
                 .to_string(),
             expires: match e.expires_at {
-                Some(dt) => dt
-                    .with_timezone(&Local)
+                Some(dt) => crate::render::to_local(&dt)
                     .format("%Y-%m-%d %H:%M")
                     .to_string(),
                 None => "never".to_string(),
@@ -1308,11 +1305,10 @@ mod tests {
         assert!(out.contains("alice"));
         assert!(out.contains("bob"));
         assert!(out.contains("never"));
-        let expires = DateTime::parse_from_rfc3339("2026-05-12T13:30:00Z")
-            .unwrap()
-            .with_timezone(&Local)
-            .format("%Y-%m-%d %H:%M")
-            .to_string();
+        let expires =
+            crate::render::to_local(&DateTime::parse_from_rfc3339("2026-05-12T13:30:00Z").unwrap())
+                .format("%Y-%m-%d %H:%M")
+                .to_string();
         assert!(out.contains(&expires), "{out}");
         assert!(out.contains("2 daemon acknowledgments active (showing up to 1000)"));
     }

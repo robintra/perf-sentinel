@@ -292,6 +292,21 @@ The supply-chain trio has dedicated prose documentation elsewhere:
 background in [`SUPPLY-CHAIN.md`](./SUPPLY-CHAIN.md). Shell
 completions and the man page are documented below on this page.
 
+## Times on the terminal
+
+Every time printed for a person is in the local time zone: the
+`Window:` line of `analyze`, `report` and `diff` text output, the
+`inspect` panels, and the `ack` and `query` output. JSON, SARIF,
+NDJSON, CSV and the daemon API stay in UTC.
+
+The zone comes from `TZ` when it is set, then from the system. A `TZ`
+that names a zone the system database lacks resolves against an IANA
+database embedded in the binary instead of falling back to UTC. That
+is the case in the `FROM scratch` container image, which ships no
+time zone database, so `docker run -e TZ=Europe/Paris ...` prints
+Paris time. A POSIX rule such as `CET-1CEST,M3.5.0,M10.5.0/3` works
+too.
+
 ## Shell completions
 
 `perf-sentinel completions <shell>` writes a completion script to
