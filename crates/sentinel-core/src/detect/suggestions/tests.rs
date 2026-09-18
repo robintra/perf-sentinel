@@ -566,6 +566,19 @@ fn java_agent_scope_with_repository_namespace_routes_to_jpa() {
 }
 
 #[test]
+fn java_agent_scope_keeps_the_service_name_framework() {
+    let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["io.opentelemetry.jdbc"]);
+    f.service = "helidon-mp-orders".to_string();
+    assert_eq!(detect_framework(&f), Some(Framework::JavaHelidonMp));
+    let mut f = finding_with_scopes(
+        FindingType::NPlusOneSql,
+        &["@opentelemetry/instrumentation-pg"],
+    );
+    f.service = "helidon-se-gateway".to_string();
+    assert_eq!(detect_framework(&f), Some(Framework::NodeGeneric));
+}
+
+#[test]
 fn java_agent_scope_chain_keeps_scope_rule_precedence() {
     let f = finding_with_scopes(
         FindingType::NPlusOneSql,

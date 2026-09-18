@@ -1748,7 +1748,16 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
             .as_ref()
             .and_then(|loc| loc.namespace.as_deref())
             .unwrap_or("");
-        return Some(match_namespace_against_language(ns, language).unwrap_or(language.generic()));
+        // A scope names the language only, so a service-name framework of
+        // that language still beats its generic.
+        return Some(
+            match_namespace_against_language(ns, language)
+                .or_else(|| {
+                    detect_framework_from_service_name(&finding.service)
+                        .filter(|fw| fw.generic() == language.generic())
+                })
+                .unwrap_or(language.generic()),
+        );
     }
     if let Some(loc) = finding.code_location.as_ref() {
         let ns = loc.namespace.as_deref().unwrap_or("");
