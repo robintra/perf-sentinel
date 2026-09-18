@@ -311,6 +311,7 @@ fn pairs_for_key(
 
 /// The stable code anchor of a finding, when its instrumentation emitted
 /// one: `(filepath, function)` from the `OTel` `code.*` span attributes.
+// TODO: structural findings (serialized, fan-out, chatty, pool saturation) anchor on a representative first call, so two different patterns starting with the same call can pair; exclude them here.
 fn code_anchor(finding: &Finding) -> Option<(String, String)> {
     let location = finding.code_location.as_ref()?;
     Some((location.filepath.clone()?, location.function.clone()?))
