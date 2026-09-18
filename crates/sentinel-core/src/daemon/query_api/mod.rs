@@ -1264,6 +1264,9 @@ async fn freeze_window(
 /// Hand one record to the archive writer, when there is one. The
 /// serialization is paid only then, and the hand-off is synchronous, so
 /// a handler dropped by a timeout has already delivered what it recorded.
+/// Called through the store's `*_then` methods, under the ring's write
+/// lock, so the records of one id reach the file in the order the ring
+/// applied them. `try_send` never waits, so the lock never waits on disk.
 fn archive_record(state: &QueryApiState, incident: &super::incidents::Incident) {
     let Some(tx) = &state.incident_archive else {
         return;
@@ -1340,9 +1343,9 @@ fn schedule_settle(state: Arc<QueryApiState>, reqs: Vec<super::incidents::Incide
                 continue;
             }
             let settled = freeze_window(&state, &req).await;
-            if let Some(merged) = store.merge(settled).await {
-                archive_record(&state, &merged);
-            }
+            store
+                .merge_then(settled, |merged| archive_record(&state, merged))
+                .await;
         }
     });
 }
@@ -1391,29 +1394,25 @@ async fn handle_post_incidents(
         let known = store.contains(&req.id).await;
         if !known {
             let incident = freeze_window(&state, &req).await;
-            let line = state
-                .incident_archive
-                .as_ref()
-                .and_then(|_| serde_json::to_vec(&incident).ok());
-            if store.record(incident).await {
+            if store
+                .record_then(incident, |new| archive_record(&state, new))
+                .await
+            {
                 intake.recorded += 1;
                 state
                     .metrics
                     .incidents_total
                     .with_label_values(&[req.kind.as_str()])
                     .inc();
-                if let (Some(tx), Some(line)) = (&state.incident_archive, line) {
-                    super::incidents::try_send(tx, line, &state.metrics);
-                }
                 settles.push(req);
                 continue;
             }
         }
         intake.repeated += 1;
-        if let Some(ended) = req.ended_at_ms
-            && let Some(closed) = store.close(&req.id, ended).await
-        {
-            archive_record(&state, &closed);
+        if let Some(ended) = req.ended_at_ms {
+            store
+                .close_then(&req.id, ended, |closed| archive_record(&state, closed))
+                .await;
         }
     }
     schedule_settle(Arc::clone(&state), settles);
