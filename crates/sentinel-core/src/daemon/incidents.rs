@@ -439,8 +439,9 @@ fn load_archive_tail(
     let mut reader = std::io::BufReader::new(file);
     let mut line = Vec::new();
     if metadata.len() > tail_bytes {
-        reader.seek(std::io::SeekFrom::Start(metadata.len() - tail_bytes))?;
-        // The cut lands inside a record: drop it.
+        // One byte early, so a cut on a line start drops only the newline
+        // before it. Anywhere else the cut lands inside a record: drop it.
+        reader.seek(std::io::SeekFrom::Start(metadata.len() - tail_bytes - 1))?;
         reader.read_until(b'\n', &mut line)?;
         line.clear();
         tracing::info!(
@@ -1133,6 +1134,10 @@ mod tests {
         // The cut falls inside the second record: only the third loads.
         let tail = (lines[1].len() / 2 + lines[2].len() + 2) as u64;
         let loaded = load_archive_tail(&path, 10, tail).unwrap();
+        assert_eq!(loaded.iter().map(|i| i.at_ms).collect::<Vec<_>>(), [3000]);
+        // A cut exactly on the third record's first byte keeps it whole.
+        let on_start = (lines[2].len() + 1) as u64;
+        let loaded = load_archive_tail(&path, 10, on_start).unwrap();
         assert_eq!(loaded.iter().map(|i| i.at_ms).collect::<Vec<_>>(), [3000]);
         assert_eq!(load_archive_tail(&path, 10, u64::MAX).unwrap().len(), 3);
     }
