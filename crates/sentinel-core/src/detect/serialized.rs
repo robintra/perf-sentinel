@@ -383,12 +383,7 @@ fn evaluate_sequence(
         classification_method: None,
         // Representative call: the first call of the sequence.
         code_location: first_child.event.code_location(),
-        instrumentation_scopes: first_child
-            .event
-            .instrumentation_scopes
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        instrumentation_scopes: first_child.event.scope_names(),
         suggested_fix: None,
         signature: String::new(),
     })

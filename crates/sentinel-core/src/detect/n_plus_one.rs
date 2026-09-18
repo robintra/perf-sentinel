@@ -296,12 +296,7 @@ fn build_finding(
         first_timestamp: min_ts,
         last_timestamp: max_ts,
         code_location: first.event.code_location(),
-        instrumentation_scopes: first
-            .event
-            .instrumentation_scopes
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        instrumentation_scopes: first.event.scope_names(),
         classification_method,
         span_durations_us: Some(
             indices

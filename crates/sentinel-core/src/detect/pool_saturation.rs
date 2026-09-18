@@ -201,12 +201,7 @@ fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], pea
         signature: String::new(),
         // Representative call: the first SQL span of the service.
         code_location: first.event.code_location(),
-        instrumentation_scopes: first
-            .event
-            .instrumentation_scopes
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        instrumentation_scopes: first.event.scope_names(),
         suggested_fix: None,
     }
 }

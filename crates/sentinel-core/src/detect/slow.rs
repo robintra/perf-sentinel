@@ -97,12 +97,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             first_timestamp: min_ts,
             last_timestamp: max_ts,
             code_location: first.event.code_location(),
-            instrumentation_scopes: first
-                .event
-                .instrumentation_scopes
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
+            instrumentation_scopes: first.event.scope_names(),
             classification_method: None,
             span_durations_us: Some(
                 indices
@@ -257,11 +252,7 @@ pub(crate) fn build_cross_trace_finding(
         confidence: Confidence::default(),
         classification_method: None,
         code_location: worst_event.code_location(),
-        instrumentation_scopes: worst_event
-            .instrumentation_scopes
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        instrumentation_scopes: worst_event.scope_names(),
         suggested_fix: None,
         signature: String::new(),
     };
