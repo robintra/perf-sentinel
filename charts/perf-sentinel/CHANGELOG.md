@@ -10,6 +10,48 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.23.0]
+
+### Added
+
+- **`appVersion` moves to `0.23.0`.** The daemon counts slow occurrences
+  across analysis batches. A template slow in `slow_query_min_occurrences`
+  separate episodes within `[detection] slow_query_window_minutes` (default
+  15, `0` disables, range 0 to 60) yields a slow finding with the same shape
+  and signature as a batch one, so a template slow in a few separate
+  episodes, none of them enough on its own, now reports where it used to
+  stay in the duration histogram only. At most 1024
+  templates are tracked, and the new counter
+  `perf_sentinel_slow_window_keys_refused_total` counts the slow spans
+  refused past that cap.
+- `GET /api/correlations` gains `source_sample_trace_id`, the trace of the
+  source-side finding of a pair, next to `sample_trace_id`.
+
+### Fixed
+
+- Cross-trace correlation pairs findings on their own timestamps instead of
+  the analysis tick that produced them. `median_lag_ms` is no longer always
+  0, the earlier finding is the source, and `confidence` is no longer
+  inflated by a source that had left the window, so fewer pairs clear
+  `min_confidence` than on 0.22.2. Pairing memory no longer grows with
+  `window_minutes`, which is now validated between 1 and 10080 at config
+  load when correlation is enabled: a `[daemon.correlation]` block outside
+  that range stops the daemon at startup instead of running.
+
+### Changed
+
+- Terminal output shows times in the local time zone, and a `TZ` naming a
+  zone the `FROM scratch` image lacks resolves against a time zone database
+  embedded in the binary instead of falling back to UTC.
+- The two example Grafana dashboards under `examples/` move to `version` 10
+  for the overview and 9 for the findings one: times in the viewer's browser
+  time zone, a `Finding type` variable on the findings table, and `Source
+  trace` and `Target trace` columns on the `Correlations` table. Neither
+  ships in the chart, re-import them where they are provisioned.
+
+No `values.yaml` key is added or removed, no template changes, and the shipped
+alerts are unchanged.
+
 ## [0.22.2]
 
 ### Fixed

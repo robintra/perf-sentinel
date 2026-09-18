@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-18
+
+This release bumps the minor rather than the patch: `perf-sentinel-core` is published on crates.io and four public structs gain a field, `CrossTraceCorrelation` (`source_sample_trace_id`), `CorrelationConfig` (`ingest_skew_ms`), `DetectionConfig` (`slow_query_window_minutes`) and `MetricsState` (`slow_window_keys_refused_total`), none of them `#[non_exhaustive]`, which under SemVer's `0.x` rules lands on the minor, the rule 0.10.0, 0.18.0 and 0.21.0 followed.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)` and the carbon table on `ember-2025`, both audited under step 2.5 of the release procedure and found inside their window. Nothing in 0.23.0 touches a scoring path, slow findings are not avoidable I/O, so the next `refresh-datasets` run lands them in a later release rather than here.
+
 ### Changed
 
 - Both Grafana dashboards show times in the viewer's browser time zone. The overview dashboard pinned `utc`, and the findings dashboard, which set nothing, inherited it through the time-keeping dashboard link, so axes, `Last seen`, `First seen` and incident times read in UTC. Dashboard `version` 10 for the overview and 9 for the findings one.
