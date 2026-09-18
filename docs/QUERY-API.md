@@ -1032,6 +1032,9 @@ query monitor` and the `perf-sentinel query incidents` subcommand.
 **Query parameters:** `service` and `namespace` (exact match), `offset`
 (default 0), `limit` (default 50, capped at 100, each incident carrying
 up to 1000 findings). Page with `offset` to reach older incidents.
+`id` (since 0.23.1) returns that one incident as a one-element array, or
+`[]` when the ring does not hold it, and the other parameters are then
+ignored.
 
 **Response shape:** array of objects:
 

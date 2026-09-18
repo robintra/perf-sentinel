@@ -252,6 +252,11 @@ impl IncidentStore {
         self.inner.read().await.iter().any(|i| i.id == id)
     }
 
+    /// The retained incident with this id, if any.
+    pub async fn get(&self, id: &str) -> Option<Incident> {
+        self.inner.read().await.iter().find(|i| i.id == id).cloned()
+    }
+
     /// Set the end of a retained incident that had none. Returns the
     /// updated record when that transition happened, and `None`
     /// otherwise. See [`Self::close_then`] to archive it in order.
