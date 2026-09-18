@@ -842,7 +842,8 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
     }
     println!(
         "    {dim}Window:{reset}   {} -> {}",
-        finding.first_timestamp, finding.last_timestamp
+        fmt_local_iso(&finding.first_timestamp, LOCAL_TIME_FORMAT),
+        fmt_local_iso(&finding.last_timestamp, LOCAL_TIME_FORMAT)
     );
     println!(
         "    {cyan}Suggestion:{reset} {}",
@@ -1506,8 +1507,8 @@ fn write_finding_block(
         writer,
         "      {dim}{:<12}{reset} {} -> {} ({})",
         "Window:",
-        short_timestamp(&f.first_timestamp),
-        short_timestamp(&f.last_timestamp),
+        fmt_local_iso(&f.first_timestamp, "%Y-%m-%d %H:%M"),
+        fmt_local_iso(&f.last_timestamp, "%Y-%m-%d %H:%M"),
         format_duration_compact(f.pattern.window_ms),
     )?;
     writeln!(
@@ -1566,10 +1567,15 @@ fn write_finding_block(
     Ok(())
 }
 
-/// Trim an ISO-8601 timestamp to minute precision, falling back to the
-/// full string when the input is shorter than 16 chars.
-fn short_timestamp(ts: &str) -> &str {
-    ts.get(..16).unwrap_or(ts)
+/// Format of human-facing timestamps, always shown in the local time zone.
+pub(crate) const LOCAL_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
+/// A UTC ISO 8601 timestamp in local time, or the sanitized input when it does not parse.
+pub(crate) fn fmt_local_iso(iso: &str, format: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(iso).map_or_else(
+        |_| sanitize_for_terminal(iso).into_owned(),
+        |t| t.with_timezone(&chrono::Local).format(format).to_string(),
+    )
 }
 
 /// Format a window duration in milliseconds as a compact human-readable
@@ -2033,8 +2039,9 @@ mod tests {
             "missing Occurrences, got:\n{out}"
         );
         assert!(out.contains("Window:"), "missing Window, got:\n{out}");
+        let local = fmt_local_iso("2026-04-20T10:00:01.000Z", "%Y-%m-%d %H:%M");
         assert!(
-            out.contains("2026-04-20T10:00 -> 2026-04-20T10:00 (7s)"),
+            out.contains(&format!("{local} -> {local} (7s)")),
             "window line wrong, got:\n{out}"
         );
         assert!(
@@ -2739,11 +2746,22 @@ mod tests {
     }
 
     #[test]
-    fn short_timestamp_truncates_to_minute_and_falls_back_for_short_input() {
+    fn local_iso_converts_to_local_time_and_falls_back_to_the_input() {
+        // The zone is the machine's, so the expectation goes through chrono::Local too.
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-04-20T23:30:01.000Z")
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format(LOCAL_TIME_FORMAT)
+            .to_string();
         assert_eq!(
-            short_timestamp("2026-04-20T10:00:01.000Z"),
-            "2026-04-20T10:00"
+            fmt_local_iso("2026-04-20T23:30:01.000Z", LOCAL_TIME_FORMAT),
+            expected
         );
-        assert_eq!(short_timestamp("short"), "short");
+        assert_eq!(
+            fmt_local_iso("2026-04-20 23:30:01.000Z", LOCAL_TIME_FORMAT),
+            expected
+        );
+        assert_eq!(fmt_local_iso("short", LOCAL_TIME_FORMAT), "short");
+        assert_eq!(fmt_local_iso("bad\x1b[31m", LOCAL_TIME_FORMAT), "bad?[31m");
     }
 }

@@ -20,11 +20,11 @@ use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::QueryOutputFormat;
-use crate::render::{AnsiColors, ansi_colors, no_colors};
+use crate::render::{AnsiColors, LOCAL_TIME_FORMAT, ansi_colors, no_colors};
 
 const ENV_DAEMON_API_KEY: &str = "PERF_SENTINEL_DAEMON_API_KEY";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -664,7 +664,7 @@ fn print_create_summary(
             let pretty = format_relative(delta);
             println!(
                 "  {dim}Expires:{reset}   {} ({})",
-                dt.format("%Y-%m-%dT%H:%M:%SZ"),
+                dt.with_timezone(&Local).format(LOCAL_TIME_FORMAT),
                 pretty
             );
         }
@@ -740,9 +740,16 @@ fn format_ack_table(entries: &[AckListEntry], colored: bool) -> String {
         .map(|e| Row {
             signature: sanitize_for_terminal(&e.signature).into_owned(),
             by: sanitize_for_terminal(&e.by).into_owned(),
-            at: e.at.format("%Y-%m-%dT%H:%MZ").to_string(),
+            at: e
+                .at
+                .with_timezone(&Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string(),
             expires: match e.expires_at {
-                Some(dt) => dt.format("%Y-%m-%dT%H:%MZ").to_string(),
+                Some(dt) => dt
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M")
+                    .to_string(),
                 None => "never".to_string(),
             },
             reason: e
@@ -1301,7 +1308,12 @@ mod tests {
         assert!(out.contains("alice"));
         assert!(out.contains("bob"));
         assert!(out.contains("never"));
-        assert!(out.contains("2026-05-12T13:30Z"));
+        let expires = DateTime::parse_from_rfc3339("2026-05-12T13:30:00Z")
+            .unwrap()
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M")
+            .to_string();
+        assert!(out.contains(&expires), "{out}");
         assert!(out.contains("2 daemon acknowledgments active (showing up to 1000)"));
     }
 

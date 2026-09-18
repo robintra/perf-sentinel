@@ -8,7 +8,7 @@
 
 use crate::QueryAction;
 use crate::QueryOutputFormat;
-use crate::render::{AnsiColors, ansi_colors};
+use crate::render::{AnsiColors, LOCAL_TIME_FORMAT, ansi_colors, fmt_local_iso};
 
 /// Entry point for the `query` subcommand. Validates the daemon URL,
 /// dispatches to the per-action handler and exits with a clear error if
@@ -372,8 +372,8 @@ fn print_correlation_entry(
     );
     println!(
         "    {dim}Period:{reset} {} .. {}",
-        sanitize_for_terminal(&c.first_seen),
-        sanitize_for_terminal(&c.last_seen)
+        fmt_local_iso(&c.first_seen, LOCAL_TIME_FORMAT),
+        fmt_local_iso(&c.last_seen, LOCAL_TIME_FORMAT)
     );
     println!();
 }
@@ -502,7 +502,7 @@ pub(crate) fn fmt_local_time(ms: u64) -> String {
             || ms.to_string(),
             |t| {
                 t.with_timezone(&chrono::Local)
-                    .format("%Y-%m-%d %H:%M:%S")
+                    .format(crate::render::LOCAL_TIME_FORMAT)
                     .to_string()
             },
         )

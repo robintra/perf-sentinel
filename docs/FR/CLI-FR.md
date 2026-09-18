@@ -220,7 +220,8 @@ perf-sentinel ack list --output json
 `ack list` ne montre que les acks daemon. Les acks TOML CI restent
 visibles directement dans
 `.perf-sentinel-acknowledgments.toml`. Le daemon plafonne la réponse
-à 1000 entrées.
+à 1000 entrées. Les colonnes `AT` et `EXPIRES_AT` sont en heure
+locale, `--output json` reste en UTC.
 
 ### Authentification
 

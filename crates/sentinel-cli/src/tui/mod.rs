@@ -2930,7 +2930,11 @@ fn push_finding_context_lines<'a>(lines: &mut Vec<Line<'a>>, finding: &'a Findin
         Span::styled("Window:   ", dim_style()),
         Span::raw(format!(
             "{} -> {}",
-            finding.first_timestamp, finding.last_timestamp
+            crate::render::fmt_local_iso(
+                &finding.first_timestamp,
+                crate::render::LOCAL_TIME_FORMAT
+            ),
+            crate::render::fmt_local_iso(&finding.last_timestamp, crate::render::LOCAL_TIME_FORMAT)
         )),
     ]));
     if !finding.confidence.is_batch() {

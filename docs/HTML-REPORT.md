@@ -34,6 +34,11 @@ declares which scripts and resources the page is allowed to load)
 stays strict (`default-src 'none'`), there is no
 `fetch()` call against any host.
 
+Times on the page (the finding window, span times in the Explain tree,
+ack expiries in live mode) are shown in the viewer's local time zone,
+and a span's tooltip keeps its exact timestamp. The embedded JSON and
+the CSV exports stay in UTC.
+
 ### Database statistics tabs
 
 - `--pg-stat <FILE>` embeds a `pg_stat_statements` CSV or JSON export:
