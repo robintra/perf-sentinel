@@ -424,8 +424,9 @@ pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
 /// no rotation, and parsing all of it could outlast the liveness probe.
 pub const LOAD_TAIL_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Read the archive back: the last record of each id, the `max_retained`
-/// most recent by `at_ms`, oldest first.
+/// Read the archive back into the ring the daemon had: the file replayed
+/// in order, the last record of each id, the last `max_retained` to
+/// arrive, oldest arrival first.
 ///
 /// Streams line by line from the last [`LOAD_TAIL_BYTES`] of the file and
 /// never holds more than `max_retained` incidents, however large the
@@ -465,10 +466,12 @@ fn load_archive_tail(
             "incident archive path is a symlink or another reparse point",
         ));
     }
-    // Keyed by (at_ms, id): the id derives from at_ms, so a later record
-    // of an id lands on its own key, and the first key is the oldest.
-    let mut kept: std::collections::BTreeMap<(u64, String), Incident> =
-        std::collections::BTreeMap::new();
+    // Replayed the way the ring applied each line: a record of a retained
+    // id updates it in place, any other is an arrival at the back, and the
+    // oldest arrival leaves past `max_retained`. Keyed by arrival number.
+    let mut arrival: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut kept: std::collections::BTreeMap<u64, Incident> = std::collections::BTreeMap::new();
+    let mut next_arrival = 0u64;
     let mut skipped = 0usize;
     let mut reader = std::io::BufReader::new(file);
     let mut line = Vec::new();
@@ -488,9 +491,17 @@ fn load_archive_tail(
         if line.iter().any(|b| !b.is_ascii_whitespace()) {
             match serde_json::from_slice::<Incident>(&line) {
                 Ok(incident) => {
-                    kept.insert((incident.at_ms, incident.id.clone()), incident);
-                    if kept.len() > max_retained {
-                        kept.pop_first();
+                    if let Some(&seq) = arrival.get(&incident.id) {
+                        kept.insert(seq, incident);
+                    } else {
+                        arrival.insert(incident.id.clone(), next_arrival);
+                        kept.insert(next_arrival, incident);
+                        next_arrival += 1;
+                        if kept.len() > max_retained
+                            && let Some((_, gone)) = kept.pop_first()
+                        {
+                            arrival.remove(&gone.id);
+                        }
                     }
                 }
                 Err(_) => skipped += 1,
@@ -1151,8 +1162,45 @@ mod tests {
         assert_eq!(body.lines().count(), 3, "loading appends nothing");
     }
 
+    #[tokio::test]
+    async fn a_reload_rebuilds_the_ring_the_daemon_had() {
+        // One line per record or close that changed the ring, as the
+        // handlers write them. B arrives after A but started before it, as
+        // an alert Alertmanager delivers late does.
+        let live = IncidentStore::new(2);
+        let (a, b, c) = (
+            incident("a", IncidentKind::Restart, 2000),
+            incident("b", IncidentKind::Restart, 1000),
+            incident("c", IncidentKind::Restart, 3000),
+        );
+        let mut lines = Vec::new();
+        for i in [&a, &b, &c] {
+            assert!(live.record(i.clone()).await);
+            lines.push(serde_json::to_string(i).unwrap());
+        }
+        let closed = live.close(&b.id, 9000).await.expect("b is retained");
+        lines.push(serde_json::to_string(&closed).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("incidents.ndjson");
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        let reloaded = IncidentStore::with_incidents(2, load_archive(&path, 2).unwrap());
+        let view = |v: Vec<Incident>| -> Vec<(String, Option<u64>)> {
+            v.into_iter().map(|i| (i.id, i.ended_at_ms)).collect()
+        };
+        assert_eq!(
+            view(reloaded.list(None, None, 0, 10).await),
+            view(live.list(None, None, 0, 10).await),
+            "the same incidents, in the same order, at their last record"
+        );
+        assert!(
+            !reloaded.record(b).await,
+            "b was retained before the restart, so its repost is not a second incident"
+        );
+    }
+
     #[test]
-    fn the_load_keeps_the_most_recent_and_skips_what_does_not_parse() {
+    fn the_load_keeps_the_last_arrivals_and_skips_what_does_not_parse() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("incidents.ndjson");
         let mut body = String::new();
@@ -1162,7 +1210,7 @@ mod tests {
             );
             body.push('\n');
         }
-        // A later record of an id already trimmed stays trimmed.
+        // A later record of a retained id updates it where it arrived.
         let mut late = incident("svc", IncidentKind::Restart, 1000);
         late.ended_at_ms = Some(1500);
         body.push_str(&serde_json::to_string(&late).unwrap());
@@ -1170,8 +1218,13 @@ mod tests {
         std::fs::write(&path, body).unwrap();
 
         let loaded = load_archive(&path, 2).unwrap();
-        let ats: Vec<u64> = loaded.iter().map(|i| i.at_ms).collect();
-        assert_eq!(ats, [2000, 3000], "the newest two, oldest first");
+        let got: Vec<(u64, Option<u64>)> =
+            loaded.iter().map(|i| (i.at_ms, i.ended_at_ms)).collect();
+        assert_eq!(
+            got,
+            [(1000, Some(1500)), (2000, None)],
+            "the last two to arrive, oldest arrival first"
+        );
         assert!(load_archive(&path, 0).unwrap().is_empty());
     }
 
