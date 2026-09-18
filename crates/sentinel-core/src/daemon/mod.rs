@@ -694,6 +694,41 @@ total_applications_declared = 1
         }
     }
 
+    #[tokio::test]
+    async fn incident_store_is_seeded_from_the_archive_when_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("incidents.ndjson");
+        std::fs::write(
+            &path,
+            r#"{"id":"a","service":"svc","kind":"restart","at_ms":1000,"window_from_ms":0,"window_to_ms":2000,"findings":[]}"#,
+        )
+        .unwrap();
+        let config = |enabled, archive_path| Config {
+            daemon: crate::config::DaemonConfig {
+                incidents: crate::config::DaemonIncidentsConfig {
+                    enabled,
+                    archive_path,
+                    ..Default::default()
+                },
+                ..crate::config::DaemonConfig::default()
+            },
+            ..Config::default()
+        };
+        let archive = Some(path.display().to_string());
+
+        assert!(
+            load_incident_store(&config(false, archive.clone()))
+                .unwrap()
+                .is_none()
+        );
+        let seeded = load_incident_store(&config(true, archive))
+            .unwrap()
+            .unwrap();
+        assert!(seeded.contains("a").await);
+        let empty = load_incident_store(&config(true, None)).unwrap().unwrap();
+        assert!(!empty.contains("a").await);
+    }
+
     #[test]
     fn daemon_error_display_is_informative() {
         // Smoke test for thiserror messages on every variant. Operators
