@@ -1042,6 +1042,7 @@ fn make_correlation(src_svc: &str, tgt_svc: &str) -> CrossTraceCorrelation {
         first_seen: "2026-04-25T10:00:00.000Z".to_string(),
         last_seen: "2026-04-25T10:30:00.000Z".to_string(),
         sample_trace_id: Some("trace-sample".to_string()),
+        source_sample_trace_id: Some("trace-source".to_string()),
     }
 }
 

@@ -445,7 +445,7 @@ pub struct CrossTraceCorrelator {
 
 - **`occurrences`**: the pairing horizon, a `VecDeque` in ingest order. Each entry holds the interned endpoint, `event_ms`, `ingest_ms`, the grid index at ingest, a capped trace id and `counted_targets`, the targets this occurrence already counted for as a source. An entry leaves once `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. The horizon depends on the lag and the skew only, never on `window_ms`, so a 24 h window holds the same deque as a 10 min one. The skew is `2 x trace_ttl_ms`, so the deque and the scan each finding makes over it scale with the TTL (about a minute of findings at the default 30 s).
 - **`endpoints`**: the endpoint registry. Each distinct `CorrelationEndpoint` (finding type, service, template, grouping) is stored once behind an `Arc`, and the deque, the pair keys and `counted_targets` share that allocation: a long SQL template is kept once however many findings carry it. The value is the endpoint's occurrence count, the confidence denominator.
-- **`pair_counts`**: keyed by `PairKey` (source, target), two interned `Arc`s. Each `PairState` holds the co-occurrence count, a bounded lag reservoir, a `total_observations` counter, a `SplitMix64` PRNG state, `first_seen_ms`/`last_seen_ms` on the ingest clock and the latest target trace id.
+- **`pair_counts`**: keyed by `PairKey` (source, target), two interned `Arc`s. Each `PairState` holds the co-occurrence count, a bounded lag reservoir, a `total_observations` counter, a `SplitMix64` PRNG state, `first_seen_ms`/`last_seen_ms` on the ingest clock and the source and target trace ids of the latest match.
 
 ### Global half-window grid
 

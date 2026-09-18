@@ -725,6 +725,7 @@ descending. Empty array when `[daemon.correlation] enabled = false`
 | `first_seen`               | string  | ISO 8601 timestamp of the first co-occurrence, on the daemon's analysis clock    |
 | `last_seen`                | string  | ISO 8601 timestamp of the most recent co-occurrence, on the daemon's analysis clock |
 | `sample_trace_id`          | string  | Optional: last target-side trace id, absent in batch mode and replayed baselines |
+| `source_sample_trace_id`   | string  | Optional: source-side trace id of the same co-occurrence, absent in batch mode and replayed baselines |
 
 **Example:**
 
@@ -755,7 +756,8 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
     "median_lag_ms": 1250.0,
     "first_seen": "2026-04-16T14:31:40.120Z",
     "last_seen": "2026-04-16T14:36:02.450Z",
-    "sample_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+    "sample_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "source_sample_trace_id": "a3ce929d0e0e47364bf92f3577b34da6"
   }
 ]
 ```

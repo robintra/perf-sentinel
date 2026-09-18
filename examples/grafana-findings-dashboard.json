@@ -931,7 +931,7 @@
     {
       "type": "table",
       "title": "Correlations",
-      "description": "GET /api/correlations: source-target pairs of findings fired together across services in the same grouping, the target within lag_threshold_ms of the source. Empty until [daemon.correlation] enabled is true. Pairs are not persisted: gone window_minutes after the last co-occurrence and on restart.\n\nConfidence is Co-occurrences over Source total, 100% when the target always followed. Median lag is the typical delay. Operation columns are SQL or HTTP templates, not routes. Trace is the latest target-side trace, for /api/explain.\n\nGrouping and Service do not narrow this table, the headers do. Capped at 1000 rows, highest confidence first.",
+      "description": "GET /api/correlations: source-target pairs of findings fired together across services in the same grouping, the target within lag_threshold_ms of the source. Empty until [daemon.correlation] enabled is true. Pairs are not persisted: gone window_minutes after the last co-occurrence and on restart.\n\nConfidence is Co-occurrences over Source total, 100% when the target always followed. Median lag is the typical delay. Operation columns are SQL or HTTP templates, not routes. Source trace and Target trace are the two sides of the latest co-occurrence, for /api/explain.\n\nGrouping and Service do not narrow this table, the headers do. Capped at 1000 rows, highest confidence first.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1025,8 +1025,13 @@
               "type": "timestamp"
             },
             {
+              "selector": "source_sample_trace_id",
+              "text": "Source trace",
+              "type": "string"
+            },
+            {
               "selector": "sample_trace_id",
-              "text": "Trace",
+              "text": "Target trace",
               "type": "string"
             }
           ]
@@ -1310,7 +1315,8 @@
               "Target operation": 10,
               "First seen": 11,
               "Last seen": 12,
-              "Trace": 13
+              "Source trace": 13,
+              "Target trace": 14
             },
             "renameByName": {}
           }
@@ -2076,5 +2082,5 @@
     }
   ],
   "timezone": "browser",
-  "version": 8
+  "version": 9
 }

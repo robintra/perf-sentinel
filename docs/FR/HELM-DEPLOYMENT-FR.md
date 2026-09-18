@@ -832,8 +832,8 @@ La table `Correlations` sous les findings lit `GET /api/correlations` :
 une ligne par paire orientée de findings qui se sont déclenchés ensemble
 entre services, la source d'abord et la cible dans les
 `[daemon.correlation] lag_threshold_ms`, avec le ratio `Confidence`, les
-deux comptes qui le fondent, le décalage médian et la trace la plus
-récente côté cible. Elle reste vide tant que `[daemon.correlation]
+deux comptes qui le fondent, le décalage médian, et `Source trace` et
+`Target trace`, les deux côtés de la dernière co-occurrence. Elle reste vide tant que `[daemon.correlation]
 enabled` n'est pas à `true`, et une paire vit une fenêtre
 (`window_minutes`) après sa dernière co-occurrence, rien ne la persiste,
 un redémarrage vide donc la table. La route ne prend aucun paramètre,

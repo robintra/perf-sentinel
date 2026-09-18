@@ -1148,8 +1148,8 @@ The `Correlations` table under the findings reads `GET /api/correlations`:
 one row per directional pair of findings that fired together across
 services, the source first and the target within
 `[daemon.correlation] lag_threshold_ms`, with the ratio `Confidence`,
-the two counts behind it, the median lag and the most recent trace on
-the target side. It stays empty until `[daemon.correlation] enabled =
+the two counts behind it, the median lag, and `Source trace` and
+`Target trace`, the two sides of the latest co-occurrence. It stays empty until `[daemon.correlation] enabled =
 true`, and a pair lives one `window_minutes` past its last
 co-occurrence, nothing persists it, so a restart empties the table. The
 route takes no parameter, so `Grouping`, `Service` and `Finding type`

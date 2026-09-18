@@ -749,6 +749,7 @@ entrée contient :
 | `first_seen`               | string  | Timestamp ISO 8601 de la première co-occurrence, sur l'horloge d'analyse du daemon |
 | `last_seen`                | string  | Timestamp ISO 8601 de la co-occurrence la plus récente, sur l'horloge d'analyse du daemon |
 | `sample_trace_id`          | string  | Optionnel : dernier id de trace côté cible, omis en batch et baseline rejouée     |
+| `source_sample_trace_id`   | string  | Optionnel : id de trace côté source de la même co-occurrence, omis en batch et baseline rejouée |
 
 **Exemple :**
 
@@ -779,7 +780,8 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
     "median_lag_ms": 1250.0,
     "first_seen": "2026-04-16T14:31:40.120Z",
     "last_seen": "2026-04-16T14:36:02.450Z",
-    "sample_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+    "sample_trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "source_sample_trace_id": "a3ce929d0e0e47364bf92f3577b34da6"
   }
 ]
 ```

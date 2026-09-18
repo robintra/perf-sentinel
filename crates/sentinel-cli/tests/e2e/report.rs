@@ -901,6 +901,7 @@ fn cli_report_renders_correlations_from_daemon_shape() {
             "first_seen": "2026-04-21T10:00:00Z",
             "last_seen": "2026-04-21T10:05:00Z",
             "sample_trace_id": "daemon-trace-1",
+            "source_sample_trace_id": "daemon-trace-0",
         }],
     });
     let raw = serde_json::to_vec(&daemon_report).unwrap();
@@ -949,6 +950,10 @@ fn cli_report_renders_correlations_from_daemon_shape() {
     assert_eq!(
         corrs[0]["sample_trace_id"].as_str().unwrap(),
         "daemon-trace-1"
+    );
+    assert_eq!(
+        corrs[0]["source_sample_trace_id"].as_str().unwrap(),
+        "daemon-trace-0"
     );
     // The rendered markup carries a click zone per side of the pair. The
     // click behaviour itself is covered by browser test 24, which drives
