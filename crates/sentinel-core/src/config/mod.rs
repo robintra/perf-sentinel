@@ -437,10 +437,10 @@ pub struct DaemonIncidentsConfig {
     /// all the same, and the label is never a Prometheus label here.
     pub namespace_label: String,
     /// Optional newline-delimited JSON file every new incident, close and
-    /// settle is appended to, opened at startup. Absent means the ring is
-    /// the only record, and the ring dies with the daemon, which a
-    /// node-level memory event often takes down along with the service
-    /// it killed.
+    /// settle is appended to, opened at startup and read back into the
+    /// ring. Absent means the ring is the only record, and the ring dies
+    /// with the daemon, which a node-level memory event often takes down
+    /// along with the service it killed.
     pub archive_path: Option<String>,
 }
 
