@@ -1992,5 +1992,6 @@
       "url": ""
     }
   ],
-  "version": 6
+  "timezone": "browser",
+  "version": 7
 }

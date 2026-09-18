@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Changed
+
+- Both Grafana dashboards show times in the viewer's browser time zone. The overview dashboard pinned `utc`, and the findings dashboard, which set nothing, inherited it through the time-keeping dashboard link, so axes, `Last seen`, `First seen` and incident times read in UTC. Dashboard `version` 10 for the overview and 7 for the findings one.
+
 ## [0.22.2] - 2026-09-15
 
 The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)` and the carbon table on `ember-2025`, both audited under step 2.5 of the release procedure and found inside their window. Nothing in 0.22.2 touches a scoring path, so the next `refresh-datasets` run lands them in a later release rather than here.
