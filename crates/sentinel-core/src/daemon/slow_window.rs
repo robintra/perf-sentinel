@@ -207,7 +207,18 @@ fn build_finding(
             )
         })
         .collect();
-    crate::detect::slow::build_cross_trace_finding(&key.0, &key.3, &entries, min_occ, threshold_us)
+    let mut finding = crate::detect::slow::build_cross_trace_finding(
+        &key.0,
+        &key.3,
+        &entries,
+        min_occ,
+        threshold_us,
+    )?;
+    // The fresh episode's trace is in this batch, so it is retained for Explain.
+    if let Some(fresh) = episodes.back() {
+        finding.trace_id.clone_from(&fresh.worst.trace_id);
+    }
+    Some(finding)
 }
 
 #[cfg(test)]
@@ -286,14 +297,17 @@ mod tests {
         let [a, b, c] = three_episodes();
         assert!(emitted(&mut win, &[a], T0).is_empty());
         assert!(emitted(&mut win, &[b], T0 + 2 * MIN).is_empty());
-        let findings = emitted(&mut win, &[c], T0 + 5 * MIN);
+        let batch = [c];
+        let findings = emitted(&mut win, &batch, T0 + 5 * MIN);
         assert_eq!(findings.len(), 1);
         let f0 = &findings[0];
         assert_eq!(f0.finding_type, FindingType::SlowSql);
         assert_eq!(f0.pattern.occurrences, 3);
         assert_eq!(f0.first_timestamp, "2025-07-10T14:32:01.000Z");
         assert_eq!(f0.last_timestamp, "2025-07-10T14:37:01.000Z");
-        assert_eq!(f0.trace_id, "b");
+        // The current batch's trace, not the slowest one from an earlier batch.
+        assert_eq!(f0.trace_id, "c");
+        assert!(batch.iter().any(|t| t.trace_id == f0.trace_id));
     }
 
     #[test]
@@ -308,6 +322,9 @@ mod tests {
         crate::acknowledgments::enrich_with_signatures(&mut batch);
         assert_eq!(windowed.len(), 1);
         assert!(!windowed[0].signature.is_empty());
+        // Only the representative trace differs: the signature ignores it.
+        assert_eq!(windowed[0].trace_id, "c");
+        windowed[0].trace_id.clone_from(&batch[0].trace_id);
         assert_eq!(windowed, batch);
     }
 
