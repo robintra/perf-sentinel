@@ -140,7 +140,7 @@
 <p class="ps-p">Pour les pipelines CI, utilisez le mode batch au lieu du mode daemon :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--ci</span> <span style="color:var(--code-flag)">--input</span> traces.json</code></pre></div>
 <h3 id="produire-tracesjson" class="ps-h3">Produire <code class="ps-ic">traces.json</code></h3>
-<p class="ps-p">Le mode batch a besoin d'un fichier de traces, et la façon dont une suite de tests en fournit un dépend entièrement du langage. Seuls C++ et PHP implémentent un exporteur OTLP qui écrit dans un fichier au chemin de votre choix, et une JVM de test forkée par Maven ne peut même pas vous donner sa sortie standard, que Surefire utilise comme canal de commande. La réponse portable consiste à laisser l'application exporter par le réseau, comme elle le fait en production, et à écouter :</p>
+<p class="ps-p">Le mode batch a besoin d'un fichier de traces, et la façon dont une suite de tests en fournit un dépend entièrement du langage. Seuls C++, PHP et, à partir de l'agent 2.32.0 via la configuration déclarative, Java implémentent un exporteur OTLP qui écrit dans un fichier au chemin de votre choix, et une JVM de test forkée par Maven ne peut même pas vous donner sa sortie standard, que Surefire utilise comme canal de commande. La réponse portable consiste à laisser l'application exporter par le réseau, comme elle le fait en production, et à écouter :</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> capture <span style="color:var(--code-flag)">--output</span> traces.json <span style="color:var(--code-flag)">--</span> ./scripts/run-integration-tests.sh
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--ci</span> <span style="color:var(--code-flag)">--input</span> traces.json</code></pre></div>
 <p class="ps-p">La suite de tests n'a besoin que du standard <code class="ps-ic">OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317</code>. Préfixez l'étape de test que vous avez déjà plutôt que d'en ajouter une à côté, sans quoi la suite d'intégration tourne deux fois. Quand l'étape ne peut pas être préfixée, lancez <code class="ps-ic">capture</code> en arrière-plan et arrêtez-le par un signal une fois les tests terminés. Voir <a href="/docs/fr/CLI#capture">Référence CLI</a> pour les deux formes et <a href="/docs/fr/INSTRUMENTATION">Instrumentation</a> pour la configuration par langage, Collector compris.</p>
@@ -330,8 +330,8 @@
 <span style="color:var(--term-comment)">      # Lancer les tests d'intégration sur la branche PR et capturer les traces.</span>
 <span style="color:var(--term-comment)">      # Votre script produit le fichier de traces, il reçoit ici le chemin de</span>
 <span style="color:var(--term-comment)">      # sortie en argument. Voir <a href="/docs/fr/INSTRUMENTATION">Instrumentation</a> pour la façon dont</span>
-<span style="color:var(--term-comment)">      # chaque langage en produit un, Java notamment n'a pas d'exporteur</span>
-<span style="color:var(--term-comment)">      # fichier et demande une capture de la sortie standard.</span>
+<span style="color:var(--term-comment)">      # chaque langage en produit un, Java notamment demande `capture`, ou</span>
+<span style="color:var(--term-comment)">      # l'agent 2.32.0+ pour un export fichier.</span>
       - name: Collecter les traces de la branche PR
 <span style="color:var(--code-sub)">        run</span>: ./scripts/run-integration-tests.sh pr-traces.json
 

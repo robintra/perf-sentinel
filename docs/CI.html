@@ -140,7 +140,7 @@
 <p class="ps-p">For CI pipelines, use batch mode instead of daemon mode:</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--ci</span> <span style="color:var(--code-flag)">--input</span> traces.json</code></pre></div>
 <h3 id="producing-tracesjson" class="ps-h3">Producing <code class="ps-ic">traces.json</code></h3>
-<p class="ps-p">Batch mode needs a trace file, and how a test suite hands one over depends entirely on the language. Only C++ and PHP implement an OTLP exporter that writes to a path you choose, and a forked Maven test JVM cannot even yield its stdout, which Surefire uses as its command channel. The portable answer is to let the application export over the network, as it does in production, and to listen:</p>
+<p class="ps-p">Batch mode needs a trace file, and how a test suite hands one over depends entirely on the language. Only C++, PHP and, from agent 2.32.0 through declarative configuration, Java implement an OTLP exporter that writes to a path you choose, and a forked Maven test JVM cannot even yield its stdout, which Surefire uses as its command channel. The portable answer is to let the application export over the network, as it does in production, and to listen:</p>
 <div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> capture <span style="color:var(--code-flag)">--output</span> traces.json <span style="color:var(--code-flag)">--</span> ./scripts/run-integration-tests.sh
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--ci</span> <span style="color:var(--code-flag)">--input</span> traces.json</code></pre></div>
 <p class="ps-p">The test suite only needs the standard <code class="ps-ic">OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317</code>. Prefix the test step you already have rather than adding a stage next to it, or the integration suite runs twice. When the step cannot be prefixed, run <code class="ps-ic">capture</code> in the background and stop it with a signal once the tests finish. See <a href="/docs/CLI#capture">CLI reference</a> for both shapes and <a href="/docs/INSTRUMENTATION">Instrumentation</a> for the per-language setup, including the Collector alternative.</p>
@@ -330,7 +330,7 @@
 <span style="color:var(--term-comment)">      # Run integration tests on the PR branch and capture traces. Your</span>
 <span style="color:var(--term-comment)">      # script owns the trace file, it takes the output path as an argument</span>
 <span style="color:var(--term-comment)">      # here. See <a href="/docs/INSTRUMENTATION">Instrumentation</a> for how each language produces one,</span>
-<span style="color:var(--term-comment)">      # Java in particular has no file exporter and needs a stdout capture.</span>
+<span style="color:var(--term-comment)">      # Java in particular needs `capture`, or agent 2.32.0+ for a file export.</span>
       - name: Collect PR-branch traces
 <span style="color:var(--code-sub)">        run</span>: ./scripts/run-integration-tests.sh pr-traces.json
 
