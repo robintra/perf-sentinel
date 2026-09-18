@@ -381,7 +381,8 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #                                                  # outage is destroyed by the outage. Append-only NDJSON,
 #                                                  # last record of an id wins, no rotation (point logrotate
 #                                                  # at it), created 0600 since detail and query templates
-#                                                  # are not world-readable
+#                                                  # are not world-readable. Read back into the ring at
+#                                                  # startup, so the listing survives a restart
 
 # --- /!\ Batched export to PerfSentinelHub /!\ ----------------------------
 # Coalesces repeated signatures and never blocks detection. Mount the API
