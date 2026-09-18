@@ -289,3 +289,44 @@ v0.22.2	f3ea3fe	2026-09-15	PASS
 #   that would have caught it.
 # make validate ok, product fmt and 3527 tests green.
 v0.22.2	f4eda0f	2026-09-16	PASS
+
+# v0.23.0, 2026-09-18. Targeted pass at product 8468fd75 (local image
+# perf-sentinel:0.22.2-8468fd75 on the three nodes, the tree not yet bumped),
+# scoped to the release and to what it can move: the correlator rewrite, the
+# cross-batch slow window in the analysis worker, `source_sample_trace_id`,
+# the dashboards, local time on the terminal, and clap, clap_complete, ureq
+# and toml on their newest patch releases. make validate-findings 12/12, then
+# 37 scenarios: every daemon scenario the worker change can reach, the Hub
+# and alerting chains, the ack, query, diff and TUI text surfaces, the CSV
+# and HTML correlation outputs. Left out as untouched: disclose and
+# verify-hash, the crosswalks, the energy backends, the CI templates and
+# ci-e2e, the batch ingest formats, the batch limits and network faults.
+# New in the lab and green, each with a counter-proof on the published 0.22.2:
+#   correlation-event-time: median_lag_ms exactly 5000 and 7000 where 0.22.2
+#   reports the tick gap (1501), the earlier event as source although the
+#   later one arrived first, both sides' traces opened by /api/explain,
+#   window_minutes = 0 refused.
+#   slow-window-cross-batch: three one-span episodes 65 s apart yield one
+#   slow_sql finding with 3 occurrences on the trace that fired it, nothing
+#   at window 0 or on 0.22.2, 61 refused, the key-cap counter exposed.
+#   output-formats-coverage 6.F: the text Window line nine hours later under
+#   TZ=JST-9 and TZ=Asia/Tokyo in the FROM scratch image, JSON identical.
+#   The named zone fell back to UTC silently on 0152910c, which the product
+#   fixed in 8468fd75 with an embedded IANA database.
+# grafana-dashboard with both dashboards resynced (overview 10, findings 9),
+#   Finding type slow_sql 1 row against 200 for All, Correlations 15 rows on
+#   15 columns with Source trace and Target trace. correlation-finding 24
+#   pairs, all above the floor and inside one grouping, lags 6 s to 42 s
+#   where 0.22.2 read 0 (198 pairs there, the confidence fix is the gap).
+# long-running-drift as a 5-minute smoke on request: drift -0.18 %.
+# limit-prod-window-soak failed once at 10.3 % RSS drift for a 10 % limit.
+#   The same soak on 0.22.2 read 5.1 %, max 95.2 MiB, and a rerun of the
+#   build under test read 3.0 %, max 95.3 MiB: variance of a 10-minute
+#   window, not a leak. correlator_pairs_evicted_total is 195 M on 0.22.2
+#   and 336 to 364 M here, tracegen's 64 services on constant timestamps
+#   put every finding within the lag threshold of every other.
+# Found and fixed in the lab: the incident-alerting-chain A/B twin shares the
+#   daemon ConfigMap, whose [daemon.hub_export] seed-hub-local.sh enables, and
+#   crashed without the import key. It now mounts the same optional Secret.
+# make validate ok, product fmt, clippy and 3557 workspace tests green.
+v0.23.0	b26270f	2026-09-18	PASS
