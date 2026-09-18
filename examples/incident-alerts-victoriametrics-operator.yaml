@@ -3,13 +3,15 @@
 # this file is examples/incident-alerts-prometheus-operator.yaml, and it opens
 # with the same explanation of why this exists, which three labels the daemon
 # reads, the two cluster assumptions to check before copying (the
-# `container="app"` selector, and deriving `service` from the pod name) and why
-# every rule aggregates before deriving that service. Read that file first,
+# `container="app"` selector, and deriving `service` from the pod name), why
+# every rule aggregates before deriving that service, and the recording rule
+# every rule joins on. Read that file first,
 # this one repeats only what differs.
 #
 # The VictoriaMetrics operator also converts a `PrometheusRule` into a `VMRule`
-# on its own, so the twin file's rules work here too. This one is for fleets
-# that write VM CRDs directly.
+# on its own, so the twin file's rules work here too, provided the VMAlert
+# sets `remoteWrite`, since the twin holds the same recording rule. This one
+# is for fleets that write VM CRDs directly.
 ---
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
@@ -18,6 +20,26 @@ metadata:
   namespace: observability
 spec:
   groups:
+    # The workloads the daemon has not ingested, which every rule below drops,
+    # and why whatever this record lacks lets an alert through, are explained
+    # in the twin file. vmalert refuses its whole rule configuration, every
+    # VMRule it selects included, when a group holds a recording rule and the
+    # VMAlert sets no `remoteWrite`: a reload is rejected and a restart fails.
+    # Set `spec.remoteWrite` on the VMAlert before applying this file.
+    - name: perf-sentinel-untraced-services
+      interval: 2m
+      rules:
+        - record: perf_sentinel:untraced_services:1d
+          expr: |
+            count by (service) (
+              label_replace(
+                max by (namespace, pod) (kube_pod_container_info{container="app", pod=~".+-[^-]+-[^-]+"}),
+                "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            )
+            unless on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on ()
+            (max(perf_sentinel_service_io_ops_overflow_total) > 0)
     - name: perf-sentinel-incidents
       rules:
         - alert: PerfSentinelOomKill
@@ -29,8 +51,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           labels:
             severity: info
             perf_sentinel_kind: oom_kill
@@ -45,8 +67,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           labels:
             severity: info
             perf_sentinel_kind: restart
@@ -69,8 +91,8 @@ spec:
                 > 0.9
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           for: 5m
           labels:
             severity: info
@@ -101,8 +123,8 @@ spec:
                 max by (namespace, pod) (kube_pod_container_info{container="app"}),
                 "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             )
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           labels:
             severity: info
             perf_sentinel_kind: deploy

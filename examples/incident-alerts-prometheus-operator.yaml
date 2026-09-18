@@ -31,12 +31,14 @@
 #
 #   1. `container="app"` below selects the workloads perf-sentinel traces.
 #      Replace it with your own container name, or with a namespace or label
-#      selector if your fleet does not share one. Each rule then keeps only
-#      the services the daemon ingested over the last day, the `and on
-#      (service)` join on perf_sentinel_service_io_ops_total, so a workload it
-#      does not trace raises no empty incident. When your `grouping` is the
-#      namespace, joining `on (namespace, service)` after a `label_replace`
-#      of `grouping` into `namespace` is tighter.
+#      selector if your fleet does not share one. Each rule then drops the
+#      workloads the daemon has not ingested over the last day, the `unless
+#      on (service)` join on the perf_sentinel:untraced_services:1d recording
+#      rule below, so a workload it does not trace raises no empty incident.
+#      That rule repeats this selector and the regex of assumption 2. When
+#      your `grouping` is the namespace, recording `by (namespace, service)`,
+#      with a `label_replace` of `grouping` into `namespace` on the ingested
+#      side, and joining `unless on (namespace, service)`, is tighter.
 #   2. The Deployment name equals the OTLP `service.name`, and a pod is named
 #      `<deployment>-<replicaset hash>-<pod hash>`, so the service is the pod
 #      name minus its last two segments. That is what the `label_replace`
@@ -68,6 +70,35 @@ metadata:
     release: kube-prometheus-stack
 spec:
   groups:
+    # The workloads the container selector matches that the daemon has not
+    # ingested over the last day, which every rule below drops. Recorded every
+    # two minutes rather than read inside each rule: a one-day range over every
+    # perf_sentinel_service_io_ops_total series is the costliest read of this
+    # file. Whatever the record lacks lets an alert through, so it never costs
+    # an incident:
+    #   - before its first evaluation, or after a gap in it, it is empty and
+    #     every alert passes.
+    #   - an alert without `service` never matches it, so a pod name that does
+    #     not fit assumption 2 still reaches the daemon, which refuses it and
+    #     counts it. The pod selector repeats the regex for that reason: an
+    #     unmatched pod would otherwise list an empty service.
+    #   - it is empty once perf_sentinel_service_io_ops_overflow_total is
+    #     nonzero. Past its 1024-service cap the daemon gives a later service
+    #     no series, so it can no longer say which workloads it ingests.
+    - name: perf-sentinel-untraced-services
+      interval: 2m
+      rules:
+        - record: perf_sentinel:untraced_services:1d
+          expr: |
+            count by (service) (
+              label_replace(
+                max by (namespace, pod) (kube_pod_container_info{container="app", pod=~".+-[^-]+-[^-]+"}),
+                "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            )
+            unless on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on ()
+            (max(perf_sentinel_service_io_ops_overflow_total) > 0)
     - name: perf-sentinel-incidents
       rules:
         # The crash. `increase() > 0` over five minutes is an event, so no
@@ -82,8 +113,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           labels:
             # `severity: info` is what keeps these off the routes that page a
             # human. It is not what routes them here, see the receiver below.
@@ -105,8 +136,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           labels:
             severity: info
             perf_sentinel_kind: restart
@@ -142,8 +173,8 @@ spec:
                 > 0.9
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           for: 5m
           labels:
             severity: info
@@ -189,8 +220,8 @@ spec:
                 max by (namespace, pod) (kube_pod_container_info{container="app"}),
                 "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             )
-            and on (service)
-            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
+            unless on (service)
+            perf_sentinel:untraced_services:1d
           labels:
             severity: info
             perf_sentinel_kind: deploy
