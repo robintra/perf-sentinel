@@ -16,7 +16,10 @@ type PoolKey<'a> = (&'a str, Option<(&'a str, &'a str)>);
 /// Groups SQL spans by service and effective grouping, then computes peak
 /// concurrency via a sweep line. If peak concurrent spans >= `threshold`,
 /// emits a finding.
-// TODO: contention across concurrent requests (one connection per trace, many traces) is invisible here; a cross-trace pass over each batch's SQL spans per service would catch it.
+///
+/// Per trace by design: a pool belongs to one process and no ingested
+/// attribute names it, so a sum across traces would add up the pools of
+/// every replica of the service.
 #[must_use]
 pub fn detect_pool_saturation(trace: &Trace, threshold: u32) -> Vec<Finding> {
     saturated_services(trace, threshold)

@@ -759,7 +759,7 @@ The pool saturation detector uses a heuristic based on SQL span timestamp overla
 Limitations:
 - Timestamps from distributed tracing may have clock skew, leading to imprecise overlap detection.
 - The detector cannot distinguish between actual pool contention and intentional parallel queries (e.g., scatter-gather patterns).
-- For precise monitoring, instrument your application with OTel connection pool metrics (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
+- The peak is measured within one trace. Many concurrent requests that each hold one connection go undetected, since spans carry no process identity and a sum across traces would add up the pools of every replica. For that contention and for precise monitoring, instrument your application with OTel connection pool metrics (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
 
 Pool saturation findings are NOT counted as avoidable I/O.
 
