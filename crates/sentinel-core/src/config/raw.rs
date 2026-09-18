@@ -78,6 +78,7 @@ struct DetectionSection {
     n_plus_one_min_occurrences: Option<u32>,
     slow_query_threshold_ms: Option<u64>,
     slow_query_min_occurrences: Option<u32>,
+    slow_query_window_minutes: Option<u64>,
     max_fanout: Option<u32>,
     chatty_service_min_calls: Option<u32>,
     pool_saturation_concurrent_threshold: Option<u32>,
@@ -382,6 +383,10 @@ impl From<RawConfig> for Config {
                     .detection
                     .slow_query_min_occurrences
                     .unwrap_or(detection_defaults.slow_query_min_occurrences),
+                slow_query_window_minutes: raw
+                    .detection
+                    .slow_query_window_minutes
+                    .unwrap_or(detection_defaults.slow_query_window_minutes),
                 max_fanout: raw
                     .detection
                     .max_fanout

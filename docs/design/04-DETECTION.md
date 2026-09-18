@@ -243,11 +243,26 @@ Like slow findings, fanout findings have `green_impact.estimated_extra_io_ops = 
 
 ## Cross-trace slow percentiles
 
-In batch mode, `detect_slow_cross_trace` collects slow spans across all traces and computes p50/p95/p99 percentiles per normalized template. This complements the per-trace slow detection by identifying templates that are consistently slow across multiple requests.
+`detect_slow_cross_trace` collects slow spans across all traces of one batch (the whole input for `analyze`, one eviction batch in the daemon) and computes p50/p95/p99 percentiles per normalized template. This complements the per-trace slow detection by identifying templates that are consistently slow across multiple requests.
 
 - Only spans exceeding the threshold are collected (pre-filter for performance)
 - Only templates appearing in at least 2 distinct traces are reported (single-trace cases are handled by per-trace detection)
 - Percentile computation uses the nearest-rank method via `div_ceil`
+
+The daemon also counts slow spans across batches, see the next section.
+
+## Cross-batch slow window (daemon)
+
+The daemon analyzes eviction batches of about `trace_ttl_ms / 2`, so a template slow once every few minutes never gathers `slow_query_min_occurrences` spans in one batch. `daemon/slow_window.rs` keeps, on the analysis worker, a window of slow episodes per (event type, service, grouping, normalized template) key. `[detection] slow_query_window_minutes` (default 15, `0` disables, range 0-60) sets the window. `analyze` and the other batch commands never build it.
+
+- **Episodes.** Slow spans of one key less than max(60 s, 1.5 x `trace_ttl_ms`) apart count as one episode, which keeps the slowest span. An isolated slow span, or a short lock whose victims evict within one gap, stays one episode and only reaches the duration histogram.
+- **Suppression.** A slow span whose (type, template, grouping) already produced a slow finding in the same batch is not counted. The entry of its key loses its episodes and enters the cooldown, as if it had reported.
+- **Emission.** A key reports when a batch opens a fresh episode and the window holds at least `slow_query_min_occurrences` episodes from at least 2 distinct traces. Time is analysis time, not span timestamps.
+- **Cooldown.** After a report the key clears its episodes and stays silent for one window. A persisting problem reports again at its first new episode after the cooldown, once the window holds enough episodes.
+- **Shape.** The finding is built by the same function as a batch cross-trace slow finding: same type, severity rule, suggestion wording and signature, so it folds with them in the findings store. `pattern.occurrences` and the percentiles count episodes, one span (the slowest) per episode.
+- **Key cap.** At most 1024 keys are tracked. Slow spans of a new key past the cap are refused and counted in `perf_sentinel_slow_window_keys_refused_total`, with a warning logged once per process.
+- **Representative trace.** The slowest span may come from an earlier batch, whose trace the traces store did not retain, so `/api/explain` can miss that tree.
+- **Long locks.** Slowness lasting more than two gaps, for example a row lock held for several minutes on a low-traffic template, still reports: durations alone cannot tell a lock from a chronic problem. Set the window to `0` to turn the feature off.
 
 ## Chatty service detection
 

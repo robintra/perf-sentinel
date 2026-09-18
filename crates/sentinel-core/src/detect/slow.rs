@@ -129,9 +129,8 @@ pub(super) fn percentile_index(n: usize, p: usize) -> usize {
 /// the threshold. Only emits for templates that span at least 2 distinct traces
 /// (per-trace detection handles single-trace cases).
 ///
-/// This function is designed for batch mode where multiple traces are available
-/// simultaneously. In daemon/streaming mode, traces are processed individually
-/// or in small eviction batches, limiting cross-trace visibility.
+/// This function sees one batch. The daemon also counts slow episodes across
+/// its eviction batches in `daemon::slow_window`.
 #[must_use]
 pub fn detect_slow_cross_trace(
     traces: &[Trace],
@@ -187,7 +186,7 @@ pub fn detect_slow_cross_trace(
 /// Build a cross-trace slow finding from a group of entries for the same template.
 /// Returns `None` if the group doesn't meet the criteria (too few occurrences,
 /// single trace, or p99 below threshold).
-fn build_cross_trace_finding(
+pub(crate) fn build_cross_trace_finding(
     event_type: &EventType,
     template: &str,
     entries: &[(u64, &str, &str, &crate::event::SpanEvent)],

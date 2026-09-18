@@ -336,7 +336,20 @@ Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`
 
 ## Percentiles lents cross-trace
 
-En mode batch, `detect_slow_cross_trace` collecte les spans lents à travers toutes les traces et calcule les percentiles p50/p95/p99 par template normalisé. Seuls les templates apparaissant dans au moins 2 traces distinctes sont rapportés.
+`detect_slow_cross_trace` collecte les spans lents à travers toutes les traces d'un batch (toute l'entrée pour `analyze`, un batch d'éviction dans le daemon) et calcule les percentiles p50/p95/p99 par template normalisé. Seuls les templates apparaissant dans au moins 2 traces distinctes sont rapportés. Le daemon compte aussi les spans lents d'un batch à l'autre, voir la section suivante.
+
+## Fenêtre lente inter-batchs (daemon)
+
+Le daemon analyse des batchs d'éviction d'environ `trace_ttl_ms / 2`, donc un template lent une fois toutes les quelques minutes ne réunit jamais `slow_query_min_occurrences` spans dans un même batch. `daemon/slow_window.rs` tient, sur le worker d'analyse, une fenêtre d'épisodes lents par clé (type d'événement, service, grouping, template normalisé). `[detection] slow_query_window_minutes` (15 par défaut, `0` désactive, plage 0-60) fixe la fenêtre. `analyze` et les autres commandes batch ne la construisent jamais.
+
+- **Épisodes.** Les spans lents d'une clé espacés de moins de max(60 s, 1.5 x `trace_ttl_ms`) comptent pour un seul épisode, qui garde le span le plus lent. Un span lent isolé, ou un verrou bref dont les victimes sont évincées dans un même intervalle, reste un seul épisode et n'alimente que l'histogramme des durées.
+- **Suppression.** Un span lent dont le triplet (type, template, grouping) a déjà produit un finding lent dans le même batch n'est pas compté. L'entrée de sa clé perd ses épisodes et entre en période de silence, comme si elle avait été rapportée.
+- **Émission.** Une clé est rapportée quand un batch ouvre un nouvel épisode et que la fenêtre contient au moins `slow_query_min_occurrences` épisodes issus d'au moins 2 traces distinctes. Le temps est celui de l'analyse, pas l'horodatage des spans.
+- **Période de silence.** Après un rapport, la clé vide ses épisodes et reste muette pendant une fenêtre. Un problème persistant est de nouveau rapporté à son premier nouvel épisode après cette période, dès que la fenêtre contient assez d'épisodes.
+- **Forme.** Le finding est construit par la même fonction qu'un finding lent cross-trace de batch : même type, même règle de sévérité, même libellé de suggestion et même signature, il se replie donc avec eux dans le findings store. `pattern.occurrences` et les percentiles comptent des épisodes, un span (le plus lent) par épisode.
+- **Plafond de clés.** Au plus 1024 clés sont suivies. Les spans lents d'une nouvelle clé au-delà du plafond sont refusés et comptés dans `perf_sentinel_slow_window_keys_refused_total`, avec un avertissement journalisé une seule fois par processus.
+- **Trace représentative.** Le span le plus lent peut venir d'un batch antérieur, dont le traces store n'a pas conservé la trace, donc `/api/explain` peut ne pas trouver cet arbre.
+- **Verrous longs.** Une lenteur qui dure plus de deux intervalles, par exemple un verrou de ligne tenu plusieurs minutes sur un template peu sollicité, est quand même rapportée : les durées seules ne distinguent pas un verrou d'un problème chronique. Mettre la fenêtre à `0` désactive la fonctionnalité.
 
 ## Orchestration de la détection (mise à jour)
 

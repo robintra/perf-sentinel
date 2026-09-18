@@ -20,6 +20,7 @@ mod json_socket;
 mod listeners;
 mod mem_pressure;
 mod sampling;
+mod slow_window;
 mod task_guard;
 mod tls;
 
@@ -432,6 +433,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             green_enabled: config.green.enabled,
             sampling_rate: config.daemon.sampling_rate,
             evict_ms: config.daemon.trace_ttl_ms / 2,
+            slow_window_ms: config
+                .detection
+                .slow_query_window_minutes
+                .saturating_mul(60_000),
             confidence: config.confidence(),
             analysis_queue_capacity: config.daemon.analysis_queue_capacity,
             per_service_labels: config.daemon.per_service_labels,
