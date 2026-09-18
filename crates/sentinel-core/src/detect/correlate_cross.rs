@@ -193,15 +193,19 @@ impl HalfWindowCount {
         }
     }
 
-    fn add(&mut self, now_idx: u64) {
-        if now_idx != self.idx {
-            self.prev = if now_idx.saturating_sub(self.idx) == 1 {
-                self.cur
-            } else {
-                0
-            };
+    /// Count one at grid index `idx`; indices older than the previous bucket are dropped.
+    fn add_at(&mut self, idx: u64) {
+        if idx + 1 == self.idx {
+            self.prev = self.prev.saturating_add(1);
+            return;
+        }
+        if idx < self.idx {
+            return;
+        }
+        if idx != self.idx {
+            self.prev = if idx - self.idx == 1 { self.cur } else { 0 };
             self.cur = 0;
-            self.idx = now_idx;
+            self.idx = idx;
         }
         self.cur = self.cur.saturating_add(1);
     }
@@ -350,6 +354,8 @@ struct FindingOccurrence {
     event_ms: u64,
     /// Daemon time at ingest, the eviction clock.
     ingest_ms: u64,
+    /// Grid index at ingest, the bucket its pairs are credited to as a source.
+    ingest_idx: u64,
     /// Capped trace id, the sample when this occurrence is a target.
     trace_id: Box<str>,
     /// Targets this occurrence already counted for as a source.
@@ -360,7 +366,7 @@ struct FindingOccurrence {
 ///
 /// Keeps the findings of the last `lag_threshold_ms + ingest_skew_ms` of
 /// ingest time for pairing, and window-scoped counters for reporting,
-/// so memory does not grow with `window_ms`.
+/// so memory grows with distinct endpoints in `window_ms`, not occurrences.
 pub struct CrossTraceCorrelator {
     occurrences: VecDeque<FindingOccurrence>,
     pair_counts: HashMap<PairKey, PairState>,
@@ -414,6 +420,7 @@ impl CrossTraceCorrelator {
                 event_ms: crate::time::parse_iso8601_utc_to_ms(&finding.first_timestamp)
                     .unwrap_or(now_ms),
                 ingest_ms: now_ms,
+                ingest_idx: self.now_idx,
                 trace_id: truncate_to_utf8_boundary(&finding.trace_id, MAX_SAMPLE_TRACE_ID_BYTES)
                     .into(),
                 counted_targets: Vec::new(),
@@ -452,7 +459,7 @@ impl CrossTraceCorrelator {
         self.endpoints
             .entry(Arc::clone(&endpoint))
             .or_default()
-            .add(self.now_idx);
+            .add_at(self.now_idx);
         endpoint
     }
 
@@ -500,7 +507,6 @@ impl CrossTraceCorrelator {
     ) {
         let lag_threshold_ms = self.config.lag_threshold_ms;
         let max_tracked_pairs = self.config.max_tracked_pairs;
-        let now_idx = self.now_idx;
         // ponytail: linear scan over the horizon; index by event-time slot if trace_ttl_ms reaches tens of minutes
         for occ in &mut self.occurrences {
             let delta = occ.event_ms.abs_diff(incoming.event_ms);
@@ -539,7 +545,8 @@ impl CrossTraceCorrelator {
                 continue;
             }
             source.counted_targets.push(Arc::clone(&target.endpoint));
-            state.co.add(now_idx);
+            // Same bucket as the source's total, so confidence compares like with like.
+            state.co.add_at(source.ingest_idx);
             // Exact below 2^53 ms, far beyond any lag threshold.
             #[allow(clippy::cast_precision_loss)]
             let lag = delta as f64;
@@ -618,8 +625,7 @@ impl CrossTraceCorrelator {
                     .get(key.source.as_ref())
                     .map(|count| count.total(self.now_idx))
                     .filter(|&total| total > 0)?;
-                // A pair can count up to one horizon after its source, so
-                // across a grid step it may briefly exceed the total.
+                // Defensive: per bucket a pair never outcounts its source.
                 let confidence = (f64::from(co_occurrences) / f64::from(source_total)).min(1.0);
                 if confidence < self.config.min_confidence {
                     return None;
@@ -1622,8 +1628,7 @@ mod tests {
 
     #[test]
     fn missing_or_zero_source_total_drops_correlation() {
-        // Zero: the pair counts on B's ingest, one horizon after A's
-        // count, which has already left the 1 s window.
+        // The pair counts in A's bucket, so it leaves the 1 s window with A's total.
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
             window_ms: 1_000,
             lag_threshold_ms: 5_000,
@@ -1643,18 +1648,63 @@ mod tests {
         let _ = correlator.ingest(&[fa], 1_000);
         let _ = correlator.ingest(&[fb], 55_900);
         let state = correlator.pair_counts.values().next().expect("pair");
-        assert_eq!(state.co.total(correlator.now_idx), 1);
+        assert_eq!(state.co.total(correlator.now_idx), 0);
         assert!(correlator.active_correlations().is_empty());
 
-        // Missing: the same shape is reported until the source leaves the registry.
+        // Zero, then missing: reported until the source's count or entry goes.
         let mut correlator = event_time_correlator();
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
         let _ = ingest_at(&mut correlator, &[fa], 1_000);
         let _ = ingest_at(&mut correlator, &[fb], 1_500);
         assert_eq!(correlator.active_correlations().len(), 1);
+        for (ep, count) in &mut correlator.endpoints {
+            if ep.service == "svc-a" {
+                *count = HalfWindowCount::default();
+            }
+        }
+        assert!(correlator.active_correlations().is_empty());
         correlator.endpoints.retain(|ep, _| ep.service != "svc-a");
         assert!(correlator.active_correlations().is_empty());
+    }
+
+    #[test]
+    fn pair_counts_in_the_source_bucket_across_a_grid_step() {
+        // window_minutes = 1: 30 s buckets, reach 5 s + 2 x 30 s TTL.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            window_ms: 60_000,
+            lag_threshold_ms: 5_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ingest_skew_ms: 60_000,
+            ..Default::default()
+        });
+        let a = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let b = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        let noise = make_finding("svc-c", FindingType::SlowSql, "other");
+        // (finding, event ms, ingest ms): A1 in bucket 1, its target B1 50 s later in bucket 2.
+        let arrivals = [
+            (&a, 34_000, 35_000),
+            (&a, 64_000, 65_000),
+            (&b, 65_000, 66_000),
+            (&a, 75_000, 76_000),
+            (&b, 36_000, 85_000),
+            (&noise, 90_000, 90_000),
+        ];
+        for (f, event, ingest) in arrivals {
+            let _ = correlator.ingest(&[at(f.clone(), event)], ingest);
+        }
+        assert_eq!(correlator.now_idx, 3);
+
+        // Bucket 2 only: sources A2 and A3, of which A2 paired.
+        let correlations = correlator.active_correlations();
+        let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+        assert_eq!(pair.co_occurrence_count, 1);
+        assert_eq!(pair.source_total_occurrences, 2);
+        let expected =
+            f64::from(pair.co_occurrence_count) / f64::from(pair.source_total_occurrences);
+        assert!((pair.confidence - expected).abs() < f64::EPSILON);
+        assert!((pair.confidence - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1691,7 +1741,7 @@ mod tests {
             let source = endpoint(name);
             let mut state = PairState::new(0, &source, &target);
             for _ in 0..count {
-                state.co.add(10);
+                state.co.add_at(10);
             }
             state.last_seen_ms = last_seen_ms;
             correlator.pair_counts.insert(

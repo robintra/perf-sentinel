@@ -394,13 +394,13 @@ pub struct CrossTraceCorrelator {
 }
 ```
 
-- `occurrences` : l'horizon d'appariement, un `VecDeque` dans l'ordre d'ingestion. Chaque entrée porte l'endpoint interné, `event_ms`, `ingest_ms`, un trace id plafonné et `counted_targets`, les cibles pour lesquelles cette occurrence a déjà compté comme source. Une entrée sort dès que `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. L'horizon ne dépend que du délai et du décalage, jamais de `window_ms` : une fenêtre de 24 h garde le même deque qu'une fenêtre de 10 min (environ une minute de findings).
+- `occurrences` : l'horizon d'appariement, un `VecDeque` dans l'ordre d'ingestion. Chaque entrée porte l'endpoint interné, `event_ms`, `ingest_ms`, l'indice de grille à l'ingestion, un trace id plafonné et `counted_targets`, les cibles pour lesquelles cette occurrence a déjà compté comme source. Une entrée sort dès que `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. L'horizon ne dépend que du délai et du décalage, jamais de `window_ms` : une fenêtre de 24 h garde le même deque qu'une fenêtre de 10 min. Le décalage vaut `2 x trace_ttl_ms`, donc le deque et le parcours que chaque finding en fait croissent avec le TTL (environ une minute de findings avec les 30 s par défaut).
 - `endpoints` : le registre des endpoints. Chaque `CorrelationEndpoint` distinct (type de finding, service, template, regroupement) est stocké une seule fois derrière un `Arc`, et le deque, les clés de paire et `counted_targets` partagent cette allocation : un long template SQL n'est gardé qu'une fois, quel que soit le nombre de findings qui le portent. La valeur est le compteur d'occurrences de l'endpoint, dénominateur de la confiance.
 - `pair_counts` : indexé par `PairKey` (source, cible), deux `Arc` internés. Chaque `PairState` contient le compteur de co-occurrences, un reservoir borné de délais, un compteur `total_observations`, un état PRNG `SplitMix64`, `first_seen_ms`/`last_seen_ms` sur l'horloge d'ingestion et le dernier trace id côté cible.
 
 ### Grille globale en demi-fenêtres
 
-Les deux compteurs, co-occurrences de la paire et occurrences de l'endpoint, sont un `HalfWindowCount { idx, cur, prev }` sur une grille unique partagée par tout le corrélateur : `idx = now_ms / (window_ms / 2)`. Un compteur vaut `prev + cur` dans son propre seau, `cur` un pas plus tard et 0 au-delà : il couvre entre une demi-fenêtre et une fenêtre, jamais plus. Numérateur et dénominateur reposent sur les mêmes seaux et couvrent la même période. Les lectures sont paresseuses : aucune rotation des compteurs à chaque tick, et un compteur que plus rien ne touche vaut 0 une fenêtre après son dernier incrément. `now_idx` ne décroît jamais, donc une horloge murale qui recule ne remet pas les compteurs à zéro.
+Les deux compteurs, co-occurrences de la paire et occurrences de l'endpoint, sont un `HalfWindowCount { idx, cur, prev }` sur une grille unique partagée par tout le corrélateur : `idx = now_ms / (window_ms / 2)`. Un compteur vaut `prev + cur` dans son propre seau, `cur` un pas plus tard et 0 au-delà : il couvre entre une demi-fenêtre et une fenêtre, jamais plus. Numérateur et dénominateur reposent sur les mêmes seaux et couvrent la même période : une co-occurrence est créditée au seau où son occurrence source a été comptée, pas au seau de l'ingestion la plus tardive. Un crédit un seau derrière celui du compteur va dans `prev`, un crédit plus ancien est abandonné. Les lectures sont paresseuses : aucune rotation des compteurs à chaque tick, et un compteur que plus rien ne touche vaut 0 une fenêtre après son dernier incrément. `now_idx` ne décroît jamais, donc une horloge murale qui recule ne remet pas les compteurs à zéro.
 
 ### Décalage d'ingestion
 
@@ -415,7 +415,7 @@ La méthode `ingest()` est appelée par `process_traces` une fois les findings p
 3. **Nettoyer les paires obsolètes.** Une passe `HashMap::retain` retire les paires dont `last_seen_ms` est plus ancien que `window_ms`.
 4. **Nettoyer le registre.** Une fois par pas de grille, retirer les endpoints dont le compteur vaut 0 et qu'aucune paire ni occurrence de l'horizon ne retient plus (`Arc::strong_count == 1`).
 5. **Apparier chaque finding.** Interner son endpoint et le compter sur la grille, puis parcourir tout l'horizon. Une occurrence s'apparie quand son temps d'événement est à moins de `lag_threshold_ms`, qu'il s'agit d'un autre endpoint d'un autre service, et que les deux partagent la même clé et la même valeur de regroupement. L'événement le plus ancien est la **source** et le plus récent la **cible** ; à temps d'événement égal, l'arrivée la plus ancienne reste la source. Le délai est l'écart en temps d'événement. Le finding est ensuite ajouté au deque, donc les findings d'un même lot s'apparient aussi entre eux.
-6. **Compter une fois par occurrence source.** Chaque correspondance rafraîchit `last_seen_ms` et le trace id d'exemple (celui de la cible). Le compteur de co-occurrences et le reservoir de délais ne bougent que si l'occurrence source n'a pas encore compté pour cet endpoint cible, ce que suit le `counted_targets` de la source. Une occurrence source suivie de trois cibles compte une fois, et le résultat ne dépend pas de l'ordre d'arrivée des quatre findings.
+6. **Compter une fois par occurrence source.** Chaque correspondance rafraîchit `last_seen_ms` et le trace id d'exemple (celui de la cible). Le compteur de co-occurrences, crédité à l'indice de grille de l'occurrence source, et le reservoir de délais ne bougent que si l'occurrence source n'a pas encore compté pour cet endpoint cible, ce que suit le `counted_targets` de la source. Une occurrence source suivie de trois cibles compte une fois, et le résultat ne dépend pas de l'ordre d'arrivée des quatre findings.
 7. **Appliquer le plafond de paires.** Une nouvelle paire est refusée tant que la map est à `max_tracked_pairs` (défaut 10 000). Quand un lot a subi des refus, la map est ramenée à 90 % du plafond en une passe : les paires sont classées par `(compteur de co-occurrences fenêtré, last_seen_ms)` croissant, donc les compteurs les plus bas partent d'abord et, à compteur égal, les plus anciennes. Le seuil vient de `select_nth_unstable` sur les tuples de rang, donc seules les clés retirées sont clonées.
 
 La valeur de retour est le nombre de paires perdues au plafond dans ce lot (refus plus évictions), qui alimente `perf_sentinel_correlator_pairs_evicted_total`.
@@ -426,7 +426,7 @@ Pour chaque paire, avec tous les compteurs lus à `now_idx` :
 
 - `co_occurrence_count` est le compteur fenêtré de la paire. Les paires sous `min_co_occurrences` (défaut 5) sont écartées.
 - `source_total_occurrences` est le compteur fenêtré de l'endpoint source. Une source absente du registre ou à 0 n'offre rien pour mesurer la paire, et la paire est écartée.
-- `confidence = co_occurrence_count / source_total_occurrences`, plafonnée à 1. Une paire compte à l'ingestion de son finding le plus tardif, jusqu'à un horizon après le comptage de sa source, donc au passage d'un pas de grille elle peut brièvement dépasser le total ; le plafond couvre ce cas. Les paires sous `min_confidence` (défaut 0.7) sont écartées.
+- `confidence = co_occurrence_count / source_total_occurrences`. Chaque co-occurrence est dans le seau de son occurrence source et compte une fois par occurrence source, donc le ratio reste dans `[0, 1]` ; le plafond à 1 n'est qu'une précaution. Les paires sous `min_confidence` (défaut 0.7) sont écartées.
 
 `median_lag_ms` est la médiane du reservoir, un délai en temps d'événement. `first_seen` et `last_seen` sont sur l'horloge d'ingestion.
 
@@ -462,7 +462,7 @@ Deux N+1 sur le même service mais avec des templates différents sont donc des 
 ### Cap mémoire
 
 - **Deque d'horizon** : environ `(lag_threshold_ms + ingest_skew_ms) x findings par seconde` entrées d'une centaine d'octets, quelle que soit `window_ms`.
-- **Registre des endpoints** : une entrée par endpoint distinct vu dans la fenêtre, template compris, nettoyé une fois par pas de grille.
+- **Registre des endpoints** : une entrée par endpoint distinct vu dans la fenêtre, template compris, nettoyé une fois par pas de grille. Sans plafond : il croît avec le nombre d'endpoints distincts, donc des templates mal normalisés restent pendant toute la fenêtre.
 - **Paires** : au plus `max_tracked_pairs`, chacune bien sous 1 Ko avec le reservoir de 64 échantillons.
 - **CPU** : un parcours de l'horizon par finding entrant, aucune passe par tick sur les paires.
 
