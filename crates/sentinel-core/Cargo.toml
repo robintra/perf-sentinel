@@ -39,7 +39,7 @@ serde_path_to_error = "0.1.20"
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 tracing = "0.1.44"
 thiserror = "2.0.20"
-toml = "1.1.5"
+toml = "1.1.6"
 regex = "1.13.1"
 tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util", "fs"] }
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus

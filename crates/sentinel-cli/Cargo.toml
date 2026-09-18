@@ -33,8 +33,8 @@ jaeger-query = ["perf-sentinel-core/jaeger-query"]
 
 [dependencies]
 perf-sentinel-core = { version = "0.22.2", path = "../sentinel-core" }
-clap = { version = "4.6.6", features = ["derive", "env"] }
-clap_complete = "4.6.9"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+clap_complete = "4.6.11"
 clap_mangen = "0.3.3"
 tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
@@ -64,7 +64,7 @@ rpassword = { version = "7.5.4", optional = true }
 # Synchronous HTTP client used exclusively by `verify-hash --url`.
 # Sync (not tokio), small dep graph, audited (Cure53 2021). The default
 # `rustls` feature pulls in TLS support; no native-tls fallback.
-ureq = { version = "3.4.1", default-features = false, features = ["rustls", "json"] }
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"
