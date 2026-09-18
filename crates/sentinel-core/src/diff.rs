@@ -311,8 +311,19 @@ fn pairs_for_key(
 
 /// The stable code anchor of a finding, when its instrumentation emitted
 /// one: `(filepath, function)` from the `OTel` `code.*` span attributes.
-// TODO: structural findings (serialized, fan-out, chatty, pool saturation) anchor on a representative first call, so two different patterns starting with the same call can pair; exclude them here.
+/// `None` for the structural types, whose location is a representative
+/// call that two different patterns can share. A lone candidate per side
+/// still pairs directly in [`pairs_for_key`].
 fn code_anchor(finding: &Finding) -> Option<(String, String)> {
+    if matches!(
+        finding.finding_type,
+        FindingType::SerializedCalls
+            | FindingType::ExcessiveFanout
+            | FindingType::ChattyService
+            | FindingType::PoolSaturation
+    ) {
+        return None;
+    }
     let location = finding.code_location.as_ref()?;
     Some((location.filepath.clone()?, location.function.clone()?))
 }
@@ -1047,11 +1058,12 @@ mod tests {
         assert_eq!(report.new_findings.len(), 2);
     }
 
-    #[test]
-    fn code_anchor_arbitrates_ambiguous_mutations() {
+    /// Two template mutations under one reduced key, each pair sharing
+    /// a distinct code anchor.
+    fn anchored_two_by_two(ft: &FindingType) -> DiffReport {
         let mk = |template: &str| {
             finding(
-                FindingType::NPlusOneSql,
+                ft.clone(),
                 Severity::Warning,
                 "order-svc",
                 "GET /api/orders",
@@ -1088,13 +1100,34 @@ mod tests {
             ],
             vec![],
         );
-        let report = diff_runs(&before, &after);
+        diff_runs(&before, &after)
+    }
+
+    #[test]
+    fn code_anchor_arbitrates_ambiguous_mutations() {
+        let report = anchored_two_by_two(&FindingType::NPlusOneSql);
 
         assert!(report.new_findings.is_empty());
         assert!(report.resolved_findings.is_empty());
         assert_eq!(report.mutated_findings.len(), 2);
         for pair in &report.mutated_findings {
             assert_eq!(pair.before.code_location, pair.after.code_location);
+        }
+    }
+
+    #[test]
+    fn structural_findings_never_pair_by_code_anchor() {
+        for ft in [
+            FindingType::SerializedCalls,
+            FindingType::ExcessiveFanout,
+            FindingType::ChattyService,
+            FindingType::PoolSaturation,
+        ] {
+            let report = anchored_two_by_two(&ft);
+
+            assert!(report.mutated_findings.is_empty(), "{ft:?}");
+            assert_eq!(report.resolved_findings.len(), 2, "{ft:?}");
+            assert_eq!(report.new_findings.len(), 2, "{ft:?}");
         }
     }
 
