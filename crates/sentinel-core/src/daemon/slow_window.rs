@@ -100,7 +100,8 @@ impl SlowWindowTracker {
             );
             if suppressed.contains(&triple) {
                 // Already in a batch finding: count it as a report, not an episode.
-                if let Some(entry) = self.entries.get_mut(&key) {
+                if self.entries.contains_key(&key) || self.entries.len() < MAX_SLOW_WINDOW_KEYS {
+                    let entry = self.entries.entry(key).or_default();
                     entry.episodes.clear();
                     entry.reported_at_ms = Some(now_ms);
                 }
@@ -378,6 +379,18 @@ mod tests {
         for entry in win.entries.values() {
             assert!(entry.episodes.is_empty());
             assert_eq!(entry.reported_at_ms, Some(T0 + 2 * MIN));
+        }
+    }
+
+    #[test]
+    fn batch_report_of_an_untracked_key_starts_the_cooldown() {
+        let mut win = tracker();
+        let batch = [slow_a("a1"), slow_a("a2"), slow_a("a3")];
+        let batch_findings = crate::detect::slow::detect_slow_cross_trace(&batch, 500, 3);
+        assert_eq!(batch_findings.len(), 1);
+        assert!(win.observe(&batch, &batch_findings, T0).0.is_empty());
+        for (m, id) in [(2, "b"), (4, "c"), (6, "d")] {
+            assert!(emitted(&mut win, &[slow_a(id)], T0 + m * MIN).is_empty());
         }
     }
 
