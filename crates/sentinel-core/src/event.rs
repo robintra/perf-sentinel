@@ -465,6 +465,16 @@ impl SpanEvent {
             namespace: self.code_namespace.as_deref().map(String::from),
         })
     }
+
+    /// [`Self::instrumentation_scopes`] as the owned strings a
+    /// [`crate::detect::Finding`] carries.
+    #[must_use]
+    pub(crate) fn scope_names(&self) -> Vec<String> {
+        self.instrumentation_scopes
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
 }
 
 #[cfg(test)]

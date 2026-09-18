@@ -115,12 +115,7 @@ fn chatty_finding(trace: &Trace, http_indices: &[usize], min_calls: u32) -> Opti
         classification_method: None,
         // Representative call: the first outbound HTTP call.
         code_location: first.event.code_location(),
-        instrumentation_scopes: first
-            .event
-            .instrumentation_scopes
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        instrumentation_scopes: first.event.scope_names(),
         signature: String::new(),
         suggested_fix: None,
     })

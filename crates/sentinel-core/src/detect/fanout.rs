@@ -113,11 +113,7 @@ fn fanout_impl<'a>(
                 classification_method: None,
                 // Representative call: the first child.
                 code_location: first_child.code_location(),
-                instrumentation_scopes: first_child
-                    .instrumentation_scopes
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
+                instrumentation_scopes: first_child.scope_names(),
                 suggested_fix: None,
                 signature: String::new(),
             },

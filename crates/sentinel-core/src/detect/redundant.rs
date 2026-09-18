@@ -143,12 +143,7 @@ fn redundant_impl<'a>(
             confidence: Confidence::default(),
             classification_method: None,
             code_location: first.event.code_location(),
-            instrumentation_scopes: first
-                .event
-                .instrumentation_scopes
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
+            instrumentation_scopes: first.event.scope_names(),
             suggested_fix: None,
             signature: String::new(),
         };
