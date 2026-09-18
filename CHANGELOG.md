@@ -7,6 +7,11 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - Both Grafana dashboards show times in the viewer's browser time zone. The overview dashboard pinned `utc`, and the findings dashboard, which set nothing, inherited it through the time-keeping dashboard link, so axes, `Last seen`, `First seen` and incident times read in UTC. Dashboard `version` 10 for the overview and 7 for the findings one.
+- The cross-trace correlator's memory no longer scales with `[daemon.correlation] window_minutes`, so a 1440-minute window is practical. Pairing keeps only the findings analysed in the last `lag_threshold_ms + 2 x trace_ttl_ms`, about a minute of traffic, and the window only sets the span of the per-pair and per-endpoint counters. Each distinct endpoint, template included, is stored once and shared by the pairing deque and every pair that names it. `window_minutes` is validated between 1 and 10080 at config load. The median lag reservoir keeps 64 samples per pair instead of 256, and when the `max_tracked_pairs` cap trips, eviction drops the lowest-count pairs first and the stalest among equal counts. `docs/CONFIGURATION.md`, `docs/design/04-DETECTION.md`, `docs/QUERY-API.md`, `docs/LIMITATIONS.md` and their French mirrors describe the correlator as it runs.
+
+### Fixed
+
+- Cross-trace correlation paired findings by the analysis tick that produced them instead of by their own timestamps. Every finding of a tick was stamped with the tick time, so only findings analysed in the same tick could pair, `median_lag_ms` was always 0, and which side was `source` and which `target` followed the order of the batch. Findings now pair on their `first_timestamp`, across ticks, the earlier one is the source and the lag is the gap between the two. Pair counts and source totals were counted over windows out of phase with each other, and a source that had left the window counted as 1, which inflated `confidence`. Both counts now share the same half-window buckets, and a pair whose source has no occurrence left in the window is not reported.
 
 ## [0.22.2] - 2026-09-15
 

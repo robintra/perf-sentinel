@@ -740,14 +740,14 @@ entrée contient :
 
 | Champ                      | Type    | Description                                                                       |
 |----------------------------|---------|-----------------------------------------------------------------------------------|
-| `source`                   | object  | Endpoint en tête : `{ finding_type, service, template }`                          |
-| `target`                   | object  | Endpoint en queue observé après `source` dans `lag_threshold_ms`                  |
+| `source`                   | object  | Endpoint en tête, le finding au timestamp de premier span le plus ancien : `{ finding_type, service, template }` |
+| `target`                   | object  | Endpoint en queue, dont le premier span a démarré après `source` dans `lag_threshold_ms` |
 | `co_occurrence_count`      | number  | Nombre de co-occurrences dans la fenêtre roulante                                 |
-| `source_total_occurrences` | number  | Occurrences totales de `source` dans la fenêtre roulante                          |
+| `source_total_occurrences` | number  | Occurrences totales de `source` sur les mêmes seaux de fenêtre que `co_occurrence_count` |
 | `confidence`               | number  | Ratio `co_occurrence_count / source_total_occurrences`                            |
-| `median_lag_ms`            | number  | Lag médian entre `source` et `target`                                             |
-| `first_seen`               | string  | Timestamp ISO 8601 de la première co-occurrence                                   |
-| `last_seen`                | string  | Timestamp ISO 8601 de la co-occurrence la plus récente                            |
+| `median_lag_ms`            | number  | Lag médian en temps d'événement entre les timestamps de premier span de `source` et `target` |
+| `first_seen`               | string  | Timestamp ISO 8601 de la première co-occurrence, sur l'horloge d'analyse du daemon |
+| `last_seen`                | string  | Timestamp ISO 8601 de la co-occurrence la plus récente, sur l'horloge d'analyse du daemon |
 | `sample_trace_id`          | string  | Optionnel : dernier id de trace côté cible, omis en batch et baseline rejouée     |
 
 **Exemple :**

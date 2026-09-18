@@ -1,9 +1,12 @@
 //! Cross-trace temporal correlation engine for daemon mode.
 //!
 //! Detects recurring co-occurrences between findings from different
-//! services/traces within a configurable time window.
+//! services/traces within a configurable time window. Findings pair on
+//! their own first-span timestamps (event time), while retention and
+//! eviction run on the daemon's ingest clock.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -27,6 +30,9 @@ pub struct CorrelationConfig {
     pub min_confidence: f64,
     /// Maximum tracked pairs to prevent unbounded memory growth.
     pub max_tracked_pairs: usize,
+    /// Extra ingest-time reach so findings analysed in different ticks
+    /// still pair. Derived by the daemon from `trace_ttl_ms`, not a TOML key.
+    pub ingest_skew_ms: u64,
 }
 
 impl Default for CorrelationConfig {
@@ -38,6 +44,7 @@ impl Default for CorrelationConfig {
             min_co_occurrences: 5,
             min_confidence: 0.7,
             max_tracked_pairs: 10_000,
+            ingest_skew_ms: 60_000,
         }
     }
 }
@@ -45,9 +52,9 @@ impl Default for CorrelationConfig {
 /// Counts pairs refused at the `max_tracked_pairs` cap within one batch.
 ///
 /// Deduplicating is the useful semantics, one refused pair counts once
-/// per batch however many window occurrences matched it, but the set has
-/// to be bounded: a batch on a wide topology walks the cross product of
-/// the incoming findings and the lag window, which reaches millions of
+/// per batch however many horizon occurrences matched it, but the set
+/// has to be bounded: a batch on a wide topology walks the cross product
+/// of the incoming findings and the horizon, which reaches millions of
 /// distinct keys and a table far larger than the map they were refused
 /// from. Past the ceiling the count degrades to occurrences, which
 /// overstates rather than hides.
@@ -100,18 +107,20 @@ pub struct CorrelationEndpoint {
 /// A detected temporal correlation between findings across services.
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct CrossTraceCorrelation {
-    /// Leading endpoint: the finding observed first in each co-occurrence.
+    /// Leading endpoint: the finding with the earlier first-span
+    /// timestamp in each co-occurrence.
     pub source: CorrelationEndpoint,
-    /// Trailing endpoint: the finding observed after the source within lag.
+    /// Trailing endpoint: the finding that started after the source
+    /// within the lag threshold.
     pub target: CorrelationEndpoint,
     /// Times source and target fired together over roughly the rolling
     /// window (half-window bucket estimate, not a lifetime counter).
     pub co_occurrence_count: u32,
-    /// Total occurrences of the source endpoint over the rolling window.
+    /// Total occurrences of the source endpoint over the same buckets.
     pub source_total_occurrences: u32,
     /// Ratio `co_occurrence_count / source_total_occurrences`, in `[0, 1]`.
     pub confidence: f64,
-    /// Median observed lag, in milliseconds, between source and target.
+    /// Median event-time lag, in milliseconds, between source and target.
     pub median_lag_ms: f64,
     /// ISO 8601 timestamp of the first observed co-occurrence.
     pub first_seen: String,
@@ -128,22 +137,18 @@ pub struct CrossTraceCorrelation {
 
 /// Key for a correlation pair in the internal map.
 ///
-/// Holds `Arc<CorrelationEndpoint>` on both sides so inner-loop cloning
-/// in `ingest()` is a pointer bump instead of 3 `String` clones per
-/// endpoint. The `Arc`s are not interned: `ingest` builds a fresh one
-/// per finding, so two findings on the same endpoint do not share.
+/// Both sides are interned `Arc`s from the endpoint registry, so cloning
+/// a key is two pointer bumps and equality short-circuits on the pointer.
 #[derive(Debug, Clone)]
 struct PairKey {
-    source: std::sync::Arc<CorrelationEndpoint>,
-    target: std::sync::Arc<CorrelationEndpoint>,
+    source: Arc<CorrelationEndpoint>,
+    target: Arc<CorrelationEndpoint>,
 }
 
 impl PartialEq for PairKey {
     fn eq(&self, other: &Self) -> bool {
-        // Compare Arc by pointer first (cheap, works for interned endpoints);
-        // fall back to value equality for cross-Arc pairs.
-        (std::sync::Arc::ptr_eq(&self.source, &other.source) || self.source == other.source)
-            && (std::sync::Arc::ptr_eq(&self.target, &other.target) || self.target == other.target)
+        (Arc::ptr_eq(&self.source, &other.source) || self.source == other.source)
+            && (Arc::ptr_eq(&self.target, &other.target) || self.target == other.target)
     }
 }
 
@@ -151,9 +156,7 @@ impl Eq for PairKey {}
 
 impl std::hash::Hash for PairKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash the CorrelationEndpoint values, not the Arc pointers, so
-        // two PairKeys with structurally equal but distinct-Arc endpoints
-        // hash to the same bucket.
+        // Hash the values, not the pointers, to stay consistent with `eq`.
         self.source.hash(state);
         self.target.hash(state);
     }
@@ -165,73 +168,78 @@ impl std::hash::Hash for PairKey {
 /// thousands of times only keeps `MAX_LAG_SAMPLES` values for median
 /// computation. The estimate is unbiased since every observed lag has
 /// equal probability of being in the reservoir.
-const MAX_LAG_SAMPLES: usize = 256;
+const MAX_LAG_SAMPLES: usize = 64;
 
-/// Defense-in-depth cap on `sample_trace_id` length, matching the
-/// upstream `sanitize_span_event` trace-id cap. Prevents a hostile or
-/// malformed upstream from inflating the daemon's exported report size
+/// Defense-in-depth cap on stored trace ids, matching the upstream
+/// `sanitize_span_event` trace-id cap. Prevents a hostile or malformed
+/// upstream from inflating the daemon's memory and exported report size
 /// via an arbitrarily long trace id.
 const MAX_SAMPLE_TRACE_ID_BYTES: usize = 128;
 
+/// Count over the last half-to-full window on the shared grid `now_ms / (window_ms / 2)`.
+#[derive(Debug, Default)]
+struct HalfWindowCount {
+    idx: u64,
+    cur: u32,
+    prev: u32,
+}
+
+impl HalfWindowCount {
+    fn total(&self, now_idx: u64) -> u32 {
+        match now_idx.saturating_sub(self.idx) {
+            0 => self.prev.saturating_add(self.cur),
+            1 => self.cur,
+            _ => 0,
+        }
+    }
+
+    fn add(&mut self, now_idx: u64) {
+        if now_idx != self.idx {
+            self.prev = if now_idx.saturating_sub(self.idx) == 1 {
+                self.cur
+            } else {
+                0
+            };
+            self.cur = 0;
+            self.idx = now_idx;
+        }
+        self.cur = self.cur.saturating_add(1);
+    }
+}
+
 /// Internal state for a correlation pair.
 struct PairState {
-    /// Co-occurrences in the current half-window bucket. The window
-    /// count is `count_prev + count_cur`, covering between half a
-    /// window and one window, never more: a conservative estimate that
-    /// keeps `confidence` in `[0, 1]`. A single lifetime counter kept
-    /// growing while `source_total` only spanned the window, so every
-    /// long-lived pair saturated at confidence 1.0.
-    count_cur: u32,
-    /// Co-occurrences in the previous half-window bucket.
-    count_prev: u32,
-    /// Start of the current bucket, advanced by [`Self::rotate_buckets`].
-    bucket_start_ms: u64,
-    /// Bounded reservoir of lag samples (max `MAX_LAG_SAMPLES`).
+    /// Co-occurrences on the global half-window grid.
+    co: HalfWindowCount,
+    /// Bounded reservoir of event-time lag samples (max `MAX_LAG_SAMPLES`).
     lags_ms: Vec<f64>,
     /// Total number of lag observations seen (independent of reservoir size).
     /// Used by Algorithm R to decide replacement probability.
     total_observations: u64,
-    /// `SplitMix64` PRNG state used to drive reservoir sampling. Seeded
-    /// from `first_seen_ms` when the pair is first inserted so different
-    /// pairs evolve independent sample streams.
+    /// `SplitMix64` PRNG state used to drive reservoir sampling.
     rng_state: u64,
+    /// Ingest time of the pair's creation.
     first_seen_ms: u64,
+    /// Ingest time of the latest match; drives the window TTL.
     last_seen_ms: u64,
-    /// Highest source occurrence already counted for this pair, so one
-    /// source cannot count again for every target that follows it.
-    last_source_seq: u64,
     /// Trace id of the most recent target-side finding that completed
-    /// this pair (the trailing finding in the source -> target order).
-    /// Overwritten on every co-occurrence so the value tracks the
-    /// latest observation. Capped at [`MAX_SAMPLE_TRACE_ID_BYTES`]:
-    /// worst-case overhead at the 10,000 pair cap stays under 2 MB.
+    /// this pair. Capped at [`MAX_SAMPLE_TRACE_ID_BYTES`].
     last_trace_id: Option<String>,
 }
 
 impl PairState {
-    /// Co-occurrences over the last half-to-full window (two aligned
-    /// half-window buckets). Never covers more than one window, so the
-    /// numerator cannot outgrow the window-scoped `source_total`.
-    fn windowed_co_occurrences(&self) -> u32 {
-        self.count_prev.saturating_add(self.count_cur)
-    }
-
-    /// Advance the half-window buckets to cover `now_ms`. Aligned
-    /// stepping (`bucket_start += steps * half`), not a reset to `now`:
-    /// re-anchoring stretched a bucket toward a full window and the
-    /// two-bucket sum toward two, overstating pairs against
-    /// `min_co_occurrences` and the confidence denominator.
-    fn rotate_buckets(&mut self, now_ms: u64, half_window_ms: u64) {
-        if half_window_ms == 0 {
-            return;
+    fn new(now_ms: u64, source: &CorrelationEndpoint, target: &CorrelationEndpoint) -> Self {
+        Self {
+            co: HalfWindowCount::default(),
+            lags_ms: Vec::new(),
+            total_observations: 0,
+            // Mix the endpoints in so pairs created on the same tick
+            // evolve independent sample streams.
+            rng_state: now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target),
+            first_seen_ms: now_ms,
+            last_seen_ms: now_ms,
+            last_trace_id: None,
         }
-        let steps = now_ms.saturating_sub(self.bucket_start_ms) / half_window_ms;
-        if steps == 0 {
-            return;
-        }
-        self.count_prev = if steps == 1 { self.count_cur } else { 0 };
-        self.count_cur = 0;
-        self.bucket_start_ms += steps * half_window_ms;
     }
 
     /// Append a lag sample using Algorithm R reservoir sampling:
@@ -324,28 +332,44 @@ fn hash_endpoint(ep: &CorrelationEndpoint) -> u64 {
     h
 }
 
-/// A recent finding occurrence in the rolling window.
+/// Whether two endpoints may form a pair: different services in the
+/// same grouping. Pairing across namespaces invents a causal link
+/// between two deployments.
+fn pairable(a: &Arc<CorrelationEndpoint>, b: &Arc<CorrelationEndpoint>) -> bool {
+    !Arc::ptr_eq(a, b)
+        && a.service != b.service
+        && a.grouping_key == b.grouping_key
+        && a.grouping_value == b.grouping_value
+}
+
+/// A recent finding occurrence, kept for the pairing horizon only.
 struct FindingOccurrence {
-    /// `Arc`-wrapped endpoint so cloning into `PairKey` slots inside the
-    /// inner correlation loop is a pointer bump instead of 3 `String`
-    /// clones per match.
-    endpoint: std::sync::Arc<CorrelationEndpoint>,
-    timestamp_ms: u64,
-    /// Monotonic id. Every finding in a batch shares the same `now_ms`,
-    /// so timestamps cannot separate occurrences.
-    seq: u64,
+    /// Interned endpoint shared with the registry and the pair keys.
+    endpoint: Arc<CorrelationEndpoint>,
+    /// First-span timestamp of the finding, the pairing clock.
+    event_ms: u64,
+    /// Daemon time at ingest, the eviction clock.
+    ingest_ms: u64,
+    /// Capped trace id, the sample when this occurrence is a target.
+    trace_id: Box<str>,
+    /// Targets this occurrence already counted for as a source.
+    counted_targets: Vec<Arc<CorrelationEndpoint>>,
 }
 
 /// Cross-trace correlator. Owned by the daemon event loop.
 ///
-/// Maintains a rolling window of recent finding occurrences and detects
-/// recurring temporal co-occurrences between different services.
+/// Keeps the findings of the last `lag_threshold_ms + ingest_skew_ms` of
+/// ingest time for pairing, and window-scoped counters for reporting,
+/// so memory does not grow with `window_ms`.
 pub struct CrossTraceCorrelator {
     occurrences: VecDeque<FindingOccurrence>,
     pair_counts: HashMap<PairKey, PairState>,
-    source_totals: HashMap<CorrelationEndpoint, u32>,
-    /// Next `FindingOccurrence::seq`, monotonic for the correlator's life.
-    next_seq: u64,
+    // ponytail: uncapped, bounded by distinct endpoints seen per window; cap like pairs if it ever dominates RSS
+    endpoints: HashMap<Arc<CorrelationEndpoint>, HalfWindowCount>,
+    /// Current index on the global half-window grid, never decreasing.
+    now_idx: u64,
+    /// Grid index of the last endpoint prune.
+    pruned_idx: u64,
     config: CorrelationConfig,
 }
 
@@ -355,83 +379,53 @@ impl CrossTraceCorrelator {
         Self {
             occurrences: VecDeque::new(),
             pair_counts: HashMap::new(),
-            source_totals: HashMap::new(),
-            next_seq: 0,
+            endpoints: HashMap::new(),
+            now_idx: 0,
+            pruned_idx: 0,
             config,
-        }
-    }
-
-    /// Decrement the count for `endpoint` in `source_totals`. When the
-    /// count reaches zero, remove the entry entirely so the map stays
-    /// bounded by the number of distinct endpoints currently in the
-    /// window. Written as an associated function so callers can invoke
-    /// it under a `&mut self.occurrences` borrow.
-    fn decrement_source_total(
-        source_totals: &mut HashMap<CorrelationEndpoint, u32>,
-        endpoint: &CorrelationEndpoint,
-    ) {
-        if let Some(count) = source_totals.get_mut(endpoint) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                source_totals.remove(endpoint);
-            }
         }
     }
 
     /// Ingest a batch of findings from `process_traces`.
     ///
-    /// Evicts stale entries, then checks for co-occurrences between
-    /// the new findings and recent ones from different services.
-    /// Returns the number of pairs lost to the `max_tracked_pairs` cap
-    /// in this batch (refusals + incumbents evicted at batch end). One
-    /// pair matched by several window occurrences counts once while the
-    /// refused set is under its ceiling and once per occurrence above
-    /// it, and a pair refused again on a later batch counts again: the
-    /// lifetime counter reads as "pair-batches lost".
-    ///
-    /// `source_totals` is maintained incrementally (increment on
-    /// `push_back`, decrement on `pop_front`, remove at 0), avoiding an
-    /// O(occurrences) per-tick rebuild.
+    /// Evicts stale state, then pairs each new finding with every
+    /// horizon occurrence whose first-span timestamp lies within
+    /// `lag_threshold_ms` of its own. Returns the number of pairs lost
+    /// to the `max_tracked_pairs` cap in this batch (refusals + incumbents
+    /// evicted at batch end). One pair matched by several occurrences
+    /// counts once while the refused set is under its ceiling and once
+    /// per occurrence above it, and a pair refused again on a later batch
+    /// counts again: the lifetime counter reads as "pair-batches lost".
     #[must_use = "the eviction count feeds perf_sentinel_correlator_pairs_evicted_total"]
     pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) -> usize {
+        let half_window_ms = (self.config.window_ms / 2).max(1);
+        self.now_idx = self.now_idx.max(now_ms / half_window_ms);
+        self.evict_stale(now_ms);
         let cutoff = now_ms.saturating_sub(self.config.window_ms);
-        self.evict_stale(cutoff);
         self.pair_counts
             .retain(|_, state| state.last_seen_ms >= cutoff);
-        // Rotate every pair, not only the ones recorded this batch:
-        // write-only rotation left a quiesced pair's counts frozen for
-        // reads and for the eviction ranking a full window after its
-        // traffic stopped, pegging dead pairs at confidence 1.0.
-        let half_window_ms = self.config.window_ms / 2;
-        for state in self.pair_counts.values_mut() {
-            state.rotate_buckets(now_ms, half_window_ms);
-        }
+        self.prune_endpoints();
 
         let mut refused = RefusedPairs::default();
         for finding in findings {
-            let grouping = finding.effective_grouping();
-            let endpoint = std::sync::Arc::new(CorrelationEndpoint {
-                finding_type: finding.finding_type.clone(),
-                service: finding.service.clone(),
-                template: finding.pattern.template.clone(),
-                grouping_key: grouping.map(|g| g.key.to_string()),
-                grouping_value: grouping.map(|g| g.value.to_string()),
-            });
-            self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str(), &mut refused);
-            *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
-            self.next_seq += 1;
-            self.occurrences.push_back(FindingOccurrence {
+            let endpoint = self.intern(finding);
+            let mut incoming = FindingOccurrence {
                 endpoint,
-                timestamp_ms: now_ms,
-                seq: self.next_seq,
-            });
+                event_ms: crate::time::parse_iso8601_utc_to_ms(&finding.first_timestamp)
+                    .unwrap_or(now_ms),
+                ingest_ms: now_ms,
+                trace_id: truncate_to_utf8_boundary(&finding.trace_id, MAX_SAMPLE_TRACE_ID_BYTES)
+                    .into(),
+                counted_targets: Vec::new(),
+            };
+            self.record_co_occurrences(&mut incoming, now_ms, &mut refused);
+            self.occurrences.push_back(incoming);
         }
         let not_admitted = refused.total();
 
-        // Under admission pressure, free room at batch end (lowest
-        // co-occurrence first) so refused newcomers are admitted on the
-        // next batch instead of letting early-window noise squat the
-        // map for a full window.
+        // Under admission pressure, free room at batch end so refused
+        // newcomers are admitted on the next batch instead of letting
+        // early-window noise squat the map for a full window.
         let evicted = if not_admitted > 0 {
             self.enforce_pair_cap()
         } else {
@@ -440,136 +434,127 @@ impl CrossTraceCorrelator {
         evicted + not_admitted
     }
 
-    /// Drop occurrences older than `cutoff`, decrementing `source_totals`.
-    ///
-    /// The `loop + match` pattern avoids both an `.expect()` on the pop
-    /// and the duplication of the staleness check across peek and pop.
-    fn evict_stale(&mut self, cutoff: u64) {
-        loop {
-            match self.occurrences.front() {
-                Some(front) if front.timestamp_ms < cutoff => {
-                    if let Some(expired) = self.occurrences.pop_front() {
-                        Self::decrement_source_total(&mut self.source_totals, &expired.endpoint);
-                    }
-                }
-                _ => break,
-            }
+    /// Return the shared endpoint `Arc` for `finding` and count one
+    /// occurrence of it on the grid.
+    fn intern(&mut self, finding: &Finding) -> Arc<CorrelationEndpoint> {
+        let grouping = finding.effective_grouping();
+        let ep = CorrelationEndpoint {
+            finding_type: finding.finding_type.clone(),
+            service: finding.service.clone(),
+            template: finding.pattern.template.clone(),
+            grouping_key: grouping.map(|g| g.key.to_string()),
+            grouping_value: grouping.map(|g| g.value.to_string()),
+        };
+        let endpoint = match self.endpoints.get_key_value(&ep) {
+            Some((interned, _)) => Arc::clone(interned),
+            None => Arc::new(ep),
+        };
+        self.endpoints
+            .entry(Arc::clone(&endpoint))
+            .or_default()
+            .add(self.now_idx);
+        endpoint
+    }
+
+    /// Drop endpoints with no count left in the window and no pair or
+    /// horizon occurrence pinning them. Runs once per grid step.
+    fn prune_endpoints(&mut self) {
+        if self.now_idx == self.pruned_idx {
+            return;
+        }
+        self.pruned_idx = self.now_idx;
+        let now_idx = self.now_idx;
+        self.endpoints
+            .retain(|ep, count| count.total(now_idx) > 0 || Arc::strong_count(ep) > 1);
+    }
+
+    /// Drop occurrences past the pairing horizon, in ingest order.
+    fn evict_stale(&mut self, now_ms: u64) {
+        let reach = self
+            .config
+            .lag_threshold_ms
+            .saturating_add(self.config.ingest_skew_ms);
+        while self
+            .occurrences
+            .front()
+            .is_some_and(|front| front.ingest_ms.saturating_add(reach) < now_ms)
+        {
+            self.occurrences.pop_front();
         }
     }
 
-    /// Scan recent occurrences for entries from a different service within
-    /// `lag_threshold_ms` and increment the matching pair counters.
+    /// Pair `incoming` with every horizon occurrence within
+    /// `lag_threshold_ms` of event time and count the matches.
     ///
-    /// `trace_id` (the incoming target-side finding's) is stored on every
-    /// matching [`PairState`] so [`active_correlations`] can surface a
-    /// representative trace for UI jump-through. Pairs refused at the
-    /// `max_tracked_pairs` cap increment `refused` instead of being
-    /// stored. This admission control is what bounds intra-batch growth
-    /// on wide topologies, batch-end eviction alone cannot, and the
-    /// map's high-water capacity is never returned to the allocator.
+    /// The earlier event is the source (ties keep arrival order). One
+    /// source occurrence counts once per pair, tracked on the source's
+    /// `counted_targets`, so the count does not depend on arrival order.
+    /// Pairs refused at the `max_tracked_pairs` cap go to `refused`
+    /// instead of being stored: this admission control is what bounds
+    /// intra-batch growth on wide topologies.
     fn record_co_occurrences(
         &mut self,
-        endpoint: &std::sync::Arc<CorrelationEndpoint>,
+        incoming: &mut FindingOccurrence,
         now_ms: u64,
-        trace_id: &str,
         refused: &mut RefusedPairs,
     ) {
-        // Oldest first, so `last_source_seq` only grows: one source
-        // occurrence counts once per pair, not once per following target.
-        for idx in self.lag_window_start(now_ms)..self.occurrences.len() {
-            let (source, age, seq) = {
-                let occ = &self.occurrences[idx];
-                // Pairing across namespaces invents a causal link between
-                // two deployments.
-                if occ.endpoint.service == endpoint.service
-                    || occ.endpoint.grouping_key != endpoint.grouping_key
-                    || occ.endpoint.grouping_value != endpoint.grouping_value
-                {
-                    continue;
-                }
-                (
-                    occ.endpoint.clone(), // Arc clone: pointer bump
-                    now_ms.saturating_sub(occ.timestamp_ms),
-                    occ.seq,
-                )
+        let lag_threshold_ms = self.config.lag_threshold_ms;
+        let max_tracked_pairs = self.config.max_tracked_pairs;
+        let now_idx = self.now_idx;
+        // ponytail: linear scan over the horizon; index by event-time slot if trace_ttl_ms reaches tens of minutes
+        for occ in &mut self.occurrences {
+            let delta = occ.event_ms.abs_diff(incoming.event_ms);
+            if delta > lag_threshold_ms || !pairable(&occ.endpoint, &incoming.endpoint) {
+                continue;
+            }
+            let (source, target) = if incoming.event_ms < occ.event_ms {
+                (&mut *incoming, &*occ)
+            } else {
+                (occ, &*incoming)
             };
-
             let key = PairKey {
-                source: source.clone(),   // Arc clone: pointer bump
-                target: endpoint.clone(), // Arc clone: pointer bump
+                source: Arc::clone(&source.endpoint),
+                target: Arc::clone(&target.endpoint),
             };
-            // Lag fits in f64 for any reasonable window. `as f64` loses
-            // precision only for values above 2^53 ms (~285k years).
-            #[allow(clippy::cast_precision_loss)]
-            let lag = age as f64;
             // Single-hash admission: read the length before `entry` so
             // the vacant arm can refuse without a second lookup.
             let len = self.pair_counts.len();
             let state = match self.pair_counts.entry(key) {
                 std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                 std::collections::hash_map::Entry::Vacant(v) => {
-                    if len >= self.config.max_tracked_pairs {
+                    if len >= max_tracked_pairs {
                         refused.record(v.into_key());
                         continue;
                     }
-                    v.insert(PairState {
-                        count_cur: 0,
-                        count_prev: 0,
-                        bucket_start_ms: now_ms,
-                        lags_ms: Vec::new(),
-                        total_observations: 0,
-                        // Seed the PRNG from first_seen_ms so different pairs
-                        // evolve independent sample streams. Pairs created at
-                        // the same tick get the same seed; we mix in the
-                        // endpoint's hash to diversify.
-                        rng_state: now_ms
-                            ^ (hash_endpoint(&source) << 17)
-                            ^ hash_endpoint(endpoint),
-                        first_seen_ms: now_ms,
-                        last_seen_ms: now_ms,
-                        last_source_seq: 0,
-                        last_trace_id: None,
-                    })
+                    v.insert(PairState::new(now_ms, &source.endpoint, &target.endpoint))
                 }
             };
-            // Recency and the jump-through sample refresh on every
-            // matching target, gating them on the seq guard froze
-            // `last_trace_id` on the oldest target.
             state.last_seen_ms = now_ms;
-            state.update_sample_trace_id(trace_id);
-            // Already counted for this pair by an earlier target.
-            if seq <= state.last_source_seq {
+            state.update_sample_trace_id(&target.trace_id);
+            if source
+                .counted_targets
+                .iter()
+                .any(|t| Arc::ptr_eq(t, &target.endpoint))
+            {
                 continue;
             }
-            state.last_source_seq = seq;
-            state.rotate_buckets(now_ms, self.config.window_ms / 2);
-            state.count_cur = state.count_cur.saturating_add(1);
+            source.counted_targets.push(Arc::clone(&target.endpoint));
+            state.co.add(now_idx);
+            // Exact below 2^53 ms, far beyond any lag threshold.
+            #[allow(clippy::cast_precision_loss)]
+            let lag = delta as f64;
             state.record_lag(lag);
         }
     }
 
-    /// Index of the oldest occurrence still within `lag_threshold_ms`.
-    /// Walking back from the newest keeps the scan on the lag window.
-    fn lag_window_start(&self, now_ms: u64) -> usize {
-        let in_window = self
-            .occurrences
-            .iter()
-            .rev()
-            .take_while(|occ| {
-                now_ms.saturating_sub(occ.timestamp_ms) <= self.config.lag_threshold_ms
-            })
-            .count();
-        self.occurrences.len() - in_window
-    }
-
-    /// Evict the pairs with the lowest `co_occurrence_count` down to 90%
-    /// of `max_tracked_pairs` and return how many were removed. Called
-    /// when a batch hit admission refusals with the map at the cap.
+    /// Evict pairs down to 90% of `max_tracked_pairs`, lowest windowed
+    /// co-occurrence count first, then stalest, and return how many were
+    /// removed. Called when a batch hit admission refusals at the cap.
     ///
     /// Evicting down to 90% in one pass amortizes the O(n) work over
     /// 10% of churn, and the threshold comes from `select_nth_unstable`
-    /// on a `Vec<u32>` so only the ~10% of keys actually removed pay
-    /// the `PairKey` clone cost.
+    /// on a `Vec<(u32, u64)>` so only the ~10% of keys actually removed
+    /// pay the `PairKey` clone cost.
     fn enforce_pair_cap(&mut self) -> usize {
         // The emptiness guard matters for `max_tracked_pairs = 0`
         // (admitted by config): the map stays empty while admission
@@ -578,45 +563,37 @@ impl CrossTraceCorrelator {
         if self.pair_counts.is_empty() || self.pair_counts.len() < self.config.max_tracked_pairs {
             return 0;
         }
-        // Evict down to 90% of cap so the next batches have room before
-        // admission control re-trips.
         let cap = self.config.max_tracked_pairs;
         let target = cap - cap / 10;
         let to_remove = self.pair_counts.len().saturating_sub(target).max(1);
 
-        // O(n) threshold computation. Only u32 counts are copied.
-        let mut counts: Vec<u32> = self
-            .pair_counts
-            .values()
-            .map(PairState::windowed_co_occurrences)
-            .collect();
-        // `select_nth_unstable(k)` positions the k-th smallest at
-        // index k. We want the value such that at least `to_remove`
-        // elements are `<= value`, so the (to_remove - 1)-th smallest.
-        let pivot_index = to_remove - 1;
-        let threshold = *counts.select_nth_unstable(pivot_index).1;
+        let now_idx = self.now_idx;
+        let rank = |state: &PairState| (state.co.total(now_idx), state.last_seen_ms);
+        let mut ranks: Vec<(u32, u64)> = self.pair_counts.values().map(rank).collect();
+        // The (to_remove - 1)-th smallest: at least `to_remove` pairs
+        // rank at or below it.
+        let threshold = *ranks.select_nth_unstable(to_remove - 1).1;
 
-        // Collect the keys to evict: all pairs strictly below the
-        // threshold, plus as many at-threshold pairs as needed to hit
-        // exactly `to_remove`. Only these keys pay the clone cost.
-        let mut below_threshold: Vec<PairKey> = self
+        // Everything strictly below the threshold, then threshold ties
+        // up to exactly `to_remove`. Only these keys pay the clone cost.
+        let mut doomed: Vec<PairKey> = self
             .pair_counts
             .iter()
-            .filter(|(_, v)| v.windowed_co_occurrences() < threshold)
+            .filter(|(_, v)| rank(v) < threshold)
             .map(|(k, _)| k.clone())
             .collect();
-        if below_threshold.len() < to_remove {
-            let extra_needed = to_remove - below_threshold.len();
-            below_threshold.extend(
+        if doomed.len() < to_remove {
+            let extra_needed = to_remove - doomed.len();
+            doomed.extend(
                 self.pair_counts
                     .iter()
-                    .filter(|(_, v)| v.windowed_co_occurrences() == threshold)
+                    .filter(|(_, v)| rank(v) == threshold)
                     .take(extra_needed)
                     .map(|(k, _)| k.clone()),
             );
         }
         let mut removed = 0;
-        for key in below_threshold {
+        for key in doomed {
             if self.pair_counts.remove(&key).is_some() {
                 removed += 1;
             }
@@ -630,30 +607,30 @@ impl CrossTraceCorrelator {
         self.pair_counts
             .iter()
             .filter_map(|(key, state)| {
-                let co_occurrences = state.windowed_co_occurrences();
+                let co_occurrences = state.co.total(self.now_idx);
                 if co_occurrences < self.config.min_co_occurrences {
                     return None;
                 }
+                // A source with no count in the window has nothing to
+                // measure the pair against.
                 let source_total = self
-                    .source_totals
+                    .endpoints
                     .get(key.source.as_ref())
-                    .copied()
-                    .unwrap_or(1);
-                // Both sides now span the rolling window. The clamp only
-                // covers the half-window slack of the bucket estimate.
-                let confidence =
-                    (f64::from(co_occurrences) / f64::from(source_total.max(1))).min(1.0);
+                    .map(|count| count.total(self.now_idx))
+                    .filter(|&total| total > 0)?;
+                // A pair can count up to one horizon after its source, so
+                // across a grid step it may briefly exceed the total.
+                let confidence = (f64::from(co_occurrences) / f64::from(source_total)).min(1.0);
                 if confidence < self.config.min_confidence {
                     return None;
                 }
-                let median_lag = median(&state.lags_ms);
                 Some(CrossTraceCorrelation {
                     source: (*key.source).clone(),
                     target: (*key.target).clone(),
                     co_occurrence_count: co_occurrences,
                     source_total_occurrences: source_total,
                     confidence,
-                    median_lag_ms: median_lag,
+                    median_lag_ms: median(&state.lags_ms),
                     first_seen: crate::time::millis_to_iso8601(state.first_seen_ms),
                     last_seen: crate::time::millis_to_iso8601(state.last_seen_ms),
                     sample_trace_id: state.last_trace_id.clone(),
@@ -668,7 +645,7 @@ impl CrossTraceCorrelator {
 /// Clones the slice into a fresh `Vec` before sorting so the caller's
 /// reservoir is preserved (other `active_correlations()` calls would
 /// otherwise see a permuted reservoir). The clone is bounded by
-/// `MAX_LAG_SAMPLES = 256` f64 (2 KB per call), which is acceptable
+/// `MAX_LAG_SAMPLES = 64` f64 (512 B per call), which is acceptable
 /// for the query API path (not called per-event).
 fn median(values: &[f64]) -> f64 {
     if values.is_empty() {
@@ -716,6 +693,18 @@ mod tests {
         }
     }
 
+    /// Stamp `f` with event time `t`.
+    fn at(mut f: Finding, t: u64) -> Finding {
+        f.first_timestamp = crate::time::millis_to_iso8601(t);
+        f
+    }
+
+    /// Ingest `findings` at `t` with event time = ingest time.
+    fn ingest_at(correlator: &mut CrossTraceCorrelator, findings: &[Finding], t: u64) -> usize {
+        let stamped: Vec<Finding> = findings.iter().cloned().map(|f| at(f, t)).collect();
+        correlator.ingest(&stamped, t)
+    }
+
     /// A correlator with the permissive thresholds the cap/admission
     /// tests share (long lag window, count 1, confidence 0), varying
     /// only `max_tracked_pairs`.
@@ -756,9 +745,9 @@ mod tests {
         for i in 0..5 {
             let t = 1_000_000 + i * 10_000;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
-            let _ = correlator.ingest(&[fa], t);
+            let _ = ingest_at(&mut correlator, &[fa], t);
             let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-            let _ = correlator.ingest(&[fb], t + 2_000);
+            let _ = ingest_at(&mut correlator, &[fb], t + 2_000);
         }
 
         let correlations = correlator.active_correlations();
@@ -795,15 +784,15 @@ mod tests {
         // must cap what it records so exported reports stay bounded.
         let oversized = "a".repeat(MAX_SAMPLE_TRACE_ID_BYTES * 4);
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        let _ = correlator.ingest(std::slice::from_ref(&fa), 1_000);
+        let _ = ingest_at(&mut correlator, std::slice::from_ref(&fa), 1_000);
         let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
         fb.trace_id = oversized.clone();
-        let _ = correlator.ingest(&[fb], 2_000);
+        let _ = ingest_at(&mut correlator, &[fb], 2_000);
         // Second round so the pair clears the min_co_occurrences floor.
-        let _ = correlator.ingest(&[fa], 3_000);
+        let _ = ingest_at(&mut correlator, &[fa], 3_000);
         let mut fb2 = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
         fb2.trace_id = oversized;
-        let _ = correlator.ingest(&[fb2], 4_000);
+        let _ = ingest_at(&mut correlator, &[fb2], 4_000);
 
         let correlations = correlator.active_correlations();
         let c = correlations.first().expect("expected one correlation");
@@ -829,7 +818,7 @@ mod tests {
             let t = 1_000_000 + i * 10_000;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
             let fb = make_finding("order-svc", FindingType::RedundantSql, "SELECT * FROM t");
-            let _ = correlator.ingest(&[fa, fb], t);
+            let _ = ingest_at(&mut correlator, &[fa, fb], t);
         }
 
         let correlations = correlator.active_correlations();
@@ -849,13 +838,13 @@ mod tests {
         });
 
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        let _ = correlator.ingest(&[fa], 1_000);
+        let _ = ingest_at(&mut correlator, &[fa], 1_000);
         let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-        let _ = correlator.ingest(&[fb], 2_000);
+        let _ = ingest_at(&mut correlator, &[fb], 2_000);
 
         // After window expires, occurrences are evicted.
         let fa2 = make_finding("other-svc", FindingType::SlowSql, "SELECT 2");
-        let _ = correlator.ingest(&[fa2], 100_000);
+        let _ = ingest_at(&mut correlator, &[fa2], 100_000);
 
         assert!(
             correlator.occurrences.len() <= 2,
@@ -875,13 +864,13 @@ mod tests {
                 FindingType::NPlusOneSql,
                 &format!("tpl-{i}"),
             );
-            evicted_total += correlator.ingest(&[fa], 1000);
+            evicted_total += ingest_at(&mut correlator, &[fa], 1000);
             let fb = make_finding(
                 &format!("svc-b-{i}"),
                 FindingType::RedundantSql,
                 &format!("tpl-{i}"),
             );
-            evicted_total += correlator.ingest(&[fb], 1001);
+            evicted_total += ingest_at(&mut correlator, &[fb], 1001);
         }
 
         assert!(
@@ -903,7 +892,7 @@ mod tests {
         let mut correlator = capped_correlator(50);
         let findings = wide_batch(200);
 
-        let lost = correlator.ingest(&findings, 1_000);
+        let lost = ingest_at(&mut correlator, &findings, 1_000);
 
         assert!(
             correlator.pair_counts.len() <= 50,
@@ -923,7 +912,7 @@ mod tests {
         // instead of early-window noise squatting the map until TTL.
         let mut correlator = capped_correlator(50);
         let batch = wide_batch(200);
-        let lost = correlator.ingest(&batch, 1_000);
+        let lost = ingest_at(&mut correlator, &batch, 1_000);
         assert!(lost > 0, "the wide batch must hit the cap");
         assert!(
             correlator.pair_counts.len() <= 45,
@@ -936,8 +925,8 @@ mod tests {
         let before = correlator.pair_counts.len();
         let fa = make_finding("svc-new-a", FindingType::NPlusOneSql, "tpl-new");
         let fb = make_finding("svc-new-b", FindingType::RedundantSql, "tpl-new");
-        assert_eq!(correlator.ingest(&[fa], 200_000), 0);
-        assert_eq!(correlator.ingest(&[fb], 200_001), 0);
+        assert_eq!(ingest_at(&mut correlator, &[fa], 200_000), 0);
+        assert_eq!(ingest_at(&mut correlator, &[fb], 200_001), 0);
         assert!(
             correlator.pair_counts.len() > before,
             "a fresh pair must be admitted after the eviction freed room"
@@ -952,9 +941,9 @@ mod tests {
         let mut correlator = capped_correlator(0);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
-        assert_eq!(correlator.ingest(&[fa], 1_000), 0);
+        assert_eq!(ingest_at(&mut correlator, &[fa], 1_000), 0);
         assert_eq!(
-            correlator.ingest(&[fb], 1_001),
+            ingest_at(&mut correlator, &[fb], 1_001),
             1,
             "one distinct pair refused"
         );
@@ -969,11 +958,14 @@ mod tests {
         let mut correlator = capped_correlator(0);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         for i in 0..5 {
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000 + i), 0);
+            assert_eq!(
+                ingest_at(&mut correlator, std::slice::from_ref(&fa), 1_000 + i),
+                0
+            );
         }
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
         assert_eq!(
-            correlator.ingest(&[fb], 1_010),
+            ingest_at(&mut correlator, &[fb], 1_010),
             1,
             "five matching occurrences of the same refused pair must count once"
         );
@@ -982,7 +974,7 @@ mod tests {
     #[test]
     fn refused_pairs_stops_collecting_at_the_ceiling_but_keeps_counting() {
         // The whole point of the type: a wide topology walks the cross
-        // product of the batch and the lag window, so the set has to stop
+        // product of the batch and the horizon, so the set has to stop
         // growing while the figure it feeds stays truthful.
         let mut refused = RefusedPairs::default();
         let extra = 500;
@@ -1050,11 +1042,17 @@ mod tests {
         let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         for i in 0..2 {
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000 + i), 0);
+            assert_eq!(
+                ingest_at(&mut correlator, std::slice::from_ref(&fa), 1_000 + i),
+                0
+            );
         }
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
         for i in 0..3 {
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fb), 1_010 + i), 0);
+            assert_eq!(
+                ingest_at(&mut correlator, std::slice::from_ref(&fb), 1_010 + i),
+                0
+            );
         }
 
         let correlations = correlator.active_correlations();
@@ -1095,9 +1093,15 @@ mod tests {
         let round_gap = window_ms / 4;
         for round in 0..8u64 {
             let t = 1_000 + round * round_gap;
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), t), 0);
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fb), t + 20), 0);
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), t + 5_000), 0);
+            assert_eq!(ingest_at(&mut correlator, std::slice::from_ref(&fa), t), 0);
+            assert_eq!(
+                ingest_at(&mut correlator, std::slice::from_ref(&fb), t + 20),
+                0
+            );
+            assert_eq!(
+                ingest_at(&mut correlator, std::slice::from_ref(&fa), t + 5_000),
+                0
+            );
         }
         let correlations = correlator.active_correlations();
         let pair = correlations
@@ -1113,11 +1117,7 @@ mod tests {
 
     #[test]
     fn quiesced_pair_decays_while_unrelated_traffic_continues() {
-        // Any batch rotates every pair, so a quiet pair's counts age
-        // out in lockstep with its window occurrences: one window after
-        // the last co-occurrence, nothing of it survives, however busy
-        // the rest of the daemon is. Write-only rotation used to keep
-        // the frozen count readable while its sources aged away.
+        // One window after its last co-occurrence a quiet pair is gone, however busy the daemon.
         let window_ms = CorrelationConfig::default().window_ms;
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
             lag_threshold_ms: 1_000,
@@ -1127,14 +1127,20 @@ mod tests {
         });
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
-        assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000), 0);
-        assert_eq!(correlator.ingest(std::slice::from_ref(&fb), 1_020), 0);
+        assert_eq!(
+            ingest_at(&mut correlator, std::slice::from_ref(&fa), 1_000),
+            0
+        );
+        assert_eq!(
+            ingest_at(&mut correlator, std::slice::from_ref(&fb), 1_020),
+            0
+        );
         assert_eq!(correlator.active_correlations().len(), 1);
 
         // The pair goes quiet, unrelated services keep the daemon busy.
         let fc = make_finding("svc-c", FindingType::SlowSql, "other");
         let t = 1_020 + window_ms + 1;
-        assert_eq!(correlator.ingest(std::slice::from_ref(&fc), t), 0);
+        assert_eq!(ingest_at(&mut correlator, std::slice::from_ref(&fc), t), 0);
         assert!(
             correlator.active_correlations().is_empty(),
             "a pair with no co-occurrence in the last window must not survive"
@@ -1143,9 +1149,7 @@ mod tests {
 
     #[test]
     fn windowed_count_never_covers_more_than_one_window() {
-        // Re-anchoring bucket_start to `now` stretched the two-bucket
-        // sum toward two windows, overstating pairs against
-        // min_co_occurrences. Aligned stepping bounds it to one.
+        // The two-bucket sum spans at most one window.
         let window_ms = CorrelationConfig::default().window_ms;
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
             lag_threshold_ms: 1_000,
@@ -1160,8 +1164,11 @@ mod tests {
         let interval = window_ms / 2 * 95 / 100;
         for round in 0..10u64 {
             let t = 1_000 + round * interval;
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), t), 0);
-            assert_eq!(correlator.ingest(std::slice::from_ref(&fb), t + 20), 0);
+            assert_eq!(ingest_at(&mut correlator, std::slice::from_ref(&fa), t), 0);
+            assert_eq!(
+                ingest_at(&mut correlator, std::slice::from_ref(&fb), t + 20),
+                0
+            );
         }
         let correlations = correlator.active_correlations();
         let pair = correlations
@@ -1177,17 +1184,25 @@ mod tests {
 
     #[test]
     fn sample_trace_id_tracks_the_most_recent_target() {
-        // The seq guard must not freeze the jump-through sample on the
-        // first target that followed a source occurrence.
+        // The once-per-source dedup must not freeze the sample on the first target.
         let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
-        assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000), 0);
+        assert_eq!(
+            ingest_at(&mut correlator, std::slice::from_ref(&fa), 1_000),
+            0
+        );
         let mut fb1 = make_finding("svc-b", FindingType::RedundantSql, "tpl");
         fb1.trace_id = "trace-old".to_string();
-        assert_eq!(correlator.ingest(std::slice::from_ref(&fb1), 1_010), 0);
+        assert_eq!(
+            ingest_at(&mut correlator, std::slice::from_ref(&fb1), 1_010),
+            0
+        );
         let mut fb2 = make_finding("svc-b", FindingType::RedundantSql, "tpl");
         fb2.trace_id = "trace-new".to_string();
-        assert_eq!(correlator.ingest(std::slice::from_ref(&fb2), 1_020), 0);
+        assert_eq!(
+            ingest_at(&mut correlator, std::slice::from_ref(&fb2), 1_020),
+            0
+        );
 
         let correlations = correlator.active_correlations();
         let pair = correlations
@@ -1203,8 +1218,8 @@ mod tests {
 
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
-        assert_eq!(correlator.ingest(&[fa], 1_000), 0);
-        assert_eq!(correlator.ingest(&[fb], 1_001), 0);
+        assert_eq!(ingest_at(&mut correlator, &[fa], 1_000), 0);
+        assert_eq!(ingest_at(&mut correlator, &[fb], 1_001), 0);
     }
 
     #[test]
@@ -1220,10 +1235,10 @@ mod tests {
         for i in 0..10 {
             let t = 1_000_000 + i * 10_000;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
-            let _ = correlator.ingest(&[fa], t);
+            let _ = ingest_at(&mut correlator, &[fa], t);
             if i < 2 {
                 let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-                let _ = correlator.ingest(&[fb], t + 1_000);
+                let _ = ingest_at(&mut correlator, &[fb], t + 1_000);
             }
         }
 
@@ -1245,9 +1260,9 @@ mod tests {
 
         // A at t=1000, B at t=10000 (9s later, exceeds 1s threshold).
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        let _ = correlator.ingest(&[fa], 1_000);
+        let _ = ingest_at(&mut correlator, &[fa], 1_000);
         let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-        let _ = correlator.ingest(&[fb], 10_000);
+        let _ = ingest_at(&mut correlator, &[fb], 10_000);
 
         let correlations = correlator.active_correlations();
         assert!(
@@ -1267,19 +1282,18 @@ mod tests {
         });
 
         // Fire the same A -> B pair 10x MAX_LAG_SAMPLES times.
-        // Without the reservoir, lags_ms would grow to ~2560 entries.
+        // Without the reservoir, lags_ms would grow to ~640 entries.
         let total = MAX_LAG_SAMPLES * 10;
         for i in 0..total {
             let t = 1_000_000 + i as u64 * 10;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-            let _ = correlator.ingest(&[fa], t);
+            let _ = ingest_at(&mut correlator, &[fa], t);
             let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-            let _ = correlator.ingest(&[fb], t + 1);
+            let _ = ingest_at(&mut correlator, &[fb], t + 1);
         }
 
-        // Directional pairs: both (A->B) and (B->A) are tracked because
-        // each finding scans the window for prior different-service
-        // occurrences. Both directions should have bounded reservoirs.
+        // Directional pairs: A -> B, and B -> A with the next round's A
+        // (10 ms later). Both directions should have bounded reservoirs.
         assert!(
             !correlator.pair_counts.is_empty(),
             "expected at least one tracked pair"
@@ -1309,30 +1323,27 @@ mod tests {
         // Feeds the reservoir with monotonically increasing lag values
         // and checks two properties:
         //
-        // 1. **Mean tracks the population mean** within 10%. For a
+        // 1. **Mean tracks the population mean** within 20%. For a
         //    population uniform on [0, n), the true mean is (n-1)/2.
         //    Reservoir-size-k sample mean has standard error
-        //    sigma_pop / sqrt(k). With n=5120, k=256, sigma_pop ~= 1478,
-        //    the expected SE ~= 92, so 10% of 2559.5 ~= 256 is ~2.8 sigma.
+        //    sigma_pop / sqrt(k). With n=1280, k=64, sigma_pop ~= 370,
+        //    the expected SE ~= 46, so 20% of 639.5 ~= 128 is ~2.8 sigma.
         //    Still generous enough to avoid flakes across different PRNG
         //    seeds.
         //
         // 2. **Variance is non-trivial**. A frozen reservoir would have
         //    all samples from the first MAX_LAG_SAMPLES values, giving
-        //    a variance bounded by (MAX_LAG_SAMPLES/2)^2 ~= 16384. A
+        //    a variance bounded by (MAX_LAG_SAMPLES/2)^2 ~= 1024. A
         //    healthy reservoir covers the full range so variance should
         //    be at least 1/4 of the population variance
         //    (pop_variance = n^2/12 for uniform on [0, n)).
         let mut state = PairState {
-            count_cur: 0,
-            count_prev: 0,
-            bucket_start_ms: 0,
+            co: HalfWindowCount::default(),
             lags_ms: Vec::new(),
             total_observations: 0,
             rng_state: 0x1234_5678_9ABC_DEF0,
             first_seen_ms: 0,
             last_seen_ms: 0,
-            last_source_seq: 0,
             last_trace_id: None,
         };
         let n = MAX_LAG_SAMPLES * 20;
@@ -1341,7 +1352,7 @@ mod tests {
         }
         let mean: f64 = state.lags_ms.iter().sum::<f64>() / state.lags_ms.len() as f64;
         let expected_mean = (n - 1) as f64 / 2.0;
-        let tolerance = expected_mean * 0.10;
+        let tolerance = expected_mean * 0.20;
         assert!(
             (mean - expected_mean).abs() < tolerance,
             "reservoir mean {mean} should be within {tolerance} of {expected_mean} \
@@ -1366,28 +1377,350 @@ mod tests {
         );
     }
 
+    /// Permissive thresholds for the event-time tests: count 1,
+    /// confidence 0, 2 s lag.
+    fn event_time_correlator() -> CrossTraceCorrelator {
+        CrossTraceCorrelator::new(CorrelationConfig {
+            lag_threshold_ms: 2_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        })
+    }
+
+    fn find_pair<'a>(
+        correlations: &'a [CrossTraceCorrelation],
+        source: &str,
+        target: &str,
+    ) -> Option<&'a CrossTraceCorrelation> {
+        correlations
+            .iter()
+            .find(|c| c.source.service == source && c.target.service == target)
+    }
+
     #[test]
-    fn source_totals_rebuilt_from_window_on_each_ingest() {
+    fn endpoints_pruned_after_window_and_horizon() {
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
             window_ms: 1_000,
             min_co_occurrences: 1,
             min_confidence: 0.1,
             ..Default::default()
         });
-
-        // Ingest a finding, then let it expire.
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        let _ = correlator.ingest(&[fa], 1_000);
-        assert_eq!(correlator.source_totals.len(), 1);
+        let _ = ingest_at(&mut correlator, &[fa], 1_000);
+        assert_eq!(correlator.endpoints.len(), 1);
 
-        // Next ingest after the window has elapsed: stale entry must be
-        // evicted from source_totals by the rebuild, not leaked.
+        // Past both the horizon (lag + skew) and the window.
         let fb = make_finding("other-svc", FindingType::NPlusOneSql, "SELECT 2");
-        let _ = correlator.ingest(&[fb], 10_000);
-        // Only the current finding's endpoint should remain.
+        let _ = ingest_at(&mut correlator, &[fb], 100_000);
+        assert_eq!(
+            correlator.endpoints.len(),
+            1,
+            "stale endpoint must be pruned"
+        );
         assert!(
-            correlator.source_totals.len() <= 1,
-            "source_totals should not retain stale entries"
+            correlator
+                .endpoints
+                .keys()
+                .all(|ep| ep.service == "other-svc")
+        );
+    }
+
+    #[test]
+    fn cross_tick_pairs_on_event_time() {
+        let mut correlator = event_time_correlator();
+        let t = 1_000_000;
+        let fa = at(make_finding("svc-a", FindingType::NPlusOneSql, "tpl"), t);
+        let fb = at(
+            make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+            t + 1_000,
+        );
+        assert_eq!(correlator.ingest(&[fa], t + 15_000), 0);
+        assert_eq!(correlator.ingest(&[fb], t + 30_000), 0);
+
+        let correlations = correlator.active_correlations();
+        assert_eq!(correlations.len(), 1);
+        let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+        assert!((pair.median_lag_ms - 1_000.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn incoming_earlier_event_becomes_source() {
+        let mut correlator = event_time_correlator();
+        let t = 1_000_000;
+        let fb = at(
+            make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+            t + 1_000,
+        );
+        let fa = at(make_finding("svc-a", FindingType::NPlusOneSql, "tpl"), t);
+        assert_eq!(correlator.ingest(&[fb], t + 15_000), 0);
+        assert_eq!(correlator.ingest(&[fa], t + 30_000), 0);
+
+        let correlations = correlator.active_correlations();
+        assert_eq!(correlations.len(), 1, "no reverse B -> A pair");
+        let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+        assert_eq!(pair.sample_trace_id.as_deref(), Some("trace-svc-b"));
+    }
+
+    #[test]
+    fn same_batch_far_apart_events_do_not_pair() {
+        let mut correlator = event_time_correlator();
+        let t = 1_000_000;
+        let fa = at(make_finding("svc-a", FindingType::NPlusOneSql, "tpl"), t);
+        let fb = at(
+            make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+            t + 10_000,
+        );
+        assert_eq!(correlator.ingest(&[fa, fb], t + 20_000), 0);
+        assert!(correlator.pair_counts.is_empty());
+    }
+
+    #[test]
+    fn one_source_counts_once_per_pair_regardless_of_arrival_order() {
+        let t = 1_000_000;
+        let source = at(make_finding("svc-a", FindingType::NPlusOneSql, "tpl"), t);
+        let targets: Vec<Finding> = (1..=3)
+            .map(|i| {
+                at(
+                    make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+                    t + i * 100,
+                )
+            })
+            .collect();
+        for source_first in [true, false] {
+            let mut correlator = event_time_correlator();
+            let mut arrivals = targets.clone();
+            if source_first {
+                arrivals.insert(0, source.clone());
+            } else {
+                arrivals.push(source.clone());
+            }
+            for (i, finding) in arrivals.into_iter().enumerate() {
+                let _ = correlator.ingest(&[finding], t + 10_000 + i as u64 * 1_000);
+            }
+            let correlations = correlator.active_correlations();
+            let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+            assert_eq!(pair.co_occurrence_count, 1, "source_first = {source_first}");
+            assert_eq!(correlations.len(), 1, "no reverse pair");
+        }
+    }
+
+    #[test]
+    fn occurrence_deque_bounded_by_horizon_not_window() {
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            window_ms: 1_440 * 60_000,
+            lag_threshold_ms: 2_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let reach = correlator.config.lag_threshold_ms + correlator.config.ingest_skew_ms;
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        // 10,000 findings, alternating A and B every 720 ms: 2 h of ingest.
+        let mut now = 0;
+        for i in 0..10_000u64 {
+            now = 1_000_000 + i * 720;
+            let f = if i % 2 == 0 { &fa } else { &fb };
+            let _ = ingest_at(&mut correlator, std::slice::from_ref(f), now);
+        }
+        let oldest = correlator
+            .occurrences
+            .front()
+            .expect("occurrences")
+            .ingest_ms;
+        assert!(now - oldest <= reach, "deque must span the horizon only");
+        assert!(correlator.occurrences.len() <= (reach / 720 + 1) as usize);
+
+        let correlations = correlator.active_correlations();
+        let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+        assert_eq!(
+            pair.source_total_occurrences, 5_000,
+            "totals span the window"
+        );
+        assert_eq!(pair.co_occurrence_count, 5_000);
+    }
+
+    #[test]
+    fn numerator_and_denominator_share_the_grid() {
+        // Half window 5 s. The pair is created mid-bucket at 7 s, then
+        // counts across two grid steps.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            window_ms: 10_000,
+            lag_threshold_ms: 1_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        for t in [7_000, 12_000, 17_000] {
+            let _ = ingest_at(&mut correlator, std::slice::from_ref(&fa), t);
+            let _ = ingest_at(&mut correlator, std::slice::from_ref(&fb), t + 500);
+        }
+        // One more source without a target, in the last bucket.
+        let _ = ingest_at(&mut correlator, std::slice::from_ref(&fa), 18_000);
+
+        let correlations = correlator.active_correlations();
+        let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+        assert_eq!(pair.co_occurrence_count, 2, "idx 2 + idx 3");
+        assert_eq!(pair.source_total_occurrences, 3, "same buckets");
+        let expected =
+            f64::from(pair.co_occurrence_count) / f64::from(pair.source_total_occurrences);
+        assert!(pair.confidence <= 1.0);
+        assert!((pair.confidence - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn endpoints_are_interned() {
+        // Window 1 s, reach 55 s: a pair can outlive its source's count.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            window_ms: 1_000,
+            lag_threshold_ms: 5_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ingest_skew_ms: 50_000,
+            ..Default::default()
+        });
+        let fa = at(
+            make_finding("svc-a", FindingType::NPlusOneSql, "tpl"),
+            1_000,
+        );
+        let fb = at(
+            make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+            1_500,
+        );
+        let _ = correlator.ingest(&[fa.clone(), fa], 1_000);
+        assert!(Arc::ptr_eq(
+            &correlator.occurrences[0].endpoint,
+            &correlator.occurrences[1].endpoint
+        ));
+        let _ = correlator.ingest(&[fb], 55_900);
+        let key = correlator.pair_counts.keys().next().expect("pair").clone();
+        assert!(Arc::ptr_eq(
+            &correlator.occurrences[0].endpoint,
+            &key.source
+        ));
+
+        // A's occurrences leave the horizon and its count the window, but
+        // the pair still pins the endpoint.
+        let fc = make_finding("svc-c", FindingType::SlowSql, "other");
+        let _ = ingest_at(&mut correlator, std::slice::from_ref(&fc), 56_500);
+        assert!(
+            correlator
+                .occurrences
+                .iter()
+                .all(|o| o.endpoint.service != "svc-a")
+        );
+        let (interned, count) = correlator
+            .endpoints
+            .get_key_value(key.source.as_ref())
+            .expect("pinned endpoint survives the prune");
+        assert!(Arc::ptr_eq(interned, &key.source));
+        assert_eq!(count.total(correlator.now_idx), 0);
+    }
+
+    #[test]
+    fn missing_or_zero_source_total_drops_correlation() {
+        // Zero: the pair counts on B's ingest, one horizon after A's
+        // count, which has already left the 1 s window.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            window_ms: 1_000,
+            lag_threshold_ms: 5_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ingest_skew_ms: 50_000,
+            ..Default::default()
+        });
+        let fa = at(
+            make_finding("svc-a", FindingType::NPlusOneSql, "tpl"),
+            1_000,
+        );
+        let fb = at(
+            make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+            1_500,
+        );
+        let _ = correlator.ingest(&[fa], 1_000);
+        let _ = correlator.ingest(&[fb], 55_900);
+        let state = correlator.pair_counts.values().next().expect("pair");
+        assert_eq!(state.co.total(correlator.now_idx), 1);
+        assert!(correlator.active_correlations().is_empty());
+
+        // Missing: the same shape is reported until the source leaves the registry.
+        let mut correlator = event_time_correlator();
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        let _ = ingest_at(&mut correlator, &[fa], 1_000);
+        let _ = ingest_at(&mut correlator, &[fb], 1_500);
+        assert_eq!(correlator.active_correlations().len(), 1);
+        correlator.endpoints.retain(|ep, _| ep.service != "svc-a");
+        assert!(correlator.active_correlations().is_empty());
+    }
+
+    #[test]
+    fn unparsable_first_timestamp_falls_back_to_now_ms() {
+        let mut correlator = event_time_correlator();
+        let mut fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        fa.first_timestamp = "not a timestamp".to_string();
+        let fb = at(
+            make_finding("svc-b", FindingType::RedundantSql, "tpl"),
+            1_000_500,
+        );
+        let _ = correlator.ingest(&[fa], 1_000_000);
+        let _ = correlator.ingest(&[fb], 1_000_500);
+        let correlations = correlator.active_correlations();
+        let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
+        assert!((pair.median_lag_ms - 500.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn cap_eviction_prefers_low_count_then_stale_pairs() {
+        let mut correlator = capped_correlator(20);
+        correlator.now_idx = 10;
+        let endpoint = |name: &str| {
+            Arc::new(CorrelationEndpoint {
+                finding_type: FindingType::NPlusOneSql,
+                service: name.to_string(),
+                template: "tpl".to_string(),
+                grouping_key: None,
+                grouping_value: None,
+            })
+        };
+        let target = endpoint("target");
+        let mut insert = |name: &str, count: u32, last_seen_ms: u64| {
+            let source = endpoint(name);
+            let mut state = PairState::new(0, &source, &target);
+            for _ in 0..count {
+                state.co.add(10);
+            }
+            state.last_seen_ms = last_seen_ms;
+            correlator.pair_counts.insert(
+                PairKey {
+                    source,
+                    target: Arc::clone(&target),
+                },
+                state,
+            );
+        };
+        insert("low-fresh", 1, 900);
+        insert("mid-stale", 3, 100);
+        insert("high-stalest", 5, 50);
+        for i in 0..17 {
+            insert(&format!("mid-{i}"), 3, 500);
+        }
+
+        // Cap 20, down to 18: two pairs go.
+        assert_eq!(correlator.enforce_pair_cap(), 2);
+        let survivors: Vec<&str> = correlator
+            .pair_counts
+            .keys()
+            .map(|k| k.source.service.as_str())
+            .collect();
+        assert!(!survivors.contains(&"low-fresh"), "lowest count goes first");
+        assert!(!survivors.contains(&"mid-stale"), "then the stalest");
+        assert!(
+            survivors.contains(&"high-stalest"),
+            "a high count outranks staleness"
         );
     }
 
@@ -1404,10 +1737,10 @@ mod tests {
             let t = 1_000_000 + i * 10_000;
             let mut fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
             fa.grouping = crate::test_helpers::grouping(source.0, source.1);
-            let _ = correlator.ingest(&[fa], t);
+            let _ = ingest_at(&mut correlator, &[fa], t);
             let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
             fb.grouping = crate::test_helpers::grouping(target.0, target.1);
-            let _ = correlator.ingest(&[fb], t + 2_000);
+            let _ = ingest_at(&mut correlator, &[fb], t + 2_000);
         }
         correlator.active_correlations()
     }

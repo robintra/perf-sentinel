@@ -720,8 +720,11 @@ pub(super) fn setup_correlator(
         return None;
     }
     tracing::info!("Cross-trace correlation enabled");
+    let mut correlation = config.daemon.correlation.clone();
+    // A TTL flush reaches analysis up to 1.5 x ttl late; the rest covers exporter batching.
+    correlation.ingest_skew_ms = config.daemon.trace_ttl_ms.saturating_mul(2);
     Some(Arc::new(Mutex::new(
-        detect::correlate_cross::CrossTraceCorrelator::new(config.daemon.correlation.clone()),
+        detect::correlate_cross::CrossTraceCorrelator::new(correlation),
     )))
 }
 
@@ -893,6 +896,38 @@ pub(super) fn setup_emaps_scraper(config: &Config) -> ScraperSetup<ElectricityMa
         state: Some(state),
         handle: Some(handle),
         staleness_ms,
+    }
+}
+
+#[cfg(test)]
+mod correlator_tests {
+    use super::*;
+
+    #[test]
+    fn setup_correlator_derives_ingest_skew_from_trace_ttl() {
+        // Skew 2 x 100 s: B, analysed 150 s after A, still pairs with it.
+        // The 60 s default skew would have evicted A first.
+        let mut config = Config::default();
+        config.daemon.correlation.enabled = true;
+        config.daemon.correlation.min_co_occurrences = 1;
+        config.daemon.correlation.min_confidence = 0.0;
+        config.daemon.trace_ttl_ms = 100_000;
+        let correlator = setup_correlator(&config).expect("enabled");
+        let mut correlator = correlator.try_lock().expect("uncontended");
+
+        let finding = |service: &str, t: u64| {
+            let mut f = crate::test_helpers::make_finding(
+                detect::FindingType::NPlusOneSql,
+                detect::Severity::Warning,
+            );
+            f.service = service.to_string();
+            f.first_timestamp = crate::time::millis_to_iso8601(t);
+            f
+        };
+        let t = 1_000_000;
+        let _ = correlator.ingest(&[finding("svc-a", t)], t);
+        let _ = correlator.ingest(&[finding("svc-b", t + 1_000)], t + 150_000);
+        assert_eq!(correlator.active_correlations().len(), 1);
     }
 }
 

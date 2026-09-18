@@ -716,14 +716,14 @@ descending. Empty array when `[daemon.correlation] enabled = false`
 
 | Field                      | Type    | Description                                                                      |
 |----------------------------|---------|----------------------------------------------------------------------------------|
-| `source`                   | object  | Leading endpoint: `{ finding_type, service, template }`                          |
-| `target`                   | object  | Trailing endpoint observed after `source` within `lag_threshold_ms`              |
+| `source`                   | object  | Leading endpoint, the finding with the earlier first-span timestamp: `{ finding_type, service, template }` |
+| `target`                   | object  | Trailing endpoint, whose first span started after `source` within `lag_threshold_ms` |
 | `co_occurrence_count`      | number  | Number of co-occurrences within the rolling window                               |
-| `source_total_occurrences` | number  | Total occurrences of `source` in the rolling window                              |
+| `source_total_occurrences` | number  | Total occurrences of `source` over the same window buckets as `co_occurrence_count` |
 | `confidence`               | number  | Ratio `co_occurrence_count / source_total_occurrences`                           |
-| `median_lag_ms`            | number  | Median lag between `source` and `target`                                         |
-| `first_seen`               | string  | ISO 8601 timestamp of the first co-occurrence                                    |
-| `last_seen`                | string  | ISO 8601 timestamp of the most recent co-occurrence                              |
+| `median_lag_ms`            | number  | Median event-time lag between `source` and `target` first-span timestamps        |
+| `first_seen`               | string  | ISO 8601 timestamp of the first co-occurrence, on the daemon's analysis clock    |
+| `last_seen`                | string  | ISO 8601 timestamp of the most recent co-occurrence, on the daemon's analysis clock |
 | `sample_trace_id`          | string  | Optional: last target-side trace id, absent in batch mode and replayed baselines |
 
 **Example:**

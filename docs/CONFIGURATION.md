@@ -676,11 +676,11 @@ Cross-trace temporal correlation in daemon mode. When enabled, the daemon detect
 | Field                | Type    | Default | Description                                                                                                               |
 |----------------------|---------|---------|---------------------------------------------------------------------------------------------------------------------------|
 | `enabled`            | boolean | `false` | Enable cross-trace correlation. Requires `watch` daemon mode with sustained traffic to produce useful results             |
-| `window_minutes`     | integer | `10`    | Rolling window in minutes over which co-occurrences are tracked                                                           |
-| `lag_threshold_ms`   | integer | `5000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                                       |
-| `min_co_occurrences` | integer | `5`     | Minimum number of co-occurrences before a correlation is reported                                                         |
-| `min_confidence`     | float   | `0.7`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
-| `max_tracked_pairs`  | integer | `10000` | Maximum number of finding pairs retained simultaneously. It bounds what the correlator keeps, not what one batch walks: a wide topology scans the cross product of the incoming findings and the lag window whatever this is set to, so lowering it makes the daemon refuse more rather than allocate less. Pairs scale with finding types times services, so a handful of services can overrun the default; past the cap `/api/correlations` returns an arbitrary subset with nothing on the output saying so. `perf_sentinel_correlator_pairs_evicted_total` is the signal, and the daemon logs a warning on the first eviction. Not comfort-zone checked at startup |
+| `window_minutes`     | integer | `10`    | Rolling window in minutes over which co-occurrences and source occurrences are counted. Range 1 to 10080 (7 days). Memory does not grow with it: pairing only keeps about `lag_threshold_ms + 2 x trace_ttl_ms` of findings, and the window only sets the span of per-pair and per-endpoint counters |
+| `lag_threshold_ms`   | integer | `5000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring, measured between the findings' own first-span timestamps (`first_timestamp`), not the time the daemon analysed them. The finding with the earlier timestamp is the source |
+| `min_co_occurrences` | integer | `5`     | Minimum number of co-occurrences over the window before a correlation is reported. Each source occurrence counts at most once per pair |
+| `min_confidence`     | float   | `0.7`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / source_total_occurrences`, both counted over the same window |
+| `max_tracked_pairs`  | integer | `10000` | Maximum number of finding pairs retained simultaneously. It bounds what the correlator keeps, not what one batch walks: a wide topology scans the cross product of the incoming findings and the pairing horizon whatever this is set to, so lowering it makes the daemon refuse more rather than allocate less. Pairs scale with finding types times services, so a handful of services can overrun the default; past the cap `/api/correlations` returns an arbitrary subset with nothing on the output saying so. `perf_sentinel_correlator_pairs_evicted_total` is the signal, and the daemon logs a warning on the first eviction. Not comfort-zone checked at startup |
 
 ```toml
 [daemon.correlation]
@@ -689,6 +689,18 @@ window_minutes = 10
 lag_threshold_ms = 5000
 min_co_occurrences = 5
 min_confidence = 0.7
+```
+
+A 24 h window suits patterns that recur over a day. It costs the same pairing memory as the default; only the counters span longer:
+
+```toml
+[daemon.correlation]
+enabled = true
+window_minutes = 1440
+lag_threshold_ms = 2000
+min_co_occurrences = 10
+min_confidence = 0.7
+max_tracked_pairs = 50000
 ```
 
 Correlations are exposed via `GET /api/correlations` (when `api_enabled = true`) and snapshotted under `correlations` in `GET /api/export/report`. The daemon's stdout stream never carries them.

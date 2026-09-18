@@ -53,7 +53,7 @@ fn make_state() -> Arc<QueryApiState> {
 
 /// Seed a correlator with three rounds of paired events (an
 /// `NPlusOneSql` on `order-svc` immediately followed by
-/// `follow_up_kind` on `payment-svc`, 1 ms apart, 10 s between
+/// `follow_up_kind` on `payment-svc`, 1 s apart, 10 s between
 /// rounds). The shape is tuned to the default `min_co_occurrences
 /// = 2` + `min_confidence = 0.5` config used by the two tests
 /// that need at least one active correlation in the result.
@@ -68,10 +68,12 @@ fn seed_correlator_with_pair(
             detect::Severity::Warning,
         );
         fa.service = "order-svc".to_string();
+        fa.first_timestamp = crate::time::millis_to_iso8601(t);
         let _ = correlator.ingest(&[fa], t);
         let mut fb =
             crate::test_helpers::make_finding(follow_up_kind.clone(), detect::Severity::Warning);
         fb.service = "payment-svc".to_string();
+        fb.first_timestamp = crate::time::millis_to_iso8601(t + 1_000);
         let _ = correlator.ingest(&[fb], t + 1_000);
     }
 }
