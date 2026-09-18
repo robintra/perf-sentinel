@@ -83,7 +83,8 @@ const DEMO_CORRELATIONS = [
     last_seen: "2026-04-20T11:42:08Z",
     // The daemon stores the target-side finding's trace, so the sample must be
     // a chat-svc trace carrying the target "POST /api/notify" span.
-    sample_trace_id: "trace-chat-05"
+    sample_trace_id: "trace-chat-05",
+    source_sample_trace_id: "trace-order-01"
   },
   {
     source: {
@@ -108,7 +109,8 @@ const DEMO_CORRELATIONS = [
     last_seen: "2026-04-20T11:38:44Z",
     // Target is the order-svc n+1, so the sample is an order-svc trace holding
     // the target "SELECT * FROM order_item" span.
-    sample_trace_id: "trace-order-01"
+    sample_trace_id: "trace-order-01",
+    source_sample_trace_id: "trace-payment-01"
   },
   {
     source: {

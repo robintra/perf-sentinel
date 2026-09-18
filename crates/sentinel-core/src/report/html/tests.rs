@@ -2181,6 +2181,7 @@ fn embeds_correlations_when_report_carries_them() {
         first_seen: "2026-04-21T10:00:00Z".to_string(),
         last_seen: "2026-04-21T10:05:00Z".to_string(),
         sample_trace_id: None,
+        source_sample_trace_id: None,
     };
 
     let f = finding("t1", "svc", "/ep", "SELECT * FROM t");

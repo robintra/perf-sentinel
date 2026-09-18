@@ -133,6 +133,13 @@ pub struct CrossTraceCorrelation {
     /// replayed baselines that predate this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_trace_id: Option<String>,
+    /// Trace id of the source-side finding of the most recent
+    /// co-occurrence (the leading finding in the source -> target order).
+    /// Lets the dashboard open both sides of the pair in Explain.
+    /// `None` in batch mode and for replayed baselines that predate this
+    /// field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sample_trace_id: Option<String>,
 }
 
 /// Key for a correlation pair in the internal map.
@@ -229,6 +236,9 @@ struct PairState {
     /// Trace id of the most recent target-side finding that completed
     /// this pair. Capped at [`MAX_SAMPLE_TRACE_ID_BYTES`].
     last_trace_id: Option<String>,
+    /// Trace id of the source-side finding of the same match. Capped at
+    /// [`MAX_SAMPLE_TRACE_ID_BYTES`].
+    last_source_trace_id: Option<String>,
 }
 
 impl PairState {
@@ -243,6 +253,7 @@ impl PairState {
             first_seen_ms: now_ms,
             last_seen_ms: now_ms,
             last_trace_id: None,
+            last_source_trace_id: None,
         }
     }
 
@@ -269,17 +280,22 @@ impl PairState {
         }
     }
 
-    /// Record `trace_id` as the most recently observed trace for this
-    /// pair, unless the value is empty or already equals the current
-    /// record. Trace ids longer than [`MAX_SAMPLE_TRACE_ID_BYTES`] are
-    /// truncated on a UTF-8 boundary.
-    fn update_sample_trace_id(&mut self, trace_id: &str) {
-        if trace_id.is_empty() || self.last_trace_id.as_deref() == Some(trace_id) {
-            return;
-        }
-        let capped = truncate_to_utf8_boundary(trace_id, MAX_SAMPLE_TRACE_ID_BYTES);
-        self.last_trace_id = Some(capped.to_string());
+    /// Record the source and target trace ids of the latest match.
+    fn update_sample_trace_ids(&mut self, source_trace_id: &str, target_trace_id: &str) {
+        update_sample_trace_id(&mut self.last_source_trace_id, source_trace_id);
+        update_sample_trace_id(&mut self.last_trace_id, target_trace_id);
     }
+}
+
+/// Store `trace_id` in `slot` unless it is empty or already stored.
+/// Trace ids longer than [`MAX_SAMPLE_TRACE_ID_BYTES`] are truncated on
+/// a UTF-8 boundary.
+fn update_sample_trace_id(slot: &mut Option<String>, trace_id: &str) {
+    if trace_id.is_empty() || slot.as_deref() == Some(trace_id) {
+        return;
+    }
+    let capped = truncate_to_utf8_boundary(trace_id, MAX_SAMPLE_TRACE_ID_BYTES);
+    *slot = Some(capped.to_string());
 }
 
 /// Truncate `s` to at most `max_bytes`, moving the cut backwards to the
@@ -536,7 +552,7 @@ impl CrossTraceCorrelator {
                 }
             };
             state.last_seen_ms = now_ms;
-            state.update_sample_trace_id(&target.trace_id);
+            state.update_sample_trace_ids(&source.trace_id, &target.trace_id);
             if source
                 .counted_targets
                 .iter()
@@ -640,6 +656,7 @@ impl CrossTraceCorrelator {
                     first_seen: crate::time::millis_to_iso8601(state.first_seen_ms),
                     last_seen: crate::time::millis_to_iso8601(state.last_seen_ms),
                     sample_trace_id: state.last_trace_id.clone(),
+                    source_sample_trace_id: state.last_source_trace_id.clone(),
                 })
             })
             .collect()
@@ -775,6 +792,7 @@ mod tests {
             Some("trace-payment-svc"),
             "correlator must record the latest target-side trace id on each pair"
         );
+        assert_eq!(c.source_sample_trace_id.as_deref(), Some("trace-order-svc"));
     }
 
     #[test]
@@ -789,7 +807,8 @@ mod tests {
         // Build a finding with an oversized trace id. The correlator
         // must cap what it records so exported reports stay bounded.
         let oversized = "a".repeat(MAX_SAMPLE_TRACE_ID_BYTES * 4);
-        let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
+        let mut fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
+        fa.trace_id = oversized.clone();
         let _ = ingest_at(&mut correlator, std::slice::from_ref(&fa), 1_000);
         let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
         fb.trace_id = oversized.clone();
@@ -809,6 +828,11 @@ mod tests {
             MAX_SAMPLE_TRACE_ID_BYTES,
             id.len()
         );
+        let source_id = c
+            .source_sample_trace_id
+            .as_deref()
+            .expect("source sample trace id set");
+        assert_eq!(source_id.len(), MAX_SAMPLE_TRACE_ID_BYTES);
     }
 
     #[test]
@@ -1216,6 +1240,7 @@ mod tests {
             .find(|c| c.source.service == "svc-a")
             .expect("pair");
         assert_eq!(pair.sample_trace_id.as_deref(), Some("trace-new"));
+        assert_eq!(pair.source_sample_trace_id.as_deref(), Some("trace-svc-a"));
     }
 
     #[test]
@@ -1351,6 +1376,7 @@ mod tests {
             first_seen_ms: 0,
             last_seen_ms: 0,
             last_trace_id: None,
+            last_source_trace_id: None,
         };
         let n = MAX_LAG_SAMPLES * 20;
         for i in 0..n {
@@ -1466,6 +1492,7 @@ mod tests {
         assert_eq!(correlations.len(), 1, "no reverse B -> A pair");
         let pair = find_pair(&correlations, "svc-a", "svc-b").expect("A -> B");
         assert_eq!(pair.sample_trace_id.as_deref(), Some("trace-svc-b"));
+        assert_eq!(pair.source_sample_trace_id.as_deref(), Some("trace-svc-a"));
     }
 
     #[test]
@@ -1853,6 +1880,7 @@ mod tests {
             first_seen: "2025-07-10T14:32:00.000Z".to_string(),
             last_seen: "2025-07-10T14:42:00.000Z".to_string(),
             sample_trace_id: Some("trace-abc".to_string()),
+            source_sample_trace_id: Some("trace-src".to_string()),
         };
         let json = serde_json::to_string(&c).unwrap();
         let back: CrossTraceCorrelation = serde_json::from_str(&json).unwrap();
@@ -1861,6 +1889,7 @@ mod tests {
         assert_eq!(back.target.service, "payment-svc");
         assert!((back.confidence - 0.8).abs() < f64::EPSILON);
         assert_eq!(back.sample_trace_id.as_deref(), Some("trace-abc"));
+        assert_eq!(back.source_sample_trace_id.as_deref(), Some("trace-src"));
         assert!(
             json.contains("\"sample_trace_id\":\"trace-abc\""),
             "field must be present in JSON when populated"
@@ -1880,11 +1909,13 @@ mod tests {
         }"#;
         let legacy: CrossTraceCorrelation = serde_json::from_str(legacy_json).unwrap();
         assert!(legacy.sample_trace_id.is_none());
+        assert!(legacy.source_sample_trace_id.is_none());
 
         // `None` must skip the field so batch-mode reports stay
         // byte-identical to legacy outputs.
         let none_variant = CrossTraceCorrelation {
             sample_trace_id: None,
+            source_sample_trace_id: None,
             ..c
         };
         let none_json = serde_json::to_string(&none_variant).unwrap();

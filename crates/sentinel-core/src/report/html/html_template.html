@@ -4613,10 +4613,13 @@
       var srcZone = el("span", "ps-corr-side");
       srcZone.appendChild(corrTag(src, srcReal ? srcReal.severity : null));
       srcZone.appendChild(el("span", "ps-corr-path", correlationEndpointLabel(src)));
-      if (srcReal) {
+      if (srcReal || c.source_sample_trace_id) {
         srcZone.classList.add("ps-corr-side-link");
         setAttr(srcZone, "role", "button");
-        srcZone.addEventListener("click", function () { gotoFinding(srcReal); });
+        srcZone.addEventListener("click", function () {
+          if (srcReal) gotoFinding(srcReal);
+          else openExternalFindingDetail(syntheticFindingFromCorrelation(src, c.source_sample_trace_id));
+        });
       } else {
         // An inert zone looks exactly like a live one, so say why it is dead.
         srcZone.title = UNRESOLVED_SIDE_HINT;
@@ -4632,7 +4635,7 @@
         setAttr(tgtZone, "role", "button");
         tgtZone.addEventListener("click", function () {
           if (tgtReal) gotoFinding(tgtReal);
-          else openExternalFindingDetail(syntheticFindingFromCorrelation(c));
+          else openExternalFindingDetail(syntheticFindingFromCorrelation(tgt, c.sample_trace_id));
         });
       } else {
         tgtZone.title = UNRESOLVED_SIDE_HINT;
@@ -4669,23 +4672,22 @@
     return sameKind.length === 1 ? sameKind[0] : null;
   }
 
-  function syntheticFindingFromCorrelation(c) {
-    // Shape openExplain reads. sample_trace_id is the target-side finding's
-    // trace (correlate_cross.rs), so the detail must describe the target: its
+  function syntheticFindingFromCorrelation(endpoint, traceId) {
+    // Shape openExplain reads. traceId is the trace of this side's finding
+    // (correlate_cross.rs), so the detail must describe this side: its
     // template is the one present in that trace, which lets renderTree
     // highlight the offending span and renderPgStatXref find the row. Add a
     // type and a warning pill (cards are warn) so the head is not "undefined".
-    var tgt = c.target || {};
     var finding = {
-      trace_id: c.sample_trace_id,
-      type: tgt.finding_type || "cross-trace",
+      trace_id: traceId,
+      type: endpoint.finding_type || "cross-trace",
       severity: "warning",
-      service: tgt.service || "-",
+      service: endpoint.service || "-",
       source_endpoint: "-",
-      pattern: { template: tgt.template || "" }
+      pattern: { template: endpoint.template || "" }
     };
-    if (tgt.grouping_key && tgt.grouping_value) {
-      finding.grouping = [{ key: tgt.grouping_key, value: tgt.grouping_value }];
+    if (endpoint.grouping_key && endpoint.grouping_value) {
+      finding.grouping = [{ key: endpoint.grouping_key, value: endpoint.grouping_value }];
     }
     return finding;
   }
@@ -5459,7 +5461,8 @@
       "service_b", "grouping_key_b", "grouping_value_b", "type_b", "template_b",
       "confidence", "co_occurrence_count",
       "source_total_occurrences", "median_lag_ms",
-      "first_seen", "last_seen"
+      "first_seen", "last_seen",
+      "source_sample_trace_id", "sample_trace_id"
     ];
     var rows = correlations.filter(function (c) {
       return matchesSearch(correlationMatchBlob(c), term);
@@ -5475,7 +5478,8 @@
         c.co_occurrence_count ?? "",
         c.source_total_occurrences ?? "",
         c.median_lag_ms ?? "",
-        c.first_seen || "", c.last_seen || ""
+        c.first_seen || "", c.last_seen || "",
+        c.source_sample_trace_id || "", c.sample_trace_id || ""
       ];
     });
     downloadCsv("correlations", buildCsv(header, rows));

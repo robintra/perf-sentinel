@@ -482,6 +482,27 @@ test("24. each side of a correlation opens its own finding", async ({ page }) =>
   expect(await page.locator("#explain-tree .hilite").count()).toBeGreaterThan(0);
 });
 
+test("24b. the correlations CSV carries both sample traces", async ({ page }) => {
+  await page.goto("/dashboard-demo.html#correlations");
+  await page.waitForSelector("[role=tablist]");
+  await page.evaluate(() => {
+    const g = globalThis as unknown as { __capturedCsv?: string };
+    const originalCreate = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob: Blob) => {
+      blob.text().then((text) => { g.__capturedCsv = text; });
+      return originalCreate(blob);
+    };
+  });
+  await page.locator("#correlations-export").click();
+  const csv = await page.waitForFunction(() => (globalThis as unknown as { __capturedCsv?: string }).__capturedCsv);
+  const lines = String(await csv.jsonValue()).split(/\r?\n/).filter((l) => l.length > 0);
+  const header = lines[0].split(",");
+  const src = header.indexOf("source_sample_trace_id");
+  expect(src, "source column present").toBeGreaterThan(-1);
+  expect(header[src + 1]).toBe("sample_trace_id");
+  expect(lines.some((l) => l.endsWith(",trace-order-01,trace-chat-05"))).toBe(true);
+});
+
 test("25. a hash naming an absent service does not silently empty the list", async ({ page }) => {
   // severity is validated against the three known values, and service must be
   // validated the same way, or a stale/hand-edited hash filters to nothing with no

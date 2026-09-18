@@ -172,7 +172,8 @@ fn demo_correlations(
                 co_occurrence_count: u32,
                 source_total_occurrences: u32,
                 median_lag_ms: f64,
-                sample_trace_id: &str|
+                sample_trace_id: &str,
+                source_sample_trace_id: &str|
      -> Option<CrossTraceCorrelation> {
         Some(CrossTraceCorrelation {
             confidence: f64::from(co_occurrence_count) / f64::from(source_total_occurrences),
@@ -184,6 +185,7 @@ fn demo_correlations(
             first_seen: "2025-07-10T14:00:00.000Z".to_string(),
             last_seen: "2025-07-10T14:32:00.000Z".to_string(),
             sample_trace_id: Some(sample_trace_id.to_string()),
+            source_sample_trace_id: Some(source_sample_trace_id.to_string()),
         })
     };
     let endpoint = |finding_type: FindingType, service: &str| -> Option<CorrelationEndpoint> {
@@ -208,6 +210,7 @@ fn demo_correlations(
             50,
             18.0,
             "trace-demo-chatty",
+            "trace-demo-order",
         ),
         pair(
             endpoint(FindingType::PoolSaturation, "payment-svc"),
@@ -216,6 +219,7 @@ fn demo_correlations(
             40,
             55.0,
             "trace-demo-serial",
+            "trace-demo-pool",
         ),
         pair(
             endpoint(FindingType::NPlusOneHttp, "inventory-svc"),
@@ -224,6 +228,7 @@ fn demo_correlations(
             33,
             9.0,
             "trace-demo-fanout",
+            "trace-demo-nplus-http",
         ),
     ]
     .into_iter()
@@ -250,9 +255,13 @@ mod tests {
         );
 
         for c in &correlations {
-            for (side, endpoint) in [("source", &c.source), ("target", &c.target)] {
+            for (side, endpoint, trace) in [
+                ("source", &c.source, &c.source_sample_trace_id),
+                ("target", &c.target, &c.sample_trace_id),
+            ] {
                 let resolved = report.findings.iter().any(|f| {
-                    f.finding_type == endpoint.finding_type
+                    Some(&f.trace_id) == trace.as_ref()
+                        && f.finding_type == endpoint.finding_type
                         && f.service == endpoint.service
                         && f.pattern.template == endpoint.template
                         && f.grouping_identity()
@@ -263,7 +272,7 @@ mod tests {
                 });
                 assert!(
                     resolved,
-                    "{side} {:?} on {} matches no finding: template {:?}, grouping {:?}",
+                    "{side} {:?} on {} matches no finding in {trace:?}: template {:?}, grouping {:?}",
                     endpoint.finding_type,
                     endpoint.service,
                     endpoint.template,
