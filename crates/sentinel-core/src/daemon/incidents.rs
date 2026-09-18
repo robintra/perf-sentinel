@@ -386,20 +386,33 @@ pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     Ok(file)
 }
 
+/// Most of the archive a startup load reads, from its end: the file has
+/// no rotation, and parsing all of it could outlast the liveness probe.
+pub const LOAD_TAIL_BYTES: u64 = 256 * 1024 * 1024;
+
 /// Read the archive back: the last record of each id, the `max_retained`
 /// most recent by `at_ms`, oldest first.
 ///
-/// Streams line by line and never holds more than `max_retained`
-/// incidents, however large the unrotated file has grown. A line that
-/// does not parse, such as a torn write sealed by [`open_archive`], is
-/// skipped and counted in one warning. A missing file loads nothing.
-/// Opens read-only with the append side's symlink guards.
+/// Streams line by line from the last [`LOAD_TAIL_BYTES`] of the file and
+/// never holds more than `max_retained` incidents, however large the
+/// unrotated file has grown. A line that does not parse, such as a torn
+/// write sealed by [`open_archive`], is skipped and counted in one
+/// warning. A missing file loads nothing. Opens read-only with the append
+/// side's symlink guards.
 ///
 /// # Errors
 ///
 /// A refused symlink or a read error.
 pub fn load_archive(path: &std::path::Path, max_retained: usize) -> std::io::Result<Vec<Incident>> {
-    use std::io::BufRead as _;
+    load_archive_tail(path, max_retained, LOAD_TAIL_BYTES)
+}
+
+fn load_archive_tail(
+    path: &std::path::Path,
+    max_retained: usize,
+    tail_bytes: u64,
+) -> std::io::Result<Vec<Incident>> {
+    use std::io::{BufRead as _, Seek as _};
 
     if super::archive::is_symlink(path) {
         return Err(std::io::Error::other("incident archive path is a symlink"));
@@ -412,7 +425,8 @@ pub fn load_archive(path: &std::path::Path, max_retained: usize) -> std::io::Res
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
-    if super::archive::is_reparse_point(&file.metadata()?) {
+    let metadata = file.metadata()?;
+    if super::archive::is_reparse_point(&metadata) {
         return Err(std::io::Error::other(
             "incident archive path is a symlink or another reparse point",
         ));
@@ -424,6 +438,17 @@ pub fn load_archive(path: &std::path::Path, max_retained: usize) -> std::io::Res
     let mut skipped = 0usize;
     let mut reader = std::io::BufReader::new(file);
     let mut line = Vec::new();
+    if metadata.len() > tail_bytes {
+        reader.seek(std::io::SeekFrom::Start(metadata.len() - tail_bytes))?;
+        // The cut lands inside a record: drop it.
+        reader.read_until(b'\n', &mut line)?;
+        line.clear();
+        tracing::info!(
+            path = %path.display(),
+            tail_bytes,
+            "Incident archive larger than the startup read, loading its tail only"
+        );
+    }
     while reader.read_until(b'\n', &mut line)? > 0 {
         if line.iter().any(|b| !b.is_ascii_whitespace()) {
             match serde_json::from_slice::<Incident>(&line) {
@@ -1093,6 +1118,23 @@ mod tests {
         let ats: Vec<u64> = loaded.iter().map(|i| i.at_ms).collect();
         assert_eq!(ats, [2000, 3000], "the newest two, oldest first");
         assert!(load_archive(&path, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_load_reads_only_the_tail_of_a_large_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("incidents.ndjson");
+        let lines: Vec<String> = [1000, 2000, 3000]
+            .into_iter()
+            .map(|at| serde_json::to_string(&incident("svc", IncidentKind::Restart, at)).unwrap())
+            .collect();
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        // The cut falls inside the second record: only the third loads.
+        let tail = (lines[1].len() / 2 + lines[2].len() + 2) as u64;
+        let loaded = load_archive_tail(&path, 10, tail).unwrap();
+        assert_eq!(loaded.iter().map(|i| i.at_ms).collect::<Vec<_>>(), [3000]);
+        assert_eq!(load_archive_tail(&path, 10, u64::MAX).unwrap().len(), 3);
     }
 
     #[test]

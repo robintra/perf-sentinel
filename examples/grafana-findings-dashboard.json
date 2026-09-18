@@ -368,7 +368,7 @@
         "name": "incident_offset",
         "label": "Incident skip rows",
         "type": "custom",
-        "query": "0,100,200,300,400,500,600,700,800,900",
+        "query": "0,50,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950",
         "current": {
           "text": "0",
           "value": "0"
@@ -381,8 +381,18 @@
           },
           {
             "selected": false,
+            "text": "50",
+            "value": "50"
+          },
+          {
+            "selected": false,
             "text": "100",
             "value": "100"
+          },
+          {
+            "selected": false,
+            "text": "150",
+            "value": "150"
           },
           {
             "selected": false,
@@ -391,8 +401,18 @@
           },
           {
             "selected": false,
+            "text": "250",
+            "value": "250"
+          },
+          {
+            "selected": false,
             "text": "300",
             "value": "300"
+          },
+          {
+            "selected": false,
+            "text": "350",
+            "value": "350"
           },
           {
             "selected": false,
@@ -401,8 +421,18 @@
           },
           {
             "selected": false,
+            "text": "450",
+            "value": "450"
+          },
+          {
+            "selected": false,
             "text": "500",
             "value": "500"
+          },
+          {
+            "selected": false,
+            "text": "550",
+            "value": "550"
           },
           {
             "selected": false,
@@ -411,8 +441,18 @@
           },
           {
             "selected": false,
+            "text": "650",
+            "value": "650"
+          },
+          {
+            "selected": false,
             "text": "700",
             "value": "700"
+          },
+          {
+            "selected": false,
+            "text": "750",
+            "value": "750"
           },
           {
             "selected": false,
@@ -421,14 +461,24 @@
           },
           {
             "selected": false,
+            "text": "850",
+            "value": "850"
+          },
+          {
+            "selected": false,
             "text": "900",
             "value": "900"
+          },
+          {
+            "selected": false,
+            "text": "950",
+            "value": "950"
           }
         ],
         "hide": 0,
         "includeAll": false,
         "multi": false,
-        "description": "The API's offset for both incident panels: incidents skipped, newest first, before the page of 100 starts, 100 being the most one request returns. 0, then 100, 200 to page back through a ring of up to 1000 ([daemon.incidents] max_retained). A new incident shifts every page by one row."
+        "description": "The API's offset for both incident panels: incidents skipped, newest first, before the page of 50 starts. 0, then 50, 100 to page back through a ring of up to 1000 ([daemon.incidents] max_retained). A new incident shifts every page by one row."
       }
     ]
   },
@@ -1549,7 +1599,7 @@
     {
       "type": "table",
       "title": "Incidents",
-      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. A page of 100, the most one request returns, starting after 'Incident skip rows' incidents, so 0 shows the 100 most recent. The time picker does not apply.\n\n'Findings' counts the rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
+      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. A page of 50, each incident with its frozen findings, starting after 'Incident skip rows' incidents, so 0 shows the 50 most recent. The time picker does not apply.\n\n'Findings' counts the rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1571,7 +1621,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/incidents?limit=100&offset=${incident_offset}",
+          "url": "/api/incidents?limit=50&offset=${incident_offset}",
           "url_options": {
             "method": "GET"
           },
@@ -1791,7 +1841,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/incidents?limit=100&offset=${incident_offset}",
+          "url": "/api/incidents?limit=50&offset=${incident_offset}",
           "url_options": {
             "method": "GET"
           },
