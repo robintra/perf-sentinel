@@ -1171,8 +1171,11 @@ frozen for that incident, folded over the window alone, with a
 `First seen` column in place of `Acked via`: a first sighting later than
 the incident's start is a row that fired only after the restart. The
 time picker filters neither table, since the route has no time filter:
-the first always shows the 50 most recent incidents and the second
-whichever incident the variable names.
+both read a page of 100 incidents, the most one request returns, after
+the number the `Incident skip rows` variable picks (0 to 900, by 100),
+so 0 shows the 100 most recent and the next values page back through a
+ring of up to 1000. The second shows whichever incident the `Incident`
+variable names, found on the same page as the row clicked.
 
 Both routes are gated, so the datasource now sends a key.
 `examples/grafana-infinity-datasource.yaml` puts `[daemon] read_api_key`
