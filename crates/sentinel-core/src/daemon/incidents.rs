@@ -220,6 +220,18 @@ impl IncidentStore {
     /// may carry is an end, see [`Self::close`], and the settle pass
     /// merges rather than replaces, see [`Self::merge`].
     pub async fn record(&self, incident: Incident) -> bool {
+        self.record_then(incident, |_| {}).await
+    }
+
+    /// [`Self::record`], running `then` on the new record before the ring
+    /// unlocks, so what it hands the archive is ordered with every other
+    /// change to the ring, which the last-record-wins reload relies on.
+    /// `then` runs under the write lock and must not block.
+    pub(crate) async fn record_then(
+        &self,
+        incident: Incident,
+        then: impl FnOnce(&Incident),
+    ) -> bool {
         if self.max_size == 0 {
             return false;
         }
@@ -227,6 +239,7 @@ impl IncidentStore {
         if buf.iter().any(|i| i.id == incident.id) {
             return false;
         }
+        then(&incident);
         buf.push_back(incident);
         while buf.len() > self.max_size {
             buf.pop_front();
@@ -240,16 +253,27 @@ impl IncidentStore {
     }
 
     /// Set the end of a retained incident that had none. Returns the
-    /// updated record when that transition happened, so the caller can
-    /// archive the closed line, and `None` otherwise.
+    /// updated record when that transition happened, and `None`
+    /// otherwise. See [`Self::close_then`] to archive it in order.
     pub async fn close(&self, id: &str, ended_at_ms: u64) -> Option<Incident> {
+        self.close_then(id, ended_at_ms, Incident::clone).await
+    }
+
+    /// [`Self::close`], running `then` before the ring unlocks, see
+    /// [`Self::record_then`].
+    pub(crate) async fn close_then<T>(
+        &self,
+        id: &str,
+        ended_at_ms: u64,
+        then: impl FnOnce(&Incident) -> T,
+    ) -> Option<T> {
         let mut buf = self.inner.write().await;
         let incident = buf.iter_mut().find(|i| i.id == id)?;
         if incident.ended_at_ms.is_some() {
             return None;
         }
         incident.ended_at_ms = Some(ended_at_ms);
-        Some(incident.clone())
+        Some(then(incident))
     }
 
     /// Merge a later resolution of the same window into the retained
@@ -259,6 +283,16 @@ impl IncidentStore {
     /// lost are kept, and `oldest_finding_ms` keeps the earlier stamp.
     /// Returns the merged record, or `None` when the id is gone.
     pub async fn merge(&self, later: Incident) -> Option<Incident> {
+        self.merge_then(later, Incident::clone).await
+    }
+
+    /// [`Self::merge`], running `then` before the ring unlocks, see
+    /// [`Self::record_then`].
+    pub(crate) async fn merge_then<T>(
+        &self,
+        later: Incident,
+        then: impl FnOnce(&Incident) -> T,
+    ) -> Option<T> {
         let mut buf = self.inner.write().await;
         let slot = buf.iter_mut().find(|i| i.id == later.id)?;
         super::findings_store::merge_folded(&mut slot.findings, later.findings);
@@ -266,7 +300,7 @@ impl IncidentStore {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
-        Some(slot.clone())
+        Some(then(slot))
     }
 
     /// Recorded incidents, newest first, skipping `offset` and capped at
@@ -963,6 +997,26 @@ mod tests {
         unknown.id = "not-there".to_string();
         assert!(store.merge(unknown).await.is_none());
         assert!(store.contains(&id).await);
+    }
+
+    /// The reload keeps the last archived record of an id, so a change
+    /// handed to the archive after the ring unlocks could land behind a
+    /// newer one and win.
+    #[tokio::test]
+    async fn every_change_reaches_the_archive_before_the_ring_unlocks() {
+        let store = IncidentStore::new(10);
+        let locked = || {
+            assert!(
+                store.inner.try_read().is_err(),
+                "handed over after the ring unlocked"
+            );
+        };
+        let first = incident("svc", IncidentKind::OomKill, 5000);
+        let id = first.id.clone();
+        assert!(store.record_then(first, |_| locked()).await);
+        let later = incident("svc", IncidentKind::OomKill, 5000);
+        assert!(store.merge_then(later, |_| locked()).await.is_some());
+        assert!(store.close_then(&id, 9000, |_| locked()).await.is_some());
     }
 
     #[tokio::test]

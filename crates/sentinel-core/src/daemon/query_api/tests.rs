@@ -816,6 +816,37 @@ async fn the_listing_pages_with_offset_and_caps_the_delivery() {
 }
 
 #[tokio::test]
+async fn the_handlers_archive_each_change_of_an_incident() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+    let mut archived = make_state().clone_for_test();
+    archived.incident_archive = Some(tx);
+    let state = Arc::new(archived);
+    let alert = |status: &str| {
+        serde_json::json!([{
+            "status": status,
+            "labels": {"service": "svc", "perf_sentinel_kind": "restart"},
+            "startsAt": "2026-09-01T14:00:00Z",
+            "endsAt": "2026-09-01T14:05:00Z"
+        }])
+    };
+    for status in ["firing", "resolved"] {
+        let resp = query_api_router(Arc::clone(&state))
+            .oneshot(post_incidents_request(&alert(status)))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    let mut ended = Vec::new();
+    while let Ok(line) = rx.try_recv() {
+        let record: serde_json::Value = serde_json::from_slice(&line).unwrap();
+        ended.push(record["ended_at_ms"].is_u64());
+    }
+    assert_eq!(ended.first(), Some(&false), "the creation is archived");
+    assert_eq!(ended.last(), Some(&true), "then the close, last");
+}
+
+#[tokio::test]
 async fn the_namespace_label_is_carried_and_filters_the_listing() {
     let state = make_state();
     let resp = query_api_router(Arc::clone(&state))
