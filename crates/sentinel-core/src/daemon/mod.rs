@@ -487,8 +487,6 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     loop_result
 }
 
-/// Daemon startup gate for `[reporting] intent = "official"`.
-/// See `docs/design/08-PERIODIC-DISCLOSURE.md`.
 /// The incident archive writer, when `[daemon.incidents]` is enabled and
 /// names a path. Opened before the listeners so a bad path fails the
 /// daemon rather than the first incident, and drained after the loop like
@@ -548,6 +546,8 @@ fn load_incident_store(
     ))))
 }
 
+/// Daemon startup gate for `[reporting] intent = "official"`.
+/// See `docs/design/08-PERIODIC-DISCLOSURE.md`.
 fn validate_official_reporting(config: &Config) -> Result<(), DaemonError> {
     use crate::report::periodic::org_config;
 
