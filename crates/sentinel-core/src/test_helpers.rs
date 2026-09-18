@@ -8,6 +8,24 @@ use crate::normalize;
 use crate::report::interpret::InterpretationLevel;
 use crate::report::{Analysis, GreenSummary, QualityGate, Report};
 
+/// Assert that a structural finding carries its representative call's
+/// `scope` and `namespace`, and that they route it to `java_generic`.
+pub fn assert_java_representative_call(
+    findings: &mut [crate::detect::Finding],
+    scope: &str,
+    namespace: &str,
+) {
+    assert_eq!(findings[0].instrumentation_scopes, [scope]);
+    let loc = findings[0]
+        .code_location
+        .as_ref()
+        .expect("representative call");
+    assert_eq!(loc.namespace.as_deref(), Some(namespace));
+    crate::detect::suggestions::enrich(findings);
+    let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+    assert_eq!(fix.framework, "java_generic");
+}
+
 /// Build a `Report` with every field at its empty / default state.
 /// Used by tests that exercise serialization or carry-through logic
 /// without needing real findings or scoring data, so the long

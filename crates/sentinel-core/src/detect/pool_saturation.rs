@@ -257,21 +257,11 @@ mod tests {
         events[0].code_namespace = Some(Arc::from("com.example.OrderRepository"));
         let trace = make_trace(events);
         let mut findings = detect_pool_saturation(&trace, 10);
-        assert_eq!(
-            findings[0].instrumentation_scopes,
-            ["io.opentelemetry.jdbc"]
+        crate::test_helpers::assert_java_representative_call(
+            &mut findings,
+            "io.opentelemetry.jdbc",
+            "com.example.OrderRepository",
         );
-        let loc = findings[0]
-            .code_location
-            .as_ref()
-            .expect("representative call");
-        assert_eq!(
-            loc.namespace.as_deref(),
-            Some("com.example.OrderRepository")
-        );
-        crate::detect::suggestions::enrich(&mut findings);
-        let fix = findings[0].suggested_fix.as_ref().expect("enriched");
-        assert_eq!(fix.framework, "java_generic");
     }
 
     #[test]
