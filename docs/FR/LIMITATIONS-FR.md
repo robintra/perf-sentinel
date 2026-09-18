@@ -238,7 +238,7 @@ Le détecteur de saturation du pool utilise une heuristique basée sur le chevau
 Limitations :
 - Les timestamps du tracing distribué peuvent présenter un décalage d'horloge, entraînant une détection imprécise du chevauchement.
 - Le détecteur ne peut pas distinguer entre une contention réelle du pool et des requêtes parallèles intentionnelles (par exemple, des patterns scatter-gather).
-- Pour un monitoring précis, instrumentez votre application avec les métriques OTel du pool de connexions (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
+- Le pic se mesure au sein d'une seule trace. Plusieurs requêtes entrantes concurrentes qui tiennent chacune une connexion passent donc inaperçues, car les spans ne portent aucune identité de processus et une somme sur plusieurs traces additionnerait les pools de toutes les instances du service. Pour cette contention comme pour une surveillance précise, instrumentez votre application avec les métriques OTel du pool de connexions (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
 
 Les findings de saturation du pool ne sont PAS comptées comme I/O évitables.
 
