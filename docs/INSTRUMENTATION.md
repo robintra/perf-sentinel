@@ -518,7 +518,7 @@ fi
 
 The setup above assumes a long-running process talking to a live OTLP endpoint. Integration tests are different: they run inside the test runner's own JVM and there is no daemon to send traces to in CI. See [CI.md](./CI.md#ci-mode-batch-analysis) for the batch-mode path this feeds.
 
-**Java has no file exporter, and a forked test JVM cannot hand you its stdout either.** No supported Java exporter writes spans to a path you choose. The declarative-configuration exporter `otlp_file/development` does define an `output_stream: file://...` field, but the Java implementation reports it as [not implemented](https://github.com/open-telemetry/opentelemetry-configuration/blob/main/language-support-status.md). That leaves `experimental-otlp/stdout`, which writes OTLP JSON to `System.out`, and this is where Maven gets in the way: Surefire and Failsafe talk to the forked JVM over an encoded protocol carried on that fork's stdout. The agent initialises in `premain` and captures the original `System.out`, the command channel itself, before Surefire installs the wrapper `redirectTestOutputToFile` acts on. Every export is then classified as channel corruption and diverted into `target/failsafe-reports/<timestamp>-jvmRunN.dumpstream`:
+**Before agent 2.32.0, Java has no file exporter, and a forked test JVM cannot hand you its stdout either.** Up to SDK 1.65, the one agent 2.31.1 bundles, no Java exporter writes spans to a path you choose. The declarative-configuration exporter `otlp_file/development` defines an `output_stream: file://...` field, but the Java SDK only implements it from 1.66 on, see Option 3 below. That leaves `experimental-otlp/stdout`, which writes OTLP JSON to `System.out`, and this is where Maven gets in the way: Surefire and Failsafe talk to the forked JVM over an encoded protocol carried on that fork's stdout. The agent initialises in `premain` and captures the original `System.out`, the command channel itself, before Surefire installs the wrapper `redirectTestOutputToFile` acts on. Every export is then classified as channel corruption and diverted into `target/failsafe-reports/<timestamp>-jvmRunN.dumpstream`:
 
 ```
 Corrupted channel by directly writing to native stream in forked JVM 1.
@@ -527,7 +527,7 @@ Stream '{"resourceSpans":[{"resource":{"attributes":[{"key":"host.arch",…}]}}]
 
 Nothing usable reaches `-output.txt`, and piping the build with `tee` does not help either, since the fork's stdout is the channel rather than the console. This is not a version artefact, Failsafe 3.5.0, 3.2.5 and 2.22.2 all divert it.
 
-So the traces have to leave the JVM the way they do in production, over the network, and something has to be listening. That is what `perf-sentinel capture` is for.
+So, short of agent 2.32.0, the traces have to leave the JVM the way they do in production, over the network, and something has to be listening. That is what `perf-sentinel capture` is for, and it works the same on every agent version.
 
 **Attach the agent to the test JVM, not just the built image.** If integration tests run in-process against `@SpringBootTest` (Maven Failsafe, Gradle `integrationTest`) rather than against the built container, the agent baked into your Dockerfile never sees them. Copy the agent jar into the build, pinned to the version baked into your Dockerfile so both environments instrument the same way:
 
@@ -614,11 +614,52 @@ Details: [`CLI.md`](./CLI.md), and `perf-sentinel capture --help` for `--listen-
 
 If a Collector is already part of the job, keep it. Its `file` exporter produces the same NDJSON, see [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector). This is the heavier shape, one more container to start and stop, and it makes sense mostly when the same traces have to reach another backend at the same time.
 
-##### Option 3, no receiver at all
+##### Option 3, file export from the agent (2.32.0 and later)
 
-`<forkCount>0</forkCount>` removes the fork, therefore the command channel, so `experimental-otlp/stdout` reaches the console and a grep over the build log yields the trace file. It needs no listener, at a price: test isolation is gone, the capture then carries Maven's own spans alongside the application's, and anything that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, must move to `MAVEN_OPTS` or it silently stops applying. Reach for it only when nothing may listen on a port.
+Agent 2.32.0 is the first release bundling SDK 1.66, where `otlp_file/development` implements `output_stream`. At the time of writing (September 2026) only `2.32.0-SNAPSHOT` builds exist. A `file://` value makes the forked JVM write the trace file itself, one OTLP request per line, the NDJSON shape `analyze` reads with no extra flag. Nothing listens on a port, and the fork stays as it is since the file never goes through the command channel.
 
-**Three neighbouring exporter names do not help here.** `logging` prints a human-readable span summary rather than OTLP JSON, so perf-sentinel cannot parse it at all. `logging-otlp` does emit OTLP JSON, but through a logger, so each line carries whatever prefix the application's logging setup adds. `otlp_file` and `OTEL_EXPORTER_OTLP_FILE_PATH` do not exist at all, despite reading like they should.
+The exporter is reachable through declarative configuration only. Put a file such as `otel-ci.yaml` next to the POM:
+
+```yaml
+file_format: "1.1"
+resource:
+  attributes:
+    - name: service.name
+      value: my-service
+tracer_provider:
+  processors:
+    - simple:
+        exporter:
+          otlp_file/development:
+            output_stream: file://${TRACES_FILE}
+```
+
+and point the agent at it from the failsafe configuration, in place of the `OTEL_*` variables above:
+
+```xml
+<environmentVariables>
+  <OTEL_CONFIG_FILE>${project.basedir}/otel-ci.yaml</OTEL_CONFIG_FILE>
+  <TRACES_FILE>${project.build.directory}/traces.jsonl</TRACES_FILE>
+</environmentVariables>
+```
+
+```bash
+rm -f target/traces.jsonl
+mvn verify
+perf-sentinel analyze --ci --input target/traces.jsonl
+```
+
+- **The file is opened in append mode.** A second run without `clean` adds its spans to the first one, and every finding comes out twice. Start from an empty file, as the `rm -f` above does. `mvn clean verify` works too, unlike with `capture`, since the forked JVM opens the file after `clean` has run.
+- **Once `OTEL_CONFIG_FILE` is set, the agent ignores every `OTEL_*` variable.** Service name, sampler and exporter all come from the YAML.
+- **An older agent fails silently.** Agent 2.31.1 with the same configuration ends in `BUILD SUCCESS`, writes no file and diverts the spans to the fork channel. Pin 2.32.0 or later in the `maven-dependency-plugin` block above.
+
+A failing test still leaves a complete, analyzable file.
+
+##### Option 4, no fork at all
+
+`<forkCount>0</forkCount>` removes the fork, therefore the command channel, so `experimental-otlp/stdout` reaches the console and a grep over the build log yields the trace file. It needs no listener, at a price: test isolation is gone, the capture then carries Maven's own spans alongside the application's, and anything that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, must move to `MAVEN_OPTS` or it silently stops applying. Reach for it only when nothing may listen on a port and the agent predates 2.32.0.
+
+**Three neighbouring exporter names do not help here.** `logging` prints a human-readable span summary rather than OTLP JSON, so perf-sentinel cannot parse it at all. `logging-otlp` does emit OTLP JSON, but through a logger, so each line carries whatever prefix the application's logging setup adds. `otlp_file` and `OTEL_EXPORTER_OTLP_FILE_PATH` do not exist at all, despite reading like they should. The real mechanism is `otlp_file/development` with `output_stream` (Option 3).
 
 ---
 

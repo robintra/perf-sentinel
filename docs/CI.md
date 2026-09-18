@@ -19,7 +19,8 @@ perf-sentinel analyze --ci --input traces.json
 ### Producing `traces.json`
 
 Batch mode needs a trace file, and how a test suite hands one over
-depends entirely on the language. Only C++ and PHP implement an OTLP
+depends entirely on the language. Only C++, PHP and, from agent
+2.32.0 through declarative configuration, Java implement an OTLP
 exporter that writes to a path you choose, and a forked Maven test JVM
 cannot even yield its stdout, which Surefire uses as its command
 channel. The portable answer is to let the application export over the
@@ -623,7 +624,7 @@ jobs:
       # Run integration tests on the PR branch and capture traces. Your
       # script owns the trace file, it takes the output path as an argument
       # here. See INSTRUMENTATION.md for how each language produces one,
-      # Java in particular has no file exporter and needs a stdout capture.
+      # Java in particular needs `capture`, or agent 2.32.0+ for a file export.
       - name: Collect PR-branch traces
         run: ./scripts/run-integration-tests.sh pr-traces.json
 

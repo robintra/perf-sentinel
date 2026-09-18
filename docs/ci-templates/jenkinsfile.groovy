@@ -19,8 +19,8 @@
 //   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
 //      'latest'). Bump deliberately and review the CHANGELOG before each bump.
 //   2. PERF_SENTINEL_TRACES: path to a trace file produced by your
-//      integration test stage. The Java reference setup uses an OTel Java
-//      Agent with the file exporter writing to target/traces.json.
+//      integration test stage. The Java reference setup wraps the Maven
+//      build in `perf-sentinel capture` (see the stage comment below).
 //   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
 //      [thresholds] section to set quality-gate severity floors. On OTLP
 //      input, `min_usable_span_ratio` also fails the gate when the spans
@@ -121,10 +121,12 @@ pipeline {
     stages {
         // Place your integration-test stage here. It must produce the trace
         // file at $PERF_SENTINEL_TRACES before the perf-sentinel stage runs.
-        // Java has no OTLP file exporter, and a forked Maven test JVM cannot hand
-        // you its stdout either: Surefire uses it as a command channel and diverts
-        // the agent's writes to a .dumpstream. So the agent exports over the
-        // network and `capture` writes the file, with the fork left untouched.
+        // Before agent 2.32.0, Java has no OTLP file exporter, and a forked Maven
+        // test JVM cannot hand you its stdout either: Surefire uses it as a
+        // command channel and diverts the agent's writes to a .dumpstream. So the
+        // agent exports over the network and `capture` writes the file, with the
+        // fork left untouched. Agent 2.32.0+ can write the file itself through
+        // declarative configuration, see docs/INSTRUMENTATION.md (Option 3).
         // PREFIX the existing test command, never add a second stage, or the
         // integration suite runs twice. See docs/INSTRUMENTATION.md for the POM
         // side (agent on the failsafe argLine, OTEL_EXPORTER_OTLP_ENDPOINT).

@@ -19,8 +19,9 @@ perf-sentinel analyze --ci --input traces.json
 ### Produire `traces.json`
 
 Le mode batch a besoin d'un fichier de traces, et la façon dont une
-suite de tests en fournit un dépend entièrement du langage. Seuls C++ et
-PHP implémentent un exporteur OTLP qui écrit dans un fichier au chemin
+suite de tests en fournit un dépend entièrement du langage. Seuls C++,
+PHP et, à partir de l'agent 2.32.0 via la configuration déclarative,
+Java implémentent un exporteur OTLP qui écrit dans un fichier au chemin
 de votre choix, et une JVM de test forkée par Maven ne peut même pas
 vous donner sa sortie standard, que Surefire utilise comme canal de
 commande. La réponse portable consiste à laisser l'application exporter
@@ -741,8 +742,8 @@ jobs:
       # Lancer les tests d'intégration sur la branche PR et capturer les traces.
       # Votre script produit le fichier de traces, il reçoit ici le chemin de
       # sortie en argument. Voir INSTRUMENTATION-FR.md pour la façon dont
-      # chaque langage en produit un, Java notamment n'a pas d'exporteur
-      # fichier et demande une capture de la sortie standard.
+      # chaque langage en produit un, Java notamment demande `capture`, ou
+      # l'agent 2.32.0+ pour un export fichier.
       - name: Collecter les traces de la branche PR
         run: ./scripts/run-integration-tests.sh pr-traces.json
 

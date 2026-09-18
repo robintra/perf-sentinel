@@ -4,7 +4,8 @@
 //! This is the CI counterpart of the daemon. A test suite exports over the
 //! network, exactly as it would in production, and `analyze --ci` then gates
 //! on the file. It exists because several runtimes cannot hand a trace file
-//! over any other way: Java has no OTLP file exporter, and a forked Maven
+//! over any other way: Java has no OTLP file exporter before agent 2.32.0
+//! (and then only through declarative configuration), and a forked Maven
 //! test JVM cannot even yield its stdout, which Surefire uses as its command
 //! channel. See `docs/INSTRUMENTATION.md`.
 
