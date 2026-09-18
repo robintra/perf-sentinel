@@ -656,10 +656,11 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
             (NPlusOneSql, JavaGeneric),
             "Rewrite the per-id loop as a single query with a `JOIN` or `WHERE id \
              IN (...)`. With `JdbcTemplate`, bind the id list through \
-             `NamedParameterJdbcTemplate`, or pass an array via `= ANY(?)`.",
+             `NamedParameterJdbcTemplate`, or on PostgreSQL pass one array via \
+             `= ANY(?)`.",
             Some(
                 "https://docs.spring.io/spring-framework/reference/data-access/jdbc/\
-                 core.html#jdbc-in-clause",
+                 parameter-handling.html#jdbc-in-clause",
             ),
         ),
         (
