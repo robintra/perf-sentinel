@@ -857,13 +857,15 @@ montre alors les lignes gelées pour cet incident, repliées sur la seule
 fenêtre, avec une colonne `First seen` à la place de `Acked via` : une
 première apparition postérieure au début de l'incident est une ligne
 qui n'a tiré qu'après le redémarrage. Le sélecteur de temps ne filtre
-aucune des deux tables, puisque la route n'a pas de filtre temporel :
-les deux lisent une page de 50 incidents, chacun avec ses findings figés,
+aucune des deux tables, puisque la route n'a pas de filtre temporel.
+`Incidents` lit une page de 50 incidents, chacun avec ses findings figés,
 après le nombre que choisit la variable `Incident skip rows`
 (de 0 à 950, par pas de 50), donc 0 montre les 50 plus récents et les
-valeurs suivantes remontent un anneau d'au plus 1000. La seconde montre
-l'incident que nomme la variable `Incident`, trouvé sur la même page que
-la ligne cliquée.
+valeurs suivantes remontent un anneau d'au plus 1000. `Incident findings`
+demande à la route le seul incident que nomme la variable `Incident`
+(`id`), quelle que soit la page affichée au-dessus. Un daemon antérieur
+à 0.23.1 ignore `id`, et la table trouve alors l'incident sur cette même
+page.
 
 Les deux routes sont protégées, la datasource envoie donc désormais une
 clé. `examples/grafana-infinity-datasource.yaml` place

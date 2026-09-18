@@ -816,6 +816,43 @@ async fn the_listing_pages_with_offset_and_caps_the_delivery() {
 }
 
 #[tokio::test]
+async fn the_id_parameter_returns_that_incident_whatever_the_page() {
+    let state = make_state();
+    let alerts: Vec<_> = (0..3u64)
+        .map(|i| {
+            serde_json::json!({
+                "status": "firing",
+                "labels": {"service": format!("svc-{i}"), "perf_sentinel_kind": "restart"},
+                "startsAt": format!("2026-09-01T14:0{i}:00Z")
+            })
+        })
+        .collect();
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::Value::Array(alerts)))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let oldest = list_incidents(Arc::clone(&state), "").await[2]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The dashboard's shape: a page that no longer holds the incident.
+    let one = list_incidents(
+        Arc::clone(&state),
+        &format!("?id={oldest}&limit=1&offset=1"),
+    )
+    .await;
+    assert_eq!(one.as_array().unwrap().len(), 1, "{one}");
+    assert_eq!(one[0]["service"], "svc-0", "the id wins over the page");
+    let none = list_incidents(Arc::clone(&state), "?id=").await;
+    assert!(
+        none.as_array().unwrap().is_empty(),
+        "an empty id matches nothing rather than listing a page"
+    );
+}
+
+#[tokio::test]
 async fn the_handlers_archive_each_change_of_an_incident() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let mut archived = make_state().clone_for_test();

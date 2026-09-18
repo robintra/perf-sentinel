@@ -1073,6 +1073,9 @@ l'onglet Incidents de `perf-sentinel query monitor` et la sous-commande
 `offset` (défaut 0), `limit` (défaut 50, plafonné à 100, chaque incident
 portant jusqu'à 1000 findings). Paginez avec `offset` pour atteindre les
 incidents plus anciens.
+`id` (depuis 0.23.1) renvoie ce seul incident dans un tableau d'un
+élément, ou `[]` quand le ring ne le détient pas, et les autres
+paramètres sont alors ignorés.
 
 **Forme de la réponse :** tableau d'objets :
 

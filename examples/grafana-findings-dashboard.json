@@ -478,7 +478,7 @@
         "hide": 0,
         "includeAll": false,
         "multi": false,
-        "description": "The API's offset for both incident panels: incidents skipped, newest first, before the page of 50 starts. 0, then 50, 100 to page back through a ring of up to 1000 ([daemon.incidents] max_retained). A new incident shifts every page by one row."
+        "description": "The API's offset for the Incidents table (Incident findings asks by id, and reads this page only from a daemon before 0.23.1): incidents skipped, newest first, before the page of 50 starts. 0, then 50, 100 to page back through a ring of up to 1000 ([daemon.incidents] max_retained). A new incident shifts every page by one row."
       }
     ]
   },
@@ -1819,7 +1819,7 @@
     {
       "type": "table",
       "title": "Incident findings",
-      "description": "The findings frozen for the incident selected above, from GET /api/incidents with the Incidents table's limit and 'Incident skip rows', so a clicked row is always found on the same page. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for and the column order follow the Findings table above.",
+      "description": "The findings frozen for the incident selected above, from GET /api/incidents?id=, whatever page the Incidents table shows. A daemon before 0.23.1 ignores id and answers the Incidents table's page, where a clicked row is found too. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for and the column order follow the Findings table above.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1841,7 +1841,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/incidents?limit=50&offset=${incident_offset}",
+          "url": "/api/incidents?id=${incident}&limit=50&offset=${incident_offset}",
           "url_options": {
             "method": "GET"
           },
