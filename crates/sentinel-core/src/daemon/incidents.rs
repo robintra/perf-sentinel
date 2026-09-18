@@ -431,7 +431,10 @@ pub const LOAD_TAIL_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Read the archive back into the ring the daemon had: the file replayed
 /// in order, the last record of each id, the last `max_retained` to
-/// arrive, oldest arrival first.
+/// arrive, oldest arrival first. A line does not say whether it records
+/// or updates, so a close or settle whose record precedes the tail read,
+/// was dropped on a full channel or fell to a smaller `max_retained` counts
+/// as an arrival where it sits.
 ///
 /// Streams line by line from the last [`LOAD_TAIL_BYTES`] of the file and
 /// never holds more than `max_retained` incidents, however large the
