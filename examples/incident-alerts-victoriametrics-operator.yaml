@@ -29,6 +29,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           labels:
             severity: info
             perf_sentinel_kind: oom_kill
@@ -43,6 +45,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           labels:
             severity: info
             perf_sentinel_kind: restart
@@ -65,6 +69,8 @@ spec:
                 > 0.9
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           for: 5m
           labels:
             severity: info
@@ -95,6 +101,8 @@ spec:
                 max by (namespace, pod) (kube_pod_container_info{container="app"}),
                 "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             )
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           labels:
             severity: info
             perf_sentinel_kind: deploy
