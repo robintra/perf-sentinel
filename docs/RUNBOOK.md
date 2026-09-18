@@ -233,8 +233,9 @@ and [`examples/incident-alerts-victoriametrics-operator.yaml`](../examples/incid
 read_api_key` as `X-API-Key`, then returns the incident with its findings
 already attached, and `perf-sentinel query incidents --service cart-svc
 --api-key-file <PATH>` prints the same listing from a terminal, the header
-of each incident then its findings. See [QUERY-API.md](QUERY-API.md). The ring is in memory, so
-scrape that endpoint if the record has to outlive the node.
+of each incident then its findings. See [QUERY-API.md](QUERY-API.md). The ring is in memory and is
+reloaded at startup from `[daemon.incidents] archive_path` when one is set.
+Without one, scrape that endpoint if the record has to outlive the node.
 
 **Detecting the moment without an external alert.** The daemon does not judge
 whether a service is alive, but it publishes when it last heard from each one:

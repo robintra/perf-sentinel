@@ -1054,13 +1054,16 @@ Below `window_from_ms` the capture is complete. Above it, the ring had
 already evicted part of the window and the array is short of what fired,
 which the NDJSON archive may still answer. See [RUNBOOK.md](RUNBOOK.md).
 
-**The ring is in memory and dies with the daemon.** A node-level memory
-event that kills the observed service often takes a co-located daemon
-with it, so the incident that would explain the outage can be destroyed
-by the outage. Set `[daemon.incidents] archive_path` to append every
-new incident, close and settle to a newline-delimited JSON file, opened
-at startup and written by one task so records never interleave, or
-scrape this endpoint, if the record has to outlive the node.
+**The ring is in memory.** A node-level memory event that kills the
+observed service often takes a co-located daemon with it, so the
+incident that would explain the outage can be destroyed by the outage.
+Set `[daemon.incidents] archive_path` to append every new incident,
+close and settle to a newline-delimited JSON file, opened at startup and
+written by one task so records never interleave. The daemon reads it
+back at startup, before serving, and reloads the last record of each id
+into the ring, up to `max_retained` incidents, so the listing survives a
+restart. Without an archive the ring dies with the daemon: scrape this
+endpoint if the record has to outlive the node.
 
 ### TOML and JSONL interop
 

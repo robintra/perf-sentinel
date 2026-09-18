@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Changed
+
+- The incident ring survives a daemon restart when `[daemon.incidents] archive_path` is set. The daemon wrote every incident, close and settle to the archive but never read it back, so `/api/incidents` and the Grafana incident panels started empty after every restart or upgrade. At startup, before the API serves, the archive is now streamed line by line: the last record of each id wins, the `max_retained` most recent by start time are kept, oldest first, lines that do not parse (a torn write sealed at open) are skipped with one warning, and nothing is appended back. The read uses the append side's symlink guards. `docs/CONFIGURATION.md`, `docs/QUERY-API.md`, `docs/RUNBOOK.md` and their French mirrors describe it.
+
 ### Fixed
 
 - A finding whose only framework signal was an OpenTelemetry Java agent scope (`io.opentelemetry.jdbc`, `io.opentelemetry.apache-httpclient-5.0`, `io.opentelemetry.spring-webmvc-6.0`) and that carried no `code_location` got no `suggested_fix`, not even the `java_generic` one: the language-from-scope step knew the Go, npm, NuGet, Ruby and PHP prefixes but not the Java agent's own `io.opentelemetry.<library>` convention. Any `io.opentelemetry.` scope now identifies Java, after the PHP `io.opentelemetry.contrib.php.` prefix and after the framework scope rules, so `spring-data` still gives `java_jpa` and PHP keeps its scopes. The Java namespace rules then run on `code_location` when present, and `java_generic` applies otherwise. `java_generic` also gains an `n_plus_one_sql` fix (one `JOIN` or `WHERE id IN (...)` query, `NamedParameterJdbcTemplate` or `= ANY(?)`), in line with the Go, Node, Ruby and PHP generics.
