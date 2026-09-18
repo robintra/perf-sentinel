@@ -817,7 +817,7 @@
                         "index": 1
                       },
                       "info": {
-                        "color": "text",
+                        "color": "blue",
                         "index": 2
                       }
                     }
@@ -1730,7 +1730,7 @@
                         "index": 1
                       },
                       "empty ring": {
-                        "color": "text",
+                        "color": "blue",
                         "index": 2
                       }
                     }
@@ -1953,7 +1953,7 @@
                         "index": 1
                       },
                       "info": {
-                        "color": "text",
+                        "color": "blue",
                         "index": 2
                       }
                     }
