@@ -289,6 +289,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let green_summary_cell = Arc::new(RwLock::new(GreenSummary::disabled(0)));
 
     let incident_archive = open_incident_archive(&config, &metrics)?;
+    let incident_store = load_incident_store(&config)?;
 
     let (grpc_handle, http_handle, json_socket_handle) = spawn_listeners(
         &config,
@@ -301,6 +302,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         green_summary_cell.clone(),
         toml_acks,
         ack_store,
+        incident_store,
         incident_archive.as_ref().map(|h| h.tx.clone()),
     )
     .await?;
@@ -513,6 +515,37 @@ fn open_incident_archive(
             path: path.clone(),
             source,
         })
+}
+
+/// The incident ring, when `[daemon.incidents]` is enabled, seeded from
+/// the archive when one is configured. Read before the listeners, so the
+/// API never serves an empty ring the archive could have filled.
+///
+/// # Errors
+///
+/// A read error on the archive, which fails daemon startup.
+fn load_incident_store(
+    config: &Config,
+) -> Result<Option<Arc<incidents::IncidentStore>>, DaemonError> {
+    let incidents = &config.daemon.incidents;
+    if !incidents.enabled {
+        return Ok(None);
+    }
+    let loaded = match &incidents.archive_path {
+        Some(path) => incidents::load_archive(std::path::Path::new(path), incidents.max_retained)
+            .map_err(|source| DaemonError::IncidentArchiveOpen {
+            path: path.clone(),
+            source,
+        })?,
+        None => Vec::new(),
+    };
+    if !loaded.is_empty() {
+        tracing::info!(count = loaded.len(), "Incidents reloaded from the archive");
+    }
+    Ok(Some(Arc::new(incidents::IncidentStore::with_incidents(
+        incidents.max_retained,
+        loaded,
+    ))))
 }
 
 fn validate_official_reporting(config: &Config) -> Result<(), DaemonError> {

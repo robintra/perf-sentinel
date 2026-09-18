@@ -1096,13 +1096,16 @@ complète. Au-dessus, le ring avait déjà évincé une partie de la fenêtre
 et le tableau est en deçà de ce qui a brûlé, ce à quoi l'archive NDJSON
 peut encore répondre. Voir [RUNBOOK-FR.md](RUNBOOK-FR.md).
 
-**Le ring est en mémoire et meurt avec le daemon.** Un événement mémoire
-au niveau du nœud qui tue le service observé emporte souvent un daemon
-colocalisé, donc l'incident qui expliquerait la panne peut être détruit
-par la panne. Posez `[daemon.incidents] archive_path` pour ajouter chaque
-nouvel incident, fermeture et consolidation à un fichier JSON par lignes,
-ouvert au démarrage et écrit par une seule tâche pour que les
-enregistrements ne s'entrelacent jamais, ou collectez cet endpoint, si
+**Le ring est en mémoire.** Un événement mémoire au niveau du nœud qui
+tue le service observé emporte souvent un daemon colocalisé, donc
+l'incident qui expliquerait la panne peut être détruit par la panne.
+Posez `[daemon.incidents] archive_path` pour ajouter chaque nouvel
+incident, fermeture et consolidation à un fichier JSON par lignes, ouvert
+au démarrage et écrit par une seule tâche pour que les enregistrements ne
+s'entrelacent jamais. Le daemon le relit au démarrage, avant de servir,
+et recharge dans le ring le dernier enregistrement de chaque id, jusqu'à
+`max_retained` incidents, donc le listing survit à un redémarrage. Sans
+archive le ring meurt avec le daemon : collectez cet endpoint si
 l'enregistrement doit survivre au nœud.
 
 ### Interop TOML et JSONL

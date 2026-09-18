@@ -88,7 +88,7 @@ impl IncidentKind {
 /// `#[non_exhaustive]` so a later field stays a minor bump, matching
 /// [`StoredFinding`].
 #[non_exhaustive]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Incident {
     /// Content-derived id, see [`Incident::compute_id`], 32 hex
     /// characters, the same shape and taste as an acknowledgment
@@ -178,9 +178,10 @@ impl Incident {
 /// copied rather than generalized into a shared ring: two similar rings
 /// beat a trait with two implementations.
 ///
-/// It lives in memory and dies with the daemon. A node-level memory
-/// event that kills the observed service often takes a co-located daemon
-/// with it, so the durable record is the archive, see [`spawn_archive`].
+/// It lives in memory. A node-level memory event that kills the observed
+/// service often takes a co-located daemon with it, so the durable record
+/// is the archive, see [`spawn_archive`], which [`load_archive`] reads
+/// back into the ring at startup.
 #[derive(Debug)]
 pub struct IncidentStore {
     inner: RwLock<VecDeque<Incident>>,
@@ -193,6 +194,20 @@ impl IncidentStore {
     pub fn new(max_size: usize) -> Self {
         Self {
             inner: RwLock::new(VecDeque::new()),
+            max_size,
+        }
+    }
+
+    /// Ring seeded with `incidents`, oldest first, as [`load_archive`]
+    /// returns them. Only the newest `max_size` are kept.
+    #[must_use]
+    pub fn with_incidents(max_size: usize, incidents: Vec<Incident>) -> Self {
+        let mut buf = VecDeque::from(incidents);
+        while buf.len() > max_size {
+            buf.pop_front();
+        }
+        Self {
+            inner: RwLock::new(buf),
             max_size,
         }
     }
@@ -369,6 +384,68 @@ pub fn open_archive(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     super::archive::tighten_to_owner_only(&file, "incident archive")?;
     super::archive::terminate_incomplete_line(&mut file)?;
     Ok(file)
+}
+
+/// Read the archive back: the last record of each id, the `max_retained`
+/// most recent by `at_ms`, oldest first.
+///
+/// Streams line by line and never holds more than `max_retained`
+/// incidents, however large the unrotated file has grown. A line that
+/// does not parse, such as a torn write sealed by [`open_archive`], is
+/// skipped and counted in one warning. A missing file loads nothing.
+/// Opens read-only with the append side's symlink guards.
+///
+/// # Errors
+///
+/// A refused symlink or a read error.
+pub fn load_archive(path: &std::path::Path, max_retained: usize) -> std::io::Result<Vec<Incident>> {
+    use std::io::BufRead as _;
+
+    if super::archive::is_symlink(path) {
+        return Err(std::io::Error::other("incident archive path is a symlink"));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    super::archive::no_follow(&mut options);
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    if super::archive::is_reparse_point(&file.metadata()?) {
+        return Err(std::io::Error::other(
+            "incident archive path is a symlink or another reparse point",
+        ));
+    }
+    // Keyed by (at_ms, id): the id derives from at_ms, so a later record
+    // of an id lands on its own key, and the first key is the oldest.
+    let mut kept: std::collections::BTreeMap<(u64, String), Incident> =
+        std::collections::BTreeMap::new();
+    let mut skipped = 0usize;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = Vec::new();
+    while reader.read_until(b'\n', &mut line)? > 0 {
+        if line.iter().any(|b| !b.is_ascii_whitespace()) {
+            match serde_json::from_slice::<Incident>(&line) {
+                Ok(incident) => {
+                    kept.insert((incident.at_ms, incident.id.clone()), incident);
+                    if kept.len() > max_retained {
+                        kept.pop_first();
+                    }
+                }
+                Err(_) => skipped += 1,
+            }
+        }
+        line.clear();
+    }
+    if skipped > 0 {
+        tracing::warn!(
+            skipped,
+            path = %path.display(),
+            "Incident archive lines that do not parse were skipped on load"
+        );
+    }
+    Ok(kept.into_values().collect())
 }
 
 /// Drain the channel into the file, one `write` per record.
@@ -957,6 +1034,93 @@ mod tests {
         let last: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(last["id"], first.id);
         assert_eq!(metrics.incidents_archive_failed_total.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_ring_survives_a_restart_with_the_last_record_of_each_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("incidents.ndjson");
+        let metrics = Arc::new(crate::report::metrics::MetricsState::new());
+        let handle = spawn_archive(path.to_str().unwrap(), Arc::clone(&metrics)).unwrap();
+        let open = incident("svc", IncidentKind::OomKill, 5000);
+        let mut closed = open.clone();
+        closed.ended_at_ms = Some(9000);
+        closed.findings = vec![stored("SELECT a", 4000)];
+        let other = incident("other", IncidentKind::Deploy, 6000);
+        for record in [&open, &other, &closed] {
+            try_send(&handle.tx, serde_json::to_vec(record).unwrap(), &metrics);
+        }
+        drop(handle.tx);
+        handle.join.await.unwrap();
+
+        let store = IncidentStore::with_incidents(10, load_archive(&path, 10).unwrap());
+        let all = store.list(None, None, 0, 10).await;
+        assert_eq!(all.len(), 2, "one incident per id");
+        assert_eq!(all[0].id, other.id, "newest first");
+        assert_eq!(
+            all[1].ended_at_ms,
+            Some(9000),
+            "the last record of an id wins"
+        );
+        assert_eq!(all[1].findings.len(), 1);
+        assert!(
+            !store.record(open).await,
+            "a repost after the restart is not a second incident"
+        );
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body.lines().count(), 3, "loading appends nothing");
+    }
+
+    #[test]
+    fn the_load_keeps_the_most_recent_and_skips_what_does_not_parse() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("incidents.ndjson");
+        let mut body = String::new();
+        for at in [3000, 1000, 2000] {
+            body.push_str(
+                &serde_json::to_string(&incident("svc", IncidentKind::Restart, at)).unwrap(),
+            );
+            body.push('\n');
+        }
+        // A later record of an id already trimmed stays trimmed.
+        let mut late = incident("svc", IncidentKind::Restart, 1000);
+        late.ended_at_ms = Some(1500);
+        body.push_str(&serde_json::to_string(&late).unwrap());
+        body.push_str("\nnot json\n\n{\"half\":\n");
+        std::fs::write(&path, body).unwrap();
+
+        let loaded = load_archive(&path, 2).unwrap();
+        let ats: Vec<u64> = loaded.iter().map(|i| i.at_ms).collect();
+        assert_eq!(ats, [2000, 3000], "the newest two, oldest first");
+        assert!(load_archive(&path, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_missing_archive_loads_nothing_and_a_symlink_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("absent.ndjson");
+        assert!(load_archive(&path, 10).unwrap().is_empty());
+        #[cfg(unix)]
+        {
+            std::fs::write(&path, b"").unwrap();
+            let link = dir.path().join("link.ndjson");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            assert!(load_archive(&link, 10).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_seeded_ring_keeps_only_its_capacity() {
+        let seeded: Vec<Incident> = [1000, 2000, 3000]
+            .into_iter()
+            .map(|at| incident("svc", IncidentKind::Restart, at))
+            .collect();
+        let store = IncidentStore::with_incidents(2, seeded);
+        let all = store.list(None, None, 0, 10).await;
+        assert_eq!(
+            all.iter().map(|i| i.at_ms).collect::<Vec<_>>(),
+            [3000, 2000]
+        );
     }
 
     #[test]

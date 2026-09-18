@@ -236,8 +236,10 @@ l'incident avec ses findings déjà attachés, et `perf-sentinel query
 incidents --service cart-svc --api-key-file <CHEMIN>` imprime le même
 listing depuis un terminal, l'en-tête de chaque incident puis ses
 findings. Voir
-[QUERY-API-FR.md](QUERY-API-FR.md). Le ring est en mémoire, donc collectez cet
-endpoint si l'enregistrement doit survivre au nœud.
+[QUERY-API-FR.md](QUERY-API-FR.md). Le ring est en mémoire et est
+rechargé au démarrage depuis `[daemon.incidents] archive_path` quand il est
+posé. Sans lui, collectez cet endpoint si l'enregistrement doit survivre au
+nœud.
 
 **Détecter le moment sans alerte externe.** Le daemon ne juge pas si un service
 est vivant, mais il publie quand il en a entendu parler pour la dernière fois :
