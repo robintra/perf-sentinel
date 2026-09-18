@@ -1171,9 +1171,9 @@ frozen for that incident, folded over the window alone, with a
 `First seen` column in place of `Acked via`: a first sighting later than
 the incident's start is a row that fired only after the restart. The
 time picker filters neither table, since the route has no time filter:
-both read a page of 100 incidents, the most one request returns, after
-the number the `Incident skip rows` variable picks (0 to 900, by 100),
-so 0 shows the 100 most recent and the next values page back through a
+both read a page of 50 incidents, each with its frozen findings, after
+the number the `Incident skip rows` variable picks (0 to 950, by 50),
+so 0 shows the 50 most recent and the next values page back through a
 ring of up to 1000. The second shows whichever incident the `Incident`
 variable names, found on the same page as the row clicked.
 

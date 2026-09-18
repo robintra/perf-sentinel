@@ -858,9 +858,9 @@ fenêtre, avec une colonne `First seen` à la place de `Acked via` : une
 première apparition postérieure au début de l'incident est une ligne
 qui n'a tiré qu'après le redémarrage. Le sélecteur de temps ne filtre
 aucune des deux tables, puisque la route n'a pas de filtre temporel :
-les deux lisent une page de 100 incidents, le maximum qu'une requête
-renvoie, après le nombre que choisit la variable `Incident skip rows`
-(de 0 à 900, par pas de 100), donc 0 montre les 100 plus récents et les
+les deux lisent une page de 50 incidents, chacun avec ses findings figés,
+après le nombre que choisit la variable `Incident skip rows`
+(de 0 à 950, par pas de 50), donc 0 montre les 50 plus récents et les
 valeurs suivantes remontent un anneau d'au plus 1000. La seconde montre
 l'incident que nomme la variable `Incident`, trouvé sur la même page que
 la ligne cliquée.
