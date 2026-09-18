@@ -31,8 +31,12 @@
 #
 #   1. `container="app"` below selects the workloads perf-sentinel traces.
 #      Replace it with your own container name, or with a namespace or label
-#      selector if your fleet does not share one. A service the daemon does not
-#      trace produces an empty capture, which costs nothing.
+#      selector if your fleet does not share one. Each rule then keeps only
+#      the services the daemon ingested over the last day, the `and on
+#      (service)` join on perf_sentinel_service_io_ops_total, so a workload it
+#      does not trace raises no empty incident. When your `grouping` is the
+#      namespace, joining `on (namespace, service)` after a `label_replace`
+#      of `grouping` into `namespace` is tighter.
 #   2. The Deployment name equals the OTLP `service.name`, and a pod is named
 #      `<deployment>-<replicaset hash>-<pod hash>`, so the service is the pod
 #      name minus its last two segments. That is what the `label_replace`
@@ -78,6 +82,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           labels:
             # `severity: info` is what keeps these off the routes that page a
             # human. It is not what routes them here, see the receiver below.
@@ -99,6 +105,8 @@ spec:
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           labels:
             severity: info
             perf_sentinel_kind: restart
@@ -134,6 +142,8 @@ spec:
                 > 0.9
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           for: 5m
           labels:
             severity: info
@@ -179,6 +189,8 @@ spec:
                 max by (namespace, pod) (kube_pod_container_info{container="app"}),
                 "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             )
+            and on (service)
+            count by (service) (last_over_time(perf_sentinel_service_io_ops_total[1d]))
           labels:
             severity: info
             perf_sentinel_kind: deploy
