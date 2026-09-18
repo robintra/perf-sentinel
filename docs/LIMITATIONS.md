@@ -784,7 +784,9 @@ Limitations:
 
 - **Cold start.** The correlator needs time to accumulate enough observations. With `min_co_occurrences = 3` and a 10-minute window, you need at least 3 co-occurrences within 10 minutes before a correlation surfaces. Low-traffic environments may never reach this threshold.
 - **Batch mode not supported.** The `analyze` command does not run the correlator. Cross-trace correlation is inherently a streaming concern.
-- **Cardinality.** The `max_tracked_pairs` cap (default 1000) prevents unbounded memory growth. If you have many distinct finding types across many services, some pairs may be evicted before reaching the co-occurrence threshold.
+- **Cardinality.** The `max_tracked_pairs` cap (default 10000) prevents unbounded memory growth. If you have many distinct finding types across many services, some pairs may be evicted before reaching the co-occurrence threshold. Eviction drops the lowest-count pairs first, then the stalest.
+- **Long traces.** Findings pair on their own first-span timestamps, but a finding can only meet the ones analysed within about `lag_threshold_ms + 2 x trace_ttl_ms` of it. A trace that stays open longer than about one `trace_ttl_ms` reaches analysis late and may miss pairs with findings from shorter traces.
+- **Timestamps.** A finding whose `first_timestamp` is missing or not UTC is placed at the time the daemon analysed it. Clock skew between hosts shifts the measured lag and can swap source and target.
 
 To consume correlations:
 

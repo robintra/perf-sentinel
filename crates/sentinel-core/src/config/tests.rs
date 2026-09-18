@@ -405,6 +405,20 @@ fn parse_daemon_correlation_section() {
 }
 
 #[test]
+fn correlation_window_minutes_bounded() {
+    let parse =
+        |minutes: u64| load_from_str(&format!("[daemon.correlation]\nwindow_minutes = {minutes}"));
+    for rejected in [0, 10_081] {
+        let err = parse(rejected).unwrap_err().to_string();
+        assert!(err.contains("window_minutes"), "{rejected}: {err}");
+    }
+    assert_eq!(
+        parse(1_440).unwrap().daemon.correlation.window_ms,
+        86_400_000
+    );
+}
+
+#[test]
 fn parse_partial_toml() {
     let config = load_from_str("[detection]\nn_plus_one_min_occurrences = 10").unwrap();
     assert_eq!(config.detection.n_plus_one_threshold, 10);

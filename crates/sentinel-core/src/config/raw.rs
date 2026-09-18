@@ -678,6 +678,7 @@ impl From<RawConfig> for Config {
                         max_tracked_pairs: c
                             .max_tracked_pairs
                             .unwrap_or(correlation_defaults.max_tracked_pairs),
+                        ingest_skew_ms: correlation_defaults.ingest_skew_ms,
                     }
                 },
                 archive: convert_archive_section(&raw.daemon.archive),

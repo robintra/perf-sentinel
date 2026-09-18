@@ -796,7 +796,9 @@ Limitations :
 
 - **Démarrage à froid.** Le corrélateur a besoin de temps pour accumuler suffisamment d'observations. Avec `min_co_occurrences = 3` et une fenêtre de 10 minutes, il faut au moins 3 co-occurrences en 10 minutes avant qu'une corrélation remonte. Les environnements à faible trafic peuvent ne jamais atteindre ce seuil.
 - **Mode batch non supporté.** La commande `analyze` ne lance pas le corrélateur. La corrélation cross-trace est intrinsèquement une préoccupation du streaming.
-- **Cardinalité.** Le plafond `max_tracked_pairs` (défaut 1000) empêche la croissance mémoire non bornée. Si vous avez de nombreux types de findings distincts sur de nombreux services, certaines paires peuvent être évincées avant d'atteindre le seuil de co-occurrences.
+- **Cardinalité.** Le plafond `max_tracked_pairs` (défaut 10000) empêche la croissance mémoire non bornée. Si vous avez de nombreux types de findings distincts sur de nombreux services, certaines paires peuvent être évincées avant d'atteindre le seuil de co-occurrences. L'éviction retire d'abord les paires au compteur le plus bas, puis les plus anciennes.
+- **Traces longues.** Les findings s'apparient sur leurs propres timestamps de premier span, mais un finding ne peut rencontrer que ceux analysés à environ `lag_threshold_ms + 2 x trace_ttl_ms` de lui. Une trace qui reste ouverte plus d'environ un `trace_ttl_ms` arrive tard à l'analyse et peut manquer des paires avec les findings de traces plus courtes.
+- **Timestamps.** Un finding dont le `first_timestamp` est absent ou non UTC est placé à l'instant où le daemon l'a analysé. Un décalage d'horloge entre hôtes fausse le délai mesuré et peut inverser source et cible.
 
 Pour consommer les corrélations :
 
