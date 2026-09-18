@@ -69,8 +69,8 @@ fn fanout_impl<'a>(
             || trace.spans[child_indices[0]].event.source.endpoint.clone(),
             |s| s.event.source.endpoint.clone(),
         );
-        let namespace_event =
-            parent_span.map_or(&trace.spans[child_indices[0]].event, |span| &span.event);
+        let first_child = &trace.spans[child_indices[0]].event;
+        let namespace_event = parent_span.map_or(first_child, |span| &span.event);
 
         // Compute window from children timestamps in one pass (no intermediate Vec)
         let (window_ms, first_ts, last_ts) =
@@ -111,8 +111,13 @@ fn fanout_impl<'a>(
                 green_impact: None,
                 confidence: Confidence::default(),
                 classification_method: None,
-                code_location: None,
-                instrumentation_scopes: Vec::new(),
+                // Representative call: the first child.
+                code_location: first_child.code_location(),
+                instrumentation_scopes: first_child
+                    .instrumentation_scopes
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
                 suggested_fix: None,
                 signature: String::new(),
             },
@@ -161,6 +166,32 @@ mod tests {
         assert_eq!(findings[0].finding_type, FindingType::ExcessiveFanout);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert_eq!(findings[0].pattern.occurrences, 25);
+    }
+
+    #[test]
+    fn carries_first_child_scopes_and_code_location() {
+        let mut events = make_events_with_parent("trace-1", "root", 25);
+        events[0].instrumentation_scopes =
+            vec![std::sync::Arc::from("io.opentelemetry.tomcat-10.0")];
+        events[1].instrumentation_scopes = vec![std::sync::Arc::from("io.opentelemetry.jdbc")];
+        events[1].code_namespace = Some(std::sync::Arc::from("com.example.OrderRepository"));
+        let trace = make_trace(events);
+        let mut findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
+        assert_eq!(
+            findings[0].instrumentation_scopes,
+            ["io.opentelemetry.jdbc"]
+        );
+        let loc = findings[0]
+            .code_location
+            .as_ref()
+            .expect("representative call");
+        assert_eq!(
+            loc.namespace.as_deref(),
+            Some("com.example.OrderRepository")
+        );
+        crate::detect::suggestions::enrich(&mut findings);
+        let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+        assert_eq!(fix.framework, "java_generic");
     }
 
     #[test]

@@ -105,6 +105,28 @@ impl Framework {
             Self::PhpGeneric => "php_generic",
         }
     }
+
+    /// The language generic a missing `(type, framework)` fix falls back to.
+    const fn generic(self) -> Self {
+        match self {
+            Self::JavaJpa
+            | Self::JavaWebFlux
+            | Self::JavaQuarkusReactive
+            | Self::JavaQuarkus
+            | Self::JavaHelidonMp
+            | Self::JavaHelidonSe
+            | Self::JavaGeneric => Self::JavaGeneric,
+            Self::CsharpEfCore | Self::CsharpGeneric => Self::CsharpGeneric,
+            Self::PythonDjango | Self::PythonSqlAlchemy | Self::PythonGeneric => {
+                Self::PythonGeneric
+            }
+            Self::RustDiesel | Self::RustSeaOrm | Self::RustGeneric => Self::RustGeneric,
+            Self::GoGorm | Self::GoGeneric => Self::GoGeneric,
+            Self::NodePrisma | Self::NodeGeneric => Self::NodeGeneric,
+            Self::RubyActiveRecord | Self::RubyGeneric => Self::RubyGeneric,
+            Self::PhpLaravelEloquent | Self::PhpDoctrine | Self::PhpGeneric => Self::PhpGeneric,
+        }
+    }
 }
 
 /// Broker technology tag for the messaging fixes table, private like
@@ -510,7 +532,8 @@ fn language_from_filepath(fp: &str) -> Option<Language> {
 
 /// Static mapping of `(finding_type, framework)` to a fix template.
 ///
-/// Lookups missing from the table return `None` and the finding's
+/// A lookup missing from the table retries with the framework's
+/// language generic; when that misses too, the finding's
 /// `suggested_fix` field stays `None`. This is the extension point for
 /// future framework support: add entries here, no other wiring required.
 static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLock::new(|| {
@@ -627,6 +650,16 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
              round-trip.",
             Some(
                 "https://download.eclipse.org/microprofile/microprofile-rest-client-3.0/microprofile-rest-client-spec-3.0.html",
+            ),
+        ),
+        (
+            (NPlusOneSql, JavaGeneric),
+            "Rewrite the per-id loop as a single query with a `JOIN` or `WHERE id \
+             IN (...)`. With `JdbcTemplate`, bind the id list through \
+             `NamedParameterJdbcTemplate`, or pass an array via `= ANY(?)`.",
+            Some(
+                "https://docs.spring.io/spring-framework/reference/data-access/jdbc/\
+                 core.html#jdbc-in-clause",
             ),
         ),
         (
@@ -1655,7 +1688,9 @@ static MESSAGING_FIXES: LazyLock<HashMap<(FindingType, MessagingSystem), Suggest
 /// can be inferred and a mapping exists. No-op for findings where the
 /// framework is unknown or the lookup misses.
 ///
-/// Called by [`super::detect`] after the per-trace detectors have run.
+/// Called by [`super::detect`] after the per-trace detectors have run,
+/// and by [`super::slow::build_cross_trace_finding`] for the batch and
+/// daemon cross-trace slow findings.
 pub(crate) fn enrich(findings: &mut [Finding]) {
     for finding in findings.iter_mut() {
         if let Some(fix) = lookup_fix(finding) {
@@ -1672,7 +1707,9 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
         }
         _ => {
             let framework = detect_framework(finding)?;
-            FIXES.get(&(finding.finding_type.clone(), framework))
+            FIXES
+                .get(&(finding.finding_type.clone(), framework))
+                .or_else(|| FIXES.get(&(finding.finding_type.clone(), framework.generic())))
         }
     }
 }
@@ -1755,9 +1792,12 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 /// `SCOPE_RULES` cannot handle: `github.com/` (Go module path),
 /// `@opentelemetry/instrumentation-` or `@prisma/` (npm),
 /// `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*`
-/// (`NuGet`). Lower confidence than `SCOPE_RULES`, fires only on
-/// prefixes that unambiguously identify the language. Java and Python
-/// use the `OTel` convention; Rust tracer names have no usable prefix.
+/// (`NuGet`), `OpenTelemetry::Instrumentation::` (Ruby gem),
+/// `io.opentelemetry.contrib.php.` (PHP), then any other
+/// `io.opentelemetry.` scope (Java agent). Lower confidence than
+/// `SCOPE_RULES`, fires only on prefixes that unambiguously identify the
+/// language. Python's `opentelemetry.instrumentation.` is not claimed;
+/// Rust tracer names have no usable prefix.
 fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
     for scope in scopes {
         if scope.starts_with("github.com/") {
@@ -1788,6 +1828,11 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
         // routes the rest (pdo, mongodb, curl, guzzle, ...) to PhpGeneric.
         if scope.starts_with("io.opentelemetry.contrib.php.") {
             return Some(Language::Php);
+        }
+        // Java agent scopes are `io.opentelemetry.<library>` (`jdbc`,
+        // `apache-httpclient-5.0`). SCOPE_RULES catch the framework ones first.
+        if scope.starts_with("io.opentelemetry.") {
+            return Some(Language::Java);
         }
     }
     None

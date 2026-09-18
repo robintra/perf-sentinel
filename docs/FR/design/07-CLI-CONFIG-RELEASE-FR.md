@@ -176,7 +176,7 @@ pub struct CodeLocation {
 }
 ```
 
-Ces attributs sont extraits dans `ingest/otlp/` depuis les attributs du span lui-même (pas du parent) : `code.function`, `code.filepath`, `code.lineno`, `code.namespace`. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)").
+Ces attributs sont extraits dans `ingest/otlp/` depuis les attributs du span lui-même (pas du parent) : `code.function`, `code.filepath`, `code.lineno`, `code.namespace`. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)"). Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) portent la localisation d'un appel représentatif, voir la section sur le détecteur de framework de `04-DETECTION-FR.md`.
 
 **Intégration SARIF.** La sortie SARIF v2.1.0 traduit `code_location` en `physicalLocation` :
 
