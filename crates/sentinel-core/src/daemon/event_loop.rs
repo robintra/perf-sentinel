@@ -149,7 +149,7 @@ struct AnalysisWorkerCtx {
     archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
     waste_sticky_ttl_ms: u64,
     slow_window_ms: u64,
-    /// Slow spans closer than this count as one episode.
+    /// Slow spans within this of an episode's first span count as one episode.
     slow_episode_ms: u64,
 }
 
