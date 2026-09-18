@@ -443,13 +443,13 @@ pub struct CrossTraceCorrelator {
 }
 ```
 
-- **`occurrences`**: the pairing horizon, a `VecDeque` in ingest order. Each entry holds the interned endpoint, `event_ms`, `ingest_ms`, a capped trace id and `counted_targets`, the targets this occurrence already counted for as a source. An entry leaves once `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. The horizon depends on the lag and the skew only, never on `window_ms`, so a 24 h window holds the same deque as a 10 min one (about a minute of findings).
+- **`occurrences`**: the pairing horizon, a `VecDeque` in ingest order. Each entry holds the interned endpoint, `event_ms`, `ingest_ms`, the grid index at ingest, a capped trace id and `counted_targets`, the targets this occurrence already counted for as a source. An entry leaves once `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. The horizon depends on the lag and the skew only, never on `window_ms`, so a 24 h window holds the same deque as a 10 min one. The skew is `2 x trace_ttl_ms`, so the deque and the scan each finding makes over it scale with the TTL (about a minute of findings at the default 30 s).
 - **`endpoints`**: the endpoint registry. Each distinct `CorrelationEndpoint` (finding type, service, template, grouping) is stored once behind an `Arc`, and the deque, the pair keys and `counted_targets` share that allocation: a long SQL template is kept once however many findings carry it. The value is the endpoint's occurrence count, the confidence denominator.
 - **`pair_counts`**: keyed by `PairKey` (source, target), two interned `Arc`s. Each `PairState` holds the co-occurrence count, a bounded lag reservoir, a `total_observations` counter, a `SplitMix64` PRNG state, `first_seen_ms`/`last_seen_ms` on the ingest clock and the latest target trace id.
 
 ### Global half-window grid
 
-Both counters, the pair's co-occurrences and the endpoint's occurrences, are a `HalfWindowCount { idx, cur, prev }` on one grid shared by the whole correlator: `idx = now_ms / (window_ms / 2)`. A count reads `prev + cur` in its own bucket, `cur` one step later and 0 beyond, so it covers between half a window and one window, never more. Numerator and denominator sit on the same buckets and cover the same span. Reads are lazy: nothing rotates counters on each tick, and a counter nobody touches reads 0 one window after its last increment. `now_idx` never decreases, so a wall clock stepping back does not reset counts.
+Both counters, the pair's co-occurrences and the endpoint's occurrences, are a `HalfWindowCount { idx, cur, prev }` on one grid shared by the whole correlator: `idx = now_ms / (window_ms / 2)`. A count reads `prev + cur` in its own bucket, `cur` one step later and 0 beyond, so it covers between half a window and one window, never more. Numerator and denominator sit on the same buckets and cover the same span: a co-occurrence is credited to the bucket where its source occurrence was counted, not to the bucket of the later ingest. A credit one bucket behind the counter's goes to `prev`, an older one is dropped. Reads are lazy: nothing rotates counters on each tick, and a counter nobody touches reads 0 one window after its last increment. `now_idx` never decreases, so a wall clock stepping back does not reset counts.
 
 ### Ingest skew
 
@@ -464,7 +464,7 @@ Both counters, the pair's co-occurrences and the endpoint's occurrences, are a `
 3. **Prune stale pairs.** One `HashMap::retain` pass drops pairs whose `last_seen_ms` is older than `window_ms`.
 4. **Prune the registry.** Once per grid step, drop endpoints whose count reads 0 and that no pair or horizon occurrence still pins (`Arc::strong_count == 1`).
 5. **Pair each finding.** Intern its endpoint and count it on the grid, then scan the whole horizon. An occurrence pairs when its event time is within `lag_threshold_ms`, it is a different endpoint from a different service, and both share the same grouping key and value. The earlier event is the **source** and the later one the **target**; on equal event times the earlier arrival stays the source. The lag is the event-time delta. The finding is then pushed onto the deque, so findings of one batch pair with each other too.
-6. **Count once per source occurrence.** Every match refreshes `last_seen_ms` and the sample trace id (the target's). The co-occurrence count and the lag reservoir only move when the source occurrence has not yet counted for that target endpoint, tracked on the source's `counted_targets`. One source occurrence followed by three targets counts once, and the result does not depend on the order in which the four findings arrived.
+6. **Count once per source occurrence.** Every match refreshes `last_seen_ms` and the sample trace id (the target's). The co-occurrence count, credited at the source occurrence's grid index, and the lag reservoir only move when the source occurrence has not yet counted for that target endpoint, tracked on the source's `counted_targets`. One source occurrence followed by three targets counts once, and the result does not depend on the order in which the four findings arrived.
 7. **Enforce the pair cap.** A new pair is refused while the map is at `max_tracked_pairs` (default 10,000). When a batch saw refusals, the map is cut to 90% of the cap in one pass: pairs are ranked by `(windowed co-occurrence count, last_seen_ms)` ascending, so the lowest counts go first and, among equal counts, the stalest. The threshold comes from `select_nth_unstable` on the rank tuples, so only the removed keys are cloned.
 
 The return value is the number of pairs lost to the cap in that batch (refusals plus evictions), fed to `perf_sentinel_correlator_pairs_evicted_total`.
@@ -475,7 +475,7 @@ For each pair, with every count read at `now_idx`:
 
 - `co_occurrence_count` is the pair's windowed count. Pairs below `min_co_occurrences` (default 5) are skipped.
 - `source_total_occurrences` is the source endpoint's windowed count. A source missing from the registry or reading 0 has nothing to measure the pair against, and the pair is skipped.
-- `confidence = co_occurrence_count / source_total_occurrences`, clamped to 1. A pair counts on the ingest of its later finding, up to one horizon after its source was counted, so across a grid step it can briefly exceed the total; the clamp covers that. Pairs below `min_confidence` (default 0.7) are skipped.
+- `confidence = co_occurrence_count / source_total_occurrences`. Each co-occurrence sits in its source occurrence's bucket and counts once per source occurrence, so the ratio stays in `[0, 1]`; the clamp to 1 is defensive only. Pairs below `min_confidence` (default 0.7) are skipped.
 
 `median_lag_ms` is the median of the reservoir, an event-time lag. `first_seen` and `last_seen` are on the ingest clock.
 
@@ -495,7 +495,7 @@ The `median()` helper sorts a clone of the lag values and returns the middle ele
 ### Memory management
 
 - **Horizon deque**: about `(lag_threshold_ms + ingest_skew_ms) x findings per second` entries of roughly 100 bytes, whatever `window_ms` is.
-- **Endpoint registry**: one entry per distinct endpoint seen in the window, template included, pruned once per grid step.
+- **Endpoint registry**: one entry per distinct endpoint seen in the window, template included, pruned once per grid step. Uncapped: it grows with the number of distinct endpoints, so templates that normalize poorly stay for the whole window.
 - **Pairs**: at most `max_tracked_pairs`, each well under 1 KB with the 64-sample reservoir.
 - **CPU**: one horizon scan per incoming finding, no per-tick pass over the pairs.
 

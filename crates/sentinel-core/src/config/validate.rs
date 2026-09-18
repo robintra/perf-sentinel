@@ -1596,12 +1596,14 @@ impl Config {
         )?;
         check_range("trace_ttl_ms", &self.daemon.trace_ttl_ms, &100, &3_600_000)?;
         // 0 would make the half window 0; 7 days is the ceiling.
-        check_range(
-            "correlation.window_minutes",
-            &(self.daemon.correlation.window_ms / 60_000),
-            &1,
-            &10_080,
-        )?;
+        if self.daemon.correlation.enabled {
+            check_range(
+                "correlation.window_minutes",
+                &(self.daemon.correlation.window_ms / 60_000),
+                &1,
+                &10_080,
+            )?;
+        }
         check_range(
             "ingest_queue_capacity",
             &self.daemon.ingest_queue_capacity,

@@ -406,8 +406,11 @@ fn parse_daemon_correlation_section() {
 
 #[test]
 fn correlation_window_minutes_bounded() {
-    let parse =
-        |minutes: u64| load_from_str(&format!("[daemon.correlation]\nwindow_minutes = {minutes}"));
+    let parse = |minutes: u64| {
+        load_from_str(&format!(
+            "[daemon.correlation]\nenabled = true\nwindow_minutes = {minutes}"
+        ))
+    };
     for rejected in [0, 10_081] {
         let err = parse(rejected).unwrap_err().to_string();
         assert!(err.contains("window_minutes"), "{rejected}: {err}");
@@ -416,6 +419,9 @@ fn correlation_window_minutes_bounded() {
         parse(1_440).unwrap().daemon.correlation.window_ms,
         86_400_000
     );
+    // Not checked while correlation is disabled.
+    let disabled = load_from_str("[daemon.correlation]\nenabled = false\nwindow_minutes = 0");
+    assert!(!disabled.unwrap().daemon.correlation.enabled);
 }
 
 #[test]
