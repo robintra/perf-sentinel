@@ -1574,8 +1574,40 @@ pub(crate) const LOCAL_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 pub(crate) fn fmt_local_iso(iso: &str, format: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(iso).map_or_else(
         |_| sanitize_for_terminal(iso).into_owned(),
-        |t| t.with_timezone(&chrono::Local).format(format).to_string(),
+        |t| to_local(&t).format(format).to_string(),
     )
+}
+
+/// `t` in the local time zone. Every human-facing time goes through here.
+pub(crate) fn to_local<Z: chrono::TimeZone>(
+    t: &chrono::DateTime<Z>,
+) -> chrono::DateTime<chrono::FixedOffset> {
+    static EMBEDDED: std::sync::OnceLock<Option<chrono_tz::Tz>> = std::sync::OnceLock::new();
+    let embedded = EMBEDDED.get_or_init(|| {
+        embedded_zone(std::env::var("TZ").ok().as_deref(), |name| {
+            std::path::Path::new("/usr/share/zoneinfo")
+                .join(name)
+                .is_file()
+        })
+    });
+    match embedded {
+        Some(tz) => t.with_timezone(tz).fixed_offset(),
+        None => t.with_timezone(&chrono::Local).fixed_offset(),
+    }
+}
+
+/// The embedded IANA zone to use when `TZ` names one the system database
+/// lacks, as in the `FROM scratch` image, where `chrono::Local` would fall
+/// back to UTC without a word. `None` leaves the zone to `chrono::Local`:
+/// `TZ` unset, a path, a POSIX rule such as `JST-9`, or a name the system
+/// database has, which is preferred for being the one the host keeps current.
+fn embedded_zone(tz: Option<&str>, system_has: impl Fn(&str) -> bool) -> Option<chrono_tz::Tz> {
+    let tz = tz?;
+    let name = tz.strip_prefix(':').unwrap_or(tz);
+    if name.is_empty() || name.starts_with('/') || system_has(name) {
+        return None;
+    }
+    name.parse().ok()
 }
 
 /// Format a window duration in milliseconds as a compact human-readable
@@ -2746,13 +2778,32 @@ mod tests {
     }
 
     #[test]
+    fn embedded_zone_only_stands_in_for_a_name_the_system_lacks() {
+        let none = |_: &str| false;
+        let tokyo = embedded_zone(Some("Asia/Tokyo"), none).expect("embedded Asia/Tokyo");
+        let t = chrono::DateTime::parse_from_rfc3339("2025-07-10T14:32:01Z").unwrap();
+        assert_eq!(
+            t.with_timezone(&tokyo)
+                .format(LOCAL_TIME_FORMAT)
+                .to_string(),
+            "2025-07-10 23:32:01"
+        );
+        assert!(embedded_zone(Some(":Europe/Paris"), none).is_some());
+        // Left to chrono::Local: unset, the system's own copy, a path, a POSIX rule.
+        assert!(embedded_zone(None, none).is_none());
+        assert!(embedded_zone(Some("Asia/Tokyo"), |_| true).is_none());
+        assert!(embedded_zone(Some("/etc/localtime"), none).is_none());
+        assert!(embedded_zone(Some("JST-9"), none).is_none());
+        assert!(embedded_zone(Some(""), none).is_none());
+    }
+
+    #[test]
     fn local_iso_converts_to_local_time_and_falls_back_to_the_input() {
-        // The zone is the machine's, so the expectation goes through chrono::Local too.
-        let expected = chrono::DateTime::parse_from_rfc3339("2026-04-20T23:30:01.000Z")
-            .unwrap()
-            .with_timezone(&chrono::Local)
-            .format(LOCAL_TIME_FORMAT)
-            .to_string();
+        // The zone is the machine's, so the expectation goes through to_local too.
+        let expected =
+            to_local(&chrono::DateTime::parse_from_rfc3339("2026-04-20T23:30:01.000Z").unwrap())
+                .format(LOCAL_TIME_FORMAT)
+                .to_string();
         assert_eq!(
             fmt_local_iso("2026-04-20T23:30:01.000Z", LOCAL_TIME_FORMAT),
             expected

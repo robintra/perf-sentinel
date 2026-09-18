@@ -306,6 +306,21 @@ contexte signature et provenance dans
 [`SUPPLY-CHAIN-FR.md`](./SUPPLY-CHAIN-FR.md). La complétion shell et
 la page de manuel sont documentées plus bas sur cette page.
 
+## Heures au terminal
+
+Toute heure affichée pour une personne est en heure locale : la ligne
+`Window:` de la sortie texte d'`analyze`, `report` et `diff`, les
+panneaux d'`inspect`, et les sorties d'`ack` et de `query`. JSON,
+SARIF, NDJSON, CSV et l'API du daemon restent en UTC.
+
+Le fuseau vient de `TZ` quand elle est définie, sinon du système. Une
+`TZ` qui nomme un fuseau absent de la base du système se résout sur
+une base IANA embarquée dans le binaire au lieu de retomber en UTC.
+C'est le cas dans l'image conteneur `FROM scratch`, qui n'embarque
+aucune base de fuseaux : `docker run -e TZ=Europe/Paris ...` affiche
+l'heure de Paris. Une règle POSIX comme `CET-1CEST,M3.5.0,M10.5.0/3`
+fonctionne aussi.
+
 ## Complétion shell
 
 `perf-sentinel completions <shell>` écrit un script de complétion sur

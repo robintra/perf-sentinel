@@ -47,6 +47,9 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 # version line as the core crate, default-features off to skip the
 # wasm/JS bindings.
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+# Embedded IANA database, the fallback when `TZ` names a zone the system
+# lacks (the `FROM scratch` image ships none). See `render::to_local`.
+chrono-tz = "0.10.4"
 # UUID v4 stamped onto every periodic disclosure report. Same pin as the
 # core crate to keep one resolved version in the tree.
 uuid = { version = "1.26.1", features = ["v4"] }
