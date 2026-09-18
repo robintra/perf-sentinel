@@ -1558,4 +1558,20 @@ expires_at = "not-a-date"
         assert!(!findings[0].signature.is_empty());
         assert!(!findings[1].signature.is_empty());
     }
+
+    #[test]
+    fn signature_ignores_scopes_code_location_and_suggested_fix() {
+        let bare = make_finding(FindingType::PoolSaturation, Severity::Warning);
+        let mut enriched = bare.clone();
+        enriched.instrumentation_scopes = vec!["io.opentelemetry.jdbc".to_string()];
+        enriched.code_location = Some(crate::event::CodeLocation {
+            function: None,
+            filepath: Some("OrderRepository.java".to_string()),
+            lineno: Some(42),
+            namespace: Some("com.example.OrderRepository".to_string()),
+        });
+        crate::detect::suggestions::enrich(std::slice::from_mut(&mut enriched));
+        assert!(enriched.suggested_fix.is_some());
+        assert_eq!(compute_signature(&bare), compute_signature(&enriched));
+    }
 }

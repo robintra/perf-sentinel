@@ -523,10 +523,68 @@ fn scope_third_party_tracer_named_after_framework_does_not_match() {
 #[test]
 fn scope_partial_segment_does_not_match() {
     // `quarkus` must end at a segment boundary (end of string or `-`).
-    // `quarkusextension-1.0` should not match the `quarkus` rule.
+    // `quarkusextension-1.0` misses the `quarkus` rule, the prefix still
+    // says Java.
     let f = finding_with_scopes(
         FindingType::NPlusOneSql,
         &["io.opentelemetry.quarkusextension-1.0"],
+    );
+    assert_eq!(detect_framework(&f), Some(Framework::JavaGeneric));
+}
+
+// ── Java agent scope prefix ──────────────────────────────────
+
+#[test]
+fn java_agent_scope_alone_routes_to_java_generic() {
+    for scope in [
+        "io.opentelemetry.jdbc",
+        "io.opentelemetry.apache-httpclient-5.0",
+        "io.opentelemetry.spring-webmvc-6.0",
+    ] {
+        let f = finding_with_scopes(FindingType::SlowSql, &[scope]);
+        assert_eq!(
+            detect_framework(&f),
+            Some(Framework::JavaGeneric),
+            "{scope}"
+        );
+    }
+    let f = finding_with_scopes(FindingType::NPlusOneSql, &["io.opentelemetry.jdbc"]);
+    let fix = lookup_fix(&f).expect("(NPlusOneSql, JavaGeneric) should have a fix");
+    assert_eq!(fix.framework, "java_generic");
+}
+
+#[test]
+fn java_agent_scope_with_repository_namespace_routes_to_jpa() {
+    let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["io.opentelemetry.jdbc"]);
+    f.code_location = Some(CodeLocation {
+        function: None,
+        filepath: None,
+        lineno: None,
+        namespace: Some("com.example.OrderRepository".to_string()),
+    });
+    assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+}
+
+#[test]
+fn java_agent_scope_chain_keeps_scope_rule_precedence() {
+    let f = finding_with_scopes(
+        FindingType::NPlusOneSql,
+        &["io.opentelemetry.jdbc", "io.opentelemetry.spring-data-3.0"],
+    );
+    assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+}
+
+#[test]
+fn php_contrib_scope_is_not_claimed_by_java_prefix() {
+    let f = finding_with_scopes(FindingType::SlowSql, &["io.opentelemetry.contrib.php.pdo"]);
+    assert_eq!(detect_framework(&f), Some(Framework::PhpGeneric));
+}
+
+#[test]
+fn python_convention_scope_is_not_claimed_by_java_prefix() {
+    let f = finding_with_scopes(
+        FindingType::SlowSql,
+        &["opentelemetry.instrumentation.psycopg"],
     );
     assert_eq!(detect_framework(&f), None);
 }
@@ -1255,7 +1313,7 @@ fn fix_table_cardinality_is_pinned() {
     // this number is fine when an entry is intentionally added or
     // removed; reading the diff makes the change explicit instead
     // of silently growing the public `suggested_fix` surface.
-    assert_eq!(FIXES.len(), 132);
+    assert_eq!(FIXES.len(), 133);
     // Anchor a handful of load-bearing combinations so a swap that
     // preserves the count (drop one entry, add another) still trips
     // the test instead of sliding through silently.
@@ -1410,14 +1468,9 @@ fn enrich_attaches_the_messaging_fix() {
 }
 
 #[test]
-fn lookup_table_misses_for_pool_saturation_under_webflux() {
-    // (PoolSaturation, JavaWebFlux) is intentionally never mapped:
-    // WebFlux is a reactor runtime, pool saturation is a server-side
-    // HikariCP / Npgsql / sqlx pattern. The recommendation would not
-    // differ from JavaGeneric, so the combination is deliberately
-    // absent. Verifies the full `lookup_fix → detect_framework →
-    // FIXES.get` chain returns `None` end-to-end (not just that the
-    // table itself lacks the entry).
+fn missing_framework_entry_falls_back_to_language_generic() {
+    // (PoolSaturation, JavaWebFlux) is not mapped: the lookup retries
+    // with JavaGeneric through the full `lookup_fix` chain.
     let f = finding_with_location(
         FindingType::PoolSaturation,
         Some(loc(
@@ -1425,6 +1478,27 @@ fn lookup_table_misses_for_pool_saturation_under_webflux() {
             Some("org.springframework.web.reactive.function.client"),
         )),
     );
+    assert_eq!(detect_framework(&f), Some(Framework::JavaWebFlux));
+    assert_eq!(lookup_fix(&f).expect("fallback").framework, "java_generic");
+    let f = finding_with_scopes(
+        FindingType::RedundantHttp,
+        &["io.opentelemetry.spring-data-3.0"],
+    );
+    assert_eq!(lookup_fix(&f).expect("fallback").framework, "java_generic");
+}
+
+#[test]
+fn framework_entry_wins_over_language_generic() {
+    let f = finding_with_scopes(
+        FindingType::ExcessiveFanout,
+        &["io.opentelemetry.spring-webflux-6.0"],
+    );
+    assert_eq!(lookup_fix(&f).expect("mapped").framework, "java_webflux");
+}
+
+#[test]
+fn unknown_language_stays_unenriched() {
+    let f = finding_with_scopes(FindingType::PoolSaturation, &["com.acme.custom-tracer"]);
     assert!(lookup_fix(&f).is_none());
 }
 

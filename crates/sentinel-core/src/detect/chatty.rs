@@ -113,8 +113,14 @@ fn chatty_finding(trace: &Trace, http_indices: &[usize], min_calls: u32) -> Opti
         green_impact: None,
         confidence: Confidence::default(),
         classification_method: None,
-        code_location: None,
-        instrumentation_scopes: Vec::new(),
+        // Representative call: the first outbound HTTP call.
+        code_location: first.event.code_location(),
+        instrumentation_scopes: first
+            .event
+            .instrumentation_scopes
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
         signature: String::new(),
         suggested_fix: None,
     })
@@ -145,6 +151,41 @@ mod tests {
         assert_eq!(findings[0].finding_type, FindingType::ChattyService);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert_eq!(findings[0].pattern.occurrences, 20);
+    }
+
+    #[test]
+    fn carries_first_call_scopes_and_code_location() {
+        let events: Vec<_> = (1..=20)
+            .map(|i| {
+                let mut ev = make_http_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("http://svc-{}/api/resource/{i}", i % 5),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 10),
+                );
+                if i == 1 {
+                    ev.instrumentation_scopes = vec![std::sync::Arc::from(
+                        "io.opentelemetry.apache-httpclient-5.0",
+                    )];
+                    ev.code_namespace = Some(std::sync::Arc::from("com.example.StockClient"));
+                }
+                ev
+            })
+            .collect();
+        let trace = make_trace(events);
+        let mut findings = detect_chatty(&trace, 15);
+        assert_eq!(
+            findings[0].instrumentation_scopes,
+            ["io.opentelemetry.apache-httpclient-5.0"]
+        );
+        let loc = findings[0]
+            .code_location
+            .as_ref()
+            .expect("representative call");
+        assert_eq!(loc.namespace.as_deref(), Some("com.example.StockClient"));
+        crate::detect::suggestions::enrich(&mut findings);
+        let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+        assert_eq!(fix.framework, "java_generic");
     }
 
     #[test]

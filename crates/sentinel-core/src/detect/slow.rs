@@ -233,7 +233,7 @@ pub(crate) fn build_cross_trace_finding(
         p99 as f64 / 1000.0,
     );
 
-    Some(Finding {
+    let mut finding = Finding {
         finding_type: FindingType::from_event_type_slow(event_type),
         severity,
         trace_id: worst_trace_id.to_string(),
@@ -264,7 +264,10 @@ pub(crate) fn build_cross_trace_finding(
             .collect(),
         suggested_fix: None,
         signature: String::new(),
-    })
+    };
+    // Shared by batch and daemon cross-trace paths, so enrich here once.
+    super::suggestions::enrich(std::slice::from_mut(&mut finding));
+    Some(finding)
 }
 
 #[cfg(test)]
@@ -618,6 +621,30 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert!(findings[0].suggestion.contains("Cross-trace"));
         assert!(findings[0].suggestion.contains("p50="));
+    }
+
+    #[test]
+    fn cross_trace_finding_gets_suggested_fix() {
+        let traces: Vec<_> = (1..=3)
+            .map(|i| {
+                let mut ev = make_sql_event_with_duration(
+                    &format!("trace-{i}"),
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM big_table WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    600_000,
+                );
+                ev.code_namespace = Some(std::sync::Arc::from("com.example.OrderRepository"));
+                ev.instrumentation_scopes = vec![std::sync::Arc::from("io.opentelemetry.jdbc")];
+                make_trace(vec![ev])
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert_eq!(findings.len(), 1);
+        let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+        assert_eq!(fix.framework, "java_jpa");
+        assert_eq!(fix.pattern, "slow_sql");
     }
 
     /// One trace can cross two deployments. Merging them would attribute

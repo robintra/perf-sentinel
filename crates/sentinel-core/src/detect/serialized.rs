@@ -381,8 +381,14 @@ fn evaluate_sequence(
         green_impact: None,
         confidence: Confidence::default(),
         classification_method: None,
-        code_location: None,
-        instrumentation_scopes: Vec::new(),
+        // Representative call: the first call of the sequence.
+        code_location: first_child.event.code_location(),
+        instrumentation_scopes: first_child
+            .event
+            .instrumentation_scopes
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
         suggested_fix: None,
         signature: String::new(),
     })
@@ -453,6 +459,29 @@ mod tests {
         assert_eq!(findings[0].finding_type, FindingType::SerializedCalls);
         assert_eq!(findings[0].severity, Severity::Info);
         assert_eq!(findings[0].pattern.occurrences, 4);
+    }
+
+    #[test]
+    fn carries_first_span_scopes_and_code_location() {
+        let mut events = make_sequential_children("trace-1", "root", 4);
+        events[0].instrumentation_scopes = vec![Arc::from("io.opentelemetry.tomcat-10.0")];
+        events[1].instrumentation_scopes =
+            vec![Arc::from("io.opentelemetry.apache-httpclient-5.0")];
+        events[1].code_namespace = Some(Arc::from("com.example.UserClient"));
+        let trace = make_trace(events);
+        let mut findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
+        assert_eq!(
+            findings[0].instrumentation_scopes,
+            ["io.opentelemetry.apache-httpclient-5.0"]
+        );
+        let loc = findings[0]
+            .code_location
+            .as_ref()
+            .expect("representative call");
+        assert_eq!(loc.namespace.as_deref(), Some("com.example.UserClient"));
+        crate::detect::suggestions::enrich(&mut findings);
+        let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+        assert_eq!(fix.framework, "java_generic");
     }
 
     #[test]

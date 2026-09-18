@@ -190,7 +190,7 @@ pub struct CodeLocation {
 }
 ```
 
-All four fields are optional and independently present. Most auto-instrumented OTel agents emit `code.function` and `code.namespace` but not `code.filepath` or `code.lineno`. The system degrades gracefully: findings without source attributes appear without a source line, with no noise in the output.
+All four fields are optional and independently present. Most auto-instrumented OTel agents emit `code.function` and `code.namespace` but not `code.filepath` or `code.lineno`. The system degrades gracefully: findings without source attributes appear without a source line, with no noise in the output. The structural findings (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) carry the location of a representative call, see the framework detector section of `04-DETECTION.md`.
 
 ### CLI display
 

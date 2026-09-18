@@ -807,6 +807,7 @@ Limitations:
 - **Most OTel auto-instrumentation agents do not emit `code.lineno` or `code.filepath`.** Manual instrumentation or agent-specific configuration is required. Without these attributes, findings appear without source location (no noise, graceful degradation).
 - **`code.function` is the most commonly available attribute.** If only `code.function` is present, the CLI displays it but SARIF cannot produce a `physicalLocation` (which requires at least a file path).
 - **Line numbers may be approximate.** Some agents report the method entry point, not the exact line of the I/O call.
+- **Structural findings point at a representative call.** `serialized_calls`, `excessive_fanout`, `chatty_service` and `pool_saturation` span several calls, so their `code_location` is that of one call (the first of the sequence, the first child, the first HTTP call, the first SQL span), not of the whole pattern.
 - **Hostile `code.filepath` values are dropped from SARIF.** The OTel `code.filepath` attribute is attacker-controlled. Before emission as a SARIF `artifactLocation.uri`, perf-sentinel rejects URI-like strings, absolute paths, path traversal (literal and percent-encoded), double-encoded percent sequences, overlong UTF-8 prefixes, control characters and BiDi/invisible Unicode (Trojan Source class). Findings with rejected filepaths still appear in the report, only without `physicalLocations`.
 
 ## Daemon query API

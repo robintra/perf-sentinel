@@ -312,6 +312,21 @@ mod tests {
     }
 
     #[test]
+    fn emitted_finding_gets_suggested_fix() {
+        let mut win = tracker();
+        let [a, b, c] = three_episodes().map(|mut t| {
+            t.spans[0].event.instrumentation_scopes = vec![Arc::from("io.opentelemetry.jdbc")];
+            t
+        });
+        emitted(&mut win, &[a], T0);
+        emitted(&mut win, &[b], T0 + 2 * MIN);
+        let findings = emitted(&mut win, &[c], T0 + 5 * MIN);
+        assert_eq!(findings.len(), 1);
+        let fix = findings[0].suggested_fix.as_ref().expect("enriched");
+        assert_eq!(fix.framework, "java_generic");
+    }
+
+    #[test]
     fn emitted_finding_matches_batch_cross_trace_shape() {
         let mut win = tracker();
         let [a, b, c] = three_episodes();

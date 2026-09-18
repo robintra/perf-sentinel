@@ -113,7 +113,9 @@ pub struct Finding {
     /// Operators can filter on this field to spot where the heuristic fires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classification_method: Option<ClassificationMethod>,
-    /// Source code location from `OTel` `code.*` span attributes.
+    /// Source code location from `OTel` `code.*` span attributes, of a
+    /// representative call for the structural types (serialized, fan-out,
+    /// chatty, pool saturation).
     /// `None` when the instrumentation agent does not emit these attributes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_location: Option<crate::event::CodeLocation>,
@@ -125,7 +127,8 @@ pub struct Finding {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub instrumentation_scopes: Vec<String>,
     /// Framework-specific actionable fix, populated by
-    /// [`suggestions::enrich`] after the per-trace detectors run. `None`
+    /// [`suggestions::enrich`] after the per-trace detectors run and on
+    /// each cross-trace slow finding. `None`
     /// when no framework can be inferred or the `(finding_type,
     /// framework)` pair has no mapping in the fixes table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
