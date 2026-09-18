@@ -363,6 +363,72 @@
         "options": [],
         "hide": 0,
         "description": "Id of the incident whose findings the Incident findings table shows. Set by clicking a row of the Incidents table, or paste one from GET /api/incidents. Empty leaves that table without data."
+      },
+      {
+        "name": "incident_offset",
+        "label": "Incident skip rows",
+        "type": "custom",
+        "query": "0,100,200,300,400,500,600,700,800,900",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "100",
+            "value": "100"
+          },
+          {
+            "selected": false,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "300",
+            "value": "300"
+          },
+          {
+            "selected": false,
+            "text": "400",
+            "value": "400"
+          },
+          {
+            "selected": false,
+            "text": "500",
+            "value": "500"
+          },
+          {
+            "selected": false,
+            "text": "600",
+            "value": "600"
+          },
+          {
+            "selected": false,
+            "text": "700",
+            "value": "700"
+          },
+          {
+            "selected": false,
+            "text": "800",
+            "value": "800"
+          },
+          {
+            "selected": false,
+            "text": "900",
+            "value": "900"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "The API's offset for both incident panels: incidents skipped, newest first, before the page of 100 starts, 100 being the most one request returns. 0, then 100, 200 to page back through a ring of up to 1000 ([daemon.incidents] max_retained). A new incident shifts every page by one row."
       }
     ]
   },
@@ -1483,7 +1549,7 @@
     {
       "type": "table",
       "title": "Incidents",
-      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. Always the 50 most recent, the time picker does not apply.\n\n'Findings' counts the rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
+      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. A page of 100, the most one request returns, starting after 'Incident skip rows' incidents, so 0 shows the 100 most recent. The time picker does not apply.\n\n'Findings' counts the rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1505,7 +1571,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/incidents?limit=50",
+          "url": "/api/incidents?limit=100&offset=${incident_offset}",
           "url_options": {
             "method": "GET"
           },
@@ -1703,7 +1769,7 @@
     {
       "type": "table",
       "title": "Incident findings",
-      "description": "The findings frozen for the incident selected above, from GET /api/incidents with the Incidents table's limit, so a clicked row is always found. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for and the column order follow the Findings table above.",
+      "description": "The findings frozen for the incident selected above, from GET /api/incidents with the Incidents table's limit and 'Incident skip rows', so a clicked row is always found on the same page. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for and the column order follow the Findings table above.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1725,7 +1791,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/incidents?limit=50",
+          "url": "/api/incidents?limit=100&offset=${incident_offset}",
           "url_options": {
             "method": "GET"
           },
@@ -2082,5 +2148,5 @@
     }
   ],
   "timezone": "browser",
-  "version": 9
+  "version": 10
 }

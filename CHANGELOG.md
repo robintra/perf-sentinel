@@ -7,6 +7,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - The incident ring survives a daemon restart when `[daemon.incidents] archive_path` is set. The daemon wrote every incident, close and settle to the archive but never read it back, so `/api/incidents` and the Grafana incident panels started empty after every restart or upgrade. At startup, before the API serves, the archive is now streamed line by line: the last record of each id wins, the `max_retained` most recent by start time are kept, oldest first, lines that do not parse (a torn write sealed at open) are skipped with one warning, and nothing is appended back. The read uses the append side's symlink guards. `docs/CONFIGURATION.md`, `docs/QUERY-API.md`, `docs/RUNBOOK.md` and their French mirrors describe it.
+- The two incident panels of the findings dashboard page through the ring. They read `/api/incidents?limit=50`, so only the 50 most recent incidents were reachable. They now ask for 100, the API's cap per request, from the offset a new `Incident skip rows` variable picks (0 to 900, by 100), and `Incident findings` reads the same page so a clicked row is always found. Dashboard `version` 10. `docs/HELM-DEPLOYMENT.md` and its French mirror describe it.
 
 ### Fixed
 
