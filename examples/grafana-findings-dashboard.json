@@ -1699,7 +1699,7 @@
           "links": [
             {
               "title": "Show this incident's findings",
-              "url": "/d/perf-sentinel-findings?${__url_time_range}&var-DS_INFINITY=${DS_INFINITY}&var-limit=${limit}&var-include_acked=${include_acked}&var-incident=${__data.fields.Id}",
+              "url": "/d/perf-sentinel-findings?${__url_time_range}&var-DS_INFINITY=${DS_INFINITY}&var-limit=${limit}&var-include_acked=${include_acked}&var-incident_offset=${incident_offset}&var-incident=${__data.fields.Id}",
               "targetBlank": false
             }
           ]
