@@ -1109,15 +1109,19 @@ The table shows one row per distinct problem rather than one per
 detection, since `/api/findings` folds by the signature acknowledgments
 use, and its `Traces` column is that fold's count. It counts detections
 still held in the daemon's ring buffer, so it falls as older ones age out
-and resets when the daemon restarts. Severity and type are filtered with
-the column headers, so no request can ask the API for a severity it does
-not know. Besides `Max rows`, four variables change the request. `Grouping` and `Service`
+and resets when the daemon restarts. Severity is filtered with the column
+header, so no request can ask the API for a severity it does not know.
+Besides `Max rows`, five variables change the request. `Grouping` and `Service`
 narrow it on the daemon through the `grouping` and `service` parameters,
 and their values are the `label_values` of `perf_sentinel_findings_total`,
 which is why the dashboard also binds a Prometheus datasource: the same
 labels the overview dashboard filters on, listed from Prometheus rather
 than read off a page that may already be truncated. Their `All` sends a
-blank, which the API reads as no filter. `Skip rows` is the API's
+blank, which the API reads as no filter. `Finding type` narrows it
+through the API's `type` parameter, one of the twelve types listed under
+the labels the `Type` column shows, and its `All` sends the same blank,
+so a rare type such as `Slow SQL` is not cut by `Max rows` before the
+column header could filter it. `Skip rows` is the API's
 `offset`, so a listing past the 1000-row cap is read in slices, 0 and
 then the previous page's `Max rows`; the ring keeps moving between two
 requests, so a row can cross a slice boundary, and narrowing first is
@@ -1148,8 +1152,8 @@ the two counts behind it, the median lag and the most recent trace on
 the target side. It stays empty until `[daemon.correlation] enabled =
 true`, and a pair lives one `window_minutes` past its last
 co-occurrence, nothing persists it, so a restart empties the table. The
-route takes no parameter, so `Grouping` and `Service` do not narrow it
-and the column headers filter instead.
+route takes no parameter, so `Grouping`, `Service` and `Finding type`
+do not narrow it and the column headers filter instead.
 
 Two tables at the bottom read `GET /api/incidents`, the route that
 `POST /api/incidents` fills from an Alertmanager webhook (opt-in through

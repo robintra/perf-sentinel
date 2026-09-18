@@ -329,7 +329,7 @@ async fn findings_empty_filter_value_is_no_filter() {
     .await;
     assert_eq!(stored.len(), 1);
     // Grafana ignores an empty allValue, so the dashboard sends a space.
-    let stored = read_findings(app, "/api/findings?grouping=%20&service=+").await;
+    let stored = read_findings(app, "/api/findings?grouping=%20&service=+&type=%20").await;
     assert_eq!(stored.len(), 1);
 }
 

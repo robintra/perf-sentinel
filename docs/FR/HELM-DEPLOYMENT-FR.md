@@ -789,16 +789,20 @@ détection, puisque `/api/findings` replie par la signature qu'utilisent
 les acquittements, et sa colonne `Traces` est le compte de ce repli. Il
 compte les détections encore retenues dans le tampon circulaire du
 daemon, il baisse donc quand les plus anciennes expirent et repart de
-zéro au redémarrage du daemon. La sévérité et le type se filtrent par
-les en-têtes de colonne, ainsi aucune requête ne peut demander à l'API
-une sévérité qu'elle ne connaît pas. Outre `Max rows`, quatre variables changent la
+zéro au redémarrage du daemon. La sévérité se filtre par l'en-tête de
+colonne, ainsi aucune requête ne peut demander à l'API une sévérité
+qu'elle ne connaît pas. Outre `Max rows`, cinq variables changent la
 requête. `Grouping` et `Service` la resserrent côté daemon par les
 paramètres `grouping` et `service`, et leurs valeurs sont les
 `label_values` de `perf_sentinel_findings_total`, raison pour laquelle
 le tableau de bord lie aussi une datasource Prometheus : les mêmes labels
 que filtre le tableau de bord d'aperçu, listés depuis Prometheus plutôt
 que lus sur une page peut-être déjà tronquée. Leur `All` envoie un
-blanc, que l'API lit comme une absence de filtre. `Skip rows` est
+blanc, que l'API lit comme une absence de filtre. `Finding type` la
+resserre par le paramètre `type` de l'API, l'un des douze types listés
+sous les libellés qu'affiche la colonne `Type`, et son `All` envoie le
+même blanc, si bien qu'un type rare comme `Slow SQL` n'est pas coupé par
+`Max rows` avant que l'en-tête de colonne puisse le filtrer. `Skip rows` est
 l'`offset` de l'API, un listing au-delà du plafond de 1000 lignes se lit
 donc par tranches, 0 puis le `Max rows` de la page précédente ; l'anneau
 continue de bouger entre deux requêtes, une ligne peut donc franchir une
@@ -833,8 +837,8 @@ récente côté cible. Elle reste vide tant que `[daemon.correlation]
 enabled` n'est pas à `true`, et une paire vit une fenêtre
 (`window_minutes`) après sa dernière co-occurrence, rien ne la persiste,
 un redémarrage vide donc la table. La route ne prend aucun paramètre,
-`Grouping` et `Service` ne la resserrent donc pas et ce sont les
-en-têtes de colonne qui filtrent.
+`Grouping`, `Service` et `Finding type` ne la resserrent donc pas et ce
+sont les en-têtes de colonne qui filtrent.
 
 Deux tables en bas lisent `GET /api/incidents`, la route que
 `POST /api/incidents` remplit depuis un webhook Alertmanager (activée

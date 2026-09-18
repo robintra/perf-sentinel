@@ -140,6 +140,89 @@
         "description": "Analysed service (OTLP service.name), listed from the service label of perf_sentinel_findings_total. Sent to the API as an exact match. All sends a single space, which the API reads as no filter: Grafana ignores an empty allValue, so a blank is the only value that reaches the request. Not narrowed by Grouping: a service absent from the chosen grouping yields an empty table."
       },
       {
+        "name": "type",
+        "label": "Finding type",
+        "type": "custom",
+        "query": "N+1 SQL : n_plus_one_sql,N+1 HTTP : n_plus_one_http,N+1 messaging : n_plus_one_messaging,Redundant SQL : redundant_sql,Redundant HTTP : redundant_http,Slow SQL : slow_sql,Slow HTTP : slow_http,Slow messaging : slow_messaging,Excessive fanout : excessive_fanout,Chatty service : chatty_service,Pool saturation : pool_saturation,Serialized calls : serialized_calls",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "N+1 SQL",
+            "value": "n_plus_one_sql"
+          },
+          {
+            "selected": false,
+            "text": "N+1 HTTP",
+            "value": "n_plus_one_http"
+          },
+          {
+            "selected": false,
+            "text": "N+1 messaging",
+            "value": "n_plus_one_messaging"
+          },
+          {
+            "selected": false,
+            "text": "Redundant SQL",
+            "value": "redundant_sql"
+          },
+          {
+            "selected": false,
+            "text": "Redundant HTTP",
+            "value": "redundant_http"
+          },
+          {
+            "selected": false,
+            "text": "Slow SQL",
+            "value": "slow_sql"
+          },
+          {
+            "selected": false,
+            "text": "Slow HTTP",
+            "value": "slow_http"
+          },
+          {
+            "selected": false,
+            "text": "Slow messaging",
+            "value": "slow_messaging"
+          },
+          {
+            "selected": false,
+            "text": "Excessive fanout",
+            "value": "excessive_fanout"
+          },
+          {
+            "selected": false,
+            "text": "Chatty service",
+            "value": "chatty_service"
+          },
+          {
+            "selected": false,
+            "text": "Pool saturation",
+            "value": "pool_saturation"
+          },
+          {
+            "selected": false,
+            "text": "Serialized calls",
+            "value": "serialized_calls"
+          }
+        ],
+        "hide": 0,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "description": "Finding type, sent to the API as an exact match on type, under the labels the Type column shows. All sends a single space, which the API reads as no filter, like Grouping and Service. Narrowing on the daemon keeps a rare type such as Slow SQL from being cut by Max rows, where the Type column header only filters the page already returned. The twelve types are fixed in the dashboard, so a type added by a later daemon is missing here but still listed under All."
+      },
+      {
         "name": "limit",
         "label": "Max rows",
         "type": "custom",
@@ -484,7 +567,7 @@
     {
       "type": "table",
       "title": "Findings",
-      "description": "One row per distinct problem, folded by the signature acknowledgments use. Filter with the column headers.\n\n'Traces' counts retained detections: it falls as they age out and resets on restart, so it measures presence, not a lifetime total. 'Occurrences' is the repeats inside the trace shown. 'Est. impact (ops)' is Traces x Ops/trace, the avoidable I/O to rank by, 0 for the types that waste none.\n\n'Suggestion' is the fix for the framework or broker inferred from the trace when there is one, the generic hint otherwise, and 'Fix for' names that technology, blank when the hint is generic.\n\n'Acked via' needs Include acked true: toml is the CI baseline file, daemon the runtime store. Grouping and Service narrow the request, so a tenant is complete up to Max rows, and Skip rows reads on.",
+      "description": "One row per distinct problem, folded by the signature acknowledgments use. Filter with the column headers.\n\n'Traces' counts retained detections: it falls as they age out and resets on restart, so it measures presence, not a lifetime total. 'Occurrences' is the repeats inside the trace shown. 'Est. impact (ops)' is Traces x Ops/trace, the avoidable I/O to rank by, 0 for the types that waste none.\n\n'Suggestion' is the fix for the framework or broker inferred from the trace when there is one, the generic hint otherwise, and 'Fix for' names that technology, blank when the hint is generic.\n\n'Acked via' needs Include acked true: toml is the CI baseline file, daemon the runtime store. Grouping, Service and Finding type narrow the request, so a tenant is complete up to Max rows, and Skip rows reads on.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -506,7 +589,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/findings?limit=${limit}&offset=${offset}&grouping=${grouping}&service=${service}&include_acked=${include_acked}",
+          "url": "/api/findings?limit=${limit}&offset=${offset}&grouping=${grouping}&service=${service}&type=${type}&include_acked=${include_acked}",
           "url_options": {
             "method": "GET"
           },
@@ -1993,5 +2076,5 @@
     }
   ],
   "timezone": "browser",
-  "version": 7
+  "version": 8
 }
